@@ -20,7 +20,7 @@ import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 export default function ProductsPage() {
   const router = useRouter();
   const { user, loadUserFromStorage, logout } = useAuthStore();
-  const { cart, fetchCart, addToCart } = useCartStore();
+  const { cart, fetchCart, addToCart, removeItem } = useCartStore();
 
   const cartItems = cart?.items || [];
 
