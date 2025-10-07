@@ -7,6 +7,7 @@ export interface User {
   role: 'ADMIN' | 'CUSTOMER';
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode?: string;
+  active?: boolean;
 }
 
 export interface LoginRequest {
