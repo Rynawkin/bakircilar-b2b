@@ -13,7 +13,7 @@ build/
 .env.production
 
 # Prisma
-prisma/migrations/
+# prisma/migrations/ - migrations should be tracked
 
 # IDE
 .vscode/
