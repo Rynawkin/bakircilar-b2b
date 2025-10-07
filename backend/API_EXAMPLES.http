@@ -1,0 +1,205 @@
+### API Test Dosyası (REST Client / Postman için)
+### Base URL
+@baseUrl = http://localhost:5000/api
+@token = YOUR_TOKEN_HERE
+
+### ==================== HEALTH CHECK ====================
+
+### Health Check
+GET {{baseUrl}}/health
+
+### ==================== AUTH ====================
+
+### Login (Admin)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@firma.com",
+  "password": "admin123"
+}
+
+### Get Me
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{token}}
+
+### ==================== ADMIN - SETTINGS ====================
+
+### Get Settings
+GET {{baseUrl}}/admin/settings
+Authorization: Bearer {{token}}
+
+### Update Settings
+PUT {{baseUrl}}/admin/settings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "calculationPeriodMonths": 3,
+  "includedWarehouses": ["DEPO1", "MERKEZ"],
+  "minimumExcessThreshold": 10,
+  "costCalculationMethod": "DYNAMIC",
+  "dynamicCostParams": {
+    "dayThreshold": 30,
+    "priceWeightNew": 0.7,
+    "priceWeightOld": 0.3
+  }
+}
+
+### ==================== ADMIN - SYNC ====================
+
+### Trigger Manual Sync
+POST {{baseUrl}}/admin/sync
+Authorization: Bearer {{token}}
+
+### ==================== ADMIN - CUSTOMERS ====================
+
+### Get All Customers
+GET {{baseUrl}}/admin/customers
+Authorization: Bearer {{token}}
+
+### Create Customer
+POST {{baseUrl}}/admin/customers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "musteri@firma.com",
+  "password": "123456",
+  "name": "Ahmet Yılmaz",
+  "customerType": "BAYI",
+  "mikroCariCode": "CAR-001"
+}
+
+### ==================== ADMIN - ORDERS ====================
+
+### Get Pending Orders
+GET {{baseUrl}}/admin/orders/pending
+Authorization: Bearer {{token}}
+
+### Approve Order
+POST {{baseUrl}}/admin/orders/ORDER_ID_HERE/approve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "adminNote": "Onaylandı"
+}
+
+### Reject Order
+POST {{baseUrl}}/admin/orders/ORDER_ID_HERE/reject
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "adminNote": "Stok yetersiz"
+}
+
+### ==================== ADMIN - CATEGORIES & PRICING ====================
+
+### Get Categories
+GET {{baseUrl}}/admin/categories
+Authorization: Bearer {{token}}
+
+### Set Category Price Rule
+POST {{baseUrl}}/admin/categories/price-rule
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categoryId": "CATEGORY_ID_HERE",
+  "customerType": "BAYI",
+  "profitMargin": 0.15
+}
+
+### Set Product Price Override
+POST {{baseUrl}}/admin/products/price-override
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": "PRODUCT_ID_HERE",
+  "customerType": "VIP",
+  "profitMargin": 0.10
+}
+
+### Get Dashboard Stats
+GET {{baseUrl}}/admin/dashboard/stats
+Authorization: Bearer {{token}}
+
+### ==================== CUSTOMER - PRODUCTS ====================
+
+### Get All Products
+GET {{baseUrl}}/products
+Authorization: Bearer {{token}}
+
+### Get Products by Category
+GET {{baseUrl}}/products?categoryId=CATEGORY_ID_HERE
+Authorization: Bearer {{token}}
+
+### Search Products
+GET {{baseUrl}}/products?search=laptop
+Authorization: Bearer {{token}}
+
+### Get Product by ID
+GET {{baseUrl}}/products/PRODUCT_ID_HERE
+Authorization: Bearer {{token}}
+
+### Get Categories
+GET {{baseUrl}}/categories
+Authorization: Bearer {{token}}
+
+### ==================== CUSTOMER - CART ====================
+
+### Get Cart
+GET {{baseUrl}}/cart
+Authorization: Bearer {{token}}
+
+### Add to Cart (Faturalı)
+POST {{baseUrl}}/cart
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": "PRODUCT_ID_HERE",
+  "quantity": 5,
+  "priceType": "INVOICED"
+}
+
+### Add to Cart (Beyaz)
+POST {{baseUrl}}/cart
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "productId": "PRODUCT_ID_HERE",
+  "quantity": 10,
+  "priceType": "WHITE"
+}
+
+### Update Cart Item
+PUT {{baseUrl}}/cart/CART_ITEM_ID_HERE
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "quantity": 15
+}
+
+### Remove from Cart
+DELETE {{baseUrl}}/cart/CART_ITEM_ID_HERE
+Authorization: Bearer {{token}}
+
+### ==================== CUSTOMER - ORDERS ====================
+
+### Create Order from Cart
+POST {{baseUrl}}/orders
+Authorization: Bearer {{token}}
+
+### Get My Orders
+GET {{baseUrl}}/orders
+Authorization: Bearer {{token}}
+
+### Get Order by ID
+GET {{baseUrl}}/orders/ORDER_ID_HERE
+Authorization: Bearer {{token}}

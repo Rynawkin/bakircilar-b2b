@@ -1,0 +1,320 @@
+// Mikro B2B System - Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== ENUMS ====================
+
+enum UserRole {
+  ADMIN
+  CUSTOMER
+}
+
+enum CustomerType {
+  BAYI       // A Segmenti
+  PERAKENDE  // B Segmenti
+  VIP        // C Segmenti
+  OZEL       // D Segmenti
+}
+
+enum PriceType {
+  INVOICED  // Faturalı
+  WHITE     // Beyaz
+}
+
+enum OrderStatus {
+  PENDING   // Bekliyor (admin onayı bekliyor)
+  APPROVED  // Onaylandı ve Mikro'ya yazıldı
+  REJECTED  // Reddedildi
+}
+
+enum CostCalculationMethod {
+  LAST_ENTRY      // Son giriş fiyatı
+  CURRENT_COST    // Güncel maliyet
+  DYNAMIC         // Dinamik hesaplama (tarih ve fiyat farklarına göre)
+}
+
+// ==================== USERS ====================
+
+model User {
+  id            String        @id @default(uuid())
+  email         String        @unique
+  password      String        // bcrypt hash
+  name          String
+  role          UserRole      @default(CUSTOMER)
+
+  // Müşteri bilgileri (sadece CUSTOMER role için)
+  customerType        CustomerType?
+  mikroCariCode       String?       @unique // Mikro ERP'deki cari kodu
+  vatDisplayPreference String       @default("WITH_VAT") // "WITH_VAT" | "WITHOUT_VAT"
+
+  active        Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  orders        Order[]
+  cart          Cart?
+
+  @@index([email])
+  @@index([role])
+  @@index([mikroCariCode])
+}
+
+// ==================== SETTINGS ====================
+
+model Settings {
+  id                        String                  @id @default(uuid())
+
+  // Fazla stok hesaplama ayarları
+  calculationPeriodMonths   Int                     @default(3)  // 1, 3, veya 6 ay
+  includedWarehouses        String[]                // ["DEPO1", "MERKEZ"]
+  minimumExcessThreshold    Int                     @default(10) // Min fazla stok eşiği
+
+  // Maliyet hesaplama yöntemi
+  costCalculationMethod     CostCalculationMethod   @default(LAST_ENTRY)
+
+  // Dinamik maliyet hesaplama parametreleri (JSON)
+  // Örnek: { "dayThreshold": 30, "priceWeightNew": 0.7, "priceWeightOld": 0.3 }
+  dynamicCostParams         Json?
+
+  // KDV hesaplama formülü (beyaz fiyat için)
+  // Varsayılan: cost * (1 + vat/2)
+  whiteVatFormula           String                  @default("cost * (1 + vat/2)")
+
+  // Son senkronizasyon
+  lastSyncAt                DateTime?
+
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+}
+
+// ==================== CATEGORIES ====================
+
+model Category {
+  id              String                @id @default(uuid())
+  mikroCode       String                @unique
+  name            String
+
+  active          Boolean               @default(true)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  // Relations
+  products        Product[]
+  priceRules      CategoryPriceRule[]
+}
+
+// ==================== PRODUCTS ====================
+
+model Product {
+  id                      String    @id @default(uuid())
+  mikroCode               String    @unique
+  name                    String
+  unit                    String    @default("ADET") // Birim
+
+  categoryId              String
+  category                Category  @relation(fields: [categoryId], references: [id])
+
+  // Maliyet bilgileri (Mikro'dan sync)
+  lastEntryPrice          Float?    // Son giriş fiyatı
+  lastEntryDate           DateTime? // Son giriş tarihi
+  currentCost             Float?    // Güncel maliyet (tanımlı)
+  currentCostDate         DateTime? // Güncel maliyet tarihi
+  vatRate                 Float     @default(0.18) // KDV oranı (0.18 = %18)
+
+  // Hesaplanan maliyet (dinamik veya seçilen method'a göre)
+  calculatedCost          Float?
+
+  // Stok bilgileri (JSON - depo bazlı)
+  // Örnek: {"DEPO1": 100, "DEPO2": 50, "MERKEZ": 75}
+  warehouseStocks         Json      @default("{}")
+
+  // Satış geçmişi (JSON - aylık)
+  // Örnek: {"2024-01": 45, "2024-02": 50, "2024-03": 40}
+  salesHistory            Json      @default("{}")
+
+  // Bekleyen siparişler
+  pendingCustomerOrders   Int       @default(0)
+  pendingPurchaseOrders   Int       @default(0)
+
+  // Hesaplanan fazla stok (toplam)
+  excessStock             Int       @default(0)
+
+  // Depo bazlı fazla stoklar (JSON)
+  // Örnek: {"DEPO1": 20, "DEPO2": 10, "MERKEZ": 0}
+  warehouseExcessStocks   Json      @default("{}")
+
+  // Hesaplanan fiyatlar (JSON)
+  // {
+  //   "BAYI": { "INVOICED": 115, "WHITE": 110 },
+  //   "PERAKENDE": { "INVOICED": 125, "WHITE": 110 },
+  //   "VIP": { "INVOICED": 110, "WHITE": 110 },
+  //   "OZEL": { "INVOICED": 120, "WHITE": 110 }
+  // }
+  prices                  Json      @default("{}")
+
+  // Ürün resmi
+  imageUrl                String?
+
+  active                  Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  // Relations
+  cartItems               CartItem[]
+  orderItems              OrderItem[]
+  priceOverrides          ProductPriceOverride[]
+
+  @@index([mikroCode])
+  @@index([excessStock])
+  @@index([categoryId])
+}
+
+// ==================== PRICE RULES ====================
+
+// Kategori bazlı kar marjları
+model CategoryPriceRule {
+  id              String        @id @default(uuid())
+
+  categoryId      String
+  category        Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  customerType    CustomerType
+  profitMargin    Float         // 0.15 = %15 kar marjı
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([categoryId, customerType])
+}
+
+// Ürün bazlı özel kar marjı (override)
+model ProductPriceOverride {
+  id              String        @id @default(uuid())
+
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  customerType    CustomerType
+  profitMargin    Float         // Kategori marjını override eder
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([productId, customerType])
+}
+
+// ==================== CART ====================
+
+model Cart {
+  id              String        @id @default(uuid())
+
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  items           CartItem[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model CartItem {
+  id              String      @id @default(uuid())
+
+  cartId          String
+  cart            Cart        @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  productId       String
+  product         Product     @relation(fields: [productId], references: [id])
+
+  quantity        Int
+  priceType       PriceType   // INVOICED veya WHITE
+  unitPrice       Float       // O andaki fiyat (snapshot)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([cartId])
+}
+
+// ==================== ORDERS ====================
+
+model Order {
+  id              String        @id @default(uuid())
+  orderNumber     String        @unique  // "ORD-2024-00001"
+
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+
+  status          OrderStatus   @default(PENDING)
+
+  // Sipariş detayları
+  items           OrderItem[]
+  totalAmount     Float
+
+  // Mikro'ya yazılan sipariş ID'leri
+  // [invoiced_siparis_id, white_siparis_id] veya sadece [invoiced] veya [white]
+  mikroOrderIds   String[]      @default([])
+
+  // Admin notu
+  adminNote       String?
+
+  createdAt       DateTime      @default(now())
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([orderNumber])
+}
+
+model OrderItem {
+  id              String      @id @default(uuid())
+
+  orderId         String
+  order           Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId       String
+  product         Product     @relation(fields: [productId], references: [id])
+
+  // Snapshot (sipariş anındaki bilgiler)
+  productName     String
+  mikroCode       String
+  quantity        Int
+  priceType       PriceType
+  unitPrice       Float
+  totalPrice      Float
+
+  createdAt       DateTime    @default(now())
+
+  @@index([orderId])
+}
+
+// ==================== SYNC LOGS ====================
+
+model SyncLog {
+  id                    String      @id @default(uuid())
+
+  syncType              String      // "AUTO" | "MANUAL"
+  status                String      // "SUCCESS" | "FAILED" | "PARTIAL"
+
+  categoriesCount       Int         @default(0)
+  productsCount         Int         @default(0)
+
+  errorMessage          String?
+  details               Json?       // Detaylı log bilgileri
+
+  startedAt             DateTime    @default(now())
+  completedAt           DateTime?
+
+  @@index([syncType])
+  @@index([status])
+}

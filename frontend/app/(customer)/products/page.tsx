@@ -1,0 +1,554 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
+import { Product, Category } from '@/types';
+import customerApi from '@/lib/api/customer';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { ProductCardSkeleton } from '@/components/ui/Skeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { MobileMenu } from '@/components/ui/MobileMenu';
+import { formatCurrency } from '@/lib/utils/format';
+import { useAuthStore } from '@/lib/store/authStore';
+import { useCartStore } from '@/lib/store/cartStore';
+import { LogoLink } from '@/components/ui/Logo';
+import { getCustomerTypeName } from '@/lib/utils/customerTypes';
+
+export default function ProductsPage() {
+  const router = useRouter();
+  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { cart, fetchCart, addToCart } = useCartStore();
+
+  const cartItems = cart?.items || [];
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [warehouses, setWarehouses] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
+
+  // Quick add states
+  const [quickAddQuantities, setQuickAddQuantities] = useState<Record<string, number>>({});
+  const [quickAddPriceTypes, setQuickAddPriceTypes] = useState<Record<string, 'INVOICED' | 'WHITE'>>({});
+  const [addingToCart, setAddingToCart] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    loadUserFromStorage();
+    fetchCart();
+  }, [loadUserFromStorage, fetchCart]);
+
+  useEffect(() => {
+    fetchData();
+  }, [selectedCategory, search, selectedWarehouse]);
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const [productsData, categoriesData, warehousesData] = await Promise.all([
+        customerApi.getProducts({
+          categoryId: selectedCategory || undefined,
+          search: search || undefined,
+          warehouse: selectedWarehouse || undefined,
+        }),
+        customerApi.getCategories(),
+        customerApi.getWarehouses(),
+      ]);
+
+      setProducts(productsData.products);
+      setCategories(categoriesData.categories);
+      setWarehouses(warehousesData.warehouses);
+    } catch (error) {
+      console.error('Veri yükleme hatası:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleQuickAdd = async (productId: string) => {
+    const quantity = quickAddQuantities[productId] || 1;
+    const priceType = quickAddPriceTypes[productId] || 'INVOICED';
+
+    setAddingToCart({ ...addingToCart, [productId]: true });
+
+    try {
+      await addToCart({
+        productId,
+        quantity,
+        priceType,
+      });
+
+      // Reset quantity after adding
+      setQuickAddQuantities({ ...quickAddQuantities, [productId]: 1 });
+
+      toast.success('Ürün sepete eklendi! 🛒', {
+        duration: 2000,
+      });
+    } catch (error: any) {
+      console.error('Cart error:', error);
+      toast.error(error.response?.data?.error || 'Sepete eklenemedi');
+    } finally {
+      setAddingToCart({ ...addingToCart, [productId]: false });
+    }
+  };
+
+  // Calculate cart totals
+  const invoicedTotal = (cartItems || [])
+    .filter(item => item.priceType === 'INVOICED')
+    .reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+
+  const whiteTotal = (cartItems || [])
+    .filter(item => item.priceType === 'WHITE')
+    .reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+
+  const totalItems = (cartItems || []).reduce((sum, item) => sum + item.quantity, 0);
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+        <div className="container-custom py-3 flex justify-between items-center">
+          <div className="flex items-center gap-6">
+            <LogoLink href="/products" variant="dark" />
+            <div className="hidden sm:block">
+              <h1 className="text-lg font-bold text-gray-900">Ürün Kataloğu</h1>
+              <p className="text-xs text-gray-600">
+                {user.name} • {getCustomerTypeName(user.customerType || '')}
+              </p>
+            </div>
+          </div>
+
+          {/* Desktop Navigation */}
+          <div className="hidden lg:flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => router.push('/cart')}
+              className="relative bg-gray-100 text-gray-700 hover:bg-gray-200 border-0"
+            >
+              🛒 Sepetim
+              {totalItems > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  {totalItems}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => router.push('/profile')}
+              className="bg-gray-100 text-gray-700 hover:bg-gray-200 border-0"
+            >
+              👤 Profil
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => { logout(); router.push('/login'); }}
+              className="text-gray-700 hover:bg-gray-100"
+            >
+              Çıkış
+            </Button>
+          </div>
+
+          {/* Mobile Menu */}
+          <div className="flex items-center gap-2 lg:hidden">
+            {totalItems > 0 && (
+              <button
+                onClick={() => router.push('/cart')}
+                className="relative p-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+                <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
+                  {totalItems}
+                </span>
+              </button>
+            )}
+            <MobileMenu
+              items={[
+                { label: 'Ürünler', href: '/products', icon: '🛍️' },
+                { label: 'Sepetim', href: '/cart', icon: '🛒' },
+                { label: 'Siparişlerim', href: '/my-orders', icon: '📦' },
+                { label: 'Profilim', href: '/profile', icon: '👤' },
+                { label: 'Tercihler', href: '/preferences', icon: '⚙️' },
+              ]}
+              user={user}
+              onLogout={() => { logout(); router.push('/login'); }}
+            />
+          </div>
+        </div>
+      </header>
+
+      <div className="container-custom py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Main content */}
+          <div className="lg:col-span-3">
+            {/* Filters */}
+            <Card className="mb-4 bg-white border border-gray-200">
+              <div className="flex flex-wrap gap-3">
+                <div className="flex-1 min-w-[250px]">
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Ürün Ara</label>
+                  <Input
+                    placeholder="Ürün ismi veya kodu..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full h-9 text-sm"
+                  />
+                </div>
+
+                <div className="min-w-[150px]">
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Depo</label>
+                  <select
+                    value={selectedWarehouse}
+                    onChange={(e) => setSelectedWarehouse(e.target.value)}
+                    className="input w-full h-9 text-sm"
+                  >
+                    <option value="">Tüm Depolar</option>
+                    {warehouses.map((warehouse) => (
+                      <option key={warehouse} value={warehouse}>
+                        {warehouse}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="min-w-[180px]">
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Kategori</label>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="input w-full h-9 text-sm"
+                  >
+                    <option value="">Tüm Kategoriler</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {(search || selectedWarehouse || selectedCategory) && (
+                <div className="mt-3 pt-3 border-t flex items-center gap-2 text-xs">
+                  <span className="text-gray-500">Aktif filtreler:</span>
+                  {search && (
+                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                      "{search}"
+                    </span>
+                  )}
+                  {selectedWarehouse && (
+                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                      Depo: {selectedWarehouse}
+                    </span>
+                  )}
+                  {selectedCategory && (
+                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                      {categories.find(c => c.id === selectedCategory)?.name}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSearch('');
+                      setSelectedWarehouse('');
+                      setSelectedCategory('');
+                    }}
+                    className="ml-auto text-gray-500 hover:text-gray-700 text-xs"
+                  >
+                    Temizle
+                  </button>
+                </div>
+              )}
+            </Card>
+
+            {/* Products Grid */}
+            {isLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <ProductCardSkeleton key={i} />
+                ))}
+              </div>
+            ) : products.length === 0 ? (
+              <Card>
+                <EmptyState
+                  icon={search || selectedCategory || selectedWarehouse ? 'search' : 'products'}
+                  title={search || selectedCategory || selectedWarehouse ? 'Ürün Bulunamadı' : 'Henüz Fazla Stoklu Ürün Yok'}
+                  description={
+                    search || selectedCategory || selectedWarehouse
+                      ? 'Arama kriterlerinize uygun ürün bulunamadı. Filtreleri değiştirerek tekrar deneyin.'
+                      : 'Fazla stoklu ürün bulunduğunda burada görüntülenecektir.'
+                  }
+                  actionLabel={search || selectedCategory || selectedWarehouse ? 'Filtreleri Temizle' : undefined}
+                  onAction={search || selectedCategory || selectedWarehouse ? () => {
+                    setSearch('');
+                    setSelectedCategory('');
+                    setSelectedWarehouse('');
+                  } : undefined}
+                />
+              </Card>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                {products.map((product) => (
+                  <Card key={product.id} className="hover:shadow-lg transition-all duration-200 overflow-hidden flex flex-col h-full p-2.5 border border-gray-200">
+                    <div className="space-y-2 flex flex-col h-full">
+                      {/* Product Image */}
+                      <div className="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg overflow-hidden relative group">
+                        {product.imageUrl ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                            <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          </div>
+                        )}
+                        {/* Stock badge */}
+                        <div className="absolute top-1.5 right-1.5 bg-white text-gray-700 text-[10px] font-semibold px-1.5 py-0.5 rounded shadow border border-gray-200">
+                          {product.excessStock} {product.unit}
+                        </div>
+                      </div>
+
+                      <div className="min-h-[50px]">
+                        <h3
+                          className="font-semibold text-gray-900 text-xs line-clamp-2 leading-tight cursor-pointer hover:text-primary-600 transition-colors"
+                          onClick={() => router.push(`/products/${product.id}`)}
+                        >
+                          {product.name}
+                        </h3>
+                        <div className="flex flex-col gap-0.5 mt-1">
+                          <span className="text-[10px] text-gray-500">Kod: {product.mikroCode}</span>
+                          <span className="text-[10px] text-gray-600 font-medium">{product.category.name}</span>
+                        </div>
+                      </div>
+
+                      {/* Spacer to push buttons to bottom */}
+                      <div className="flex-1"></div>
+
+                      {/* Price Type Selection */}
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          className={`py-1.5 px-1.5 rounded text-[10px] font-medium transition-all ${
+                            (quickAddPriceTypes[product.id] || 'INVOICED') === 'INVOICED'
+                              ? 'bg-primary-600 text-white'
+                              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+                          }`}
+                          onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
+                        >
+                          <div className="opacity-80 mb-0.5">Faturalı</div>
+                          <div className="font-bold text-xs">{formatCurrency(product.prices.invoiced)}</div>
+                        </button>
+                        <button
+                          className={`py-1.5 px-1.5 rounded text-[10px] font-medium transition-all ${
+                            quickAddPriceTypes[product.id] === 'WHITE'
+                              ? 'bg-gray-700 text-white'
+                              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+                          }`}
+                          onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
+                        >
+                          <div className="opacity-80 mb-0.5">Beyaz</div>
+                          <div className="font-bold text-xs">{formatCurrency(product.prices.white)}</div>
+                        </button>
+                      </div>
+
+                      {/* Quantity & Add to Cart */}
+                      <div className="flex gap-1">
+                        <div className="relative flex-1">
+                          <Input
+                            type="number"
+                            min="1"
+                            max={product.excessStock}
+                            value={quickAddQuantities[product.id] || 1}
+                            onChange={(e) => setQuickAddQuantities({
+                              ...quickAddQuantities,
+                              [product.id]: parseInt(e.target.value) || 1
+                            })}
+                            className="w-full text-center font-semibold text-xs h-7 pr-8"
+                          />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-500">{product.unit}</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-primary-600 hover:bg-primary-700 text-white font-medium text-[10px] h-7 px-2"
+                          onClick={() => handleQuickAdd(product.id)}
+                          isLoading={addingToCart[product.id]}
+                        >
+                          Sepete Ekle
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Cart Preview Sidebar */}
+          <div className="lg:col-span-1">
+            <Card className="sticky top-24 shadow-xl bg-gradient-to-br from-white to-gray-50">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  🛒 Sepet Özeti
+                </h3>
+                {totalItems > 0 && (
+                  <span className="bg-primary-600 text-white text-xs font-bold px-2 py-1 rounded-full">
+                    {totalItems} Ürün
+                  </span>
+                )}
+              </div>
+
+              {!cartItems || cartItems.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-300 mb-3">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-gray-500 font-medium">Sepetiniz boş</p>
+                  <p className="text-xs text-gray-400 mt-1">Ürün ekleyerek başlayın</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Clear Cart Button */}
+                  <button
+                    onClick={async () => {
+                      const confirmed = await new Promise((resolve) => {
+                        toast((t) => (
+                          <div className="flex flex-col gap-3">
+                            <p className="font-medium">Tüm ürünleri sepetten çıkarmak istediğinizden emin misiniz?</p>
+                            <div className="flex gap-2 justify-end">
+                              <button
+                                className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+                                onClick={() => { toast.dismiss(t.id); resolve(false); }}
+                              >
+                                İptal
+                              </button>
+                              <button
+                                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                                onClick={() => { toast.dismiss(t.id); resolve(true); }}
+                              >
+                                Sepeti Temizle
+                              </button>
+                            </div>
+                          </div>
+                        ), { duration: Infinity });
+                      });
+
+                      if (confirmed) {
+                        for (const item of cartItems) {
+                          await removeItem(item.id);
+                        }
+                        toast.success('Sepet temizlendi');
+                      }
+                    }}
+                    className="w-full text-xs text-red-600 hover:text-red-700 hover:bg-red-50 py-2 rounded transition-colors"
+                  >
+                    🗑️ Sepeti Temizle
+                  </button>
+
+                  <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
+                    {(cartItems || []).map((item) => (
+                      <div key={item.id} className="text-sm bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="font-semibold text-gray-900 flex-1">{item.product.name}</div>
+                          <button
+                            onClick={async () => {
+                              const confirmed = await new Promise((resolve) => {
+                                toast((t) => (
+                                  <div className="flex flex-col gap-3">
+                                    <p className="font-medium">Bu ürünü sepetten çıkarmak istediğinizden emin misiniz?</p>
+                                    <div className="flex gap-2 justify-end">
+                                      <button
+                                        className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+                                        onClick={() => { toast.dismiss(t.id); resolve(false); }}
+                                      >
+                                        İptal
+                                      </button>
+                                      <button
+                                        className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                                        onClick={() => { toast.dismiss(t.id); resolve(true); }}
+                                      >
+                                        Sil
+                                      </button>
+                                    </div>
+                                  </div>
+                                ), { duration: Infinity });
+                              });
+
+                              if (confirmed) {
+                                await removeItem(item.id);
+                                toast.success('Ürün sepetten çıkarıldı');
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700 ml-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</span>
+                          <span className={`px-2 py-1 rounded font-medium ${
+                            item.priceType === 'INVOICED'
+                              ? 'bg-primary-100 text-primary-700'
+                              : 'bg-gray-200 text-gray-800'
+                          }`}>
+                            {item.priceType === 'INVOICED' ? '📄 Faturalı' : '⚪ Beyaz'}
+                          </span>
+                        </div>
+                        <div className="text-right mt-1 font-bold text-primary-700">
+                          {formatCurrency(item.quantity * item.unitPrice)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="border-t-2 border-gray-200 pt-4 space-y-3">
+                    {invoicedTotal > 0 && (
+                      <div className="flex justify-between text-sm bg-primary-50 px-3 py-2 rounded-lg">
+                        <span className="text-primary-800 font-medium">📄 Faturalı Toplam:</span>
+                        <span className="font-bold text-primary-700">{formatCurrency(invoicedTotal)}</span>
+                      </div>
+                    )}
+                    {whiteTotal > 0 && (
+                      <div className="flex justify-between text-sm bg-gray-100 px-3 py-2 rounded-lg">
+                        <span className="text-gray-800 font-medium">⚪ Beyaz Toplam:</span>
+                        <span className="font-bold text-gray-900">{formatCurrency(whiteTotal)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-lg font-bold bg-gradient-to-r from-primary-600 to-primary-700 text-white px-4 py-3 rounded-lg shadow-lg">
+                      <span>💰 Genel Toplam:</span>
+                      <span>{formatCurrency(invoicedTotal + whiteTotal)}</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-3 shadow-lg"
+                    onClick={() => router.push('/cart')}
+                  >
+                    🛒 Sepete Git ({totalItems} ürün)
+                  </Button>
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
