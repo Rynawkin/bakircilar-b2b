@@ -18,7 +18,7 @@ import {
 } from '../types';
 
 class MikroService {
-  protected pool: mssql.ConnectionPool | null = null;
+  public pool: mssql.ConnectionPool | null = null;
 
   /**
    * Mikro veritabanına bağlan
