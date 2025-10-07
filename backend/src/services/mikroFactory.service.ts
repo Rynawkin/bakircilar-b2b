@@ -11,7 +11,7 @@ import mikroService from './mikro.service';
 /**
  * Environment'a göre doğru servisi döndür
  */
-export const getMikroService = () => {
+const getMikroService = () => {
   if (config.useMockMikro) {
     console.log('🎭 Mock Mikro Service kullanılıyor');
     return mikroMockService;
