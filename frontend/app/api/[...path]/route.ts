@@ -1,0 +1,71 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+const BACKEND_URL = 'http://139.59.133.81';
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { path: string[] } }
+) {
+  return proxyRequest(request, params.path);
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { path: string[] } }
+) {
+  return proxyRequest(request, params.path);
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { path: string[] } }
+) {
+  return proxyRequest(request, params.path);
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { path: string[] } }
+) {
+  return proxyRequest(request, params.path);
+}
+
+async function proxyRequest(request: NextRequest, path: string[]) {
+  const pathString = path.join('/');
+  const url = `${BACKEND_URL}/api/${pathString}`;
+
+  // Get body if exists
+  let body = undefined;
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    body = await request.text();
+  }
+
+  // Forward headers
+  const headers = new Headers();
+  request.headers.forEach((value, key) => {
+    if (!key.startsWith('x-') && key !== 'host') {
+      headers.set(key, value);
+    }
+  });
+
+  try {
+    const response = await fetch(url, {
+      method: request.method,
+      headers,
+      body,
+    });
+
+    const data = await response.text();
+
+    return new NextResponse(data, {
+      status: response.status,
+      headers: response.headers,
+    });
+  } catch (error) {
+    console.error('Proxy error:', error);
+    return NextResponse.json(
+      { error: 'Backend connection failed' },
+      { status: 502 }
+    );
+  }
+}
