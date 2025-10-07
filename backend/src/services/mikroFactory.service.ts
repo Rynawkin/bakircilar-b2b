@@ -6,18 +6,18 @@
 
 import { config } from '../config';
 import mikroMockService from './mikroMock.service';
-import mikroService from './mikro.service';
+import mikroRealService from './mikro.service';
 
 /**
  * Environment'a göre doğru servisi döndür
  */
-const getMikroService = () => {
+const getMikroService = (): typeof mikroMockService | typeof mikroRealService => {
   if (config.useMockMikro) {
     console.log('🎭 Mock Mikro Service kullanılıyor');
     return mikroMockService;
   } else {
     console.log('🔗 Gerçek Mikro Service kullanılıyor');
-    return mikroService;
+    return mikroRealService;
   }
 };
 
