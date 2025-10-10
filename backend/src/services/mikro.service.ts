@@ -58,11 +58,11 @@ class MikroService {
 
     const query = `
       SELECT
-        ${CATEGORIES_COLUMNS.ID} as id,
+        ${CATEGORIES_COLUMNS.CODE} as id,
         ${CATEGORIES_COLUMNS.CODE} as code,
         ${CATEGORIES_COLUMNS.NAME} as name
       FROM ${CATEGORIES}
-      WHERE ${CATEGORIES_COLUMNS.ACTIVE} = 1
+      ORDER BY ${CATEGORIES_COLUMNS.NAME}
     `;
 
     const result = await this.pool!.request().query(query);
@@ -79,18 +79,18 @@ class MikroService {
 
     const query = `
       SELECT
-        ${PRODUCTS_COLUMNS.ID} as id,
+        ${PRODUCTS_COLUMNS.CODE} as id,
         ${PRODUCTS_COLUMNS.CODE} as code,
         ${PRODUCTS_COLUMNS.NAME} as name,
-        ${PRODUCTS_COLUMNS.CATEGORY_ID} as categoryId,
+        ${PRODUCTS_COLUMNS.CATEGORY_CODE} as categoryId,
         ${PRODUCTS_COLUMNS.UNIT} as unit,
         ${PRODUCTS_COLUMNS.VAT_RATE} as vatRate,
-        ${PRODUCTS_COLUMNS.LAST_ENTRY_PRICE} as lastEntryPrice,
-        ${PRODUCTS_COLUMNS.LAST_ENTRY_DATE} as lastEntryDate,
+        ${PRODUCTS_COLUMNS.CURRENT_COST} as lastEntryPrice,
         ${PRODUCTS_COLUMNS.CURRENT_COST} as currentCost,
-        ${PRODUCTS_COLUMNS.CURRENT_COST_DATE} as currentCostDate
+        GETDATE() as lastEntryDate,
+        GETDATE() as currentCostDate
       FROM ${PRODUCTS}
-      WHERE ${PRODUCTS_COLUMNS.ACTIVE} = 1
+      ORDER BY ${PRODUCTS_COLUMNS.NAME}
     `;
 
     const result = await this.pool!.request().query(query);
@@ -98,20 +98,36 @@ class MikroService {
   }
 
   /**
-   * Depo stoklarını çek
+   * Depo stoklarını çek (STOK_HAREKETLERI'nden hesaplanır)
+   * sth_tip: 0=Giriş, 1=Çıkış
    */
   async getWarehouseStocks(): Promise<MikroWarehouseStock[]> {
     await this.connect();
 
-    const { STOCKS, STOCKS_COLUMNS } = MIKRO_TABLES;
+    const { STOCK_MOVEMENTS, STOCK_MOVEMENTS_COLUMNS } = MIKRO_TABLES;
 
     const query = `
       SELECT
-        ${STOCKS_COLUMNS.PRODUCT_CODE} as productCode,
-        ${STOCKS_COLUMNS.WAREHOUSE_CODE} as warehouseCode,
-        ${STOCKS_COLUMNS.QUANTITY} as quantity
-      FROM ${STOCKS}
-      WHERE ${STOCKS_COLUMNS.QUANTITY} > 0
+        ${STOCK_MOVEMENTS_COLUMNS.PRODUCT_CODE} as productCode,
+        ${STOCK_MOVEMENTS_COLUMNS.WAREHOUSE_NO} as warehouseCode,
+        SUM(
+          CASE
+            WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 0 THEN ${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
+            WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1 THEN -${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
+            ELSE 0
+          END
+        ) as quantity
+      FROM ${STOCK_MOVEMENTS}
+      GROUP BY
+        ${STOCK_MOVEMENTS_COLUMNS.PRODUCT_CODE},
+        ${STOCK_MOVEMENTS_COLUMNS.WAREHOUSE_NO}
+      HAVING SUM(
+        CASE
+          WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 0 THEN ${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
+          WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1 THEN -${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
+          ELSE 0
+        END
+      ) > 0
     `;
 
     const result = await this.pool!.request().query(query);
@@ -120,6 +136,7 @@ class MikroService {
 
   /**
    * Satış geçmişi (son 6 ay)
+   * sth_tip: 1=Çıkış (Satış)
    */
   async getSalesHistory(): Promise<MikroSalesMovement[]> {
     await this.connect();
@@ -134,7 +151,7 @@ class MikroService {
         SUM(${SALES_MOVEMENTS_COLUMNS.QUANTITY}) as totalQuantity
       FROM ${SALES_MOVEMENTS}
       WHERE ${SALES_MOVEMENTS_COLUMNS.DATE} >= DATEADD(MONTH, -6, GETDATE())
-        AND ${SALES_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 'SATIS'
+        AND ${SALES_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1
       GROUP BY
         ${SALES_MOVEMENTS_COLUMNS.PRODUCT_CODE},
         YEAR(${SALES_MOVEMENTS_COLUMNS.DATE}),
@@ -213,7 +230,7 @@ class MikroService {
   }
 
   /**
-   * Anlık stok kontrolü
+   * Anlık stok kontrolü (STOK_HAREKETLERI'nden hesaplanır)
    */
   async getRealtimeStock(
     productCode: string,
@@ -221,15 +238,21 @@ class MikroService {
   ): Promise<number> {
     await this.connect();
 
-    const { STOCKS, STOCKS_COLUMNS } = MIKRO_TABLES;
+    const { STOCK_MOVEMENTS, STOCK_MOVEMENTS_COLUMNS } = MIKRO_TABLES;
 
     const warehousePlaceholders = includedWarehouses.map((_, i) => `@warehouse${i}`).join(',');
 
     const query = `
-      SELECT SUM(${STOCKS_COLUMNS.QUANTITY}) as totalStock
-      FROM ${STOCKS}
-      WHERE ${STOCKS_COLUMNS.PRODUCT_CODE} = @productCode
-        AND ${STOCKS_COLUMNS.WAREHOUSE_CODE} IN (${warehousePlaceholders})
+      SELECT SUM(
+        CASE
+          WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 0 THEN ${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
+          WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1 THEN -${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
+          ELSE 0
+        END
+      ) as totalStock
+      FROM ${STOCK_MOVEMENTS}
+      WHERE ${STOCK_MOVEMENTS_COLUMNS.PRODUCT_CODE} = @productCode
+        AND ${STOCK_MOVEMENTS_COLUMNS.WAREHOUSE_NO} IN (${warehousePlaceholders})
     `;
 
     const request = this.pool!.request();
