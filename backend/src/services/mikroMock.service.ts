@@ -388,6 +388,65 @@ export class MikroMockService {
   }
 
   /**
+   * Mock cari detaylı bilgileri (sync için)
+   */
+  async getCariDetails(): Promise<Array<{
+    code: string;
+    name: string;
+    city?: string;
+    district?: string;
+    phone?: string;
+    isLocked: boolean;
+    groupCode?: string;
+    sectorCode?: string;
+    paymentTerm?: number;
+    hasEInvoice: boolean;
+    balance: number;
+  }>> {
+    return [
+      {
+        code: 'CARI001',
+        name: 'ABC Bilgisayar Ltd.',
+        city: 'İstanbul',
+        district: 'Kadıköy',
+        phone: '0216 123 45 67',
+        isLocked: false,
+        groupCode: 'BAYI',
+        sectorCode: 'SATIŞ',
+        paymentTerm: 30,
+        hasEInvoice: true,
+        balance: 15000,
+      },
+      {
+        code: 'CARI002',
+        name: 'XYZ Teknoloji A.Ş.',
+        city: 'Ankara',
+        district: 'Çankaya',
+        phone: '0312 987 65 43',
+        isLocked: false,
+        groupCode: 'PERAKENDE',
+        sectorCode: 'SATIŞ',
+        paymentTerm: 15,
+        hasEInvoice: true,
+        balance: -5000,
+      },
+      {
+        code: 'CARI003',
+        name: 'Deneme Ticaret',
+        city: 'İzmir',
+        district: 'Konak',
+        phone: '0232 555 12 34',
+        isLocked: false,
+        groupCode: 'VIP',
+        sectorCode: 'SATIŞ',
+        paymentTerm: 45,
+        hasEInvoice: false,
+        balance: 0,
+      },
+    ];
+  }
+
+  /**
    * Anlık stok kontrolü (tek ürün için)
    */
   async getRealtimeStock(
