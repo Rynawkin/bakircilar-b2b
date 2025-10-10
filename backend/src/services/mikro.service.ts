@@ -91,12 +91,14 @@ class MikroService {
 
   /**
    * Ürünleri çek (sadece aktif stoklar)
+   * Depo bazlı stok bilgilerini de dahil eder
    */
   async getProducts(): Promise<MikroProduct[]> {
     await this.connect();
 
     const { PRODUCTS, PRODUCTS_COLUMNS } = MIKRO_TABLES;
 
+    // Ana depolar: 1=Merkez, 2=Ereğli, 6=Topça, 7=Dükkan
     const query = `
       SELECT
         ${PRODUCTS_COLUMNS.CODE} as id,
@@ -108,7 +110,11 @@ class MikroService {
         ${PRODUCTS_COLUMNS.CURRENT_COST} as lastEntryPrice,
         ${PRODUCTS_COLUMNS.CURRENT_COST} as currentCost,
         GETDATE() as lastEntryDate,
-        GETDATE() as currentCostDate
+        GETDATE() as currentCostDate,
+        dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 1, 0) as depo1,
+        dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 2, 0) as depo2,
+        dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 6, 0) as depo6,
+        dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 7, 0) as depo7
       FROM ${PRODUCTS}
       WHERE ${PRODUCTS_COLUMNS.PASSIVE} = 0
         AND ${PRODUCTS_COLUMNS.CODE} IS NOT NULL
@@ -120,51 +126,37 @@ class MikroService {
 
     const result = await this.pool!.request().query(query);
 
-    // KDV kodunu yüzde oranına çevir
+    // KDV kodunu yüzde oranına çevir ve depo stoklarını JSON'a dönüştür
     return result.recordset.map((product: any) => ({
-      ...product,
+      id: product.id,
+      code: product.code,
+      name: product.name,
+      categoryId: product.categoryId,
+      unit: product.unit,
+      vatCode: product.vatCode,
       vatRate: this.convertVatCodeToRate(product.vatCode),
+      lastEntryPrice: product.lastEntryPrice,
+      currentCost: product.currentCost,
+      lastEntryDate: product.lastEntryDate,
+      currentCostDate: product.currentCostDate,
+      // Depo stoklarını JSON formatına çevir
+      warehouseStocks: {
+        '1': product.depo1 || 0,  // Merkez
+        '2': product.depo2 || 0,  // Ereğli
+        '6': product.depo6 || 0,  // Topça
+        '7': product.depo7 || 0,  // Dükkan
+      },
     }));
   }
 
   /**
-   * Depo stoklarını çek (STOK_HAREKETLERI'nden hesaplanır)
-   * sth_tip: 0=Giriş, 1=Çıkış
-   * Sadece aktif ürünlerin stokları
+   * Depo stoklarını çek
+   * NOT: Bu metod artık getProducts() içinde çekiliyor
    */
   async getWarehouseStocks(): Promise<MikroWarehouseStock[]> {
-    await this.connect();
-
-    const { STOCK_MOVEMENTS, STOCK_MOVEMENTS_COLUMNS, PRODUCTS, PRODUCTS_COLUMNS } = MIKRO_TABLES;
-
-    const query = `
-      SELECT
-        sh.${STOCK_MOVEMENTS_COLUMNS.PRODUCT_CODE} as productCode,
-        sh.${STOCK_MOVEMENTS_COLUMNS.WAREHOUSE_NO} as warehouseCode,
-        SUM(
-          CASE
-            WHEN sh.${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 0 THEN sh.${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
-            WHEN sh.${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1 THEN -sh.${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
-            ELSE 0
-          END
-        ) as quantity
-      FROM ${STOCK_MOVEMENTS} sh
-      INNER JOIN ${PRODUCTS} s ON sh.${STOCK_MOVEMENTS_COLUMNS.PRODUCT_CODE} = s.${PRODUCTS_COLUMNS.CODE}
-      WHERE s.${PRODUCTS_COLUMNS.PASSIVE} = 0
-      GROUP BY
-        sh.${STOCK_MOVEMENTS_COLUMNS.PRODUCT_CODE},
-        sh.${STOCK_MOVEMENTS_COLUMNS.WAREHOUSE_NO}
-      HAVING SUM(
-        CASE
-          WHEN sh.${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 0 THEN sh.${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
-          WHEN sh.${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1 THEN -sh.${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
-          ELSE 0
-        END
-      ) > 0
-    `;
-
-    const result = await this.pool!.request().query(query);
-    return result.recordset;
+    // Artık bu metoda gerek yok, getProducts() içinde alınıyor
+    // Ama geriye dönük uyumluluk için boş array döndürüyoruz
+    return [];
   }
 
   /**
@@ -235,7 +227,7 @@ class MikroService {
   }
 
   /**
-   * Anlık stok kontrolü (STOK_HAREKETLERI'nden hesaplanır)
+   * Anlık stok kontrolü (Mikro fonksiyonu kullanarak)
    */
   async getRealtimeStock(
     productCode: string,
@@ -243,32 +235,23 @@ class MikroService {
   ): Promise<number> {
     await this.connect();
 
-    const { STOCK_MOVEMENTS, STOCK_MOVEMENTS_COLUMNS } = MIKRO_TABLES;
+    // Her depo için ayrı ayrı fonksiyon çağır ve topla
+    let totalStock = 0;
 
-    const warehousePlaceholders = includedWarehouses.map((_, i) => `@warehouse${i}`).join(',');
+    for (const warehouseNo of includedWarehouses) {
+      const query = `
+        SELECT dbo.fn_DepodakiMiktar(@productCode, @warehouseNo, 0) as stock
+      `;
 
-    const query = `
-      SELECT SUM(
-        CASE
-          WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 0 THEN ${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
-          WHEN ${STOCK_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1 THEN -${STOCK_MOVEMENTS_COLUMNS.QUANTITY}
-          ELSE 0
-        END
-      ) as totalStock
-      FROM ${STOCK_MOVEMENTS}
-      WHERE ${STOCK_MOVEMENTS_COLUMNS.PRODUCT_CODE} = @productCode
-        AND ${STOCK_MOVEMENTS_COLUMNS.WAREHOUSE_NO} IN (${warehousePlaceholders})
-    `;
+      const request = this.pool!.request();
+      request.input('productCode', mssql.VarChar, productCode);
+      request.input('warehouseNo', mssql.Int, parseInt(warehouseNo));
 
-    const request = this.pool!.request();
-    request.input('productCode', mssql.VarChar, productCode);
+      const result = await request.query(query);
+      totalStock += result.recordset[0]?.stock || 0;
+    }
 
-    includedWarehouses.forEach((warehouse, i) => {
-      request.input(`warehouse${i}`, mssql.VarChar, warehouse);
-    });
-
-    const result = await request.query(query);
-    return result.recordset[0]?.totalStock || 0;
+    return totalStock;
   }
 
   /**
