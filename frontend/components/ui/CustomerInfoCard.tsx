@@ -25,9 +25,9 @@ interface CustomerInfoCardProps {
 const getCustomerTypeBadge = (type?: string) => {
   if (!type) return null;
 
-  const badges: Record<string, { variant: 'primary' | 'success' | 'warning' | 'info'; label: string }> = {
-    BAYI: { variant: 'primary', label: 'Bayi' },
-    PERAKENDE: { variant: 'info', label: 'Perakende' },
+  const badges: Record<string, { variant: 'success' | 'warning' | 'info' | 'default'; label: string }> = {
+    BAYI: { variant: 'info', label: 'Bayi' },
+    PERAKENDE: { variant: 'default', label: 'Perakende' },
     VIP: { variant: 'success', label: 'VIP' },
     OZEL: { variant: 'warning', label: 'Ozel' },
   };
