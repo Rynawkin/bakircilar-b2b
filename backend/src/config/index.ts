@@ -12,7 +12,7 @@ export const config = {
 
   // JWT
   jwtSecret: process.env.JWT_SECRET!,
-  jwtExpiresIn: '15d', // 15 gün
+  jwtExpiresIn: '30d', // 30 gün - Uzun sync işlemleri için
 
   // Mikro ERP
   useMockMikro: process.env.USE_MOCK_MIKRO === 'true',
