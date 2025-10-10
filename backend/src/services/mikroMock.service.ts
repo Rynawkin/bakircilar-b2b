@@ -15,6 +15,24 @@ import {
 
 export class MikroMockService {
   /**
+   * Mikro KDV kod → yüzde dönüşümü
+   * Real service ile aynı
+   */
+  public convertVatCodeToRate(vatCode: number): number {
+    const vatMap: { [key: number]: number } = {
+      0: 0.00,  // İstisna
+      1: 0.00,  // İstisna
+      2: 0.01,  // %1
+      3: 0.00,  // Kullanılmıyor
+      4: 0.18,  // %18
+      5: 0.20,  // %20
+      6: 0.00,  // Kullanılmıyor
+      7: 0.10,  // %10
+    };
+    return vatMap[vatCode] ?? 0.20; // Default %20
+  }
+
+  /**
    * Mock kategoriler
    */
   async getCategories(): Promise<MikroCategory[]> {

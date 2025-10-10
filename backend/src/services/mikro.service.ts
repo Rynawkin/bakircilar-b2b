@@ -24,7 +24,7 @@ class MikroService {
    * Mikro KDV kod → yüzde dönüşümü
    * Gerçek hareketlerden tespit edildi
    */
-  protected convertVatCodeToRate(vatCode: number): number {
+  public convertVatCodeToRate(vatCode: number): number {
     const vatMap: { [key: number]: number } = {
       0: 0.00,  // İstisna
       1: 0.00,  // İstisna
