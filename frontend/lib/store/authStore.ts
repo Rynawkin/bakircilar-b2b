@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { User, LoginRequest } from '@/types';
 import authApi from '../api/auth';
 
@@ -12,78 +13,78 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  lastActivity: number; // Unix timestamp
 
   // Actions
   login: (data: LoginRequest) => Promise<void>;
   logout: () => void;
   loadUserFromStorage: () => void;
   clearError: () => void;
+  updateActivity: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  token: null,
-  isAuthenticated: false,
-  isLoading: false,
-  error: null,
-
-  login: async (data: LoginRequest) => {
-    set({ isLoading: true, error: null });
-    try {
-      const response = await authApi.login(data);
-
-      // LocalStorage'a kaydet
-      localStorage.setItem('token', response.token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-
-      set({
-        user: response.user,
-        token: response.token,
-        isAuthenticated: true,
-        isLoading: false,
-      });
-    } catch (error: any) {
-      set({
-        error: error.response?.data?.error || 'Login failed',
-        isLoading: false,
-      });
-      throw error;
-    }
-  },
-
-  logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-
-    set({
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
       user: null,
       token: null,
       isAuthenticated: false,
-    });
-  },
+      isLoading: false,
+      error: null,
+      lastActivity: Date.now(),
 
-  loadUserFromStorage: () => {
-    if (typeof window === 'undefined') return;
+      login: async (data: LoginRequest) => {
+        set({ isLoading: true, error: null });
+        try {
+          const response = await authApi.login(data);
 
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
+          set({
+            user: response.user,
+            token: response.token,
+            isAuthenticated: true,
+            isLoading: false,
+            lastActivity: Date.now(),
+          });
+        } catch (error: any) {
+          set({
+            error: error.response?.data?.error || 'Login failed',
+            isLoading: false,
+          });
+          throw error;
+        }
+      },
 
-    if (token && userStr) {
-      try {
-        const user = JSON.parse(userStr);
+      logout: () => {
         set({
-          user,
-          token,
-          isAuthenticated: true,
+          user: null,
+          token: null,
+          isAuthenticated: false,
+          lastActivity: 0,
         });
-      } catch (error) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
-    }
-  },
+      },
 
-  clearError: () => set({ error: null }),
-}));
+      loadUserFromStorage: () => {
+        // Persist middleware handles this automatically
+        // This is kept for backward compatibility
+      },
+
+      updateActivity: () => {
+        set({ lastActivity: Date.now() });
+      },
+
+      clearError: () => set({ error: null }),
+    }),
+    {
+      name: 'b2b-auth-storage', // localStorage key
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        user: state.user,
+        token: state.token,
+        isAuthenticated: state.isAuthenticated,
+        lastActivity: state.lastActivity,
+      }),
+    }
+  )
+);
 
 export default useAuthStore;
