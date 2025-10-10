@@ -60,8 +60,27 @@ class ImageService {
     productGuid: string
   ): Promise<ImageDownloadResult> {
     try {
+      // Mock mode'da çalışma
+      if (config.useMockMikro) {
+        return {
+          success: false,
+          skipped: true,
+          skipReason: 'Mock mode - resim indirme devre dışı',
+        };
+      }
+
+      // Real MikroService kullandığımızdan emin ol
+      const realMikroService = mikroService as any;
+      if (!realMikroService.pool || !realMikroService.connect) {
+        return {
+          success: false,
+          skipped: true,
+          skipReason: 'Gerçek Mikro service kullanılmıyor',
+        };
+      }
+
       // Mikro'ya bağlan
-      await mikroService.connect();
+      await realMikroService.connect();
 
       // Resmi sorgula
       const query = `
@@ -71,7 +90,7 @@ class ImageService {
           AND TableID = 13
       `;
 
-      const request = mikroService.pool!.request();
+      const request = (mikroService as any).pool!.request();
       request.input('guid', mssql.UniqueIdentifier, productGuid);
 
       const result = await request.query(query);
