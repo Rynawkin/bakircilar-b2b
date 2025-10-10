@@ -7,11 +7,10 @@
 
 export const MIKRO_TABLES = {
   // Kategoriler
-  CATEGORIES: 'STOK_ANA_GRUPLARI',
+  CATEGORIES: 'STOK_KATEGORILERI',
   CATEGORIES_COLUMNS: {
-    CODE: 'san_kod',
-    NAME: 'san_isim',
-    ACTIVE: 'san_aktif', // Varsayım - kontrol edilmeli
+    CODE: 'ktg_kod',
+    NAME: 'ktg_isim',
   },
 
   // Ürünler
@@ -19,13 +18,11 @@ export const MIKRO_TABLES = {
   PRODUCTS_COLUMNS: {
     CODE: 'sto_kod',
     NAME: 'sto_isim',
-    CATEGORY_CODE: 'sto_anagrup_kod',
+    CATEGORY_CODE: 'sto_kategori_kodu',
     UNIT: 'sto_birim1_ad',
     VAT_RATE: 'sto_toptan_Vergi', // VAT kodu (dbo.fn_VergiYuzde ile çevrilmeli)
-    LAST_ENTRY_PRICE: 'sto_lastprice', // Son alış fiyatı (varsayım)
-    LAST_ENTRY_DATE: 'sto_lastdate', // Son alış tarihi (varsayım)
     CURRENT_COST: 'sto_standartmaliyet', // Standart maliyet
-    ACTIVE: 'sto_aktif', // Varsayım - kontrol edilmeli
+    PASSIVE: 'sto_pasif_fl', // false=aktif, true=pasif
   },
 
   // Stok Hareketleri (stok hesaplama için)
