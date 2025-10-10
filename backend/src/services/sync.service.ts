@@ -21,8 +21,18 @@ class SyncService {
    * Tarih string'ini parse et (Türkçe formatı ISO'ya çevir)
    * Geçersiz tarihler için null döner
    */
-  private parseDateString(dateStr: string | null | undefined): Date | null {
-    if (!dateStr || dateStr.trim() === '') {
+  private parseDateString(dateStr: string | Date | null | undefined): Date | null {
+    if (!dateStr) {
+      return null;
+    }
+
+    // Eğer zaten Date objesi ise direkt döndür
+    if (dateStr instanceof Date) {
+      return dateStr;
+    }
+
+    // String kontrolü
+    if (typeof dateStr !== 'string' || dateStr.trim() === '') {
       return null;
     }
 
