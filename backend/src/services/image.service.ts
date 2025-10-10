@@ -8,8 +8,12 @@ import mssql from 'mssql';
 import sharp from 'sharp';
 import fs from 'fs/promises';
 import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { config } from '../config';
 import mikroService from './mikroFactory.service';
+
+const execPromise = promisify(exec);
 
 interface ImageDownloadResult {
   success: boolean;
@@ -51,6 +55,18 @@ class ImageService {
       await fs.mkdir(this.UPLOAD_DIR, { recursive: true });
       console.log(`📁 Upload klasörü oluşturuldu: ${this.UPLOAD_DIR}`);
     }
+  }
+
+  /**
+   * ImageMagick ile resmi dönüştür (fallback)
+   */
+  private async convertWithImageMagick(
+    inputPath: string,
+    outputPath: string
+  ): Promise<void> {
+    const command = `convert "${inputPath}" -resize ${this.RESIZE_WIDTH}x${this.RESIZE_HEIGHT}\\> -quality ${this.QUALITY} "${outputPath}"`;
+
+    await execPromise(command, { timeout: this.PROCESSING_TIMEOUT });
   }
 
   /**
@@ -121,62 +137,80 @@ class ImageService {
       // Binary data'yı al
       const buffer = imageData.Data as Buffer;
 
-      // Sharp ile optimize et ve kaydet
       const filename = `${productCode}.jpg`;
       const filepath = path.join(this.UPLOAD_DIR, filename);
 
-      // Timeout ile Sharp işlemi
-      const sharpPromise = sharp(buffer)
-        .resize(this.RESIZE_WIDTH, this.RESIZE_HEIGHT, {
-          fit: 'inside',
-          withoutEnlargement: true, // Küçük resimleri büyütme
-        })
-        .jpeg({
-          quality: this.QUALITY,
-          progressive: true,
-        })
-        .toFile(filepath);
+      // 1. Önce Sharp ile dene
+      try {
+        // Timeout ile Sharp işlemi
+        const sharpPromise = sharp(buffer)
+          .resize(this.RESIZE_WIDTH, this.RESIZE_HEIGHT, {
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .jpeg({
+            quality: this.QUALITY,
+            progressive: true,
+          })
+          .toFile(filepath);
 
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Image processing timeout')), this.PROCESSING_TIMEOUT);
-      });
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Image processing timeout')), this.PROCESSING_TIMEOUT);
+        });
 
-      // Ya Sharp biter ya da timeout olur
-      await Promise.race([sharpPromise, timeoutPromise]);
+        await Promise.race([sharpPromise, timeoutPromise]);
 
-      // Dosya boyutunu kontrol et
-      const stats = await fs.stat(filepath);
+        // Başarılı!
+        const stats = await fs.stat(filepath);
+        console.log(`✅ Resim kaydedildi (Sharp): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
 
-      console.log(`✅ Resim kaydedildi: ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+        return {
+          success: true,
+          localPath: `/uploads/products/${filename}`,
+          size: stats.size,
+        };
+      } catch (sharpError: any) {
+        console.log(`⚠️ Sharp başarısız (${productCode}): ${sharpError.message} - ImageMagick deneniyor...`);
 
-      return {
-        success: true,
-        localPath: `/uploads/products/${filename}`,
-        size: stats.size,
-      };
+        // 2. Sharp başarısız, ImageMagick dene
+        try {
+          // Önce raw dosyayı kaydet
+          const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
+          await fs.writeFile(tempPath, buffer);
+
+          // ImageMagick ile dönüştür
+          await this.convertWithImageMagick(tempPath, filepath);
+
+          // Temp dosyayı sil
+          await fs.unlink(tempPath);
+
+          // Başarılı!
+          const stats = await fs.stat(filepath);
+          console.log(`✅ Resim kaydedildi (ImageMagick): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+
+          return {
+            success: true,
+            localPath: `/uploads/products/${filename}`,
+            size: stats.size,
+          };
+        } catch (imageMagickError: any) {
+          // Temp dosyayı temizle (varsa)
+          try {
+            const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
+            await fs.unlink(tempPath);
+          } catch {}
+
+          // Her iki yöntem de başarısız
+          console.error(`❌ Tüm yöntemler başarısız (${productCode}):`, imageMagickError.message);
+
+          return {
+            success: false,
+            skipped: true,
+            skipReason: `Format dönüştürme başarısız: ${imageMagickError.message}`,
+          };
+        }
+      }
     } catch (error: any) {
-      // Timeout hatası
-      if (error.message && error.message.includes('timeout')) {
-        return {
-          success: false,
-          skipped: true,
-          skipReason: 'İşlem zaman aşımı (10 saniye) - Çok büyük veya bozuk resim',
-        };
-      }
-
-      // Desteklenmeyen format hatalarını "skipped" olarak işaretle
-      if (error.message && (
-        error.message.includes('unsupported image format') ||
-        error.message.includes('Input buffer')
-      )) {
-        return {
-          success: false,
-          skipped: true,
-          skipReason: 'Desteklenmeyen resim formatı (BMP, TIFF vb.)',
-        };
-      }
-
-      // Diğer hatalar gerçek hata
       console.error(`❌ Resim indirme hatası (${productCode}):`, error.message);
       return {
         success: false,
