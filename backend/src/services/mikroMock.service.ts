@@ -66,6 +66,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 9000,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 45, 'MERKEZ': 35 },
       },
       {
         id: '2',
@@ -78,6 +79,7 @@ export class MikroMockService {
         lastEntryDate: sixtyDaysAgo,
         currentCost: 13000,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 20, 'MERKEZ': 15 },
       },
       {
         id: '3',
@@ -90,6 +92,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 15500,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 8, 'MERKEZ': 5 },
       },
 
       // Bilgisayar Aksesuarları
@@ -104,6 +107,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 900,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 150, 'MERKEZ': 100 },
       },
       {
         id: '5',
@@ -116,6 +120,7 @@ export class MikroMockService {
         lastEntryDate: sixtyDaysAgo,
         currentCost: 280,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 80, 'MERKEZ': 60 },
       },
       {
         id: '6',
@@ -128,6 +133,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 1300,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 25, 'MERKEZ': 20 },
       },
       {
         id: '7',
@@ -140,6 +146,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 200,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 200, 'MERKEZ': 150 },
       },
 
       // Yazıcılar
@@ -154,6 +161,7 @@ export class MikroMockService {
         lastEntryDate: sixtyDaysAgo,
         currentCost: 3800,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 18, 'MERKEZ': 12 },
       },
       {
         id: '9',
@@ -166,6 +174,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 2400,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 30, 'MERKEZ': 25 },
       },
 
       // Network Ekipmanları
@@ -180,6 +189,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 3000,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 15, 'MERKEZ': 10 },
       },
       {
         id: '11',
@@ -192,6 +202,7 @@ export class MikroMockService {
         lastEntryDate: sixtyDaysAgo,
         currentCost: 4800,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 6, 'MERKEZ': 4 },
       },
       {
         id: '12',
@@ -204,6 +215,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 1900,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 40, 'MERKEZ': 35 },
       },
 
       // Mobil Cihazlar
@@ -218,6 +230,7 @@ export class MikroMockService {
         lastEntryDate: thirtyDaysAgo,
         currentCost: 5800,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 12, 'MERKEZ': 10 },
       },
       {
         id: '14',
@@ -230,6 +243,7 @@ export class MikroMockService {
         lastEntryDate: sixtyDaysAgo,
         currentCost: 8500,
         currentCostDate: now,
+        warehouseStocks: { 'DEPO1': 5, 'MERKEZ': 3 },
       },
     ];
   }

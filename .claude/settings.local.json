@@ -15,7 +15,8 @@
       "Bash(sshpass:*)",
       "Bash(find:*)",
       "Bash(node:*)",
-      "Bash(npx prisma migrate dev:*)"
+      "Bash(npx prisma migrate dev:*)",
+      "Read(//c/Users/QP/Desktop/**)"
     ],
     "deny": [],
     "ask": []
