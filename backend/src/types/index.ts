@@ -54,6 +54,7 @@ export interface MikroProduct {
   lastEntryDate?: Date;
   currentCost?: number;
   currentCostDate?: Date;
+  guid: string; // Resim çekmek için GUID gerekli
 }
 
 export interface MikroWarehouseStock {

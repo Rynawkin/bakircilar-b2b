@@ -114,7 +114,8 @@ class MikroService {
         dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 1, 0) as depo1,
         dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 2, 0) as depo2,
         dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 6, 0) as depo6,
-        dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 7, 0) as depo7
+        dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 7, 0) as depo7,
+        sto_Guid as guid
       FROM ${PRODUCTS}
       WHERE ${PRODUCTS_COLUMNS.PASSIVE} = 0
         AND ${PRODUCTS_COLUMNS.CODE} IS NOT NULL
@@ -139,6 +140,7 @@ class MikroService {
       currentCost: product.currentCost,
       lastEntryDate: product.lastEntryDate,
       currentCostDate: product.currentCostDate,
+      guid: product.guid, // Resim çekmek için GUID gerekli
       // Depo stoklarını JSON formatına çevir
       warehouseStocks: {
         '1': product.depo1 || 0,  // Merkez

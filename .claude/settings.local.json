@@ -4,7 +4,18 @@
       "Bash(npm run dev:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(ssh root@165.227.167.114 \"cd /var/www/b2b/backend && ls -la | grep env\")",
+      "Bash(ssh:*)",
+      "Bash(ssh-keygen:*)",
+      "Read(//c/Users/QP/.ssh/**)",
+      "Bash(cat:*)",
+      "Bash(chmod:*)",
+      "Bash(ssh-add:*)",
+      "Bash(sshpass:*)",
+      "Bash(find:*)",
+      "Bash(node:*)",
+      "Bash(npx prisma migrate dev:*)"
     ],
     "deny": [],
     "ask": []

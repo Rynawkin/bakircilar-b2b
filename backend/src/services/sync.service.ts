@@ -14,6 +14,7 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import pricingService from './pricing.service';
 import stockService from './stock.service';
+import imageService from './image.service';
 
 class SyncService {
   /**
@@ -82,18 +83,51 @@ class SyncService {
       const pricesCount = await pricingService.recalculateAllPrices();
       console.log(`✅ ${pricesCount} ürün için fiyatlar hesaplandı`);
 
+      // 5. Resimleri sync et (sadece resmi olmayanlara)
+      console.log('\n📸 Resim senkronizasyonu başlıyor...');
+      const productsForImageSync = await prisma.product.findMany({
+        where: {
+          active: true,
+          imageUrl: null, // Sadece resmi olmayanları çek
+        },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          imageUrl: true,
+        },
+      });
+
+      // Mikro'dan GUID'leri al
+      const mikroProducts = await mikroService.getProducts();
+      const guidMap = new Map(mikroProducts.map(p => [p.code, p.guid]));
+
+      // GUID'leri ekle
+      const productsWithGuid = productsForImageSync
+        .map(p => ({
+          ...p,
+          guid: guidMap.get(p.mikroCode),
+        }))
+        .filter(p => p.guid); // GUID olmayanlari atla
+
+      const imageStats = await imageService.syncAllImages(productsWithGuid as any);
+
       // Settings'deki lastSyncAt güncelle
       await prisma.settings.updateMany({
         data: { lastSyncAt: new Date() },
       });
 
-      // Sync log güncelle
+      // Sync log güncelle (warnings ile birlikte)
       await prisma.syncLog.update({
         where: { id: syncLogId },
         data: {
           status: 'SUCCESS',
           categoriesCount,
           productsCount,
+          imagesDownloaded: imageStats.downloaded,
+          imagesSkipped: imageStats.skipped,
+          imagesFailed: imageStats.failed,
+          warnings: imageStats.warnings.length > 0 ? imageStats.warnings : null,
           completedAt: new Date(),
         },
       });
