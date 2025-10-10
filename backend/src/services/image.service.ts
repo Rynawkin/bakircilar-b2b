@@ -115,6 +115,7 @@ class ImageService {
     productCode: string,
     productGuid: string
   ): Promise<ImageDownloadResult> {
+    const startTime = Date.now();
     try {
       // Mock mode'da çalışma
       if (config.useMockMikro) {
@@ -136,9 +137,12 @@ class ImageService {
       }
 
       // Mikro'ya bağlan
+      const connectStart = Date.now();
       await realMikroService.connect();
+      const connectTime = Date.now() - connectStart;
 
       // Resmi sorgula
+      const queryStart = Date.now();
       const query = `
         SELECT Data, DATALENGTH(Data) as DataSize
         FROM mye_ImageData
@@ -150,8 +154,11 @@ class ImageService {
       request.input('guid', mssql.UniqueIdentifier, productGuid);
 
       const result = await request.query(query);
+      const queryTime = Date.now() - queryStart;
 
       if (result.recordset.length === 0) {
+        const totalTime = Date.now() - startTime;
+        console.log(`⏱️ [${productCode}] Toplam: ${totalTime}ms (bağlan: ${connectTime}ms, sorgu: ${queryTime}ms) - Resim yok`);
         return {
           success: false,
           skipped: true,
@@ -182,16 +189,21 @@ class ImageService {
 
       try {
         // Raw dosyayı kaydet
+        const writeStart = Date.now();
         await fs.writeFile(tempPath, buffer);
+        const writeTime = Date.now() - writeStart;
 
         // 1. İlk deneme: Normal boyut (1200x1200)
         try {
+          const convertStart = Date.now();
           await this.convertWithImageMagick(tempPath, filepath);
+          const convertTime = Date.now() - convertStart;
 
           // Başarılı!
           await fs.unlink(tempPath);
           const stats = await fs.stat(filepath);
-          console.log(`✅ Resim kaydedildi (1200px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+          const totalTime = Date.now() - startTime;
+          console.log(`✅ Resim kaydedildi (1200px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB) - Toplam: ${totalTime}ms (sorgu: ${queryTime}ms, yazma: ${writeTime}ms, convert: ${convertTime}ms)`);
 
           return {
             success: true,
