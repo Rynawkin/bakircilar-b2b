@@ -5,7 +5,6 @@
  */
 
 import mssql from 'mssql';
-import sharp from 'sharp';
 import fs from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
@@ -166,115 +165,80 @@ class ImageService {
 
       const filename = `${productCode}.jpg`;
       const filepath = path.join(this.UPLOAD_DIR, filename);
+      const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
 
-      // 1. Önce Sharp ile dene
       try {
-        // Timeout ile Sharp işlemi
-        const sharpPromise = sharp(buffer)
-          .resize(this.RESIZE_WIDTH, this.RESIZE_HEIGHT, {
-            fit: 'inside',
-            withoutEnlargement: true,
-          })
-          .jpeg({
-            quality: this.QUALITY,
-            progressive: true,
-          })
-          .toFile(filepath);
+        // Raw dosyayı kaydet
+        await fs.writeFile(tempPath, buffer);
 
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Image processing timeout')), this.PROCESSING_TIMEOUT);
-        });
-
-        await Promise.race([sharpPromise, timeoutPromise]);
-
-        // Başarılı!
-        const stats = await fs.stat(filepath);
-        console.log(`✅ Resim kaydedildi (Sharp): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
-
-        return {
-          success: true,
-          localPath: `/uploads/products/${filename}`,
-          size: stats.size,
-        };
-      } catch (sharpError: any) {
-        console.log(`⚠️ Sharp başarısız (${productCode}): ${sharpError.message} - ImageMagick deneniyor...`);
-
-        // 2. Sharp başarısız, ImageMagick dene
-        const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
-
+        // 1. İlk deneme: Normal boyut (1200x1200)
         try {
-          // Önce raw dosyayı kaydet
-          await fs.writeFile(tempPath, buffer);
+          await this.convertWithImageMagick(tempPath, filepath);
 
-          // 2a. İlk deneme: Normal boyut (1200x1200)
+          // Başarılı!
+          await fs.unlink(tempPath);
+          const stats = await fs.stat(filepath);
+          console.log(`✅ Resim kaydedildi (1200px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+
+          return {
+            success: true,
+            localPath: `/uploads/products/${filename}`,
+            size: stats.size,
+          };
+        } catch (firstTryError: any) {
+          console.log(`⚠️ 1200px başarısız (${productCode}), 800px deneniyor...`);
+
+          // 2. İkinci deneme: Küçük boyut (800x800)
           try {
-            await this.convertWithImageMagick(tempPath, filepath);
+            await this.convertWithImageMagick(tempPath, filepath, 800, 800);
 
             // Başarılı!
             await fs.unlink(tempPath);
             const stats = await fs.stat(filepath);
-            console.log(`✅ Resim kaydedildi (ImageMagick): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+            console.log(`✅ Resim kaydedildi (800px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
 
             return {
               success: true,
               localPath: `/uploads/products/${filename}`,
               size: stats.size,
             };
-          } catch (firstTryError: any) {
-            console.log(`⚠️ ImageMagick 1200px başarısız (${productCode}), 800px deneniyor...`);
+          } catch (secondTryError: any) {
+            console.log(`⚠️ 800px başarısız (${productCode}), 600px deneniyor...`);
 
-            // 2b. İkinci deneme: Küçük boyut (800x800)
+            // 3. Son deneme: Çok küçük boyut (600x600)
             try {
-              await this.convertWithImageMagick(tempPath, filepath, 800, 800);
+              await this.convertWithImageMagick(tempPath, filepath, 600, 600);
 
               // Başarılı!
               await fs.unlink(tempPath);
               const stats = await fs.stat(filepath);
-              console.log(`✅ Resim kaydedildi (ImageMagick 800px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+              console.log(`✅ Resim kaydedildi (600px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
 
               return {
                 success: true,
                 localPath: `/uploads/products/${filename}`,
                 size: stats.size,
               };
-            } catch (secondTryError: any) {
-              console.log(`⚠️ ImageMagick 800px başarısız (${productCode}), 600px deneniyor...`);
-
-              // 2c. Son deneme: Çok küçük boyut (600x600)
-              try {
-                await this.convertWithImageMagick(tempPath, filepath, 600, 600);
-
-                // Başarılı!
-                await fs.unlink(tempPath);
-                const stats = await fs.stat(filepath);
-                console.log(`✅ Resim kaydedildi (ImageMagick 600px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
-
-                return {
-                  success: true,
-                  localPath: `/uploads/products/${filename}`,
-                  size: stats.size,
-                };
-              } catch (thirdTryError: any) {
-                // Tüm denemeler başarısız
-                throw thirdTryError;
-              }
+            } catch (thirdTryError: any) {
+              // Tüm denemeler başarısız
+              throw thirdTryError;
             }
           }
-        } catch (imageMagickError: any) {
-          // Temp dosyayı temizle (varsa)
-          try {
-            await fs.unlink(tempPath);
-          } catch {}
-
-          // Tüm yöntemler başarısız
-          console.error(`❌ Tüm yöntemler başarısız (${productCode}):`, imageMagickError.message);
-
-          return {
-            success: false,
-            skipped: true,
-            skipReason: `Resim corrupt veya çok büyük - tüm boyutlar denendi`,
-          };
         }
+      } catch (imageMagickError: any) {
+        // Temp dosyayı temizle (varsa)
+        try {
+          await fs.unlink(tempPath);
+        } catch {}
+
+        // Tüm yöntemler başarısız
+        console.error(`❌ Tüm boyutlar başarısız (${productCode}):`, imageMagickError.message);
+
+        return {
+          success: false,
+          skipped: true,
+          skipReason: `Resim işlenemedi - tüm boyutlar denendi`,
+        };
       }
     } catch (error: any) {
       console.error(`❌ Resim indirme hatası (${productCode}):`, error.message);

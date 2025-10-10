@@ -24,7 +24,8 @@
       "Bash(curl:*)",
       "Bash(ls -la \"(admin)\" \"(customer)\")",
       "Bash(npm run build:*)",
-      "Bash(npx vercel:*)"
+      "Bash(npx vercel:*)",
+      "Bash(npm install)"
     ],
     "deny": [],
     "ask": []
