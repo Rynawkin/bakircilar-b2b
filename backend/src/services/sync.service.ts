@@ -18,6 +18,39 @@ import imageService from './image.service';
 
 class SyncService {
   /**
+   * Tarih string'ini parse et (Türkçe formatı ISO'ya çevir)
+   * Geçersiz tarihler için null döner
+   */
+  private parseDateString(dateStr: string | null | undefined): Date | null {
+    if (!dateStr || dateStr.trim() === '') {
+      return null;
+    }
+
+    // Eğer zaten ISO formatındaysa direkt parse et
+    const isoDate = new Date(dateStr);
+    if (!isNaN(isoDate.getTime())) {
+      return isoDate;
+    }
+
+    // Türkçe format: "22.3.2024" veya "22.03.2024"
+    const parts = dateStr.split('.');
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
+      const year = parseInt(parts[2], 10);
+
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        const parsed = new Date(year, month, day);
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Senkronizasyonu arka planda başlat ve log ID'sini döndür
    */
   async startSync(syncType: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<string> {
@@ -240,6 +273,9 @@ class SyncService {
         .filter((o) => o.productCode === mikroProduct.code && o.type === 'PURCHASE')
         .reduce((sum, o) => sum + o.quantity, 0);
 
+      // Tarihleri parse et
+      const parsedCurrentCostDate = this.parseDateString(mikroProduct.currentCostDate);
+
       // Ürünü upsert et
       await prisma.product.upsert({
         where: { mikroCode: mikroProduct.code },
@@ -250,7 +286,7 @@ class SyncService {
           lastEntryPrice: mikroProduct.lastEntryPrice,
           lastEntryDate: mikroProduct.lastEntryDate,
           currentCost: mikroProduct.currentCost,
-          currentCostDate: mikroProduct.currentCostDate || null,
+          currentCostDate: parsedCurrentCostDate,
           vatRate: mikroProduct.vatRate,
           warehouseStocks: warehouseStocksJson,
           salesHistory: salesHistoryJson,
@@ -266,7 +302,7 @@ class SyncService {
           lastEntryPrice: mikroProduct.lastEntryPrice,
           lastEntryDate: mikroProduct.lastEntryDate,
           currentCost: mikroProduct.currentCost,
-          currentCostDate: mikroProduct.currentCostDate || null,
+          currentCostDate: parsedCurrentCostDate,
           vatRate: mikroProduct.vatRate,
           warehouseStocks: warehouseStocksJson,
           salesHistory: salesHistoryJson,
