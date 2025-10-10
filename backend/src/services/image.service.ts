@@ -303,6 +303,11 @@ class ImageService {
       } else if (result.skipped) {
         stats.skipped++;
 
+        // İlk 10 skip'i logla (debug için)
+        if (stats.skipped <= 10) {
+          console.log(`⏭️ Resim atlandı (${product.mikroCode}): ${result.skipReason}`);
+        }
+
         // Uyarı ekle (sadece boyut nedeniyle atlananlar için)
         if (result.size && result.size > this.MAX_IMAGE_SIZE) {
           stats.warnings.push({
