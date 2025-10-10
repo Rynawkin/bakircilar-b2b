@@ -198,9 +198,8 @@ class SyncService {
    * Ürünleri Mikro'dan çek ve sync et
    */
   private async syncProducts(): Promise<number> {
-    const [mikroProducts, warehouseStocks, salesHistory, pendingOrders] = await Promise.all([
+    const [mikroProducts, salesHistory, pendingOrders] = await Promise.all([
       mikroService.getProducts(),
-      mikroService.getWarehouseStocks(),
       mikroService.getSalesHistory(),
       mikroService.getPendingOrders(),
     ]);
@@ -218,12 +217,8 @@ class SyncService {
         continue;
       }
 
-      // Ürünün stok bilgilerini topla
-      const productStocks = warehouseStocks.filter((s) => s.productCode === mikroProduct.code);
-      const warehouseStocksJson: Record<string, number> = {};
-      productStocks.forEach((s) => {
-        warehouseStocksJson[s.warehouseCode] = s.quantity;
-      });
+      // Depo stokları zaten mikroProduct.warehouseStocks içinde geliyor
+      const warehouseStocksJson = mikroProduct.warehouseStocks || {};
 
       // Satış geçmişini topla
       const productSales = salesHistory.filter((s) => s.productCode === mikroProduct.code);

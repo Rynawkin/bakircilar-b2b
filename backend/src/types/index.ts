@@ -55,6 +55,7 @@ export interface MikroProduct {
   currentCost?: number;
   currentCostDate?: Date;
   guid?: string; // Resim çekmek için GUID gerekli (optional for mock)
+  warehouseStocks?: Record<string, number>; // Depo bazlı stoklar (getProducts()'tan geliyor)
 }
 
 export interface MikroWarehouseStock {
