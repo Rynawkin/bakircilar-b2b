@@ -102,16 +102,46 @@ class StockService {
   /**
    * Tüm ürünler için fazla stok hesapla
    */
-  async calculateExcessStockForAllProducts(): Promise<number> {
+  async calculateExcessStockForAllProducts(syncLogId?: string): Promise<number> {
     const products = await prisma.product.findMany({
       where: { active: true },
     });
 
+    const totalProducts = products.length;
     let count = 0;
+
+    // SyncLog'a toplam stok hesaplama sayısını kaydet
+    if (syncLogId) {
+      await prisma.syncLog.update({
+        where: { id: syncLogId },
+        data: {
+          details: {
+            totalStocksToCalculate: totalProducts,
+          },
+        },
+      });
+    }
 
     for (const product of products) {
       await this.calculateExcessStock(product.id);
       count++;
+
+      // Her 100 üründe bir SyncLog'u güncelle
+      if (syncLogId && count % 100 === 0) {
+        try {
+          await prisma.syncLog.update({
+            where: { id: syncLogId },
+            data: {
+              details: {
+                totalStocksToCalculate: totalProducts,
+                stocksCalculated: count,
+              },
+            },
+          });
+        } catch (error) {
+          console.error('SyncLog güncelleme hatası (stock):', error);
+        }
+      }
     }
 
     return count;

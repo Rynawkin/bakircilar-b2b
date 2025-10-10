@@ -159,18 +159,47 @@ export class AdminController {
 
   /**
    * GET /api/admin/products
+   * Detaylı ürün listesi - filtreleme ve sıralama ile
    */
   async getProducts(req: Request, res: Response, next: NextFunction) {
     try {
-      const { search } = req.query;
+      const {
+        search,
+        hasImage,
+        categoryId,
+        sortBy = 'name',
+        sortOrder = 'asc'
+      } = req.query;
 
       const where: any = { active: true };
 
+      // Arama filtresi
       if (search) {
         where.OR = [
           { name: { contains: search as string, mode: 'insensitive' } },
           { mikroCode: { contains: search as string, mode: 'insensitive' } },
         ];
+      }
+
+      // Resim filtresi
+      if (hasImage === 'true') {
+        where.imageUrl = { not: null };
+      } else if (hasImage === 'false') {
+        where.imageUrl = null;
+      }
+
+      // Kategori filtresi
+      if (categoryId) {
+        where.categoryId = categoryId as string;
+      }
+
+      // Sıralama ayarları
+      const orderBy: any = {};
+      const validSortFields = ['name', 'mikroCode', 'excessStock', 'lastEntryDate', 'currentCost'];
+      if (validSortFields.includes(sortBy as string)) {
+        orderBy[sortBy as string] = sortOrder === 'desc' ? 'desc' : 'asc';
+      } else {
+        orderBy.name = 'asc'; // default
       }
 
       const products = await prisma.product.findMany({
@@ -181,7 +210,16 @@ export class AdminController {
           mikroCode: true,
           unit: true,
           excessStock: true,
+          warehouseStocks: true,
+          warehouseExcessStocks: true,
+          lastEntryPrice: true,
+          lastEntryDate: true,
+          currentCost: true,
+          currentCostDate: true,
+          calculatedCost: true,
+          vatRate: true,
           prices: true,
+          imageUrl: true,
           category: {
             select: {
               id: true,
@@ -189,12 +227,21 @@ export class AdminController {
             },
           },
         },
-        orderBy: {
-          name: 'asc',
-        },
+        orderBy,
       });
 
-      res.json({ products });
+      // Toplam stok hesapla (tüm depolar)
+      const productsWithTotalStock = products.map(product => {
+        const warehouseStocks = product.warehouseStocks as Record<string, number> || {};
+        const totalStock = Object.values(warehouseStocks).reduce((sum, val) => sum + val, 0);
+
+        return {
+          ...product,
+          totalStock,
+        };
+      });
+
+      res.json({ products: productsWithTotalStock });
     } catch (error) {
       next(error);
     }

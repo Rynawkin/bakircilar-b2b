@@ -158,7 +158,8 @@ class ImageService {
    * Tüm ürünlerin resimlerini sync et (sadece resmi olmayanlara)
    */
   async syncAllImages(
-    products: Array<{ id: string; mikroCode: string; name: string; guid: string; imageUrl: string | null }>
+    products: Array<{ id: string; mikroCode: string; name: string; guid: string; imageUrl: string | null }>,
+    syncLogId?: string
   ): Promise<ImageSyncStats> {
     await this.ensureUploadDir();
 
@@ -171,8 +172,22 @@ class ImageService {
 
     // Sadece resmi olmayan ürünleri al
     const productsWithoutImage = products.filter(p => !p.imageUrl);
+    const totalImages = productsWithoutImage.length;
 
-    console.log(`\n📸 Resim senkronizasyonu başlıyor: ${productsWithoutImage.length} ürün`);
+    console.log(`\n📸 Resim senkronizasyonu başlıyor: ${totalImages} ürün`);
+
+    // SyncLog'a toplam resim sayısını kaydet
+    if (syncLogId) {
+      const { prisma } = await import('../utils/prisma');
+      await prisma.syncLog.update({
+        where: { id: syncLogId },
+        data: {
+          details: {
+            totalImages,
+          },
+        },
+      });
+    }
 
     for (const product of productsWithoutImage) {
       const result = await this.downloadImageFromMikro(product.mikroCode, product.guid);
@@ -217,9 +232,28 @@ class ImageService {
         }
       }
 
-      // Her 50 üründe bir progress göster
-      if ((stats.downloaded + stats.skipped + stats.failed) % 50 === 0) {
+      // Her 10 üründe bir progress göster ve SyncLog'u güncelle
+      const processed = stats.downloaded + stats.skipped + stats.failed;
+      if (processed % 10 === 0) {
         console.log(`  📊 İlerleme: ${stats.downloaded} indirildi, ${stats.skipped} atlandı, ${stats.failed} hata`);
+
+        // SyncLog'u güncelle
+        if (syncLogId) {
+          try {
+            const { prisma } = await import('../utils/prisma');
+            await prisma.syncLog.update({
+              where: { id: syncLogId },
+              data: {
+                imagesDownloaded: stats.downloaded,
+                imagesSkipped: stats.skipped,
+                imagesFailed: stats.failed,
+              },
+            });
+          } catch (error) {
+            // Güncelleme hatasını logla ama devam et
+            console.error('SyncLog güncelleme hatası:', error);
+          }
+        }
       }
     }
 

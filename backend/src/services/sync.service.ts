@@ -119,11 +119,11 @@ class SyncService {
       });
 
       // 3. Fazla stok hesapla
-      await stockService.calculateExcessStockForAllProducts();
+      await stockService.calculateExcessStockForAllProducts(syncLogId);
       console.log('✅ Fazla stoklar hesaplandı');
 
       // 4. Fiyatları hesapla
-      const pricesCount = await pricingService.recalculateAllPrices();
+      const pricesCount = await pricingService.recalculateAllPrices(syncLogId);
       console.log(`✅ ${pricesCount} ürün için fiyatlar hesaplandı`);
 
       // 5. Resimleri sync et (sadece resmi olmayanlara)
@@ -153,7 +153,7 @@ class SyncService {
         }))
         .filter(p => p.guid); // GUID olmayanlari atla
 
-      const imageStats = await imageService.syncAllImages(productsWithGuid as any);
+      const imageStats = await imageService.syncAllImages(productsWithGuid as any, syncLogId);
 
       // Settings'deki lastSyncAt güncelle
       await prisma.settings.updateMany({

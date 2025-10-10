@@ -252,7 +252,7 @@ class PricingService {
   /**
    * Tüm ürünler için fiyatları yeniden hesapla
    */
-  async recalculateAllPrices(): Promise<number> {
+  async recalculateAllPrices(syncLogId?: string): Promise<number> {
     const products = await prisma.product.findMany({
       where: { active: true },
     });
@@ -262,7 +262,20 @@ class PricingService {
       throw new Error('Settings not found');
     }
 
+    const totalProducts = products.length;
     let updatedCount = 0;
+
+    // SyncLog'a toplam fiyat hesaplama sayısını kaydet
+    if (syncLogId) {
+      await prisma.syncLog.update({
+        where: { id: syncLogId },
+        data: {
+          details: {
+            totalPricesToCalculate: totalProducts,
+          },
+        },
+      });
+    }
 
     for (const product of products) {
       const cost = this.calculateCost({
@@ -289,6 +302,23 @@ class PricingService {
       });
 
       updatedCount++;
+
+      // Her 100 üründe bir SyncLog'u güncelle
+      if (syncLogId && updatedCount % 100 === 0) {
+        try {
+          await prisma.syncLog.update({
+            where: { id: syncLogId },
+            data: {
+              details: {
+                totalPricesToCalculate: totalProducts,
+                pricesCalculated: updatedCount,
+              },
+            },
+          });
+        } catch (error) {
+          console.error('SyncLog güncelleme hatası (pricing):', error);
+        }
+      }
     }
 
     return updatedCount;
