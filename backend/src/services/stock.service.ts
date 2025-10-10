@@ -9,11 +9,13 @@ import mikroService from './mikroFactory.service';
 
 class StockService {
   /**
-   * Fazla stok hesapla (hem toplam hem depo bazlı)
+   * Fazla stok hesapla
    *
    * Formül:
-   * Depo Fazla Stok = (Depo Stoku) - (Depo için aylık satış ort. * depo stok oranı) +
-   *                   (Bekleyen alımlar * oran) - (Bekleyen satışlar * oran)
+   * Fazla Stok = Toplam Stok - (Aylık Ortalama × Periyot) - Bekleyen Müşteri Siparişleri
+   *
+   * Örnek: 100 stok, aylık 20, 3 ay periyot:
+   * → Fazla Stok = 100 - (20 × 3) - 0 = 40 adet
    */
   async calculateExcessStock(productId: string): Promise<number> {
     const product = await prisma.product.findUnique({
@@ -35,59 +37,46 @@ class StockService {
     const warehouseStocks = product.warehouseStocks as Record<string, number>;
     const salesHistory = product.salesHistory as Record<string, number>;
 
-    // X aylık satış ortalaması (toplam)
-    const averageMonthlySales = this.calculateAverageSales(
-      salesHistory,
-      calculationPeriodMonths
-    );
-
-    // Bekleyen siparişler
-    const pendingPurchase = product.pendingPurchaseOrders;
-    const pendingCustomer = product.pendingCustomerOrders;
-
     // 1. Toplam stok hesapla (sadece included warehouses)
     const totalStock = includedWarehouses.reduce((sum, warehouse) => {
       return sum + (warehouseStocks[warehouse] || 0);
     }, 0);
 
-    // 2. Her depo için fazla stok hesapla
+    // 2. Aylık ortalama satış hesapla
+    const averageMonthlySales = this.calculateAverageSales(
+      salesHistory,
+      calculationPeriodMonths
+    );
+
+    // 3. Bekleyen müşteri siparişleri
+    const pendingCustomer = product.pendingCustomerOrders || 0;
+
+    // 4. Fazla stok hesapla
+    // Fazla Stok = Toplam Stok - (Aylık Ortalama × Periyot) - Bekleyen Müşteri Siparişleri
+    let excessStock = totalStock - (averageMonthlySales * calculationPeriodMonths) - pendingCustomer;
+
+    // 5. Negatif ise 0 yap
+    excessStock = Math.max(0, excessStock);
+
+    // 6. Minimum eşik kontrolü
+    const finalExcessStock = excessStock >= minimumExcessThreshold ? excessStock : 0;
+
+    // 7. Depo bazlı fazla stok hesapla (oransal dağıtım)
     const warehouseExcessStocks: Record<string, number> = {};
-    let totalExcessStock = 0;
 
-    for (const warehouse of includedWarehouses) {
-      const warehouseStock = warehouseStocks[warehouse] || 0;
-
-      // Bu deponun toplam stok içindeki oranı
-      const warehouseRatio = totalStock > 0 ? warehouseStock / totalStock : 0;
-
-      // Bu depoya düşen satış ortalaması
-      const warehouseSalesAvg = Math.ceil(averageMonthlySales * warehouseRatio);
-
-      // Bu depoya düşen bekleyen siparişler
-      const warehousePendingPurchase = Math.ceil(pendingPurchase * warehouseRatio);
-      const warehousePendingCustomer = Math.ceil(pendingCustomer * warehouseRatio);
-
-      // Depo fazla stok hesapla
-      let warehouseExcess = warehouseStock - warehouseSalesAvg + warehousePendingPurchase - warehousePendingCustomer;
-
-      // Negatif ise 0 yap
-      warehouseExcess = Math.max(0, warehouseExcess);
-
-      warehouseExcessStocks[warehouse] = warehouseExcess;
-      totalExcessStock += warehouseExcess;
-    }
-
-    // 3. Minimum eşik kontrolü
-    const finalExcessStock = totalExcessStock >= minimumExcessThreshold ? totalExcessStock : 0;
-
-    // Eğer toplam fazla stok 0 ise, tüm depo fazla stokları da 0 yap
-    if (finalExcessStock === 0) {
+    if (finalExcessStock > 0 && totalStock > 0) {
+      for (const warehouse of includedWarehouses) {
+        const warehouseStock = warehouseStocks[warehouse] || 0;
+        const warehouseRatio = warehouseStock / totalStock;
+        warehouseExcessStocks[warehouse] = Math.floor(finalExcessStock * warehouseRatio);
+      }
+    } else {
       for (const warehouse of includedWarehouses) {
         warehouseExcessStocks[warehouse] = 0;
       }
     }
 
-    // 4. Veritabanını güncelle
+    // 8. Veritabanını güncelle
     await prisma.product.update({
       where: { id: productId },
       data: {
@@ -149,34 +138,30 @@ class StockService {
 
   /**
    * Ortalama aylık satış hesapla
+   *
+   * Toplam satış / Periyot (ay sayısı)
+   * Satış olmayan aylar da hesaba katılır (0 olarak)
    */
   private calculateAverageSales(
     salesHistory: Record<string, number>,
     periodMonths: number
   ): number {
     const now = new Date();
-    const entries = Object.entries(salesHistory);
 
     // Son X ayın satışlarını topla
     let totalSales = 0;
-    let monthsWithSales = 0;
 
     for (let i = 0; i < periodMonths; i++) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
 
-      if (salesHistory[key]) {
-        totalSales += salesHistory[key];
-        monthsWithSales++;
-      }
+      // Satış varsa ekle, yoksa 0 olarak hesaba kat
+      totalSales += salesHistory[key] || 0;
     }
 
-    // Ortalama hesapla
-    if (monthsWithSales === 0) {
-      return 0;
-    }
-
-    return Math.ceil(totalSales / monthsWithSales);
+    // Ortalama = Toplam Satış / Periyot
+    // Periyot 0 olamaz çünkü settings'den gelir
+    return Math.ceil(totalSales / periodMonths);
   }
 
   /**

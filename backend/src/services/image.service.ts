@@ -39,6 +39,7 @@ class ImageService {
   private readonly RESIZE_HEIGHT = 1200;
   private readonly QUALITY = 85;
   private readonly UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'products');
+  private readonly PROCESSING_TIMEOUT = 10000; // 10 saniye timeout
 
   /**
    * Upload klasörünü oluştur
@@ -124,7 +125,8 @@ class ImageService {
       const filename = `${productCode}.jpg`;
       const filepath = path.join(this.UPLOAD_DIR, filename);
 
-      await sharp(buffer)
+      // Timeout ile Sharp işlemi
+      const sharpPromise = sharp(buffer)
         .resize(this.RESIZE_WIDTH, this.RESIZE_HEIGHT, {
           fit: 'inside',
           withoutEnlargement: true, // Küçük resimleri büyütme
@@ -134,6 +136,13 @@ class ImageService {
           progressive: true,
         })
         .toFile(filepath);
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Image processing timeout')), this.PROCESSING_TIMEOUT);
+      });
+
+      // Ya Sharp biter ya da timeout olur
+      await Promise.race([sharpPromise, timeoutPromise]);
 
       // Dosya boyutunu kontrol et
       const stats = await fs.stat(filepath);
@@ -146,6 +155,15 @@ class ImageService {
         size: stats.size,
       };
     } catch (error: any) {
+      // Timeout hatası
+      if (error.message && error.message.includes('timeout')) {
+        return {
+          success: false,
+          skipped: true,
+          skipReason: 'İşlem zaman aşımı (10 saniye) - Çok büyük veya bozuk resim',
+        };
+      }
+
       // Desteklenmeyen format hatalarını "skipped" olarak işaretle
       if (error.message && (
         error.message.includes('unsupported image format') ||
