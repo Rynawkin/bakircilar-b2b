@@ -127,7 +127,7 @@ class SyncService {
           imagesDownloaded: imageStats.downloaded,
           imagesSkipped: imageStats.skipped,
           imagesFailed: imageStats.failed,
-          warnings: imageStats.warnings.length > 0 ? imageStats.warnings : null,
+          warnings: imageStats.warnings.length > 0 ? imageStats.warnings : undefined,
           completedAt: new Date(),
         },
       });
