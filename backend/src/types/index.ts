@@ -53,7 +53,7 @@ export interface MikroProduct {
   lastEntryPrice?: number;
   lastEntryDate?: Date;
   currentCost?: number;
-  currentCostDate?: Date;
+  currentCostDate?: string | Date; // SQL'den string olarak geliyor (Türkçe format)
   guid?: string; // Resim çekmek için GUID gerekli (optional for mock)
   warehouseStocks?: Record<string, number>; // Depo bazlı stoklar (getProducts()'tan geliyor)
 }
