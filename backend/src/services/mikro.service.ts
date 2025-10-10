@@ -207,29 +207,41 @@ class MikroService {
 
   /**
    * Satış geçmişi (son 6 ay)
-   * sth_tip: 1=Çıkış (Satış)
-   * Sadece aktif ürünler
+   * F10 sorgusundan alınan doğru mantık:
+   * - Sadece İrsaliyeli (evraktip=4) veya Faturalı (evraktip=1 + fat_uid dolu) satışlar
+   * - Sadece belirli sektör kodlarına sahip carilerle yapılan satışlar
    */
   async getSalesHistory(): Promise<MikroSalesMovement[]> {
     await this.connect();
 
-    const { SALES_MOVEMENTS, SALES_MOVEMENTS_COLUMNS, PRODUCTS, PRODUCTS_COLUMNS } = MIKRO_TABLES;
-
     const query = `
       SELECT
-        sh.${SALES_MOVEMENTS_COLUMNS.PRODUCT_CODE} as productCode,
-        YEAR(sh.${SALES_MOVEMENTS_COLUMNS.DATE}) as year,
-        MONTH(sh.${SALES_MOVEMENTS_COLUMNS.DATE}) as month,
-        SUM(sh.${SALES_MOVEMENTS_COLUMNS.QUANTITY}) as totalQuantity
-      FROM ${SALES_MOVEMENTS} sh
-      INNER JOIN ${PRODUCTS} s ON sh.${SALES_MOVEMENTS_COLUMNS.PRODUCT_CODE} = s.${PRODUCTS_COLUMNS.CODE}
-      WHERE sh.${SALES_MOVEMENTS_COLUMNS.DATE} >= DATEADD(MONTH, -6, GETDATE())
-        AND sh.${SALES_MOVEMENTS_COLUMNS.MOVEMENT_TYPE} = 1
-        AND s.${PRODUCTS_COLUMNS.PASSIVE} = 0
+        sth_stok_kod as productCode,
+        YEAR(sth_tarih) as year,
+        MONTH(sth_tarih) as month,
+        SUM(sth_miktar) as totalQuantity
+      FROM STOK_HAREKETLERI
+      WHERE
+        -- Satış hareketleri (tip=1)
+        sth_tip = 1
+        -- İrsaliyeli VEYA Faturalı satışlar
+        AND (
+          (sth_evraktip = 4)
+          OR
+          (sth_evraktip = 1 AND sth_fat_uid != '00000000-0000-0000-0000-000000000000')
+        )
+        -- Belirli sektör kodlarına sahip carilerle yapılan satışlar
+        AND (
+          SELECT cari_sektor_kodu
+          FROM CARI_HESAPLAR
+          WHERE cari_kod = sth_cari_kodu
+        ) IN ('İNTERNET','HENDEK','HUKUKİ','İPTAL EDİLECEK CARİ','ERHAN','TOPÇA','BÜŞRA','ENSAR','SATICI BARTIR','BETÜL','HAVUZ','ERTANE','MERVE','SELDA','SORUNLU CARİ')
+        -- Son 6 ay
+        AND sth_tarih >= DATEADD(MONTH, -6, GETDATE())
       GROUP BY
-        sh.${SALES_MOVEMENTS_COLUMNS.PRODUCT_CODE},
-        YEAR(sh.${SALES_MOVEMENTS_COLUMNS.DATE}),
-        MONTH(sh.${SALES_MOVEMENTS_COLUMNS.DATE})
+        sth_stok_kod,
+        YEAR(sth_tarih),
+        MONTH(sth_tarih)
     `;
 
     const result = await this.pool!.request().query(query);
