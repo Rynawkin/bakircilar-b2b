@@ -111,6 +111,7 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: state.isAuthenticated,
         lastActivity: state.lastActivity,
       }),
+      skipHydration: false, // Otomatik hydration aktif
     }
   )
 );
