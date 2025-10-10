@@ -90,7 +90,18 @@ export default function AdminDashboardPage() {
         if (status.isCompleted) {
           clearInterval(pollInterval);
           setIsSyncing(false);
-          setSyncProgress(null);
+          // DON'T clear syncProgress - keep final stats visible!
+          // setSyncProgress(null);
+
+          // Update with final stats
+          setSyncProgress({
+            categoriesCount: status.categoriesCount,
+            productsCount: status.productsCount,
+            imagesDownloaded: status.imagesDownloaded,
+            imagesSkipped: status.imagesSkipped,
+            imagesFailed: status.imagesFailed,
+            details: status.details,
+          });
 
           if (status.status === 'SUCCESS') {
             // Store warnings if any
@@ -112,7 +123,7 @@ export default function AdminDashboardPage() {
             }
 
             toast.success(successMessage, {
-              duration: 7000,
+              duration: 10000, // 10 saniye göster
             });
             fetchStats();
           } else if (status.status === 'FAILED') {
@@ -126,22 +137,20 @@ export default function AdminDashboardPage() {
         }
       } catch (error) {
         console.error('Sync status polling error:', error);
-        clearInterval(pollInterval);
-        setIsSyncing(false);
-        setSyncProgress(null);
-        toast.error('Senkronizasyon durumu alınamadı');
+        // DON'T clear interval on first error - backend might be busy
+        // We'll let the timeout handle it
       }
-    }, 2000); // Poll every 2 seconds
+    }, 3000); // Poll every 3 seconds (reduce server load)
 
-    // Cleanup after 10 minutes (safety timeout)
+    // Cleanup after 30 minutes (safety timeout - resimler uzun sürebilir)
     setTimeout(() => {
       clearInterval(pollInterval);
       if (isSyncing) {
         setIsSyncing(false);
-        setSyncProgress(null);
-        toast.error('Senkronizasyon zaman aşımına uğradı');
+        // Keep last known progress visible
+        toast.error('⏰ Senkronizasyon çok uzun sürdü. Backend loglarını kontrol edin.');
       }
-    }, 600000);
+    }, 1800000); // 30 dakika
   };
 
   const handleCariSync = async () => {
@@ -451,39 +460,51 @@ export default function AdminDashboardPage() {
               </div>
             )}
             {syncProgress && (
-              <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded mb-3 text-sm">
+              <div className={`${isSyncing ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200'} border px-3 py-2 rounded mb-3 text-sm`}>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600"></div>
-                  <span className="font-semibold text-blue-900">Senkronizasyon devam ediyor...</span>
+                  {isSyncing && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600"></div>}
+                  {!isSyncing && <span className="text-green-600 text-lg">✅</span>}
+                  <span className={`font-semibold ${isSyncing ? 'text-blue-900' : 'text-green-900'}`}>
+                    {isSyncing ? 'Senkronizasyon devam ediyor...' : 'Son senkronizasyon:'}
+                  </span>
                 </div>
                 {syncProgress.categoriesCount !== undefined && (
                   <div className="text-xs text-gray-700">
-                    ✅ Kategoriler: {syncProgress.categoriesCount}
+                    📁 Kategoriler: <strong>{syncProgress.categoriesCount}</strong>
                   </div>
                 )}
                 {syncProgress.productsCount !== undefined && (
                   <div className="text-xs text-gray-700">
-                    ✅ Ürünler: {syncProgress.productsCount}
+                    📦 Ürünler: <strong>{syncProgress.productsCount}</strong>
                   </div>
                 )}
                 {syncProgress.details?.stocksCalculated !== undefined && (
                   <div className="text-xs text-gray-700">
-                    📊 Fazla stok hesaplama: {syncProgress.details.stocksCalculated} / {syncProgress.details.totalStocksToCalculate || '...'}
+                    📊 Fazla stok: <strong>{syncProgress.details.stocksCalculated}</strong>
+                    {isSyncing && syncProgress.details.totalStocksToCalculate && ` / ${syncProgress.details.totalStocksToCalculate}`}
                   </div>
                 )}
                 {syncProgress.details?.pricesCalculated !== undefined && (
                   <div className="text-xs text-gray-700">
-                    💰 Fiyat hesaplama: {syncProgress.details.pricesCalculated} / {syncProgress.details.totalPricesToCalculate || '...'}
+                    💰 Fiyat hesaplama: <strong>{syncProgress.details.pricesCalculated}</strong>
+                    {isSyncing && syncProgress.details.totalPricesToCalculate && ` / ${syncProgress.details.totalPricesToCalculate}`}
                   </div>
                 )}
                 {(syncProgress.imagesDownloaded !== undefined ||
                   syncProgress.imagesSkipped !== undefined ||
                   syncProgress.imagesFailed !== undefined) && (
-                  <div className="text-xs text-gray-700 mt-1 pt-1 border-t border-blue-200">
-                    📸 Resimler: {syncProgress.imagesDownloaded || 0} / {syncProgress.details?.totalImages || '...'} indirildi
-                    {(syncProgress.imagesSkipped || 0) + (syncProgress.imagesFailed || 0) > 0 &&
-                      ` (${(syncProgress.imagesSkipped || 0) + (syncProgress.imagesFailed || 0)} atlandı)`
-                    }
+                  <div className="text-xs text-gray-700 mt-1 pt-1 border-t border-gray-300">
+                    <div className="font-semibold mb-1">📸 Resimler:</div>
+                    <div className="pl-4 space-y-0.5">
+                      <div>✅ İndirilen: <strong className="text-green-700">{syncProgress.imagesDownloaded || 0}</strong></div>
+                      <div>⏭️ Atlanan: <strong className="text-yellow-700">{syncProgress.imagesSkipped || 0}</strong></div>
+                      <div>❌ Hatalı: <strong className="text-red-700">{syncProgress.imagesFailed || 0}</strong></div>
+                      {syncProgress.details?.totalImages && (
+                        <div className="pt-1 border-t border-gray-200 mt-1">
+                          📊 Toplam: <strong>{syncProgress.details.totalImages}</strong>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
