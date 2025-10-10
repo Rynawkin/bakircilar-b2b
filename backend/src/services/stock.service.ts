@@ -265,6 +265,7 @@ class StockService {
       include: {
         category: {
           select: {
+            id: true,
             name: true,
           },
         },
