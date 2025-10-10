@@ -40,7 +40,7 @@ class ImageService {
   private readonly RESIZE_HEIGHT = 1200;
   private readonly QUALITY = 85;
   private readonly UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'products');
-  private readonly PROCESSING_TIMEOUT = 60000; // 60 saniye timeout (BMP/TIFF için)
+  private readonly PROCESSING_TIMEOUT = 10000; // 10 saniye timeout (Sharp için)
 
   /**
    * Upload klasörünü oluştur
@@ -55,14 +55,26 @@ class ImageService {
   }
 
   /**
-   * ImageMagick ile resmi dönüştür (fallback) - gerçek timeout ile
+   * ImageMagick ile resmi dönüştür (fallback) - güvenli ve optimize
    */
   private async convertWithImageMagick(
     inputPath: string,
-    outputPath: string
+    outputPath: string,
+    width: number = this.RESIZE_WIDTH,
+    height: number = this.RESIZE_HEIGHT
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      const command = `convert "${inputPath}" -resize ${this.RESIZE_WIDTH}x${this.RESIZE_HEIGHT}\\> -quality ${this.QUALITY} "${outputPath}"`;
+      // Güvenli ImageMagick parametreleri:
+      // -limit memory 256MB: Bellек limiti (CPU donmasını önler)
+      // -limit thread 1: Tek thread (daha stabil)
+      // -strip: Metadata kaldır (daha hızlı)
+      // -thumbnail: Daha hızlı resize (resize yerine)
+      const command = `convert "${inputPath}" ` +
+        `-limit memory 256MB -limit thread 1 ` +
+        `-strip ` +
+        `-thumbnail ${width}x${height}\\> ` +
+        `-quality ${this.QUALITY} ` +
+        `"${outputPath}"`;
 
       const childProcess = exec(command, (error, stdout, stderr) => {
         if (error) {
@@ -72,13 +84,12 @@ class ImageService {
         }
       });
 
-      // Timeout: Child process'i kill et
+      // 30 saniye timeout (60 yerine daha kısa)
       const timeout = setTimeout(() => {
-        childProcess.kill('SIGKILL'); // Force kill
-        reject(new Error('ImageMagick timeout - process killed'));
-      }, this.PROCESSING_TIMEOUT);
+        childProcess.kill('SIGKILL');
+        reject(new Error('ImageMagick timeout'));
+      }, 30000);
 
-      // Cleanup
       childProcess.on('exit', () => {
         clearTimeout(timeout);
       });
@@ -189,40 +200,79 @@ class ImageService {
         console.log(`⚠️ Sharp başarısız (${productCode}): ${sharpError.message} - ImageMagick deneniyor...`);
 
         // 2. Sharp başarısız, ImageMagick dene
+        const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
+
         try {
           // Önce raw dosyayı kaydet
-          const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
           await fs.writeFile(tempPath, buffer);
 
-          // ImageMagick ile dönüştür
-          await this.convertWithImageMagick(tempPath, filepath);
+          // 2a. İlk deneme: Normal boyut (1200x1200)
+          try {
+            await this.convertWithImageMagick(tempPath, filepath);
 
-          // Temp dosyayı sil
-          await fs.unlink(tempPath);
+            // Başarılı!
+            await fs.unlink(tempPath);
+            const stats = await fs.stat(filepath);
+            console.log(`✅ Resim kaydedildi (ImageMagick): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
 
-          // Başarılı!
-          const stats = await fs.stat(filepath);
-          console.log(`✅ Resim kaydedildi (ImageMagick): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+            return {
+              success: true,
+              localPath: `/uploads/products/${filename}`,
+              size: stats.size,
+            };
+          } catch (firstTryError: any) {
+            console.log(`⚠️ ImageMagick 1200px başarısız (${productCode}), 800px deneniyor...`);
 
-          return {
-            success: true,
-            localPath: `/uploads/products/${filename}`,
-            size: stats.size,
-          };
+            // 2b. İkinci deneme: Küçük boyut (800x800)
+            try {
+              await this.convertWithImageMagick(tempPath, filepath, 800, 800);
+
+              // Başarılı!
+              await fs.unlink(tempPath);
+              const stats = await fs.stat(filepath);
+              console.log(`✅ Resim kaydedildi (ImageMagick 800px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+
+              return {
+                success: true,
+                localPath: `/uploads/products/${filename}`,
+                size: stats.size,
+              };
+            } catch (secondTryError: any) {
+              console.log(`⚠️ ImageMagick 800px başarısız (${productCode}), 600px deneniyor...`);
+
+              // 2c. Son deneme: Çok küçük boyut (600x600)
+              try {
+                await this.convertWithImageMagick(tempPath, filepath, 600, 600);
+
+                // Başarılı!
+                await fs.unlink(tempPath);
+                const stats = await fs.stat(filepath);
+                console.log(`✅ Resim kaydedildi (ImageMagick 600px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
+
+                return {
+                  success: true,
+                  localPath: `/uploads/products/${filename}`,
+                  size: stats.size,
+                };
+              } catch (thirdTryError: any) {
+                // Tüm denemeler başarısız
+                throw thirdTryError;
+              }
+            }
+          }
         } catch (imageMagickError: any) {
           // Temp dosyayı temizle (varsa)
           try {
-            const tempPath = path.join(this.UPLOAD_DIR, `${productCode}.tmp`);
             await fs.unlink(tempPath);
           } catch {}
 
-          // Her iki yöntem de başarısız
+          // Tüm yöntemler başarısız
           console.error(`❌ Tüm yöntemler başarısız (${productCode}):`, imageMagickError.message);
 
           return {
             success: false,
             skipped: true,
-            skipReason: `Format dönüştürme başarısız: ${imageMagickError.message}`,
+            skipReason: `Resim corrupt veya çok büyük - tüm boyutlar denendi`,
           };
         }
       }
