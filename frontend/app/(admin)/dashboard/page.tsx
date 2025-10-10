@@ -24,6 +24,13 @@ export default function AdminDashboardPage() {
     imagesDownloaded?: number;
     imagesSkipped?: number;
     imagesFailed?: number;
+    details?: {
+      totalImages?: number;
+      totalPricesToCalculate?: number;
+      pricesCalculated?: number;
+      totalStocksToCalculate?: number;
+      stocksCalculated?: number;
+    };
   } | null>(null);
   const [syncWarnings, setSyncWarnings] = useState<Array<{
     type: string;
@@ -76,6 +83,7 @@ export default function AdminDashboardPage() {
           imagesDownloaded: status.imagesDownloaded,
           imagesSkipped: status.imagesSkipped,
           imagesFailed: status.imagesFailed,
+          details: status.details,
         });
 
         // Check if completed
@@ -458,13 +466,23 @@ export default function AdminDashboardPage() {
                     ✅ Ürünler: {syncProgress.productsCount}
                   </div>
                 )}
+                {syncProgress.details?.stocksCalculated !== undefined && (
+                  <div className="text-xs text-gray-700">
+                    📊 Fazla stok hesaplama: {syncProgress.details.stocksCalculated} / {syncProgress.details.totalStocksToCalculate || '...'}
+                  </div>
+                )}
+                {syncProgress.details?.pricesCalculated !== undefined && (
+                  <div className="text-xs text-gray-700">
+                    💰 Fiyat hesaplama: {syncProgress.details.pricesCalculated} / {syncProgress.details.totalPricesToCalculate || '...'}
+                  </div>
+                )}
                 {(syncProgress.imagesDownloaded !== undefined ||
                   syncProgress.imagesSkipped !== undefined ||
                   syncProgress.imagesFailed !== undefined) && (
                   <div className="text-xs text-gray-700 mt-1 pt-1 border-t border-blue-200">
-                    📸 Resimler: {syncProgress.imagesDownloaded || 0} indirildi
+                    📸 Resimler: {syncProgress.imagesDownloaded || 0} / {syncProgress.details?.totalImages || '...'} indirildi
                     {(syncProgress.imagesSkipped || 0) + (syncProgress.imagesFailed || 0) > 0 &&
-                      `, ${(syncProgress.imagesSkipped || 0) + (syncProgress.imagesFailed || 0)} atlandı`
+                      ` (${(syncProgress.imagesSkipped || 0) + (syncProgress.imagesFailed || 0)} atlandı)`
                     }
                   </div>
                 )}

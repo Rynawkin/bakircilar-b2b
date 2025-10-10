@@ -194,6 +194,13 @@ export interface SyncStatus {
   imagesSkipped?: number;
   imagesFailed?: number;
   errorMessage?: string;
+  details?: {
+    totalImages?: number;
+    totalPricesToCalculate?: number;
+    pricesCalculated?: number;
+    totalStocksToCalculate?: number;
+    stocksCalculated?: number;
+  };
   warnings?: Array<{
     type: string;
     productCode: string;

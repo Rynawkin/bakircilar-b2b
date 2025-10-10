@@ -118,6 +118,7 @@ export class AdminController {
         imagesDownloaded: syncLog.imagesDownloaded,
         imagesSkipped: syncLog.imagesSkipped,
         imagesFailed: syncLog.imagesFailed,
+        details: syncLog.details,
         warnings: syncLog.warnings,
         errorMessage: syncLog.errorMessage,
         isRunning,
