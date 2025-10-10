@@ -9,11 +9,8 @@ import sharp from 'sharp';
 import fs from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
-import { promisify } from 'util';
 import { config } from '../config';
 import mikroService from './mikroFactory.service';
-
-const execPromise = promisify(exec);
 
 interface ImageDownloadResult {
   success: boolean;
@@ -58,15 +55,34 @@ class ImageService {
   }
 
   /**
-   * ImageMagick ile resmi dönüştür (fallback)
+   * ImageMagick ile resmi dönüştür (fallback) - gerçek timeout ile
    */
   private async convertWithImageMagick(
     inputPath: string,
     outputPath: string
   ): Promise<void> {
-    const command = `convert "${inputPath}" -resize ${this.RESIZE_WIDTH}x${this.RESIZE_HEIGHT}\\> -quality ${this.QUALITY} "${outputPath}"`;
+    return new Promise((resolve, reject) => {
+      const command = `convert "${inputPath}" -resize ${this.RESIZE_WIDTH}x${this.RESIZE_HEIGHT}\\> -quality ${this.QUALITY} "${outputPath}"`;
 
-    await execPromise(command, { timeout: this.PROCESSING_TIMEOUT });
+      const childProcess = exec(command, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+
+      // Timeout: Child process'i kill et
+      const timeout = setTimeout(() => {
+        childProcess.kill('SIGKILL'); // Force kill
+        reject(new Error('ImageMagick timeout - process killed'));
+      }, this.PROCESSING_TIMEOUT);
+
+      // Cleanup
+      childProcess.on('exit', () => {
+        clearTimeout(timeout);
+      });
+    });
   }
 
   /**
