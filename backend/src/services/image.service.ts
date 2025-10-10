@@ -40,7 +40,7 @@ class ImageService {
   private readonly RESIZE_HEIGHT = 1200;
   private readonly QUALITY = 85;
   private readonly UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'products');
-  private readonly PROCESSING_TIMEOUT = 10000; // 10 saniye timeout
+  private readonly PROCESSING_TIMEOUT = 60000; // 60 saniye timeout (BMP/TIFF için)
 
   /**
    * Upload klasörünü oluştur
