@@ -204,7 +204,10 @@ class SyncService {
       mikroService.getPendingOrders(),
     ]);
 
+    console.log(`📊 Mikro'dan ${mikroProducts.length} ürün çekildi`);
+
     let count = 0;
+    let skippedNoCategory = 0;
 
     for (const mikroProduct of mikroProducts) {
       // Kategorisini bul

@@ -16,7 +16,14 @@
       "Bash(find:*)",
       "Bash(node:*)",
       "Bash(npx prisma migrate dev:*)",
-      "Read(//c/Users/QP/Desktop/**)"
+      "Read(//c/Users/QP/Desktop/**)",
+      "Bash(curl -X POST http://139.59.133.81:5000/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"email\"\":\"\"admin@bakircilar.com\"\",\"\"password\"\":\"\"admin123\"\"}' -i)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git rm:*)",
+      "Bash(curl:*)",
+      "Bash(ls -la \"(admin)\" \"(customer)\")",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []
