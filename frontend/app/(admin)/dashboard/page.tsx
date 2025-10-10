@@ -17,6 +17,10 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{
+    categoriesCount?: number;
+    productsCount?: number;
+  } | null>(null);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -40,6 +44,55 @@ export default function AdminDashboardPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const pollSyncStatus = async (syncLogId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await adminApi.getSyncStatus(syncLogId);
+
+        // Update progress
+        setSyncProgress({
+          categoriesCount: status.categoriesCount,
+          productsCount: status.productsCount,
+        });
+
+        // Check if completed
+        if (status.isCompleted) {
+          clearInterval(pollInterval);
+          setIsSyncing(false);
+          setSyncProgress(null);
+
+          if (status.status === 'SUCCESS') {
+            toast.success(
+              `Senkronizasyon tamamlandı! 🎉\n\nKategoriler: ${status.categoriesCount || 0}\nÜrünler: ${status.productsCount || 0}`,
+              {
+                duration: 5000,
+              }
+            );
+            fetchStats();
+          } else if (status.status === 'FAILED') {
+            toast.error(`Senkronizasyon başarısız: ${status.errorMessage || 'Bilinmeyen hata'}`);
+          }
+        }
+      } catch (error) {
+        console.error('Sync status polling error:', error);
+        clearInterval(pollInterval);
+        setIsSyncing(false);
+        setSyncProgress(null);
+        toast.error('Senkronizasyon durumu alınamadı');
+      }
+    }, 2000); // Poll every 2 seconds
+
+    // Cleanup after 10 minutes (safety timeout)
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (isSyncing) {
+        setIsSyncing(false);
+        setSyncProgress(null);
+        toast.error('Senkronizasyon zaman aşımına uğradı');
+      }
+    }, 600000);
   };
 
   const handleSync = async () => {
@@ -77,19 +130,17 @@ export default function AdminDashboardPage() {
     if (!confirmed) return;
 
     setIsSyncing(true);
+    setSyncProgress(null);
+
     try {
       const result = await adminApi.triggerSync();
-      toast.success(
-        `Senkronizasyon tamamlandı! 🎉\n\nKategoriler: ${result.stats.categoriesUpdated}\nÜrünler: ${result.stats.productsUpdated}\nFiyatlar: ${result.stats.pricesCalculated}`,
-        {
-          duration: 5000,
-        }
-      );
-      fetchStats();
+      toast.success('Senkronizasyon başlatıldı! 🚀', { duration: 3000 });
+
+      // Start polling for status
+      pollSyncStatus(result.syncLogId);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Senkronizasyon başarısız');
-    } finally {
       setIsSyncing(false);
+      toast.error(error.response?.data?.error || 'Senkronizasyon başlatılamadı');
     }
   };
 
@@ -233,10 +284,29 @@ export default function AdminDashboardPage() {
                 <span className="font-semibold text-gray-900">{formatDate(stats.lastSyncAt)}</span>
               </div>
             )}
+            {syncProgress && (
+              <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded mb-3 text-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600"></div>
+                  <span className="font-semibold text-blue-900">Senkronizasyon devam ediyor...</span>
+                </div>
+                {syncProgress.categoriesCount !== undefined && (
+                  <div className="text-xs text-gray-700">
+                    ✅ Kategoriler: {syncProgress.categoriesCount}
+                  </div>
+                )}
+                {syncProgress.productsCount !== undefined && (
+                  <div className="text-xs text-gray-700">
+                    ✅ Ürünler: {syncProgress.productsCount}
+                  </div>
+                )}
+              </div>
+            )}
             <Button
               onClick={handleSync}
               isLoading={isSyncing}
-              className="w-full bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold py-3 shadow-lg"
+              disabled={isSyncing}
+              className="w-full bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold py-3 shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {isSyncing ? '🔄 Senkronize Ediliyor...' : '🔄 Şimdi Senkronize Et'}
             </Button>

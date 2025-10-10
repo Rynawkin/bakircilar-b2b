@@ -180,11 +180,19 @@ export interface DashboardStats {
 
 export interface SyncResponse {
   message: string;
-  stats: {
-    categoriesUpdated: number;
-    productsUpdated: number;
-    pricesCalculated: number;
-  };
+  syncLogId: string;
+}
+
+export interface SyncStatus {
+  id: string;
+  status: 'RUNNING' | 'SUCCESS' | 'FAILED';
+  startedAt: string;
+  completedAt?: string;
+  categoriesCount?: number;
+  productsCount?: number;
+  errorMessage?: string;
+  isRunning: boolean;
+  isCompleted: boolean;
 }
 
 // ==================== ERROR ====================

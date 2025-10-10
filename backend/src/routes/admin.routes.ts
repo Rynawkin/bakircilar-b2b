@@ -41,6 +41,7 @@ router.put('/settings', adminController.updateSettings);
 
 // Sync
 router.post('/sync', adminController.triggerSync);
+router.get('/sync/status/:id', adminController.getSyncStatus);
 
 // Cari list from Mikro
 router.get('/cari-list', adminController.getCariList);

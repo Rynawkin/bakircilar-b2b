@@ -70,22 +70,54 @@ export class AdminController {
 
   /**
    * POST /api/admin/sync
+   * Start sync in background and return job ID
    */
   async triggerSync(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await syncService.runFullSync('MANUAL');
+      // Start sync in background (don't await)
+      const syncLogId = await syncService.startSync('MANUAL');
 
-      if (result.success) {
-        res.json({
-          message: 'Sync completed successfully',
-          stats: result.stats,
-        });
-      } else {
-        res.status(500).json({
-          error: 'Sync failed',
-          message: result.error,
-        });
+      // Return immediately with job ID
+      res.json({
+        message: 'Sync started',
+        syncLogId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/sync/status/:id
+   * Get sync status by log ID
+   */
+  async getSyncStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+
+      const syncLog = await prisma.syncLog.findUnique({
+        where: { id },
+      });
+
+      if (!syncLog) {
+        return res.status(404).json({ error: 'Sync log not found' });
       }
+
+      // Calculate progress percentage
+      const isRunning = syncLog.status === 'RUNNING';
+      const isCompleted = syncLog.status === 'SUCCESS' || syncLog.status === 'FAILED';
+
+      res.json({
+        id: syncLog.id,
+        status: syncLog.status,
+        startedAt: syncLog.startedAt,
+        completedAt: syncLog.completedAt,
+        categoriesCount: syncLog.categoriesCount,
+        productsCount: syncLog.productsCount,
+        errorMessage: syncLog.errorMessage,
+        isRunning,
+        isCompleted,
+      });
     } catch (error) {
       next(error);
     }

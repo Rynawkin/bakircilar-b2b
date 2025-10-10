@@ -6,6 +6,7 @@ import apiClient from './client';
 import {
   Settings,
   SyncResponse,
+  SyncStatus,
   Customer,
   CreateCustomerRequest,
   PendingOrderForAdmin,
@@ -29,6 +30,11 @@ export const adminApi = {
   // Sync
   triggerSync: async (): Promise<SyncResponse> => {
     const response = await apiClient.post('/admin/sync');
+    return response.data;
+  },
+
+  getSyncStatus: async (syncLogId: string): Promise<SyncStatus> => {
+    const response = await apiClient.get(`/admin/sync/status/${syncLogId}`);
     return response.data;
   },
 

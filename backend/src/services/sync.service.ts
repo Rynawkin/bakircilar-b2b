@@ -17,9 +17,30 @@ import stockService from './stock.service';
 
 class SyncService {
   /**
+   * Senkronizasyonu arka planda başlat ve log ID'sini döndür
+   */
+  async startSync(syncType: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<string> {
+    // Sync log oluştur
+    const syncLog = await prisma.syncLog.create({
+      data: {
+        syncType,
+        status: 'RUNNING',
+        startedAt: new Date(),
+      },
+    });
+
+    // Arka planda sync'i çalıştır (await etme!)
+    this.runFullSync(syncLog.id).catch((error) => {
+      console.error('❌ Background sync error:', error);
+    });
+
+    return syncLog.id;
+  }
+
+  /**
    * Tam senkronizasyon çalıştır
    */
-  async runFullSync(syncType: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<{
+  async runFullSync(syncLogId: string): Promise<{
     success: boolean;
     stats: {
       categoriesUpdated: number;
@@ -30,15 +51,6 @@ class SyncService {
   }> {
     const startTime = new Date();
 
-    // Sync log başlat
-    const syncLog = await prisma.syncLog.create({
-      data: {
-        syncType,
-        status: 'SUCCESS',
-        startedAt: startTime,
-      },
-    });
-
     try {
       console.log('🔄 Senkronizasyon başladı...');
 
@@ -46,9 +58,21 @@ class SyncService {
       const categoriesCount = await this.syncCategories();
       console.log(`✅ ${categoriesCount} kategori sync edildi`);
 
+      // Progress güncelle
+      await prisma.syncLog.update({
+        where: { id: syncLogId },
+        data: { categoriesCount },
+      });
+
       // 2. Ürünleri sync (stoklar, satış geçmişi dahil)
       const productsCount = await this.syncProducts();
       console.log(`✅ ${productsCount} ürün sync edildi`);
+
+      // Progress güncelle
+      await prisma.syncLog.update({
+        where: { id: syncLogId },
+        data: { productsCount },
+      });
 
       // 3. Fazla stok hesapla
       await stockService.calculateExcessStockForAllProducts();
@@ -65,7 +89,7 @@ class SyncService {
 
       // Sync log güncelle
       await prisma.syncLog.update({
-        where: { id: syncLog.id },
+        where: { id: syncLogId },
         data: {
           status: 'SUCCESS',
           categoriesCount,
@@ -89,7 +113,7 @@ class SyncService {
 
       // Sync log'u hata olarak güncelle
       await prisma.syncLog.update({
-        where: { id: syncLog.id },
+        where: { id: syncLogId },
         data: {
           status: 'FAILED',
           errorMessage: error.message,
