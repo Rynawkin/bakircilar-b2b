@@ -200,44 +200,12 @@ class MikroService {
 
   /**
    * Bekleyen siparişler
+   * TODO: Sipariş yapısı netleşince implement edilecek
    */
   async getPendingOrders(): Promise<MikroPendingOrder[]> {
     await this.connect();
-
-    const { ORDERS, ORDER_DETAILS, ORDERS_COLUMNS, ORDER_DETAILS_COLUMNS } = MIKRO_TABLES;
-
-    // Müşteri siparişleri (satış)
-    const salesQuery = `
-      SELECT
-        ${ORDER_DETAILS_COLUMNS.PRODUCT_CODE} as productCode,
-        SUM(${ORDER_DETAILS_COLUMNS.QUANTITY}) as quantity,
-        'SALES' as type
-      FROM ${ORDER_DETAILS} sd
-      JOIN ${ORDERS} s ON sd.${ORDER_DETAILS_COLUMNS.ORDER_ID} = s.${ORDERS_COLUMNS.ID}
-      WHERE s.${ORDERS_COLUMNS.STATUS} IN ('BEKLEMEDE', 'ONAYLANDI')
-        AND s.${ORDERS_COLUMNS.ORDER_TYPE} = 'SATIS'
-      GROUP BY ${ORDER_DETAILS_COLUMNS.PRODUCT_CODE}
-    `;
-
-    // Satınalma siparişleri
-    const purchaseQuery = `
-      SELECT
-        ${ORDER_DETAILS_COLUMNS.PRODUCT_CODE} as productCode,
-        SUM(${ORDER_DETAILS_COLUMNS.QUANTITY}) as quantity,
-        'PURCHASE' as type
-      FROM ${ORDER_DETAILS} sd
-      JOIN ${ORDERS} s ON sd.${ORDER_DETAILS_COLUMNS.ORDER_ID} = s.${ORDERS_COLUMNS.ID}
-      WHERE s.${ORDERS_COLUMNS.STATUS} IN ('BEKLEMEDE', 'ONAYLANDI')
-        AND s.${ORDERS_COLUMNS.ORDER_TYPE} = 'SATIN_ALMA'
-      GROUP BY ${ORDER_DETAILS_COLUMNS.PRODUCT_CODE}
-    `;
-
-    const [salesResult, purchaseResult] = await Promise.all([
-      this.pool!.request().query(salesQuery),
-      this.pool!.request().query(purchaseQuery),
-    ]);
-
-    return [...salesResult.recordset, ...purchaseResult.recordset];
+    // Şimdilik boş array döndür
+    return [];
   }
 
   /**
@@ -305,6 +273,7 @@ class MikroService {
 
   /**
    * Mikro'ya sipariş yaz
+   * TODO: Sipariş yapısı netleşince implement edilecek
    */
   async writeOrder(orderData: {
     cariCode: string;
@@ -318,109 +287,8 @@ class MikroService {
     description: string;
   }): Promise<string> {
     await this.connect();
-
-    const { ORDERS, ORDER_DETAILS, ORDERS_COLUMNS, ORDER_DETAILS_COLUMNS } = MIKRO_TABLES;
-
-    const transaction = this.pool!.transaction();
-    await transaction.begin();
-
-    try {
-      // 1. Sipariş master kaydı
-      const totalAmount = orderData.items.reduce(
-        (sum, item) => sum + item.quantity * item.unitPrice,
-        0
-      );
-
-      const vatTotal = orderData.applyVAT
-        ? orderData.items.reduce(
-            (sum, item) => sum + item.quantity * item.unitPrice * item.vatRate,
-            0
-          )
-        : 0;
-
-      const grandTotal = totalAmount + vatTotal;
-
-      const orderNumber = `WEB-${Date.now()}`;
-
-      const insertOrderQuery = `
-        INSERT INTO ${ORDERS} (
-          ${ORDERS_COLUMNS.ORDER_NO},
-          ${ORDERS_COLUMNS.CARI_CODE},
-          ${ORDERS_COLUMNS.DATE},
-          ${ORDERS_COLUMNS.STATUS},
-          ${ORDERS_COLUMNS.ORDER_TYPE},
-          ${ORDERS_COLUMNS.VAT_TOTAL},
-          ${ORDERS_COLUMNS.GRAND_TOTAL},
-          ${ORDERS_COLUMNS.DESCRIPTION}
-        )
-        OUTPUT INSERTED.${ORDERS_COLUMNS.ID}
-        VALUES (
-          @orderNumber,
-          @cariCode,
-          GETDATE(),
-          'ONAYLANDI',
-          'SATIS',
-          @vatTotal,
-          @grandTotal,
-          @description
-        )
-      `;
-
-      const orderResult = await transaction
-        .request()
-        .input('orderNumber', mssql.VarChar, orderNumber)
-        .input('cariCode', mssql.VarChar, orderData.cariCode)
-        .input('vatTotal', mssql.Decimal(18, 2), vatTotal)
-        .input('grandTotal', mssql.Decimal(18, 2), grandTotal)
-        .input('description', mssql.VarChar, orderData.description)
-        .query(insertOrderQuery);
-
-      const orderId = orderResult.recordset[0][ORDERS_COLUMNS.ID];
-
-      // 2. Sipariş detayları
-      for (const item of orderData.items) {
-        const lineTotal = item.quantity * item.unitPrice;
-        const itemVatRate = orderData.applyVAT ? item.vatRate : 0;
-
-        const insertDetailQuery = `
-          INSERT INTO ${ORDER_DETAILS} (
-            ${ORDER_DETAILS_COLUMNS.ORDER_ID},
-            ${ORDER_DETAILS_COLUMNS.PRODUCT_CODE},
-            ${ORDER_DETAILS_COLUMNS.QUANTITY},
-            ${ORDER_DETAILS_COLUMNS.UNIT_PRICE},
-            ${ORDER_DETAILS_COLUMNS.VAT_RATE},
-            ${ORDER_DETAILS_COLUMNS.LINE_TOTAL}
-          )
-          VALUES (
-            @orderId,
-            @productCode,
-            @quantity,
-            @unitPrice,
-            @vatRate,
-            @lineTotal
-          )
-        `;
-
-        await transaction
-          .request()
-          .input('orderId', mssql.Int, orderId)
-          .input('productCode', mssql.VarChar, item.productCode)
-          .input('quantity', mssql.Int, item.quantity)
-          .input('unitPrice', mssql.Decimal(18, 2), item.unitPrice)
-          .input('vatRate', mssql.Decimal(5, 2), itemVatRate)
-          .input('lineTotal', mssql.Decimal(18, 2), lineTotal)
-          .query(insertDetailQuery);
-      }
-
-      await transaction.commit();
-
-      console.log('✅ Mikro\'ya sipariş yazıldı:', orderNumber);
-      return orderNumber;
-    } catch (error) {
-      await transaction.rollback();
-      console.error('❌ Mikro sipariş yazma hatası:', error);
-      throw error;
-    }
+    // TODO: Sipariş yazma implement edilecek
+    throw new Error('Sipariş yazma henüz implement edilmedi');
   }
 
   /**
