@@ -304,13 +304,20 @@ model SyncLog {
   id                    String      @id @default(uuid())
 
   syncType              String      // "AUTO" | "MANUAL"
-  status                String      // "SUCCESS" | "FAILED" | "PARTIAL"
+  status                String      // "RUNNING" | "SUCCESS" | "FAILED" | "PARTIAL"
 
   categoriesCount       Int         @default(0)
   productsCount         Int         @default(0)
+  imagesDownloaded      Int         @default(0)
+  imagesSkipped         Int         @default(0)
+  imagesFailed          Int         @default(0)
 
   errorMessage          String?
   details               Json?       // Detaylı log bilgileri
+
+  // Uyarılar (JSON array)
+  // Örnek: [{ "type": "IMAGE_TOO_LARGE", "productCode": "B999", "message": "Resim çok büyük (25 MB)", "size": 26214400 }]
+  warnings              Json?
 
   startedAt             DateTime    @default(now())
   completedAt           DateTime?
