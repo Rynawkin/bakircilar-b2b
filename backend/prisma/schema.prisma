@@ -54,6 +54,17 @@ model User {
   mikroCariCode       String?       @unique // Mikro ERP'deki cari kodu
   vatDisplayPreference String       @default("WITH_VAT") // "WITH_VAT" | "WITHOUT_VAT"
 
+  // Mikro'dan senkronize edilen cari bilgileri
+  city                String?       // Şehir
+  district            String?       // İlçe
+  phone               String?       // Telefon
+  isLocked            Boolean       @default(false) // Cari kilitli mi
+  groupCode           String?       // Grup kodu
+  sectorCode          String?       // Sektör kodu
+  paymentTerm         Int?          // Vade günü
+  hasEInvoice         Boolean       @default(false) // E-fatura var mı
+  balance             Float         @default(0) // Güncel bakiye (TL)
+
   active        Boolean       @default(true)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

@@ -6,6 +6,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { hashPassword } from '../utils/password';
 import syncService from '../services/sync.service';
+import cariSyncService from '../services/cariSync.service';
 import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
@@ -114,9 +115,30 @@ export class AdminController {
         completedAt: syncLog.completedAt,
         categoriesCount: syncLog.categoriesCount,
         productsCount: syncLog.productsCount,
+        imagesDownloaded: syncLog.imagesDownloaded,
+        imagesSkipped: syncLog.imagesSkipped,
+        imagesFailed: syncLog.imagesFailed,
+        warnings: syncLog.warnings,
         errorMessage: syncLog.errorMessage,
         isRunning,
         isCompleted,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/sync/cari
+   * Start cari sync in background
+   */
+  async triggerCariSync(req: Request, res: Response, next: NextFunction) {
+    try {
+      const syncId = await cariSyncService.startCariSync();
+
+      res.json({
+        message: 'Cari sync started',
+        syncId,
       });
     } catch (error) {
       next(error);
