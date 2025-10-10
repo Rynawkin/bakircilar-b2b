@@ -146,6 +146,19 @@ class ImageService {
         size: stats.size,
       };
     } catch (error: any) {
+      // Desteklenmeyen format hatalarını "skipped" olarak işaretle
+      if (error.message && (
+        error.message.includes('unsupported image format') ||
+        error.message.includes('Input buffer')
+      )) {
+        return {
+          success: false,
+          skipped: true,
+          skipReason: 'Desteklenmeyen resim formatı (BMP, TIFF vb.)',
+        };
+      }
+
+      // Diğer hatalar gerçek hata
       console.error(`❌ Resim indirme hatası (${productCode}):`, error.message);
       return {
         success: false,
