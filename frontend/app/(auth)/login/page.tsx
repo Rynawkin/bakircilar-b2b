@@ -49,11 +49,11 @@ export default function LoginPage() {
 
   const fillDemoCredentials = (role: 'admin' | 'customer') => {
     if (role === 'admin') {
-      setEmail('admin@firma.com');
+      setEmail('admin@bakircilar.com');
       setPassword('admin123');
     } else {
-      setEmail('musteri@test.com');
-      setPassword('123456');
+      setEmail('test@customer.com');
+      setPassword('test123');
     }
   };
 
@@ -134,7 +134,7 @@ export default function LoginPage() {
 
           <div className="flex items-center justify-between">
             <div className="text-xs text-white">
-              <strong>Admin:</strong> admin@firma.com / admin123
+              <strong>Admin:</strong> admin@bakircilar.com / admin123
             </div>
             <button
               type="button"
@@ -147,7 +147,7 @@ export default function LoginPage() {
 
           <div className="flex items-center justify-between">
             <div className="text-xs text-white">
-              <strong>Müşteri:</strong> musteri@test.com / 123456
+              <strong>Müşteri:</strong> test@customer.com / test123
             </div>
             <button
               type="button"
