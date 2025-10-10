@@ -13,24 +13,17 @@ export const apiClient = axios.create({
   },
 });
 
-// Request interceptor - JWT token ekle ve activity güncelle
+// Request interceptor - JWT token ekle
 apiClient.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
       // LocalStorage'dan token al
-      const authStorage = localStorage.getItem('b2b-auth-storage');
+      const authStorage = localStorage.getItem('b2b-auth');
       if (authStorage) {
         try {
-          const { state } = JSON.parse(authStorage);
-          if (state?.token) {
-            config.headers.Authorization = `Bearer ${state.token}`;
-
-            // Activity güncelle (her request'te)
-            const updatedState = {
-              ...state,
-              lastActivity: Date.now(),
-            };
-            localStorage.setItem('b2b-auth-storage', JSON.stringify({ state: updatedState }));
+          const { token } = JSON.parse(authStorage);
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
           }
         } catch (error) {
           console.error('Error parsing auth storage:', error);
@@ -61,9 +54,12 @@ apiClient.interceptors.response.use(
         errorMessage.includes('Authentication required')
       ) {
         if (typeof window !== 'undefined') {
-          console.warn('Auth token expired or invalid, logging out...');
+          console.warn('⚠️ Auth token expired or invalid, logging out...');
+          // Tüm auth storage'ları temizle
+          localStorage.removeItem('b2b-auth');
           localStorage.removeItem('token');
           localStorage.removeItem('user');
+          localStorage.removeItem('b2b-auth-storage');
           window.location.href = '/login';
         }
       }
