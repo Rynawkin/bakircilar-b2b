@@ -34,7 +34,7 @@ interface ImageSyncStats {
 }
 
 class ImageService {
-  private readonly MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+  private readonly MAX_IMAGE_SIZE = 50 * 1024 * 1024; // 50 MB (timeout ile kontrol ediyoruz)
   private readonly RESIZE_WIDTH = 1200;
   private readonly RESIZE_HEIGHT = 1200;
   private readonly QUALITY = 85;
@@ -75,7 +75,13 @@ class ImageService {
         `-quality ${this.QUALITY} ` +
         `"${outputPath}"`;
 
+      let isTimedOut = false;
+
       const childProcess = exec(command, (error, stdout, stderr) => {
+        if (isTimedOut) {
+          return; // Timeout olmuş, ignore et
+        }
+
         if (error) {
           reject(error);
         } else {
@@ -83,14 +89,21 @@ class ImageService {
         }
       });
 
-      // 30 saniye timeout (60 yerine daha kısa)
+      // 15 saniye timeout (daha kısa - hızlı fail için)
       const timeout = setTimeout(() => {
+        isTimedOut = true;
         childProcess.kill('SIGKILL');
-        reject(new Error('ImageMagick timeout'));
-      }, 30000);
+        // Birkaç ms bekle, sonra reject et
+        setTimeout(() => {
+          reject(new Error('ImageMagick timeout - 15 saniye aşıldı'));
+        }, 100);
+      }, 15000);
 
-      childProcess.on('exit', () => {
-        clearTimeout(timeout);
+      // Success/error callback'inde timeout'u temizle
+      childProcess.on('exit', (code) => {
+        if (!isTimedOut) {
+          clearTimeout(timeout);
+        }
       });
     });
   }
