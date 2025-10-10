@@ -21,6 +21,24 @@ class MikroService {
   public pool: mssql.ConnectionPool | null = null;
 
   /**
+   * Mikro KDV kod → yüzde dönüşümü
+   * Gerçek hareketlerden tespit edildi
+   */
+  private convertVatCodeToRate(vatCode: number): number {
+    const vatMap: { [key: number]: number } = {
+      0: 0.00,  // İstisna
+      1: 0.00,  // İstisna
+      2: 0.01,  // %1
+      3: 0.00,  // Kullanılmıyor
+      4: 0.18,  // %18
+      5: 0.20,  // %20
+      6: 0.00,  // Kullanılmıyor
+      7: 0.10,  // %10
+    };
+    return vatMap[vatCode] ?? 0.20; // Default %20
+  }
+
+  /**
    * Mikro veritabanına bağlan
    */
   async connect(): Promise<void> {
@@ -86,7 +104,7 @@ class MikroService {
         ${PRODUCTS_COLUMNS.NAME} as name,
         ${PRODUCTS_COLUMNS.CATEGORY_CODE} as categoryId,
         ${PRODUCTS_COLUMNS.UNIT} as unit,
-        ${PRODUCTS_COLUMNS.VAT_RATE} as vatRate,
+        ${PRODUCTS_COLUMNS.VAT_RATE} as vatCode,
         ${PRODUCTS_COLUMNS.CURRENT_COST} as lastEntryPrice,
         ${PRODUCTS_COLUMNS.CURRENT_COST} as currentCost,
         GETDATE() as lastEntryDate,
@@ -101,7 +119,12 @@ class MikroService {
     `;
 
     const result = await this.pool!.request().query(query);
-    return result.recordset;
+
+    // KDV kodunu yüzde oranına çevir
+    return result.recordset.map((product: any) => ({
+      ...product,
+      vatRate: this.convertVatCodeToRate(product.vatCode),
+    }));
   }
 
   /**
@@ -230,7 +253,8 @@ class MikroService {
         ${CARI_COLUMNS.CODE} as code,
         ${CARI_COLUMNS.NAME} as name
       FROM ${CARI}
-      WHERE ${CARI_COLUMNS.ACTIVE} = 1
+      WHERE ${CARI_COLUMNS.CODE} IS NOT NULL
+        AND ${CARI_COLUMNS.CODE} != ''
       ORDER BY ${CARI_COLUMNS.NAME}
     `;
 

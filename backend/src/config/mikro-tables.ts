@@ -64,7 +64,6 @@ export const MIKRO_TABLES = {
   CARI_COLUMNS: {
     CODE: 'cari_kod',
     NAME: 'cari_unvan1',
-    ACTIVE: 'cari_aktif', // Varsayım - kontrol edilmeli
   },
 } as const;
 
