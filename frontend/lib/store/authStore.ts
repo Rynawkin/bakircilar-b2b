@@ -23,6 +23,34 @@ interface AuthState {
   updateActivity: () => void;
 }
 
+// Migration: Eski localStorage formatını yeni formata çevir
+if (typeof window !== 'undefined') {
+  const oldToken = localStorage.getItem('token');
+  const oldUser = localStorage.getItem('user');
+  const newStorage = localStorage.getItem('b2b-auth-storage');
+
+  if (oldToken && oldUser && !newStorage) {
+    try {
+      const user = JSON.parse(oldUser);
+      const migratedState = {
+        state: {
+          user,
+          token: oldToken,
+          isAuthenticated: true,
+          lastActivity: Date.now(),
+        },
+        version: 0,
+      };
+      localStorage.setItem('b2b-auth-storage', JSON.stringify(migratedState));
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      console.log('✅ Auth storage migrated to new format');
+    } catch (error) {
+      console.error('Migration error:', error);
+    }
+  }
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
