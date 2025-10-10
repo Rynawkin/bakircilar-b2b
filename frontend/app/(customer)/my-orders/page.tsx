@@ -49,16 +49,19 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50 to-gray-100">
+      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-xl border-b-4 border-primary-800">
+        <div className="container-custom py-5">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-6">
               <LogoLink href="/products" variant="light" />
               <div>
-                <h1 className="text-xl font-bold text-white">📦 Siparişlerim</h1>
-                <p className="text-sm text-primary-100">
-                  {isLoading ? 'Yükleniyor...' : orders.length > 0 ? `${orders.length} sipariş` : 'Henüz sipariş yok'}
+                <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+                  <span className="text-3xl">📦</span>
+                  Siparislerim
+                </h1>
+                <p className="text-sm text-primary-100 font-medium">
+                  {isLoading ? 'Yukleniyor...' : orders.length > 0 ? `${orders.length} siparis` : 'Henuz siparis yok'}
                 </p>
               </div>
             </div>
@@ -67,30 +70,30 @@ export default function OrdersPage() {
               <Button
                 variant="secondary"
                 onClick={() => router.push('/products')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
-                🛍️ Ürünler
+                🛍️ Urunler
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => router.push('/cart')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
                 🛒 Sepet
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => router.push('/profile')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
                 👤 Profil
               </Button>
               <Button
                 variant="ghost"
                 onClick={() => { logout(); router.push('/login'); }}
-                className="text-white hover:bg-primary-800"
+                className="text-white hover:bg-primary-800 border border-white/30"
               >
-                Çıkış
+                Cikis
               </Button>
             </div>
 
@@ -125,63 +128,81 @@ export default function OrdersPage() {
             </div>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {orders.map((order) => (
-              <Card key={order.id}>
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-semibold text-lg">Sipariş #{order.orderNumber}</h3>
+              <Card key={order.id} className="shadow-xl border-2 border-primary-100 bg-white hover:shadow-2xl transition-shadow">
+                <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6 pb-6 border-b-2 border-gray-100">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h3 className="text-2xl font-bold text-gray-900">Siparis #{order.orderNumber}</h3>
                       {getStatusBadge(order.status)}
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{formatDate(order.createdAt)}</p>
+                    <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      {formatDate(order.createdAt)}
+                    </div>
                     {order.approvedAt && (
-                      <p className="text-xs text-green-600 mt-1">
-                        Onaylandı: {formatDate(order.approvedAt)}
-                      </p>
+                      <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-sm font-semibold inline-block">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        Onaylandi: {formatDate(order.approvedAt)}
+                      </div>
                     )}
                     {order.adminNote && (
-                      <p className="text-xs text-gray-600 mt-1">
-                        Not: {order.adminNote}
-                      </p>
+                      <div className="mt-3 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded-lg">
+                        <p className="text-xs font-semibold text-yellow-800 mb-1">📝 Admin Notu:</p>
+                        <p className="text-sm text-yellow-700">{order.adminNote}</p>
+                      </div>
                     )}
                   </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-primary-600">
+                  <div className="text-right bg-gradient-to-br from-primary-50 to-primary-100 rounded-xl p-4 border-2 border-primary-200">
+                    <p className="text-sm text-gray-600 mb-1">Toplam Tutar</p>
+                    <p className="text-3xl font-bold text-primary-700">
                       {formatCurrency(order.totalAmount)}
                     </p>
+                    <p className="text-xs text-gray-600 mt-1">{order.items.length} urun</p>
                   </div>
                 </div>
 
-                <div className="border-t pt-4">
-                  <p className="text-sm font-medium text-gray-700 mb-3">
-                    Sipariş Detayları ({order.items.length} ürün)
-                  </p>
-                  <div className="space-y-2">
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <p className="text-lg font-bold text-gray-900">
+                      Siparis Detaylari ({order.items.length} urun)
+                    </p>
+                  </div>
+                  <div className="space-y-3">
                     {order.items.map((item) => (
                       <div
                         key={item.id}
-                        className="flex justify-between items-center text-sm py-2 border-b last:border-0"
+                        className="bg-gradient-to-r from-gray-50 to-white rounded-xl p-4 border-2 border-gray-200 hover:border-primary-300 hover:shadow-md transition-all"
                       >
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">{item.productName}</p>
-                          <div className="flex gap-2 mt-1">
-                            <span className="text-gray-500">{item.mikroCode}</span>
-                            <Badge
-                              variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
-                              className="text-xs"
-                            >
-                              {item.priceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
-                            </Badge>
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="flex-1">
+                            <p className="font-bold text-gray-900 text-lg mb-1">{item.productName}</p>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <span className="text-sm text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">{item.mikroCode}</span>
+                              <Badge
+                                variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
+                                className="text-xs font-semibold"
+                              >
+                                {item.priceType === 'INVOICED' ? '📄 Faturali' : '⚪ Beyaz'}
+                              </Badge>
+                            </div>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-gray-600">
-                            {item.quantity} x {formatCurrency(item.unitPrice)}
-                          </p>
-                          <p className="font-semibold text-gray-900">
-                            {formatCurrency(item.totalPrice)}
-                          </p>
+                          <div className="text-right">
+                            <p className="text-sm text-gray-600 mb-1">
+                              {item.quantity} x {formatCurrency(item.unitPrice)}
+                            </p>
+                            <p className="text-xl font-bold text-primary-600">
+                              {formatCurrency(item.totalPrice)}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     ))}

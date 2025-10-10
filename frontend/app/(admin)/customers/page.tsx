@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Customer, CreateCustomerRequest } from '@/types';
@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { LogoLink } from '@/components/ui/Logo';
-import { formatDateShort } from '@/lib/utils/format';
+import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
+import { CariSelectModal } from '@/components/admin/CariSelectModal';
 
 interface MikroCari {
   code: string;
@@ -25,6 +26,9 @@ export default function CustomersPage() {
   const [cariList, setCariList] = useState<MikroCari[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showCariModal, setShowCariModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [formData, setFormData] = useState<CreateCustomerRequest>({
     email: '',
     password: '',
@@ -56,16 +60,40 @@ export default function CustomersPage() {
     }
   };
 
-  const handleCariSelect = (cariCode: string) => {
-    const selectedCari = cariList.find(c => c.code === cariCode);
-    if (selectedCari) {
-      setFormData({
-        ...formData,
-        mikroCariCode: selectedCari.code,
-        name: formData.name || selectedCari.name,
-      });
-    }
+  const handleCariSelect = (cari: MikroCari) => {
+    setFormData({
+      ...formData,
+      mikroCariCode: cari.code,
+      name: formData.name || cari.name,
+    });
   };
+
+  const filteredCustomers = useMemo(() => {
+    let filtered = customers;
+
+    // Filter by active status
+    if (filterActive === 'active') {
+      filtered = filtered.filter(c => c.active);
+    } else if (filterActive === 'inactive') {
+      filtered = filtered.filter(c => !c.active);
+    }
+
+    // Filter by search term
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        c =>
+          c.name.toLowerCase().includes(lowerSearch) ||
+          c.email.toLowerCase().includes(lowerSearch) ||
+          c.mikroCariCode.toLowerCase().includes(lowerSearch) ||
+          c.city?.toLowerCase().includes(lowerSearch) ||
+          c.district?.toLowerCase().includes(lowerSearch) ||
+          c.phone?.toLowerCase().includes(lowerSearch)
+      );
+    }
+
+    return filtered;
+  }, [customers, searchTerm, filterActive]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,20 +150,15 @@ export default function CustomersPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Mikro Cari Seç</label>
-                <select
-                  className="input"
-                  value={formData.mikroCariCode}
-                  onChange={(e) => handleCariSelect(e.target.value)}
-                  required
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowCariModal(true)}
+                  className="w-full"
                 >
-                  <option value="">-- Cari Seçin --</option>
-                  {cariList.map((cari) => (
-                    <option key={cari.code} value={cari.code}>
-                      {cari.code} - {cari.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Mikro ERP'den cari listesi çekilmektedir</p>
+                  {formData.mikroCariCode ? `${formData.mikroCariCode} - ${formData.name}` : 'Mikro\'dan Seç'}
+                </Button>
+                <p className="text-xs text-gray-500 mt-1">Mikro ERP'den cari seçmek için tıklayın</p>
               </div>
 
               <Input
@@ -169,30 +192,112 @@ export default function CustomersPage() {
           </Card>
         )}
 
-        <Card title={`Müşteriler (${customers.length})`}>
+        <CariSelectModal
+          isOpen={showCariModal}
+          onClose={() => setShowCariModal(false)}
+          onSelect={handleCariSelect}
+          cariList={cariList}
+        />
+
+        <Card title={`Müşteriler (${filteredCustomers.length} / ${customers.length})`}>
+          <div className="space-y-4 mb-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1">
+                <Input
+                  placeholder="Ad, email, cari kodu, şehir, ilçe veya telefon ile ara..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant={filterActive === 'all' ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={() => setFilterActive('all')}
+                >
+                  Tümü
+                </Button>
+                <Button
+                  variant={filterActive === 'active' ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={() => setFilterActive('active')}
+                >
+                  Aktif
+                </Button>
+                <Button
+                  variant={filterActive === 'inactive' ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={() => setFilterActive('inactive')}
+                >
+                  Pasif
+                </Button>
+              </div>
+            </div>
+          </div>
+
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b">
+            <table className="w-full min-w-max">
+              <thead className="bg-gray-50 border-b">
                 <tr className="text-left text-sm text-gray-600">
-                  <th className="pb-2">Ad</th>
-                  <th className="pb-2">Email</th>
-                  <th className="pb-2">Tip</th>
-                  <th className="pb-2">Mikro Cari</th>
-                  <th className="pb-2">Durum</th>
-                  <th className="pb-2">Kayıt</th>
+                  <th className="px-4 py-3 font-medium">Ad</th>
+                  <th className="px-4 py-3 font-medium">Email</th>
+                  <th className="px-4 py-3 font-medium">Tip</th>
+                  <th className="px-4 py-3 font-medium">Mikro Cari</th>
+                  <th className="px-4 py-3 font-medium">Şehir</th>
+                  <th className="px-4 py-3 font-medium">İlçe</th>
+                  <th className="px-4 py-3 font-medium">Telefon</th>
+                  <th className="px-4 py-3 font-medium">Grup Kodu</th>
+                  <th className="px-4 py-3 font-medium">Sektör Kodu</th>
+                  <th className="px-4 py-3 font-medium">Vade Günü</th>
+                  <th className="px-4 py-3 font-medium">E-Fatura</th>
+                  <th className="px-4 py-3 font-medium">Bakiye</th>
+                  <th className="px-4 py-3 font-medium">Durum</th>
+                  <th className="px-4 py-3 font-medium">Kayıt</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {customers.map((customer) => (
-                  <tr key={customer.id} className="text-sm">
-                    <td className="py-3">{customer.name}</td>
-                    <td>{customer.email}</td>
-                    <td><Badge>{getCustomerTypeName(customer.customerType || '')}</Badge></td>
-                    <td className="font-mono text-xs">{customer.mikroCariCode}</td>
-                    <td><Badge variant={customer.active ? 'success' : 'danger'}>{customer.active ? 'Aktif' : 'Pasif'}</Badge></td>
-                    <td className="text-gray-500">{formatDateShort(customer.createdAt)}</td>
+                {filteredCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={14} className="px-4 py-8 text-center text-gray-500">
+                      Müşteri bulunamadı
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredCustomers.map((customer) => (
+                    <tr key={customer.id} className="text-sm hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 font-medium">{customer.name}</td>
+                      <td className="px-4 py-3 text-gray-600">{customer.email}</td>
+                      <td className="px-4 py-3">
+                        <Badge>{getCustomerTypeName(customer.customerType || '')}</Badge>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs">{customer.mikroCariCode}</td>
+                      <td className="px-4 py-3 text-gray-600">{customer.city || '-'}</td>
+                      <td className="px-4 py-3 text-gray-600">{customer.district || '-'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{customer.phone || '-'}</td>
+                      <td className="px-4 py-3 text-gray-600">{customer.groupCode || '-'}</td>
+                      <td className="px-4 py-3 text-gray-600">{customer.sectorCode || '-'}</td>
+                      <td className="px-4 py-3 text-center">{customer.paymentTerm || '-'}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={customer.hasEInvoice ? 'success' : 'default'}>
+                          {customer.hasEInvoice ? 'Evet' : 'Hayır'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 font-medium text-right">
+                        {customer.balance !== undefined ? formatCurrency(customer.balance) : '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {customer.isLocked ? (
+                          <Badge variant="danger">Kilitli</Badge>
+                        ) : (
+                          <Badge variant={customer.active ? 'success' : 'default'}>
+                            {customer.active ? 'Aktif' : 'Pasif'}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateShort(customer.createdAt)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

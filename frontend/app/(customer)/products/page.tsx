@@ -16,6 +16,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { LogoLink } from '@/components/ui/Logo';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
+import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -36,6 +37,10 @@ export default function ProductsPage() {
   const [quickAddQuantities, setQuickAddQuantities] = useState<Record<string, number>>({});
   const [quickAddPriceTypes, setQuickAddPriceTypes] = useState<Record<string, 'INVOICED' | 'WHITE'>>({});
   const [addingToCart, setAddingToCart] = useState<Record<string, boolean>>({});
+
+  // Modal state
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -96,6 +101,23 @@ export default function ProductsPage() {
     }
   };
 
+  const handleModalAddToCart = async (productId: string, quantity: number, priceType: 'INVOICED' | 'WHITE') => {
+    await addToCart({
+      productId,
+      quantity,
+      priceType,
+    });
+
+    toast.success('Ürün sepete eklendi! 🛒', {
+      duration: 2000,
+    });
+  };
+
+  const openProductModal = (product: Product) => {
+    setSelectedProduct(product);
+    setIsModalOpen(true);
+  };
+
   // Calculate cart totals
   const invoicedTotal = (cartItems || [])
     .filter(item => item.priceType === 'INVOICED')
@@ -116,15 +138,18 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
-        <div className="container-custom py-3 flex justify-between items-center">
+      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-xl sticky top-0 z-10 border-b-4 border-primary-800">
+        <div className="container-custom py-4 flex justify-between items-center">
           <div className="flex items-center gap-6">
-            <LogoLink href="/products" variant="dark" />
+            <LogoLink href="/products" variant="light" />
             <div className="hidden sm:block">
-              <h1 className="text-lg font-bold text-gray-900">Ürün Kataloğu</h1>
-              <p className="text-xs text-gray-600">
+              <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                <span className="text-2xl">🛍️</span>
+                Urun Katalogu
+              </h1>
+              <p className="text-sm text-primary-100">
                 {user.name} • {getCustomerTypeName(user.customerType || '')}
               </p>
             </div>
@@ -135,11 +160,11 @@ export default function ProductsPage() {
             <Button
               variant="secondary"
               onClick={() => router.push('/cart')}
-              className="relative bg-gray-100 text-gray-700 hover:bg-gray-200 border-0"
+              className="relative bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
             >
               🛒 Sepetim
               {totalItems > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 bg-gradient-to-br from-red-500 to-red-600 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center shadow-lg animate-pulse">
                   {totalItems}
                 </span>
               )}
@@ -147,16 +172,16 @@ export default function ProductsPage() {
             <Button
               variant="secondary"
               onClick={() => router.push('/profile')}
-              className="bg-gray-100 text-gray-700 hover:bg-gray-200 border-0"
+              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
             >
               👤 Profil
             </Button>
             <Button
               variant="ghost"
               onClick={() => { logout(); router.push('/login'); }}
-              className="text-gray-700 hover:bg-gray-100"
+              className="text-white hover:bg-primary-800 border border-white/30"
             >
-              Çıkış
+              Cikis
             </Button>
           </div>
 
@@ -195,26 +220,38 @@ export default function ProductsPage() {
           {/* Main content */}
           <div className="lg:col-span-3">
             {/* Filters */}
-            <Card className="mb-4 bg-white border border-gray-200">
-              <div className="flex flex-wrap gap-3">
+            <Card className="mb-6 bg-white border-2 border-primary-100 shadow-xl">
+              <div className="mb-4 pb-4 border-b-2 border-gray-100">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <span className="text-xl">🔍</span>
+                  Filtreler
+                </h3>
+              </div>
+              <div className="flex flex-wrap gap-4">
                 <div className="flex-1 min-w-[250px]">
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Ürün Ara</label>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <span>📝</span>
+                    Urun Ara
+                  </label>
                   <Input
-                    placeholder="Ürün ismi veya kodu..."
+                    placeholder="Urun ismi veya kodu..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-full h-9 text-sm"
+                    className="w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
                   />
                 </div>
 
                 <div className="min-w-[150px]">
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Depo</label>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <span>🏢</span>
+                    Depo
+                  </label>
                   <select
                     value={selectedWarehouse}
                     onChange={(e) => setSelectedWarehouse(e.target.value)}
-                    className="input w-full h-9 text-sm"
+                    className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
                   >
-                    <option value="">Tüm Depolar</option>
+                    <option value="">Tum Depolar</option>
                     {warehouses.map((warehouse) => (
                       <option key={warehouse} value={warehouse}>
                         {warehouse}
@@ -224,13 +261,16 @@ export default function ProductsPage() {
                 </div>
 
                 <div className="min-w-[180px]">
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Kategori</label>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <span>📁</span>
+                    Kategori
+                  </label>
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="input w-full h-9 text-sm"
+                    className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
                   >
-                    <option value="">Tüm Kategoriler</option>
+                    <option value="">Tum Kategoriler</option>
                     {categories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.name}
@@ -241,21 +281,21 @@ export default function ProductsPage() {
               </div>
 
               {(search || selectedWarehouse || selectedCategory) && (
-                <div className="mt-3 pt-3 border-t flex items-center gap-2 text-xs">
-                  <span className="text-gray-500">Aktif filtreler:</span>
+                <div className="mt-4 pt-4 border-t-2 border-gray-100 flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-gray-700">Aktif filtreler:</span>
                   {search && (
-                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded">
-                      "{search}"
+                    <span className="bg-gradient-to-r from-primary-100 to-primary-200 text-primary-800 px-3 py-1.5 rounded-lg font-medium text-sm shadow-sm">
+                      🔍 "{search}"
                     </span>
                   )}
                   {selectedWarehouse && (
-                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded">
-                      Depo: {selectedWarehouse}
+                    <span className="bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 px-3 py-1.5 rounded-lg font-medium text-sm shadow-sm">
+                      🏢 {selectedWarehouse}
                     </span>
                   )}
                   {selectedCategory && (
-                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded">
-                      {categories.find(c => c.id === selectedCategory)?.name}
+                    <span className="bg-gradient-to-r from-green-100 to-green-200 text-green-800 px-3 py-1.5 rounded-lg font-medium text-sm shadow-sm">
+                      📁 {categories.find(c => c.id === selectedCategory)?.name}
                     </span>
                   )}
                   <button
@@ -264,9 +304,9 @@ export default function ProductsPage() {
                       setSelectedWarehouse('');
                       setSelectedCategory('');
                     }}
-                    className="ml-auto text-gray-500 hover:text-gray-700 text-xs"
+                    className="ml-auto bg-gradient-to-r from-red-500 to-red-600 text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:from-red-600 hover:to-red-700 transition-all shadow-md hover:shadow-lg"
                   >
-                    Temizle
+                    ✕ Temizle
                   </button>
                 </div>
               )}
@@ -298,41 +338,52 @@ export default function ProductsPage() {
                 />
               </Card>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {products.map((product) => (
-                  <Card key={product.id} className="hover:shadow-lg transition-all duration-200 overflow-hidden flex flex-col h-full p-2.5 border border-gray-200">
-                    <div className="space-y-2 flex flex-col h-full">
+                  <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
+                    <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
-                      <div className="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg overflow-hidden relative group">
+                      <div
+                        className="w-full h-40 bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 overflow-hidden relative cursor-pointer"
+                        onClick={() => openProductModal(product)}
+                      >
                         {product.imageUrl ? (
                           <img
                             src={product.imageUrl}
                             alt={product.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400">
-                            <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
                           </div>
                         )}
                         {/* Stock badge */}
-                        <div className="absolute top-1.5 right-1.5 bg-white text-gray-700 text-[10px] font-semibold px-1.5 py-0.5 rounded shadow border border-gray-200">
+                        <div className="absolute top-2 right-2 bg-gradient-to-br from-green-500 to-green-600 text-white text-xs font-bold px-2 py-1 rounded-lg shadow-lg">
                           {product.excessStock} {product.unit}
+                        </div>
+                        {/* Overlay on hover */}
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-700 px-4 py-2 rounded-lg font-semibold text-sm shadow-xl">
+                            🔍 Detayli Incele
+                          </div>
                         </div>
                       </div>
 
-                      <div className="min-h-[50px]">
+                      <div className="px-3 min-h-[60px]">
                         <h3
-                          className="font-semibold text-gray-900 text-xs line-clamp-2 leading-tight cursor-pointer hover:text-primary-600 transition-colors"
-                          onClick={() => router.push(`/products/${product.id}`)}
+                          className="font-bold text-gray-900 text-sm line-clamp-2 leading-tight cursor-pointer hover:text-primary-600 transition-colors mb-2"
+                          onClick={() => openProductModal(product)}
                         >
                           {product.name}
                         </h3>
-                        <div className="flex flex-col gap-0.5 mt-1">
-                          <span className="text-[10px] text-gray-500">Kod: {product.mikroCode}</span>
-                          <span className="text-[10px] text-gray-600 font-medium">{product.category.name}</span>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500 font-mono">Kod: {product.mikroCode}</span>
+                          <span className="bg-gradient-to-r from-primary-100 to-primary-200 text-primary-700 text-xs font-semibold px-2 py-0.5 rounded inline-block">
+                            {product.category.name}
+                          </span>
                         </div>
                       </div>
 
@@ -340,33 +391,33 @@ export default function ProductsPage() {
                       <div className="flex-1"></div>
 
                       {/* Price Type Selection */}
-                      <div className="grid grid-cols-2 gap-1">
+                      <div className="px-3 grid grid-cols-2 gap-2">
                         <button
-                          className={`py-1.5 px-1.5 rounded text-[10px] font-medium transition-all ${
+                          className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
                             (quickAddPriceTypes[product.id] || 'INVOICED') === 'INVOICED'
-                              ? 'bg-primary-600 text-white'
-                              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+                              ? 'bg-gradient-to-br from-primary-600 to-primary-700 text-white scale-105 shadow-lg'
+                              : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200 hover:border-primary-300'
                           }`}
                           onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
                         >
-                          <div className="opacity-80 mb-0.5">Faturalı</div>
-                          <div className="font-bold text-xs">{formatCurrency(product.prices.invoiced)}</div>
+                          <div className="opacity-80 mb-0.5">📄 Faturali</div>
+                          <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
                         </button>
                         <button
-                          className={`py-1.5 px-1.5 rounded text-[10px] font-medium transition-all ${
+                          className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
                             quickAddPriceTypes[product.id] === 'WHITE'
-                              ? 'bg-gray-700 text-white'
-                              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+                              ? 'bg-gradient-to-br from-gray-700 to-gray-800 text-white scale-105 shadow-lg'
+                              : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200 hover:border-gray-400'
                           }`}
                           onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
                         >
-                          <div className="opacity-80 mb-0.5">Beyaz</div>
-                          <div className="font-bold text-xs">{formatCurrency(product.prices.white)}</div>
+                          <div className="opacity-80 mb-0.5">⚪ Beyaz</div>
+                          <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
                         </button>
                       </div>
 
                       {/* Quantity & Add to Cart */}
-                      <div className="flex gap-1">
+                      <div className="px-3 pb-3 flex gap-2">
                         <div className="relative flex-1">
                           <Input
                             type="number"
@@ -377,17 +428,17 @@ export default function ProductsPage() {
                               ...quickAddQuantities,
                               [product.id]: parseInt(e.target.value) || 1
                             })}
-                            className="w-full text-center font-semibold text-xs h-7 pr-8"
+                            className="w-full text-center font-bold text-sm h-10 pr-10 border-2 border-gray-200 focus:border-primary-500 rounded-lg"
                           />
-                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-500">{product.unit}</span>
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-semibold">{product.unit}</span>
                         </div>
                         <Button
                           size="sm"
-                          className="flex-1 bg-primary-600 hover:bg-primary-700 text-white font-medium text-[10px] h-7 px-2"
+                          className="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold text-xs h-10 px-3 rounded-lg shadow-md hover:shadow-lg transition-all"
                           onClick={() => handleQuickAdd(product.id)}
                           isLoading={addingToCart[product.id]}
                         >
-                          Sepete Ekle
+                          🛒 Ekle
                         </Button>
                       </div>
                     </div>
@@ -399,14 +450,15 @@ export default function ProductsPage() {
 
           {/* Cart Preview Sidebar */}
           <div className="lg:col-span-1">
-            <Card className="sticky top-24 shadow-xl bg-gradient-to-br from-white to-gray-50">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-bold text-lg flex items-center gap-2">
-                  🛒 Sepet Özeti
+            <Card className="sticky top-24 shadow-2xl bg-gradient-to-br from-white via-gray-50 to-white border-2 border-primary-100">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-gray-100">
+                <h3 className="font-bold text-xl flex items-center gap-2 text-gray-900">
+                  <span className="text-2xl">🛒</span>
+                  Sepet Ozeti
                 </h3>
                 {totalItems > 0 && (
-                  <span className="bg-primary-600 text-white text-xs font-bold px-2 py-1 rounded-full">
-                    {totalItems} Ürün
+                  <span className="bg-gradient-to-br from-primary-600 to-primary-700 text-white text-sm font-bold px-3 py-1.5 rounded-full shadow-md animate-pulse">
+                    {totalItems} Urun
                   </span>
                 )}
               </div>
@@ -549,6 +601,14 @@ export default function ProductsPage() {
           </div>
         </div>
       </div>
+
+      {/* Product Detail Modal */}
+      <ProductDetailModal
+        product={selectedProduct}
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onAddToCart={handleModalAddToCart}
+      />
     </div>
   );
 }

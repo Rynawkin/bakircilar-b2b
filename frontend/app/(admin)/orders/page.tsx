@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { LogoLink } from '@/components/ui/Logo';
 import { OrderCardSkeleton } from '@/components/ui/Skeleton';
+import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 
 export default function AdminOrdersPage() {
@@ -187,42 +188,55 @@ export default function AdminOrdersPage() {
         {orders.length === 0 ? (
           <Card><p className="text-center text-gray-600 py-8">Bekleyen sipariş yok</p></Card>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {orders.map((order) => (
-              <Card key={order.id}>
-                <div className="flex justify-between items-start mb-4">
+              <Card key={order.id} className="overflow-hidden">
+                {/* Order Header */}
+                <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-200">
                   <div>
-                    <h3 className="font-bold text-lg">#{order.orderNumber}</h3>
-                    <p className="text-sm text-gray-600 mt-1">{formatDate(order.createdAt)}</p>
-                    <div className="mt-2 space-y-1">
-                      <p className="text-sm"><strong>Müşteri:</strong> {order.user.name}</p>
-                      <p className="text-sm"><strong>Email:</strong> {order.user.email}</p>
-                      <p className="text-sm"><strong>Mikro Cari:</strong> {order.user.mikroCariCode}</p>
-                    </div>
+                    <h3 className="font-bold text-xl text-gray-900">#{order.orderNumber}</h3>
+                    <p className="text-sm text-gray-500 mt-1">{formatDate(order.createdAt)}</p>
                   </div>
                   <div className="text-right">
+                    <p className="text-xs text-gray-500 mb-1">Toplam Tutar</p>
                     <p className="text-2xl font-bold text-primary-600">{formatCurrency(order.totalAmount)}</p>
                   </div>
                 </div>
 
-                <div className="border-t pt-4 mb-4">
-                  <p className="text-sm font-medium mb-2">Ürünler:</p>
-                  {order.items.map((item) => (
-                    <div key={item.id} className="flex justify-between text-sm py-1">
-                      <div>
-                        <span>{item.productName}</span>
-                        <Badge variant={item.priceType === 'INVOICED' ? 'info' : 'default'} className="ml-2 text-xs">
-                          {item.priceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
-                        </Badge>
-                      </div>
-                      <span>{item.quantity} x {formatCurrency(item.unitPrice)}</span>
-                    </div>
-                  ))}
+                {/* Customer Information */}
+                <div className="mb-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Musteri Bilgileri</h4>
+                  <CustomerInfoCard customer={order.user} />
                 </div>
 
-                <div className="flex gap-2">
+                {/* Order Items */}
+                <div className="border-t pt-4 mb-4">
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Siparis Kalemleri ({order.items.length} urun)</p>
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    {order.items.map((item) => (
+                      <div key={item.id} className="flex justify-between items-center text-sm py-2 px-3 bg-white rounded border border-gray-100">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{item.productName}</p>
+                          <div className="flex gap-2 mt-1">
+                            <span className="text-xs text-gray-500">{item.mikroCode}</span>
+                            <Badge variant={item.priceType === 'INVOICED' ? 'info' : 'default'} className="text-xs">
+                              {item.priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="text-right ml-4">
+                          <p className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</p>
+                          <p className="font-semibold text-gray-900">{formatCurrency(item.totalPrice)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4 border-t border-gray-200">
                   <Button variant="primary" onClick={() => handleApprove(order.id)} className="flex-1">
-                    Onayla ve Mikro'ya Gönder
+                    Onayla ve Mikro'ya Gonder
                   </Button>
                   <Button variant="danger" onClick={() => handleReject(order.id)} className="flex-1">
                     Reddet

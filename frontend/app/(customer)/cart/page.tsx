@@ -127,18 +127,21 @@ export default function CartPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
+      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-xl border-b-4 border-primary-800">
+        <div className="container-custom py-5">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-6">
               <LogoLink href="/products" variant="light" />
               <div>
-                <h1 className="text-xl font-bold text-white">🛒 Sepetim</h1>
-                <p className="text-sm text-primary-100">
+                <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+                  <span className="text-3xl">🛒</span>
+                  Sepetim
+                </h1>
+                <p className="text-sm text-primary-100 font-medium">
                   {cart && cart.items.length > 0
-                    ? `${cart.items.length} ürün - ${formatCurrency(cart.total)}`
-                    : 'Sepetiniz boş'
+                    ? `${cart.items.length} urun - ${formatCurrency(cart.total)}`
+                    : 'Sepetiniz bos'
                   }
                 </p>
               </div>
@@ -148,30 +151,30 @@ export default function CartPage() {
               <Button
                 variant="secondary"
                 onClick={() => router.push('/products')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
-                🛍️ Alışverişe Devam
+                🛍️ Alisverise Devam
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => router.push('/my-orders')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
-                📦 Siparişlerim
+                📦 Siparislerim
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => router.push('/profile')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
                 👤 Profil
               </Button>
               <Button
                 variant="ghost"
                 onClick={() => { logout(); router.push('/login'); }}
-                className="text-white hover:bg-primary-800"
+                className="text-white hover:bg-primary-800 border border-white/30"
               >
-                Çıkış
+                Cikis
               </Button>
             </div>
 
@@ -206,9 +209,12 @@ export default function CartPage() {
           ) : (
             <div className="space-y-6">
               {/* Cart Items */}
-              <Card>
-                <div className="flex justify-between items-center mb-4 pb-4 border-b">
-                  <h3 className="font-semibold text-gray-900">Sepetim ({cart.items.length} ürün)</h3>
+              <Card className="shadow-xl border-2 border-primary-100 bg-white">
+                <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-gray-100">
+                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <span className="text-2xl">📋</span>
+                    Sepetim ({cart.items.length} urun)
+                  </h3>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -216,13 +222,13 @@ export default function CartPage() {
                       const confirmed = await new Promise((resolve) => {
                         toast((t) => (
                           <div className="flex flex-col gap-3">
-                            <p className="font-medium">Tüm ürünleri sepetten çıkarmak istediğinizden emin misiniz?</p>
+                            <p className="font-medium">Tum urunleri sepetten cikarmak istediginizden emin misiniz?</p>
                             <div className="flex gap-2 justify-end">
                               <button
                                 className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
                                 onClick={() => { toast.dismiss(t.id); resolve(false); }}
                               >
-                                İptal
+                                Iptal
                               </button>
                               <button
                                 className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
@@ -242,59 +248,77 @@ export default function CartPage() {
                         toast.success('Sepet temizlendi');
                       }
                     }}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
                   >
                     🗑️ Sepeti Temizle
                   </Button>
                 </div>
-                <div className="divide-y">
+                <div className="space-y-4">
                   {cart.items.map((item) => (
-                    <div key={item.id} className="py-4 first:pt-0 last:pb-0">
-                      <div className="flex gap-4">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-gray-900">{item.product.name}</h3>
-                          <p className="text-sm text-gray-500">Kod: {item.product.mikroCode}</p>
+                    <div key={item.id} className="p-5 bg-gradient-to-r from-gray-50 to-white rounded-xl border-2 border-gray-200 hover:border-primary-300 hover:shadow-lg transition-all">
+                      <div className="flex flex-col sm:flex-row gap-4">
+                        {/* Product Image */}
+                        {item.product.imageUrl && (
+                          <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                            <img
+                              src={item.product.imageUrl}
+                              alt={item.product.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        )}
+
+                        {/* Product Info */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-gray-900 text-lg mb-1">{item.product.name}</h3>
+                          <p className="text-sm text-gray-600 font-mono mb-2">Kod: {item.product.mikroCode}</p>
                           <Badge
                             variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
-                            className="mt-2"
+                            className="font-semibold"
                           >
-                            {item.priceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
+                            {item.priceType === 'INVOICED' ? '📄 Faturali' : '⚪ Beyaz'}
                           </Badge>
                         </div>
 
+                        {/* Quantity Controls */}
                         <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3 bg-white rounded-lg border-2 border-gray-200 p-1">
                             <button
                               onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                              className="w-8 h-8 rounded border border-gray-300 hover:bg-gray-50 flex items-center justify-center"
+                              className="w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
                               disabled={item.quantity <= 1}
                             >
                               -
                             </button>
-                            <span className="w-12 text-center font-medium">{item.quantity}</span>
+                            <span className="w-16 text-center font-bold text-lg">{item.quantity}</span>
                             <button
                               onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                              className="w-8 h-8 rounded border border-gray-300 hover:bg-gray-50 flex items-center justify-center"
+                              className="w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-lg transition-colors"
                             >
                               +
                             </button>
                           </div>
 
-                          <div className="text-right w-32">
-                            <p className="text-sm text-gray-500">
-                              {formatCurrency(item.unitPrice)}
+                          {/* Price */}
+                          <div className="text-right min-w-[120px]">
+                            <p className="text-sm text-gray-600 mb-1">
+                              {formatCurrency(item.unitPrice)} / adet
                             </p>
-                            <p className="font-bold text-primary-600">
+                            <p className="text-2xl font-bold text-primary-600">
                               {formatCurrency(item.totalPrice)}
                             </p>
                           </div>
 
+                          {/* Delete Button */}
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleRemove(item.id)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
                           >
-                            Sil
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
                           </Button>
                         </div>
                       </div>
@@ -304,39 +328,61 @@ export default function CartPage() {
               </Card>
 
               {/* Order Summary */}
-              <Card>
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-gray-900">Sipariş Özeti</h3>
+              <Card className="shadow-xl border-2 border-green-100 bg-gradient-to-br from-white to-green-50">
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3 mb-6 pb-4 border-b-2 border-gray-100">
+                    <div className="bg-gradient-to-br from-green-600 to-green-700 text-white rounded-xl w-14 h-14 flex items-center justify-center text-2xl">
+                      💰
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">Siparis Ozeti</h3>
+                      <p className="text-sm text-gray-600">{cart.items.length} urun</p>
+                    </div>
+                  </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {cart.items.map((item) => (
-                      <div key={item.id} className="flex justify-between text-sm">
-                        <span className="text-gray-600">
+                      <div key={item.id} className="flex justify-between text-sm bg-white rounded-lg p-3 border border-gray-200">
+                        <span className="text-gray-700 font-medium">
                           {item.product.name} x {item.quantity}
                         </span>
-                        <span className="text-gray-900">{formatCurrency(item.totalPrice)}</span>
+                        <span className="text-gray-900 font-bold">{formatCurrency(item.totalPrice)}</span>
                       </div>
                     ))}
                   </div>
 
-                  <div className="border-t pt-4 flex justify-between text-lg font-bold">
-                    <span>Toplam:</span>
-                    <span className="text-primary-600">{formatCurrency(cart.total)}</span>
+                  <div className="border-t-2 border-gray-200 pt-6">
+                    <div className="bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl p-5 shadow-lg mb-6">
+                      <div className="flex justify-between items-center">
+                        <span className="text-lg font-semibold">Genel Toplam:</span>
+                        <span className="text-3xl font-bold">{formatCurrency(cart.total)}</span>
+                      </div>
+                    </div>
+
+                    <Button
+                      className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 text-lg shadow-xl rounded-xl"
+                      onClick={handleCreateOrder}
+                      isLoading={isCreatingOrder}
+                    >
+                      {isCreatingOrder ? '⏳ Olusturuluyor...' : '✅ Siparisi Olustur'}
+                    </Button>
+
+                    <div className="mt-4 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
+                        <div className="text-xs text-blue-800">
+                          <p className="font-semibold mb-1">Siparis Bilgilendirmesi</p>
+                          <ul className="space-y-1">
+                            <li>• Siparisiniz olusturulduktan sonra admin onayi bekleyecektir</li>
+                            <li>• Faturali ve beyaz urunler ayri siparisler olarak islenir</li>
+                            <li>• Onaylanan siparisler en kisa surede hazirlanacaktir</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-
-                  <Button
-                    className="w-full"
-                    onClick={handleCreateOrder}
-                    isLoading={isCreatingOrder}
-                  >
-                    Siparişi Oluştur
-                  </Button>
-
-                  <p className="text-xs text-gray-500 text-center">
-                    Siparişiniz oluşturulduktan sonra admin onayı bekleyecektir.
-                    <br />
-                    Faturalı ve beyaz ürünler ayrı siparişler olarak işlenir.
-                  </p>
                 </div>
               </Card>
             </div>
