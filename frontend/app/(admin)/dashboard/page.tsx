@@ -37,10 +37,17 @@ export default function AdminDashboardPage() {
   }, [loadUserFromStorage]);
 
   useEffect(() => {
-    if (user?.role !== 'ADMIN') {
+    // user null ise henüz yükleniyor, bekle
+    if (user === null) {
+      return;
+    }
+
+    // user yüklendikten sonra role kontrolü yap
+    if (user.role !== 'ADMIN') {
       router.push('/login');
       return;
     }
+
     fetchStats();
   }, [user, router]);
 
