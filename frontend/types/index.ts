@@ -190,7 +190,17 @@ export interface SyncStatus {
   completedAt?: string;
   categoriesCount?: number;
   productsCount?: number;
+  imagesDownloaded?: number;
+  imagesSkipped?: number;
+  imagesFailed?: number;
   errorMessage?: string;
+  warnings?: Array<{
+    type: string;
+    productCode: string;
+    productName: string;
+    message: string;
+    size?: number;
+  }>;
   isRunning: boolean;
   isCompleted: boolean;
 }

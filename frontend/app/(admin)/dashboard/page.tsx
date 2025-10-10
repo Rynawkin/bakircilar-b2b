@@ -20,7 +20,17 @@ export default function AdminDashboardPage() {
   const [syncProgress, setSyncProgress] = useState<{
     categoriesCount?: number;
     productsCount?: number;
+    imagesDownloaded?: number;
+    imagesSkipped?: number;
+    imagesFailed?: number;
   } | null>(null);
+  const [syncWarnings, setSyncWarnings] = useState<Array<{
+    type: string;
+    productCode: string;
+    productName: string;
+    message: string;
+    size?: number;
+  }> | null>(null);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -55,6 +65,9 @@ export default function AdminDashboardPage() {
         setSyncProgress({
           categoriesCount: status.categoriesCount,
           productsCount: status.productsCount,
+          imagesDownloaded: status.imagesDownloaded,
+          imagesSkipped: status.imagesSkipped,
+          imagesFailed: status.imagesFailed,
         });
 
         // Check if completed
@@ -64,15 +77,35 @@ export default function AdminDashboardPage() {
           setSyncProgress(null);
 
           if (status.status === 'SUCCESS') {
-            toast.success(
-              `Senkronizasyon tamamlandı! 🎉\n\nKategoriler: ${status.categoriesCount || 0}\nÜrünler: ${status.productsCount || 0}`,
-              {
-                duration: 5000,
-              }
-            );
+            // Store warnings if any
+            if (status.warnings && status.warnings.length > 0) {
+              setSyncWarnings(status.warnings);
+            }
+
+            // Build success message
+            let successMessage = `Senkronizasyon tamamlandı! 🎉\n\nKategoriler: ${status.categoriesCount || 0}\nÜrünler: ${status.productsCount || 0}`;
+
+            // Add image stats if available
+            if (status.imagesDownloaded !== undefined || status.imagesSkipped !== undefined || status.imagesFailed !== undefined) {
+              successMessage += `\n\nResimler:\n✅ İndirilen: ${status.imagesDownloaded || 0}\n⏭️ Atlanan: ${status.imagesSkipped || 0}\n❌ Hatalı: ${status.imagesFailed || 0}`;
+            }
+
+            // Show warning if there are issues
+            if (status.warnings && status.warnings.length > 0) {
+              successMessage += `\n\n⚠️ ${status.warnings.length} uyarı var (detaylar aşağıda)`;
+            }
+
+            toast.success(successMessage, {
+              duration: 7000,
+            });
             fetchStats();
           } else if (status.status === 'FAILED') {
             toast.error(`Senkronizasyon başarısız: ${status.errorMessage || 'Bilinmeyen hata'}`);
+
+            // Store warnings even on failure
+            if (status.warnings && status.warnings.length > 0) {
+              setSyncWarnings(status.warnings);
+            }
           }
         }
       } catch (error) {
@@ -131,6 +164,7 @@ export default function AdminDashboardPage() {
 
     setIsSyncing(true);
     setSyncProgress(null);
+    setSyncWarnings(null); // Clear old warnings
 
     try {
       const result = await adminApi.triggerSync();
@@ -263,6 +297,67 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
+        {/* Sync Warnings */}
+        {syncWarnings && syncWarnings.length > 0 && (
+          <Card className="mb-6 shadow-lg border-yellow-300 bg-gradient-to-br from-yellow-50 to-orange-50">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="bg-yellow-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl flex-shrink-0">
+                ⚠️
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-lg text-yellow-900">Senkronizasyon Uyarıları</h3>
+                    <p className="text-sm text-yellow-700">
+                      {syncWarnings.length} uyarı bulundu
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSyncWarnings(null)}
+                    className="text-yellow-700 hover:text-yellow-900 font-medium text-sm underline"
+                  >
+                    Kapat
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {syncWarnings.map((warning, index) => (
+                <div
+                  key={index}
+                  className="bg-white border border-yellow-200 rounded-lg p-3 text-sm"
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-yellow-600 flex-shrink-0 mt-0.5">
+                      {warning.type === 'IMAGE_TOO_LARGE' ? '📏' : '❌'}
+                    </span>
+                    <div className="flex-1">
+                      <div className="font-semibold text-gray-900 mb-1">
+                        {warning.productName}
+                        <span className="text-gray-500 font-normal ml-2">({warning.productCode})</span>
+                      </div>
+                      <div className="text-gray-700">{warning.message}</div>
+                      {warning.size && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          Boyut: {(warning.size / 1024 / 1024).toFixed(2)} MB
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-yellow-200">
+              <p className="text-xs text-yellow-800">
+                💡 <strong>Not:</strong> Bu uyarılar bilgilendirme amaçlıdır. Senkronizasyon başarıyla tamamlanmıştır.
+                Resim boyutu çok büyük olan ürünler için resimleri manuel olarak küçültüp tekrar yükleyebilirsiniz.
+              </p>
+            </div>
+          </Card>
+        )}
+
         {/* Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="shadow-lg bg-gradient-to-br from-white to-gray-50">
@@ -298,6 +393,16 @@ export default function AdminDashboardPage() {
                 {syncProgress.productsCount !== undefined && (
                   <div className="text-xs text-gray-700">
                     ✅ Ürünler: {syncProgress.productsCount}
+                  </div>
+                )}
+                {(syncProgress.imagesDownloaded !== undefined ||
+                  syncProgress.imagesSkipped !== undefined ||
+                  syncProgress.imagesFailed !== undefined) && (
+                  <div className="text-xs text-gray-700 mt-1 pt-1 border-t border-blue-200">
+                    📸 Resimler: {syncProgress.imagesDownloaded || 0} indirildi
+                    {(syncProgress.imagesSkipped || 0) + (syncProgress.imagesFailed || 0) > 0 &&
+                      `, ${(syncProgress.imagesSkipped || 0) + (syncProgress.imagesFailed || 0)} atlandı`
+                    }
                   </div>
                 )}
               </div>
