@@ -38,6 +38,11 @@ export const adminApi = {
     return response.data;
   },
 
+  triggerCariSync: async (): Promise<{ message: string; syncId: string }> => {
+    const response = await apiClient.post('/admin/sync/cari');
+    return response.data;
+  },
+
   // Cari List
   getCariList: async (): Promise<{ cariList: Array<{ code: string; name: string; type: string }> }> => {
     const response = await apiClient.get('/admin/cari-list');
@@ -45,7 +50,13 @@ export const adminApi = {
   },
 
   // Products
-  getProducts: async (params?: { search?: string }): Promise<{ products: any[] }> => {
+  getProducts: async (params?: {
+    search?: string;
+    hasImage?: 'true' | 'false';
+    categoryId?: string;
+    sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost';
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<{ products: any[] }> => {
     const response = await apiClient.get('/admin/products', { params });
     return response.data;
   },

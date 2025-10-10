@@ -17,6 +17,7 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isCariSyncing, setIsCariSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{
     categoriesCount?: number;
     productsCount?: number;
@@ -135,6 +136,58 @@ export default function AdminDashboardPage() {
     }, 600000);
   };
 
+  const handleCariSync = async () => {
+    const confirmed = await new Promise((resolve) => {
+      toast((t) => (
+        <div className="flex flex-col gap-3">
+          <p className="font-medium">Cari senkronizasyonu başlatılsın mı?</p>
+          <p className="text-sm text-gray-600">Mikro ERP'deki cari bilgileri müşteri kayıtlarına aktarılacak.</p>
+          <div className="flex gap-2 justify-end">
+            <button
+              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(false);
+              }}
+            >
+              İptal
+            </button>
+            <button
+              className="px-3 py-1 text-sm bg-primary-600 text-white rounded hover:bg-primary-700"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(true);
+              }}
+            >
+              Başlat
+            </button>
+          </div>
+        </div>
+      ), {
+        duration: Infinity,
+      });
+    });
+
+    if (!confirmed) return;
+
+    setIsCariSyncing(true);
+
+    try {
+      await adminApi.triggerCariSync();
+      toast.success('Cari senkronizasyonu başlatıldı! 🚀\n\nMüşteri bilgileri güncelleniyor...', { duration: 5000 });
+
+      // Wait a bit then reload stats
+      setTimeout(() => {
+        setIsCariSyncing(false);
+        toast.success('Cari senkronizasyonu tamamlandı! ✅');
+        fetchStats();
+      }, 3000);
+    } catch (error: any) {
+      setIsCariSyncing(false);
+      toast.error(error.response?.data?.error || 'Cari senkronizasyonu başlatılamadı');
+    }
+  };
+
   const handleSync = async () => {
     const confirmed = await new Promise((resolve) => {
       toast((t) => (
@@ -207,6 +260,9 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             <div className="flex gap-3 flex-wrap">
+              <Button variant="secondary" onClick={() => router.push('/products')} className="bg-white text-primary-700 hover:bg-primary-50">
+                📦 Ürünler
+              </Button>
               <Button variant="secondary" onClick={() => router.push('/settings')} className="bg-white text-primary-700 hover:bg-primary-50">
                 ⚙️ Ayarlar
               </Button>
@@ -214,7 +270,7 @@ export default function AdminDashboardPage() {
                 👥 Müşteriler
               </Button>
               <Button variant="secondary" onClick={() => router.push('/orders')} className="bg-white text-primary-700 hover:bg-primary-50">
-                📦 Siparişler
+                📋 Siparişler
               </Button>
               <Button variant="secondary" onClick={() => router.push('/categories')} className="bg-white text-primary-700 hover:bg-primary-50">
                 📁 Kategoriler
@@ -366,7 +422,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="shadow-lg bg-gradient-to-br from-white to-gray-50">
             <div className="flex items-center gap-3 mb-4">
               <div className="bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
@@ -421,6 +477,29 @@ export default function AdminDashboardPage() {
               className="w-full bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold py-3 shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {isSyncing ? '🔄 Senkronize Ediliyor...' : '🔄 Şimdi Senkronize Et'}
+            </Button>
+          </Card>
+
+          <Card className="shadow-lg bg-gradient-to-br from-white to-gray-50">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-gradient-to-br from-orange-600 to-orange-700 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                👥
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-gray-900">Cari Senkronizasyonu</h3>
+                <p className="text-xs text-gray-600">Müşteri bilgilerini güncelle</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-4 bg-orange-50 border-l-4 border-orange-500 p-3 rounded">
+              💡 Mikro ERP'deki cari bilgilerini müşteri kayıtlarına aktarın.
+            </p>
+            <Button
+              onClick={handleCariSync}
+              isLoading={isCariSyncing}
+              disabled={isCariSyncing}
+              className="w-full bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white font-bold py-3 shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isCariSyncing ? '👥 Cari Sync Ediliyor...' : '👥 Cari Sync Et'}
             </Button>
           </Card>
 
