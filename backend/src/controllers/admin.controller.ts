@@ -263,6 +263,16 @@ export class AdminController {
           mikroCariCode: true,
           active: true,
           createdAt: true,
+          // Mikro ERP fields
+          city: true,
+          district: true,
+          phone: true,
+          groupCode: true,
+          sectorCode: true,
+          paymentTerm: true,
+          hasEInvoice: true,
+          balance: true,
+          isLocked: true,
         },
         orderBy: {
           createdAt: 'desc',
@@ -306,6 +316,31 @@ export class AdminController {
       // Şifreyi hashle
       const hashedPassword = await hashPassword(password);
 
+      // Mikro'dan cari bilgilerini çek
+      let mikroCariData = {};
+      if (mikroCariCode) {
+        try {
+          const cariList = await mikroService.getCariDetails();
+          const cari = cariList.find(c => c.code === mikroCariCode);
+          if (cari) {
+            mikroCariData = {
+              city: cari.city,
+              district: cari.district,
+              phone: cari.phone,
+              groupCode: cari.groupCode,
+              sectorCode: cari.sectorCode,
+              paymentTerm: cari.paymentTerm,
+              hasEInvoice: cari.hasEInvoice,
+              balance: cari.balance,
+              isLocked: cari.isLocked,
+            };
+          }
+        } catch (error) {
+          console.error('Mikro cari bilgileri çekilirken hata:', error);
+          // Hata olsa bile devam et, sadece Mikro alanları boş kalır
+        }
+      }
+
       // Kullanıcı oluştur
       const user = await prisma.user.create({
         data: {
@@ -315,6 +350,7 @@ export class AdminController {
           role: 'CUSTOMER',
           customerType,
           mikroCariCode,
+          ...mikroCariData,
         },
         select: {
           id: true,
@@ -322,6 +358,15 @@ export class AdminController {
           name: true,
           customerType: true,
           mikroCariCode: true,
+          city: true,
+          district: true,
+          phone: true,
+          groupCode: true,
+          sectorCode: true,
+          paymentTerm: true,
+          hasEInvoice: true,
+          balance: true,
+          isLocked: true,
         },
       });
 

@@ -275,7 +275,7 @@ export default function CustomersPage() {
                         <>
                           {selectedCari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
                           {selectedCari.isLocked && <Badge variant="danger">Kilitli</Badge>}
-                          {!selectedCari.hasEInvoice && !selectedCari.isLocked && <span className="text-gray-400 text-sm">-</span>}
+                          {!selectedCari.hasEInvoice && !selectedCari.isLocked && <Badge variant="info">Normal</Badge>}
                         </>
                       ) : (
                         <span className="text-gray-400 text-sm">Cari seçilince görünür</span>

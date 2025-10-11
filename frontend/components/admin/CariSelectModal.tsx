@@ -186,7 +186,7 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
                       <div className="flex gap-1">
                         {cari.isLocked && <Badge variant="danger">Kilitli</Badge>}
                         {cari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
-                        {!cari.isLocked && !cari.hasEInvoice && <span className="text-gray-400">-</span>}
+                        {!cari.isLocked && !cari.hasEInvoice && <Badge variant="info">Normal</Badge>}
                       </div>
                     </td>
                   </tr>
