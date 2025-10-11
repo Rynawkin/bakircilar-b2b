@@ -9,7 +9,15 @@ import { Badge } from '@/components/ui/Badge';
 interface MikroCari {
   code: string;
   name: string;
-  type: string;
+  city?: string;
+  district?: string;
+  phone?: string;
+  isLocked: boolean;
+  groupCode?: string;
+  sectorCode?: string;
+  paymentTerm?: number;
+  hasEInvoice: boolean;
+  balance: number;
 }
 
 interface CariSelectModalProps {
@@ -31,7 +39,11 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
       cari =>
         (cari.code?.toLowerCase() || '').includes(lowerSearch) ||
         (cari.name?.toLowerCase() || '').includes(lowerSearch) ||
-        (cari.type?.toLowerCase() || '').includes(lowerSearch)
+        (cari.city?.toLowerCase() || '').includes(lowerSearch) ||
+        (cari.district?.toLowerCase() || '').includes(lowerSearch) ||
+        (cari.phone?.toLowerCase() || '').includes(lowerSearch) ||
+        (cari.sectorCode?.toLowerCase() || '').includes(lowerSearch) ||
+        (cari.groupCode?.toLowerCase() || '').includes(lowerSearch)
     );
   }, [cariList, searchTerm]);
 
@@ -90,11 +102,26 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
 
         {selectedCari && (
           <div className="p-4 bg-primary-50 border border-primary-200 rounded-lg">
-            <p className="text-sm font-medium text-primary-900 mb-2">Seçili Cari:</p>
-            <div className="space-y-1 text-sm">
+            <p className="text-sm font-medium text-primary-900 mb-2 flex items-center gap-2">
+              Seçili Cari:
+              {selectedCari.isLocked && <Badge variant="danger">Kilitli</Badge>}
+              {selectedCari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
               <p><span className="font-medium">Kod:</span> {selectedCari.code}</p>
               <p><span className="font-medium">İsim:</span> {selectedCari.name}</p>
-              <p><span className="font-medium">Tip:</span> <Badge variant="info">{selectedCari.type}</Badge></p>
+              {selectedCari.city && (
+                <p><span className="font-medium">Şehir:</span> {selectedCari.city}{selectedCari.district && ` / ${selectedCari.district}`}</p>
+              )}
+              {selectedCari.phone && (
+                <p><span className="font-medium">Telefon:</span> {selectedCari.phone}</p>
+              )}
+              {selectedCari.paymentTerm !== undefined && (
+                <p><span className="font-medium">Vade:</span> {selectedCari.paymentTerm} gün</p>
+              )}
+              {selectedCari.balance !== undefined && (
+                <p><span className="font-medium">Bakiye:</span> <span className={selectedCari.balance >= 0 ? 'text-green-600' : 'text-red-600'}>{selectedCari.balance.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</span></p>
+              )}
             </div>
           </div>
         )}
@@ -105,13 +132,16 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
               <tr className="text-left text-sm text-gray-600">
                 <th className="px-4 py-3 font-medium">Cari Kodu</th>
                 <th className="px-4 py-3 font-medium">İsim</th>
-                <th className="px-4 py-3 font-medium">Tip</th>
+                <th className="px-4 py-3 font-medium">Şehir/İlçe</th>
+                <th className="px-4 py-3 font-medium">Telefon</th>
+                <th className="px-4 py-3 font-medium">Vade</th>
+                <th className="px-4 py-3 font-medium">Durum</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {filteredCariList.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                     Cari bulunamadı
                   </td>
                 </tr>
@@ -128,8 +158,22 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
                   >
                     <td className="px-4 py-3 font-mono text-sm">{cari.code}</td>
                     <td className="px-4 py-3 text-sm">{cari.name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {cari.city || '-'}
+                      {cari.district && ` / ${cari.district}`}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {cari.phone || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {cari.paymentTerm !== undefined ? `${cari.paymentTerm} gün` : '-'}
+                    </td>
                     <td className="px-4 py-3">
-                      <Badge variant="info">{cari.type}</Badge>
+                      <div className="flex gap-1">
+                        {cari.isLocked && <Badge variant="danger">Kilitli</Badge>}
+                        {cari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
+                        {!cari.isLocked && !cari.hasEInvoice && <span className="text-gray-400">-</span>}
+                      </div>
                     </td>
                   </tr>
                 ))
