@@ -151,7 +151,7 @@ export class AdminController {
    */
   async getCariList(req: Request, res: Response, next: NextFunction) {
     try {
-      const cariList = await mikroService.getCariList();
+      const cariList = await mikroService.getCariDetails();
       res.json({ cariList });
     } catch (error) {
       next(error);

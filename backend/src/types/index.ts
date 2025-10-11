@@ -80,6 +80,15 @@ export interface MikroPendingOrder {
 export interface MikroCari {
   code: string;
   name: string;
+  city?: string;
+  district?: string;
+  phone?: string;
+  isLocked: boolean;
+  groupCode?: string;
+  sectorCode?: string;
+  paymentTerm?: number;
+  hasEInvoice: boolean;
+  balance: number;
 }
 
 // ==================== PRODUCT TYPES ====================
