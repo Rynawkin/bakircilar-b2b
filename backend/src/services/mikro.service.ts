@@ -309,8 +309,8 @@ class MikroService {
   }
 
   /**
-   * Cari detaylı bilgilerini getir (sync için)
-   * Sadece sektör ismi "SATIŞ" olan cariler
+   * Cari detaylı bilgilerini getir (tüm cariler)
+   * Şehir, telefon, bakiye, vade gibi detaylı bilgilerle
    */
   async getCariDetails(): Promise<Array<{
     code: string;
@@ -348,8 +348,7 @@ class MikroService {
         dbo.fn_CariHesapAnaDovizBakiye('', 0, cari_kod, '', '', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL) as balance
 
       FROM CARI_HESAPLAR
-      WHERE cari_sektor_kodu = 'SATIŞ'
-        AND cari_kod IS NOT NULL
+      WHERE cari_kod IS NOT NULL
         AND cari_kod != ''
       ORDER BY cari_unvan1
     `;
