@@ -302,6 +302,9 @@ class MikroService {
     return result.recordset.map((row: any) => ({
       code: row.code,
       name: row.name,
+      isLocked: false,
+      hasEInvoice: false,
+      balance: 0,
     }));
   }
 

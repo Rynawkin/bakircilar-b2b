@@ -390,14 +390,14 @@ export class MikroMockService {
    */
   async getCariList(): Promise<import('../types').MikroCari[]> {
     return [
-      { code: 'CARI001', name: 'ABC Bilgisayar Ltd.' },
-      { code: 'CARI002', name: 'XYZ Teknoloji A.Ş.' },
-      { code: 'CARI003', name: 'Deneme Ticaret' },
-      { code: 'CARI004', name: 'Premium Müşteri A.Ş.' },
-      { code: 'CARI005', name: 'Özel Anlaşmalı Firma' },
-      { code: 'CARI006', name: 'Test Şirketi Ltd.' },
-      { code: 'CARI007', name: 'Standart Satış Ltd.' },
-      { code: 'CARI008', name: 'Elite Teknoloji' },
+      { code: 'CARI001', name: 'ABC Bilgisayar Ltd.', isLocked: false, hasEInvoice: false, balance: 0 },
+      { code: 'CARI002', name: 'XYZ Teknoloji A.Ş.', isLocked: false, hasEInvoice: false, balance: 0 },
+      { code: 'CARI003', name: 'Deneme Ticaret', isLocked: false, hasEInvoice: false, balance: 0 },
+      { code: 'CARI004', name: 'Premium Müşteri A.Ş.', isLocked: false, hasEInvoice: false, balance: 0 },
+      { code: 'CARI005', name: 'Özel Anlaşmalı Firma', isLocked: false, hasEInvoice: false, balance: 0 },
+      { code: 'CARI006', name: 'Test Şirketi Ltd.', isLocked: false, hasEInvoice: false, balance: 0 },
+      { code: 'CARI007', name: 'Standart Satış Ltd.', isLocked: false, hasEInvoice: false, balance: 0 },
+      { code: 'CARI008', name: 'Elite Teknoloji', isLocked: false, hasEInvoice: false, balance: 0 },
     ];
   }
 
