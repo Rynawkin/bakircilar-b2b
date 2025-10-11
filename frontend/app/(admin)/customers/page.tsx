@@ -35,6 +35,7 @@ export default function CustomersPage() {
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showCariModal, setShowCariModal] = useState(false);
+  const [selectedCari, setSelectedCari] = useState<MikroCari | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [formData, setFormData] = useState<CreateCustomerRequest>({
@@ -69,11 +70,13 @@ export default function CustomersPage() {
   };
 
   const handleCariSelect = (cari: MikroCari) => {
+    setSelectedCari(cari);
     setFormData({
       ...formData,
       mikroCariCode: cari.code,
       name: formData.name || cari.name,
     });
+    setShowCariModal(false);
   };
 
   const filteredCustomers = useMemo(() => {
@@ -110,6 +113,7 @@ export default function CustomersPage() {
       toast.success('Müşteri başarıyla oluşturuldu! ✅');
       setShowForm(false);
       setFormData({ email: '', password: '', name: '', customerType: 'PERAKENDE', mikroCariCode: '' });
+      setSelectedCari(null);
       fetchCustomers();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Müşteri oluşturulamadı');
@@ -135,7 +139,17 @@ export default function CustomersPage() {
             <div className="flex gap-3">
               <Button
                 variant="secondary"
-                onClick={() => setShowForm(!showForm)}
+                onClick={() => {
+                  if (showForm) {
+                    // Closing form - reset everything
+                    setShowForm(false);
+                    setFormData({ email: '', password: '', name: '', customerType: 'PERAKENDE', mikroCariCode: '' });
+                    setSelectedCari(null);
+                  } else {
+                    // Opening form
+                    setShowForm(true);
+                  }
+                }}
                 className="bg-white text-primary-700 hover:bg-primary-50"
               >
                 {showForm ? 'İptal' : '+ Yeni Müşteri'}
@@ -167,6 +181,45 @@ export default function CustomersPage() {
                   {formData.mikroCariCode ? `${formData.mikroCariCode} - ${formData.name}` : 'Mikro\'dan Seç'}
                 </Button>
                 <p className="text-xs text-gray-500 mt-1">Mikro ERP'den cari seçmek için tıklayın</p>
+
+                {selectedCari && (
+                  <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm font-medium text-blue-900 mb-3 flex items-center gap-2">
+                      📋 Seçilen Cari Bilgileri
+                      {selectedCari.isLocked && <Badge variant="danger">Kilitli</Badge>}
+                      {selectedCari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div className="text-gray-700">
+                        <span className="font-medium">Şehir:</span> {selectedCari.city || '-'}
+                      </div>
+                      <div className="text-gray-700">
+                        <span className="font-medium">İlçe:</span> {selectedCari.district || '-'}
+                      </div>
+                      <div className="text-gray-700">
+                        <span className="font-medium">Telefon:</span> {selectedCari.phone || '-'}
+                      </div>
+                      <div className="text-gray-700">
+                        <span className="font-medium">Grup Kodu:</span> {selectedCari.groupCode || '-'}
+                      </div>
+                      <div className="text-gray-700">
+                        <span className="font-medium">Sektör Kodu:</span> {selectedCari.sectorCode || '-'}
+                      </div>
+                      <div className="text-gray-700">
+                        <span className="font-medium">Vade:</span> {selectedCari.paymentTerm ? `${selectedCari.paymentTerm} gün` : '-'}
+                      </div>
+                      <div className="text-gray-700 col-span-2">
+                        <span className="font-medium">Bakiye:</span>{' '}
+                        <span className={selectedCari.balance >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                          {formatCurrency(selectedCari.balance)}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-blue-600 mt-2">
+                      ℹ️ Bu bilgiler müşteri oluşturulduğunda otomatik olarak kaydedilecektir
+                    </p>
+                  </div>
+                )}
               </div>
 
               <Input
