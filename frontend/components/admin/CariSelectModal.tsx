@@ -102,46 +102,49 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
 
         {selectedCari && (
           <div className="p-4 bg-primary-50 border border-primary-200 rounded-lg">
-            <p className="text-sm font-medium text-primary-900 mb-2 flex items-center gap-2">
-              Seçili Cari:
+            <p className="text-sm font-medium text-primary-900 mb-3 flex items-center gap-2">
+              ✅ Seçili Cari
               {selectedCari.isLocked && <Badge variant="danger">Kilitli</Badge>}
               {selectedCari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
             </p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <p><span className="font-medium">Kod:</span> {selectedCari.code}</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <p><span className="font-medium">Cari Kodu:</span> {selectedCari.code}</p>
               <p><span className="font-medium">İsim:</span> {selectedCari.name}</p>
-              {selectedCari.city && (
-                <p><span className="font-medium">Şehir:</span> {selectedCari.city}{selectedCari.district && ` / ${selectedCari.district}`}</p>
-              )}
-              {selectedCari.phone && (
-                <p><span className="font-medium">Telefon:</span> {selectedCari.phone}</p>
-              )}
-              {selectedCari.paymentTerm !== undefined && (
-                <p><span className="font-medium">Vade:</span> {selectedCari.paymentTerm} gün</p>
-              )}
-              {selectedCari.balance !== undefined && (
-                <p><span className="font-medium">Bakiye:</span> <span className={selectedCari.balance >= 0 ? 'text-green-600' : 'text-red-600'}>{selectedCari.balance.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</span></p>
-              )}
+              <p><span className="font-medium">Şehir:</span> {selectedCari.city || '-'}</p>
+              <p><span className="font-medium">İlçe:</span> {selectedCari.district || '-'}</p>
+              <p><span className="font-medium">Telefon:</span> {selectedCari.phone || '-'}</p>
+              <p><span className="font-medium">Grup Kodu:</span> {selectedCari.groupCode || '-'}</p>
+              <p><span className="font-medium">Sektör Kodu:</span> {selectedCari.sectorCode || '-'}</p>
+              <p><span className="font-medium">Vade:</span> {selectedCari.paymentTerm !== undefined ? `${selectedCari.paymentTerm} gün` : '-'}</p>
+              <p className="col-span-2">
+                <span className="font-medium">Bakiye:</span>{' '}
+                <span className={selectedCari.balance >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                  {selectedCari.balance.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                </span>
+              </p>
             </div>
           </div>
         )}
 
         <div className="overflow-x-auto border rounded-lg">
-          <table className="w-full">
+          <table className="w-full min-w-max">
             <thead className="bg-gray-50 border-b">
               <tr className="text-left text-sm text-gray-600">
                 <th className="px-4 py-3 font-medium">Cari Kodu</th>
                 <th className="px-4 py-3 font-medium">İsim</th>
                 <th className="px-4 py-3 font-medium">Şehir/İlçe</th>
                 <th className="px-4 py-3 font-medium">Telefon</th>
+                <th className="px-4 py-3 font-medium">Grup Kodu</th>
+                <th className="px-4 py-3 font-medium">Sektör Kodu</th>
                 <th className="px-4 py-3 font-medium">Vade</th>
+                <th className="px-4 py-3 font-medium">Bakiye</th>
                 <th className="px-4 py-3 font-medium">Durum</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {filteredCariList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                     Cari bulunamadı
                   </td>
                 </tr>
@@ -166,7 +169,18 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
                       {cari.phone || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
+                      {cari.groupCode || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {cari.sectorCode || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 text-center">
                       {cari.paymentTerm !== undefined ? `${cari.paymentTerm} gün` : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-medium">
+                      <span className={cari.balance >= 0 ? 'text-green-600' : 'text-red-600'}>
+                        {cari.balance.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">

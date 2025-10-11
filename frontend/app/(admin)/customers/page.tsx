@@ -171,7 +171,7 @@ export default function CustomersPage() {
           <Card title="Yeni Müşteri Ekle" className="mb-6">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Mikro Cari Seç</label>
+                <label className="block text-sm font-medium mb-1">Mikro Cari Seç *</label>
                 <Button
                   type="button"
                   variant="secondary"
@@ -181,74 +181,136 @@ export default function CustomersPage() {
                   {formData.mikroCariCode ? `${formData.mikroCariCode} - ${formData.name}` : 'Mikro\'dan Seç'}
                 </Button>
                 <p className="text-xs text-gray-500 mt-1">Mikro ERP'den cari seçmek için tıklayın</p>
-
-                {selectedCari && (
-                  <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm font-medium text-blue-900 mb-3 flex items-center gap-2">
-                      📋 Seçilen Cari Bilgileri
-                      {selectedCari.isLocked && <Badge variant="danger">Kilitli</Badge>}
-                      {selectedCari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
-                    </p>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                      <div className="text-gray-700">
-                        <span className="font-medium">Şehir:</span> {selectedCari.city || '-'}
-                      </div>
-                      <div className="text-gray-700">
-                        <span className="font-medium">İlçe:</span> {selectedCari.district || '-'}
-                      </div>
-                      <div className="text-gray-700">
-                        <span className="font-medium">Telefon:</span> {selectedCari.phone || '-'}
-                      </div>
-                      <div className="text-gray-700">
-                        <span className="font-medium">Grup Kodu:</span> {selectedCari.groupCode || '-'}
-                      </div>
-                      <div className="text-gray-700">
-                        <span className="font-medium">Sektör Kodu:</span> {selectedCari.sectorCode || '-'}
-                      </div>
-                      <div className="text-gray-700">
-                        <span className="font-medium">Vade:</span> {selectedCari.paymentTerm ? `${selectedCari.paymentTerm} gün` : '-'}
-                      </div>
-                      <div className="text-gray-700 col-span-2">
-                        <span className="font-medium">Bakiye:</span>{' '}
-                        <span className={selectedCari.balance >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-                          {formatCurrency(selectedCari.balance)}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-blue-600 mt-2">
-                      ℹ️ Bu bilgiler müşteri oluşturulduğunda otomatik olarak kaydedilecektir
-                    </p>
-                  </div>
-                )}
               </div>
 
-              <Input
-                label="Ad Soyad"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-                placeholder="Cari seçince otomatik dolar"
-              />
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Müşteri Segmenti</label>
-                <select
-                  className="input"
-                  value={formData.customerType}
-                  onChange={(e) => setFormData({ ...formData, customerType: e.target.value as any })}
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Ad Soyad"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required
-                >
-                  {CUSTOMER_TYPES.map(type => (
-                    <option key={type.value} value={type.value}>{type.label}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Fiyatlandırma segmenti belirleyin</p>
+                  placeholder="Cari seçince otomatik dolar"
+                />
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Müşteri Segmenti *</label>
+                  <select
+                    className="input"
+                    value={formData.customerType}
+                    onChange={(e) => setFormData({ ...formData, customerType: e.target.value as any })}
+                    required
+                  >
+                    {CUSTOMER_TYPES.map(type => (
+                      <option key={type.value} value={type.value}>{type.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Fiyatlandırma segmenti</p>
+                </div>
               </div>
 
-              <Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
-              <Input label="Şifre" type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required minLength={6} />
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">📋 Mikro ERP Bilgileri (Otomatik Doldurulur)</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Şehir"
+                    value={selectedCari?.city || ''}
+                    readOnly
+                    disabled={!selectedCari}
+                    placeholder="Cari seçilince dolar"
+                  />
 
-              <Button type="submit" className="w-full">Müşteri Oluştur</Button>
+                  <Input
+                    label="İlçe"
+                    value={selectedCari?.district || ''}
+                    readOnly
+                    disabled={!selectedCari}
+                    placeholder="Cari seçilince dolar"
+                  />
+
+                  <Input
+                    label="Telefon"
+                    value={selectedCari?.phone || ''}
+                    readOnly
+                    disabled={!selectedCari}
+                    placeholder="Cari seçilince dolar"
+                  />
+
+                  <Input
+                    label="Grup Kodu"
+                    value={selectedCari?.groupCode || ''}
+                    readOnly
+                    disabled={!selectedCari}
+                    placeholder="Cari seçilince dolar"
+                  />
+
+                  <Input
+                    label="Sektör Kodu"
+                    value={selectedCari?.sectorCode || ''}
+                    readOnly
+                    disabled={!selectedCari}
+                    placeholder="Cari seçilince dolar"
+                  />
+
+                  <Input
+                    label="Vade Günü"
+                    value={selectedCari?.paymentTerm ? `${selectedCari.paymentTerm} gün` : ''}
+                    readOnly
+                    disabled={!selectedCari}
+                    placeholder="Cari seçilince dolar"
+                  />
+
+                  <Input
+                    label="Bakiye"
+                    value={selectedCari ? formatCurrency(selectedCari.balance) : ''}
+                    readOnly
+                    disabled={!selectedCari}
+                    placeholder="Cari seçilince dolar"
+                    className={selectedCari && selectedCari.balance >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}
+                  />
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Durum</label>
+                    <div className="flex gap-2 h-10 items-center">
+                      {selectedCari ? (
+                        <>
+                          {selectedCari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
+                          {selectedCari.isLocked && <Badge variant="danger">Kilitli</Badge>}
+                          {!selectedCari.hasEInvoice && !selectedCari.isLocked && <span className="text-gray-400 text-sm">-</span>}
+                        </>
+                      ) : (
+                        <span className="text-gray-400 text-sm">Cari seçilince görünür</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">🔐 Hesap Bilgileri</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    label="Email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    required
+                    placeholder="ornek@email.com"
+                  />
+                  <Input
+                    label="Şifre"
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    required
+                    minLength={6}
+                    placeholder="En az 6 karakter"
+                  />
+                </div>
+              </div>
+
+              <Button type="submit" className="w-full" disabled={!selectedCari}>
+                {selectedCari ? 'Müşteri Oluştur' : 'Önce Mikro Cari Seçin'}
+              </Button>
             </form>
           </Card>
         )}
