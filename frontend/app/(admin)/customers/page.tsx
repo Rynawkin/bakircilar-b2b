@@ -17,7 +17,15 @@ import { CariSelectModal } from '@/components/admin/CariSelectModal';
 interface MikroCari {
   code: string;
   name: string;
-  type: string;
+  city?: string;
+  district?: string;
+  phone?: string;
+  isLocked: boolean;
+  groupCode?: string;
+  sectorCode?: string;
+  paymentTerm?: number;
+  hasEInvoice: boolean;
+  balance: number;
 }
 
 export default function CustomersPage() {
