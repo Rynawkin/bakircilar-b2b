@@ -35,9 +35,9 @@ interface ImageSyncStats {
 
 class ImageService {
   private readonly MAX_IMAGE_SIZE = 50 * 1024 * 1024; // 50 MB (timeout ile kontrol ediyoruz)
-  private readonly RESIZE_WIDTH = 1200;
-  private readonly RESIZE_HEIGHT = 1200;
-  private readonly QUALITY = 85;
+  private readonly RESIZE_WIDTH = 1600;
+  private readonly RESIZE_HEIGHT = 1600;
+  private readonly QUALITY = 95;
   private readonly UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'products');
   private readonly PROCESSING_TIMEOUT = 10000; // 10 saniye timeout (Sharp için)
 
@@ -66,12 +66,12 @@ class ImageService {
       // Güvenli ImageMagick parametreleri:
       // -limit memory 256MB: Bellек limiti (CPU donmasını önler)
       // -limit thread 1: Tek thread (daha stabil)
-      // -strip: Metadata kaldır (daha hızlı)
-      // -thumbnail: Daha hızlı resize (resize yerine)
+      // -strip: Metadata kaldır (daha küçük dosya)
+      // -resize: Yüksek kaliteli boyutlandırma (1600x1600, quality 95)
       const command = `convert "${inputPath}" ` +
         `-limit memory 256MB -limit thread 1 ` +
         `-strip ` +
-        `-thumbnail ${width}x${height}\\> ` +
+        `-resize ${width}x${height}\\> ` +
         `-quality ${this.QUALITY} ` +
         `"${outputPath}"`;
 
@@ -193,7 +193,7 @@ class ImageService {
         await fs.writeFile(tempPath, buffer);
         const writeTime = Date.now() - writeStart;
 
-        // 1. İlk deneme: Normal boyut (1200x1200)
+        // 1. İlk deneme: Yüksek kalite (1600x1600, quality 95)
         try {
           const convertStart = Date.now();
           await this.convertWithImageMagick(tempPath, filepath);
@@ -203,7 +203,7 @@ class ImageService {
           await fs.unlink(tempPath);
           const stats = await fs.stat(filepath);
           const totalTime = Date.now() - startTime;
-          console.log(`✅ Resim kaydedildi (1200px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB) - Toplam: ${totalTime}ms (sorgu: ${queryTime}ms, yazma: ${writeTime}ms, convert: ${convertTime}ms)`);
+          console.log(`✅ Resim kaydedildi (1600px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB) - Toplam: ${totalTime}ms (sorgu: ${queryTime}ms, yazma: ${writeTime}ms, convert: ${convertTime}ms)`);
 
           return {
             success: true,
@@ -211,7 +211,7 @@ class ImageService {
             size: stats.size,
           };
         } catch (firstTryError: any) {
-          console.log(`⚠️ 1200px başarısız (${productCode}), 800px deneniyor...`);
+          console.log(`⚠️ 1600px başarısız (${productCode}), 800px deneniyor...`);
 
           // 2. İkinci deneme: Küçük boyut (800x800)
           try {
