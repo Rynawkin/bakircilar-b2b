@@ -29,9 +29,9 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
     const lowerSearch = searchTerm.toLowerCase();
     return cariList.filter(
       cari =>
-        cari.code.toLowerCase().includes(lowerSearch) ||
-        cari.name.toLowerCase().includes(lowerSearch) ||
-        cari.type.toLowerCase().includes(lowerSearch)
+        (cari.code?.toLowerCase() || '').includes(lowerSearch) ||
+        (cari.name?.toLowerCase() || '').includes(lowerSearch) ||
+        (cari.type?.toLowerCase() || '').includes(lowerSearch)
     );
   }, [cariList, searchTerm]);
 
