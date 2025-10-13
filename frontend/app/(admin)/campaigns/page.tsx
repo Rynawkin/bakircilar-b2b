@@ -1,14 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Campaign, CreateCampaignRequest } from '@/types';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
 import { Fragment } from 'react';
+import { LogoLink } from '@/components/ui/Logo';
 
 export default function CampaignsPage() {
+  const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -167,23 +170,48 @@ export default function CampaignsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-600">Yükleniyor...</div>
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Kampanyalar</h1>
-          <p className="text-gray-600 mt-1">Dinamik indirim ve kampanya yönetimi</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
+        <div className="container-custom py-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-6">
+              <LogoLink href="/dashboard" variant="light" />
+              <div>
+                <h1 className="text-xl font-bold text-white">🎯 Kampanya Yönetimi</h1>
+                <p className="text-sm text-primary-100">Dinamik indirim ve kampanya sistemi</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setIsModalOpen(true)}
+                className="bg-white text-primary-700 hover:bg-primary-50"
+              >
+                + Yeni Kampanya
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => router.push('/dashboard')}
+                className="bg-white text-primary-700 hover:bg-primary-50"
+              >
+                ← Dashboard
+              </Button>
+            </div>
+          </div>
         </div>
-        <Button onClick={() => setIsModalOpen(true)}>
-          Yeni Kampanya Ekle
-        </Button>
-      </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="container-custom py-8">
+        <div className="space-y-6">
 
       {campaigns.length === 0 ? (
         <Card>
@@ -491,6 +519,8 @@ export default function CampaignsPage() {
           </div>
         </Dialog>
       </Transition>
+        </div>
+      </div>
     </div>
   );
 }
