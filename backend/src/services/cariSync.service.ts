@@ -50,7 +50,9 @@ class CariSyncService {
     // Keep only last 10 sync results
     if (this.syncResults.size > 10) {
       const firstKey = this.syncResults.keys().next().value;
-      this.syncResults.delete(firstKey);
+      if (firstKey) {
+        this.syncResults.delete(firstKey);
+      }
     }
 
     console.log(`🔄 Cari senkronizasyonu başladı: ${syncId}`);
