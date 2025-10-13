@@ -9,9 +9,11 @@ import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
 import { Fragment } from 'react';
 import { LogoLink } from '@/components/ui/Logo';
+import { useAuthStore } from '@/lib/store/authStore';
 
 export default function CampaignsPage() {
   const router = useRouter();
+  const token = useAuthStore((state) => state.token);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -40,7 +42,7 @@ export default function CampaignsPage() {
     try {
       const response = await fetch('/api/campaigns', {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          Authorization: `Bearer ${token}`,
         },
       });
       const data = await response.json();
@@ -66,7 +68,7 @@ export default function CampaignsPage() {
         method,
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(formData),
       });
@@ -93,7 +95,7 @@ export default function CampaignsPage() {
       const response = await fetch(`/api/campaigns/${id}`, {
         method: 'DELETE',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
