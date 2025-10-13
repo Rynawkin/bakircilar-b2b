@@ -939,28 +939,18 @@ export class AdminController {
 
   /**
    * GET /api/admin/sector-codes
-   * Get all unique sector codes from customers
+   * Get all unique sector codes from Mikro cari list
    */
   async getSectorCodes(req: Request, res: Response, next: NextFunction) {
     try {
-      // Get all unique sector codes from customers
-      const customers = await prisma.user.findMany({
-        where: {
-          role: 'CUSTOMER',
-          sectorCode: {
-            not: null
-          }
-        },
-        select: {
-          sectorCode: true,
-        },
-      });
+      // Get all cari from Mikro
+      const cariList = await mikroService.getCariDetails();
 
-      // Extract unique sector codes
+      // Extract unique sector codes (excluding empty ones)
       const sectorCodes = [...new Set(
-        customers
+        cariList
           .map(c => c.sectorCode)
-          .filter(code => code !== null && code !== '') as string[]
+          .filter(code => code && code.trim() !== '') as string[]
       )].sort();
 
       res.json({ sectorCodes });
