@@ -131,6 +131,22 @@ export const adminApi = {
     return response.data;
   },
 
+  setBulkCategoryPriceRules: async (rules: Array<{
+    categoryId: string;
+    customerType: string;
+    profitMargin: number;
+  }>): Promise<{
+    message: string;
+    updatedRules: number;
+    totalRules: number;
+    affectedCategories: number;
+    pricesUpdated: number;
+    errors: string[];
+  }> => {
+    const response = await apiClient.post('/admin/categories/bulk-price-rules', { rules });
+    return response.data;
+  },
+
   setProductPriceOverride: async (data: {
     productId: string;
     customerType: string;

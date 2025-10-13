@@ -883,6 +883,89 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/categories/bulk-price-rules
+   * Toplu kategori fiyat kuralı güncelleme - TEK REQUEST
+   */
+  async setBulkCategoryPriceRules(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rules } = req.body as {
+        rules: Array<{
+          categoryId: string;
+          customerType: string;
+          profitMargin: number;
+        }>;
+      };
+
+      if (!rules || !Array.isArray(rules) || rules.length === 0) {
+        return res.status(400).json({ error: 'Rules array is required' });
+      }
+
+      console.log(`🚀 Toplu güncelleme başlıyor: ${rules.length} kural...`);
+
+      const results = {
+        totalRules: rules.length,
+        updatedRules: 0,
+        affectedCategories: new Set<string>(),
+        errors: [] as string[],
+      };
+
+      // Tüm kuralları güncelle
+      for (const rule of rules) {
+        try {
+          await prisma.categoryPriceRule.upsert({
+            where: {
+              categoryId_customerType: {
+                categoryId: rule.categoryId,
+                customerType: rule.customerType as any,
+              },
+            },
+            update: {
+              profitMargin: rule.profitMargin,
+            },
+            create: {
+              categoryId: rule.categoryId,
+              customerType: rule.customerType as any,
+              profitMargin: rule.profitMargin,
+            },
+          });
+          results.updatedRules++;
+          results.affectedCategories.add(rule.categoryId);
+        } catch (error: any) {
+          results.errors.push(`${rule.categoryId}-${rule.customerType}: ${error.message}`);
+        }
+      }
+
+      console.log(`✅ Kurallar güncellendi: ${results.updatedRules}/${results.totalRules}`);
+      console.log(`📊 Etkilenen kategori sayısı: ${results.affectedCategories.size}`);
+
+      // Etkilenen kategorilerin fiyatlarını güncelle
+      console.log(`🔄 Fiyatlar yeniden hesaplanıyor...`);
+      let pricesUpdated = 0;
+      for (const categoryId of Array.from(results.affectedCategories)) {
+        try {
+          const count = await pricingService.recalculatePricesForCategory(categoryId);
+          pricesUpdated += count;
+        } catch (error: any) {
+          console.error(`Kategori ${categoryId} fiyat hesaplama hatası:`, error.message);
+        }
+      }
+
+      console.log(`✅ ${pricesUpdated} ürün fiyatı güncellendi`);
+
+      res.json({
+        message: 'Bulk price rules updated successfully',
+        updatedRules: results.updatedRules,
+        totalRules: results.totalRules,
+        affectedCategories: results.affectedCategories.size,
+        pricesUpdated,
+        errors: results.errors,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/products/price-override
    */
   async setProductPriceOverride(req: Request, res: Response, next: NextFunction) {

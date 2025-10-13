@@ -87,7 +87,6 @@ export default function CategoriesPage() {
     }).join(', ');
 
     const totalUpdates = categories.length * filledSegments.length;
-    const estimatedMinutes = Math.ceil((totalUpdates * 0.5) / 60); // Her güncelleme ~0.5 saniye
 
     const confirmed = await new Promise((resolve) => {
       toast((t) => (
@@ -97,13 +96,12 @@ export default function CategoriesPage() {
           <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm font-medium">
             {segmentNames}
           </div>
-          <div className="bg-red-50 border border-red-200 rounded p-3">
-            <p className="text-sm font-bold text-red-800 mb-1">⏱️ Önemli Uyarı:</p>
-            <p className="text-xs text-red-700">
+          <div className="bg-blue-50 border border-blue-200 rounded p-3">
+            <p className="text-sm font-bold text-blue-800 mb-1">ℹ️ Bilgi:</p>
+            <p className="text-xs text-blue-700">
               • Toplam {totalUpdates} güncelleme yapılacak<br/>
-              • Tahmini süre: {estimatedMinutes} dakika<br/>
-              • <strong>Lütfen sayfayı KAPATMAYIN ve F5 BASMAYIN!</strong><br/>
-              • İşlem tamamlanana kadar bekleyin
+              • Tahmini süre: 30-60 saniye<br/>
+              • İşlem tek seferde tamamlanacak
             </p>
           </div>
           <div className="flex gap-2 justify-end pt-2">
@@ -123,7 +121,7 @@ export default function CategoriesPage() {
                 resolve(true);
               }}
             >
-              Anladım, Başlat
+              Başlat
             </button>
           </div>
         </div>
@@ -134,88 +132,32 @@ export default function CategoriesPage() {
 
     if (!confirmed) return;
 
-    // Progress toast oluştur
-    let progressToast: string;
-    let updatedCount = 0;
-
-    try {
-      // İlk progress toast'ı göster
-      progressToast = toast((t) => (
-        <div className="flex flex-col gap-3 min-w-[450px]">
-          <div className="flex items-center gap-3">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-            <div className="flex-1">
-              <p className="font-bold text-lg">Toplu Güncelleme Devam Ediyor...</p>
-              <p className="text-xs text-gray-600 mt-1">Lütfen sayfayı kapatmayın veya yenilemeyin!</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>İlerleme:</span>
-              <span className="font-bold">{updatedCount} / {totalUpdates}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-primary-500 to-primary-600 h-3 transition-all duration-500 rounded-full"
-                style={{ width: `${(updatedCount / totalUpdates) * 100}%` }}
-              ></div>
-            </div>
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>{Math.round((updatedCount / totalUpdates) * 100)}% tamamlandı</span>
-              <span>Kalan: {totalUpdates - updatedCount}</span>
-            </div>
+    // Progress toast göster
+    const progressToast = toast((t) => (
+      <div className="flex flex-col gap-3 min-w-[450px]">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          <div className="flex-1">
+            <p className="font-bold text-lg">Toplu Güncelleme Devam Ediyor...</p>
+            <p className="text-xs text-gray-600 mt-1">{totalUpdates} güncelleme işleniyor...</p>
           </div>
         </div>
-      ), {
-        duration: Infinity,
-      });
+      </div>
+    ), {
+      duration: Infinity,
+    });
 
-      // Her kategori için her dolu segmenti güncelle
-      for (const category of categories) {
-        for (const [customerType, marginValue] of filledSegments) {
-          await adminApi.setCategoryPriceRule({
-            categoryId: category.id,
-            customerType: customerType as any,
-            profitMargin: parseFloat(marginValue) / 100,
-          });
-          updatedCount++;
+    try {
+      // Tüm kuralları toplu olarak gönder
+      const rules = categories.flatMap(category =>
+        filledSegments.map(([customerType, marginValue]) => ({
+          categoryId: category.id,
+          customerType,
+          profitMargin: parseFloat(marginValue) / 100,
+        }))
+      );
 
-          // Her 10 güncellemede bir progress'i güncelle
-          if (updatedCount % 10 === 0 || updatedCount === totalUpdates) {
-            toast.dismiss(progressToast);
-            const percentage = Math.round((updatedCount / totalUpdates) * 100);
-            progressToast = toast((t) => (
-              <div className="flex flex-col gap-3 min-w-[450px]">
-                <div className="flex items-center gap-3">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-                  <div className="flex-1">
-                    <p className="font-bold text-lg">Toplu Güncelleme Devam Ediyor...</p>
-                    <p className="text-xs text-gray-600 mt-1">Lütfen sayfayı kapatmayın veya yenilemeyin!</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>İlerleme:</span>
-                    <span className="font-bold text-primary-600">{updatedCount} / {totalUpdates}</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                    <div
-                      className="bg-gradient-to-r from-primary-500 to-primary-600 h-3 transition-all duration-500 rounded-full"
-                      style={{ width: `${percentage}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500">
-                    <span className="font-bold text-primary-600">{percentage}% tamamlandı</span>
-                    <span>Kalan: {totalUpdates - updatedCount}</span>
-                  </div>
-                </div>
-              </div>
-            ), {
-              duration: Infinity,
-            });
-          }
-        }
-      }
+      const result = await adminApi.setBulkCategoryPriceRules(rules);
 
       // Progress toast'ı kapat
       toast.dismiss(progressToast);
@@ -224,11 +166,18 @@ export default function CategoriesPage() {
       toast.success((t) => (
         <div className="flex flex-col gap-2">
           <p className="font-bold text-lg">🎉 Toplu Güncelleme Tamamlandı!</p>
-          <p className="text-sm">{updatedCount} güncelleme başarıyla yapıldı</p>
+          <p className="text-sm">
+            ✅ {result.updatedRules} kural güncellendi<br/>
+            📊 {result.affectedCategories} kategori etkilendi<br/>
+            💰 {result.pricesUpdated} ürün fiyatı yeniden hesaplandı
+          </p>
+          {result.errors && result.errors.length > 0 && (
+            <p className="text-xs text-red-600">⚠️ {result.errors.length} hata oluştu</p>
+          )}
           <p className="text-xs text-gray-600">Kategoriler yeniden yükleniyor...</p>
         </div>
       ), {
-        duration: 5000,
+        duration: 8000,
       });
 
       setBulkMargin(CUSTOMER_TYPES.reduce((acc, type) => ({ ...acc, [type.value]: '' }), {}));
@@ -236,10 +185,8 @@ export default function CategoriesPage() {
       fetchCategories();
     } catch (error: any) {
       // Hata durumunda progress toast'ı kapat
-      if (progressToast!) {
-        toast.dismiss(progressToast);
-      }
-      toast.error(`Toplu güncelleme başarısız! (${updatedCount}/${totalUpdates} güncelleme yapıldı)\n${error.response?.data?.error || error.message}`);
+      toast.dismiss(progressToast);
+      toast.error(`Toplu güncelleme başarısız!\n${error.response?.data?.error || error.message}`);
     }
   };
 

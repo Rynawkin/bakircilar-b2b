@@ -91,6 +91,11 @@ router.post(
   adminController.setCategoryPriceRule
 );
 router.post(
+  '/categories/bulk-price-rules',
+  requireAdminOrManager,
+  adminController.setBulkCategoryPriceRules
+);
+router.post(
   '/products/price-override',
   requireAdminOrManager,
   validateBody(productPriceOverrideSchema),
