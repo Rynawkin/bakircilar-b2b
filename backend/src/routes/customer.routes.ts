@@ -6,6 +6,7 @@ import { Router } from 'express';
 import customerController from '../controllers/customer.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
+import { cacheMiddleware, invalidateCacheMiddleware } from '../middleware/cache.middleware';
 import { z } from 'zod';
 
 const router = Router();
@@ -24,12 +25,44 @@ const updateCartItemSchema = z.object({
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
 });
 
-// Products
-router.get('/products', customerController.getProducts);
-router.get('/products/:id', customerController.getProductById);
+// Products (with cache - 5 minutes TTL)
+router.get(
+  '/products',
+  cacheMiddleware({
+    namespace: 'products',
+    ttl: 300, // 5 minutes
+    keyGenerator: (req) => {
+      const userId = req.user?.id || 'guest';
+      const customerType = req.user?.customerType || 'default';
+      return `list:${userId}:${customerType}`;
+    },
+  }),
+  customerController.getProducts
+);
 
-// Categories
-router.get('/categories', customerController.getCategories);
+router.get(
+  '/products/:id',
+  cacheMiddleware({
+    namespace: 'product',
+    ttl: 600, // 10 minutes
+    keyGenerator: (req) => {
+      const userId = req.user?.id || 'guest';
+      const customerType = req.user?.customerType || 'default';
+      return `${req.params.id}:${userId}:${customerType}`;
+    },
+  }),
+  customerController.getProductById
+);
+
+// Categories (with cache - 30 minutes TTL)
+router.get(
+  '/categories',
+  cacheMiddleware({
+    namespace: 'categories',
+    ttl: 1800, // 30 minutes
+  }),
+  customerController.getCategories
+);
 
 // Warehouses
 router.get('/warehouses', customerController.getWarehouses);
@@ -39,12 +72,29 @@ router.put('/customer/settings', customerController.updateSettings);
 
 // Cart
 router.get('/cart', customerController.getCart);
-router.post('/cart', validateBody(addToCartSchema), customerController.addToCart);
-router.put('/cart/:itemId', validateBody(updateCartItemSchema), customerController.updateCartItem);
-router.delete('/cart/:itemId', customerController.removeFromCart);
+router.post(
+  '/cart',
+  validateBody(addToCartSchema),
+  invalidateCacheMiddleware(['products:*', 'product:*']),
+  customerController.addToCart
+);
+router.put(
+  '/cart/:itemId',
+  validateBody(updateCartItemSchema),
+  customerController.updateCartItem
+);
+router.delete(
+  '/cart/:itemId',
+  invalidateCacheMiddleware(['products:*', 'product:*']),
+  customerController.removeFromCart
+);
 
 // Orders
-router.post('/orders', customerController.createOrder);
+router.post(
+  '/orders',
+  invalidateCacheMiddleware(['products:*', 'product:*', 'stats:*']),
+  customerController.createOrder
+);
 router.get('/orders', customerController.getOrders);
 router.get('/orders/:id', customerController.getOrderById);
 

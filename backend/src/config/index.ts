@@ -10,6 +10,9 @@ export const config = {
   // Database
   databaseUrl: process.env.DATABASE_URL!,
 
+  // Redis
+  redisUrl: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+
   // JWT
   jwtSecret: process.env.JWT_SECRET!,
   jwtExpiresIn: '30d', // 30 gün - Uzun sync işlemleri için

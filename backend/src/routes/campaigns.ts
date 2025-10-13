@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate, requireAdmin } from '../middleware/auth';
+import { cacheMiddleware, invalidateCacheMiddleware } from '../middleware/cache.middleware';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -9,7 +10,14 @@ const prisma = new PrismaClient();
  * GET /api/campaigns
  * List all campaigns (with optional filters)
  */
-router.get('/', authenticate, async (req, res) => {
+router.get(
+  '/',
+  authenticate,
+  cacheMiddleware({
+    namespace: 'campaigns',
+    ttl: 600, // 10 minutes
+  }),
+  async (req, res) => {
   try {
     const { active, customerType } = req.query;
 
@@ -41,7 +49,14 @@ router.get('/', authenticate, async (req, res) => {
  * GET /api/campaigns/active
  * Get currently active campaigns for a customer
  */
-router.get('/active', authenticate, async (req, res) => {
+router.get(
+  '/active',
+  authenticate,
+  cacheMiddleware({
+    namespace: 'campaigns-active',
+    ttl: 300, // 5 minutes (more frequent updates for active campaigns)
+  }),
+  async (req, res) => {
   try {
     const { customerType, categoryId, productId } = req.query;
     const now = new Date();
@@ -114,7 +129,12 @@ router.get('/:id', authenticate, requireAdmin, async (req, res) => {
  * POST /api/campaigns
  * Create a new campaign (Admin only)
  */
-router.post('/', authenticate, requireAdmin, async (req, res) => {
+router.post(
+  '/',
+  authenticate,
+  requireAdmin,
+  invalidateCacheMiddleware(['campaigns:*', 'campaigns-active:*']),
+  async (req, res) => {
   try {
     const {
       name,
@@ -168,7 +188,12 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
  * PUT /api/campaigns/:id
  * Update a campaign (Admin only)
  */
-router.put('/:id', authenticate, requireAdmin, async (req, res) => {
+router.put(
+  '/:id',
+  authenticate,
+  requireAdmin,
+  invalidateCacheMiddleware(['campaigns:*', 'campaigns-active:*']),
+  async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -229,7 +254,12 @@ router.put('/:id', authenticate, requireAdmin, async (req, res) => {
  * DELETE /api/campaigns/:id
  * Delete a campaign (Admin only)
  */
-router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
+router.delete(
+  '/:id',
+  authenticate,
+  requireAdmin,
+  invalidateCacheMiddleware(['campaigns:*', 'campaigns-active:*']),
+  async (req, res) => {
   try {
     const { id } = req.params;
 
