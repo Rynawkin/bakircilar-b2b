@@ -601,6 +601,59 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/orders/:id/approve-items
+   * Kısmi onay - Seçili kalemleri onayla
+   */
+  async approveOrderItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { itemIds, adminNote } = req.body;
+
+      if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ error: 'Item IDs array is required' });
+      }
+
+      const result = await orderService.approveOrderItemsAndWriteToMikro(id, itemIds, adminNote);
+
+      res.json({
+        message: `${result.approvedCount} items approved successfully`,
+        mikroOrderIds: result.mikroOrderIds,
+        approvedCount: result.approvedCount,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/orders/:id/reject-items
+   * Seçili kalemleri reddet
+   */
+  async rejectOrderItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { itemIds, rejectionReason } = req.body;
+
+      if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ error: 'Item IDs array is required' });
+      }
+
+      if (!rejectionReason) {
+        return res.status(400).json({ error: 'Rejection reason is required' });
+      }
+
+      const result = await orderService.rejectOrderItems(id, itemIds, rejectionReason);
+
+      res.json({
+        message: `${result.rejectedCount} items rejected successfully`,
+        rejectedCount: result.rejectedCount,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/categories
    */
   async getCategories(req: Request, res: Response, next: NextFunction) {

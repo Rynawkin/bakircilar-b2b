@@ -72,6 +72,8 @@ router.get('/orders', adminController.getAllOrders);
 router.get('/orders/pending', adminController.getPendingOrders);
 router.post('/orders/:id/approve', adminController.approveOrder);
 router.post('/orders/:id/reject', adminController.rejectOrder);
+router.post('/orders/:id/approve-items', adminController.approveOrderItems);
+router.post('/orders/:id/reject-items', adminController.rejectOrderItems);
 
 // Categories & Pricing
 router.get('/categories', adminController.getCategories);
