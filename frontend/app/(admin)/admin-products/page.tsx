@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { LogoLink } from '@/components/ui/Logo';
+import { ProductDetailModal } from '@/components/admin/ProductDetailModal';
 
 interface Product {
   id: string;
@@ -55,6 +56,10 @@ export default function AdminProductsPage() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+
+  // Detail Modal
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -340,12 +345,15 @@ export default function AdminProductsPage() {
                       {sortBy === 'lastEntryDate' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
                     </div>
                   </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    İşlemler
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {currentProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                       Ürün bulunamadı
                     </td>
                   </tr>
@@ -419,6 +427,19 @@ export default function AdminProductsPage() {
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setSelectedProduct(product);
+                            setIsModalOpen(true);
+                          }}
+                          className="text-xs"
+                        >
+                          📋 Detay
+                        </Button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -454,6 +475,13 @@ export default function AdminProductsPage() {
           )}
         </Card>
       </div>
+
+      {/* Product Detail Modal */}
+      <ProductDetailModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        product={selectedProduct}
+      />
     </div>
   );
 }
