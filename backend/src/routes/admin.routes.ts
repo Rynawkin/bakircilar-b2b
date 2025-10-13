@@ -4,15 +4,21 @@
 
 import { Router } from 'express';
 import adminController from '../controllers/admin.controller';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware';
+import {
+  authenticate,
+  requireAdmin,
+  requireAdminOrManager,
+  requireStaff,
+  requireOrderApprover
+} from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload } from '../middleware/upload.middleware';
 import { z } from 'zod';
 
 const router = Router();
 
-// Tüm admin route'lar authentication ve admin yetkisi gerektirir
-router.use(authenticate, requireAdmin);
+// Tüm route'lar authentication gerektirir, role kontrolü route bazında yapılır
+router.use(authenticate);
 
 // Validation schemas
 const createCustomerSchema = z.object({
@@ -35,27 +41,27 @@ const productPriceOverrideSchema = z.object({
   profitMargin: z.number().min(0).max(5),
 });
 
-// Settings
-router.get('/settings', adminController.getSettings);
-router.put('/settings', adminController.updateSettings);
+// Settings - ADMIN only
+router.get('/settings', requireAdmin, adminController.getSettings);
+router.put('/settings', requireAdmin, adminController.updateSettings);
 
-// Sync
-router.post('/sync', adminController.triggerSync);
-router.post('/sync/images', adminController.triggerImageSync);
-router.get('/sync/status/:id', adminController.getSyncStatus);
+// Sync - ADMIN only
+router.post('/sync', requireAdmin, adminController.triggerSync);
+router.post('/sync/images', requireAdmin, adminController.triggerImageSync);
+router.get('/sync/status/:id', requireAdmin, adminController.getSyncStatus);
 
-// Cari Sync
-router.post('/sync/cari', adminController.triggerCariSync);
-router.get('/sync/cari/status/:id', adminController.getCariSyncStatus);
-router.get('/sync/cari/latest', adminController.getLatestCariSync);
+// Cari Sync - ADMIN only
+router.post('/sync/cari', requireAdmin, adminController.triggerCariSync);
+router.get('/sync/cari/status/:id', requireAdmin, adminController.getCariSyncStatus);
+router.get('/sync/cari/latest', requireAdmin, adminController.getLatestCariSync);
 
-// Cari list from Mikro
-router.get('/cari-list', adminController.getCariList);
+// Cari list from Mikro - Staff (ADMIN, MANAGER, SALES_REP) - filtered by sector in controller
+router.get('/cari-list', requireStaff, adminController.getCariList);
 
-// Products
-router.get('/products', adminController.getProducts);
-router.post('/products/:id/image', upload.single('image'), adminController.uploadProductImage);
-router.delete('/products/:id/image', adminController.deleteProductImage);
+// Products - Staff (ADMIN, MANAGER, SALES_REP)
+router.get('/products', requireStaff, adminController.getProducts);
+router.post('/products/:id/image', requireAdminOrManager, upload.single('image'), adminController.uploadProductImage);
+router.delete('/products/:id/image', requireAdminOrManager, adminController.deleteProductImage);
 
 const updateCustomerSchema = z.object({
   email: z.string().email().optional(),
@@ -63,33 +69,40 @@ const updateCustomerSchema = z.object({
   active: z.boolean().optional(),
 });
 
-// Customers
-router.get('/customers', adminController.getCustomers);
-router.post('/customers', validateBody(createCustomerSchema), adminController.createCustomer);
-router.put('/customers/:id', validateBody(updateCustomerSchema), adminController.updateCustomer);
+// Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
+router.get('/customers', requireStaff, adminController.getCustomers);
+router.post('/customers', requireAdminOrManager, validateBody(createCustomerSchema), adminController.createCustomer);
+router.put('/customers/:id', requireAdminOrManager, validateBody(updateCustomerSchema), adminController.updateCustomer);
 
-// Orders
-router.get('/orders', adminController.getAllOrders);
-router.get('/orders/pending', adminController.getPendingOrders);
-router.post('/orders/:id/approve', adminController.approveOrder);
-router.post('/orders/:id/reject', adminController.rejectOrder);
-router.post('/orders/:id/approve-items', adminController.approveOrderItems);
-router.post('/orders/:id/reject-items', adminController.rejectOrderItems);
+// Orders - Staff for GET (filtered by sector), OrderApprover (ADMIN/SALES_REP) for approval
+router.get('/orders', requireStaff, adminController.getAllOrders);
+router.get('/orders/pending', requireStaff, adminController.getPendingOrders);
+router.post('/orders/:id/approve', requireOrderApprover, adminController.approveOrder);
+router.post('/orders/:id/reject', requireOrderApprover, adminController.rejectOrder);
+router.post('/orders/:id/approve-items', requireOrderApprover, adminController.approveOrderItems);
+router.post('/orders/:id/reject-items', requireOrderApprover, adminController.rejectOrderItems);
 
-// Categories & Pricing
-router.get('/categories', adminController.getCategories);
+// Categories & Pricing - ADMIN/MANAGER only
+router.get('/categories', requireAdminOrManager, adminController.getCategories);
 router.post(
   '/categories/price-rule',
+  requireAdminOrManager,
   validateBody(categoryPriceRuleSchema),
   adminController.setCategoryPriceRule
 );
 router.post(
   '/products/price-override',
+  requireAdminOrManager,
   validateBody(productPriceOverrideSchema),
   adminController.setProductPriceOverride
 );
 
-// Dashboard stats
-router.get('/dashboard/stats', adminController.getDashboardStats);
+// Dashboard stats - Staff (all can see their relevant data)
+router.get('/dashboard/stats', requireStaff, adminController.getDashboardStats);
+
+// Staff management
+router.get('/staff', requireAdminOrManager, adminController.getStaffMembers);
+router.post('/staff', requireAdminOrManager, adminController.createStaffMember);
+router.put('/staff/:id', requireAdminOrManager, adminController.updateStaffMember);
 
 export default router;

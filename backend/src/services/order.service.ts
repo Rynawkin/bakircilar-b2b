@@ -134,10 +134,21 @@ class OrderService {
 
   /**
    * Bekleyen siparişleri getir (Admin için)
+   * ADMIN/MANAGER: Tüm bekleyen siparişler
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin bekleyen siparişleri
    */
-  async getPendingOrders(): Promise<any[]> {
+  async getPendingOrders(sectorCodes?: string[]): Promise<any[]> {
+    const where: any = { status: 'PENDING' };
+
+    // Sektör filtresi varsa uygula
+    if (sectorCodes && sectorCodes.length > 0) {
+      where.user = {
+        sectorCode: { in: sectorCodes }
+      };
+    }
+
     const orders = await prisma.order.findMany({
-      where: { status: 'PENDING' },
+      where,
       include: {
         user: {
           select: {

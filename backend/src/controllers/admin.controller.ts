@@ -202,10 +202,25 @@ export class AdminController {
 
   /**
    * GET /api/admin/cari-list
+   * ADMIN/MANAGER: Tüm cariler
+   * SALES_REP: Sadece atanan sektör kodlarındaki cariler
    */
   async getCariList(req: Request, res: Response, next: NextFunction) {
     try {
-      const cariList = await mikroService.getCariDetails();
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      // Tüm cari listesini çek
+      const allCariList = await mikroService.getCariDetails();
+
+      // SALES_REP ise sektör filtresi uygula
+      let cariList = allCariList;
+      if (userRole === 'SALES_REP') {
+        cariList = allCariList.filter(cari =>
+          cari.sectorCode && assignedSectorCodes.includes(cari.sectorCode)
+        );
+      }
+
       res.json({ cariList });
     } catch (error) {
       next(error);
@@ -304,11 +319,24 @@ export class AdminController {
 
   /**
    * GET /api/admin/customers
+   * ADMIN/MANAGER: Tüm müşteriler
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşteriler
    */
   async getCustomers(req: Request, res: Response, next: NextFunction) {
     try {
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      // Base where clause
+      const where: any = { role: 'CUSTOMER' };
+
+      // SALES_REP ise sektör filtresi uygula
+      if (userRole === 'SALES_REP') {
+        where.sectorCode = { in: assignedSectorCodes };
+      }
+
       const customers = await prisma.user.findMany({
-        where: { role: 'CUSTOMER' },
+        where,
         select: {
           id: true,
           email: true,
@@ -515,14 +543,25 @@ export class AdminController {
   /**
    * GET /api/admin/orders
    * Get all orders with optional status filtering
+   * ADMIN/MANAGER: Tüm siparişler
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin siparişleri
    */
   async getAllOrders(req: Request, res: Response, next: NextFunction) {
     try {
       const { status } = req.query;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
       const where: any = {};
       if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status as string)) {
         where.status = status;
+      }
+
+      // SALES_REP ise sadece atanan sektörlerdeki müşterilerin siparişlerini göster
+      if (userRole === 'SALES_REP') {
+        where.user = {
+          sectorCode: { in: assignedSectorCodes }
+        };
       }
 
       const orders = await prisma.order.findMany({
@@ -537,6 +576,7 @@ export class AdminController {
               mikroName: true,
               customerType: true,
               mikroCariCode: true,
+              sectorCode: true,
             },
           },
           items: {
@@ -566,10 +606,18 @@ export class AdminController {
 
   /**
    * GET /api/admin/orders/pending
+   * ADMIN/MANAGER: Tüm bekleyen siparişler
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin bekleyen siparişleri
    */
   async getPendingOrders(req: Request, res: Response, next: NextFunction) {
     try {
-      const orders = await orderService.getPendingOrders();
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      // SALES_REP ise sektör filtresi uygula
+      const sectorFilter = userRole === 'SALES_REP' ? assignedSectorCodes : undefined;
+
+      const orders = await orderService.getPendingOrders(sectorFilter);
       res.json({ orders });
     } catch (error) {
       next(error);
@@ -578,11 +626,38 @@ export class AdminController {
 
   /**
    * POST /api/admin/orders/:id/approve
+   * ADMIN: Tüm siparişleri onaylayabilir
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin siparişlerini onaylayabilir
    */
   async approveOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const { adminNote } = req.body;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      // Sipariş bilgilerini al (kullanıcı bilgisiyle birlikte)
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          user: {
+            select: { sectorCode: true }
+          }
+        }
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      // SALES_REP ise sektör kontrolü yap
+      if (userRole === 'SALES_REP') {
+        if (!order.user.sectorCode || !assignedSectorCodes.includes(order.user.sectorCode)) {
+          return res.status(403).json({
+            error: 'You can only approve orders from customers in your assigned sectors'
+          });
+        }
+      }
 
       const result = await orderService.approveOrderAndWriteToMikro(id, adminNote);
 
@@ -597,14 +672,41 @@ export class AdminController {
 
   /**
    * POST /api/admin/orders/:id/reject
+   * ADMIN: Tüm siparişleri reddedebilir
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin siparişlerini reddedebilir
    */
   async rejectOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const { adminNote } = req.body;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
       if (!adminNote) {
         return res.status(400).json({ error: 'Admin note is required for rejection' });
+      }
+
+      // Sipariş bilgilerini al (kullanıcı bilgisiyle birlikte)
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          user: {
+            select: { sectorCode: true }
+          }
+        }
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      // SALES_REP ise sektör kontrolü yap
+      if (userRole === 'SALES_REP') {
+        if (!order.user.sectorCode || !assignedSectorCodes.includes(order.user.sectorCode)) {
+          return res.status(403).json({
+            error: 'You can only reject orders from customers in your assigned sectors'
+          });
+        }
       }
 
       await orderService.rejectOrder(id, adminNote);
@@ -620,14 +722,41 @@ export class AdminController {
   /**
    * POST /api/admin/orders/:id/approve-items
    * Kısmi onay - Seçili kalemleri onayla
+   * ADMIN: Tüm siparişlerdeki kalemleri onaylayabilir
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin sipariş kalemlerini onaylayabilir
    */
   async approveOrderItems(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const { itemIds, adminNote } = req.body;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
       if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
         return res.status(400).json({ error: 'Item IDs array is required' });
+      }
+
+      // Sipariş bilgilerini al (kullanıcı bilgisiyle birlikte)
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          user: {
+            select: { sectorCode: true }
+          }
+        }
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      // SALES_REP ise sektör kontrolü yap
+      if (userRole === 'SALES_REP') {
+        if (!order.user.sectorCode || !assignedSectorCodes.includes(order.user.sectorCode)) {
+          return res.status(403).json({
+            error: 'You can only approve order items from customers in your assigned sectors'
+          });
+        }
       }
 
       const result = await orderService.approveOrderItemsAndWriteToMikro(id, itemIds, adminNote);
@@ -645,11 +774,15 @@ export class AdminController {
   /**
    * POST /api/admin/orders/:id/reject-items
    * Seçili kalemleri reddet
+   * ADMIN: Tüm siparişlerdeki kalemleri reddedebilir
+   * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin sipariş kalemlerini reddedebilir
    */
   async rejectOrderItems(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const { itemIds, rejectionReason } = req.body;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
       if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
         return res.status(400).json({ error: 'Item IDs array is required' });
@@ -657,6 +790,29 @@ export class AdminController {
 
       if (!rejectionReason) {
         return res.status(400).json({ error: 'Rejection reason is required' });
+      }
+
+      // Sipariş bilgilerini al (kullanıcı bilgisiyle birlikte)
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          user: {
+            select: { sectorCode: true }
+          }
+        }
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      // SALES_REP ise sektör kontrolü yap
+      if (userRole === 'SALES_REP') {
+        if (!order.user.sectorCode || !assignedSectorCodes.includes(order.user.sectorCode)) {
+          return res.status(403).json({
+            error: 'You can only reject order items from customers in your assigned sectors'
+          });
+        }
       }
 
       const result = await orderService.rejectOrderItems(id, itemIds, rejectionReason);
@@ -775,6 +931,174 @@ export class AdminController {
         customerCount,
         excessProductCount: productCount,
         lastSyncAt: lastSync?.lastSyncAt,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/staff
+   * Get all staff members (ADMIN, MANAGER, SALES_REP)
+   */
+  async getStaffMembers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const staff = await prisma.user.findMany({
+        where: {
+          role: {
+            in: ['ADMIN', 'MANAGER', 'SALES_REP']
+          }
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          assignedSectorCodes: true,
+          active: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      res.json({ staff });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/staff
+   * Create new staff member (SALES_REP or MANAGER)
+   * Only ADMIN can create MANAGER
+   * ADMIN and MANAGER can create SALES_REP
+   */
+  async createStaffMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, password, name, role, assignedSectorCodes } = req.body;
+      const currentUserRole = req.user?.role;
+
+      // Validation
+      if (!email || !password || !name || !role) {
+        return res.status(400).json({ error: 'Email, password, name, and role are required' });
+      }
+
+      if (!['SALES_REP', 'MANAGER'].includes(role)) {
+        return res.status(400).json({ error: 'Role must be either SALES_REP or MANAGER' });
+      }
+
+      // Only ADMIN can create MANAGER
+      if (role === 'MANAGER' && currentUserRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Only ADMIN can create MANAGER users' });
+      }
+
+      // Check if email already exists
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingUser) {
+        return res.status(400).json({ error: 'Email already exists' });
+      }
+
+      // Hash password
+      const hashedPassword = await hashPassword(password);
+
+      // Create staff member
+      const staffMember = await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name,
+          role,
+          assignedSectorCodes: role === 'SALES_REP' ? (assignedSectorCodes || []) : [],
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          assignedSectorCodes: true,
+          active: true,
+          createdAt: true,
+        },
+      });
+
+      res.status(201).json({
+        message: 'Staff member created successfully',
+        staff: staffMember,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/admin/staff/:id
+   * Update staff member
+   */
+  async updateStaffMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { email, name, active, assignedSectorCodes } = req.body;
+      const currentUserRole = req.user?.role;
+
+      // Get existing staff member
+      const existingStaff = await prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!existingStaff) {
+        return res.status(404).json({ error: 'Staff member not found' });
+      }
+
+      if (!['ADMIN', 'MANAGER', 'SALES_REP'].includes(existingStaff.role)) {
+        return res.status(400).json({ error: 'User is not a staff member' });
+      }
+
+      // Only ADMIN can update MANAGER
+      if (existingStaff.role === 'MANAGER' && currentUserRole !== 'ADMIN') {
+        return res.status(403).json({ error: 'Only ADMIN can update MANAGER users' });
+      }
+
+      // Check email uniqueness if changing
+      if (email && email !== existingStaff.email) {
+        const emailTaken = await prisma.user.findUnique({
+          where: { email },
+        });
+
+        if (emailTaken) {
+          return res.status(400).json({ error: 'Email already in use' });
+        }
+      }
+
+      // Build update data
+      const updateData: any = {};
+      if (email !== undefined) updateData.email = email;
+      if (name !== undefined) updateData.name = name;
+      if (active !== undefined) updateData.active = active;
+      if (assignedSectorCodes !== undefined && existingStaff.role === 'SALES_REP') {
+        updateData.assignedSectorCodes = assignedSectorCodes;
+      }
+
+      const updatedStaff = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          assignedSectorCodes: true,
+          active: true,
+        },
+      });
+
+      res.json({
+        message: 'Staff member updated successfully',
+        staff: updatedStaff,
       });
     } catch (error) {
       next(error);

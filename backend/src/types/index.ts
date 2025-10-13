@@ -268,6 +268,7 @@ declare global {
         userId: string;
         email: string;
         role: string;
+        assignedSectorCodes: string[]; // SALES_REP için atanan sektör kodları
       };
     }
   }
