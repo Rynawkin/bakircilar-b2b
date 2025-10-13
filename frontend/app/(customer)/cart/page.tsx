@@ -223,7 +223,9 @@ export default function CartPage() {
               {/* Faturalı Ürünler */}
               {(() => {
                 const invoicedItems = cart.items.filter(item => item.priceType === 'INVOICED');
-                const invoicedTotal = invoicedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+                const invoicedSubtotal = invoicedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+                const invoicedVat = invoicedItems.reduce((sum, item) => sum + (item.totalPrice * item.vatRate), 0);
+                const invoicedTotal = invoicedSubtotal + invoicedVat;
 
                 if (invoicedItems.length === 0) return null;
 
@@ -235,8 +237,16 @@ export default function CartPage() {
                         Faturalı Ürünler ({invoicedItems.length} ürün)
                       </h3>
                       <div className="text-right">
-                        <p className="text-xs text-gray-600 mb-1">Alt Toplam (KDV Dahil)</p>
-                        <p className="text-lg font-bold text-blue-600">{formatCurrency(invoicedTotal)}</p>
+                        <div className="space-y-1">
+                          <div>
+                            <p className="text-xs text-gray-600">KDV Hariç</p>
+                            <p className="text-sm font-semibold text-gray-700">{formatCurrency(invoicedSubtotal)}</p>
+                          </div>
+                          <div className="border-t border-blue-200 pt-1">
+                            <p className="text-xs text-gray-600">KDV Dahil</p>
+                            <p className="text-lg font-bold text-blue-600">{formatCurrency(invoicedTotal)}</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div className="space-y-4">
