@@ -23,6 +23,7 @@ interface StaffMember {
 export default function StaffManagementPage() {
   const router = useRouter();
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [availableSectorCodes, setAvailableSectorCodes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
@@ -44,11 +45,21 @@ export default function StaffManagementPage() {
     assignedSectorCodes: [] as string[],
   });
 
-  const [sectorInput, setSectorInput] = useState('');
+  const [selectedSectorCode, setSelectedSectorCode] = useState('');
 
   useEffect(() => {
     fetchStaff();
+    fetchSectorCodes();
   }, []);
+
+  const fetchSectorCodes = async () => {
+    try {
+      const { sectorCodes } = await adminApi.getSectorCodes();
+      setAvailableSectorCodes(sectorCodes);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Sektör kodları yüklenemedi');
+    }
+  };
 
   const fetchStaff = async () => {
     try {
@@ -78,7 +89,7 @@ export default function StaffManagementPage() {
         role: 'SALES_REP',
         assignedSectorCodes: [],
       });
-      setSectorInput('');
+      setSelectedSectorCode('');
       fetchStaff();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Oluşturma başarısız');
@@ -99,10 +110,15 @@ export default function StaffManagementPage() {
   };
 
   const addSectorCode = (codes: string[], setCodes: (codes: string[]) => void) => {
-    if (!sectorInput.trim()) return;
-    const newCodes = [...codes, sectorInput.trim()];
+    if (!selectedSectorCode || codes.includes(selectedSectorCode)) {
+      if (codes.includes(selectedSectorCode)) {
+        toast.error('Bu sektör zaten eklenmiş');
+      }
+      return;
+    }
+    const newCodes = [...codes, selectedSectorCode];
     setCodes(newCodes);
-    setSectorInput('');
+    setSelectedSectorCode('');
   };
 
   const removeSectorCode = (index: number, codes: string[], setCodes: (codes: string[]) => void) => {
@@ -196,7 +212,7 @@ export default function StaffManagementPage() {
                       active: member.active,
                       assignedSectorCodes: member.assignedSectorCodes,
                     });
-                    setSectorInput('');
+                    setSelectedSectorCode('');
                   }}
                 >
                   ✎ Düzenle
@@ -247,48 +263,58 @@ export default function StaffManagementPage() {
               {createForm.role === 'SALES_REP' && (
                 <div>
                   <label className="block text-sm font-medium mb-2">Sektör Kodları</label>
-                  <div className="flex gap-2 mb-2">
-                    <Input
-                      value={sectorInput}
-                      onChange={(e) => setSectorInput(e.target.value)}
-                      placeholder="Sektör kodu (örn: İNTERNET)"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addSectorCode(createForm.assignedSectorCodes, (codes) =>
-                            setCreateForm({ ...createForm, assignedSectorCodes: codes })
-                          );
-                        }
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() =>
-                        addSectorCode(createForm.assignedSectorCodes, (codes) =>
-                          setCreateForm({ ...createForm, assignedSectorCodes: codes })
-                        )
-                      }
-                    >
-                      Ekle
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {createForm.assignedSectorCodes.map((code, idx) => (
-                      <Badge
-                        key={idx}
-                        variant="info"
-                        className="cursor-pointer hover:bg-red-100"
-                        onClick={() =>
-                          removeSectorCode(idx, createForm.assignedSectorCodes, (codes) =>
-                            setCreateForm({ ...createForm, assignedSectorCodes: codes })
-                          )
-                        }
-                      >
-                        {code} ×
-                      </Badge>
-                    ))}
-                  </div>
+                  {availableSectorCodes.length === 0 ? (
+                    <p className="text-sm text-gray-500 bg-yellow-50 p-3 rounded border border-yellow-200">
+                      ⚠️ Henüz sistemde sektör kodu olan müşteri yok. Önce müşteri oluşturun.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex gap-2 mb-2">
+                        <select
+                          className="flex-1 border rounded px-3 py-2"
+                          value={selectedSectorCode}
+                          onChange={(e) => setSelectedSectorCode(e.target.value)}
+                        >
+                          <option value="">Sektör seçin...</option>
+                          {availableSectorCodes
+                            .filter(code => !createForm.assignedSectorCodes.includes(code))
+                            .map((code) => (
+                              <option key={code} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                        </select>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() =>
+                            addSectorCode(createForm.assignedSectorCodes, (codes) =>
+                              setCreateForm({ ...createForm, assignedSectorCodes: codes })
+                            )
+                          }
+                          disabled={!selectedSectorCode}
+                        >
+                          Ekle
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {createForm.assignedSectorCodes.map((code, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="info"
+                            className="cursor-pointer hover:bg-red-100"
+                            onClick={() =>
+                              removeSectorCode(idx, createForm.assignedSectorCodes, (codes) =>
+                                setCreateForm({ ...createForm, assignedSectorCodes: codes })
+                              )
+                            }
+                          >
+                            {code} ×
+                          </Badge>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -304,7 +330,7 @@ export default function StaffManagementPage() {
                       role: 'SALES_REP',
                       assignedSectorCodes: [],
                     });
-                    setSectorInput('');
+                    setSelectedSectorCode('');
                   }}
                 >
                   İptal
@@ -347,48 +373,58 @@ export default function StaffManagementPage() {
               {editingStaff.role === 'SALES_REP' && (
                 <div>
                   <label className="block text-sm font-medium mb-2">Sektör Kodları</label>
-                  <div className="flex gap-2 mb-2">
-                    <Input
-                      value={sectorInput}
-                      onChange={(e) => setSectorInput(e.target.value)}
-                      placeholder="Sektör kodu"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addSectorCode(editForm.assignedSectorCodes, (codes) =>
-                            setEditForm({ ...editForm, assignedSectorCodes: codes })
-                          );
-                        }
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() =>
-                        addSectorCode(editForm.assignedSectorCodes, (codes) =>
-                          setEditForm({ ...editForm, assignedSectorCodes: codes })
-                        )
-                      }
-                    >
-                      Ekle
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {editForm.assignedSectorCodes.map((code, idx) => (
-                      <Badge
-                        key={idx}
-                        variant="info"
-                        className="cursor-pointer hover:bg-red-100"
-                        onClick={() =>
-                          removeSectorCode(idx, editForm.assignedSectorCodes, (codes) =>
-                            setEditForm({ ...editForm, assignedSectorCodes: codes })
-                          )
-                        }
-                      >
-                        {code} ×
-                      </Badge>
-                    ))}
-                  </div>
+                  {availableSectorCodes.length === 0 ? (
+                    <p className="text-sm text-gray-500 bg-yellow-50 p-3 rounded border border-yellow-200">
+                      ⚠️ Henüz sistemde sektör kodu olan müşteri yok.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex gap-2 mb-2">
+                        <select
+                          className="flex-1 border rounded px-3 py-2"
+                          value={selectedSectorCode}
+                          onChange={(e) => setSelectedSectorCode(e.target.value)}
+                        >
+                          <option value="">Sektör seçin...</option>
+                          {availableSectorCodes
+                            .filter(code => !editForm.assignedSectorCodes.includes(code))
+                            .map((code) => (
+                              <option key={code} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                        </select>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() =>
+                            addSectorCode(editForm.assignedSectorCodes, (codes) =>
+                              setEditForm({ ...editForm, assignedSectorCodes: codes })
+                            )
+                          }
+                          disabled={!selectedSectorCode}
+                        >
+                          Ekle
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {editForm.assignedSectorCodes.map((code, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="info"
+                            className="cursor-pointer hover:bg-red-100"
+                            onClick={() =>
+                              removeSectorCode(idx, editForm.assignedSectorCodes, (codes) =>
+                                setEditForm({ ...editForm, assignedSectorCodes: codes })
+                              )
+                            }
+                          >
+                            {code} ×
+                          </Badge>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -397,7 +433,7 @@ export default function StaffManagementPage() {
                   variant="secondary"
                   onClick={() => {
                     setEditingStaff(null);
-                    setSectorInput('');
+                    setSelectedSectorCode('');
                   }}
                 >
                   İptal

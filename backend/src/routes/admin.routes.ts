@@ -101,6 +101,7 @@ router.post(
 router.get('/dashboard/stats', requireStaff, adminController.getDashboardStats);
 
 // Staff management
+router.get('/sector-codes', requireAdminOrManager, adminController.getSectorCodes);
 router.get('/staff', requireAdminOrManager, adminController.getStaffMembers);
 router.post('/staff', requireAdminOrManager, adminController.createStaffMember);
 router.put('/staff/:id', requireAdminOrManager, adminController.updateStaffMember);

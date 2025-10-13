@@ -938,6 +938,38 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/sector-codes
+   * Get all unique sector codes from customers
+   */
+  async getSectorCodes(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Get all unique sector codes from customers
+      const customers = await prisma.user.findMany({
+        where: {
+          role: 'CUSTOMER',
+          sectorCode: {
+            not: null
+          }
+        },
+        select: {
+          sectorCode: true,
+        },
+      });
+
+      // Extract unique sector codes
+      const sectorCodes = [...new Set(
+        customers
+          .map(c => c.sectorCode)
+          .filter(code => code !== null && code !== '') as string[]
+      )].sort();
+
+      res.json({ sectorCodes });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/staff
    * Get all staff members (ADMIN, MANAGER, SALES_REP)
    */

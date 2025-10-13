@@ -162,6 +162,11 @@ export const adminApi = {
   },
 
   // Staff Management
+  getSectorCodes: async (): Promise<{ sectorCodes: string[] }> => {
+    const response = await apiClient.get('/admin/sector-codes');
+    return response.data;
+  },
+
   getStaffMembers: async (): Promise<{ staff: Array<{
     id: string;
     email: string;
