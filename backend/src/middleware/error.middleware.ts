@@ -3,6 +3,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { AppError, ErrorCode } from '../types/errors';
 
 export const errorHandler = (
   error: any,
@@ -10,49 +11,115 @@ export const errorHandler = (
   res: Response,
   next: NextFunction
 ) => {
-  console.error('❌ Error:', error);
+  // Log error (production'da logger kullan)
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('❌ Error:', error);
+  }
 
-  // Prisma hataları
+  // AppError - Custom application errors
+  if (error instanceof AppError) {
+    return res.status(error.statusCode).json({
+      error: error.message,
+      errorCode: error.errorCode,
+      details: error.details,
+    });
+  }
+
+  // Prisma unique constraint violation
   if (error.code === 'P2002') {
     return res.status(400).json({
-      error: 'Duplicate entry',
-      details: error.meta?.target,
+      error: 'Bu kayıt zaten mevcut',
+      errorCode: ErrorCode.VALIDATION_ERROR,
+      details: {
+        field: error.meta?.target,
+        type: 'unique_constraint',
+      },
     });
   }
 
+  // Prisma record not found
   if (error.code === 'P2025') {
     return res.status(404).json({
-      error: 'Record not found',
+      error: 'Kayıt bulunamadı',
+      errorCode: ErrorCode.NOT_FOUND,
     });
   }
 
-  // Validation hataları (Zod)
+  // Prisma foreign key constraint
+  if (error.code === 'P2003') {
+    return res.status(400).json({
+      error: 'İlişkili kayıt bulunamadı',
+      errorCode: ErrorCode.VALIDATION_ERROR,
+      details: {
+        field: error.meta?.field_name,
+        type: 'foreign_key_constraint',
+      },
+    });
+  }
+
+  // Zod validation errors
   if (error.name === 'ZodError') {
     return res.status(400).json({
-      error: 'Validation error',
-      details: error.errors,
+      error: 'Geçersiz veri formatı',
+      errorCode: ErrorCode.VALIDATION_ERROR,
+      details: error.errors.map((e: any) => ({
+        field: e.path.join('.'),
+        message: e.message,
+        code: e.code,
+      })),
     });
   }
 
-  // Stok yetersizliği hatası
+  // JWT errors
+  if (error.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      error: 'Geçersiz token',
+      errorCode: ErrorCode.TOKEN_INVALID,
+    });
+  }
+
+  if (error.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      error: 'Token süresi dolmuş',
+      errorCode: ErrorCode.TOKEN_EXPIRED,
+    });
+  }
+
+  // Legacy INSUFFICIENT_STOCK format (backward compatibility)
   if (error.message && error.message.includes('INSUFFICIENT_STOCK')) {
     try {
       const parsedError = JSON.parse(error.message);
-      return res.status(400).json(parsedError);
+      return res.status(400).json({
+        error: parsedError.details?.[0] || 'Yetersiz stok',
+        errorCode: ErrorCode.INSUFFICIENT_STOCK,
+        details: parsedError.details,
+      });
     } catch {
       return res.status(400).json({
-        error: 'Insufficient stock',
+        error: 'Yetersiz stok',
+        errorCode: ErrorCode.INSUFFICIENT_STOCK,
         details: [error.message],
       });
     }
   }
 
-  // Genel hatalar
-  const statusCode = error.statusCode || 500;
-  const message = error.message || 'Internal server error';
+  // Unknown/Unexpected errors
+  console.error('🔥 Unhandled Error:', {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    url: req.originalUrl,
+    method: req.method,
+  });
 
-  res.status(statusCode).json({
+  // Don't leak error details in production
+  const message = process.env.NODE_ENV === 'production'
+    ? 'Bir hata oluştu, lütfen daha sonra tekrar deneyin'
+    : error.message || 'Internal server error';
+
+  res.status(500).json({
     error: message,
+    errorCode: ErrorCode.INTERNAL_SERVER_ERROR,
   });
 };
 

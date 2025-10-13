@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Product, Category } from '@/types';
@@ -17,6 +17,8 @@ import { useCartStore } from '@/lib/store/cartStore';
 import { LogoLink } from '@/components/ui/Logo';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
+import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
+import { applyProductFilters } from '@/lib/utils/productFilters';
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -32,6 +34,10 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
+  const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
+    sortBy: 'none',
+    priceType: 'invoiced',
+  });
 
   // Quick add states
   const [quickAddQuantities, setQuickAddQuantities] = useState<Record<string, number>>({});
@@ -41,6 +47,11 @@ export default function ProductsPage() {
   // Modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Apply advanced filters to products
+  const filteredProducts = useMemo(() => {
+    return applyProductFilters(products, advancedFilters);
+  }, [products, advancedFilters]);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -320,6 +331,19 @@ export default function ProductsPage() {
               )}
             </Card>
 
+            {/* Advanced Filters */}
+            <div className="mb-6">
+              <AdvancedFilters
+                onFilterChange={(filters) => setAdvancedFilters(filters)}
+                onReset={() => {
+                  setAdvancedFilters({
+                    sortBy: 'none',
+                    priceType: 'invoiced',
+                  });
+                }}
+              />
+            </div>
+
             {/* Products Grid */}
             {isLoading ? (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -327,7 +351,7 @@ export default function ProductsPage() {
                   <ProductCardSkeleton key={i} />
                 ))}
               </div>
-            ) : products.length === 0 ? (
+            ) : filteredProducts.length === 0 ? (
               <Card>
                 <EmptyState
                   icon={search || selectedCategory || selectedWarehouse ? 'search' : 'products'}
@@ -347,7 +371,7 @@ export default function ProductsPage() {
               </Card>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {products.map((product) => (
+                {filteredProducts.map((product) => (
                   <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
                     <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}

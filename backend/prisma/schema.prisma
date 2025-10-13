@@ -361,3 +361,38 @@ model SyncLog {
   @@index([syncType])
   @@index([status])
 }
+
+// ==================== CAMPAIGNS ====================
+
+enum CampaignType {
+  PERCENTAGE      // Yüzde indirim
+  FIXED_AMOUNT    // Sabit tutar indirim
+  BUY_X_GET_Y     // X al Y öde
+}
+
+model Campaign {
+  id                    String        @id @default(uuid())
+  name                  String
+  description           String?
+
+  type                  CampaignType  @default(PERCENTAGE)
+  discountValue         Float         // Percentage: 0.15 = %15, Fixed: 50 = 50 TL
+
+  minOrderAmount        Float?        // Minimum sipariş tutarı
+  maxDiscountAmount     Float?        // Maksimum indirim tutarı
+
+  startDate             DateTime
+  endDate               DateTime
+  active                Boolean       @default(true)
+
+  // Targeting
+  customerTypes         String[]      @default([]) // ["BAYI", "PERAKENDE"]
+  categoryIds           String[]      @default([]) // Specific categories
+  productIds            String[]      @default([]) // Specific products
+
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([active])
+  @@index([startDate, endDate])
+}

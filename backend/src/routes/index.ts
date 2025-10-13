@@ -8,6 +8,7 @@ import { Router } from 'express';
 import authRoutes from './auth.routes';
 import adminRoutes from './admin.routes';
 import customerRoutes from './customer.routes';
+import campaignRoutes from './campaigns';
 
 const router = Router();
 
@@ -23,6 +24,7 @@ router.get('/health', (_req, res) => {
 // Routes
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
+router.use('/campaigns', campaignRoutes);
 
 // Customer routes (products, cart, orders) - ana path'te
 router.use('/', customerRoutes);

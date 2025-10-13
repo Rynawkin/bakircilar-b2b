@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/Badge';
 import { LogoLink } from '@/components/ui/Logo';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { MobileMenu } from '@/components/ui/MobileMenu';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { formatCurrency } from '@/lib/utils/format';
 
 export default function CartPage() {
@@ -19,6 +21,7 @@ export default function CartPage() {
   const { user, loadUserFromStorage, logout } = useAuthStore();
   const { cart, fetchCart, removeItem, updateQuantity } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
 
   useEffect(() => {
     loadUserFromStorage();
@@ -26,40 +29,19 @@ export default function CartPage() {
   }, [loadUserFromStorage, fetchCart]);
 
   const handleRemove = async (itemId: string) => {
-    const confirmed = await new Promise((resolve) => {
-      toast((t) => (
-        <div className="flex flex-col gap-3">
-          <p className="font-medium">Bu ürünü sepetten çıkarmak istediğinizden emin misiniz?</p>
-          <div className="flex gap-2 justify-end">
-            <button
-              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
-              onClick={() => {
-                toast.dismiss(t.id);
-                resolve(false);
-              }}
-            >
-              İptal
-            </button>
-            <button
-              className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-              onClick={() => {
-                toast.dismiss(t.id);
-                resolve(true);
-              }}
-            >
-              Sil
-            </button>
-          </div>
-        </div>
-      ), {
-        duration: Infinity,
-      });
-    });
-
-    if (confirmed) {
-      await removeItem(itemId);
-      toast.success('Ürün sepetten çıkarıldı');
-    }
+    await showConfirmDialog(
+      {
+        title: 'Ürünü Sepetten Çıkar',
+        message: 'Bu ürünü sepetten çıkarmak istediğinizden emin misiniz?',
+        confirmLabel: 'Sil',
+        cancelLabel: 'İptal',
+        type: 'danger',
+      },
+      async () => {
+        await removeItem(itemId);
+        toast.success('Ürün sepetten çıkarıldı');
+      }
+    );
   };
 
   const handleQuantityChange = async (itemId: string, newQuantity: number) => {
@@ -73,57 +55,35 @@ export default function CartPage() {
       return;
     }
 
-    const confirmed = await new Promise((resolve) => {
-      toast((t) => (
-        <div className="flex flex-col gap-3">
-          <p className="font-medium">Siparişinizi oluşturmak istediğinizden emin misiniz?</p>
-          <p className="text-sm text-gray-600">Toplam: {formatCurrency(cart.total)}</p>
-          <div className="flex gap-2 justify-end">
-            <button
-              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
-              onClick={() => {
-                toast.dismiss(t.id);
-                resolve(false);
-              }}
-            >
-              İptal
-            </button>
-            <button
-              className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
-              onClick={() => {
-                toast.dismiss(t.id);
-                resolve(true);
-              }}
-            >
-              Onayla
-            </button>
-          </div>
-        </div>
-      ), {
-        duration: Infinity,
-      });
-    });
-
-    if (confirmed) {
-      setIsCreatingOrder(true);
-      try {
-        const result = await customerApi.createOrder();
-        toast.success(`Sipariş oluşturuldu! 🎉\nSipariş No: ${result.orderNumber}`, {
-          duration: 4000,
-        });
-        router.push('/my-orders');
-      } catch (error: any) {
-        if (error.response?.data?.error === 'INSUFFICIENT_STOCK') {
-          toast.error('Stok yetersiz!\n' + error.response.data.details.join('\n'), {
-            duration: 5000,
+    await showConfirmDialog(
+      {
+        title: 'Siparişi Onayla',
+        message: `Siparişinizi oluşturmak istediğinizden emin misiniz?\n\nToplam: ${formatCurrency(cart.total)}`,
+        confirmLabel: 'Evet, Oluştur',
+        cancelLabel: 'İptal',
+        type: 'success',
+      },
+      async () => {
+        setIsCreatingOrder(true);
+        try {
+          const result = await customerApi.createOrder();
+          toast.success(`Sipariş oluşturuldu! 🎉\nSipariş No: ${result.orderNumber}`, {
+            duration: 4000,
           });
-        } else {
-          toast.error(error.response?.data?.error || 'Sipariş oluşturulurken hata oluştu');
+          router.push('/my-orders');
+        } catch (error: any) {
+          if (error.response?.data?.error === 'INSUFFICIENT_STOCK') {
+            toast.error('Stok yetersiz!\n' + error.response.data.details.join('\n'), {
+              duration: 5000,
+            });
+          } else {
+            toast.error(error.response?.data?.error || 'Sipariş oluşturulurken hata oluştu');
+          }
+        } finally {
+          setIsCreatingOrder(false);
         }
-      } finally {
-        setIsCreatingOrder(false);
       }
-    }
+    );
   };
 
   return (
@@ -273,41 +233,55 @@ export default function CartPage() {
                               </Badge>
                             </div>
 
-                            {/* Quantity Controls */}
-                            <div className="flex items-center gap-4">
-                              <div className="flex items-center gap-3 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
-                                <button
-                                  onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
-                                  disabled={item.quantity <= 1}
+                            {/* Quantity Controls - Mobile Friendly */}
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
+                              <div className="flex items-center justify-between sm:justify-start gap-3">
+                                <div className="flex items-center gap-2 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
+                                  <button
+                                    onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
+                                    disabled={item.quantity <= 1}
+                                  >
+                                    -
+                                  </button>
+                                  <span className="w-12 text-center font-bold text-base">{item.quantity}</span>
+                                  <button
+                                    onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                {/* Delete Button - Mobile */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemove(item.id)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold sm:hidden p-2"
                                 >
-                                  -
-                                </button>
-                                <span className="w-16 text-center font-bold text-lg">{item.quantity}</span>
-                                <button
-                                  onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
-                                >
-                                  +
-                                </button>
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </Button>
                               </div>
 
                               {/* Price */}
-                              <div className="text-right min-w-[120px]">
-                                <p className="text-sm text-gray-600 mb-1">
+                              <div className="flex justify-between sm:block sm:text-right sm:min-w-[120px]">
+                                <p className="text-sm text-gray-600">
                                   {formatCurrency(item.unitPrice)} / adet
                                 </p>
-                                <p className="text-2xl font-bold text-blue-600">
+                                <p className="text-xl sm:text-2xl font-bold text-blue-600">
                                   {formatCurrency(item.totalPrice)}
                                 </p>
                               </div>
 
-                              {/* Delete Button */}
+                              {/* Delete Button - Desktop */}
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleRemove(item.id)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold hidden sm:block"
                               >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -365,41 +339,55 @@ export default function CartPage() {
                               </Badge>
                             </div>
 
-                            {/* Quantity Controls */}
-                            <div className="flex items-center gap-4">
-                              <div className="flex items-center gap-3 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
-                                <button
-                                  onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
-                                  disabled={item.quantity <= 1}
+                            {/* Quantity Controls - Mobile Friendly */}
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
+                              <div className="flex items-center justify-between sm:justify-start gap-3">
+                                <div className="flex items-center gap-2 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
+                                  <button
+                                    onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
+                                    disabled={item.quantity <= 1}
+                                  >
+                                    -
+                                  </button>
+                                  <span className="w-12 text-center font-bold text-base">{item.quantity}</span>
+                                  <button
+                                    onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
+                                {/* Delete Button - Mobile */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemove(item.id)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold sm:hidden p-2"
                                 >
-                                  -
-                                </button>
-                                <span className="w-16 text-center font-bold text-lg">{item.quantity}</span>
-                                <button
-                                  onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
-                                >
-                                  +
-                                </button>
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </Button>
                               </div>
 
-                              {/* Price */}
-                              <div className="text-right min-w-[120px]">
-                                <p className="text-sm text-gray-600 mb-1">
+                              {/* Price - Responsive */}
+                              <div className="flex justify-between sm:block sm:text-right sm:min-w-[120px]">
+                                <p className="text-sm text-gray-600">
                                   {formatCurrency(item.unitPrice)} / adet
                                 </p>
-                                <p className="text-2xl font-bold text-gray-700">
+                                <p className="text-xl sm:text-2xl font-bold text-gray-700">
                                   {formatCurrency(item.totalPrice)}
                                 </p>
                               </div>
 
-                              {/* Delete Button */}
+                              {/* Delete Button - Desktop */}
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleRemove(item.id)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold hidden sm:block"
                               >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -420,34 +408,21 @@ export default function CartPage() {
                   variant="ghost"
                   size="sm"
                   onClick={async () => {
-                    const confirmed = await new Promise((resolve) => {
-                      toast((t) => (
-                        <div className="flex flex-col gap-3">
-                          <p className="font-medium">Tüm ürünleri sepetten çıkarmak istediğinizden emin misiniz?</p>
-                          <div className="flex gap-2 justify-end">
-                            <button
-                              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
-                              onClick={() => { toast.dismiss(t.id); resolve(false); }}
-                            >
-                              İptal
-                            </button>
-                            <button
-                              className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-                              onClick={() => { toast.dismiss(t.id); resolve(true); }}
-                            >
-                              Sepeti Temizle
-                            </button>
-                          </div>
-                        </div>
-                      ), { duration: Infinity });
-                    });
-
-                    if (confirmed) {
-                      for (const item of cart.items) {
-                        await removeItem(item.id);
+                    await showConfirmDialog(
+                      {
+                        title: 'Sepeti Temizle',
+                        message: 'Tüm ürünleri sepetten çıkarmak istediğinizden emin misiniz?',
+                        confirmLabel: 'Sepeti Temizle',
+                        cancelLabel: 'İptal',
+                        type: 'danger',
+                      },
+                      async () => {
+                        for (const item of cart.items) {
+                          await removeItem(item.id);
+                        }
+                        toast.success('Sepet temizlendi');
                       }
-                      toast.success('Sepet temizlendi');
-                    }
+                    );
                   }}
                   className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300 font-semibold"
                 >
@@ -525,6 +500,19 @@ export default function CartPage() {
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={dialogState.isOpen}
+        onClose={closeDialog}
+        onConfirm={dialogState.onConfirm}
+        title={dialogState.title}
+        message={dialogState.message}
+        confirmLabel={dialogState.confirmLabel}
+        cancelLabel={dialogState.cancelLabel}
+        type={dialogState.type}
+        isLoading={isLoading}
+      />
     </div>
   );
 }

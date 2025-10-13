@@ -242,3 +242,63 @@ export interface ApiError {
   error: string;
   details?: string[];
 }
+
+// ==================== CAMPAIGN TYPES ====================
+
+export type CampaignType = 'PERCENTAGE' | 'FIXED_AMOUNT' | 'BUY_X_GET_Y';
+
+export interface Campaign {
+  id: string;
+  name: string;
+  description?: string;
+  type: CampaignType;
+  discountValue: number; // Percentage: 0.15 = %15, Fixed: 50 = 50 TL
+  minOrderAmount?: number;
+  maxDiscountAmount?: number;
+  startDate: string;
+  endDate: string;
+  active: boolean;
+  customerTypes: string[];
+  categoryIds: string[];
+  productIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCampaignRequest {
+  name: string;
+  description?: string;
+  type: CampaignType;
+  discountValue: number;
+  minOrderAmount?: number;
+  maxDiscountAmount?: number;
+  startDate: string;
+  endDate: string;
+  active?: boolean;
+  customerTypes?: string[];
+  categoryIds?: string[];
+  productIds?: string[];
+}
+
+export interface UpdateCampaignRequest extends Partial<CreateCampaignRequest> {}
+
+export interface CalculateDiscountRequest {
+  orderAmount: number;
+  customerType: string;
+  items: Array<{
+    productId: string;
+    categoryId: string;
+    quantity: number;
+    price: number;
+  }>;
+}
+
+export interface CalculateDiscountResponse {
+  discountAmount: number;
+  finalAmount: number;
+  appliedCampaign?: {
+    id: string;
+    name: string;
+    type: CampaignType;
+  };
+}
