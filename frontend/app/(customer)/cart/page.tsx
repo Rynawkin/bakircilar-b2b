@@ -139,10 +139,22 @@ export default function CartPage() {
                   Sepetim
                 </h1>
                 <p className="text-sm text-primary-100 font-medium">
-                  {cart && cart.items.length > 0
-                    ? `${cart.items.length} urun - ${formatCurrency(cart.total)}`
-                    : 'Sepetiniz bos'
-                  }
+                  {cart && cart.items.length > 0 ? (
+                    <>
+                      {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && (
+                        <span>📄 {cart.items.filter(i => i.priceType === 'INVOICED').length} Faturalı</span>
+                      )}
+                      {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && cart.items.filter(i => i.priceType === 'WHITE').length > 0 && (
+                        <span> • </span>
+                      )}
+                      {cart.items.filter(i => i.priceType === 'WHITE').length > 0 && (
+                        <span>⚪ {cart.items.filter(i => i.priceType === 'WHITE').length} Beyaz</span>
+                      )}
+                      <span> • {formatCurrency(cart.total)}</span>
+                    </>
+                  ) : (
+                    'Sepetiniz boş'
+                  )}
                 </p>
               </div>
             </div>
@@ -208,124 +220,230 @@ export default function CartPage() {
             </Card>
           ) : (
             <div className="space-y-6">
-              {/* Cart Items */}
-              <Card className="shadow-xl border-2 border-primary-100 bg-white">
-                <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-gray-100">
-                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <span className="text-2xl">📋</span>
-                    Sepetim ({cart.items.length} urun)
-                  </h3>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={async () => {
-                      const confirmed = await new Promise((resolve) => {
-                        toast((t) => (
-                          <div className="flex flex-col gap-3">
-                            <p className="font-medium">Tum urunleri sepetten cikarmak istediginizden emin misiniz?</p>
-                            <div className="flex gap-2 justify-end">
-                              <button
-                                className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
-                                onClick={() => { toast.dismiss(t.id); resolve(false); }}
-                              >
-                                Iptal
-                              </button>
-                              <button
-                                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-                                onClick={() => { toast.dismiss(t.id); resolve(true); }}
-                              >
-                                Sepeti Temizle
-                              </button>
-                            </div>
-                          </div>
-                        ), { duration: Infinity });
-                      });
+              {/* Faturalı Ürünler */}
+              {(() => {
+                const invoicedItems = cart.items.filter(item => item.priceType === 'INVOICED');
+                const invoicedTotal = invoicedItems.reduce((sum, item) => sum + item.totalPrice, 0);
 
-                      if (confirmed) {
-                        for (const item of cart.items) {
-                          await removeItem(item.id);
-                        }
-                        toast.success('Sepet temizlendi');
-                      }
-                    }}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
-                  >
-                    🗑️ Sepeti Temizle
-                  </Button>
-                </div>
-                <div className="space-y-4">
-                  {cart.items.map((item) => (
-                    <div key={item.id} className="p-5 bg-gradient-to-r from-gray-50 to-white rounded-xl border-2 border-gray-200 hover:border-primary-300 hover:shadow-lg transition-all">
-                      <div className="flex flex-col sm:flex-row gap-4">
-                        {/* Product Image */}
-                        {item.product.imageUrl && (
-                          <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
-                            <img
-                              src={item.product.imageUrl}
-                              alt={item.product.name}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        )}
+                if (invoicedItems.length === 0) return null;
 
-                        {/* Product Info */}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-bold text-gray-900 text-lg mb-1">{item.product.name}</h3>
-                          <p className="text-sm text-gray-600 font-mono mb-2">Kod: {item.product.mikroCode}</p>
-                          <Badge
-                            variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
-                            className="font-semibold"
-                          >
-                            {item.priceType === 'INVOICED' ? '📄 Faturali' : '⚪ Beyaz'}
-                          </Badge>
-                        </div>
-
-                        {/* Quantity Controls */}
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-3 bg-white rounded-lg border-2 border-gray-200 p-1">
-                            <button
-                              onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                              className="w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
-                              disabled={item.quantity <= 1}
-                            >
-                              -
-                            </button>
-                            <span className="w-16 text-center font-bold text-lg">{item.quantity}</span>
-                            <button
-                              onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                              className="w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-lg transition-colors"
-                            >
-                              +
-                            </button>
-                          </div>
-
-                          {/* Price */}
-                          <div className="text-right min-w-[120px]">
-                            <p className="text-sm text-gray-600 mb-1">
-                              {formatCurrency(item.unitPrice)} / adet
-                            </p>
-                            <p className="text-2xl font-bold text-primary-600">
-                              {formatCurrency(item.totalPrice)}
-                            </p>
-                          </div>
-
-                          {/* Delete Button */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemove(item.id)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </Button>
-                        </div>
+                return (
+                  <Card className="shadow-xl border-2 border-blue-200 bg-gradient-to-br from-white to-blue-50">
+                    <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-blue-100">
+                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                        <span className="text-2xl">📄</span>
+                        Faturalı Ürünler ({invoicedItems.length} ürün)
+                      </h3>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-600 mb-1">Alt Toplam (KDV Dahil)</p>
+                        <p className="text-lg font-bold text-blue-600">{formatCurrency(invoicedTotal)}</p>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </Card>
+                    <div className="space-y-4">
+                      {invoicedItems.map((item) => (
+                        <div key={item.id} className="p-5 bg-white rounded-xl border-2 border-blue-100 hover:border-blue-300 hover:shadow-lg transition-all">
+                          <div className="flex flex-col sm:flex-row gap-4">
+                            {/* Product Image */}
+                            {item.product.imageUrl && (
+                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                                <img
+                                  src={item.product.imageUrl}
+                                  alt={item.product.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+
+                            {/* Product Info */}
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-bold text-gray-900 text-lg mb-1">{item.product.name}</h3>
+                              <p className="text-sm text-gray-600 font-mono mb-2">Kod: {item.product.mikroCode}</p>
+                              <Badge variant="info" className="font-semibold">
+                                📄 Faturalı (KDV Dahil)
+                              </Badge>
+                            </div>
+
+                            {/* Quantity Controls */}
+                            <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-3 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
+                                <button
+                                  onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
+                                  disabled={item.quantity <= 1}
+                                >
+                                  -
+                                </button>
+                                <span className="w-16 text-center font-bold text-lg">{item.quantity}</span>
+                                <button
+                                  onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              {/* Price */}
+                              <div className="text-right min-w-[120px]">
+                                <p className="text-sm text-gray-600 mb-1">
+                                  {formatCurrency(item.unitPrice)} / adet
+                                </p>
+                                <p className="text-2xl font-bold text-blue-600">
+                                  {formatCurrency(item.totalPrice)}
+                                </p>
+                              </div>
+
+                              {/* Delete Button */}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemove(item.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                );
+              })()}
+
+              {/* Beyaz Ürünler */}
+              {(() => {
+                const whiteItems = cart.items.filter(item => item.priceType === 'WHITE');
+                const whiteTotal = whiteItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+                if (whiteItems.length === 0) return null;
+
+                return (
+                  <Card className="shadow-xl border-2 border-gray-300 bg-gradient-to-br from-white to-gray-50">
+                    <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-gray-200">
+                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                        <span className="text-2xl">⚪</span>
+                        Beyaz Fiyatlı Ürünler ({whiteItems.length} ürün)
+                      </h3>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-600 mb-1">Alt Toplam</p>
+                        <p className="text-lg font-bold text-gray-700">{formatCurrency(whiteTotal)}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      {whiteItems.map((item) => (
+                        <div key={item.id} className="p-5 bg-white rounded-xl border-2 border-gray-200 hover:border-gray-400 hover:shadow-lg transition-all">
+                          <div className="flex flex-col sm:flex-row gap-4">
+                            {/* Product Image */}
+                            {item.product.imageUrl && (
+                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                                <img
+                                  src={item.product.imageUrl}
+                                  alt={item.product.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+
+                            {/* Product Info */}
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-bold text-gray-900 text-lg mb-1">{item.product.name}</h3>
+                              <p className="text-sm text-gray-600 font-mono mb-2">Kod: {item.product.mikroCode}</p>
+                              <Badge variant="default" className="font-semibold bg-gray-200 text-gray-800">
+                                ⚪ Beyaz (Özel)
+                              </Badge>
+                            </div>
+
+                            {/* Quantity Controls */}
+                            <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-3 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
+                                <button
+                                  onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
+                                  disabled={item.quantity <= 1}
+                                >
+                                  -
+                                </button>
+                                <span className="w-16 text-center font-bold text-lg">{item.quantity}</span>
+                                <button
+                                  onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                                  className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              {/* Price */}
+                              <div className="text-right min-w-[120px]">
+                                <p className="text-sm text-gray-600 mb-1">
+                                  {formatCurrency(item.unitPrice)} / adet
+                                </p>
+                                <p className="text-2xl font-bold text-gray-700">
+                                  {formatCurrency(item.totalPrice)}
+                                </p>
+                              </div>
+
+                              {/* Delete Button */}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemove(item.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                );
+              })()}
+
+              {/* Sepeti Temizle Button */}
+              <div className="flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    const confirmed = await new Promise((resolve) => {
+                      toast((t) => (
+                        <div className="flex flex-col gap-3">
+                          <p className="font-medium">Tüm ürünleri sepetten çıkarmak istediğinizden emin misiniz?</p>
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+                              onClick={() => { toast.dismiss(t.id); resolve(false); }}
+                            >
+                              İptal
+                            </button>
+                            <button
+                              className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                              onClick={() => { toast.dismiss(t.id); resolve(true); }}
+                            >
+                              Sepeti Temizle
+                            </button>
+                          </div>
+                        </div>
+                      ), { duration: Infinity });
+                    });
+
+                    if (confirmed) {
+                      for (const item of cart.items) {
+                        await removeItem(item.id);
+                      }
+                      toast.success('Sepet temizlendi');
+                    }
+                  }}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300 font-semibold"
+                >
+                  🗑️ Sepeti Temizle
+                </Button>
+              </div>
 
               {/* Order Summary */}
               <Card className="shadow-xl border-2 border-green-100 bg-gradient-to-br from-white to-green-50">
@@ -335,20 +453,13 @@ export default function CartPage() {
                       💰
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-gray-900">Siparis Ozeti</h3>
-                      <p className="text-sm text-gray-600">{cart.items.length} urun</p>
+                      <h3 className="text-xl font-bold text-gray-900">Sipariş Özeti</h3>
+                      <p className="text-sm text-gray-600">
+                        {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && `${cart.items.filter(i => i.priceType === 'INVOICED').length} Faturalı`}
+                        {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && cart.items.filter(i => i.priceType === 'WHITE').length > 0 && ' + '}
+                        {cart.items.filter(i => i.priceType === 'WHITE').length > 0 && `${cart.items.filter(i => i.priceType === 'WHITE').length} Beyaz`}
+                      </p>
                     </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {cart.items.map((item) => (
-                      <div key={item.id} className="flex justify-between text-sm bg-white rounded-lg p-3 border border-gray-200">
-                        <span className="text-gray-700 font-medium">
-                          {item.product.name} x {item.quantity}
-                        </span>
-                        <span className="text-gray-900 font-bold">{formatCurrency(item.totalPrice)}</span>
-                      </div>
-                    ))}
                   </div>
 
                   <div className="border-t-2 border-gray-200 pt-6">
@@ -356,7 +467,7 @@ export default function CartPage() {
                     <div className="space-y-3 mb-4">
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-700">Ara Toplam (KDV Hariç):</span>
-                        <span className="font-bold text-gray-900">{formatCurrency(cart.subtotal || cart.total)}</span>
+                        <span className="font-bold text-gray-900">{formatCurrency(cart.subtotal)}</span>
                       </div>
                       {cart.totalVat !== undefined && cart.totalVat > 0 && (
                         <div className="flex justify-between text-sm">
