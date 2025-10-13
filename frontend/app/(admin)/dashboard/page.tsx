@@ -403,6 +403,9 @@ export default function AdminDashboardPage() {
               <Button variant="secondary" onClick={() => router.push('/admin-products')} className="bg-white text-primary-700 hover:bg-primary-50">
                 📦 Ürün Yönetimi
               </Button>
+              <Button variant="secondary" onClick={() => router.push('/campaigns')} className="bg-white text-primary-700 hover:bg-primary-50">
+                🎯 Kampanyalar
+              </Button>
               <Button variant="secondary" onClick={() => router.push('/settings')} className="bg-white text-primary-700 hover:bg-primary-50">
                 ⚙️ Ayarlar
               </Button>
