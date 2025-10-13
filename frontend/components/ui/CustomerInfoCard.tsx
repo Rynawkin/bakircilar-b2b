@@ -1,5 +1,6 @@
 import { Badge } from './Badge';
 import { formatCurrency } from '@/lib/utils/format';
+import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 
 interface CustomerInfo {
   name: string;
@@ -25,15 +26,15 @@ interface CustomerInfoCardProps {
 const getCustomerTypeBadge = (type?: string) => {
   if (!type) return null;
 
-  const badges: Record<string, { variant: 'success' | 'warning' | 'info' | 'default'; label: string }> = {
-    BAYI: { variant: 'info', label: 'Bayi' },
-    PERAKENDE: { variant: 'default', label: 'Perakende' },
-    VIP: { variant: 'success', label: 'VIP' },
-    OZEL: { variant: 'warning', label: 'Ozel' },
+  const badges: Record<string, { variant: 'success' | 'warning' | 'info' | 'default' }> = {
+    BAYI: { variant: 'info' },
+    PERAKENDE: { variant: 'default' },
+    VIP: { variant: 'success' },
+    OZEL: { variant: 'warning' },
   };
 
-  const badgeInfo = badges[type] || { variant: 'info' as const, label: type };
-  return <Badge variant={badgeInfo.variant}>{badgeInfo.label}</Badge>;
+  const badgeInfo = badges[type] || { variant: 'info' as const };
+  return <Badge variant={badgeInfo.variant}>{getCustomerTypeName(type)}</Badge>;
 };
 
 export function CustomerInfoCard({ customer, compact = false }: CustomerInfoCardProps) {

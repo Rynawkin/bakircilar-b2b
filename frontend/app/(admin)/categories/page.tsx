@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LogoLink } from '@/components/ui/Logo';
+import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
 
 export default function CategoriesPage() {
   const router = useRouter();
@@ -16,12 +17,9 @@ export default function CategoriesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
-  const [bulkMargin, setBulkMargin] = useState<Record<string, string>>({
-    BAYI: '',
-    PERAKENDE: '',
-    VIP: '',
-    OZEL: ''
-  });
+  const [bulkMargin, setBulkMargin] = useState<Record<string, string>>(
+    CUSTOMER_TYPES.reduce((acc, type) => ({ ...acc, [type.value]: '' }), {})
+  );
 
   useEffect(() => {
     fetchCategories();
@@ -104,7 +102,7 @@ export default function CategoriesPage() {
         });
       }
       toast.success('Toplu güncelleme tamamlandı! 🎉');
-      setBulkMargin({ BAYI: '', PERAKENDE: '', VIP: '', OZEL: '' });
+      setBulkMargin(CUSTOMER_TYPES.reduce((acc, type) => ({ ...acc, [type.value]: '' }), {}));
       setShowBulkUpdate(false);
       fetchCategories();
     } catch (error: any) {
@@ -159,7 +157,7 @@ export default function CategoriesPage() {
     if (margin === '__CANCEL__') return;
 
     try {
-      for (const type of ['BAYI', 'PERAKENDE', 'VIP', 'OZEL']) {
+      for (const type of CUSTOMER_TYPES.map(t => t.value)) {
         await adminApi.setCategoryPriceRule({
           categoryId,
           customerType: type as any,
@@ -213,14 +211,14 @@ export default function CategoriesPage() {
             <div className="space-y-4">
               <p className="text-sm text-gray-600">Bir müşteri tipi seçin ve tüm kategorilerde aynı kar marjını uygulayın</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {['BAYI', 'PERAKENDE', 'VIP', 'OZEL'].map((type) => (
+                {CUSTOMER_TYPES.map((type) => (
                   <Input
-                    key={type}
-                    label={type}
+                    key={type.value}
+                    label={type.label}
                     type="number"
                     step="0.1"
-                    value={bulkMargin[type]}
-                    onChange={(e) => setBulkMargin({ ...bulkMargin, [type]: e.target.value })}
+                    value={bulkMargin[type.value]}
+                    onChange={(e) => setBulkMargin({ ...bulkMargin, [type.value]: e.target.value })}
                     placeholder="0"
                   />
                 ))}
@@ -250,23 +248,23 @@ export default function CategoriesPage() {
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {['BAYI', 'PERAKENDE', 'VIP', 'OZEL'].map((type) => (
-                  <div key={type}>
-                    <label className="block text-sm font-medium mb-1">{type}</label>
-                    {editingId === `${category.id}-${type}` ? (
+                {CUSTOMER_TYPES.map((type) => (
+                  <div key={type.value}>
+                    <label className="block text-sm font-medium mb-1">{type.label}</label>
+                    {editingId === `${category.id}-${type.value}` ? (
                       <div className="flex gap-2">
                         <Input
                           type="number"
                           step="0.1"
-                          defaultValue={getPriceRule(category, type)}
-                          id={`input-${category.id}-${type}`}
+                          defaultValue={getPriceRule(category, type.value)}
+                          id={`input-${category.id}-${type.value}`}
                           className="w-24"
                         />
                         <Button
                           size="sm"
                           onClick={() => {
-                            const input = document.getElementById(`input-${category.id}-${type}`) as HTMLInputElement;
-                            handleSave(category.id, type, input.value);
+                            const input = document.getElementById(`input-${category.id}-${type.value}`) as HTMLInputElement;
+                            handleSave(category.id, type.value, input.value);
                           }}
                         >
                           ✓
@@ -275,12 +273,12 @@ export default function CategoriesPage() {
                     ) : (
                       <div className="flex gap-2">
                         <div className="flex-1 border rounded px-3 py-2 bg-gray-50">
-                          %{getPriceRule(category, type)}
+                          %{getPriceRule(category, type.value)}
                         </div>
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => setEditingId(`${category.id}-${type}`)}
+                          onClick={() => setEditingId(`${category.id}-${type.value}`)}
                         >
                           ✎
                         </Button>
