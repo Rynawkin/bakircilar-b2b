@@ -90,23 +90,21 @@ export default function CategoriesPage() {
 
     const confirmed = await new Promise((resolve) => {
       toast((t) => (
-        <div className="flex flex-col gap-3 min-w-[400px]">
-          <p className="font-bold text-lg">⚠️ Toplu Güncelleme Onayı</p>
-          <p className="text-sm">TÜM kategorilerde aşağıdaki kar marjları uygulanacak:</p>
-          <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm font-medium">
-            {segmentNames}
+        <div className="flex flex-col gap-2 w-[320px] max-w-[90vw]">
+          <p className="font-bold text-base">⚠️ Toplu Güncelleme</p>
+          <div className="bg-amber-50 border border-amber-200 rounded p-2 text-xs">
+            <p className="font-medium mb-1">Uygulanacak marjlar:</p>
+            <p className="text-amber-800">{segmentNames}</p>
           </div>
-          <div className="bg-blue-50 border border-blue-200 rounded p-3">
-            <p className="text-sm font-bold text-blue-800 mb-1">ℹ️ Bilgi:</p>
-            <p className="text-xs text-blue-700">
-              • Toplam {totalUpdates} güncelleme yapılacak<br/>
-              • Tahmini süre: 30-60 saniye<br/>
-              • İşlem tek seferde tamamlanacak
+          <div className="bg-blue-50 border border-blue-200 rounded p-2">
+            <p className="text-xs text-blue-700 leading-relaxed">
+              • {totalUpdates} güncelleme<br/>
+              • Süre: 30-60 saniye
             </p>
           </div>
-          <div className="flex gap-2 justify-end pt-2">
+          <div className="flex gap-2 justify-end pt-1">
             <button
-              className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300 transition-colors"
+              className="px-3 py-1.5 text-xs bg-gray-200 rounded hover:bg-gray-300 transition-colors"
               onClick={() => {
                 toast.dismiss(t.id);
                 resolve(false);
@@ -115,7 +113,7 @@ export default function CategoriesPage() {
               İptal
             </button>
             <button
-              className="px-4 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors font-bold"
+              className="px-3 py-1.5 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors font-bold"
               onClick={() => {
                 toast.dismiss(t.id);
                 resolve(true);
@@ -134,13 +132,11 @@ export default function CategoriesPage() {
 
     // Progress toast göster
     const progressToast = toast((t) => (
-      <div className="flex flex-col gap-3 min-w-[450px]">
-        <div className="flex items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-          <div className="flex-1">
-            <p className="font-bold text-lg">Toplu Güncelleme Devam Ediyor...</p>
-            <p className="text-xs text-gray-600 mt-1">{totalUpdates} güncelleme işleniyor...</p>
-          </div>
+      <div className="flex items-center gap-3 w-[320px] max-w-[90vw]">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
+        <div className="flex-1">
+          <p className="font-bold text-sm">Güncelleme yapılıyor...</p>
+          <p className="text-xs text-gray-600">{totalUpdates} işlem</p>
         </div>
       </div>
     ), {
@@ -164,20 +160,19 @@ export default function CategoriesPage() {
 
       // Başarı mesajı
       toast.success((t) => (
-        <div className="flex flex-col gap-2">
-          <p className="font-bold text-lg">🎉 Toplu Güncelleme Tamamlandı!</p>
-          <p className="text-sm">
-            ✅ {result.updatedRules} kural güncellendi<br/>
-            📊 {result.affectedCategories} kategori etkilendi<br/>
-            💰 {result.pricesUpdated} ürün fiyatı yeniden hesaplandı
+        <div className="flex flex-col gap-1 w-[320px] max-w-[90vw]">
+          <p className="font-bold text-sm">🎉 Güncelleme Tamamlandı!</p>
+          <p className="text-xs leading-relaxed">
+            ✅ {result.updatedRules} kural<br/>
+            📊 {result.affectedCategories} kategori<br/>
+            💰 {result.pricesUpdated} ürün fiyatı
           </p>
           {result.errors && result.errors.length > 0 && (
-            <p className="text-xs text-red-600">⚠️ {result.errors.length} hata oluştu</p>
+            <p className="text-xs text-red-600">⚠️ {result.errors.length} hata</p>
           )}
-          <p className="text-xs text-gray-600">Kategoriler yeniden yükleniyor...</p>
         </div>
       ), {
-        duration: 8000,
+        duration: 6000,
       });
 
       setBulkMargin(CUSTOMER_TYPES.reduce((acc, type) => ({ ...acc, [type.value]: '' }), {}));
@@ -186,7 +181,14 @@ export default function CategoriesPage() {
     } catch (error: any) {
       // Hata durumunda progress toast'ı kapat
       toast.dismiss(progressToast);
-      toast.error(`Toplu güncelleme başarısız!\n${error.response?.data?.error || error.message}`);
+      toast.error((t) => (
+        <div className="w-[320px] max-w-[90vw]">
+          <p className="font-bold text-sm mb-1">❌ Güncelleme başarısız</p>
+          <p className="text-xs">{error.response?.data?.error || error.message}</p>
+        </div>
+      ), {
+        duration: 5000,
+      });
     }
   };
 
@@ -194,23 +196,22 @@ export default function CategoriesPage() {
     const margin = await new Promise<string>((resolve) => {
       let inputValue = '';
       toast((t) => (
-        <div className="flex flex-col gap-3 min-w-[350px]">
-          <p className="font-bold text-lg">Kategori Toplu Güncelleme</p>
-          <p className="text-sm bg-blue-50 border border-blue-200 rounded p-2">
-            <span className="font-medium">{categoryName}</span>
-          </p>
-          <p className="text-sm">Tüm müşteri tiplerine uygulanacak kar marjı (%):</p>
+        <div className="flex flex-col gap-2 w-[320px] max-w-[90vw]">
+          <p className="font-bold text-sm">Kategori Güncelleme</p>
+          <div className="bg-blue-50 border border-blue-200 rounded p-2">
+            <p className="text-xs font-medium truncate">{categoryName}</p>
+          </div>
           <input
             type="number"
-            className="border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-            placeholder="Örn: 25"
+            className="border rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary-500 outline-none"
+            placeholder="Kar marjı (%)"
             onChange={(e) => inputValue = e.target.value}
             step="0.1"
             autoFocus
           />
-          <div className="flex gap-2 justify-end pt-2">
+          <div className="flex gap-2 justify-end pt-1">
             <button
-              className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300 transition-colors"
+              className="px-3 py-1.5 text-xs bg-gray-200 rounded hover:bg-gray-300 transition-colors"
               onClick={() => {
                 toast.dismiss(t.id);
                 resolve('__CANCEL__');
@@ -219,7 +220,7 @@ export default function CategoriesPage() {
               İptal
             </button>
             <button
-              className="px-4 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
+              className="px-3 py-1.5 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
               onClick={() => {
                 toast.dismiss(t.id);
                 if (!inputValue) {
