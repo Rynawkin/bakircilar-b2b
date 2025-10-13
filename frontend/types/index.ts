@@ -61,12 +61,15 @@ export interface CartItem {
   priceType: 'INVOICED' | 'WHITE';
   unitPrice: number;
   totalPrice: number;
+  vatRate: number;
 }
 
 export interface Cart {
   id: string;
   items: CartItem[];
-  total: number;
+  subtotal: number; // KDV hariç
+  totalVat: number; // KDV tutarı
+  total: number; // KDV dahil
 }
 
 export interface AddToCartRequest {
