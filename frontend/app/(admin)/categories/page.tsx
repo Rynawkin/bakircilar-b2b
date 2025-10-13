@@ -86,15 +86,26 @@ export default function CategoriesPage() {
       return `${typeName}: %${value}`;
     }).join(', ');
 
+    const totalUpdates = categories.length * filledSegments.length;
+    const estimatedMinutes = Math.ceil((totalUpdates * 0.5) / 60); // Her güncelleme ~0.5 saniye
+
     const confirmed = await new Promise((resolve) => {
       toast((t) => (
-        <div className="flex flex-col gap-3 min-w-[350px]">
-          <p className="font-bold text-lg">Toplu Güncelleme Onayı</p>
+        <div className="flex flex-col gap-3 min-w-[400px]">
+          <p className="font-bold text-lg">⚠️ Toplu Güncelleme Onayı</p>
           <p className="text-sm">TÜM kategorilerde aşağıdaki kar marjları uygulanacak:</p>
           <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm font-medium">
             {segmentNames}
           </div>
-          <p className="text-xs text-gray-600">Toplam {categories.length} kategori güncellenecek</p>
+          <div className="bg-red-50 border border-red-200 rounded p-3">
+            <p className="text-sm font-bold text-red-800 mb-1">⏱️ Önemli Uyarı:</p>
+            <p className="text-xs text-red-700">
+              • Toplam {totalUpdates} güncelleme yapılacak<br/>
+              • Tahmini süre: {estimatedMinutes} dakika<br/>
+              • <strong>Lütfen sayfayı KAPATMAYIN ve F5 BASMAYIN!</strong><br/>
+              • İşlem tamamlanana kadar bekleyin
+            </p>
+          </div>
           <div className="flex gap-2 justify-end pt-2">
             <button
               className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300 transition-colors"
@@ -106,13 +117,13 @@ export default function CategoriesPage() {
               İptal
             </button>
             <button
-              className="px-4 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
+              className="px-4 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors font-bold"
               onClick={() => {
                 toast.dismiss(t.id);
                 resolve(true);
               }}
             >
-              Onayla ve Güncelle
+              Anladım, Başlat
             </button>
           </div>
         </div>
@@ -123,9 +134,41 @@ export default function CategoriesPage() {
 
     if (!confirmed) return;
 
+    // Progress toast oluştur
+    let progressToast: string;
+    let updatedCount = 0;
+
     try {
-      let updatedCount = 0;
-      const totalUpdates = categories.length * filledSegments.length;
+      // İlk progress toast'ı göster
+      progressToast = toast((t) => (
+        <div className="flex flex-col gap-3 min-w-[450px]">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <div className="flex-1">
+              <p className="font-bold text-lg">Toplu Güncelleme Devam Ediyor...</p>
+              <p className="text-xs text-gray-600 mt-1">Lütfen sayfayı kapatmayın veya yenilemeyin!</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>İlerleme:</span>
+              <span className="font-bold">{updatedCount} / {totalUpdates}</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-primary-500 to-primary-600 h-3 transition-all duration-500 rounded-full"
+                style={{ width: `${(updatedCount / totalUpdates) * 100}%` }}
+              ></div>
+            </div>
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>{Math.round((updatedCount / totalUpdates) * 100)}% tamamlandı</span>
+              <span>Kalan: {totalUpdates - updatedCount}</span>
+            </div>
+          </div>
+        </div>
+      ), {
+        duration: Infinity,
+      });
 
       // Her kategori için her dolu segmenti güncelle
       for (const category of categories) {
@@ -136,15 +179,67 @@ export default function CategoriesPage() {
             profitMargin: parseFloat(marginValue) / 100,
           });
           updatedCount++;
+
+          // Her 10 güncellemede bir progress'i güncelle
+          if (updatedCount % 10 === 0 || updatedCount === totalUpdates) {
+            toast.dismiss(progressToast);
+            const percentage = Math.round((updatedCount / totalUpdates) * 100);
+            progressToast = toast((t) => (
+              <div className="flex flex-col gap-3 min-w-[450px]">
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                  <div className="flex-1">
+                    <p className="font-bold text-lg">Toplu Güncelleme Devam Ediyor...</p>
+                    <p className="text-xs text-gray-600 mt-1">Lütfen sayfayı kapatmayın veya yenilemeyin!</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>İlerleme:</span>
+                    <span className="font-bold text-primary-600">{updatedCount} / {totalUpdates}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-primary-500 to-primary-600 h-3 transition-all duration-500 rounded-full"
+                      style={{ width: `${percentage}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span className="font-bold text-primary-600">{percentage}% tamamlandı</span>
+                    <span>Kalan: {totalUpdates - updatedCount}</span>
+                  </div>
+                </div>
+              </div>
+            ), {
+              duration: Infinity,
+            });
+          }
         }
       }
 
-      toast.success(`Toplu güncelleme tamamlandı! ${updatedCount}/${totalUpdates} güncelleme yapıldı 🎉`);
+      // Progress toast'ı kapat
+      toast.dismiss(progressToast);
+
+      // Başarı mesajı
+      toast.success((t) => (
+        <div className="flex flex-col gap-2">
+          <p className="font-bold text-lg">🎉 Toplu Güncelleme Tamamlandı!</p>
+          <p className="text-sm">{updatedCount} güncelleme başarıyla yapıldı</p>
+          <p className="text-xs text-gray-600">Kategoriler yeniden yükleniyor...</p>
+        </div>
+      ), {
+        duration: 5000,
+      });
+
       setBulkMargin(CUSTOMER_TYPES.reduce((acc, type) => ({ ...acc, [type.value]: '' }), {}));
       setShowBulkUpdate(false);
       fetchCategories();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Toplu güncelleme başarısız');
+      // Hata durumunda progress toast'ı kapat
+      if (progressToast!) {
+        toast.dismiss(progressToast);
+      }
+      toast.error(`Toplu güncelleme başarısız! (${updatedCount}/${totalUpdates} güncelleme yapıldı)\n${error.response?.data?.error || error.message}`);
     }
   };
 
