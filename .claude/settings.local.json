@@ -25,7 +25,10 @@
       "Bash(ls -la \"(admin)\" \"(customer)\")",
       "Bash(npm run build:*)",
       "Bash(npx vercel:*)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "Bash(ls:*)",
+      "Bash(scp:*)",
+      "Bash(npx prisma generate:*)"
     ],
     "deny": [],
     "ask": []

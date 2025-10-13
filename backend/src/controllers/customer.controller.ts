@@ -267,10 +267,14 @@ export class CustomerController {
         return res.status(404).json({ error: 'Product not found' });
       }
 
-      if (product.excessStock < quantity) {
+      // Real-time stock check from Mikro ERP
+      const stockCheck = await stockService.checkRealtimeStock(productId, quantity);
+
+      if (!stockCheck.available) {
         return res.status(400).json({
-          error: 'Insufficient stock',
-          available: product.excessStock,
+          error: 'Yetersiz stok',
+          message: `Stok yetersiz. Mevcut: ${stockCheck.currentStock} ${product.unit}`,
+          available: stockCheck.currentStock,
         });
       }
 

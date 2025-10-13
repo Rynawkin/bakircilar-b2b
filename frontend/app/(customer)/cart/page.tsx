@@ -360,11 +360,12 @@ export default function CartPage() {
                     </div>
 
                     <Button
-                      className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 text-lg shadow-xl rounded-xl"
+                      className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 text-lg shadow-xl rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
                       onClick={handleCreateOrder}
                       isLoading={isCreatingOrder}
+                      disabled={!cart || cart.items.length === 0 || isCreatingOrder}
                     >
-                      {isCreatingOrder ? '⏳ Olusturuluyor...' : '✅ Siparisi Olustur'}
+                      {isCreatingOrder ? '⏳ Olusturuluyor...' : !cart || cart.items.length === 0 ? '🛒 Sepet Boş' : '✅ Siparişi Oluştur'}
                     </Button>
 
                     <div className="mt-4 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">

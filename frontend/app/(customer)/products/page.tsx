@@ -95,22 +95,30 @@ export default function ProductsPage() {
       });
     } catch (error: any) {
       console.error('Cart error:', error);
-      toast.error(error.response?.data?.error || 'Sepete eklenemedi');
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Sepete eklenemedi';
+      toast.error(errorMessage);
     } finally {
       setAddingToCart({ ...addingToCart, [productId]: false });
     }
   };
 
   const handleModalAddToCart = async (productId: string, quantity: number, priceType: 'INVOICED' | 'WHITE') => {
-    await addToCart({
-      productId,
-      quantity,
-      priceType,
-    });
+    try {
+      await addToCart({
+        productId,
+        quantity,
+        priceType,
+      });
 
-    toast.success('Ürün sepete eklendi! 🛒', {
-      duration: 2000,
-    });
+      toast.success('Ürün sepete eklendi! 🛒', {
+        duration: 2000,
+      });
+    } catch (error: any) {
+      console.error('Cart error:', error);
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Sepete eklenemedi';
+      toast.error(errorMessage);
+      throw error; // Re-throw so modal can handle it
+    }
   };
 
   const openProductModal = (product: Product) => {
