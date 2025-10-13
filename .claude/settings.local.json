@@ -28,7 +28,13 @@
       "Bash(npm install)",
       "Bash(ls:*)",
       "Bash(scp:*)",
-      "Bash(npx prisma generate:*)"
+      "Bash(npx prisma generate:*)",
+      "Bash(\"email\": \"temsilci1@bakircilar.com\",)",
+      "Bash(\"password\": \"temsilci123\",)",
+      "Bash(\"name\": \"Ahmet Yılmaz\",)",
+      "Bash(\"role\": \"SALES_REP\",)",
+      "Bash(\"assignedSectorCodes\": [\"İNTERNET\", \"HENDEK\"])",
+      "Bash(} ')"
     ],
     "deny": [],
     "ask": []

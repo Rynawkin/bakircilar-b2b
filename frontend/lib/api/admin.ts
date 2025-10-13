@@ -160,6 +160,41 @@ export const adminApi = {
     const response = await apiClient.delete(`/admin/products/${productId}/image`);
     return response.data;
   },
+
+  // Staff Management
+  getStaffMembers: async (): Promise<{ staff: Array<{
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    assignedSectorCodes: string[];
+    active: boolean;
+    createdAt: string;
+  }> }> => {
+    const response = await apiClient.get('/admin/staff');
+    return response.data;
+  },
+
+  createStaffMember: async (data: {
+    email: string;
+    password: string;
+    name: string;
+    role: 'SALES_REP' | 'MANAGER';
+    assignedSectorCodes?: string[];
+  }): Promise<{ message: string; staff: any }> => {
+    const response = await apiClient.post('/admin/staff', data);
+    return response.data;
+  },
+
+  updateStaffMember: async (id: string, data: {
+    email?: string;
+    name?: string;
+    active?: boolean;
+    assignedSectorCodes?: string[];
+  }): Promise<{ message: string; staff: any }> => {
+    const response = await apiClient.put(`/admin/staff/${id}`, data);
+    return response.data;
+  },
 };
 
 export default adminApi;

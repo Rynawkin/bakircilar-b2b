@@ -397,6 +397,9 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             <div className="flex gap-3 flex-wrap">
+              <Button variant="secondary" onClick={() => router.push('/staff')} className="bg-white text-primary-700 hover:bg-primary-50">
+                👥 Personel
+              </Button>
               <Button variant="secondary" onClick={() => router.push('/admin-products')} className="bg-white text-primary-700 hover:bg-primary-50">
                 📦 Ürün Yönetimi
               </Button>
