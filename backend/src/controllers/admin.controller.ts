@@ -147,6 +147,43 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/sync/cari/status/:id
+   * Get cari sync status by ID
+   */
+  async getCariSyncStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = cariSyncService.getSyncResult(id);
+
+      if (!result) {
+        return res.status(404).json({ error: 'Cari sync result not found' });
+      }
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/sync/cari/latest
+   * Get latest cari sync result
+   */
+  async getLatestCariSync(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = cariSyncService.getLatestSyncResult();
+
+      if (!result) {
+        return res.json({ message: 'No cari sync has been performed yet' });
+      }
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/cari-list
    */
   async getCariList(req: Request, res: Response, next: NextFunction) {
