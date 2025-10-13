@@ -127,11 +127,12 @@ class PricingService {
   /**
    * Beyaz fiyat hesapla
    *
-   * Formül: cost × (1 + vat/2)
-   * Örnek: cost=100, vat=0.20 → 100 × (1 + 0.20/2) = 110
+   * Formül: invoicedPrice × (1 + vat/2)
+   * Mantık: Her segmentin KDV hariç satış fiyatına, KDV'nin yarısı kadar eklenir
+   * Örnek: invoicedPrice=100, vat=0.10 → 100 × (1 + 0.10/2) = 100 × 1.05 = 105
    */
-  calculateWhitePrice(cost: number, vatRate: number): number {
-    return cost * (1 + vatRate / 2);
+  calculateWhitePrice(invoicedPrice: number, vatRate: number): number {
+    return invoicedPrice * (1 + vatRate / 2);
   }
 
   /**
@@ -176,11 +177,11 @@ class PricingService {
 
       const profitMargin = override?.profitMargin ?? categoryRule?.profitMargin ?? 0.15; // Varsayılan %15
 
-      // Faturalı fiyat
+      // Faturalı fiyat (KDV hariç satış fiyatı)
       const invoiced = this.calculateInvoicedPrice(cost, profitMargin);
 
-      // Beyaz fiyat (sadece KDV'ye bağlı)
-      const white = this.calculateWhitePrice(cost, vatRate);
+      // Beyaz fiyat (faturalı fiyat + KDV'nin yarısı)
+      const white = this.calculateWhitePrice(invoiced, vatRate);
 
       prices[customerType] = {
         INVOICED: Math.round(invoiced * 100) / 100, // 2 ondalık basamak
