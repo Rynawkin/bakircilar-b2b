@@ -54,11 +54,19 @@ router.get('/products', adminController.getProducts);
 router.post('/products/:id/image', upload.single('image'), adminController.uploadProductImage);
 router.delete('/products/:id/image', adminController.deleteProductImage);
 
+const updateCustomerSchema = z.object({
+  email: z.string().email().optional(),
+  customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']).optional(),
+  active: z.boolean().optional(),
+});
+
 // Customers
 router.get('/customers', adminController.getCustomers);
 router.post('/customers', validateBody(createCustomerSchema), adminController.createCustomer);
+router.put('/customers/:id', validateBody(updateCustomerSchema), adminController.updateCustomer);
 
 // Orders
+router.get('/orders', adminController.getAllOrders);
 router.get('/orders/pending', adminController.getPendingOrders);
 router.post('/orders/:id/approve', adminController.approveOrder);
 router.post('/orders/:id/reject', adminController.rejectOrder);

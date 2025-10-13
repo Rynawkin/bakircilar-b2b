@@ -387,6 +387,130 @@ export class AdminController {
   }
 
   /**
+   * PUT /api/admin/customers/:id
+   * Update customer (only editable fields: email, customerType, active)
+   */
+  async updateCustomer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { email, customerType, active } = req.body;
+
+      // Validate customer exists
+      const existingCustomer = await prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!existingCustomer) {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      if (existingCustomer.role !== 'CUSTOMER') {
+        return res.status(400).json({ error: 'User is not a customer' });
+      }
+
+      // Email değişiyorsa başka kullanıcıda var mı kontrol et
+      if (email && email !== existingCustomer.email) {
+        const emailTaken = await prisma.user.findUnique({
+          where: { email },
+        });
+
+        if (emailTaken) {
+          return res.status(400).json({ error: 'Email already in use' });
+        }
+      }
+
+      // Update only editable fields (NOT Mikro fields)
+      const updateData: any = {};
+      if (email !== undefined) updateData.email = email;
+      if (customerType !== undefined) updateData.customerType = customerType;
+      if (active !== undefined) updateData.active = active;
+
+      const updatedCustomer = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          displayName: true,
+          mikroName: true,
+          customerType: true,
+          mikroCariCode: true,
+          active: true,
+          city: true,
+          district: true,
+          phone: true,
+          groupCode: true,
+          sectorCode: true,
+          paymentTerm: true,
+          hasEInvoice: true,
+          balance: true,
+          isLocked: true,
+        },
+      });
+
+      res.json({
+        message: 'Customer updated successfully',
+        customer: updatedCustomer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/orders
+   * Get all orders with optional status filtering
+   */
+  async getAllOrders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status } = req.query;
+
+      const where: any = {};
+      if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status as string)) {
+        where.status = status;
+      }
+
+      const orders = await prisma.order.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              displayName: true,
+              mikroName: true,
+              customerType: true,
+              mikroCariCode: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  mikroCode: true,
+                  unit: true,
+                  imageUrl: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      res.json({ orders });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/orders/pending
    */
   async getPendingOrders(req: Request, res: Response, next: NextFunction) {

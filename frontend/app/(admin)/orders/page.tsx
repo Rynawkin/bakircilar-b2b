@@ -13,19 +13,34 @@ import { OrderCardSkeleton } from '@/components/ui/Skeleton';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 
+type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+
 export default function AdminOrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<PendingOrderForAdmin[]>([]);
+  const [allOrders, setAllOrders] = useState<PendingOrderForAdmin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<OrderStatus>('PENDING');
 
   useEffect(() => {
     fetchOrders();
   }, []);
 
+  useEffect(() => {
+    // Filter orders based on active tab
+    if (activeTab === 'ALL') {
+      setOrders(allOrders);
+    } else {
+      setOrders(allOrders.filter(order => order.status === activeTab));
+    }
+  }, [activeTab, allOrders]);
+
   const fetchOrders = async () => {
     try {
-      const { orders } = await adminApi.getPendingOrders();
-      setOrders(orders);
+      const { orders } = await adminApi.getAllOrders();
+      setAllOrders(orders);
+      // Initial display is pending orders
+      setOrders(orders.filter(order => order.status === 'PENDING'));
     } finally {
       setIsLoading(false);
     }
@@ -134,6 +149,30 @@ export default function AdminOrdersPage() {
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'PENDING':
+        return <Badge variant="warning">⏳ Bekliyor</Badge>;
+      case 'APPROVED':
+        return <Badge variant="success">✅ Onaylandı</Badge>;
+      case 'REJECTED':
+        return <Badge variant="danger">❌ Reddedildi</Badge>;
+      default:
+        return null;
+    }
+  };
+
+  const getOrderCounts = () => {
+    return {
+      pending: allOrders.filter(o => o.status === 'PENDING').length,
+      approved: allOrders.filter(o => o.status === 'APPROVED').length,
+      rejected: allOrders.filter(o => o.status === 'REJECTED').length,
+      all: allOrders.length,
+    };
+  };
+
+  const counts = getOrderCounts();
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -143,7 +182,7 @@ export default function AdminOrdersPage() {
               <div className="flex items-center gap-6">
                 <LogoLink href="/dashboard" variant="light" />
                 <div>
-                  <h1 className="text-xl font-bold text-white">📦 Bekleyen Siparişler</h1>
+                  <h1 className="text-xl font-bold text-white">📦 Siparişler</h1>
                   <p className="text-sm text-primary-100">Yükleniyor...</p>
                 </div>
               </div>
@@ -167,8 +206,8 @@ export default function AdminOrdersPage() {
             <div className="flex items-center gap-6">
               <LogoLink href="/dashboard" variant="light" />
               <div>
-                <h1 className="text-xl font-bold text-white">📦 Bekleyen Siparişler ({orders.length})</h1>
-                <p className="text-sm text-primary-100">Onay bekleyen müşteri siparişleri</p>
+                <h1 className="text-xl font-bold text-white">📦 Siparişler</h1>
+                <p className="text-sm text-primary-100">Tüm müşteri siparişleri</p>
               </div>
             </div>
             <div className="flex gap-3">
@@ -184,9 +223,84 @@ export default function AdminOrdersPage() {
         </div>
       </header>
 
+      {/* Tab Navigation */}
+      <div className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="container-custom">
+          <div className="flex gap-2 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('PENDING')}
+              className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
+                activeTab === 'PENDING'
+                  ? 'text-primary-600 border-b-2 border-primary-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              ⏳ Bekleyen
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'PENDING' ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {counts.pending}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('APPROVED')}
+              className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
+                activeTab === 'APPROVED'
+                  ? 'text-green-600 border-b-2 border-green-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              ✅ Onaylanan
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {counts.approved}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('REJECTED')}
+              className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
+                activeTab === 'REJECTED'
+                  ? 'text-red-600 border-b-2 border-red-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              ❌ Reddedilen
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {counts.rejected}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('ALL')}
+              className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
+                activeTab === 'ALL'
+                  ? 'text-gray-900 border-b-2 border-gray-900'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              📋 Tümü
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'ALL' ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {counts.all}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="container-custom py-8">
         {orders.length === 0 ? (
-          <Card><p className="text-center text-gray-600 py-8">Bekleyen sipariş yok</p></Card>
+          <Card>
+            <p className="text-center text-gray-600 py-8">
+              {activeTab === 'PENDING' && '⏳ Bekleyen sipariş yok'}
+              {activeTab === 'APPROVED' && '✅ Onaylanmış sipariş yok'}
+              {activeTab === 'REJECTED' && '❌ Reddedilmiş sipariş yok'}
+              {activeTab === 'ALL' && '📋 Henüz hiç sipariş yok'}
+            </p>
+          </Card>
         ) : (
           <div className="space-y-6">
             {orders.map((order) => (
@@ -194,8 +308,31 @@ export default function AdminOrdersPage() {
                 {/* Order Header */}
                 <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-200">
                   <div>
-                    <h3 className="font-bold text-xl text-gray-900">#{order.orderNumber}</h3>
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-bold text-xl text-gray-900">#{order.orderNumber}</h3>
+                      {getStatusBadge(order.status)}
+                    </div>
                     <p className="text-sm text-gray-500 mt-1">{formatDate(order.createdAt)}</p>
+
+                    {/* Mikro Order IDs */}
+                    {order.mikroOrderIds && order.mikroOrderIds.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {order.mikroOrderIds.map((mikroId, idx) => (
+                          <div key={idx} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded px-2 py-1">
+                            <span className="text-xs font-medium text-blue-700">🔗 Mikro ID:</span>
+                            <span className="text-xs font-mono font-bold text-blue-900">{mikroId}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Admin Note */}
+                    {order.adminNote && (
+                      <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+                        <p className="text-xs font-medium text-gray-600">📝 Admin Notu:</p>
+                        <p className="text-sm text-gray-800 mt-1">{order.adminNote}</p>
+                      </div>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500 mb-1">Toplam Tutar</p>
@@ -233,15 +370,33 @@ export default function AdminOrdersPage() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-3 pt-4 border-t border-gray-200">
-                  <Button variant="primary" onClick={() => handleApprove(order.id)} className="flex-1">
-                    Onayla ve Mikro'ya Gonder
-                  </Button>
-                  <Button variant="danger" onClick={() => handleReject(order.id)} className="flex-1">
-                    Reddet
-                  </Button>
-                </div>
+                {/* Action Buttons - Only show for PENDING orders */}
+                {order.status === 'PENDING' && (
+                  <div className="flex gap-3 pt-4 border-t border-gray-200">
+                    <Button variant="primary" onClick={() => handleApprove(order.id)} className="flex-1">
+                      Onayla ve Mikro'ya Gonder
+                    </Button>
+                    <Button variant="danger" onClick={() => handleReject(order.id)} className="flex-1">
+                      Reddet
+                    </Button>
+                  </div>
+                )}
+
+                {/* Status Info for Approved/Rejected */}
+                {order.status === 'APPROVED' && order.approvedAt && (
+                  <div className="pt-4 border-t border-gray-200 text-center">
+                    <p className="text-sm text-green-700">
+                      ✅ Onaylandı: {formatDate(order.approvedAt)}
+                    </p>
+                  </div>
+                )}
+                {order.status === 'REJECTED' && order.rejectedAt && (
+                  <div className="pt-4 border-t border-gray-200 text-center">
+                    <p className="text-sm text-red-700">
+                      ❌ Reddedildi: {formatDate(order.rejectedAt)}
+                    </p>
+                  </div>
+                )}
               </Card>
             ))}
           </div>

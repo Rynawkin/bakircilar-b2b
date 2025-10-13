@@ -84,7 +84,22 @@ export const adminApi = {
     return response.data;
   },
 
+  updateCustomer: async (id: string, data: {
+    email?: string;
+    customerType?: string;
+    active?: boolean;
+  }): Promise<{ message: string; customer: Customer }> => {
+    const response = await apiClient.put(`/admin/customers/${id}`, data);
+    return response.data;
+  },
+
   // Orders
+  getAllOrders: async (status?: string): Promise<{ orders: PendingOrderForAdmin[] }> => {
+    const params = status ? { status } : {};
+    const response = await apiClient.get('/admin/orders', { params });
+    return response.data;
+  },
+
   getPendingOrders: async (): Promise<{ orders: PendingOrderForAdmin[] }> => {
     const response = await apiClient.get('/admin/orders/pending');
     return response.data;
