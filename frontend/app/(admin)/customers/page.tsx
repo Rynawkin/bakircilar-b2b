@@ -13,6 +13,7 @@ import { LogoLink } from '@/components/ui/Logo';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
+import { CustomerEditModal } from '@/components/admin/CustomerEditModal';
 
 interface MikroCari {
   code: string;
@@ -38,6 +39,8 @@ export default function CustomersPage() {
   const [selectedCari, setSelectedCari] = useState<MikroCari | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
   const [formData, setFormData] = useState<CreateCustomerRequest>({
     email: '',
     password: '',
@@ -118,6 +121,22 @@ export default function CustomersPage() {
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Müşteri oluşturulamadı');
     }
+  };
+
+  const handleEditCustomer = async (customerId: string, data: { email?: string; customerType?: string; active?: boolean }) => {
+    try {
+      await adminApi.updateCustomer(customerId, data);
+      toast.success('Müşteri başarıyla güncellendi! ✅');
+      fetchCustomers();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Müşteri güncellenemedi');
+      throw error;
+    }
+  };
+
+  const openEditModal = (customer: Customer) => {
+    setCustomerToEdit(customer);
+    setShowEditModal(true);
   };
 
   if (isLoading) {
@@ -376,12 +395,13 @@ export default function CustomersPage() {
                   <th className="px-4 py-3 font-medium">Bakiye</th>
                   <th className="px-4 py-3 font-medium">Durum</th>
                   <th className="px-4 py-3 font-medium">Kayıt</th>
+                  <th className="px-4 py-3 font-medium text-center">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={15} className="px-4 py-8 text-center text-gray-500">
                       Müşteri bulunamadı
                     </td>
                   </tr>
@@ -418,6 +438,15 @@ export default function CustomersPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateShort(customer.createdAt)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => openEditModal(customer)}
+                        >
+                          ✏️ Düzenle
+                        </Button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -425,6 +454,13 @@ export default function CustomersPage() {
             </table>
           </div>
         </Card>
+
+        <CustomerEditModal
+          isOpen={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          customer={customerToEdit}
+          onSave={handleEditCustomer}
+        />
       </div>
     </div>
   );
