@@ -352,9 +352,23 @@ export default function CartPage() {
                   </div>
 
                   <div className="border-t-2 border-gray-200 pt-6">
+                    {/* KDV Detayları */}
+                    <div className="space-y-3 mb-4">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Ara Toplam (KDV Hariç):</span>
+                        <span className="font-bold text-gray-900">{formatCurrency(cart.subtotal || cart.total)}</span>
+                      </div>
+                      {cart.totalVat !== undefined && cart.totalVat > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-700">KDV:</span>
+                          <span className="font-bold text-gray-900">{formatCurrency(cart.totalVat)}</span>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl p-5 shadow-lg mb-6">
                       <div className="flex justify-between items-center">
-                        <span className="text-lg font-semibold">Genel Toplam:</span>
+                        <span className="text-lg font-semibold">Genel Toplam (KDV Dahil):</span>
                         <span className="text-3xl font-bold">{formatCurrency(cart.total)}</span>
                       </div>
                     </div>

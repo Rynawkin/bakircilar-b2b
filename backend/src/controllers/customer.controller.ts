@@ -225,17 +225,43 @@ export class CustomerController {
         return sum + item.quantity * item.unitPrice;
       }, 0);
 
+      // Her item için KDV bilgisini al
+      const itemsWithVat = await Promise.all(
+        cart.items.map(async (item) => {
+          const product = await prisma.product.findUnique({
+            where: { id: item.product.id },
+            select: { vatRate: true },
+          });
+
+          return {
+            id: item.id,
+            product: item.product,
+            quantity: item.quantity,
+            priceType: item.priceType,
+            unitPrice: item.unitPrice,
+            totalPrice: item.quantity * item.unitPrice,
+            vatRate: product?.vatRate || 0,
+          };
+        })
+      );
+
+      // KDV hariç ve KDV dahil toplamları hesapla
+      const subtotal = total; // KDV hariç
+      const totalVat = itemsWithVat.reduce((sum, item) => {
+        // Sadece faturalı ürünlerin KDV'sini hesapla (beyaz zaten KDV'nin yarısını içeriyor)
+        if (item.priceType === 'INVOICED') {
+          return sum + item.totalPrice * item.vatRate;
+        }
+        return sum;
+      }, 0);
+      const totalWithVat = subtotal + totalVat;
+
       res.json({
         id: cart.id,
-        items: cart.items.map((item) => ({
-          id: item.id,
-          product: item.product,
-          quantity: item.quantity,
-          priceType: item.priceType,
-          unitPrice: item.unitPrice,
-          totalPrice: item.quantity * item.unitPrice,
-        })),
-        total,
+        items: itemsWithVat,
+        subtotal, // KDV hariç
+        totalVat,
+        total: totalWithVat, // KDV dahil
       });
     } catch (error) {
       next(error);
