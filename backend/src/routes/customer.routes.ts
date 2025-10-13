@@ -32,8 +32,8 @@ router.get(
     namespace: 'products',
     ttl: 300, // 5 minutes
     keyGenerator: (req) => {
-      const userId = req.user?.id || 'guest';
-      const customerType = req.user?.customerType || 'default';
+      const userId = req.user?.userId || 'guest';
+      const customerType = req.user?.role || 'default';
       return `list:${userId}:${customerType}`;
     },
   }),
@@ -46,8 +46,8 @@ router.get(
     namespace: 'product',
     ttl: 600, // 10 minutes
     keyGenerator: (req) => {
-      const userId = req.user?.id || 'guest';
-      const customerType = req.user?.customerType || 'default';
+      const userId = req.user?.userId || 'guest';
+      const customerType = req.user?.role || 'default';
       return `${req.params.id}:${userId}:${customerType}`;
     },
   }),
