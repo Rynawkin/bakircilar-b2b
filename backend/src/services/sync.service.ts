@@ -126,51 +126,18 @@ class SyncService {
       const pricesCount = await pricingService.recalculateAllPrices(syncLogId);
       console.log(`✅ ${pricesCount} ürün için fiyatlar hesaplandı`);
 
-      // 5. Resimleri sync et (sadece resmi olmayanlara)
-      console.log('\n📸 Resim senkronizasyonu başlıyor...');
-      const productsForImageSync = await prisma.product.findMany({
-        where: {
-          active: true,
-          imageUrl: null, // Sadece resmi olmayanları çek
-        },
-        select: {
-          id: true,
-          mikroCode: true,
-          name: true,
-          imageUrl: true,
-        },
-      });
-
-      // Mikro'dan GUID'leri al
-      const mikroProducts = await mikroService.getProducts();
-      const guidMap = new Map(mikroProducts.map(p => [p.code, p.guid]));
-
-      // GUID'leri ekle
-      const productsWithGuid = productsForImageSync
-        .map(p => ({
-          ...p,
-          guid: guidMap.get(p.mikroCode),
-        }))
-        .filter(p => p.guid); // GUID olmayanlari atla
-
-      const imageStats = await imageService.syncAllImages(productsWithGuid as any, syncLogId);
-
       // Settings'deki lastSyncAt güncelle
       await prisma.settings.updateMany({
         data: { lastSyncAt: new Date() },
       });
 
-      // Sync log güncelle (warnings ile birlikte)
+      // Sync log güncelle (resim sync artık ayrı)
       await prisma.syncLog.update({
         where: { id: syncLogId },
         data: {
           status: 'SUCCESS',
           categoriesCount,
           productsCount,
-          imagesDownloaded: imageStats.downloaded,
-          imagesSkipped: imageStats.skipped,
-          imagesFailed: imageStats.failed,
-          warnings: imageStats.warnings.length > 0 ? imageStats.warnings : undefined,
           completedAt: new Date(),
         },
       });
@@ -363,6 +330,124 @@ class SyncService {
 
     // Fazla stok hesapla
     await stockService.calculateExcessStock(productId);
+  }
+
+  /**
+   * Resim senkronizasyonunu başlat ve log ID döndür
+   */
+  async startImageSync(): Promise<string> {
+    // Sync log oluştur
+    const syncLog = await prisma.syncLog.create({
+      data: {
+        syncType: 'MANUAL',
+        status: 'RUNNING',
+        startedAt: new Date(),
+      },
+    });
+
+    // Arka planda resim sync'i çalıştır (await etme!)
+    this.runImageSync(syncLog.id).catch((error) => {
+      console.error('❌ Background image sync error:', error);
+    });
+
+    return syncLog.id;
+  }
+
+  /**
+   * Sadece resim senkronizasyonunu çalıştır
+   */
+  async runImageSync(syncLogId: string): Promise<{
+    success: boolean;
+    stats: {
+      downloaded: number;
+      skipped: number;
+      failed: number;
+    };
+    error?: string;
+  }> {
+    try {
+      console.log('📸 Resim senkronizasyonu başlıyor...');
+
+      // Sadece resmi olmayan ürünleri getir
+      const productsForImageSync = await prisma.product.findMany({
+        where: {
+          active: true,
+          imageUrl: null, // Sadece resmi olmayanları çek
+        },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          imageUrl: true,
+        },
+      });
+
+      console.log(`📊 ${productsForImageSync.length} ürün için resim sync edilecek`);
+
+      // Mikro'dan GUID'leri al
+      const mikroProducts = await mikroService.getProducts();
+      const guidMap = new Map(mikroProducts.map(p => [p.code, p.guid]));
+
+      // GUID'leri ekle
+      const productsWithGuid = productsForImageSync
+        .map(p => ({
+          ...p,
+          guid: guidMap.get(p.mikroCode),
+        }))
+        .filter(p => p.guid); // GUID olmayanları atla
+
+      console.log(`✅ ${productsWithGuid.length} ürün için GUID bulundu`);
+
+      // Resimleri sync et
+      const imageStats = await imageService.syncAllImages(productsWithGuid as any, syncLogId);
+
+      // Sync log güncelle (warnings ile birlikte)
+      await prisma.syncLog.update({
+        where: { id: syncLogId },
+        data: {
+          status: 'SUCCESS',
+          categoriesCount: 0,
+          productsCount: 0,
+          imagesDownloaded: imageStats.downloaded,
+          imagesSkipped: imageStats.skipped,
+          imagesFailed: imageStats.failed,
+          warnings: imageStats.warnings.length > 0 ? imageStats.warnings : undefined,
+          completedAt: new Date(),
+        },
+      });
+
+      console.log('🎉 Resim senkronizasyonu tamamlandı!');
+      console.log(`  ✅ İndirilen: ${imageStats.downloaded}`);
+      console.log(`  ⏭️ Atlanan: ${imageStats.skipped}`);
+      console.log(`  ❌ Başarısız: ${imageStats.failed}`);
+
+      return {
+        success: true,
+        stats: imageStats,
+      };
+    } catch (error: any) {
+      console.error('❌ Resim senkronizasyon hatası:', error);
+
+      // Sync log'u hata olarak güncelle
+      await prisma.syncLog.update({
+        where: { id: syncLogId },
+        data: {
+          status: 'FAILED',
+          errorMessage: error.message,
+          completedAt: new Date(),
+        },
+      });
+
+      return {
+        success: false,
+        stats: {
+          downloaded: 0,
+          skipped: 0,
+          failed: 0,
+        },
+        error: error.message,
+      };
+    }
   }
 }
 

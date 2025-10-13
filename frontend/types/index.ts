@@ -97,6 +97,7 @@ export interface Order {
   approvedAt?: string;
   rejectedAt?: string;
   adminNote?: string;
+  mikroOrderIds?: string[];
 }
 
 export interface PendingOrderForAdmin extends Order {

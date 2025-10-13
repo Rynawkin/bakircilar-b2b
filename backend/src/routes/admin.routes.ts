@@ -41,6 +41,7 @@ router.put('/settings', adminController.updateSettings);
 
 // Sync
 router.post('/sync', adminController.triggerSync);
+router.post('/sync/images', adminController.triggerImageSync);
 router.get('/sync/status/:id', adminController.getSyncStatus);
 
 // Cari Sync

@@ -71,7 +71,7 @@ export class AdminController {
 
   /**
    * POST /api/admin/sync
-   * Start sync in background and return job ID
+   * Start sync in background and return job ID (resim hariç)
    */
   async triggerSync(req: Request, res: Response, next: NextFunction) {
     try {
@@ -80,7 +80,24 @@ export class AdminController {
 
       // Return immediately with job ID
       res.json({
-        message: 'Sync started',
+        message: 'Sync started (excluding images)',
+        syncLogId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/sync/images
+   * Start image sync in background and return job ID
+   */
+  async triggerImageSync(req: Request, res: Response, next: NextFunction) {
+    try {
+      const syncLogId = await syncService.startImageSync();
+
+      res.json({
+        message: 'Image sync started',
         syncLogId,
       });
     } catch (error) {

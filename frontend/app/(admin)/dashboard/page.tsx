@@ -17,6 +17,7 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isImageSyncing, setIsImageSyncing] = useState(false);
   const [isCariSyncing, setIsCariSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{
     categoriesCount?: number;
@@ -31,6 +32,11 @@ export default function AdminDashboardPage() {
       totalStocksToCalculate?: number;
       stocksCalculated?: number;
     };
+  } | null>(null);
+  const [imageSyncProgress, setImageSyncProgress] = useState<{
+    imagesDownloaded?: number;
+    imagesSkipped?: number;
+    imagesFailed?: number;
   } | null>(null);
   const [syncWarnings, setSyncWarnings] = useState<Array<{
     type: string;
@@ -210,7 +216,7 @@ export default function AdminDashboardPage() {
       toast((t) => (
         <div className="flex flex-col gap-3">
           <p className="font-medium">Mikro ERP ile senkronizasyon başlatılsın mı?</p>
-          <p className="text-sm text-gray-600">Bu işlem birkaç dakika sürebilir.</p>
+          <p className="text-sm text-gray-600">Bu işlem birkaç dakika sürebilir. (Resimler hariç)</p>
           <div className="flex gap-2 justify-end">
             <button
               className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
@@ -252,6 +258,120 @@ export default function AdminDashboardPage() {
     } catch (error: any) {
       setIsSyncing(false);
       toast.error(error.response?.data?.error || 'Senkronizasyon başlatılamadı');
+    }
+  };
+
+  const pollImageSyncStatus = async (syncLogId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await adminApi.getSyncStatus(syncLogId);
+
+        // Update progress
+        setImageSyncProgress({
+          imagesDownloaded: status.imagesDownloaded,
+          imagesSkipped: status.imagesSkipped,
+          imagesFailed: status.imagesFailed,
+        });
+
+        // Check if completed
+        if (status.isCompleted) {
+          clearInterval(pollInterval);
+          setIsImageSyncing(false);
+
+          // Update with final stats
+          setImageSyncProgress({
+            imagesDownloaded: status.imagesDownloaded,
+            imagesSkipped: status.imagesSkipped,
+            imagesFailed: status.imagesFailed,
+          });
+
+          if (status.status === 'SUCCESS') {
+            // Store warnings if any
+            if (status.warnings && status.warnings.length > 0) {
+              setSyncWarnings(status.warnings);
+            }
+
+            // Build success message
+            let successMessage = `Resim senkronizasyonu tamamlandı! 🎉\n\n✅ İndirilen: ${status.imagesDownloaded || 0}\n⏭️ Atlanan: ${status.imagesSkipped || 0}\n❌ Hatalı: ${status.imagesFailed || 0}`;
+
+            // Show warning if there are issues
+            if (status.warnings && status.warnings.length > 0) {
+              successMessage += `\n\n⚠️ ${status.warnings.length} uyarı var (detaylar aşağıda)`;
+            }
+
+            toast.success(successMessage, {
+              duration: 10000, // 10 saniye göster
+            });
+          } else if (status.status === 'FAILED') {
+            toast.error(`Resim senkronizasyonu başarısız: ${status.errorMessage || 'Bilinmeyen hata'}`);
+
+            // Store warnings even on failure
+            if (status.warnings && status.warnings.length > 0) {
+              setSyncWarnings(status.warnings);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Image sync status polling error:', error);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    // Cleanup after 30 minutes (safety timeout)
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (isImageSyncing) {
+        setIsImageSyncing(false);
+        toast.error('⏰ Resim senkronizasyonu çok uzun sürdü. Backend loglarını kontrol edin.');
+      }
+    }, 1800000); // 30 dakika
+  };
+
+  const handleImageSync = async () => {
+    const confirmed = await new Promise((resolve) => {
+      toast((t) => (
+        <div className="flex flex-col gap-3">
+          <p className="font-medium">Resim senkronizasyonu başlatılsın mı?</p>
+          <p className="text-sm text-gray-600">Sadece resmi olmayan ürünler için resimler indirilecek.</p>
+          <div className="flex gap-2 justify-end">
+            <button
+              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(false);
+              }}
+            >
+              İptal
+            </button>
+            <button
+              className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(true);
+              }}
+            >
+              Başlat
+            </button>
+          </div>
+        </div>
+      ), {
+        duration: Infinity,
+      });
+    });
+
+    if (!confirmed) return;
+
+    setIsImageSyncing(true);
+    setImageSyncProgress(null);
+
+    try {
+      const result = await adminApi.triggerImageSync();
+      toast.success('Resim senkronizasyonu başlatıldı! 📸', { duration: 3000 });
+
+      // Start polling for status
+      pollImageSyncStatus(result.syncLogId);
+    } catch (error: any) {
+      setIsImageSyncing(false);
+      toast.error(error.response?.data?.error || 'Resim senkronizasyonu başlatılamadı');
     }
   };
 
@@ -439,7 +559,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <Card className="shadow-lg bg-gradient-to-br from-white to-gray-50">
             <div className="flex items-center gap-3 mb-4">
               <div className="bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
@@ -451,7 +571,7 @@ export default function AdminDashboardPage() {
               </div>
             </div>
             <p className="text-sm text-gray-600 mb-4 bg-blue-50 border-l-4 border-blue-500 p-3 rounded">
-              💡 Ürün, stok ve fiyat bilgilerini Mikro ERP'den güncelleyin.
+              💡 Ürün, stok ve fiyat bilgilerini Mikro ERP'den güncelleyin. (Resimler hariç)
             </p>
             {stats?.lastSyncAt && (
               <div className="bg-gray-100 border border-gray-200 px-3 py-2 rounded mb-4 text-sm">
@@ -539,6 +659,45 @@ export default function AdminDashboardPage() {
               className="w-full bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white font-bold py-3 shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {isCariSyncing ? '👥 Cari Sync Ediliyor...' : '👥 Cari Sync Et'}
+            </Button>
+          </Card>
+
+          <Card className="shadow-lg bg-gradient-to-br from-white to-gray-50">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-gradient-to-br from-purple-600 to-purple-700 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                📸
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-gray-900">Resim Senkronizasyonu</h3>
+                <p className="text-xs text-gray-600">Ürün resimlerini indir</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-4 bg-purple-50 border-l-4 border-purple-500 p-3 rounded">
+              💡 Mikro ERP'den resmi olmayan ürünler için resimleri indirin.
+            </p>
+            {imageSyncProgress && (
+              <div className={`${isImageSyncing ? 'bg-purple-50 border-purple-200' : 'bg-green-50 border-green-200'} border px-3 py-2 rounded mb-3 text-sm`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {isImageSyncing && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>}
+                  {!isImageSyncing && <span className="text-green-600 text-lg">✅</span>}
+                  <span className={`font-semibold ${isImageSyncing ? 'text-purple-900' : 'text-green-900'}`}>
+                    {isImageSyncing ? 'İndiriliyor...' : 'Son senkronizasyon:'}
+                  </span>
+                </div>
+                <div className="space-y-0.5 text-xs">
+                  <div>✅ İndirilen: <strong className="text-green-700">{imageSyncProgress.imagesDownloaded || 0}</strong></div>
+                  <div>⏭️ Atlanan: <strong className="text-yellow-700">{imageSyncProgress.imagesSkipped || 0}</strong></div>
+                  <div>❌ Hatalı: <strong className="text-red-700">{imageSyncProgress.imagesFailed || 0}</strong></div>
+                </div>
+              </div>
+            )}
+            <Button
+              onClick={handleImageSync}
+              isLoading={isImageSyncing}
+              disabled={isImageSyncing}
+              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-3 shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isImageSyncing ? '📸 İndiriliyor...' : '📸 Resim Sync Et'}
             </Button>
           </Card>
 

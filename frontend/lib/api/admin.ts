@@ -38,6 +38,11 @@ export const adminApi = {
     return response.data;
   },
 
+  triggerImageSync: async (): Promise<SyncResponse> => {
+    const response = await apiClient.post('/admin/sync/images');
+    return response.data;
+  },
+
   triggerCariSync: async (): Promise<{ message: string; syncId: string }> => {
     const response = await apiClient.post('/admin/sync/cari');
     return response.data;
