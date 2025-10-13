@@ -14,8 +14,10 @@ import { prisma } from '../utils/prisma';
 export const authenticate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
+    console.log('🔐 Auth check - Path:', req.path, 'Header:', authHeader ? 'EXISTS' : 'MISSING');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('❌ No valid token provided');
       res.status(401).json({ error: 'No token provided' });
       return;
     }
