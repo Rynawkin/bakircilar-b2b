@@ -14,19 +14,15 @@ import { prisma } from '../utils/prisma';
 export const authenticate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
-    console.log('🔐 Auth check - Path:', req.path, 'Header:', authHeader ? 'EXISTS' : 'MISSING');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('❌ No valid token provided');
       res.status(401).json({ error: 'No token provided' });
       return;
     }
 
     const token = authHeader.substring(7); // "Bearer " kısmını çıkar
-    console.log('🔑 Token first 20 chars:', token.substring(0, 20));
 
     const decoded = verifyToken(token);
-    console.log('✅ Token decoded successfully, user:', decoded.email, 'role:', decoded.role);
 
     // SALES_REP için sektör bilgilerini al
     let assignedSectorCodes: string[] = [];
@@ -46,10 +42,8 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       assignedSectorCodes,
     };
 
-    console.log('✅ Auth successful, calling next()');
     next();
   } catch (error) {
-    console.log('❌ Auth error:', error instanceof Error ? error.message : error);
     res.status(401).json({ error: 'Invalid or expired token' });
   }
 };
