@@ -19,6 +19,7 @@ import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
+import { useDebounce } from '@/lib/hooks/useDebounce';
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -32,6 +33,7 @@ export default function ProductsPage() {
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 500);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
@@ -60,7 +62,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     fetchData();
-  }, [selectedCategory, search, selectedWarehouse]);
+  }, [selectedCategory, debouncedSearch, selectedWarehouse]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -68,7 +70,7 @@ export default function ProductsPage() {
       const [productsData, categoriesData, warehousesData] = await Promise.all([
         customerApi.getProducts({
           categoryId: selectedCategory || undefined,
-          search: search || undefined,
+          search: debouncedSearch || undefined,
           warehouse: selectedWarehouse || undefined,
         }),
         customerApi.getCategories(),
