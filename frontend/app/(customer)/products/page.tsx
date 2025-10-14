@@ -34,7 +34,7 @@ export default function ProductsPage() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
-  const debouncedSearch = useDebounce(search, 800);
+  const debouncedSearch = useDebounce(search, 300);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
@@ -255,6 +255,11 @@ export default function ProductsPage() {
                   <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
                     <span>📝</span>
                     Urun Ara
+                    {search !== debouncedSearch && (
+                      <span className="ml-2 text-xs text-primary-600 font-normal">
+                        (yazıyorsunuz...)
+                      </span>
+                    )}
                   </label>
                   <Input
                     placeholder="Urun ismi veya kodu..."

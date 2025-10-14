@@ -50,7 +50,7 @@ export default function AdminProductsPage() {
 
   // Filters
   const [search, setSearch] = useState('');
-  const debouncedSearch = useDebounce(search, 800);
+  const debouncedSearch = useDebounce(search, 300);
   const [hasImage, setHasImage] = useState<'all' | 'true' | 'false'>('all');
   const [categoryId, setCategoryId] = useState<string>('');
   const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost'>('name');
@@ -190,6 +190,11 @@ export default function AdminProductsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Ürün Ara (İsim veya Kod)
+                {search !== debouncedSearch && (
+                  <span className="ml-2 text-xs text-primary-600 font-normal">
+                    (yazıyorsunuz...)
+                  </span>
+                )}
               </label>
               <input
                 type="text"
