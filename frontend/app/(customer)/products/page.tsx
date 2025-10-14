@@ -31,7 +31,8 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [warehouses, setWarehouses] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 500);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
@@ -65,7 +66,7 @@ export default function ProductsPage() {
   }, [selectedCategory, debouncedSearch, selectedWarehouse]);
 
   const fetchData = async () => {
-    setIsLoading(true);
+    setIsSearching(true);
     try {
       const [productsData, categoriesData, warehousesData] = await Promise.all([
         customerApi.getProducts({
@@ -83,7 +84,8 @@ export default function ProductsPage() {
     } catch (error) {
       console.error('Veri yükleme hatası:', error);
     } finally {
-      setIsLoading(false);
+      setIsSearching(false);
+      setIsInitialLoad(false);
     }
   };
 
@@ -346,8 +348,16 @@ export default function ProductsPage() {
               />
             </div>
 
+            {/* Search Indicator */}
+            {isSearching && !isInitialLoad && (
+              <div className="mb-4 flex items-center justify-center gap-2 bg-primary-50 text-primary-700 px-4 py-3 rounded-lg shadow-sm border border-primary-200">
+                <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="font-medium text-sm">Aranıyor...</span>
+              </div>
+            )}
+
             {/* Products Grid */}
-            {isLoading ? (
+            {isInitialLoad ? (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {Array.from({ length: 10 }).map((_, i) => (
                   <ProductCardSkeleton key={i} />
