@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { LogoLink } from '@/components/ui/Logo';
 import { ProductDetailModal } from '@/components/admin/ProductDetailModal';
+import { useDebounce } from '@/lib/hooks/useDebounce';
 
 interface Product {
   id: string;
@@ -44,10 +45,12 @@ export default function AdminProductsPage() {
   const { user, loadUserFromStorage, logout } = useAuthStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Filters
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 800);
   const [hasImage, setHasImage] = useState<'all' | 'true' | 'false'>('all');
   const [categoryId, setCategoryId] = useState<string>('');
   const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost'>('name');
@@ -79,17 +82,17 @@ export default function AdminProductsPage() {
     if (user?.role === 'ADMIN') {
       fetchProducts();
     }
-  }, [search, hasImage, categoryId, sortBy, sortOrder, user]);
+  }, [debouncedSearch, hasImage, categoryId, sortBy, sortOrder, user]);
 
   const fetchData = async () => {
     await Promise.all([fetchProducts(), fetchCategories()]);
   };
 
   const fetchProducts = async () => {
-    setIsLoading(true);
+    setIsSearching(true);
     try {
       const params: any = {};
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (hasImage !== 'all') params.hasImage = hasImage;
       if (categoryId) params.categoryId = categoryId;
       params.sortBy = sortBy;
@@ -102,7 +105,8 @@ export default function AdminProductsPage() {
       console.error('Ürünler yüklenemedi:', error);
       toast.error('Ürünler yüklenemedi');
     } finally {
-      setIsLoading(false);
+      setIsSearching(false);
+      setIsInitialLoad(false);
     }
   };
 
@@ -130,7 +134,7 @@ export default function AdminProductsPage() {
   const endIndex = startIndex + itemsPerPage;
   const currentProducts = products.slice(startIndex, endIndex);
 
-  if (!user || isLoading) {
+  if (!user || isInitialLoad) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -287,8 +291,18 @@ export default function AdminProductsPage() {
 
         {/* Products Table */}
         <Card className="shadow-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="relative">
+            {/* Loading Overlay */}
+            {isSearching && (
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 rounded-lg flex items-start justify-center pt-8">
+                <div className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-full shadow-lg">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span className="font-medium text-sm">Aranıyor...</span>
+                </div>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full">
               <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -473,6 +487,7 @@ export default function AdminProductsPage() {
               </div>
             </div>
           )}
+          </div>
         </Card>
       </div>
 
