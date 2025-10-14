@@ -36,7 +36,11 @@ export async function DELETE(
 
 async function proxyRequest(request: NextRequest, path: string[]) {
   const pathString = path.join('/');
-  const url = `${BACKEND_URL}/api/${pathString}`;
+
+  // Forward query parameters
+  const searchParams = request.nextUrl.searchParams.toString();
+  const queryString = searchParams ? `?${searchParams}` : '';
+  const url = `${BACKEND_URL}/api/${pathString}${queryString}`;
 
   // Get body if exists
   let body = undefined;
