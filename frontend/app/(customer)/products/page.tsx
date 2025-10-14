@@ -68,12 +68,17 @@ export default function ProductsPage() {
   const fetchData = async () => {
     setIsSearching(true);
     try {
+      const searchParams = {
+        categoryId: selectedCategory || undefined,
+        search: debouncedSearch || undefined,
+        warehouse: selectedWarehouse || undefined,
+      };
+
+      console.log('🔍 Customer Products Search Params:', searchParams);
+      console.log('📝 debouncedSearch value:', debouncedSearch);
+
       const [productsData, categoriesData, warehousesData] = await Promise.all([
-        customerApi.getProducts({
-          categoryId: selectedCategory || undefined,
-          search: debouncedSearch || undefined,
-          warehouse: selectedWarehouse || undefined,
-        }),
+        customerApi.getProducts(searchParams),
         customerApi.getCategories(),
         customerApi.getWarehouses(),
       ]);

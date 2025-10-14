@@ -98,6 +98,9 @@ export default function AdminProductsPage() {
       params.sortBy = sortBy;
       params.sortOrder = sortOrder;
 
+      console.log('🔍 Admin Products Search Params:', params);
+      console.log('📝 debouncedSearch value:', debouncedSearch);
+
       const data = await adminApi.getProducts(params);
       setProducts(data.products);
       setCurrentPage(1); // Reset to first page on filter change
