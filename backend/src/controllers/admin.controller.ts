@@ -300,10 +300,16 @@ export class AdminController {
         orderBy,
       });
 
-      // Toplam stok hesapla (tüm depolar)
+      // Settings'den aktif depoları al
+      const settings = await prisma.settings.findFirst();
+      const includedWarehouses = settings?.includedWarehouses || [];
+
+      // Toplam stok hesapla (sadece included warehouses)
       const productsWithTotalStock = products.map(product => {
         const warehouseStocks = product.warehouseStocks as Record<string, number> || {};
-        const totalStock = Object.values(warehouseStocks).reduce((sum, val) => sum + val, 0);
+        const totalStock = includedWarehouses.reduce((sum, warehouse) => {
+          return sum + (warehouseStocks[warehouse] || 0);
+        }, 0);
 
         return {
           ...product,
