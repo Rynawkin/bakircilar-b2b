@@ -9,7 +9,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
-import { LogoLink } from '@/components/ui/Logo';
+import { AdminNavigation } from '@/components/layout/AdminNavigation';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -385,50 +385,10 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">🎯 Yönetim Paneli</h1>
-                <p className="text-sm text-primary-100">Hoş geldiniz, {user.name}</p>
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap">
-              <Button variant="secondary" onClick={() => router.push('/staff')} className="bg-white text-primary-700 hover:bg-primary-50">
-                👥 Personel
-              </Button>
-              <Button variant="secondary" onClick={() => router.push('/admin-products')} className="bg-white text-primary-700 hover:bg-primary-50">
-                📦 Ürün Yönetimi
-              </Button>
-              <Button variant="secondary" onClick={() => router.push('/campaigns')} className="bg-white text-primary-700 hover:bg-primary-50">
-                🎯 Kampanyalar
-              </Button>
-              <Button variant="secondary" onClick={() => router.push('/settings')} className="bg-white text-primary-700 hover:bg-primary-50">
-                ⚙️ Ayarlar
-              </Button>
-              <Button variant="secondary" onClick={() => router.push('/customers')} className="bg-white text-primary-700 hover:bg-primary-50">
-                👥 Müşteriler
-              </Button>
-              <Button variant="secondary" onClick={() => router.push('/orders')} className="bg-white text-primary-700 hover:bg-primary-50">
-                📋 Siparişler
-              </Button>
-              <Button variant="secondary" onClick={() => router.push('/categories')} className="bg-white text-primary-700 hover:bg-primary-50">
-                📁 Kategoriler
-              </Button>
-              <Button variant="secondary" onClick={() => router.push('/product-overrides')} className="bg-white text-primary-700 hover:bg-primary-50">
-                🏷️ Ürün Override
-              </Button>
-              <Button variant="ghost" onClick={() => { logout(); router.push('/login'); }} className="text-white hover:bg-primary-800">
-                Çıkış
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Navigation */}
+      <AdminNavigation />
 
+      {/* Main Content */}
       <div className="container-custom py-8">
         {/* Stats Cards */}
         {stats && (
