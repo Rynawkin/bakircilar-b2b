@@ -34,7 +34,7 @@ export default function ProductsPage() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
-  const debouncedSearch = useDebounce(search, 500);
+  const debouncedSearch = useDebounce(search, 800);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
@@ -348,15 +348,7 @@ export default function ProductsPage() {
               />
             </div>
 
-            {/* Search Indicator */}
-            {isSearching && !isInitialLoad && (
-              <div className="mb-4 flex items-center justify-center gap-2 bg-primary-50 text-primary-700 px-4 py-3 rounded-lg shadow-sm border border-primary-200">
-                <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
-                <span className="font-medium text-sm">Aranıyor...</span>
-              </div>
-            )}
-
-            {/* Products Grid */}
+            {/* Products Grid with Loading Overlay */}
             {isInitialLoad ? (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {Array.from({ length: 10 }).map((_, i) => (
@@ -382,7 +374,17 @@ export default function ProductsPage() {
                 />
               </Card>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              <div className="relative">
+                {/* Loading Overlay */}
+                {isSearching && (
+                  <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 rounded-lg flex items-start justify-center pt-4">
+                    <div className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-full shadow-lg">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span className="font-medium text-sm">Aranıyor...</span>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredProducts.map((product) => (
                   <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
                     <div className="space-y-3 flex flex-col h-full">
@@ -488,6 +490,7 @@ export default function ProductsPage() {
                     </div>
                   </Card>
                 ))}
+              </div>
               </div>
             )}
           </div>
