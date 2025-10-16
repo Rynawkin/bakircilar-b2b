@@ -62,13 +62,11 @@ if (!config.isDevelopment) {
   console.log('⚡ Rate limiting disabled in development mode');
 }
 
-// Request logging (development)
-if (config.isDevelopment) {
-  app.use((req, _res, next) => {
-    console.log(`${req.method} ${req.path}`);
-    next();
-  });
-}
+// Request logging (always enabled to debug issues)
+app.use((req, _res, next) => {
+  console.log(`📥 ${req.method} ${req.path} - IP: ${req.ip}`);
+  next();
+});
 
 // ==================== ROUTES ====================
 
