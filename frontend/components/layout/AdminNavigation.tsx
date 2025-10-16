@@ -16,6 +16,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: '🎯', description: 'Genel bakış' },
   { name: 'Siparişler', href: '/orders', icon: '📋', description: 'Sipariş yönetimi' },
+  { name: 'Sipariş Takip', href: '/order-tracking', icon: '📧', description: 'Bekleyen siparişler' },
   { name: 'Müşteriler', href: '/customers', icon: '👥', description: 'Müşteri listesi' },
   { name: 'Ürünler', href: '/admin-products', icon: '📦', description: 'Ürün yönetimi' },
   { name: 'Kampanyalar', href: '/campaigns', icon: '🎯', description: 'İndirim kampanyaları' },
