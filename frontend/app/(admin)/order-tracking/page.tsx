@@ -9,8 +9,6 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-
 interface PendingOrder {
   mikroOrderNumber: string;
   customerName: string;
@@ -70,9 +68,9 @@ export default function OrderTrackingPage() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [settingsRes, ordersRes, summaryRes] = await Promise.all([
-        axios.get(`${API_URL}/api/order-tracking/admin/settings`, { headers }),
-        axios.get(`${API_URL}/api/order-tracking/admin/pending-orders`, { headers }),
-        axios.get(`${API_URL}/api/order-tracking/admin/summary`, { headers }),
+        axios.get('/api/order-tracking/admin/settings', { headers }),
+        axios.get('/api/order-tracking/admin/pending-orders', { headers }),
+        axios.get('/api/order-tracking/admin/summary', { headers }),
       ]);
 
       setSettings(settingsRes.data);
@@ -91,7 +89,7 @@ export default function OrderTrackingPage() {
     try {
       const token = localStorage.getItem('token');
       await axios.post(
-        `${API_URL}/api/order-tracking/admin/sync`,
+        '/api/order-tracking/admin/sync',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -112,7 +110,7 @@ export default function OrderTrackingPage() {
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(
-        `${API_URL}/api/order-tracking/admin/send-emails`,
+        '/api/order-tracking/admin/send-emails',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -134,7 +132,7 @@ export default function OrderTrackingPage() {
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(
-        `${API_URL}/api/order-tracking/admin/sync-and-send`,
+        '/api/order-tracking/admin/sync-and-send',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -156,7 +154,7 @@ export default function OrderTrackingPage() {
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(
-        `${API_URL}/api/order-tracking/admin/send-email/${customerCode}`,
+        `/api/order-tracking/admin/send-email/${customerCode}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );

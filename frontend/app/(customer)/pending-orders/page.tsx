@@ -7,8 +7,6 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-
 interface OrderItem {
   productCode: string;
   productName: string;
@@ -56,7 +54,7 @@ export default function CustomerPendingOrdersPage() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`${API_URL}/api/order-tracking/customer/pending-orders`, {
+      const res = await axios.get('/api/order-tracking/customer/pending-orders', {
         headers: { Authorization: `Bearer ${token}` },
       });
       setOrders(res.data);
