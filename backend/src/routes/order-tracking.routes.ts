@@ -17,6 +17,7 @@ router.put('/admin/settings', authenticate, requireAdmin, orderTrackingControlle
 // Sync & Email
 router.post('/admin/sync', authenticate, requireAdmin, orderTrackingController.syncPendingOrders);
 router.post('/admin/send-emails', authenticate, requireAdmin, orderTrackingController.sendEmails);
+router.post('/admin/send-email/:customerCode', authenticate, requireAdmin, orderTrackingController.sendEmailToCustomer);
 router.post('/admin/sync-and-send', authenticate, requireAdmin, orderTrackingController.syncAndSend);
 
 // Data

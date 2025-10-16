@@ -145,6 +145,31 @@ class OrderTrackingController {
   }
 
   /**
+   * POST /api/admin/order-tracking/send-email/:customerCode
+   * Belirli bir müşteriye mail gönder
+   */
+  async sendEmailToCustomer(req: Request, res: Response) {
+    try {
+      const { customerCode } = req.params;
+
+      if (!customerCode) {
+        return res.status(400).json({ error: 'Müşteri kodu gerekli' });
+      }
+
+      const result = await emailService.sendPendingOrdersToCustomer(customerCode);
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Müşteriye mail gönderme hatası:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
    * POST /api/admin/order-tracking/test-email
    * Test email gönder
    */

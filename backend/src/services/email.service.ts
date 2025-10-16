@@ -320,6 +320,85 @@ class EmailService {
   }
 
   /**
+   * Belirli bir müşteriye bekleyen siparişlerini mail ile gönder
+   */
+  async sendPendingOrdersToCustomer(customerCode: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    try {
+      console.log(`📧 Mail gönderimi başladı: ${customerCode}`);
+
+      // 1. Müşterinin bekleyen siparişlerini al
+      const orders = await prisma.pendingMikroOrder.findMany({
+        where: { customerCode, emailSent: false },
+        orderBy: { orderDate: 'desc' },
+      });
+
+      if (orders.length === 0) {
+        return {
+          success: false,
+          message: 'Bu müşterinin bekleyen siparişi yok',
+        };
+      }
+
+      // 2. Müşterinin email adresini User tablosundan al
+      const user = await prisma.user.findFirst({
+        where: { mikroCariCode: customerCode },
+      });
+
+      if (!user || !user.email) {
+        return {
+          success: false,
+          message: 'Müşteri email adresi bulunamadı',
+        };
+      }
+
+      // 3. Email data hazırla
+      const customerData: OrderEmailData = {
+        customerCode,
+        customerName: orders[0].customerName,
+        customerEmail: user.email,
+        orders: orders.map((order) => ({
+          mikroOrderNumber: order.mikroOrderNumber,
+          orderDate: order.orderDate,
+          deliveryDate: order.deliveryDate,
+          items: order.items as any,
+          totalAmount: order.totalAmount,
+          totalVAT: order.totalVAT,
+          grandTotal: order.grandTotal,
+        })),
+        totalOrdersAmount: orders.reduce((sum, o) => sum + o.grandTotal, 0),
+      };
+
+      // 4. Mail gönder
+      await this.sendOrderEmail(customerData);
+
+      // 5. Gönderildi olarak işaretle
+      await prisma.pendingMikroOrder.updateMany({
+        where: { customerCode },
+        data: {
+          emailSent: true,
+          emailSentAt: new Date(),
+        },
+      });
+
+      console.log(`✅ Mail gönderildi: ${user.email}`);
+
+      return {
+        success: true,
+        message: `${user.email} adresine ${orders.length} sipariş bilgisi gönderildi`,
+      };
+    } catch (error: any) {
+      console.error(`❌ Mail gönderilemedi (${customerCode}):`, error.message);
+      return {
+        success: false,
+        message: error.message || 'Bilinmeyen hata',
+      };
+    }
+  }
+
+  /**
    * Test email gönder (development için)
    */
   async sendTestEmail(toEmail: string): Promise<void> {

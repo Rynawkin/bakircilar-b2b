@@ -21,6 +21,14 @@ interface PendingOrder {
   grandTotal: number;
 }
 
+interface CustomerSummary {
+  customerCode: string;
+  customerName: string;
+  ordersCount: number;
+  totalAmount: number;
+  emailSent: boolean;
+}
+
 interface Settings {
   syncEnabled: boolean;
   syncSchedule: string;
@@ -35,9 +43,12 @@ export default function OrderTrackingPage() {
   const { user, loadUserFromStorage } = useAuthStore();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [orders, setOrders] = useState<PendingOrder[]>([]);
+  const [customerSummary, setCustomerSummary] = useState<CustomerSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
+  const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'orders' | 'customers'>('customers');
 
   useEffect(() => {
     loadUserFromStorage();
@@ -58,13 +69,15 @@ export default function OrderTrackingPage() {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
-      const [settingsRes, ordersRes] = await Promise.all([
+      const [settingsRes, ordersRes, summaryRes] = await Promise.all([
         axios.get(`${API_URL}/api/order-tracking/admin/settings`, { headers }),
         axios.get(`${API_URL}/api/order-tracking/admin/pending-orders`, { headers }),
+        axios.get(`${API_URL}/api/order-tracking/admin/summary`, { headers }),
       ]);
 
       setSettings(settingsRes.data);
       setOrders(ordersRes.data);
+      setCustomerSummary(summaryRes.data);
     } catch (error: any) {
       console.error('Veri yükleme hatası:', error);
       toast.error('Veriler yüklenemedi');
@@ -132,6 +145,27 @@ export default function OrderTrackingPage() {
     } finally {
       setIsSyncing(false);
       setIsSendingEmails(false);
+    }
+  };
+
+  const handleSendToCustomer = async (customerCode: string) => {
+    const confirmed = confirm(`${customerCode} kodlu müşteriye mail gönderilsin mi?`);
+    if (!confirmed) return;
+
+    setSendingToCustomer(customerCode);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(
+        `${API_URL}/api/order-tracking/admin/send-email/${customerCode}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success(res.data.message);
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Mail gönderilemedi');
+    } finally {
+      setSendingToCustomer(null);
     }
   };
 
@@ -249,9 +283,102 @@ export default function OrderTrackingPage() {
           </Card>
         )}
 
-        {/* Orders List */}
-        <Card>
-          <h2 className="text-xl font-bold mb-4">📋 Bekleyen Siparişler ({orders.length})</h2>
+        {/* View Toggle */}
+        <Card className="mb-8">
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setViewMode('customers')}
+              className={viewMode === 'customers' ? 'bg-primary-600 text-white' : 'bg-gray-200 text-gray-700'}
+            >
+              👥 Müşteri Bazlı ({customerSummary.length})
+            </Button>
+            <Button
+              onClick={() => setViewMode('orders')}
+              className={viewMode === 'orders' ? 'bg-primary-600 text-white' : 'bg-gray-200 text-gray-700'}
+            >
+              📋 Sipariş Bazlı ({orders.length})
+            </Button>
+          </div>
+        </Card>
+
+        {/* Customer Summary View */}
+        {viewMode === 'customers' && (
+          <Card>
+            <h2 className="text-xl font-bold mb-4">👥 Müşteri Bazlı Görünüm ({customerSummary.length})</h2>
+            {customerSummary.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <p className="text-lg mb-2">✅ Bekleyen sipariş yok</p>
+                <p className="text-sm">Yeni siparişler sync edildiğinde burada görünecek.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">
+                        Müşteri
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                        Sipariş Sayısı
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-600 uppercase">
+                        Toplam Tutar
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-600 uppercase">
+                        Mail Durumu
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-600 uppercase">
+                        İşlem
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {customerSummary.map((customer) => (
+                      <tr key={customer.customerCode} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          <div className="font-medium text-gray-900">{customer.customerName}</div>
+                          <div className="text-xs text-gray-500">{customer.customerCode}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">
+                          {customer.ordersCount} sipariş
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold text-primary-600">
+                          {formatCurrency(customer.totalAmount)}
+                        </td>
+                        <td className="px-4 py-3 text-center text-sm">
+                          {customer.emailSent ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              ✅ Gönderildi
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              ⏳ Bekliyor
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Button
+                            onClick={() => handleSendToCustomer(customer.customerCode)}
+                            isLoading={sendingToCustomer === customer.customerCode}
+                            disabled={sendingToCustomer === customer.customerCode}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-sm py-1 px-3"
+                          >
+                            📧 Mail Gönder
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Orders List View */}
+        {viewMode === 'orders' && (
+          <Card>
+            <h2 className="text-xl font-bold mb-4">📋 Bekleyen Siparişler ({orders.length})</h2>
           {orders.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <p className="text-lg mb-2">✅ Bekleyen sipariş yok</p>
@@ -310,7 +437,8 @@ export default function OrderTrackingPage() {
               </table>
             </div>
           )}
-        </Card>
+          </Card>
+        )}
       </div>
     </div>
   );
