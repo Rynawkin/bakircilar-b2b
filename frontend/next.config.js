@@ -5,6 +5,7 @@ const nextConfig = {
     domains: ['localhost'],
   },
   async rewrites() {
+    // Proxy API requests to backend to avoid CORS and Mixed Content issues
     return [
       {
         source: '/api/:path*',
