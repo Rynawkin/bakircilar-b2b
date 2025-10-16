@@ -17,6 +17,9 @@ import emailService from './services/email.service';
 // Express app
 const app: Application = express();
 
+// Trust proxy - Required for Vercel/Next.js proxy to work correctly
+app.set('trust proxy', true);
+
 // ==================== MIDDLEWARE ====================
 
 // Security headers
