@@ -47,6 +47,11 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later',
   standardHeaders: true,
   legacyHeaders: false,
+  // Skip failed requests to avoid false positives (don't count 401/403/404)
+  skipFailedRequests: false,
+  skipSuccessfulRequests: false,
+  // Validate config but suppress warnings about trust proxy
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
 // Production'da rate limiting aktif, development'ta devre dışı
