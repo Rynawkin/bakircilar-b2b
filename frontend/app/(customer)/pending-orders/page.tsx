@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
-import axios from 'axios';
+import { apiClient } from '@/lib/api/client';
 
 interface OrderItem {
   productCode: string;
@@ -53,10 +53,7 @@ export default function CustomerPendingOrdersPage() {
   const fetchOrders = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get('/api/order-tracking/customer/pending-orders', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiClient.get('/order-tracking/customer/pending-orders');
       setOrders(res.data);
     } catch (error: any) {
       console.error('Siparişler yüklenemedi:', error);

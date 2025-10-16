@@ -7,7 +7,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import axios from 'axios';
+import { apiClient } from '@/lib/api/client';
 
 interface PendingOrder {
   mikroOrderNumber: string;
@@ -64,13 +64,10 @@ export default function OrderTrackingPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const [settingsRes, ordersRes, summaryRes] = await Promise.all([
-        axios.get('/api/order-tracking/admin/settings', { headers }),
-        axios.get('/api/order-tracking/admin/pending-orders', { headers }),
-        axios.get('/api/order-tracking/admin/summary', { headers }),
+        apiClient.get('/order-tracking/admin/settings'),
+        apiClient.get('/order-tracking/admin/pending-orders'),
+        apiClient.get('/order-tracking/admin/summary'),
       ]);
 
       setSettings(settingsRes.data);
@@ -87,12 +84,7 @@ export default function OrderTrackingPage() {
   const handleSync = async () => {
     setIsSyncing(true);
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
-        '/api/order-tracking/admin/sync',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await apiClient.post('/order-tracking/admin/sync');
       toast.success('Sipariş sync başlatıldı!');
       setTimeout(fetchData, 3000);
     } catch (error: any) {
@@ -108,12 +100,7 @@ export default function OrderTrackingPage() {
 
     setIsSendingEmails(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        '/api/order-tracking/admin/send-emails',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await apiClient.post('/order-tracking/admin/send-emails');
       toast.success(`${res.data.sentCount} mail gönderildi!`);
       fetchData();
     } catch (error: any) {
@@ -130,12 +117,7 @@ export default function OrderTrackingPage() {
     setIsSyncing(true);
     setIsSendingEmails(true);
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        '/api/order-tracking/admin/sync-and-send',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await apiClient.post('/order-tracking/admin/sync-and-send');
       toast.success(res.data.message);
       fetchData();
     } catch (error: any) {
@@ -152,12 +134,7 @@ export default function OrderTrackingPage() {
 
     setSendingToCustomer(customerCode);
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        `/api/order-tracking/admin/send-email/${customerCode}`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await apiClient.post(`/order-tracking/admin/send-email/${customerCode}`);
       toast.success(res.data.message);
       fetchData();
     } catch (error: any) {
