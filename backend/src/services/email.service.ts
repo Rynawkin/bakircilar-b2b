@@ -321,17 +321,22 @@ class EmailService {
 
   /**
    * Belirli bir müşteriye bekleyen siparişlerini mail ile gönder
+   * @param customerCode Müşteri kodu
+   * @param emailOverride Opsiyonel email override (tek seferlik farklı bir adrese gönder)
    */
-  async sendPendingOrdersToCustomer(customerCode: string): Promise<{
+  async sendPendingOrdersToCustomer(
+    customerCode: string,
+    emailOverride?: string
+  ): Promise<{
     success: boolean;
     message: string;
   }> {
     try {
-      console.log(`📧 Mail gönderimi başladı: ${customerCode}`);
+      console.log(`📧 Mail gönderimi başladı: ${customerCode}${emailOverride ? ` (override: ${emailOverride})` : ''}`);
 
       // 1. Müşterinin bekleyen siparişlerini al
       const orders = await prisma.pendingMikroOrder.findMany({
-        where: { customerCode, emailSent: false },
+        where: { customerCode },
         orderBy: { orderDate: 'desc' },
       });
 
@@ -342,23 +347,31 @@ class EmailService {
         };
       }
 
-      // 2. Müşterinin email adresini User tablosundan al
-      const user = await prisma.user.findFirst({
-        where: { mikroCariCode: customerCode },
-      });
+      // 2. Email adresini belirle (override varsa kullan, yoksa User tablosundan al)
+      let targetEmail: string;
 
-      if (!user || !user.email) {
-        return {
-          success: false,
-          message: 'Müşteri email adresi bulunamadı',
-        };
+      if (emailOverride) {
+        targetEmail = emailOverride;
+      } else {
+        const user = await prisma.user.findFirst({
+          where: { mikroCariCode: customerCode },
+        });
+
+        if (!user || !user.email) {
+          return {
+            success: false,
+            message: 'Müşteri email adresi bulunamadı',
+          };
+        }
+
+        targetEmail = user.email;
       }
 
       // 3. Email data hazırla
       const customerData: OrderEmailData = {
         customerCode,
         customerName: orders[0].customerName,
-        customerEmail: user.email,
+        customerEmail: targetEmail,
         orders: orders.map((order) => ({
           mikroOrderNumber: order.mikroOrderNumber,
           orderDate: order.orderDate,
@@ -374,20 +387,22 @@ class EmailService {
       // 4. Mail gönder
       await this.sendOrderEmail(customerData);
 
-      // 5. Gönderildi olarak işaretle
-      await prisma.pendingMikroOrder.updateMany({
-        where: { customerCode },
-        data: {
-          emailSent: true,
-          emailSentAt: new Date(),
-        },
-      });
+      // 5. Gönderildi olarak işaretle (sadece override yoksa)
+      if (!emailOverride) {
+        await prisma.pendingMikroOrder.updateMany({
+          where: { customerCode },
+          data: {
+            emailSent: true,
+            emailSentAt: new Date(),
+          },
+        });
+      }
 
-      console.log(`✅ Mail gönderildi: ${user.email}`);
+      console.log(`✅ Mail gönderildi: ${targetEmail}`);
 
       return {
         success: true,
-        message: `${user.email} adresine ${orders.length} sipariş bilgisi gönderildi`,
+        message: `${targetEmail} adresine ${orders.length} sipariş bilgisi gönderildi`,
       };
     } catch (error: any) {
       console.error(`❌ Mail gönderilemedi (${customerCode}):`, error.message);

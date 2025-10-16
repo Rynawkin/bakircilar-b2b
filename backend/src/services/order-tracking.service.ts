@@ -308,11 +308,40 @@ class OrderTrackingService {
   async getCustomerSummary() {
     const orders = await prisma.pendingMikroOrder.findMany({
       select: {
+        id: true,
+        mikroOrderNumber: true,
         customerCode: true,
         customerName: true,
+        orderDate: true,
+        deliveryDate: true,
+        items: true,
+        itemCount: true,
+        totalAmount: true,
+        totalVAT: true,
         grandTotal: true,
         emailSent: true,
       },
+      orderBy: [{ customerCode: 'asc' }, { orderDate: 'desc' }],
+    });
+
+    // Tüm müşterilerin email adreslerini çek
+    const customerCodes = [...new Set(orders.map(o => o.customerCode))];
+    const users = await prisma.user.findMany({
+      where: {
+        mikroCariCode: { in: customerCodes },
+        role: 'CUSTOMER',
+      },
+      select: {
+        mikroCariCode: true,
+        email: true,
+      },
+    });
+
+    const emailMap = new Map<string, string>();
+    users.forEach(user => {
+      if (user.mikroCariCode) {
+        emailMap.set(user.mikroCariCode, user.email);
+      }
     });
 
     // Müşteri bazında grupla
@@ -321,9 +350,19 @@ class OrderTrackingService {
       {
         customerCode: string;
         customerName: string;
+        customerEmail: string | null;
         ordersCount: number;
         totalAmount: number;
         emailSent: boolean;
+        orders: Array<{
+          id: string;
+          mikroOrderNumber: string;
+          orderDate: Date;
+          deliveryDate: Date | null;
+          itemCount: number;
+          grandTotal: number;
+          items: any;
+        }>;
       }
     >();
 
@@ -332,15 +371,26 @@ class OrderTrackingService {
         summary.set(order.customerCode, {
           customerCode: order.customerCode,
           customerName: order.customerName,
+          customerEmail: emailMap.get(order.customerCode) || null,
           ordersCount: 0,
           totalAmount: 0,
           emailSent: order.emailSent,
+          orders: [],
         });
       }
 
       const customerSummary = summary.get(order.customerCode)!;
       customerSummary.ordersCount++;
       customerSummary.totalAmount += order.grandTotal;
+      customerSummary.orders.push({
+        id: order.id,
+        mikroOrderNumber: order.mikroOrderNumber,
+        orderDate: order.orderDate,
+        deliveryDate: order.deliveryDate,
+        itemCount: order.itemCount,
+        grandTotal: order.grandTotal,
+        items: order.items,
+      });
     }
 
     return Array.from(summary.values()).sort((a, b) => b.totalAmount - a.totalAmount);

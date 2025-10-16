@@ -147,16 +147,18 @@ class OrderTrackingController {
   /**
    * POST /api/admin/order-tracking/send-email/:customerCode
    * Belirli bir müşteriye mail gönder
+   * Body: { emailOverride?: string } - Opsiyonel email override
    */
   async sendEmailToCustomer(req: Request, res: Response) {
     try {
       const { customerCode } = req.params;
+      const { emailOverride } = req.body;
 
       if (!customerCode) {
         return res.status(400).json({ error: 'Müşteri kodu gerekli' });
       }
 
-      const result = await emailService.sendPendingOrdersToCustomer(customerCode);
+      const result = await emailService.sendPendingOrdersToCustomer(customerCode, emailOverride);
 
       if (!result.success) {
         return res.status(400).json(result);
