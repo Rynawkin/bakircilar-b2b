@@ -12,10 +12,10 @@ class StockService {
    * Fazla stok hesapla
    *
    * Formül:
-   * Fazla Stok = Toplam Stok - (Aylık Ortalama × Periyot) - Bekleyen Müşteri Siparişleri
+   * Fazla Stok = Toplam Stok - (Aylık Ortalama × 3) - Bekleyen Müşteri Siparişleri
    *
-   * Örnek: 100 stok, aylık 20, 3 ay periyot:
-   * → Fazla Stok = 100 - (20 × 3) - 0 = 40 adet
+   * Örnek: 100 stok, son 90 günde 180 satış (aylık 60):
+   * → Fazla Stok = 100 - (60 × 3) - 0 = -80 = 0 adet
    */
   async calculateExcessStock(productId: string): Promise<number> {
     const product = await prisma.product.findUnique({
@@ -32,7 +32,7 @@ class StockService {
       throw new Error('Settings not found');
     }
 
-    const { calculationPeriodMonths, includedWarehouses, minimumExcessThreshold } = settings;
+    const { calculationPeriodDays, includedWarehouses, minimumExcessThreshold } = settings;
 
     const warehouseStocks = product.warehouseStocks as Record<string, number>;
     const salesHistory = product.salesHistory as Record<string, number>;
@@ -42,18 +42,18 @@ class StockService {
       return sum + (warehouseStocks[warehouse] || 0);
     }, 0);
 
-    // 2. Aylık ortalama satış hesapla
+    // 2. Günlük satış geçmişinden aylık ortalama hesapla
     const averageMonthlySales = this.calculateAverageSales(
       salesHistory,
-      calculationPeriodMonths
+      calculationPeriodDays
     );
 
     // 3. Bekleyen müşteri siparişleri
     const pendingCustomer = product.pendingCustomerOrders || 0;
 
     // 4. Fazla stok hesapla
-    // Fazla Stok = Toplam Stok - (Aylık Ortalama × Periyot) - Bekleyen Müşteri Siparişleri
-    let excessStock = totalStock - (averageMonthlySales * calculationPeriodMonths) - pendingCustomer;
+    // Fazla Stok = Toplam Stok - (Aylık Ortalama × 3) - Bekleyen Müşteri Siparişleri
+    let excessStock = totalStock - (averageMonthlySales * 3) - pendingCustomer;
 
     // 5. Negatif ise 0 yap
     excessStock = Math.max(0, excessStock);
@@ -137,31 +137,37 @@ class StockService {
   }
 
   /**
-   * Ortalama aylık satış hesapla
+   * Ortalama aylık satış hesapla (günlük verilerden)
    *
-   * Toplam satış / Periyot (ay sayısı)
-   * Satış olmayan aylar da hesaba katılır (0 olarak)
+   * Son X günün satışlarını topla, aylık ortalamaya çevir
+   * Örnek: Son 90 günde 180 adet satış → Aylık ortalama = (180 / 90) * 30 = 60 adet/ay
    */
   private calculateAverageSales(
     salesHistory: Record<string, number>,
-    periodMonths: number
+    periodDays: number
   ): number {
     const now = new Date();
-
-    // Son X ayın satışlarını topla
     let totalSales = 0;
 
-    for (let i = 0; i < periodMonths; i++) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+    // Son X günün satışlarını topla
+    for (let i = 0; i < periodDays; i++) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
 
-      // Satış varsa ekle, yoksa 0 olarak hesaba kat
+      // YYYY-MM-DD formatı
+      const key = date.toISOString().split('T')[0];
+
+      // Satış varsa ekle
       totalSales += salesHistory[key] || 0;
     }
 
-    // Ortalama = Toplam Satış / Periyot
-    // Periyot 0 olamaz çünkü settings'den gelir
-    return Math.ceil(totalSales / periodMonths);
+    // Günlük ortalama hesapla
+    const dailyAverage = totalSales / periodDays;
+
+    // Aylık ortalamaya çevir (30 gün = 1 ay)
+    const monthlyAverage = dailyAverage * 30;
+
+    return Math.ceil(monthlyAverage);
   }
 
   /**

@@ -312,56 +312,51 @@ export class MikroMockService {
   }
 
   /**
-   * Mock satış hareketleri (son 6 ay)
+   * Mock satış hareketleri (günlük - son 90 gün)
    */
   async getSalesHistory(): Promise<MikroSalesMovement[]> {
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
-
     const movements: MikroSalesMovement[] = [];
 
-    // Son 6 ay için her ürün için satış verileri
     const products = ['URN-001', 'URN-002', 'URN-003', 'URN-004', 'URN-005',
                      'URN-006', 'URN-007', 'URN-008', 'URN-009', 'URN-010',
                      'URN-011', 'URN-012', 'URN-013', 'URN-014'];
 
-    const salesPatterns: Record<string, number[]> = {
-      'URN-001': [10, 12, 8, 15, 11, 9],    // Laptop HP - orta satış
-      'URN-002': [5, 6, 4, 7, 5, 6],        // Desktop Dell - düşük satış
-      'URN-003': [3, 4, 2, 3, 4, 3],        // Lenovo - düşük satış
-      'URN-004': [40, 45, 38, 50, 42, 44],  // Mouse - yüksek satış
-      'URN-005': [25, 28, 22, 30, 26, 24],  // Klavye - orta-yüksek satış
-      'URN-006': [8, 10, 7, 9, 8, 9],       // Webcam - orta satış
-      'URN-007': [60, 65, 55, 70, 62, 58],  // USB Hub - yüksek satış
-      'URN-008': [6, 7, 5, 6, 7, 6],        // HP Yazıcı - orta satış
-      'URN-009': [8, 9, 7, 10, 8, 9],       // Canon Yazıcı - orta satış
-      'URN-010': [4, 5, 3, 4, 5, 4],        // Switch - düşük satış
-      'URN-011': [2, 3, 2, 2, 3, 2],        // Router - düşük satış
-      'URN-012': [10, 12, 9, 11, 10, 11],   // Access Point - orta satış
-      'URN-013': [3, 4, 3, 4, 3, 4],        // Samsung Tablet - düşük satış
-      'URN-014': [2, 2, 1, 2, 2, 2],        // iPad - düşük satış
+    // Her ürün için günlük satış aralıkları
+    const dailyRanges: Record<string, [number, number]> = {
+      'URN-001': [0, 1],   // Laptop - günde 0-1
+      'URN-002': [0, 1],   // Desktop - günde 0-1
+      'URN-003': [0, 1],   // Lenovo - günde 0-1
+      'URN-004': [1, 3],   // Mouse - günde 1-3
+      'URN-005': [0, 2],   // Klavye - günde 0-2
+      'URN-006': [0, 1],   // Webcam - günde 0-1
+      'URN-007': [1, 3],   // USB Hub - günde 1-3
+      'URN-008': [0, 1],   // HP Yazıcı - günde 0-1
+      'URN-009': [0, 1],   // Canon Yazıcı - günde 0-1
+      'URN-010': [0, 1],   // Switch - günde 0-1
+      'URN-011': [0, 1],   // Router - günde 0-1
+      'URN-012': [0, 1],   // Access Point - günde 0-1
+      'URN-013': [0, 1],   // Samsung Tablet - günde 0-1
+      'URN-014': [0, 1],   // iPad - günde 0-1
     };
 
     for (const productCode of products) {
-      const pattern = salesPatterns[productCode] || [5, 5, 5, 5, 5, 5];
+      const [min, max] = dailyRanges[productCode] || [0, 1];
 
-      for (let i = 0; i < 6; i++) {
-        const monthDiff = 5 - i;
-        let year = currentYear;
-        let month = currentMonth - monthDiff;
+      // Son 90 gün (F10 ile aynı)
+      for (let i = 0; i < 90; i++) {
+        const saleDate = new Date(now);
+        saleDate.setDate(saleDate.getDate() - i);
 
-        if (month <= 0) {
-          month += 12;
-          year -= 1;
+        const quantity = Math.floor(Math.random() * (max - min + 1)) + min;
+
+        if (quantity > 0) {
+          movements.push({
+            productCode,
+            saleDate,
+            totalQuantity: quantity,
+          });
         }
-
-        movements.push({
-          productCode,
-          year,
-          month,
-          totalQuantity: pattern[i],
-        });
       }
     }
 

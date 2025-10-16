@@ -9,6 +9,7 @@ import authRoutes from './auth.routes';
 import adminRoutes from './admin.routes';
 import customerRoutes from './customer.routes';
 import campaignRoutes from './campaigns';
+import orderTrackingRoutes from './order-tracking.routes';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
 router.use('/campaigns', campaignRoutes);
+router.use('/order-tracking', orderTrackingRoutes);
 
 // Customer routes (products, cart, orders) - ana path'te
 router.use('/', customerRoutes);

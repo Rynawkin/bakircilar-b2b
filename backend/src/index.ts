@@ -11,6 +11,8 @@ import { config } from './config';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import syncService from './services/sync.service';
+import orderTrackingService from './services/order-tracking.service';
+import emailService from './services/email.service';
 
 // Express app
 const app: Application = express();
@@ -75,6 +77,7 @@ app.use(errorHandler);
 if (config.enableCron) {
   console.log('🕐 Cron job aktif - Senkronizasyon planı:', config.syncCronSchedule);
 
+  // B2B Stok Senkronizasyonu
   cron.schedule(config.syncCronSchedule, async () => {
     console.log('🔄 Otomatik senkronizasyon başladı...');
     try {
@@ -88,6 +91,46 @@ if (config.enableCron) {
       console.error('❌ Cron job hatası:', error);
     }
   });
+
+  // Sipariş Takip Modülü - Otomatik sync + mail
+  (async () => {
+    try {
+      const settings = await orderTrackingService.getSettings();
+
+      if (settings.syncEnabled) {
+        console.log('📋 Sipariş takip cron job aktif - Plan:', settings.syncSchedule);
+
+        cron.schedule(settings.syncSchedule, async () => {
+          console.log('📧 Otomatik sipariş takip sync + mail başladı...');
+          try {
+            // 1. Sync
+            const syncResult = await orderTrackingService.syncPendingOrders();
+            if (syncResult.success) {
+              console.log('✅ Sipariş sync tamamlandı:', syncResult.message);
+
+              // 2. Mail gönder (eğer enabled ise)
+              if (settings.emailEnabled) {
+                const emailResult = await emailService.sendPendingOrdersToAllCustomers();
+                if (emailResult.success) {
+                  console.log('✅ Mail gönderimi tamamlandı:', emailResult.message);
+                } else {
+                  console.error('❌ Mail gönderimi başarısız:', emailResult.message);
+                }
+              }
+            } else {
+              console.error('❌ Sipariş sync başarısız:', syncResult.message);
+            }
+          } catch (error) {
+            console.error('❌ Sipariş takip cron job hatası:', error);
+          }
+        });
+      } else {
+        console.log('⏸️  Sipariş takip cron job devre dışı');
+      }
+    } catch (error) {
+      console.error('❌ Sipariş takip settings yükleme hatası:', error);
+    }
+  })();
 }
 
 // ==================== SERVER START ====================

@@ -44,19 +44,38 @@ export const MIKRO_TABLES = {
     MOVEMENT_TYPE: 'sth_tip', // Satış hareketleri için belirli tip kodları
   },
 
-  // Siparişler (Master ve Detay aynı tabloda)
+  // Siparişler (Master ve Detay aynı tabloda) - Gerçek kolonlar
   ORDERS: 'SIPARISLER',
   ORDERS_COLUMNS: {
-    ORDER_NO: 'sip_evrakno_seri', // Sipariş numarası serisi (varsayım)
-    CARI_CODE: 'sip_cari_kod', // Cari kodu (varsayım)
-    DATE: 'sip_tarih', // Sipariş tarihi (varsayım)
-    STATUS: 'sip_durum', // Sipariş durumu (varsayım)
-    ORDER_TYPE: 'sip_tip', // Sipariş tipi
-    PRODUCT_CODE: 'sip_stok_kod',
-    QUANTITY: 'sip_miktar',
-    UNIT_PRICE: 'sip_fiyat', // Birim fiyat (varsayım)
-    VAT_RATE: 'sip_vergi', // KDV oranı (varsayım)
-    LINE_TOTAL: 'sip_tutar', // Satır toplamı (varsayım)
+    // Evrak bilgileri
+    ORDER_SERIES: 'sip_evrakno_seri', // "HENDEK", "ADAPAZARI"
+    ORDER_SEQUENCE: 'sip_evrakno_sira', // 8162
+    LINE_NO: 'sip_satirno', // Satır numarası (0, 1, 2...)
+
+    // Tarih bilgileri
+    DATE: 'sip_tarih', // Sipariş tarihi
+    DELIVERY_DATE: 'sip_teslim_tarih', // Planlanan teslimat tarihi
+
+    // Müşteri ve ürün
+    CUSTOMER_CODE: 'sip_musteri_kod', // "120.05.125"
+    PRODUCT_CODE: 'sip_stok_kod', // "B108195"
+
+    // Miktar bilgileri
+    QUANTITY: 'sip_miktar', // Sipariş miktarı
+    DELIVERED_QUANTITY: 'sip_teslim_miktar', // Teslim edilen miktar
+
+    // Fiyat bilgileri
+    UNIT_PRICE: 'sip_b_fiyat', // Birim fiyat
+    LINE_TOTAL: 'sip_tutar', // Satır toplamı (KDV hariç)
+    VAT: 'sip_vergi', // KDV tutarı
+
+    // Durum bayrakları
+    CANCELLED: 'sip_iptal', // true/false
+    CLOSED: 'sip_kapat_fl', // true/false
+
+    // Tip bilgileri
+    TYPE: 'sip_tip', // Sipariş tipi (0, 1, 2...)
+    KIND: 'sip_cins', // Sipariş cinsi (0, 1, 2...)
   },
 
   // Cariler (Müşteriler)

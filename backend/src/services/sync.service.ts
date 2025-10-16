@@ -233,11 +233,13 @@ class SyncService {
       // Depo stokları zaten mikroProduct.warehouseStocks içinde geliyor
       const warehouseStocksJson = mikroProduct.warehouseStocks || {};
 
-      // Satış geçmişini topla
+      // Satış geçmişini topla (günlük)
       const productSales = salesHistory.filter((s) => s.productCode === mikroProduct.code);
       const salesHistoryJson: Record<string, number> = {};
       productSales.forEach((s) => {
-        const key = `${s.year}-${s.month.toString().padStart(2, '0')}`;
+        // YYYY-MM-DD formatına çevir
+        const saleDate = s.saleDate instanceof Date ? s.saleDate : new Date(s.saleDate);
+        const key = saleDate.toISOString().split('T')[0];
         salesHistoryJson[key] = s.totalQuantity;
       });
 

@@ -66,8 +66,7 @@ export interface MikroWarehouseStock {
 
 export interface MikroSalesMovement {
   productCode: string;
-  year: number;
-  month: number;
+  saleDate: Date; // Günlük satış tarihi
   totalQuantity: number;
 }
 
@@ -205,6 +204,7 @@ export interface ApproveOrderResponse {
 
 export interface SettingsResponse {
   calculationPeriodMonths: number;
+  calculationPeriodDays: number;
   includedWarehouses: string[];
   minimumExcessThreshold: number;
   costCalculationMethod: string;
@@ -215,6 +215,7 @@ export interface SettingsResponse {
 
 export interface UpdateSettingsRequest {
   calculationPeriodMonths?: number;
+  calculationPeriodDays?: number;
   includedWarehouses?: string[];
   minimumExcessThreshold?: number;
   costCalculationMethod?: string;

@@ -206,9 +206,11 @@ class MikroService {
   }
 
   /**
-   * Satış geçmişi (son 6 ay)
-   * F10 sorgusundan alınan doğru mantık:
-   * - Sadece İrsaliyeli (evraktip=4) veya Faturalı (evraktip=1 + fat_uid dolu) satışlar
+   * Satış geçmişi (günlük - son 90 gün)
+   * F10 sorgusundan alınan TAMAMEN AYNI mantık:
+   * - İrsaliyeli (evraktip=4) satışlar
+   * - VEYA Faturalı (evraktip=1 + fat_uid dolu) satışlar
+   * - VEYA fat_uid boş olan satışlar (evraktip ne olursa olsun)
    * - Sadece belirli sektör kodlarına sahip carilerle yapılan satışlar
    */
   async getSalesHistory(): Promise<MikroSalesMovement[]> {
@@ -217,18 +219,19 @@ class MikroService {
     const query = `
       SELECT
         sth_stok_kod as productCode,
-        YEAR(sth_tarih) as year,
-        MONTH(sth_tarih) as month,
+        CONVERT(DATE, sth_tarih) as saleDate,
         SUM(sth_miktar) as totalQuantity
       FROM STOK_HAREKETLERI
       WHERE
         -- Satış hareketleri (tip=1)
         sth_tip = 1
-        -- İrsaliyeli VEYA Faturalı satışlar
+        -- F10'daki mantık: İrsaliyeli VEYA Faturalı VEYA fat_uid boş olanlar
         AND (
           (sth_evraktip = 4)
           OR
           (sth_evraktip = 1 AND sth_fat_uid != '00000000-0000-0000-0000-000000000000')
+          OR
+          (sth_fat_uid = '00000000-0000-0000-0000-000000000000')
         )
         -- Belirli sektör kodlarına sahip carilerle yapılan satışlar
         AND (
@@ -236,12 +239,11 @@ class MikroService {
           FROM CARI_HESAPLAR
           WHERE cari_kod = sth_cari_kodu
         ) IN ('İNTERNET','HENDEK','HUKUKİ','İPTAL EDİLECEK CARİ','ERHAN','TOPÇA','BÜŞRA','ENSAR','SATICI BARTIR','BETÜL','HAVUZ','ERTANE','MERVE','SELDA','SORUNLU CARİ')
-        -- Son 6 ay
-        AND sth_tarih >= DATEADD(MONTH, -6, GETDATE())
+        -- Son 90 gün (F10 ile aynı)
+        AND sth_tarih >= DATEADD(DAY, -90, GETDATE())
       GROUP BY
         sth_stok_kod,
-        YEAR(sth_tarih),
-        MONTH(sth_tarih)
+        CONVERT(DATE, sth_tarih)
     `;
 
     const result = await this.pool!.request().query(query);

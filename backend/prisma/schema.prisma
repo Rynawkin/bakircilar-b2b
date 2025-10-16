@@ -100,7 +100,8 @@ model Settings {
   id                        String                  @id @default(uuid())
 
   // Fazla stok hesaplama ayarları
-  calculationPeriodMonths   Int                     @default(3)  // 1, 3, veya 6 ay
+  calculationPeriodMonths   Int                     @default(3)  // 1, 3, veya 6 ay (DEPRECATED - use calculationPeriodDays)
+  calculationPeriodDays     Int                     @default(90) // Son X günlük satış ortalaması
   includedWarehouses        String[]                // ["DEPO1", "MERKEZ"]
   minimumExcessThreshold    Int                     @default(10) // Min fazla stok eşiği
 
@@ -163,8 +164,8 @@ model Product {
   // Örnek: {"DEPO1": 100, "DEPO2": 50, "MERKEZ": 75}
   warehouseStocks         Json      @default("{}")
 
-  // Satış geçmişi (JSON - aylık)
-  // Örnek: {"2024-01": 45, "2024-02": 50, "2024-03": 40}
+  // Satış geçmişi (JSON - günlük)
+  // Örnek: {"2024-01-15": 5, "2024-01-16": 3, "2024-01-17": 8}
   salesHistory            Json      @default("{}")
 
   // Bekleyen siparişler
@@ -395,4 +396,99 @@ model Campaign {
 
   @@index([active])
   @@index([startDate, endDate])
+}
+
+// ==================== ORDER TRACKING ====================
+
+// Sipariş takip modülü ayarları
+model OrderTrackingSettings {
+  id                    String    @id @default(uuid())
+
+  // Sync ayarları
+  syncEnabled           Boolean   @default(true)
+  syncSchedule          String    @default("0 8 * * 2,5") // Salı + Cuma, 08:00 (cron format)
+
+  // Email ayarları
+  emailEnabled          Boolean   @default(true)
+  emailSubject          String    @default("Bekleyen Siparişleriniz")
+  emailTemplate         String    @default("default") // "default" veya custom HTML template
+
+  // Son sync bilgisi
+  lastSyncAt            DateTime?
+  lastEmailSentAt       DateTime?
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+// Mikro'dan çekilen bekleyen siparişler (cache)
+model PendingMikroOrder {
+  id                    String    @id @default(uuid())
+
+  // Sipariş bilgileri
+  mikroOrderNumber      String    // "HENDEK-8162"
+  orderSeries           String    // "HENDEK"
+  orderSequence         Int       // 8162
+
+  // Müşteri bilgileri
+  customerCode          String    // "120.05.125"
+  customerName          String    // "ÇAMSAN ENTEGRE..."
+
+  // Tarihler
+  orderDate             DateTime
+  deliveryDate          DateTime?
+
+  // Sipariş detayları (JSON array)
+  // [{ productCode, productName, unit, quantity, deliveredQty, remainingQty, unitPrice, lineTotal, vat }]
+  items                 Json
+
+  // Toplamlar
+  itemCount             Int       // Kalem sayısı
+  totalAmount           Float     // Ara toplam (KDV hariç)
+  totalVAT              Float     // Toplam KDV
+  grandTotal            Float     // Genel toplam (KDV dahil)
+
+  // Sync bilgisi
+  syncedAt              DateTime  @default(now())
+
+  // Email gönderildi mi?
+  emailSent             Boolean   @default(false)
+  emailSentAt           DateTime?
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([customerCode])
+  @@index([mikroOrderNumber])
+  @@index([syncedAt])
+  @@index([emailSent])
+}
+
+// Email gönderim logları
+model EmailLog {
+  id                    String    @id @default(uuid())
+
+  // Alıcı bilgileri
+  recipientEmail        String
+  recipientName         String?
+  customerCode          String?
+
+  // Email bilgileri
+  subject               String
+  ordersCount           Int       // Kaç sipariş gönderildi
+  totalAmount           Float     // Toplam tutar
+
+  // Gönderim durumu
+  success               Boolean   @default(false)
+  errorMessage          String?
+
+  // Brevo bilgileri
+  brevoMessageId        String?
+
+  sentAt                DateTime  @default(now())
+
+  @@index([recipientEmail])
+  @@index([customerCode])
+  @@index([sentAt])
+  @@index([success])
 }
