@@ -4,31 +4,31 @@
 
 import { Router } from 'express';
 import orderTrackingController from '../controllers/order-tracking.controller';
-import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin } from '../middleware/auth.middleware';
 
 const router = Router();
 
 // ==================== ADMIN ROUTES ====================
 
 // Settings
-router.get('/admin/settings', authenticateToken, requireAdmin, orderTrackingController.getSettings);
-router.put('/admin/settings', authenticateToken, requireAdmin, orderTrackingController.updateSettings);
+router.get('/admin/settings', authenticate, requireAdmin, orderTrackingController.getSettings);
+router.put('/admin/settings', authenticate, requireAdmin, orderTrackingController.updateSettings);
 
 // Sync & Email
-router.post('/admin/sync', authenticateToken, requireAdmin, orderTrackingController.syncPendingOrders);
-router.post('/admin/send-emails', authenticateToken, requireAdmin, orderTrackingController.sendEmails);
-router.post('/admin/sync-and-send', authenticateToken, requireAdmin, orderTrackingController.syncAndSend);
+router.post('/admin/sync', authenticate, requireAdmin, orderTrackingController.syncPendingOrders);
+router.post('/admin/send-emails', authenticate, requireAdmin, orderTrackingController.sendEmails);
+router.post('/admin/sync-and-send', authenticate, requireAdmin, orderTrackingController.syncAndSend);
 
 // Data
-router.get('/admin/pending-orders', authenticateToken, requireAdmin, orderTrackingController.getAllPendingOrders);
-router.get('/admin/summary', authenticateToken, requireAdmin, orderTrackingController.getCustomerSummary);
-router.get('/admin/email-logs', authenticateToken, requireAdmin, orderTrackingController.getEmailLogs);
+router.get('/admin/pending-orders', authenticate, requireAdmin, orderTrackingController.getAllPendingOrders);
+router.get('/admin/summary', authenticate, requireAdmin, orderTrackingController.getCustomerSummary);
+router.get('/admin/email-logs', authenticate, requireAdmin, orderTrackingController.getEmailLogs);
 
 // Test
-router.post('/admin/test-email', authenticateToken, requireAdmin, orderTrackingController.sendTestEmail);
+router.post('/admin/test-email', authenticate, requireAdmin, orderTrackingController.sendTestEmail);
 
 // ==================== CUSTOMER ROUTES ====================
 
-router.get('/customer/pending-orders', authenticateToken, orderTrackingController.getMyPendingOrders);
+router.get('/customer/pending-orders', authenticate, orderTrackingController.getMyPendingOrders);
 
 export default router;

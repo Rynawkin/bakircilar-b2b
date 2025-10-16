@@ -36,10 +36,11 @@ class EmailService {
 
   constructor() {
     // Brevo API client oluştur
-    const apiKey = brevo.ApiClient.instance.authentications['api-key'];
-    apiKey.apiKey = process.env.BREVO_API_KEY || '';
-
     this.apiInstance = new brevo.TransactionalEmailsApi();
+    this.apiInstance.setApiKey(
+      brevo.TransactionalEmailsApiApiKeys.apiKey,
+      process.env.BREVO_API_KEY || ''
+    );
     this.senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@bakircilar.com';
     this.senderName = process.env.BREVO_SENDER_NAME || 'Bakırcılar B2B';
   }
@@ -149,7 +150,7 @@ class EmailService {
         ordersCount: data.orders.length,
         totalAmount: data.totalOrdersAmount,
         success: true,
-        brevoMessageId: response.messageId || null,
+        brevoMessageId: (response as any).messageId || null,
       },
     });
   }

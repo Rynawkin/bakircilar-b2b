@@ -433,6 +433,15 @@ class MikroService {
       return false;
     }
   }
+
+  /**
+   * Ham SQL sorgusu çalıştır
+   */
+  async executeQuery(query: string): Promise<any[]> {
+    await this.connect();
+    const result = await this.pool!.request().query(query);
+    return result.recordset;
+  }
 }
 
 export default new MikroService();

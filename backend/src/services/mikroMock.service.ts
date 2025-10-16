@@ -507,6 +507,15 @@ export class MikroMockService {
     console.log('✅ [MOCK] Mikro bağlantısı simüle edildi');
     return true;
   }
+
+  /**
+   * Ham SQL sorgusu çalıştır (Mock)
+   * Order tracking için gerçek DB gerekli, mock'ta çalışmaz
+   */
+  async executeQuery(query: string): Promise<any[]> {
+    console.warn('⚠️ [MOCK] executeQuery çağrıldı - Mock modda order tracking çalışmaz');
+    return [];
+  }
 }
 
 export default new MikroMockService();
