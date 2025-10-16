@@ -150,7 +150,7 @@ class EmailService {
         ordersCount: data.orders.length,
         totalAmount: data.totalOrdersAmount,
         success: true,
-        brevoMessageId: (response as any).messageId || null,
+        brevoMessageId: (response as any).body?.messageId || null,
       },
     });
   }
