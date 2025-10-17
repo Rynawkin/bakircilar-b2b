@@ -104,32 +104,65 @@ if (config.enableCron) {
       const settings = await orderTrackingService.getSettings();
 
       if (settings.syncEnabled) {
-        console.log('📋 Sipariş takip cron job aktif - Plan:', settings.syncSchedule);
+        // Müşteri mail gönderimi için cron job
+        if (settings.customerEmailEnabled) {
+          console.log('📋 Müşteri sipariş takip cron job aktif - Plan:', settings.customerSyncSchedule);
 
-        cron.schedule(settings.syncSchedule, async () => {
-          console.log('📧 Otomatik sipariş takip sync + mail başladı...');
-          try {
-            // 1. Sync
-            const syncResult = await orderTrackingService.syncPendingOrders();
-            if (syncResult.success) {
-              console.log('✅ Sipariş sync tamamlandı:', syncResult.message);
+          cron.schedule(settings.customerSyncSchedule, async () => {
+            console.log('📧 Müşterilere otomatik sipariş takip sync + mail başladı...');
+            try {
+              // 1. Sync
+              const syncResult = await orderTrackingService.syncPendingOrders();
+              if (syncResult.success) {
+                console.log('✅ Sipariş sync tamamlandı:', syncResult.message);
 
-              // 2. Mail gönder (eğer enabled ise)
-              if (settings.emailEnabled) {
-                const emailResult = await emailService.sendPendingOrdersToAllCustomers();
+                // 2. Müşterilere mail gönder
+                const emailResult = await emailService.sendPendingOrdersToCustomers();
                 if (emailResult.success) {
-                  console.log('✅ Mail gönderimi tamamlandı:', emailResult.message);
+                  console.log('✅ Müşterilere mail gönderimi tamamlandı:', emailResult.message);
                 } else {
-                  console.error('❌ Mail gönderimi başarısız:', emailResult.message);
+                  console.error('❌ Müşterilere mail gönderimi başarısız:', emailResult.message);
                 }
+              } else {
+                console.error('❌ Sipariş sync başarısız:', syncResult.message);
               }
-            } else {
-              console.error('❌ Sipariş sync başarısız:', syncResult.message);
+            } catch (error) {
+              console.error('❌ Müşteri sipariş takip cron job hatası:', error);
             }
-          } catch (error) {
-            console.error('❌ Sipariş takip cron job hatası:', error);
-          }
-        });
+          });
+        } else {
+          console.log('⏸️  Müşteri sipariş takip cron job devre dışı');
+        }
+
+        // Tedarikçi mail gönderimi için cron job
+        if (settings.supplierEmailEnabled) {
+          console.log('📋 Tedarikçi sipariş takip cron job aktif - Plan:', settings.supplierSyncSchedule);
+
+          cron.schedule(settings.supplierSyncSchedule, async () => {
+            console.log('📧 Tedarikçilere otomatik sipariş takip sync + mail başladı...');
+            try {
+              // 1. Sync
+              const syncResult = await orderTrackingService.syncPendingOrders();
+              if (syncResult.success) {
+                console.log('✅ Sipariş sync tamamlandı:', syncResult.message);
+
+                // 2. Tedarikçilere mail gönder
+                const emailResult = await emailService.sendPendingOrdersToSuppliers();
+                if (emailResult.success) {
+                  console.log('✅ Tedarikçilere mail gönderimi tamamlandı:', emailResult.message);
+                } else {
+                  console.error('❌ Tedarikçilere mail gönderimi başarısız:', emailResult.message);
+                }
+              } else {
+                console.error('❌ Sipariş sync başarısız:', syncResult.message);
+              }
+            } catch (error) {
+              console.error('❌ Tedarikçi sipariş takip cron job hatası:', error);
+            }
+          });
+        } else {
+          console.log('⏸️  Tedarikçi sipariş takip cron job devre dışı');
+        }
       } else {
         console.log('⏸️  Sipariş takip cron job devre dışı');
       }

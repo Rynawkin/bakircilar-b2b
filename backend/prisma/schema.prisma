@@ -406,16 +406,28 @@ model OrderTrackingSettings {
 
   // Sync ayarları
   syncEnabled           Boolean   @default(true)
-  syncSchedule          String    @default("0 8 * * 2,5") // Salı + Cuma, 08:00 (cron format)
+  syncSchedule          String    @default("0 8 * * 2,5") // DEPRECATED - use customerSyncSchedule
 
-  // Email ayarları
-  emailEnabled          Boolean   @default(true)
-  emailSubject          String    @default("Bekleyen Siparişleriniz")
+  // Müşteri email ayarları
+  customerSyncSchedule  String    @default("0 8 * * 2,5") // Salı + Cuma, 08:00 (cron format)
+  customerEmailEnabled  Boolean   @default(true)
+  customerEmailSubject  String    @default("Bekleyen Siparişleriniz")
+
+  // Tedarikçi email ayarları
+  supplierSyncSchedule  String    @default("0 8 * * 2,5") // Salı + Cuma, 08:00 (cron format)
+  supplierEmailEnabled  Boolean   @default(true)
+  supplierEmailSubject  String    @default("Bekleyen Tedarikçi Siparişleri")
+
+  // Email template
+  emailEnabled          Boolean   @default(true) // DEPRECATED - use customerEmailEnabled
+  emailSubject          String    @default("Bekleyen Siparişleriniz") // DEPRECATED - use customerEmailSubject
   emailTemplate         String    @default("default") // "default" veya custom HTML template
 
   // Son sync bilgisi
   lastSyncAt            DateTime?
-  lastEmailSentAt       DateTime?
+  lastEmailSentAt       DateTime? // DEPRECATED - use lastCustomerEmailSentAt
+  lastCustomerEmailSentAt DateTime?
+  lastSupplierEmailSentAt DateTime?
 
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt

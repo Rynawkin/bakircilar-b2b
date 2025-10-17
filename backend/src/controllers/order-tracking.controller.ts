@@ -209,6 +209,34 @@ class OrderTrackingController {
     }
   }
 
+  /**
+   * POST /api/admin/order-tracking/send-customer-emails
+   * Sadece müşterilere mail gönder (SATICI olmayanlar)
+   */
+  async sendCustomerEmails(req: Request, res: Response) {
+    try {
+      const result = await emailService.sendPendingOrdersToCustomers();
+      res.json(result);
+    } catch (error: any) {
+      console.error('Müşterilere mail gönderme hatası:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * POST /api/admin/order-tracking/send-supplier-emails
+   * Sadece tedarikçilere mail gönder (SATICI sektör kodlu)
+   */
+  async sendSupplierEmails(req: Request, res: Response) {
+    try {
+      const result = await emailService.sendPendingOrdersToSuppliers();
+      res.json(result);
+    } catch (error: any) {
+      console.error('Tedarikçilere mail gönderme hatası:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   // ==================== CUSTOMER ENDPOINTS ====================
 
   /**

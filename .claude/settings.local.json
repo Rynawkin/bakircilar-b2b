@@ -15,7 +15,8 @@
       "Bash(npx prisma generate:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nFix TypeScript compilation errors in Order Tracking module\n\nBackend fixes:\n- Fix auth middleware import (authenticate instead of authenticateToken)\n- Fix Brevo SDK initialization (updated to use setApiKey method)\n- Add executeQuery method to both Mikro services (real and mock)\n- Fix JSON type casting for PendingOrderItem arrays\n- Install @sendinblue/client package\n\nAll TypeScript build errors resolved. Ready for deployment.\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git commit:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cd:*)"
     ],
     "deny": [],
     "ask": []

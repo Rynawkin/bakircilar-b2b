@@ -46,7 +46,7 @@ class EmailService {
   }
 
   /**
-   * Tüm müşterilere bekleyen siparişlerini mail ile gönder
+   * Tüm müşterilere bekleyen siparişlerini mail ile gönder (DEPRECATED - use sendPendingOrdersToCustomers)
    */
   async sendPendingOrdersToAllCustomers(): Promise<{
     success: boolean;
@@ -67,7 +67,7 @@ class EmailService {
       // 2. Her müşteriye mail gönder
       for (const customer of customers) {
         try {
-          await this.sendOrderEmail(customer);
+          await this.sendOrderEmail(customer, 'Bekleyen Siparişleriniz');
           sentCount++;
 
           // Gönderildi olarak işaretle
@@ -129,13 +129,14 @@ class EmailService {
   /**
    * Tek bir müşteriye mail gönder
    */
-  async sendOrderEmail(data: OrderEmailData): Promise<void> {
+  async sendOrderEmail(data: OrderEmailData, subject?: string): Promise<void> {
+    const emailSubject = subject || 'Bekleyen Siparişleriniz';
     const htmlContent = this.generateEmailHTML(data);
 
     const sendSmtpEmail = new brevo.SendSmtpEmail();
     sendSmtpEmail.sender = { email: this.senderEmail, name: this.senderName };
     sendSmtpEmail.to = [{ email: data.customerEmail, name: data.customerName }];
-    sendSmtpEmail.subject = 'Bekleyen Siparişleriniz';
+    sendSmtpEmail.subject = emailSubject;
     sendSmtpEmail.htmlContent = htmlContent;
 
     const response = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
@@ -146,7 +147,7 @@ class EmailService {
         recipientEmail: data.customerEmail,
         recipientName: data.customerName,
         customerCode: data.customerCode,
-        subject: 'Bekleyen Siparişleriniz',
+        subject: emailSubject,
         ordersCount: data.orders.length,
         totalAmount: data.totalOrdersAmount,
         success: true,
@@ -462,6 +463,253 @@ class EmailService {
     };
 
     await this.sendOrderEmail(testData);
+  }
+
+  /**
+   * Sadece müşterilere (SATICI olmayanlar) bekleyen siparişlerini mail ile gönder
+   */
+  async sendPendingOrdersToCustomers(): Promise<{
+    success: boolean;
+    sentCount: number;
+    failedCount: number;
+    message: string;
+  }> {
+    try {
+      console.log('📧 Müşterilere mail gönderimi başladı...');
+
+      // Ayarları al
+      const settings = await prisma.orderTrackingSettings.findFirst();
+      const emailSubject = settings?.customerEmailSubject || 'Bekleyen Siparişleriniz';
+
+      // 1. Müşterilerin bekleyen siparişlerini al (SATICI olmayanlar)
+      const orders = await prisma.pendingMikroOrder.findMany({
+        where: {
+          emailSent: false,
+          OR: [
+            { sectorCode: null },
+            {
+              NOT: {
+                sectorCode: {
+                  startsWith: 'SATICI',
+                },
+              },
+            },
+          ],
+        },
+        orderBy: { orderDate: 'desc' },
+      });
+
+      console.log(`✅ ${orders.length} müşteri siparişi bulundu`);
+
+      // 2. Müşteri bazında grupla
+      const customerMap = await this.groupOrdersByCustomer(orders);
+      const customers = Array.from(customerMap.values());
+
+      let sentCount = 0;
+      let failedCount = 0;
+
+      // 3. Her müşteriye mail gönder
+      for (const customer of customers) {
+        try {
+          await this.sendOrderEmail(customer, emailSubject);
+          sentCount++;
+
+          // Gönderildi olarak işaretle
+          await prisma.pendingMikroOrder.updateMany({
+            where: { customerCode: customer.customerCode },
+            data: {
+              emailSent: true,
+              emailSentAt: new Date(),
+            },
+          });
+        } catch (error: any) {
+          console.error(`❌ Müşteriye mail gönderilemedi (${customer.customerEmail}):`, error.message);
+          failedCount++;
+
+          await prisma.emailLog.create({
+            data: {
+              recipientEmail: customer.customerEmail,
+              recipientName: customer.customerName,
+              customerCode: customer.customerCode,
+              subject: emailSubject,
+              ordersCount: customer.orders.length,
+              totalAmount: customer.totalOrdersAmount,
+              success: false,
+              errorMessage: error.message,
+            },
+          });
+        }
+      }
+
+      // 4. Son mail gönderim zamanını kaydet
+      if (settings) {
+        await prisma.orderTrackingSettings.update({
+          where: { id: settings.id },
+          data: { lastCustomerEmailSentAt: new Date() },
+        });
+      }
+
+      console.log(`✅ Müşterilere mail gönderimi tamamlandı: ${sentCount} başarılı, ${failedCount} başarısız`);
+
+      return {
+        success: true,
+        sentCount,
+        failedCount,
+        message: `${sentCount} başarılı, ${failedCount} başarısız`,
+      };
+    } catch (error: any) {
+      console.error('❌ Müşterilere toplu mail gönderimi hatası:', error);
+      return {
+        success: false,
+        sentCount: 0,
+        failedCount: 0,
+        message: error.message || 'Bilinmeyen hata',
+      };
+    }
+  }
+
+  /**
+   * Sadece tedarikçilere (SATICI sektör kodlu) bekleyen siparişlerini mail ile gönder
+   */
+  async sendPendingOrdersToSuppliers(): Promise<{
+    success: boolean;
+    sentCount: number;
+    failedCount: number;
+    message: string;
+  }> {
+    try {
+      console.log('📧 Tedarikçilere mail gönderimi başladı...');
+
+      // Ayarları al
+      const settings = await prisma.orderTrackingSettings.findFirst();
+      const emailSubject = settings?.supplierEmailSubject || 'Bekleyen Tedarikçi Siparişleri';
+
+      // 1. Tedarikçilerin bekleyen siparişlerini al (SATICI olanlar)
+      const orders = await prisma.pendingMikroOrder.findMany({
+        where: {
+          emailSent: false,
+          sectorCode: {
+            startsWith: 'SATICI',
+          },
+        },
+        orderBy: { orderDate: 'desc' },
+      });
+
+      console.log(`✅ ${orders.length} tedarikçi siparişi bulundu`);
+
+      // 2. Tedarikçi bazında grupla
+      const supplierMap = await this.groupOrdersByCustomer(orders);
+      const suppliers = Array.from(supplierMap.values());
+
+      let sentCount = 0;
+      let failedCount = 0;
+
+      // 3. Her tedarikçiye mail gönder
+      for (const supplier of suppliers) {
+        try {
+          await this.sendOrderEmail(supplier, emailSubject);
+          sentCount++;
+
+          // Gönderildi olarak işaretle
+          await prisma.pendingMikroOrder.updateMany({
+            where: { customerCode: supplier.customerCode },
+            data: {
+              emailSent: true,
+              emailSentAt: new Date(),
+            },
+          });
+        } catch (error: any) {
+          console.error(`❌ Tedarikçiye mail gönderilemedi (${supplier.customerEmail}):`, error.message);
+          failedCount++;
+
+          await prisma.emailLog.create({
+            data: {
+              recipientEmail: supplier.customerEmail,
+              recipientName: supplier.customerName,
+              customerCode: supplier.customerCode,
+              subject: emailSubject,
+              ordersCount: supplier.orders.length,
+              totalAmount: supplier.totalOrdersAmount,
+              success: false,
+              errorMessage: error.message,
+            },
+          });
+        }
+      }
+
+      // 4. Son mail gönderim zamanını kaydet
+      if (settings) {
+        await prisma.orderTrackingSettings.update({
+          where: { id: settings.id },
+          data: { lastSupplierEmailSentAt: new Date() },
+        });
+      }
+
+      console.log(`✅ Tedarikçilere mail gönderimi tamamlandı: ${sentCount} başarılı, ${failedCount} başarısız`);
+
+      return {
+        success: true,
+        sentCount,
+        failedCount,
+        message: `${sentCount} başarılı, ${failedCount} başarısız`,
+      };
+    } catch (error: any) {
+      console.error('❌ Tedarikçilere toplu mail gönderimi hatası:', error);
+      return {
+        success: false,
+        sentCount: 0,
+        failedCount: 0,
+        message: error.message || 'Bilinmeyen hata',
+      };
+    }
+  }
+
+  /**
+   * Siparişleri müşteri/tedarikçi bazında grupla (helper metod)
+   */
+  private async groupOrdersByCustomer(orders: any[]): Promise<Map<string, OrderEmailData>> {
+    const customerMap = new Map<string, OrderEmailData>();
+
+    for (const order of orders) {
+      if (!customerMap.has(order.customerCode)) {
+        // Email adresini belirle
+        let customerEmail = order.customerEmail;
+
+        if (!customerEmail) {
+          const user = await prisma.user.findFirst({
+            where: { mikroCariCode: order.customerCode },
+          });
+          customerEmail = user?.email || null;
+        }
+
+        if (!customerEmail) {
+          console.warn(`⚠️ Email bulunamadı: ${order.customerCode}`);
+          continue;
+        }
+
+        customerMap.set(order.customerCode, {
+          customerCode: order.customerCode,
+          customerName: order.customerName,
+          customerEmail: customerEmail,
+          orders: [],
+          totalOrdersAmount: 0,
+        });
+      }
+
+      const customer = customerMap.get(order.customerCode)!;
+      customer.orders.push({
+        mikroOrderNumber: order.mikroOrderNumber,
+        orderDate: order.orderDate,
+        deliveryDate: order.deliveryDate,
+        items: order.items as any,
+        totalAmount: order.totalAmount,
+        totalVAT: order.totalVAT,
+        grandTotal: order.grandTotal,
+      });
+      customer.totalOrdersAmount += order.grandTotal;
+    }
+
+    return customerMap;
   }
 }
 
