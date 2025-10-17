@@ -59,12 +59,26 @@ class OrderTrackingService {
       const groupedOrders = this.groupOrdersByCustomer(pendingOrders);
       console.log(`✅ ${groupedOrders.length} müşteri için sipariş gruplanı`);
 
-      // 3. Mevcut cache'i temizle
+      // 3. Mevcut kayıtların emailSent durumunu sakla
+      const existingOrders = await prisma.pendingMikroOrder.findMany({
+        select: {
+          mikroOrderNumber: true,
+          emailSent: true,
+          emailSentAt: true,
+        },
+      });
+      const emailSentMap = new Map(
+        existingOrders.map((o) => [o.mikroOrderNumber, { sent: o.emailSent, sentAt: o.emailSentAt }])
+      );
+
+      // 4. Mevcut cache'i temizle
       await prisma.pendingMikroOrder.deleteMany({});
       console.log('✅ Eski cache temizlendi');
 
-      // 4. Yeni verileri kaydet
+      // 5. Yeni verileri kaydet (emailSent durumunu koru)
       for (const order of groupedOrders) {
+        const previousEmailStatus = emailSentMap.get(order.mikroOrderNumber);
+
         await prisma.pendingMikroOrder.create({
           data: {
             mikroOrderNumber: order.mikroOrderNumber,
@@ -81,12 +95,14 @@ class OrderTrackingService {
             totalAmount: order.totalAmount,
             totalVAT: order.totalVAT,
             grandTotal: order.grandTotal,
-            emailSent: false,
+            // Daha önce mail gönderildiyse durumu koru, yoksa false
+            emailSent: previousEmailStatus?.sent || false,
+            emailSentAt: previousEmailStatus?.sentAt || null,
           },
         });
       }
 
-      // 5. Settings'e son sync zamanını kaydet
+      // 6. Settings'e son sync zamanını kaydet
       const settings = await prisma.orderTrackingSettings.findFirst();
       if (settings) {
         await prisma.orderTrackingSettings.update({
