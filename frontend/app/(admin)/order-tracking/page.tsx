@@ -581,13 +581,13 @@ export default function OrderTrackingPage() {
                                       <tr>
                                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">Ürün</th>
                                         <th className="px-3 py-2 text-center text-xs font-medium text-gray-600">
-                                          Miktar
+                                          Miktar (Sipariş/Teslim/Kalan)
                                         </th>
                                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
                                           Birim Fiyat
                                         </th>
                                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
-                                          Tutar
+                                          Kalan Tutar
                                         </th>
                                       </tr>
                                     </thead>
@@ -598,8 +598,20 @@ export default function OrderTrackingPage() {
                                             <div className="font-medium text-gray-900">{item.productName}</div>
                                             <div className="text-xs text-gray-500">{item.productCode}</div>
                                           </td>
-                                          <td className="px-3 py-2 text-center text-gray-700">
-                                            {item.remainingQty} {item.unit}
+                                          <td className="px-3 py-2 text-center">
+                                            <div className="flex flex-col items-center gap-0.5">
+                                              <div className="text-gray-700">
+                                                <span className="font-medium">{item.quantity}</span> {item.unit}
+                                              </div>
+                                              {item.deliveredQty > 0 && (
+                                                <div className="text-xs text-gray-400 line-through">
+                                                  Teslim: {item.deliveredQty}
+                                                </div>
+                                              )}
+                                              <div className="text-xs font-semibold text-orange-600">
+                                                Kalan: {item.remainingQty}
+                                              </div>
+                                            </div>
                                           </td>
                                           <td className="px-3 py-2 text-right text-gray-700">
                                             {formatCurrency(item.unitPrice)}
