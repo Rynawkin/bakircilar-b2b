@@ -83,6 +83,17 @@ export default function OrderTrackingPage() {
   const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [emailOverrides, setEmailOverrides] = useState<Record<string, string>>({});
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsForm, setSettingsForm] = useState({
+    customerEmailEnabled: true,
+    customerEmailSubject: '',
+    customerDays: [] as number[],
+    customerHour: 8,
+    supplierEmailEnabled: true,
+    supplierEmailSubject: '',
+    supplierDays: [] as number[],
+    supplierHour: 8,
+  });
 
   useEffect(() => {
     loadUserFromStorage();
@@ -97,6 +108,21 @@ export default function OrderTrackingPage() {
     fetchData();
   }, [user, router]);
 
+  // Cron string'ini parse et
+  const parseCronSchedule = (cronString: string) => {
+    // Format: "0 8 * * 2,5" => hour=8, days=[2,5]
+    const parts = cronString.split(' ');
+    const hour = parseInt(parts[1]);
+    const daysStr = parts[4];
+    const days = daysStr.split(',').map((d) => parseInt(d));
+    return { hour, days };
+  };
+
+  // Gün ve saati cron string'e çevir
+  const generateCronSchedule = (days: number[], hour: number) => {
+    return `0 ${hour} * * ${days.join(',')}`;
+  };
+
   const fetchData = async () => {
     setIsLoading(true);
     try {
@@ -107,15 +133,51 @@ export default function OrderTrackingPage() {
         apiClient.get('/order-tracking/admin/supplier-summary'),
       ]);
 
-      setSettings(settingsRes.data);
+      const loadedSettings = settingsRes.data;
+      setSettings(loadedSettings);
       setOrders(ordersRes.data);
       setCustomerSummary(summaryRes.data);
       setSupplierSummary(supplierRes.data);
+
+      // Settings form'u doldur
+      const customerSchedule = parseCronSchedule(loadedSettings.customerSyncSchedule);
+      const supplierSchedule = parseCronSchedule(loadedSettings.supplierSyncSchedule);
+
+      setSettingsForm({
+        customerEmailEnabled: loadedSettings.customerEmailEnabled,
+        customerEmailSubject: loadedSettings.customerEmailSubject,
+        customerDays: customerSchedule.days,
+        customerHour: customerSchedule.hour,
+        supplierEmailEnabled: loadedSettings.supplierEmailEnabled,
+        supplierEmailSubject: loadedSettings.supplierEmailSubject,
+        supplierDays: supplierSchedule.days,
+        supplierHour: supplierSchedule.hour,
+      });
     } catch (error: any) {
       console.error('Veri yükleme hatası:', error);
       toast.error('Veriler yüklenemedi');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      const payload = {
+        customerEmailEnabled: settingsForm.customerEmailEnabled,
+        customerEmailSubject: settingsForm.customerEmailSubject,
+        customerSyncSchedule: generateCronSchedule(settingsForm.customerDays, settingsForm.customerHour),
+        supplierEmailEnabled: settingsForm.supplierEmailEnabled,
+        supplierEmailSubject: settingsForm.supplierEmailSubject,
+        supplierSyncSchedule: generateCronSchedule(settingsForm.supplierDays, settingsForm.supplierHour),
+      };
+
+      await apiClient.put('/order-tracking/admin/settings', payload);
+      toast.success('Ayarlar kaydedildi!');
+      setShowSettingsModal(false);
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Ayarlar kaydedilemedi');
     }
   };
 
@@ -245,6 +307,14 @@ export default function OrderTrackingPage() {
     return new Intl.DateTimeFormat('tr-TR').format(new Date(date));
   };
 
+  // Cron schedule'ı kullanıcı dostu formatta göster
+  const formatSchedule = (cronString: string) => {
+    const { hour, days } = parseCronSchedule(cronString);
+    const dayNames = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+    const selectedDays = days.map((d) => dayNames[d]).join(', ');
+    return `${selectedDays} - Saat ${hour.toString().padStart(2, '0')}:00`;
+  };
+
   if (!user || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -353,7 +423,15 @@ export default function OrderTrackingPage() {
         {/* Settings */}
         {settings && (
           <Card className="mb-8">
-            <h2 className="text-xl font-bold mb-4">⚙️ Ayarlar</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">⚙️ Otomatik Mail Ayarları</h2>
+              <Button
+                onClick={() => setShowSettingsModal(true)}
+                className="bg-gray-600 hover:bg-gray-700 text-white text-sm px-4 py-2"
+              >
+                ✏️ Düzenle
+              </Button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Müşteri Ayarları */}
               <div className="border-l-4 border-blue-500 pl-4">
@@ -367,7 +445,7 @@ export default function OrderTrackingPage() {
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Zamanlama:</span>{' '}
-                    <span className="text-gray-900 font-mono text-xs">{settings.customerSyncSchedule}</span>
+                    <span className="text-gray-900">{formatSchedule(settings.customerSyncSchedule)}</span>
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Email Konusu:</span>{' '}
@@ -394,7 +472,7 @@ export default function OrderTrackingPage() {
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Zamanlama:</span>{' '}
-                    <span className="text-gray-900 font-mono text-xs">{settings.supplierSyncSchedule}</span>
+                    <span className="text-gray-900">{formatSchedule(settings.supplierSyncSchedule)}</span>
                   </div>
                   <div>
                     <span className="font-medium text-gray-700">Email Konusu:</span>{' '}
@@ -409,13 +487,223 @@ export default function OrderTrackingPage() {
                 </div>
               </div>
             </div>
-
-            <div className="mt-4 pt-4 border-t text-sm text-gray-600">
-              <p>
-                <strong>Cron Format Açıklaması:</strong> <code className="bg-gray-100 px-2 py-1 rounded">0 8 * * 2,5</code> = Her Salı ve Cuma saat 08:00'de
-              </p>
-            </div>
           </Card>
+        )}
+
+        {/* Settings Modal */}
+        {showSettingsModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold">⚙️ Otomatik Mail Ayarlarını Düzenle</h2>
+                  <button
+                    onClick={() => setShowSettingsModal(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Müşteri Ayarları */}
+                  <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
+                    <h3 className="font-bold text-blue-700 mb-4 text-lg">👥 Müşteri Mail Ayarları</h3>
+
+                    <div className="space-y-4">
+                      {/* Aktif/Pasif */}
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settingsForm.customerEmailEnabled}
+                            onChange={(e) =>
+                              setSettingsForm((prev) => ({ ...prev, customerEmailEnabled: e.target.checked }))
+                            }
+                            className="w-5 h-5 text-blue-600"
+                          />
+                          <span className="font-medium">Otomatik mail gönderimi aktif</span>
+                        </label>
+                      </div>
+
+                      {/* Email Konusu */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email Konusu</label>
+                        <input
+                          type="text"
+                          value={settingsForm.customerEmailSubject}
+                          onChange={(e) =>
+                            setSettingsForm((prev) => ({ ...prev, customerEmailSubject: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* Gün Seçimi */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Gönderim Günleri</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { value: 1, label: 'Pazartesi' },
+                            { value: 2, label: 'Salı' },
+                            { value: 3, label: 'Çarşamba' },
+                            { value: 4, label: 'Perşembe' },
+                            { value: 5, label: 'Cuma' },
+                            { value: 6, label: 'Cumartesi' },
+                            { value: 0, label: 'Pazar' },
+                          ].map((day) => (
+                            <label key={day.value} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settingsForm.customerDays.includes(day.value)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSettingsForm((prev) => ({
+                                      ...prev,
+                                      customerDays: [...prev.customerDays, day.value].sort(),
+                                    }));
+                                  } else {
+                                    setSettingsForm((prev) => ({
+                                      ...prev,
+                                      customerDays: prev.customerDays.filter((d) => d !== day.value),
+                                    }));
+                                  }
+                                }}
+                                className="w-4 h-4 text-blue-600"
+                              />
+                              <span className="text-sm">{day.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Saat Seçimi */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gönderim Saati</label>
+                        <select
+                          value={settingsForm.customerHour}
+                          onChange={(e) =>
+                            setSettingsForm((prev) => ({ ...prev, customerHour: parseInt(e.target.value) }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        >
+                          {Array.from({ length: 24 }, (_, i) => (
+                            <option key={i} value={i}>
+                              {i.toString().padStart(2, '0')}:00
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tedarikçi Ayarları */}
+                  <div className="border border-orange-200 rounded-lg p-4 bg-orange-50">
+                    <h3 className="font-bold text-orange-700 mb-4 text-lg">🏭 Tedarikçi Mail Ayarları</h3>
+
+                    <div className="space-y-4">
+                      {/* Aktif/Pasif */}
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settingsForm.supplierEmailEnabled}
+                            onChange={(e) =>
+                              setSettingsForm((prev) => ({ ...prev, supplierEmailEnabled: e.target.checked }))
+                            }
+                            className="w-5 h-5 text-orange-600"
+                          />
+                          <span className="font-medium">Otomatik mail gönderimi aktif</span>
+                        </label>
+                      </div>
+
+                      {/* Email Konusu */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email Konusu</label>
+                        <input
+                          type="text"
+                          value={settingsForm.supplierEmailSubject}
+                          onChange={(e) =>
+                            setSettingsForm((prev) => ({ ...prev, supplierEmailSubject: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+
+                      {/* Gün Seçimi */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Gönderim Günleri</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { value: 1, label: 'Pazartesi' },
+                            { value: 2, label: 'Salı' },
+                            { value: 3, label: 'Çarşamba' },
+                            { value: 4, label: 'Perşembe' },
+                            { value: 5, label: 'Cuma' },
+                            { value: 6, label: 'Cumartesi' },
+                            { value: 0, label: 'Pazar' },
+                          ].map((day) => (
+                            <label key={day.value} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settingsForm.supplierDays.includes(day.value)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSettingsForm((prev) => ({
+                                      ...prev,
+                                      supplierDays: [...prev.supplierDays, day.value].sort(),
+                                    }));
+                                  } else {
+                                    setSettingsForm((prev) => ({
+                                      ...prev,
+                                      supplierDays: prev.supplierDays.filter((d) => d !== day.value),
+                                    }));
+                                  }
+                                }}
+                                className="w-4 h-4 text-orange-600"
+                              />
+                              <span className="text-sm">{day.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Saat Seçimi */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gönderim Saati</label>
+                        <select
+                          value={settingsForm.supplierHour}
+                          onChange={(e) =>
+                            setSettingsForm((prev) => ({ ...prev, supplierHour: parseInt(e.target.value) }))
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                        >
+                          {Array.from({ length: 24 }, (_, i) => (
+                            <option key={i} value={i}>
+                              {i.toString().padStart(2, '0')}:00
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Buttons */}
+                <div className="flex gap-3 justify-end mt-6 pt-4 border-t">
+                  <Button
+                    onClick={() => setShowSettingsModal(false)}
+                    className="bg-gray-300 hover:bg-gray-400 text-gray-700"
+                  >
+                    İptal
+                  </Button>
+                  <Button onClick={handleSaveSettings} className="bg-green-600 hover:bg-green-700 text-white">
+                    💾 Kaydet
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Tabs */}
