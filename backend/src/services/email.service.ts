@@ -18,7 +18,9 @@ interface OrderEmailData {
     items: Array<{
       productName: string;
       unit: string;
-      remainingQty: number;
+      quantity: number;          // Toplam sipariş miktarı
+      deliveredQty: number;      // Teslim edilen miktar
+      remainingQty: number;      // Kalan miktar
       unitPrice: number;
       lineTotal: number;
     }>;
@@ -237,12 +239,34 @@ class EmailService {
     for (const order of data.orders) {
       let itemsHTML = '';
       for (const item of order.items) {
+        const isFullyDelivered = item.remainingQty === 0;
+
+        // Tamamı teslim edilmiş ürünler için farklı stil
+        const rowStyle = isFullyDelivered
+          ? 'padding: 8px; border-bottom: 1px solid #eee; background-color: #f3f4f6; opacity: 0.7;'
+          : 'padding: 8px; border-bottom: 1px solid #eee;';
+
+        const productNameStyle = isFullyDelivered
+          ? 'text-decoration: line-through; color: #6b7280;'
+          : '';
+
+        const deliveryBadge = isFullyDelivered
+          ? '<span style="display: inline-block; background-color: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">✓ TESLİM EDİLDİ</span>'
+          : '';
+
         itemsHTML += `
           <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.productName}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${item.remainingQty} ${item.unit}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(item.unitPrice)}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(item.lineTotal)}</td>
+            <td style="${rowStyle}">
+              <span style="${productNameStyle}">${item.productName}</span>${deliveryBadge}
+            </td>
+            <td style="${rowStyle} text-align: center;">
+              ${isFullyDelivered
+                ? `<span style="color: #6b7280;">${item.quantity} ${item.unit}</span>`
+                : `${item.remainingQty} ${item.unit}`
+              }
+            </td>
+            <td style="${rowStyle} text-align: right;">${formatCurrency(item.unitPrice)}</td>
+            <td style="${rowStyle} text-align: right;">${formatCurrency(item.lineTotal)}</td>
           </tr>
         `;
       }
@@ -259,9 +283,9 @@ class EmailService {
             <thead>
               <tr style="background: #f3f4f6;">
                 <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Ürün</th>
-                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Miktar</th>
+                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Kalan Miktar</th>
                 <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Birim Fiyat</th>
-                <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Tutar</th>
+                <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Kalan Tutar</th>
               </tr>
             </thead>
             <tbody>
@@ -288,7 +312,7 @@ class EmailService {
       <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
         <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
           <div style="background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; padding: 30px; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0; font-size: 28px;">📋 Bekleyen Siparişleriniz</h1>
+            <h1 style="margin: 0; font-size: 28px;">📋 Bakırcılar Ambalaj Sipariş Bakiyesi</h1>
             <p style="margin: 10px 0 0 0; opacity: 0.9;">Sayın ${data.customerName},</p>
           </div>
 
@@ -313,10 +337,10 @@ class EmailService {
 
           <div style="background: #374151; color: white; padding: 20px; border-radius: 0 0 8px 8px; text-align: center;">
             <p style="margin: 0; font-size: 14px; opacity: 0.8;">
-              Sorularınız için: <a href="mailto:info@bakircilar.com" style="color: white; text-decoration: none;">info@bakircilar.com</a>
+              Sorularınız için: <a href="mailto:info@bakircilarambalaj.com" style="color: white; text-decoration: none;">info@bakircilarambalaj.com</a>
             </p>
             <p style="margin: 10px 0 0 0; font-size: 12px; opacity: 0.6;">
-              © ${new Date().getFullYear()} Bakırcılar. Tüm hakları saklıdır.
+              © ${new Date().getFullYear()} Bakırcılar Ambalaj. Tüm hakları saklıdır.
             </p>
           </div>
         </div>
@@ -440,18 +464,31 @@ class EmailService {
           deliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           items: [
             {
-              productName: 'Test Ürün 1',
+              productName: 'Test Ürün 1 (Kısmi Teslim)',
               unit: 'ADET',
+              quantity: 20,
+              deliveredQty: 10,
               remainingQty: 10,
               unitPrice: 100,
               lineTotal: 1000,
             },
             {
-              productName: 'Test Ürün 2',
+              productName: 'Test Ürün 2 (Bekliyor)',
               unit: 'KG',
+              quantity: 5,
+              deliveredQty: 0,
               remainingQty: 5,
               unitPrice: 200,
               lineTotal: 1000,
+            },
+            {
+              productName: 'Test Ürün 3 (Teslim Edildi)',
+              unit: 'ADET',
+              quantity: 15,
+              deliveredQty: 15,
+              remainingQty: 0,
+              unitPrice: 50,
+              lineTotal: 0,
             },
           ],
           totalAmount: 2000,
