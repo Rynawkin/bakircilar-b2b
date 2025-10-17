@@ -170,12 +170,17 @@ class EmailService {
 
     for (const order of orders) {
       if (!customerMap.has(order.customerCode)) {
-        // Müşterinin email adresini User tablosundan al
-        const user = await prisma.user.findFirst({
-          where: { mikroCariCode: order.customerCode },
-        });
+        // Email adresini belirle: Önce order'daki email, yoksa User tablosundan
+        let customerEmail = order.customerEmail;
 
-        if (!user || !user.email) {
+        if (!customerEmail) {
+          const user = await prisma.user.findFirst({
+            where: { mikroCariCode: order.customerCode },
+          });
+          customerEmail = user?.email || null;
+        }
+
+        if (!customerEmail) {
           console.warn(`⚠️ Müşteri email bulunamadı: ${order.customerCode}`);
           continue;
         }
@@ -183,7 +188,7 @@ class EmailService {
         customerMap.set(order.customerCode, {
           customerCode: order.customerCode,
           customerName: order.customerName,
-          customerEmail: user.email,
+          customerEmail: customerEmail,
           orders: [],
           totalOrdersAmount: 0,
         });
@@ -347,24 +352,30 @@ class EmailService {
         };
       }
 
-      // 2. Email adresini belirle (override varsa kullan, yoksa User tablosundan al)
+      // 2. Email adresini belirle
       let targetEmail: string;
 
       if (emailOverride) {
+        // Override varsa kullan
         targetEmail = emailOverride;
       } else {
-        const user = await prisma.user.findFirst({
-          where: { mikroCariCode: customerCode },
-        });
+        // Önce order'daki email'i kontrol et
+        targetEmail = orders[0].customerEmail || '';
 
-        if (!user || !user.email) {
-          return {
-            success: false,
-            message: 'Müşteri email adresi bulunamadı',
-          };
+        // Order'da email yoksa User tablosundan al
+        if (!targetEmail) {
+          const user = await prisma.user.findFirst({
+            where: { mikroCariCode: customerCode },
+          });
+          targetEmail = user?.email || '';
         }
 
-        targetEmail = user.email;
+        if (!targetEmail) {
+          return {
+            success: false,
+            message: 'Müşteri email adresi bulunamadı (ne Mikro CARI\'da ne de User tablosunda)',
+          };
+        }
       }
 
       // 3. Email data hazırla

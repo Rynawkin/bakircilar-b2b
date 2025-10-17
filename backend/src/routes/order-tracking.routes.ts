@@ -23,6 +23,7 @@ router.post('/admin/sync-and-send', authenticate, requireAdmin, orderTrackingCon
 // Data
 router.get('/admin/pending-orders', authenticate, requireAdmin, orderTrackingController.getAllPendingOrders);
 router.get('/admin/summary', authenticate, requireAdmin, orderTrackingController.getCustomerSummary);
+router.get('/admin/supplier-summary', authenticate, requireAdmin, orderTrackingController.getSupplierSummary);
 router.get('/admin/email-logs', authenticate, requireAdmin, orderTrackingController.getEmailLogs);
 
 // Test

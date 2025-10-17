@@ -112,7 +112,7 @@ class OrderTrackingController {
 
   /**
    * GET /api/admin/order-tracking/summary
-   * Müşteri bazında özet
+   * Müşteri bazında özet (satıcılar hariç)
    */
   async getCustomerSummary(req: Request, res: Response) {
     try {
@@ -120,6 +120,20 @@ class OrderTrackingController {
       res.json(summary);
     } catch (error: any) {
       console.error('Özet getirme hatası:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * GET /api/admin/order-tracking/supplier-summary
+   * Satıcı bazında özet (sektör kodu "satıcı" olanlar)
+   */
+  async getSupplierSummary(req: Request, res: Response) {
+    try {
+      const summary = await orderTrackingService.getSupplierSummary();
+      res.json(summary);
+    } catch (error: any) {
+      console.error('Satıcı özeti getirme hatası:', error);
       res.status(500).json({ error: error.message });
     }
   }

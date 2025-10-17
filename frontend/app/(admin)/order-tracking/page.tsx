@@ -66,6 +66,7 @@ export default function OrderTrackingPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [customerSummary, setCustomerSummary] = useState<CustomerSummary[]>([]);
+  const [supplierSummary, setSupplierSummary] = useState<CustomerSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
@@ -90,15 +91,17 @@ export default function OrderTrackingPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [settingsRes, ordersRes, summaryRes] = await Promise.all([
+      const [settingsRes, ordersRes, summaryRes, supplierRes] = await Promise.all([
         apiClient.get('/order-tracking/admin/settings'),
         apiClient.get('/order-tracking/admin/pending-orders'),
         apiClient.get('/order-tracking/admin/summary'),
+        apiClient.get('/order-tracking/admin/supplier-summary'),
       ]);
 
       setSettings(settingsRes.data);
       setOrders(ordersRes.data);
       setCustomerSummary(summaryRes.data);
+      setSupplierSummary(supplierRes.data);
     } catch (error: any) {
       console.error('Veri yükleme hatası:', error);
       toast.error('Veriler yüklenemedi');
@@ -213,8 +216,9 @@ export default function OrderTrackingPage() {
     );
   }
 
-  const totalAmount = orders.reduce((sum, order) => sum + order.grandTotal, 0);
-  const totalCustomers = new Set(orders.map((o) => o.customerCode)).size;
+  const customerAmount = customerSummary.reduce((sum, c) => sum + c.totalAmount, 0);
+  const supplierAmount = supplierSummary.reduce((sum, s) => sum + s.totalAmount, 0);
+  const totalAmount = customerAmount + supplierAmount;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -227,16 +231,23 @@ export default function OrderTrackingPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <p className="text-sm font-medium text-blue-800 mb-2">📦 Bekleyen Sipariş</p>
-            <p className="text-4xl font-bold text-blue-600">{orders.length}</p>
-            <p className="text-xs text-blue-700 mt-1">{totalCustomers} müşteri</p>
+            <p className="text-sm font-medium text-blue-800 mb-2">👥 Müşteri Siparişleri</p>
+            <p className="text-3xl font-bold text-blue-600">{customerSummary.length}</p>
+            <p className="text-lg font-semibold text-blue-700 mt-1">{formatCurrency(customerAmount)}</p>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+            <p className="text-sm font-medium text-orange-800 mb-2">🏭 Satıcı Siparişleri</p>
+            <p className="text-3xl font-bold text-orange-600">{supplierSummary.length}</p>
+            <p className="text-lg font-semibold text-orange-700 mt-1">{formatCurrency(supplierAmount)}</p>
           </Card>
 
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <p className="text-sm font-medium text-green-800 mb-2">💰 Toplam Tutar</p>
+            <p className="text-sm font-medium text-green-800 mb-2">💰 Genel Toplam</p>
             <p className="text-3xl font-bold text-green-600">{formatCurrency(totalAmount)}</p>
+            <p className="text-xs text-green-700 mt-1">{customerSummary.length + supplierSummary.length} sipariş</p>
           </Card>
 
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">

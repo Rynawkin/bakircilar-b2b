@@ -83,6 +83,8 @@ export const MIKRO_TABLES = {
   CARI_COLUMNS: {
     CODE: 'cari_kod',
     NAME: 'cari_unvan1',
+    EMAIL: 'cari_EMail',
+    SECTOR_CODE: 'cari_sektor_kodu', // Sektör kodu (örn: "satıcı" = tedarikçi)
   },
 } as const;
 

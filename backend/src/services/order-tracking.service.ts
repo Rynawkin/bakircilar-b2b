@@ -27,6 +27,8 @@ interface PendingOrder {
   orderSequence: number;
   customerCode: string;
   customerName: string;
+  customerEmail?: string | null;
+  sectorCode?: string | null;
   orderDate: Date;
   deliveryDate: Date | null;
   items: PendingOrderItem[];
@@ -70,6 +72,8 @@ class OrderTrackingService {
             orderSequence: order.orderSequence,
             customerCode: order.customerCode,
             customerName: order.customerName,
+            customerEmail: order.customerEmail || null,
+            sectorCode: order.sectorCode || null,
             orderDate: order.orderDate,
             deliveryDate: order.deliveryDate,
             items: order.items as any,
@@ -125,6 +129,8 @@ class OrderTrackingService {
         s.sip_teslim_tarih,
         s.sip_musteri_kod,
         c.cari_unvan1 as musteri_adi,
+        c.${MIKRO_TABLES.CARI_COLUMNS.EMAIL} as musteri_email,
+        c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} as sektor_kodu,
         s.sip_stok_kod,
         st.sto_isim as urun_adi,
         st.sto_birim1_ad as birim,
@@ -175,6 +181,8 @@ class OrderTrackingService {
           orderSequence: row.sip_evrakno_sira,
           customerCode: row.sip_musteri_kod,
           customerName: row.musteri_adi || 'Bilinmeyen Müşteri',
+          customerEmail: row.musteri_email || null,
+          sectorCode: row.sektor_kodu || null,
           orderDate: new Date(row.sip_tarih),
           deliveryDate: row.sip_teslim_tarih ? new Date(row.sip_teslim_tarih) : null,
           items: [],
@@ -304,14 +312,31 @@ class OrderTrackingService {
 
   /**
    * Müşteri bazında sipariş özetini getir
+   * Sektör kodu "satıcı" olanları filtreler (bunlar tedarikçi/satıcı siparişleridir)
    */
   async getCustomerSummary() {
     const orders = await prisma.pendingMikroOrder.findMany({
+      where: {
+        // Sektör kodu "satıcı" olanları hariç tut (büyük/küçük harf duyarsız)
+        OR: [
+          { sectorCode: null },
+          {
+            NOT: {
+              sectorCode: {
+                equals: 'satıcı',
+                mode: 'insensitive',
+              },
+            },
+          },
+        ],
+      },
       select: {
         id: true,
         mikroOrderNumber: true,
         customerCode: true,
         customerName: true,
+        customerEmail: true,
+        sectorCode: true,
         orderDate: true,
         deliveryDate: true,
         items: true,
@@ -324,26 +349,6 @@ class OrderTrackingService {
       orderBy: [{ customerCode: 'asc' }, { orderDate: 'desc' }],
     });
 
-    // Tüm müşterilerin email adreslerini çek
-    const customerCodes = [...new Set(orders.map(o => o.customerCode))];
-    const users = await prisma.user.findMany({
-      where: {
-        mikroCariCode: { in: customerCodes },
-        role: 'CUSTOMER',
-      },
-      select: {
-        mikroCariCode: true,
-        email: true,
-      },
-    });
-
-    const emailMap = new Map<string, string>();
-    users.forEach(user => {
-      if (user.mikroCariCode) {
-        emailMap.set(user.mikroCariCode, user.email);
-      }
-    });
-
     // Müşteri bazında grupla
     const summary = new Map<
       string,
@@ -351,6 +356,7 @@ class OrderTrackingService {
         customerCode: string;
         customerName: string;
         customerEmail: string | null;
+        sectorCode: string | null;
         ordersCount: number;
         totalAmount: number;
         emailSent: boolean;
@@ -371,7 +377,92 @@ class OrderTrackingService {
         summary.set(order.customerCode, {
           customerCode: order.customerCode,
           customerName: order.customerName,
-          customerEmail: emailMap.get(order.customerCode) || null,
+          customerEmail: order.customerEmail,
+          sectorCode: order.sectorCode,
+          ordersCount: 0,
+          totalAmount: 0,
+          emailSent: order.emailSent,
+          orders: [],
+        });
+      }
+
+      const customerSummary = summary.get(order.customerCode)!;
+      customerSummary.ordersCount++;
+      customerSummary.totalAmount += order.grandTotal;
+      customerSummary.orders.push({
+        id: order.id,
+        mikroOrderNumber: order.mikroOrderNumber,
+        orderDate: order.orderDate,
+        deliveryDate: order.deliveryDate,
+        itemCount: order.itemCount,
+        grandTotal: order.grandTotal,
+        items: order.items,
+      });
+    }
+
+    return Array.from(summary.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /**
+   * Satıcı/tedarikçi siparişlerini getir (sektör kodu "satıcı" olanlar)
+   */
+  async getSupplierSummary() {
+    const orders = await prisma.pendingMikroOrder.findMany({
+      where: {
+        sectorCode: {
+          equals: 'satıcı',
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        mikroOrderNumber: true,
+        customerCode: true,
+        customerName: true,
+        customerEmail: true,
+        sectorCode: true,
+        orderDate: true,
+        deliveryDate: true,
+        items: true,
+        itemCount: true,
+        totalAmount: true,
+        totalVAT: true,
+        grandTotal: true,
+        emailSent: true,
+      },
+      orderBy: [{ customerCode: 'asc' }, { orderDate: 'desc' }],
+    });
+
+    // Satıcı bazında grupla
+    const summary = new Map<
+      string,
+      {
+        customerCode: string;
+        customerName: string;
+        customerEmail: string | null;
+        sectorCode: string | null;
+        ordersCount: number;
+        totalAmount: number;
+        emailSent: boolean;
+        orders: Array<{
+          id: string;
+          mikroOrderNumber: string;
+          orderDate: Date;
+          deliveryDate: Date | null;
+          itemCount: number;
+          grandTotal: number;
+          items: any;
+        }>;
+      }
+    >();
+
+    for (const order of orders) {
+      if (!summary.has(order.customerCode)) {
+        summary.set(order.customerCode, {
+          customerCode: order.customerCode,
+          customerName: order.customerName,
+          customerEmail: order.customerEmail,
+          sectorCode: order.sectorCode,
           ordersCount: 0,
           totalAmount: 0,
           emailSent: order.emailSent,
