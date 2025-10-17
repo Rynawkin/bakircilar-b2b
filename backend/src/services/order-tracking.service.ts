@@ -120,8 +120,20 @@ class OrderTrackingService {
    * Mikro'dan bekleyen siparişleri çek (ham veri)
    */
   private async fetchPendingOrdersFromMikro(): Promise<any[]> {
-    // Sadece en az 1 kalemi bekleyen siparişlerin TÜM satırlarını getir
+    // İki aşamalı yaklaşım:
+    // 1. Sadece en az 1 kalemi bekleyen SİPARİŞLERİ bul (WITH kullanarak)
+    // 2. O siparişlerin TÜM satırlarını getir (hem delivered hem pending)
     const query = `
+      WITH PendingOrderNumbers AS (
+        SELECT DISTINCT
+          ${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} as seri,
+          ${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} as sira
+        FROM ${MIKRO_TABLES.ORDERS}
+        WHERE ${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} IS NOT NULL
+          AND ${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED} = 0
+          AND ${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 0
+          AND (${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY} - ISNULL(${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) > 0
+      )
       SELECT
         s.sip_evrakno_seri,
         s.sip_evrakno_sira,
@@ -142,6 +154,9 @@ class OrderTrackingService {
         s.sip_tutar as tutar,
         s.sip_vergi as kdv
       FROM ${MIKRO_TABLES.ORDERS} s
+      INNER JOIN PendingOrderNumbers p
+        ON s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = p.seri
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = p.sira
       LEFT JOIN ${MIKRO_TABLES.PRODUCTS} st
         ON s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE} = st.${MIKRO_TABLES.PRODUCTS_COLUMNS.CODE}
       LEFT JOIN ${MIKRO_TABLES.CARI} c
@@ -149,14 +164,6 @@ class OrderTrackingService {
       WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} IS NOT NULL
         AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED} = 0
         AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 0
-        -- Sadece en az 1 satırı bekleyen siparişlerin tüm satırlarını al
-        AND EXISTS (
-          SELECT 1
-          FROM ${MIKRO_TABLES.ORDERS} s2
-          WHERE s2.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES}
-            AND s2.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE}
-            AND (s2.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY} - ISNULL(s2.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) > 0
-        )
       ORDER BY s.${MIKRO_TABLES.ORDERS_COLUMNS.DATE} DESC,
                s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES},
                s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE}
