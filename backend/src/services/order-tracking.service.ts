@@ -317,14 +317,13 @@ class OrderTrackingService {
   async getCustomerSummary() {
     const orders = await prisma.pendingMikroOrder.findMany({
       where: {
-        // Sektör kodu "satıcı" olanları hariç tut (büyük/küçük harf duyarsız)
+        // Sektör kodu "SATICI" olanları hariç tut (SATICI, SATICI BARTIR vb.)
         OR: [
           { sectorCode: null },
           {
             NOT: {
               sectorCode: {
-                equals: 'satıcı',
-                mode: 'insensitive',
+                startsWith: 'SATICI',
               },
             },
           },
@@ -404,14 +403,13 @@ class OrderTrackingService {
   }
 
   /**
-   * Satıcı/tedarikçi siparişlerini getir (sektör kodu "satıcı" olanlar)
+   * Satıcı/tedarikçi siparişlerini getir (sektör kodu "SATICI" olanlar)
    */
   async getSupplierSummary() {
     const orders = await prisma.pendingMikroOrder.findMany({
       where: {
         sectorCode: {
-          equals: 'satıcı',
-          mode: 'insensitive',
+          startsWith: 'SATICI',
         },
       },
       select: {
