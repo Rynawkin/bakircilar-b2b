@@ -194,6 +194,13 @@ class OrderTrackingService {
         orderMap.set(orderNumber, order);
       }
 
+      // Kalan sipariş tutarını hesapla (kalan_miktar × birim_fiyat)
+      const remainingTotal = row.kalan_miktar * row.birim_fiyat;
+
+      // Kalan KDV'yi oransal olarak hesapla
+      const kdvRate = row.tutar > 0 ? row.kdv / row.tutar : 0;
+      const remainingVat = remainingTotal * kdvRate;
+
       // Satır detayını ekle
       const item: PendingOrderItem = {
         productCode: row.sip_stok_kod,
@@ -203,14 +210,14 @@ class OrderTrackingService {
         deliveredQty: row.teslim_miktar,
         remainingQty: row.kalan_miktar,
         unitPrice: row.birim_fiyat,
-        lineTotal: row.tutar,
-        vat: row.kdv,
+        lineTotal: remainingTotal,  // KALAN TUTAR
+        vat: remainingVat,  // KALAN KDV
       };
 
       order.items.push(item);
       order.itemCount++;
-      order.totalAmount += row.tutar;
-      order.totalVAT += row.kdv;
+      order.totalAmount += remainingTotal;  // KALAN TUTARI TOPLA
+      order.totalVAT += remainingVat;  // KALAN KDV'Yİ TOPLA
       order.grandTotal = order.totalAmount + order.totalVAT;
     }
 
