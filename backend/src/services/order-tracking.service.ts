@@ -120,6 +120,7 @@ class OrderTrackingService {
    * Mikro'dan bekleyen siparişleri çek (ham veri)
    */
   private async fetchPendingOrdersFromMikro(): Promise<any[]> {
+    // Sadece en az 1 kalemi bekleyen siparişlerin TÜM satırlarını getir
     const query = `
       SELECT
         s.sip_evrakno_seri,
@@ -148,6 +149,14 @@ class OrderTrackingService {
       WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} IS NOT NULL
         AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED} = 0
         AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 0
+        -- Sadece en az 1 satırı bekleyen siparişlerin tüm satırlarını al
+        AND EXISTS (
+          SELECT 1
+          FROM ${MIKRO_TABLES.ORDERS} s2
+          WHERE s2.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES}
+            AND s2.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE}
+            AND (s2.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY} - ISNULL(s2.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) > 0
+        )
       ORDER BY s.${MIKRO_TABLES.ORDERS_COLUMNS.DATE} DESC,
                s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES},
                s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE}
