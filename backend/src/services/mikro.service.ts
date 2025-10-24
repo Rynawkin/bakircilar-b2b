@@ -506,6 +506,7 @@ class MikroService {
             sip_b_fiyat,
             sip_tutar,
             sip_vergi,
+            sip_vergi_pntr,
             sip_iptal,
             sip_kapat_fl,
             sip_depono,
@@ -530,7 +531,8 @@ class MikroService {
             0,
             @fiyat,
             @tutar,
-            @vergi,
+            @vergiTutari,
+            @vergiYuzdesi,
             0,
             0,
             1,
@@ -555,7 +557,8 @@ class MikroService {
           .input('miktar', sql.Float, item.quantity)
           .input('fiyat', sql.Float, item.unitPrice)
           .input('tutar', sql.Float, tutar)
-          .input('vergi', sql.Float, vergiYuzdesi) // KDV yüzdesi (18, 0.18 değil)
+          .input('vergiTutari', sql.Float, vergiTutari) // KDV tutarı (50.58)
+          .input('vergiYuzdesi', sql.Float, vergiYuzdesi) // KDV yüzdesi (18)
           .input('aciklama', sql.NVarChar(50), description)
           .query(insertQuery);
 
