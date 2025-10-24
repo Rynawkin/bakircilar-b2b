@@ -1,26 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install:*)",
-      "Bash(grep:*)",
-      "Bash(python3:*)",
-      "Bash(ssh digitalocean-b2b \"echo ''DigitalOcean bağlantısı başarılı'' && pwd\")",
-      "Bash(ssh:*)",
-      "Bash(npx prisma migrate dev:*)",
-      "Bash(ls:*)",
-      "Bash(git add:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nAdd Order Tracking Module - Bekleyen Sipariş Takip Sistemi\n\nBackend:\n- Order tracking service (Mikro''dan bekleyen siparişleri çeker)\n- Email service (Brevo integration)\n- API endpoints (admin + customer)\n- Scheduler (Salı + Cuma 08:00)\n- Database schema (OrderTrackingSettings, PendingMikroOrder, EmailLog)\n\nFrontend:\n- Admin: Order tracking page\n- Customer: Pending orders page\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(git push:*)",
-      "Bash(npm run build)",
-      "Bash(npx prisma generate:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nFix TypeScript compilation errors in Order Tracking module\n\nBackend fixes:\n- Fix auth middleware import (authenticate instead of authenticateToken)\n- Fix Brevo SDK initialization (updated to use setApiKey method)\n- Add executeQuery method to both Mikro services (real and mock)\n- Fix JSON type casting for PendingOrderItem arrays\n- Install @sendinblue/client package\n\nAll TypeScript build errors resolved. Ready for deployment.\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(git commit:*)",
-      "Bash(curl:*)",
-      "Bash(cd:*)",
-      "Bash(git log:*)",
-      "Bash(scp:*)",
-      "Bash(node inspect-siparisler.js:*)",
-      "Bash(node -e \"\nconst sql = require(''mssql'');\n\nconst config = {\n  server: ''185.85.207.76'',\n  port: 2014,\n  database: ''MikroDB_V16_BAKIR'',\n  user: ''sa'',\n  password: ''B@k1rc1l@r'',\n  options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },\n};\n\n(async () => {\n  try {\n    await sql.connect(config);\n    \n    const ozet = await sql.query\\`\n      SELECT * FROM SIPARISLER_OZET \n      WHERE sip_stok_kod = ''B101310'' \n      AND sip_yil = 2025 \n      AND sip_ay = 10\n    \\`;\n    \n    console.log(''SIPARISLER_OZET - B101310 (2025-10):'', ozet.recordset.length, ''kayıt'');\n    if (ozet.recordset.length > 0) console.log(JSON.stringify(ozet.recordset, null, 2));\n    \n    const sip = await sql.query\\`SELECT COUNT(*) as cnt FROM SIPARISLER WHERE sip_evrak_seri LIKE ''B2B%''\\`;\n    console.log(''SIPARISLER - B2B siparişleri:'', sip.recordset[0].cnt, ''kayıt'');\n    \n  } catch (error) {\n    console.error(''Hata:'', error.message);\n  } finally {\n    await sql.close();\n  }\n})();\n\")"
+      "Bash(node -e \"\nconst sql = require(''mssql'');\n\nconst config = {\n  server: ''185.85.207.76'',\n  port: 2014,\n  database: ''MikroDB_V16_BAKIR'',\n  user: ''sa'',\n  password: ''B@k1rc1l@r'',\n  options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },\n};\n\n(async () => {\n  try {\n    await sql.connect(config);\n    \n    // Son B2B siparişini kontrol et\n    const result = await sql.query\\`\n      SELECT TOP 5\n        sip_evrakno_seri,\n        sip_evrakno_sira,\n        sip_satirno,\n        sip_stok_kod,\n        sip_miktar,\n        sip_b_fiyat,\n        sip_tutar,\n        sip_vergi,\n        sip_doviz_cinsi,\n        sip_tip\n      FROM SIPARISLER \n      WHERE sip_evrakno_seri LIKE ''B2B%''\n      ORDER BY sip_create_date DESC\n    \\`;\n    \n    console.log(''Son B2B Siparişleri:'');\n    console.log(JSON.stringify(result.recordset, null, 2));\n    \n  } catch (error) {\n    console.error(''Hata:'', error.message);\n  } finally {\n    await sql.close();\n  }\n})();\n\")"
     ],
     "deny": [],
     "ask": []

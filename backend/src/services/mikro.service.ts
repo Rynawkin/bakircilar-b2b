@@ -428,7 +428,7 @@ class MikroService {
     const { cariCode, items, applyVAT, description } = orderData;
 
     // Evrak serisi belirle
-    const evrakSeri = applyVAT ? 'B2B_FATURAL' : 'B2B_BEYAZ';
+    const evrakSeri = applyVAT ? 'B2BF' : 'B2BB';
 
     console.log(`🔧 Sipariş parametreleri:`, {
       cariCode,
