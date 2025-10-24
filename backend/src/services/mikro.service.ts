@@ -456,7 +456,7 @@ class MikroService {
 
         // Hesaplamalar
         const tutar = item.quantity * item.unitPrice;
-        const vergiTutari = applyVAT ? tutar * (item.vatRate / 100) : 0;
+        const vergiTutari = applyVAT ? tutar * item.vatRate : 0;
 
         const insertQuery = `
           INSERT INTO SIPARISLER (
