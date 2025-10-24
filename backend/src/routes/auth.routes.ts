@@ -12,7 +12,7 @@ const router = Router();
 
 // Validation schemas
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().min(3, 'Email or cari code is required'),
   password: z.string().min(1, 'Password is required'),
 });
 
