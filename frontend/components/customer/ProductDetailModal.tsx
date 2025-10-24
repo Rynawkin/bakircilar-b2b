@@ -225,7 +225,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                   min="1"
                   max={product.excessStock}
                   value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const numValue = value === '' ? 1 : Math.max(1, Math.min(product.excessStock, parseInt(value) || 1));
+                    setQuantity(numValue);
+                  }}
                   className="text-center font-bold text-xl h-12 flex-1"
                 />
                 <button

@@ -480,10 +480,14 @@ export default function ProductsPage() {
                             min="1"
                             max={product.excessStock}
                             value={quickAddQuantities[product.id] || 1}
-                            onChange={(e) => setQuickAddQuantities({
-                              ...quickAddQuantities,
-                              [product.id]: parseInt(e.target.value) || 1
-                            })}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              const numValue = value === '' ? 1 : Math.max(1, Math.min(product.excessStock, parseInt(value) || 1));
+                              setQuickAddQuantities({
+                                ...quickAddQuantities,
+                                [product.id]: numValue
+                              });
+                            }}
                             className="w-full text-center font-bold text-sm h-10 pr-10 border-2 border-gray-200 focus:border-primary-500 rounded-lg"
                           />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-semibold">{product.unit}</span>
