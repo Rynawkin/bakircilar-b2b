@@ -477,6 +477,7 @@ class MikroService {
         // Hesaplamalar
         const tutar = item.quantity * item.unitPrice;
         const vergiTutari = applyVAT ? tutar * item.vatRate : 0;
+        const vergiYuzdesi = applyVAT ? item.vatRate * 100 : 0; // Mikro'da yüzde olarak (18, 0.18 değil)
 
         console.log(`🔧 Satır ${satirNo} hazırlanıyor:`, {
           productCode: item.productCode,
@@ -484,7 +485,8 @@ class MikroService {
           unitPrice: item.unitPrice,
           vatRate: item.vatRate,
           tutar,
-          vergiTutari
+          vergiTutari,
+          vergiYuzdesi
         });
 
         // INSERT query - Trigger devre dışı olduğu için hatasız çalışacak
@@ -553,7 +555,7 @@ class MikroService {
           .input('miktar', sql.Float, item.quantity)
           .input('fiyat', sql.Float, item.unitPrice)
           .input('tutar', sql.Float, tutar)
-          .input('vergi', sql.Float, vergiTutari)
+          .input('vergi', sql.Float, vergiYuzdesi) // KDV yüzdesi (18, 0.18 değil)
           .input('aciklama', sql.NVarChar(50), description)
           .query(insertQuery);
 
