@@ -532,21 +532,34 @@ class MikroService {
           )
         `;
 
-        await transaction
-          .request()
-          .input('seri', sql.NVarChar(20), evrakSeri)
-          .input('sira', sql.Int, evrakSira)
-          .input('satirNo', sql.Int, satirNo)
-          .input('cariKod', sql.NVarChar(25), cariCode)
-          .input('stokKod', sql.NVarChar(25), item.productCode)
-          .input('miktar', sql.Float, item.quantity)
-          .input('fiyat', sql.Float, item.unitPrice)
-          .input('tutar', sql.Float, tutar)
-          .input('vergi', sql.Float, vergiTutari)
-          .input('aciklama', sql.NVarChar(50), description)
-          .query(insertQuery);
+        try {
+          console.log(`🔧 INSERT query çalıştırılıyor...`);
+          await transaction
+            .request()
+            .input('seri', sql.NVarChar(20), evrakSeri)
+            .input('sira', sql.Int, evrakSira)
+            .input('satirNo', sql.Int, satirNo)
+            .input('cariKod', sql.NVarChar(25), cariCode)
+            .input('stokKod', sql.NVarChar(25), item.productCode)
+            .input('miktar', sql.Float, item.quantity)
+            .input('fiyat', sql.Float, item.unitPrice)
+            .input('tutar', sql.Float, tutar)
+            .input('vergi', sql.Float, vergiTutari)
+            .input('aciklama', sql.NVarChar(50), description)
+            .query(insertQuery);
 
-        console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
+          console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
+        } catch (insertError) {
+          console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
+          console.error('INSERT Error Details:', {
+            message: insertError instanceof Error ? insertError.message : String(insertError),
+            code: (insertError as any).code,
+            number: (insertError as any).number,
+            lineNumber: (insertError as any).lineNumber,
+            procName: (insertError as any).procName,
+          });
+          throw insertError;
+        }
       }
 
       // Transaction commit
