@@ -220,17 +220,21 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                 >
                   -
                 </button>
-                <Input
-                  type="number"
-                  min="1"
-                  max={product.excessStock}
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={quantity}
                   onChange={(e) => {
-                    const value = e.target.value;
-                    const numValue = value === '' ? 1 : Math.max(1, Math.min(product.excessStock, parseInt(value) || 1));
-                    setQuantity(numValue);
+                    const value = e.target.value.replace(/[^0-9]/g, '');
+                    if (value === '') {
+                      setQuantity(1);
+                    } else {
+                      const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
+                      setQuantity(numValue);
+                    }
                   }}
-                  className="text-center font-bold text-xl h-12 flex-1"
+                  className="text-center font-bold text-xl h-12 flex-1 border-2 border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg px-3"
                 />
                 <button
                   onClick={() => setQuantity(Math.min(product.excessStock, quantity + 1))}
