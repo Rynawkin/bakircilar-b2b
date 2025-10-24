@@ -501,6 +501,26 @@ export class MikroMockService {
   }
 
   /**
+   * Mock cari hesap kontrolü ve oluşturma
+   * Gerçek sistemde Mikro'ya cari kaydı yazacak
+   */
+  async ensureCariExists(cariData: {
+    cariCode: string;
+    unvan: string;
+    email?: string;
+    phone?: string;
+    city?: string;
+    district?: string;
+    hasEInvoice?: boolean;
+    taxOffice?: string;
+    taxNumber?: string;
+  }): Promise<boolean> {
+    console.log('📝 [MOCK] Cari kontrolü simüle edildi:', cariData.cariCode);
+    // Mock modda her zaman var kabul et
+    return false;
+  }
+
+  /**
    * Mock bağlantı testi
    */
   async testConnection(): Promise<boolean> {

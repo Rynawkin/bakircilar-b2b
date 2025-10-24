@@ -251,6 +251,17 @@ class OrderService {
     const mikroOrderIds: string[] = [];
 
     try {
+      // 0. Cari hesap kontrolü ve oluşturma
+      await mikroService.ensureCariExists({
+        cariCode: order.user.mikroCariCode,
+        unvan: order.user.displayName || order.user.name,
+        email: order.user.email,
+        phone: order.user.phone || undefined,
+        city: order.user.city || undefined,
+        district: order.user.district || undefined,
+        hasEInvoice: order.user.hasEInvoice,
+      });
+
       // 1. Faturalı sipariş (varsa)
       if (invoicedItems.length > 0) {
         const invoicedOrderId = await mikroService.writeOrder({
@@ -344,6 +355,17 @@ class OrderService {
     const mikroOrderIds: string[] = [];
 
     try {
+      // 0. Cari hesap kontrolü ve oluşturma
+      await mikroService.ensureCariExists({
+        cariCode: order.user.mikroCariCode,
+        unvan: order.user.displayName || order.user.name,
+        email: order.user.email,
+        phone: order.user.phone || undefined,
+        city: order.user.city || undefined,
+        district: order.user.district || undefined,
+        hasEInvoice: order.user.hasEInvoice,
+      });
+
       // 1. Faturalı sipariş (varsa)
       if (invoicedItems.length > 0) {
         const invoicedOrderId = await mikroService.writeOrder({
@@ -352,7 +374,7 @@ class OrderService {
             productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            vatRate: 0.18, // Default VAT rate
+            vatRate: item.product?.vatRate || 0.18,
           })),
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,

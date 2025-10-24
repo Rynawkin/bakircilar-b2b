@@ -543,6 +543,95 @@ class MikroService {
   }
 
   /**
+   * Cari hesap kaydının varlığını kontrol et, yoksa oluştur
+   *
+   * @param cariData - Cari bilgileri
+   * @returns true ise yeni oluşturuldu, false ise zaten vardı
+   */
+  async ensureCariExists(cariData: {
+    cariCode: string;
+    unvan: string;
+    email?: string;
+    phone?: string;
+    city?: string;
+    district?: string;
+    hasEInvoice?: boolean;
+    taxOffice?: string;
+    taxNumber?: string;
+  }): Promise<boolean> {
+    await this.connect();
+
+    const { cariCode, unvan, email, phone, city, district, hasEInvoice, taxOffice, taxNumber } = cariData;
+
+    // 1. Cari var mı kontrol et
+    const checkResult = await this.pool!.request()
+      .input('cariKod', sql.NVarChar(25), cariCode)
+      .query(`
+        SELECT COUNT(*) as count
+        FROM CARI_HESAPLAR
+        WHERE cari_kod = @cariKod
+      `);
+
+    if (checkResult.recordset[0].count > 0) {
+      console.log(`ℹ️ Cari zaten mevcut: ${cariCode}`);
+      return false;
+    }
+
+    // 2. Cari yoksa oluştur
+    console.log(`📝 Yeni cari oluşturuluyor: ${cariCode} - ${unvan}`);
+
+    try {
+      await this.pool!.request()
+        .input('cariKod', sql.NVarChar(25), cariCode)
+        .input('unvan', sql.NVarChar(127), unvan)
+        .input('email', sql.NVarChar(127), email || '')
+        .input('phone', sql.NVarChar(20), phone || '')
+        .input('city', sql.NVarChar(50), city || '')
+        .input('district', sql.NVarChar(50), district || '')
+        .input('taxOffice', sql.NVarChar(50), taxOffice || '')
+        .input('taxNumber', sql.NVarChar(15), taxNumber || '')
+        .input('efatura', sql.Bit, hasEInvoice || false)
+        .query(`
+          INSERT INTO CARI_HESAPLAR (
+            cari_kod,
+            cari_unvan1,
+            cari_EMail,
+            cari_CepTel,
+            cari_vdaire_adi,
+            cari_vdaire_no,
+            cari_efatura_fl,
+            cari_tip,
+            cari_cins,
+            cari_create_date,
+            cari_DBCno,
+            cari_iptal,
+            cari_fileid
+          ) VALUES (
+            @cariKod,
+            @unvan,
+            @email,
+            @phone,
+            @taxOffice,
+            @taxNumber,
+            @efatura,
+            0,
+            0,
+            GETDATE(),
+            0,
+            0,
+            31
+          )
+        `);
+
+      console.log(`✅ Cari başarıyla oluşturuldu: ${cariCode}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Cari oluşturma hatası:', error);
+      throw new Error(`Cari oluşturulamadı: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
+    }
+  }
+
+  /**
    * Bağlantı testi
    */
   async testConnection(): Promise<boolean> {
