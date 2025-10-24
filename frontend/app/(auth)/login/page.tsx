@@ -20,7 +20,7 @@ export default function LoginPage() {
     e.preventDefault();
 
     // Validate
-    const emailValidation = validateField(email, { ...validators.email, required: true });
+    const emailValidation = validateField(email, { required: true, minLength: 3 });
     const passwordValidation = validateField(password, { ...validators.password, required: true });
 
     setEmailError(emailValidation.error || '');
@@ -79,18 +79,18 @@ export default function LoginPage() {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-2xl bg-white shadow-2xl border border-gray-100 p-8 space-y-4">
             <Input
-              label="Email"
-              type="email"
+              label="Email veya Cari Kodu"
+              type="text"
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
                 setEmailError('');
               }}
-              placeholder="ornek@firma.com"
+              placeholder="ornek@firma.com veya 120.01.1670"
               error={emailError}
-              autoComplete="email"
+              autoComplete="username"
               onBlur={() => {
-                const validation = validateField(email, { ...validators.email, required: true });
+                const validation = validateField(email, { required: true, minLength: 3 });
                 setEmailError(validation.error || '');
               }}
             />
