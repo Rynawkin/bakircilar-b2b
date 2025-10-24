@@ -16,10 +16,17 @@ export class AuthController {
     try {
       const { email, password } = req.body as LoginRequest;
 
-      // Kullanıcıyı bul
-      const user = await prisma.user.findUnique({
+      // Kullanıcıyı bul - email veya cari kodu ile
+      let user = await prisma.user.findUnique({
         where: { email },
       });
+
+      // Email ile bulunamadıysa, cari kodu ile dene
+      if (!user) {
+        user = await prisma.user.findUnique({
+          where: { mikroCariCode: email },
+        });
+      }
 
       if (!user) {
         res.status(401).json({ error: 'Invalid credentials' });
@@ -42,14 +49,14 @@ export class AuthController {
       // JWT token üret
       const token = generateToken({
         userId: user.id,
-        email: user.email,
+        email: user.email || user.mikroCariCode || '',
         role: user.role,
       });
 
       // Kullanıcı bilgilerini döndür
       const userResponse: UserResponse = {
         id: user.id,
-        email: user.email,
+        email: user.email || user.mikroCariCode || '',
         name: user.name,
         role: user.role,
         customerType: user.customerType || undefined,

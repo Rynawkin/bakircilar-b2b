@@ -111,4 +111,8 @@ router.get('/staff', requireAdminOrManager, adminController.getStaffMembers);
 router.post('/staff', requireAdminOrManager, adminController.createStaffMember);
 router.put('/staff/:id', requireAdminOrManager, adminController.updateStaffMember);
 
+// Bulk user creation from Mikro caris
+router.get('/caris/available', requireAdmin, adminController.getAvailableCaris);
+router.post('/users/bulk-create', requireAdmin, adminController.bulkCreateUsers);
+
 export default router;

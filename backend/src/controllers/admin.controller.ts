@@ -1268,6 +1268,141 @@ export class AdminController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/admin/caris/available
+   * Mikro'daki carileri listele (henüz kullanıcı oluşturulmamış olanlar)
+   */
+  async getAvailableCaris(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Mikro'dan tüm cari detaylarını çek
+      const mikroCaris = await mikroService.getCariDetails();
+
+      // Sistemde zaten olan kullanıcıların cari kodlarını al
+      const existingUsers = await prisma.user.findMany({
+        where: {
+          mikroCariCode: { not: null }
+        },
+        select: { mikroCariCode: true }
+      });
+
+      const existingCariCodes = new Set(
+        existingUsers.map(u => u.mikroCariCode).filter((code): code is string => code !== null)
+      );
+
+      // Henüz kullanıcı oluşturulmamış carileri filtrele
+      const availableCaris = mikroCaris.filter(
+        cari => !existingCariCodes.has(cari.code)
+      );
+
+      res.json({
+        success: true,
+        caris: availableCaris,
+        totalAvailable: availableCaris.length,
+        totalExisting: existingUsers.length
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/users/bulk-create
+   * Seçili cariler için toplu kullanıcı oluştur
+   *
+   * Body: { cariCodes: string[] }
+   */
+  async bulkCreateUsers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { cariCodes } = req.body;
+
+      if (!Array.isArray(cariCodes) || cariCodes.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cari kodları gerekli'
+        });
+      }
+
+      // Mikro'dan cari detaylarını çek
+      const mikroCaris = await mikroService.getCariDetails();
+      const cariMap = new Map(mikroCaris.map(c => [c.code, c]));
+
+      const results = {
+        created: [] as string[],
+        skipped: [] as string[],
+        errors: [] as { code: string; error: string }[]
+      };
+
+      for (const cariCode of cariCodes) {
+        try {
+          const cariData = cariMap.get(cariCode);
+
+          if (!cariData) {
+            results.errors.push({
+              code: cariCode,
+              error: 'Mikro\'da bulunamadı'
+            });
+            continue;
+          }
+
+          // Kullanıcı zaten var mı kontrol et
+          const existingUser = await prisma.user.findUnique({
+            where: { mikroCariCode: cariCode }
+          });
+
+          if (existingUser) {
+            results.skipped.push(cariCode);
+            continue;
+          }
+
+          // Şifre: cari kodu + "123" (örn: 120.01.1670123)
+          const password = `${cariCode}123`;
+          const hashedPassword = await hashPassword(password);
+
+          // Kullanıcı oluştur
+          await prisma.user.create({
+            data: {
+              email: undefined, // Email optional
+              password: hashedPassword,
+              name: cariData.name,
+              mikroName: cariData.name,
+              displayName: cariData.name,
+              role: 'CUSTOMER',
+              mikroCariCode: cariCode,
+              customerType: cariData.groupCode === 'BAYI' ? 'BAYI' :
+                            cariData.groupCode === 'PERAKENDE' ? 'PERAKENDE' :
+                            cariData.groupCode === 'VIP' ? 'VIP' : 'OZEL',
+              city: cariData.city,
+              district: cariData.district,
+              phone: cariData.phone,
+              groupCode: cariData.groupCode,
+              sectorCode: cariData.sectorCode,
+              paymentTerm: cariData.paymentTerm,
+              hasEInvoice: cariData.hasEInvoice,
+              balance: cariData.balance,
+              balanceUpdatedAt: new Date(),
+              active: true
+            }
+          });
+
+          results.created.push(cariCode);
+        } catch (error) {
+          results.errors.push({
+            code: cariCode,
+            error: error instanceof Error ? error.message : 'Bilinmeyen hata'
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${results.created.length} kullanıcı oluşturuldu`,
+        results
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new AdminController();

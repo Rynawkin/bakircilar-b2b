@@ -14,6 +14,7 @@ import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { CustomerEditModal } from '@/components/admin/CustomerEditModal';
+import { BulkCreateUsersModal } from '@/components/admin/BulkCreateUsersModal';
 
 interface MikroCari {
   code: string;
@@ -41,6 +42,7 @@ export default function CustomersPage() {
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [showEditModal, setShowEditModal] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
+  const [showBulkCreateModal, setShowBulkCreateModal] = useState(false);
   const [formData, setFormData] = useState<CreateCustomerRequest>({
     email: '',
     password: '',
@@ -156,6 +158,13 @@ export default function CustomersPage() {
               </div>
             </div>
             <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setShowBulkCreateModal(true)}
+                className="bg-green-600 text-white hover:bg-green-700"
+              >
+                👥 Toplu Kullanıcı Oluştur
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -460,6 +469,15 @@ export default function CustomersPage() {
           onClose={() => setShowEditModal(false)}
           customer={customerToEdit}
           onSave={handleEditCustomer}
+        />
+
+        <BulkCreateUsersModal
+          isOpen={showBulkCreateModal}
+          onClose={() => setShowBulkCreateModal(false)}
+          onSuccess={() => {
+            fetchCustomers();
+            setShowBulkCreateModal(false);
+          }}
         />
       </div>
     </div>

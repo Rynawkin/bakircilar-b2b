@@ -66,6 +66,41 @@ export const adminApi = {
     return response.data;
   },
 
+  // Bulk User Creation
+  getAvailableCaris: async (): Promise<{
+    caris: Array<{
+      code: string;
+      name: string;
+      city?: string;
+      district?: string;
+      phone?: string;
+      isLocked: boolean;
+      groupCode?: string;
+      sectorCode?: string;
+      paymentTerm?: number;
+      hasEInvoice: boolean;
+      balance: number;
+    }>;
+    totalAvailable: number;
+    totalExisting: number;
+  }> => {
+    const response = await apiClient.get('/admin/caris/available');
+    return response.data;
+  },
+
+  bulkCreateUsers: async (cariCodes: string[]): Promise<{
+    success: boolean;
+    message: string;
+    results: {
+      created: string[];
+      skipped: string[];
+      errors: Array<{ code: string; error: string }>;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/users/bulk-create', { cariCodes });
+    return response.data;
+  },
+
   // Products
   getProducts: async (params?: {
     search?: string;
