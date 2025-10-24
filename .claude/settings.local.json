@@ -18,7 +18,9 @@
       "Bash(curl:*)",
       "Bash(cd:*)",
       "Bash(git log:*)",
-      "Bash(scp:*)"
+      "Bash(scp:*)",
+      "Bash(node inspect-siparisler.js:*)",
+      "Bash(node -e \"\nconst sql = require(''mssql'');\n\nconst config = {\n  server: ''185.85.207.76'',\n  port: 2014,\n  database: ''MikroDB_V16_BAKIR'',\n  user: ''sa'',\n  password: ''B@k1rc1l@r'',\n  options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },\n};\n\n(async () => {\n  try {\n    await sql.connect(config);\n    \n    const ozet = await sql.query\\`\n      SELECT * FROM SIPARISLER_OZET \n      WHERE sip_stok_kod = ''B101310'' \n      AND sip_yil = 2025 \n      AND sip_ay = 10\n    \\`;\n    \n    console.log(''SIPARISLER_OZET - B101310 (2025-10):'', ozet.recordset.length, ''kayıt'');\n    if (ozet.recordset.length > 0) console.log(JSON.stringify(ozet.recordset, null, 2));\n    \n    const sip = await sql.query\\`SELECT COUNT(*) as cnt FROM SIPARISLER WHERE sip_evrak_seri LIKE ''B2B%''\\`;\n    console.log(''SIPARISLER - B2B siparişleri:'', sip.recordset[0].cnt, ''kayıt'');\n    \n  } catch (error) {\n    console.error(''Hata:'', error.message);\n  } finally {\n    await sql.close();\n  }\n})();\n\")"
     ],
     "deny": [],
     "ask": []

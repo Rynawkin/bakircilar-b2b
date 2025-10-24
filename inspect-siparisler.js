@@ -36,17 +36,14 @@ const config = {
     `;
     console.log(JSON.stringify(schema.recordset, null, 2));
 
-    // 2. Örnek sipariş kayıtları (son 5 sipariş)
-    console.log('\n\n=== ÖRNEK SİPARİŞ KAYITLARI (SON 5) ===\n');
-    const samples = await sql.query`
-      SELECT TOP 5
+    // 2. B2B siparişlerini kontrol et
+    console.log('\n\n=== B2B SİPARİŞLERİ (B2B_FATURAL ve B2B_BEYAZ) ===\n');
+    const b2bOrders = await sql.query`
+      SELECT
         sip_evrakno_seri,
         sip_evrakno_sira,
         sip_satirno,
         sip_tarih,
-        sip_teslim_tarih,
-        sip_tip,
-        sip_cins,
         sip_musteri_kod,
         sip_stok_kod,
         sip_miktar,
@@ -54,16 +51,15 @@ const config = {
         sip_b_fiyat,
         sip_tutar,
         sip_vergi,
+        sip_aciklama,
         sip_iptal,
-        sip_kapat_fl,
-        sip_depono,
-        sip_doviz_cinsi,
-        sip_doviz_kuru
+        sip_depono
       FROM SIPARISLER
-      WHERE sip_musteri_kod IS NOT NULL
-      ORDER BY sip_tarih DESC
+      WHERE sip_evrakno_seri IN ('B2B_FATURAL', 'B2B_BEYAZ')
+      ORDER BY sip_evrakno_seri, sip_evrakno_sira, sip_satirno
     `;
-    console.log(JSON.stringify(samples.recordset, null, 2));
+    console.log(JSON.stringify(b2bOrders.recordset, null, 2));
+    console.log(`\nToplam B2B sipariş satırı: ${b2bOrders.recordset.length}`);
 
     // 3. Sipariş tipi/cinsi değerlerini anlamak için
     console.log('\n\n=== SİPARİŞ TİP/CİNS DEĞERLERİ ===\n');

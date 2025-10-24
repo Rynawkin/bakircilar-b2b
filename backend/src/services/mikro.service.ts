@@ -437,12 +437,13 @@ class MikroService {
       evrakSeri
     });
 
-    // Connection seviyesinde XACT_ABORT OFF (transaction başlamadan önce)
+    // SIPARISLER_OZET trigger'ını geçici olarak devre dışı bırak
+    // Bu trigger duplicate key hatası veriyor ve transaction'ı uncommittable yapıyor
     try {
-      await this.pool!.request().query('SET XACT_ABORT OFF');
-      console.log('✓ XACT_ABORT OFF ayarlandı (connection seviyesinde)');
+      await this.pool!.request().query('DISABLE TRIGGER mye_SIPARISLER_Trigger ON SIPARISLER');
+      console.log('✓ SIPARISLER trigger devre dışı bırakıldı');
     } catch (err) {
-      console.log('⚠️ XACT_ABORT OFF ayarlanamadı:', err);
+      console.log('⚠️ Trigger devre dışı bırakılamadı:', err);
     }
 
     // Transaction başlat
@@ -486,7 +487,7 @@ class MikroService {
           vergiTutari
         });
 
-        // Basit INSERT - XACT_ABORT OFF sayesinde trigger hataları transaction'ı rollback etmeyecek
+        // INSERT query - Trigger devre dışı olduğu için hatasız çalışacak
         const insertQuery = `
           INSERT INTO SIPARISLER (
             sip_evrakno_seri,
@@ -541,45 +542,22 @@ class MikroService {
           )
         `;
 
-        try {
-          console.log(`🔧 INSERT query çalıştırılıyor...`);
-          await transaction
-            .request()
-            .input('seri', sql.NVarChar(20), evrakSeri)
-            .input('sira', sql.Int, evrakSira)
-            .input('satirNo', sql.Int, satirNo)
-            .input('cariKod', sql.NVarChar(25), cariCode)
-            .input('stokKod', sql.NVarChar(25), item.productCode)
-            .input('miktar', sql.Float, item.quantity)
-            .input('fiyat', sql.Float, item.unitPrice)
-            .input('tutar', sql.Float, tutar)
-            .input('vergi', sql.Float, vergiTutari)
-            .input('aciklama', sql.NVarChar(50), description)
-            .query(insertQuery);
+        console.log(`🔧 INSERT query çalıştırılıyor...`);
+        await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .input('sira', sql.Int, evrakSira)
+          .input('satirNo', sql.Int, satirNo)
+          .input('cariKod', sql.NVarChar(25), cariCode)
+          .input('stokKod', sql.NVarChar(25), item.productCode)
+          .input('miktar', sql.Float, item.quantity)
+          .input('fiyat', sql.Float, item.unitPrice)
+          .input('tutar', sql.Float, tutar)
+          .input('vergi', sql.Float, vergiTutari)
+          .input('aciklama', sql.NVarChar(50), description)
+          .query(insertQuery);
 
-          console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
-        } catch (insertError) {
-          const errorNumber = (insertError as any).number;
-          const procName = (insertError as any).procName;
-
-          // SIPARISLER_OZET duplicate key hatası - özet tablosu güncellenmiyor ama sipariş oluşuyor
-          if (errorNumber === 2601 && procName === 'mye_SIPARISLER_Trigger') {
-            console.log(`  ⚠️ SIPARISLER_OZET duplicate key (ignore) - Satır ${satirNo}`);
-            console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity} (özet tablosu atlandı)`);
-            // Hatayı ignore et, devam et
-          } else {
-            // Gerçek bir hata - throw et
-            console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
-            console.error('INSERT Error Details:', {
-              message: insertError instanceof Error ? insertError.message : String(insertError),
-              code: (insertError as any).code,
-              number: (insertError as any).number,
-              lineNumber: (insertError as any).lineNumber,
-              procName: (insertError as any).procName,
-            });
-            throw insertError;
-          }
-        }
+        console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
       }
 
       // Transaction commit
@@ -604,6 +582,14 @@ class MikroService {
       console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
 
       throw new Error(`Sipariş Mikro'ya yazılamadı: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
+    } finally {
+      // Trigger'ı tekrar enable et (başarılı veya başarısız fark etmez)
+      try {
+        await this.pool!.request().query('ENABLE TRIGGER mye_SIPARISLER_Trigger ON SIPARISLER');
+        console.log('✓ SIPARISLER trigger tekrar etkinleştirildi');
+      } catch (err) {
+        console.error('⚠️ Trigger tekrar etkinleştirilemedi:', err);
+      }
     }
   }
 
