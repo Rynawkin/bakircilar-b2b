@@ -482,8 +482,10 @@ class MikroService {
           vergiTutari
         });
 
+        // TRY-CATCH kullanarak trigger hatalarını suppress et
         const insertQuery = `
-          INSERT INTO SIPARISLER (
+          BEGIN TRY
+            INSERT INTO SIPARISLER (
             sip_evrakno_seri,
             sip_evrakno_sira,
             sip_satirno,
@@ -534,6 +536,15 @@ class MikroService {
             0,
             0
           )
+          END TRY
+          BEGIN CATCH
+            -- Trigger hatalarını ignore et (SIPARISLER_OZET duplicate key)
+            IF ERROR_NUMBER() <> 2601 OR ERROR_PROCEDURE() <> 'mye_SIPARISLER_Trigger'
+            BEGIN
+              -- Başka bir hata ise throw et
+              THROW;
+            END
+          END CATCH
         `;
 
         try {
@@ -554,24 +565,16 @@ class MikroService {
 
           console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
         } catch (insertError) {
-          // Duplicate key hatası SIPARISLER_OZET trigger'ından geliyorsa ignore et
-          const errorNumber = (insertError as any).number;
-          const procName = (insertError as any).procName;
-
-          if (errorNumber === 2601 && procName === 'mye_SIPARISLER_Trigger') {
-            console.log(`  ⚠️ SIPARISLER_OZET duplicate key (ignore) - Satır ${satirNo}`);
-            console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity} (trigger warning ignored)`);
-          } else {
-            console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
-            console.error('INSERT Error Details:', {
-              message: insertError instanceof Error ? insertError.message : String(insertError),
-              code: (insertError as any).code,
-              number: (insertError as any).number,
-              lineNumber: (insertError as any).lineNumber,
-              procName: (insertError as any).procName,
-            });
-            throw insertError;
-          }
+          // Trigger hatası SQL'de handle edildi, buraya gerçek hatalar gelecek
+          console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
+          console.error('INSERT Error Details:', {
+            message: insertError instanceof Error ? insertError.message : String(insertError),
+            code: (insertError as any).code,
+            number: (insertError as any).number,
+            lineNumber: (insertError as any).lineNumber,
+            procName: (insertError as any).procName,
+          });
+          throw insertError;
         }
       }
 
