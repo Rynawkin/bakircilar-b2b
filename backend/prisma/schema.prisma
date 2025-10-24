@@ -52,7 +52,7 @@ enum CostCalculationMethod {
 
 model User {
   id            String        @id @default(uuid())
-  email         String        @unique
+  email         String?       @unique // Optional: Cari kodu ile de login olunabilir
   password      String        // bcrypt hash
   name          String        // DEPRECATED: Use displayName or mikroName
   mikroName     String?       // Mikro'dan gelen orijinal isim (değişmez)
