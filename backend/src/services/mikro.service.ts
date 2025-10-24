@@ -445,6 +445,10 @@ class MikroService {
       await transaction.begin();
       console.log('✓ Transaction başlatıldı');
 
+      // SET XACT_ABORT OFF - Trigger hatalarının transaction'ı rollback etmemesi için
+      await transaction.request().query('SET XACT_ABORT OFF');
+      console.log('✓ XACT_ABORT OFF ayarlandı');
+
       // 1. Yeni evrak sıra numarası al (bu seri için)
       console.log('🔧 Yeni sıra numarası alınıyor...');
       const maxSiraResult = await transaction
@@ -550,15 +554,24 @@ class MikroService {
 
           console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
         } catch (insertError) {
-          console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
-          console.error('INSERT Error Details:', {
-            message: insertError instanceof Error ? insertError.message : String(insertError),
-            code: (insertError as any).code,
-            number: (insertError as any).number,
-            lineNumber: (insertError as any).lineNumber,
-            procName: (insertError as any).procName,
-          });
-          throw insertError;
+          // Duplicate key hatası SIPARISLER_OZET trigger'ından geliyorsa ignore et
+          const errorNumber = (insertError as any).number;
+          const procName = (insertError as any).procName;
+
+          if (errorNumber === 2601 && procName === 'mye_SIPARISLER_Trigger') {
+            console.log(`  ⚠️ SIPARISLER_OZET duplicate key (ignore) - Satır ${satirNo}`);
+            console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity} (trigger warning ignored)`);
+          } else {
+            console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
+            console.error('INSERT Error Details:', {
+              message: insertError instanceof Error ? insertError.message : String(insertError),
+              code: (insertError as any).code,
+              number: (insertError as any).number,
+              lineNumber: (insertError as any).lineNumber,
+              procName: (insertError as any).procName,
+            });
+            throw insertError;
+          }
         }
       }
 
