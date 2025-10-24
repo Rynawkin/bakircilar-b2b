@@ -256,7 +256,7 @@ class OrderService {
         const invoicedOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: invoicedItems.map((item: any) => ({
-            productCode: item.mikroCode,
+            productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: item.product?.vatRate || 0.18,
@@ -273,7 +273,7 @@ class OrderService {
         const whiteOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: whiteItems.map((item: any) => ({
-            productCode: item.mikroCode,
+            productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: 0, // Beyaz için KDV=0
@@ -349,7 +349,7 @@ class OrderService {
         const invoicedOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: invoicedItems.map((item: any) => ({
-            productCode: item.mikroCode,
+            productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: 0.18, // Default VAT rate
@@ -377,7 +377,7 @@ class OrderService {
         const whiteOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: whiteItems.map((item: any) => ({
-            productCode: item.mikroCode,
+            productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: 0,

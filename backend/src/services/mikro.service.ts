@@ -5,7 +5,7 @@
  * veri çeker ve sipariş yazar.
  */
 
-import mssql from 'mssql';
+import * as sql from 'mssql';
 import { config } from '../config';
 import MIKRO_TABLES from '../config/mikro-tables';
 import {
@@ -18,7 +18,7 @@ import {
 } from '../types';
 
 class MikroService {
-  public pool: mssql.ConnectionPool | null = null;
+  public pool: sql.ConnectionPool | null = null;
 
   /**
    * Mikro KDV kod → yüzde dönüşümü
@@ -47,7 +47,7 @@ class MikroService {
     }
 
     try {
-      this.pool = await mssql.connect(config.mikro);
+      this.pool = await sql.connect(config.mikro);
       console.log('✅ Mikro ERP bağlantısı başarılı');
     } catch (error) {
       console.error('❌ Mikro ERP bağlantı hatası:', error);
@@ -390,8 +390,8 @@ class MikroService {
       `;
 
       const request = this.pool!.request();
-      request.input('productCode', mssql.VarChar, productCode);
-      request.input('warehouseNo', mssql.Int, parseInt(warehouseNo));
+      request.input('productCode', sql.VarChar, productCode);
+      request.input('warehouseNo', sql.Int, parseInt(warehouseNo));
 
       const result = await request.query(query);
       totalStock += result.recordset[0]?.stock || 0;
@@ -402,7 +402,15 @@ class MikroService {
 
   /**
    * Mikro'ya sipariş yaz
-   * TODO: Sipariş yapısı netleşince implement edilecek
+   *
+   * Faturalı ve beyaz siparişler için ayrı evrak serileri kullanılır:
+   * - Faturalı: "B2B_FATURAL"
+   * - Beyaz: "B2B_BEYAZ"
+   *
+   * Her sipariş için:
+   * 1. Yeni evrak sıra numarası alınır (MAX + 1)
+   * 2. Her item için ayrı satır eklenir (satirno: 0, 1, 2...)
+   * 3. Transaction içinde çalışır (hepsi veya hiçbiri)
    */
   async writeOrder(orderData: {
     cariCode: string;
@@ -416,8 +424,122 @@ class MikroService {
     description: string;
   }): Promise<string> {
     await this.connect();
-    // TODO: Sipariş yazma implement edilecek
-    throw new Error('Sipariş yazma henüz implement edilmedi');
+
+    const { cariCode, items, applyVAT, description } = orderData;
+
+    // Evrak serisi belirle
+    const evrakSeri = applyVAT ? 'B2B_FATURAL' : 'B2B_BEYAZ';
+
+    // Transaction başlat
+    const transaction = this.pool!.transaction();
+    await transaction.begin();
+
+    try {
+      // 1. Yeni evrak sıra numarası al (bu seri için)
+      const maxSiraResult = await transaction
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri).query(`
+          SELECT ISNULL(MAX(sip_evrakno_sira), 0) + 1 as yeni_sira
+          FROM SIPARISLER
+          WHERE sip_evrakno_seri = @seri
+        `);
+
+      const evrakSira = maxSiraResult.recordset[0].yeni_sira;
+      const orderNumber = `${evrakSeri}-${evrakSira}`;
+
+      console.log(`📝 Mikro'ya sipariş yazılıyor: ${orderNumber}`);
+
+      // 2. Her item için satır ekle
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const satirNo = i;
+
+        // Hesaplamalar
+        const tutar = item.quantity * item.unitPrice;
+        const vergiTutari = applyVAT ? tutar * (item.vatRate / 100) : 0;
+
+        const insertQuery = `
+          INSERT INTO SIPARISLER (
+            sip_evrakno_seri,
+            sip_evrakno_sira,
+            sip_satirno,
+            sip_tarih,
+            sip_teslim_tarih,
+            sip_tip,
+            sip_cins,
+            sip_musteri_kod,
+            sip_stok_kod,
+            sip_miktar,
+            sip_teslim_miktar,
+            sip_b_fiyat,
+            sip_tutar,
+            sip_vergi,
+            sip_iptal,
+            sip_kapat_fl,
+            sip_depono,
+            sip_doviz_cinsi,
+            sip_doviz_kuru,
+            sip_aciklama,
+            sip_create_date,
+            sip_DBCno,
+            sip_firmano,
+            sip_subeno
+          ) VALUES (
+            @seri,
+            @sira,
+            @satirNo,
+            GETDATE(),
+            DATEADD(day, 7, GETDATE()),
+            0,
+            0,
+            @cariKod,
+            @stokKod,
+            @miktar,
+            0,
+            @fiyat,
+            @tutar,
+            @vergi,
+            0,
+            0,
+            1,
+            0,
+            1,
+            @aciklama,
+            GETDATE(),
+            0,
+            0,
+            0
+          )
+        `;
+
+        await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .input('sira', sql.Int, evrakSira)
+          .input('satirNo', sql.Int, satirNo)
+          .input('cariKod', sql.NVarChar(25), cariCode)
+          .input('stokKod', sql.NVarChar(25), item.productCode)
+          .input('miktar', sql.Float, item.quantity)
+          .input('fiyat', sql.Float, item.unitPrice)
+          .input('tutar', sql.Float, tutar)
+          .input('vergi', sql.Float, vergiTutari)
+          .input('aciklama', sql.NVarChar(50), description)
+          .query(insertQuery);
+
+        console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
+      }
+
+      // Transaction commit
+      await transaction.commit();
+
+      console.log(`✅ Sipariş başarıyla oluşturuldu: ${orderNumber}`);
+      return orderNumber;
+    } catch (error) {
+      // Transaction rollback
+      await transaction.rollback();
+      console.error('❌ Sipariş yazma hatası:', error);
+      throw new Error(`Sipariş Mikro'ya yazılamadı: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
+    }
   }
 
   /**
