@@ -479,18 +479,24 @@ export default function ProductsPage() {
                           inputMode="numeric"
                           pattern="[0-9]*"
                           value={quickAddQuantities[product.id] || 1}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => {
                             const value = e.target.value.replace(/[^0-9]/g, '');
-                            if (value === '') {
+                            if (value === '' || parseInt(value) === 0) {
+                              return; // Allow empty during typing
+                            }
+                            const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
+                            setQuickAddQuantities({
+                              ...quickAddQuantities,
+                              [product.id]: numValue
+                            });
+                          }}
+                          onBlur={(e) => {
+                            // Set to 1 if empty on blur
+                            if (e.target.value === '' || parseInt(e.target.value) === 0) {
                               setQuickAddQuantities({
                                 ...quickAddQuantities,
                                 [product.id]: 1
-                              });
-                            } else {
-                              const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
-                              setQuickAddQuantities({
-                                ...quickAddQuantities,
-                                [product.id]: numValue
                               });
                             }
                           }}

@@ -225,13 +225,19 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                   inputMode="numeric"
                   pattern="[0-9]*"
                   value={quantity}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => {
                     const value = e.target.value.replace(/[^0-9]/g, '');
-                    if (value === '') {
+                    if (value === '' || parseInt(value) === 0) {
+                      return; // Allow empty during typing
+                    }
+                    const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
+                    setQuantity(numValue);
+                  }}
+                  onBlur={(e) => {
+                    // Set to 1 if empty on blur
+                    if (e.target.value === '' || parseInt(e.target.value) === 0) {
                       setQuantity(1);
-                    } else {
-                      const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
-                      setQuantity(numValue);
                     }
                   }}
                   className="text-center font-bold text-xl h-12 w-24 border-2 border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg px-3"
