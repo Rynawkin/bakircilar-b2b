@@ -234,7 +234,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                       setQuantity(numValue);
                     }
                   }}
-                  className="text-center font-bold text-xl h-12 flex-1 border-2 border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg px-3"
+                  className="text-center font-bold text-xl h-12 w-24 border-2 border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg px-3"
                 />
                 <button
                   onClick={() => setQuantity(Math.min(product.excessStock, quantity + 1))}
@@ -242,7 +242,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                 >
                   +
                 </button>
-                <span className="text-gray-600 font-medium min-w-[60px]">{product.unit}</span>
+                <span className="text-gray-600 font-semibold">{product.unit}</span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 Maksimum: {product.excessStock} {product.unit}

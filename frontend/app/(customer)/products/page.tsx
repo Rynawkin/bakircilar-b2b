@@ -473,32 +473,30 @@ export default function ProductsPage() {
                       </div>
 
                       {/* Quantity & Add to Cart */}
-                      <div className="px-3 pb-3 flex gap-2">
-                        <div className="relative flex-1">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            value={quickAddQuantities[product.id] || 1}
-                            onChange={(e) => {
-                              const value = e.target.value.replace(/[^0-9]/g, '');
-                              if (value === '') {
-                                setQuickAddQuantities({
-                                  ...quickAddQuantities,
-                                  [product.id]: 1
-                                });
-                              } else {
-                                const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
-                                setQuickAddQuantities({
-                                  ...quickAddQuantities,
-                                  [product.id]: numValue
-                                });
-                              }
-                            }}
-                            className="w-full text-center font-bold text-sm h-10 pr-12 pl-3 border-2 border-gray-200 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-semibold pointer-events-none">{product.unit}</span>
-                        </div>
+                      <div className="px-3 pb-3 flex gap-2 items-center">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={quickAddQuantities[product.id] || 1}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/[^0-9]/g, '');
+                            if (value === '') {
+                              setQuickAddQuantities({
+                                ...quickAddQuantities,
+                                [product.id]: 1
+                              });
+                            } else {
+                              const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
+                              setQuickAddQuantities({
+                                ...quickAddQuantities,
+                                [product.id]: numValue
+                              });
+                            }
+                          }}
+                          className="w-16 text-center font-bold text-sm h-10 px-2 border-2 border-gray-200 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg"
+                        />
+                        <span className="text-xs text-gray-600 font-medium min-w-[35px]">{product.unit}</span>
                         <Button
                           size="sm"
                           className="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold text-xs h-10 px-3 rounded-lg shadow-md hover:shadow-lg transition-all"
