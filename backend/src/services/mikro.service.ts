@@ -430,12 +430,23 @@ class MikroService {
     // Evrak serisi belirle
     const evrakSeri = applyVAT ? 'B2B_FATURAL' : 'B2B_BEYAZ';
 
+    console.log(`🔧 Sipariş parametreleri:`, {
+      cariCode,
+      itemCount: items.length,
+      applyVAT,
+      evrakSeri
+    });
+
     // Transaction başlat
     const transaction = this.pool!.transaction();
-    await transaction.begin();
 
     try {
+      console.log('🔧 Transaction başlatılıyor...');
+      await transaction.begin();
+      console.log('✓ Transaction başlatıldı');
+
       // 1. Yeni evrak sıra numarası al (bu seri için)
+      console.log('🔧 Yeni sıra numarası alınıyor...');
       const maxSiraResult = await transaction
         .request()
         .input('seri', sql.NVarChar(20), evrakSeri).query(`
@@ -457,6 +468,15 @@ class MikroService {
         // Hesaplamalar
         const tutar = item.quantity * item.unitPrice;
         const vergiTutari = applyVAT ? tutar * item.vatRate : 0;
+
+        console.log(`🔧 Satır ${satirNo} hazırlanıyor:`, {
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: item.vatRate,
+          tutar,
+          vergiTutari
+        });
 
         const insertQuery = `
           INSERT INTO SIPARISLER (
