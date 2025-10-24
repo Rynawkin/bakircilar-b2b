@@ -537,7 +537,19 @@ class MikroService {
     } catch (error) {
       // Transaction rollback
       await transaction.rollback();
-      console.error('❌ Sipariş yazma hatası:', error);
+
+      // Detaylı hata logu
+      console.error('❌ Sipariş yazma hatası - DETAYLI:');
+      console.error('Error type:', error instanceof Error ? error.constructor.name : typeof error);
+      console.error('Error message:', error instanceof Error ? error.message : String(error));
+      if (error instanceof Error && 'code' in error) {
+        console.error('Error code:', (error as any).code);
+      }
+      if (error instanceof Error && 'number' in error) {
+        console.error('SQL Error number:', (error as any).number);
+      }
+      console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
       throw new Error(`Sipariş Mikro'ya yazılamadı: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
     }
   }
