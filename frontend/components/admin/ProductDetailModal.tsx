@@ -180,32 +180,32 @@ export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailMo
                   <div className="text-sm font-semibold text-gray-900 mb-3">{typeLabel}</div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-primary-50 rounded-lg p-3">
-                      <div className="text-xs text-primary-700 mb-1">📄 Faturalı (KDV Dahil)</div>
+                      <div className="text-xs text-primary-700 mb-1">📄 Faturalı (KDV Hariç +KDV)</div>
                       <div className="text-2xl font-bold text-primary-900">
                         {formatCurrency(typePrices.INVOICED || 0)}
                       </div>
                     </div>
                     <div className="bg-gray-100 rounded-lg p-3">
-                      <div className="text-xs text-gray-700 mb-1">⚪ Beyaz (Özel)</div>
+                      <div className="text-xs text-gray-700 mb-1">⚪ Beyaz (Özel - Faturasız)</div>
                       <div className="text-2xl font-bold text-gray-900">
                         {formatCurrency(typePrices.WHITE || 0)}
                       </div>
                     </div>
                   </div>
                   {/* Kar Marjı Gösterimi */}
-                  {product.calculatedCost && typePrices.WHITE > 0 && (
+                  {product.calculatedCost && typePrices.INVOICED > 0 && (
                     <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-600">
                       <div className="flex justify-between">
-                        <span>Beyaz Fiyat Kar Marjı:</span>
-                        <span className="font-semibold">
-                          %{(((typePrices.WHITE - product.calculatedCost) / product.calculatedCost) * 100).toFixed(1)}
+                        <span>Faturalı Fiyat Kar Marjı:</span>
+                        <span className={`font-semibold ${((typePrices.INVOICED - product.calculatedCost) / product.calculatedCost) * 100 < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          %{(((typePrices.INVOICED - product.calculatedCost) / product.calculatedCost) * 100).toFixed(1)}
                         </span>
                       </div>
-                      {typePrices.INVOICED > 0 && (
+                      {typePrices.WHITE > 0 && (
                         <div className="flex justify-between mt-1">
-                          <span>Faturalı Kar Marjı (maliyet bazlı):</span>
-                          <span className="font-semibold">
-                            %{(((typePrices.INVOICED / (1 + product.vatRate) - product.calculatedCost) / product.calculatedCost) * 100).toFixed(1)}
+                          <span>Beyaz Fiyat Kar Marjı:</span>
+                          <span className={`font-semibold ${((typePrices.WHITE - product.calculatedCost) / product.calculatedCost) * 100 < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            %{(((typePrices.WHITE - product.calculatedCost) / product.calculatedCost) * 100).toFixed(1)}
                           </span>
                         </div>
                       )}

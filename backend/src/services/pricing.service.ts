@@ -3,8 +3,12 @@
  *
  * Dinamik fiyatlandırma motoru:
  * - Maliyet hesaplama (dinamik formüllerle)
- * - Faturalı fiyat hesaplama (cost × (1 + profit margin))
- * - Beyaz fiyat hesaplama (cost × (1 + vat/2))
+ * - Faturalı fiyat: Maliyet + kar marjı = KDV HARİÇ satış fiyatı
+ *   Formül: cost × (1 + profitMargin)
+ *   Müşteriye bu fiyat gösterilir ve üzerine KDV eklenir
+ * - Beyaz fiyat: Faturasız özel fiyat (KDV'nin yarısı kadar ek marj)
+ *   Formül: invoicedPrice × (1 + vatRate/2)
+ *   Alternatif açıklama: cost × (1 + vatRate/2) × (1 + profitMargin)
  */
 
 import { prisma } from '../utils/prisma';
@@ -116,20 +120,32 @@ class PricingService {
   }
 
   /**
-   * Faturalı fiyat hesapla
+   * Faturalı fiyat hesapla (KDV HARİÇ satış fiyatı)
    *
    * Formül: cost × (1 + profitMargin)
+   * Örnek: maliyet=100, marj=0.20 → 100 × 1.20 = 120 TL (KDV hariç)
+   *
+   * Bu fiyat müşteriye gösterilir ve üzerine KDV eklenir.
+   * Mikro'ya yazarken: sip_tutar = bu fiyat, sip_vergi = tutar × vatRate
    */
   calculateInvoicedPrice(cost: number, profitMargin: number): number {
     return cost * (1 + profitMargin);
   }
 
   /**
-   * Beyaz fiyat hesapla
+   * Beyaz fiyat hesapla (Faturasız özel fiyat)
    *
-   * Formül: invoicedPrice × (1 + vat/2)
-   * Mantık: Her segmentin KDV hariç satış fiyatına, KDV'nin yarısı kadar eklenir
-   * Örnek: invoicedPrice=100, vat=0.10 → 100 × (1 + 0.10/2) = 100 × 1.05 = 105
+   * Formül: invoicedPrice × (1 + vatRate/2)
+   *
+   * Mantık: Faturalı fiyata KDV'nin yarısı kadar ek marj eklenir.
+   * Bu, "maliyete KDV'nin yarısını ekleyip marjlandırma" ile eşdeğerdir.
+   *
+   * Örnek: maliyet=100, marj=0.20, KDV=0.18
+   * - Faturalı = 100 × 1.20 = 120 TL (KDV hariç)
+   * - Beyaz = 120 × (1 + 0.18/2) = 120 × 1.09 = 130.8 TL (faturasız)
+   *
+   * Alternatif açıklama: cost × (1 + vatRate/2) × (1 + profitMargin)
+   * - 100 × 1.09 × 1.20 = 130.8 TL (aynı sonuç)
    */
   calculateWhitePrice(invoicedPrice: number, vatRate: number): number {
     return invoicedPrice * (1 + vatRate / 2);
