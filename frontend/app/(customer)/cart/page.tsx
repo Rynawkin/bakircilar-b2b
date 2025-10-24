@@ -229,7 +229,7 @@ export default function CartPage() {
                               <h3 className="font-bold text-gray-900 text-lg mb-1">{item.product.name}</h3>
                               <p className="text-sm text-gray-600 font-mono mb-2">Kod: {item.product.mikroCode}</p>
                               <Badge variant="info" className="font-semibold">
-                                📄 Faturalı (KDV Dahil)
+                                📄 Faturalı
                               </Badge>
                             </div>
 
@@ -269,11 +269,12 @@ export default function CartPage() {
                               {/* Price */}
                               <div className="flex justify-between sm:block sm:text-right sm:min-w-[120px]">
                                 <p className="text-sm text-gray-600">
-                                  {formatCurrency(item.unitPrice)} / adet
+                                  {formatCurrency(item.unitPrice)} / adet<span className="text-xs ml-1">(+KDV)</span>
                                 </p>
                                 <p className="text-xl sm:text-2xl font-bold text-blue-600">
                                   {formatCurrency(item.totalPrice)}
                                 </p>
+                                <p className="text-xs text-gray-500">KDV Hariç</p>
                               </div>
 
                               {/* Delete Button - Desktop */}
@@ -380,6 +381,7 @@ export default function CartPage() {
                                 <p className="text-xl sm:text-2xl font-bold text-gray-700">
                                   {formatCurrency(item.totalPrice)}
                                 </p>
+                                <p className="text-xs text-gray-500">Özel Fiyat</p>
                               </div>
 
                               {/* Delete Button - Desktop */}

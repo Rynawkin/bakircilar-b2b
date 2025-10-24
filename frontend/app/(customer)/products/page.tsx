@@ -458,6 +458,7 @@ export default function ProductsPage() {
                         >
                           <div className="opacity-80 mb-0.5">📄 Faturali</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
+                          <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
                         </button>
                         <button
                           className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
@@ -469,6 +470,7 @@ export default function ProductsPage() {
                         >
                           <div className="opacity-80 mb-0.5">⚪ Beyaz</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
+                          <div className="text-[10px] opacity-70 mt-0.5">Özel</div>
                         </button>
                       </div>
 

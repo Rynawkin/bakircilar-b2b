@@ -187,11 +187,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                   }`}
                   onClick={() => setPriceType('INVOICED')}
                 >
-                  <div className="text-xs text-gray-600 mb-1">Faturali</div>
+                  <div className="text-xs text-gray-600 mb-1">📄 Faturali</div>
                   <div className="text-2xl font-bold text-primary-600">
                     {formatCurrency(product.prices.invoiced)}
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">/{product.unit}</div>
+                  <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-primary-600 font-semibold">+KDV</span></div>
                 </button>
                 <button
                   className={`p-4 rounded-xl border-2 transition-all ${
@@ -201,11 +201,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                   }`}
                   onClick={() => setPriceType('WHITE')}
                 >
-                  <div className="text-xs text-gray-600 mb-1">Beyaz</div>
+                  <div className="text-xs text-gray-600 mb-1">⚪ Beyaz</div>
                   <div className="text-2xl font-bold text-gray-900">
                     {formatCurrency(product.prices.white)}
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">/{product.unit}</div>
+                  <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-gray-700 font-semibold">Özel Fiyat</span></div>
                 </button>
               </div>
             </div>
