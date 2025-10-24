@@ -437,6 +437,14 @@ class MikroService {
       evrakSeri
     });
 
+    // Connection seviyesinde XACT_ABORT OFF (transaction başlamadan önce)
+    try {
+      await this.pool!.request().query('SET XACT_ABORT OFF');
+      console.log('✓ XACT_ABORT OFF ayarlandı (connection seviyesinde)');
+    } catch (err) {
+      console.log('⚠️ XACT_ABORT OFF ayarlanamadı:', err);
+    }
+
     // Transaction başlat
     const transaction = this.pool!.transaction();
 
@@ -444,10 +452,6 @@ class MikroService {
       console.log('🔧 Transaction başlatılıyor...');
       await transaction.begin();
       console.log('✓ Transaction başlatıldı');
-
-      // SET XACT_ABORT OFF - Trigger hatalarının transaction'ı rollback etmemesi için
-      await transaction.request().query('SET XACT_ABORT OFF');
-      console.log('✓ XACT_ABORT OFF ayarlandı');
 
       // 1. Yeni evrak sıra numarası al (bu seri için)
       console.log('🔧 Yeni sıra numarası alınıyor...');
@@ -482,10 +486,9 @@ class MikroService {
           vergiTutari
         });
 
-        // TRY-CATCH kullanarak trigger hatalarını suppress et
+        // Basit INSERT - XACT_ABORT OFF sayesinde trigger hataları transaction'ı rollback etmeyecek
         const insertQuery = `
-          BEGIN TRY
-            INSERT INTO SIPARISLER (
+          INSERT INTO SIPARISLER (
             sip_evrakno_seri,
             sip_evrakno_sira,
             sip_satirno,
@@ -536,15 +539,6 @@ class MikroService {
             0,
             0
           )
-          END TRY
-          BEGIN CATCH
-            -- Trigger hatalarını ignore et (SIPARISLER_OZET duplicate key)
-            IF ERROR_NUMBER() <> 2601 OR ERROR_PROCEDURE() <> 'mye_SIPARISLER_Trigger'
-            BEGIN
-              -- Başka bir hata ise throw et
-              THROW;
-            END
-          END CATCH
         `;
 
         try {
@@ -565,16 +559,26 @@ class MikroService {
 
           console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
         } catch (insertError) {
-          // Trigger hatası SQL'de handle edildi, buraya gerçek hatalar gelecek
-          console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
-          console.error('INSERT Error Details:', {
-            message: insertError instanceof Error ? insertError.message : String(insertError),
-            code: (insertError as any).code,
-            number: (insertError as any).number,
-            lineNumber: (insertError as any).lineNumber,
-            procName: (insertError as any).procName,
-          });
-          throw insertError;
+          const errorNumber = (insertError as any).number;
+          const procName = (insertError as any).procName;
+
+          // SIPARISLER_OZET duplicate key hatası - özet tablosu güncellenmiyor ama sipariş oluşuyor
+          if (errorNumber === 2601 && procName === 'mye_SIPARISLER_Trigger') {
+            console.log(`  ⚠️ SIPARISLER_OZET duplicate key (ignore) - Satır ${satirNo}`);
+            console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity} (özet tablosu atlandı)`);
+            // Hatayı ignore et, devam et
+          } else {
+            // Gerçek bir hata - throw et
+            console.error(`❌ INSERT hatası - Satır ${satirNo}:`, insertError);
+            console.error('INSERT Error Details:', {
+              message: insertError instanceof Error ? insertError.message : String(insertError),
+              code: (insertError as any).code,
+              number: (insertError as any).number,
+              lineNumber: (insertError as any).lineNumber,
+              procName: (insertError as any).procName,
+            });
+            throw insertError;
+          }
         }
       }
 
