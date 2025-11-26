@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    domains: ['localhost'],
+    domains: ['localhost', '139.59.133.81'],
   },
   async rewrites() {
     // Proxy API requests to backend to avoid CORS and Mixed Content issues
