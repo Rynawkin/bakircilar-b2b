@@ -63,15 +63,17 @@ export default function LoginPage() {
         {/* Logo & Header */}
         <div className="text-center">
           <div className="inline-block bg-white p-6 rounded-2xl shadow-2xl mb-6">
-            <div className="text-6xl font-black bg-gradient-to-r from-primary-600 to-primary-700 bg-clip-text text-transparent">
-              B2B
-            </div>
+            <svg className="w-24 h-24 mx-auto text-primary-600" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L2 7V17L12 22L22 17V7L12 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
+              <path d="M12 2V12M12 12L2 7M12 12L22 7M12 12V22" stroke="currentColor" strokeWidth="1"/>
+              <circle cx="12" cy="12" r="2" fill="currentColor"/>
+            </svg>
           </div>
           <h2 className="text-3xl font-extrabold text-white">
-            Bakırcılar Grup B2B
+            Bakırcılar Grup
           </h2>
           <p className="mt-2 text-sm text-primary-100">
-            Profesyonel B2B E-Ticaret Platformu
+            B2B Sipariş Sistemi
           </p>
         </div>
 
