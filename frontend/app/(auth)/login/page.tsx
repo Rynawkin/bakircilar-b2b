@@ -66,7 +66,7 @@ export default function LoginPage() {
             <img
               src="/logo.png"
               alt="Bakırcılar Logo"
-              className="h-24 w-auto mx-auto"
+              className="h-32 w-auto mx-auto"
             />
           </div>
           <h2 className="text-3xl font-extrabold text-white">
