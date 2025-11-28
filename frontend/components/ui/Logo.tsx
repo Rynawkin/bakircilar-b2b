@@ -8,9 +8,9 @@ interface LogoProps {
 
 export function Logo({ variant = 'dark', size = 'md' }: LogoProps) {
   const sizeClasses = {
-    sm: { height: 70, text: 'text-xl' },
-    md: { height: 80, text: 'text-2xl' },
-    lg: { height: 100, text: 'text-3xl' },
+    sm: { height: 40, text: 'text-xl' },
+    md: { height: 45, text: 'text-2xl' },
+    lg: { height: 60, text: 'text-3xl' },
   };
 
   const currentSize = sizeClasses[size];

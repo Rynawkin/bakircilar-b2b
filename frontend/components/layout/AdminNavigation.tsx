@@ -56,28 +56,29 @@ export function AdminNavigation() {
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-1">
             {navItems.map((item) => (
               <button
                 key={item.href}
                 onClick={() => router.push(item.href)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all ${
                   isActive(item.href)
                     ? 'bg-white text-primary-700 shadow-md'
                     : 'text-white hover:bg-primary-800/50'
                 }`}
+                title={item.description}
               >
-                <span>{item.icon}</span>
-                <span>{item.name}</span>
+                <span className="text-sm">{item.icon}</span>
+                <span className="hidden xl:inline">{item.name}</span>
               </button>
             ))}
 
             {/* Settings Dropdown */}
             <Menu as="div" className="relative">
-              <Menu.Button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white hover:bg-primary-800/50 transition-all">
-                <span>⚙️</span>
-                <span>Ayarlar</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <Menu.Button className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-medium text-white hover:bg-primary-800/50 transition-all">
+                <span className="text-sm">⚙️</span>
+                <span className="hidden xl:inline">Ayarlar</span>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </Menu.Button>
@@ -119,12 +120,12 @@ export function AdminNavigation() {
             </Menu>
 
             {/* User Menu */}
-            <Menu as="div" className="relative ml-2">
-              <Menu.Button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-800/50 text-white hover:bg-primary-800 transition-all">
-                <div className="w-8 h-8 rounded-full bg-white text-primary-700 flex items-center justify-center font-bold">
+            <Menu as="div" className="relative ml-1">
+              <Menu.Button className="flex items-center gap-1 px-2 py-2 rounded-lg text-xs font-medium bg-primary-800/50 text-white hover:bg-primary-800 transition-all">
+                <div className="w-7 h-7 rounded-full bg-white text-primary-700 flex items-center justify-center font-bold text-xs">
                   {user?.name?.charAt(0).toUpperCase()}
                 </div>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </Menu.Button>
