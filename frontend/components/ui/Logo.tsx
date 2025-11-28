@@ -8,9 +8,9 @@ interface LogoProps {
 
 export function Logo({ variant = 'dark', size = 'md' }: LogoProps) {
   const sizeClasses = {
-    sm: { height: 50, text: 'text-xl' },
-    md: { height: 60, text: 'text-2xl' },
-    lg: { height: 80, text: 'text-3xl' },
+    sm: { height: 70, text: 'text-xl' },
+    md: { height: 80, text: 'text-2xl' },
+    lg: { height: 100, text: 'text-3xl' },
   };
 
   const currentSize = sizeClasses[size];
@@ -20,7 +20,7 @@ export function Logo({ variant = 'dark', size = 'md' }: LogoProps) {
       <Image
         src="/logo.png"
         alt="Bakırcılar Logo"
-        width={currentSize.height * 2.5}
+        width={currentSize.height * 3}
         height={currentSize.height}
         className="object-contain"
         priority

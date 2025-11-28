@@ -62,11 +62,11 @@ export default function LoginPage() {
       <div className="max-w-md w-full space-y-8">
         {/* Logo & Header */}
         <div className="text-center">
-          <div className="mb-6">
+          <div className="mb-8 px-4">
             <img
               src="/logo.png"
               alt="Bakırcılar Logo"
-              className="h-40 w-auto mx-auto drop-shadow-2xl"
+              className="h-48 w-full max-w-md mx-auto object-contain drop-shadow-2xl"
             />
           </div>
           <h2 className="text-3xl font-extrabold text-white">
