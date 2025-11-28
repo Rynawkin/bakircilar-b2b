@@ -225,6 +225,18 @@ class OrderTrackingService {
         orderMap.set(orderNumber, order);
       }
 
+      // Aynı satır numarası daha önce eklendi mi? (Duplicate kontrolü)
+      const itemKey = `${row.sip_stok_kod}-${row.sip_satirno}`;
+      const isDuplicate = order.items.some(
+        (item) => item.productCode === row.sip_stok_kod &&
+                  (item as any).rowNumber === row.sip_satirno
+      );
+
+      if (isDuplicate) {
+        console.warn(`⚠️ Duplicate satır atlandı: Sipariş ${orderNumber}, Satır ${row.sip_satirno}, Ürün ${row.sip_stok_kod}`);
+        continue;
+      }
+
       // Kalan sipariş tutarını hesapla (kalan_miktar × birim_fiyat)
       const remainingTotal = row.kalan_miktar * row.birim_fiyat;
 
@@ -233,7 +245,7 @@ class OrderTrackingService {
       const remainingVat = remainingTotal * kdvRate;
 
       // Satır detayını ekle
-      const item: PendingOrderItem = {
+      const item: any = {
         productCode: row.sip_stok_kod,
         productName: row.urun_adi || row.sip_stok_kod,
         unit: row.birim || 'ADET',
@@ -243,6 +255,7 @@ class OrderTrackingService {
         unitPrice: row.birim_fiyat,
         lineTotal: remainingTotal,  // KALAN TUTAR
         vat: remainingVat,  // KALAN KDV
+        rowNumber: row.sip_satirno,  // Satır numarasını sakla (duplicate kontrolü için)
       };
 
       order.items.push(item);
