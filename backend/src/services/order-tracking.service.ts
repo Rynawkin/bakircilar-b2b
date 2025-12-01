@@ -75,12 +75,15 @@ class OrderTrackingService {
       await prisma.pendingMikroOrder.deleteMany({});
       console.log('✅ Eski cache temizlendi');
 
-      // 5. Yeni verileri kaydet (emailSent durumunu koru)
+      // 5. Yeni verileri kaydet (emailSent durumunu koru) - upsert kullan (unique constraint için)
       for (const order of groupedOrders) {
         const previousEmailStatus = emailSentMap.get(order.mikroOrderNumber);
 
-        await prisma.pendingMikroOrder.create({
-          data: {
+        await prisma.pendingMikroOrder.upsert({
+          where: {
+            mikroOrderNumber: order.mikroOrderNumber,
+          },
+          create: {
             mikroOrderNumber: order.mikroOrderNumber,
             orderSeries: order.orderSeries,
             orderSequence: order.orderSequence,
@@ -95,7 +98,23 @@ class OrderTrackingService {
             totalAmount: order.totalAmount,
             totalVAT: order.totalVAT,
             grandTotal: order.grandTotal,
-            // Daha önce mail gönderildiyse durumu koru, yoksa false
+            emailSent: previousEmailStatus?.sent || false,
+            emailSentAt: previousEmailStatus?.sentAt || null,
+          },
+          update: {
+            orderSeries: order.orderSeries,
+            orderSequence: order.orderSequence,
+            customerCode: order.customerCode,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail || null,
+            sectorCode: order.sectorCode || null,
+            orderDate: order.orderDate,
+            deliveryDate: order.deliveryDate,
+            items: order.items as any,
+            itemCount: order.itemCount,
+            totalAmount: order.totalAmount,
+            totalVAT: order.totalVAT,
+            grandTotal: order.grandTotal,
             emailSent: previousEmailStatus?.sent || false,
             emailSentAt: previousEmailStatus?.sentAt || null,
           },

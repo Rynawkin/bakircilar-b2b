@@ -403,21 +403,32 @@ class EmailService {
         }
       }
 
-      // 3. Email data hazırla
+      // 3. Email data hazırla - Duplicate order numaralarını filtrele
+      const uniqueOrdersMap = new Map<string, any>();
+      for (const order of orders) {
+        if (!uniqueOrdersMap.has(order.mikroOrderNumber)) {
+          uniqueOrdersMap.set(order.mikroOrderNumber, {
+            mikroOrderNumber: order.mikroOrderNumber,
+            orderDate: order.orderDate,
+            deliveryDate: order.deliveryDate,
+            items: order.items as any,
+            totalAmount: order.totalAmount,
+            totalVAT: order.totalVAT,
+            grandTotal: order.grandTotal,
+          });
+        } else {
+          console.warn(`⚠️ Duplicate order removed from email: ${order.mikroOrderNumber} for customer ${customerCode}`);
+        }
+      }
+
+      const uniqueOrders = Array.from(uniqueOrdersMap.values());
+
       const customerData: OrderEmailData = {
         customerCode,
         customerName: orders[0].customerName,
         customerEmail: targetEmail,
-        orders: orders.map((order) => ({
-          mikroOrderNumber: order.mikroOrderNumber,
-          orderDate: order.orderDate,
-          deliveryDate: order.deliveryDate,
-          items: order.items as any,
-          totalAmount: order.totalAmount,
-          totalVAT: order.totalVAT,
-          grandTotal: order.grandTotal,
-        })),
-        totalOrdersAmount: orders.reduce((sum, o) => sum + o.grandTotal, 0),
+        orders: uniqueOrders,
+        totalOrdersAmount: uniqueOrders.reduce((sum, o) => sum + o.grandTotal, 0),
       };
 
       // 4. Mail gönder

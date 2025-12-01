@@ -438,7 +438,7 @@ model PendingMikroOrder {
   id                    String    @id @default(uuid())
 
   // Sipariş bilgileri
-  mikroOrderNumber      String    // "HENDEK-8162"
+  mikroOrderNumber      String    @unique // "HENDEK-8162" - Her sipariş tek bir kayıt olmalı
   orderSeries           String    // "HENDEK"
   orderSequence         Int       // 8162
 
