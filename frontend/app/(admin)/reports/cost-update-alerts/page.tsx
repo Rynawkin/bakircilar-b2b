@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
+import { adminApi } from '@/lib/api/admin';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -68,33 +69,24 @@ export default function CostUpdateAlertsPage() {
     setError(null);
 
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '50',
+      const result = await adminApi.getCostUpdateAlerts({
+        page,
+        limit: 50,
         sortBy: 'riskAmount',
         sortOrder: 'desc',
+        dayDiff: dayDiffFilter || undefined,
+        percentDiff: percentDiffFilter || undefined,
       });
-
-      if (dayDiffFilter) params.append('dayDiff', dayDiffFilter);
-      if (percentDiffFilter) params.append('percentDiff', percentDiffFilter);
-
-      const response = await fetch(`/api/admin/reports/cost-update-alerts?${params}`);
-
-      if (!response.ok) {
-        throw new Error('Rapor yüklenemedi');
-      }
-
-      const result = await response.json();
 
       if (result.success) {
         setData(result.data.products);
         setSummary(result.data.summary);
         setTotalPages(result.data.pagination.totalPages);
       } else {
-        throw new Error(result.error || 'Bir hata oluştu');
+        throw new Error('Bir hata oluştu');
       }
     } catch (err: any) {
-      setError(err.message);
+      setError(err.response?.data?.error || err.message || 'Rapor yüklenemedi');
     } finally {
       setLoading(false);
     }

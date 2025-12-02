@@ -251,6 +251,39 @@ export const adminApi = {
     const response = await apiClient.put(`/admin/staff/${id}`, data);
     return response.data;
   },
+
+  // Reports
+  getCostUpdateAlerts: async (params: {
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    dayDiff?: string;
+    percentDiff?: string;
+  }): Promise<{
+    success: boolean;
+    data: {
+      products: any[];
+      summary: any;
+      pagination: any;
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+    if (params.dayDiff) queryParams.append('dayDiff', params.dayDiff);
+    if (params.percentDiff) queryParams.append('percentDiff', params.percentDiff);
+
+    const response = await apiClient.get(`/admin/reports/cost-update-alerts?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  getReportCategories: async (): Promise<{ success: boolean; data: { categories: string[] } }> => {
+    const response = await apiClient.get('/admin/reports/categories');
+    return response.data;
+  },
 };
 
 export default adminApi;
