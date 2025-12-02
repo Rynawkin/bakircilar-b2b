@@ -23,10 +23,13 @@ import {
   Calendar,
   Package,
   DollarSign,
+  Database,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
+import { AdminNavigation } from '@/components/layout/AdminNavigation';
+import toast from 'react-hot-toast';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -51,11 +54,18 @@ interface Summary {
   avgDiffPercent: number;
 }
 
+interface Metadata {
+  lastSyncAt: string | null;
+  syncType: string | null;
+}
+
 export default function CostUpdateAlertsPage() {
   const [data, setData] = useState<CostUpdateAlert[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [metadata, setMetadata] = useState<Metadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +91,7 @@ export default function CostUpdateAlertsPage() {
       if (result.success) {
         setData(result.data.products);
         setSummary(result.data.summary);
+        setMetadata(result.data.metadata);
         setTotalPages(result.data.pagination.totalPages);
       } else {
         throw new Error('Bir hata oluştu');
@@ -95,6 +106,58 @@ export default function CostUpdateAlertsPage() {
   useEffect(() => {
     fetchData();
   }, [page, dayDiffFilter, percentDiffFilter]);
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+
+    setIsSyncing(true);
+    const syncToast = toast.loading('Senkronizasyon başlatılıyor...');
+
+    try {
+      const result = await adminApi.triggerSync();
+
+      if (result.syncLogId) {
+        toast.loading('Senkronizasyon devam ediyor...', { id: syncToast });
+
+        // Sync tamamlanana kadar bekle
+        let attempts = 0;
+        const maxAttempts = 60; // 1 dakika
+
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 saniye bekle
+
+          const status = await adminApi.getSyncStatus(result.syncLogId);
+
+          if (status.status === 'SUCCESS') {
+            toast.success('Senkronizasyon tamamlandı!', { id: syncToast });
+            // Raporu yenile
+            await fetchData();
+            break;
+          } else if (status.status === 'FAILED') {
+            toast.error('Senkronizasyon başarısız oldu', { id: syncToast });
+            break;
+          }
+
+          attempts++;
+        }
+
+        if (attempts >= maxAttempts) {
+          toast.dismiss(syncToast);
+          toast('Senkronizasyon hala devam ediyor. Sayfa otomatik yenilenecek.', {
+            icon: '⏳',
+          });
+          // Raporu yenile
+          await fetchData();
+        }
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Senkronizasyon başlatılamadı', {
+        id: syncToast,
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const getRiskLevelColor = (percent: number) => {
     if (percent >= 20) return 'text-red-600 bg-red-50';
@@ -129,38 +192,59 @@ export default function CostUpdateAlertsPage() {
   );
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Link href="/reports">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Raporlara Dön
-              </Button>
-            </Link>
+    <>
+      <AdminNavigation />
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Link href="/reports">
+                <Button variant="ghost" size="sm">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Raporlara Dön
+                </Button>
+              </Link>
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+              <AlertTriangle className="h-8 w-8 text-orange-500" />
+              Maliyet Güncelleme Uyarıları
+            </h1>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span>Son giriş maliyeti güncel maliyetten yüksek olan ürünler (KDV Hariç)</span>
+              {metadata?.lastSyncAt && (
+                <div className="flex items-center gap-1">
+                  <Database className="h-4 w-4" />
+                  <span>
+                    Son Senkronizasyon:{' '}
+                    {new Date(metadata.lastSyncAt).toLocaleString('tr-TR')}
+                    {metadata.syncType === 'AUTO' ? ' (Otomatik)' : ' (Manuel)'}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <AlertTriangle className="h-8 w-8 text-orange-500" />
-            Maliyet Güncelleme Uyarıları
-          </h1>
-          <p className="text-muted-foreground">
-            Son giriş maliyeti güncel maliyetten yüksek olan ürünler (KDV Hariç)
-          </p>
-        </div>
 
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Yenile
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Excel
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+            >
+              <Database className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Senkronize Ediliyor...' : 'Tekrar Senkronize Et'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Yenile
+            </Button>
+            <Button variant="outline" size="sm">
+              <Download className="h-4 w-4 mr-2" />
+              Excel
+            </Button>
+          </div>
         </div>
-      </div>
 
       {/* Summary Cards */}
       {summary && (
@@ -383,6 +467,7 @@ export default function CostUpdateAlertsPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </>
   );
 }
