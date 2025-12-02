@@ -266,6 +266,10 @@ export const adminApi = {
       products: any[];
       summary: any;
       pagination: any;
+      metadata: {
+        lastSyncAt: string | null;
+        syncType: string | null;
+      };
     };
   }> => {
     const queryParams = new URLSearchParams();
