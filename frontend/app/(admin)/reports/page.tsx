@@ -34,7 +34,7 @@ const reports: ReportCard[] = [
     title: 'Maliyet Güncelleme Uyarıları',
     description: 'Son giriş maliyeti güncel maliyetten yüksek olan ürünler',
     icon: <AlertTriangle className="h-5 w-5" />,
-    href: '/admin/reports/cost-update-alerts',
+    href: '/reports/cost-update-alerts',
     category: 'cost',
     badge: 'Önemli',
   },
@@ -43,7 +43,7 @@ const reports: ReportCard[] = [
     title: 'Zarar Edilen Ürünler',
     description: 'Satış fiyatı maliyetin altında olan ürünler',
     icon: <TrendingDown className="h-5 w-5" />,
-    href: '/admin/reports/loss-products',
+    href: '/reports/loss-products',
     category: 'cost',
   },
   {
@@ -51,7 +51,7 @@ const reports: ReportCard[] = [
     title: 'Kar/Zarar Analizi',
     description: 'Tüm ürünlerin kar marjı analizi',
     icon: <DollarSign className="h-5 w-5" />,
-    href: '/admin/reports/profit-analysis',
+    href: '/reports/profit-analysis',
     category: 'cost',
   },
 
@@ -61,7 +61,7 @@ const reports: ReportCard[] = [
     title: 'Kritik Stok Seviyeleri',
     description: 'Minimum stok seviyesinin altındaki ürünler',
     icon: <Package className="h-5 w-5" />,
-    href: '/admin/reports/critical-stock',
+    href: '/reports/critical-stock',
     category: 'stock',
   },
   {
@@ -69,7 +69,7 @@ const reports: ReportCard[] = [
     title: 'Hareketsiz Stoklar',
     description: 'Uzun süredir hareket görmemiş ürünler',
     icon: <Clock className="h-5 w-5" />,
-    href: '/admin/reports/inactive-stock',
+    href: '/reports/inactive-stock',
     category: 'stock',
   },
 
@@ -79,7 +79,7 @@ const reports: ReportCard[] = [
     title: 'Vade Aşımı Uyarıları',
     description: 'Vadesi geçmiş alacakları olan müşteriler',
     icon: <AlertTriangle className="h-5 w-5 text-red-500" />,
-    href: '/admin/reports/overdue-customers',
+    href: '/reports/overdue-customers',
     category: 'customer',
     badge: 'Kritik',
   },
@@ -88,7 +88,7 @@ const reports: ReportCard[] = [
     title: 'En Çok Alışveriş Yapan Müşteriler',
     description: 'Yüksek cirolu müşteri analizi',
     icon: <Users className="h-5 w-5" />,
-    href: '/admin/reports/top-customers',
+    href: '/reports/top-customers',
     category: 'customer',
   },
 ];
