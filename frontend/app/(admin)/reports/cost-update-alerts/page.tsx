@@ -1,16 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import {
   Table,
   TableBody,
@@ -18,7 +12,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from '@/components/ui/Table';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -31,7 +25,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/Badge';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -258,33 +252,29 @@ export default function CostUpdateAlertsPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Minimum Gün Farkı</label>
-              <Select value={dayDiffFilter} onValueChange={setDayDiffFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tümü" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Tümü</SelectItem>
-                  <SelectItem value="7">7 gün+</SelectItem>
-                  <SelectItem value="15">15 gün+</SelectItem>
-                  <SelectItem value="30">30 gün+</SelectItem>
-                  <SelectItem value="60">60 gün+</SelectItem>
-                </SelectContent>
+              <Select
+                value={dayDiffFilter}
+                onChange={(e) => setDayDiffFilter(e.target.value)}
+              >
+                <option value="">Tümü</option>
+                <option value="7">7 gün+</option>
+                <option value="15">15 gün+</option>
+                <option value="30">30 gün+</option>
+                <option value="60">60 gün+</option>
               </Select>
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Minimum % Fark</label>
-              <Select value={percentDiffFilter} onValueChange={setPercentDiffFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tümü" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Tümü</SelectItem>
-                  <SelectItem value="5">%5+</SelectItem>
-                  <SelectItem value="10">%10+</SelectItem>
-                  <SelectItem value="20">%20+</SelectItem>
-                  <SelectItem value="50">%50+</SelectItem>
-                </SelectContent>
+              <Select
+                value={percentDiffFilter}
+                onChange={(e) => setPercentDiffFilter(e.target.value)}
+              >
+                <option value="">Tümü</option>
+                <option value="5">%5+</option>
+                <option value="10">%10+</option>
+                <option value="20">%20+</option>
+                <option value="50">%50+</option>
               </Select>
             </div>
           </div>
