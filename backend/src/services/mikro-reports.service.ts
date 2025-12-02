@@ -121,8 +121,8 @@ export class MikroReportsService {
           sto_isim AS productName,
           sto_kategori_kodu AS category,
 
-          -- Güncel maliyet tarihi (resim dizin alanında tutuluyor)
-          TRY_CAST(sto_resim AS DATETIME) AS currentCostDate,
+          -- Güncel maliyet tarihi
+          sto_maliyet_tarih AS currentCostDate,
 
           -- Güncel maliyet (KDV HARİÇ)
           sto_standartmaliyet AS currentCost,
