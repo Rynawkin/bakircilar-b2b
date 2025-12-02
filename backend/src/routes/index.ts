@@ -10,6 +10,7 @@ import adminRoutes from './admin.routes';
 import customerRoutes from './customer.routes';
 import campaignRoutes from './campaigns';
 import orderTrackingRoutes from './order-tracking.routes';
+import reportsRoutes from './reports.routes';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.get('/health', (_req, res) => {
 // Routes
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
+router.use('/admin/reports', reportsRoutes);
 router.use('/campaigns', campaignRoutes);
 router.use('/order-tracking', orderTrackingRoutes);
 

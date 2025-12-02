@@ -20,6 +20,7 @@ const navItems: NavItem[] = [
   { name: 'Müşteriler', href: '/customers', icon: '👥', description: 'Müşteri listesi' },
   { name: 'Ürünler', href: '/admin-products', icon: '📦', description: 'Ürün yönetimi' },
   { name: 'Kampanyalar', href: '/campaigns', icon: '🎯', description: 'İndirim kampanyaları' },
+  { name: 'Raporlar', href: '/reports', icon: '📊', description: 'Raporlar ve analizler' },
 ];
 
 const settingsItems: NavItem[] = [
