@@ -159,6 +159,64 @@ export default function CostUpdateAlertsPage() {
     }
   };
 
+  const handleExportExcel = () => {
+    if (filteredData.length === 0) {
+      toast.error('Dışa aktarılacak veri yok');
+      return;
+    }
+
+    // CSV formatında veri hazırla
+    const headers = [
+      'Ürün Kodu',
+      'Ürün Adı',
+      'Kategori',
+      'Güncel Maliyet Tarihi',
+      'Güncel Maliyet (TL)',
+      'Son Giriş Tarihi',
+      'Son Giriş Maliyeti (TL)',
+      'Fark (TL)',
+      'Fark (%)',
+      'Gün Farkı',
+      'Eldeki Stok',
+      'Risk Tutarı (TL)',
+      'Satış Fiyatı (TL)',
+    ];
+
+    const rows = filteredData.map((item) => [
+      item.productCode,
+      item.productName,
+      item.category,
+      formatDate(item.currentCostDate),
+      item.currentCost.toFixed(2),
+      formatDate(item.lastEntryDate),
+      item.lastEntryCost.toFixed(2),
+      item.diffAmount.toFixed(2),
+      item.diffPercent.toFixed(1),
+      item.dayDiff,
+      item.stockQuantity.toFixed(0),
+      item.riskAmount.toFixed(2),
+      item.salePrice.toFixed(2),
+    ]);
+
+    // CSV içeriği oluştur
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
+    ].join('\n');
+
+    // BOM ekleyerek UTF-8 encoding sorununu çöz (Excel için)
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `maliyet-guncelleme-uyarilari-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    toast.success(`${filteredData.length} kayıt Excel'e aktarıldı`);
+  };
+
   const getRiskLevelColor = (percent: number) => {
     if (percent >= 20) return 'text-red-600 bg-red-50';
     if (percent >= 10) return 'text-orange-600 bg-orange-50';
@@ -239,9 +297,9 @@ export default function CostUpdateAlertsPage() {
               <RefreshCw className="h-4 w-4 mr-2" />
               Yenile
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleExportExcel}>
               <Download className="h-4 w-4 mr-2" />
-              Excel
+              Excel İndir
             </Button>
           </div>
         </div>

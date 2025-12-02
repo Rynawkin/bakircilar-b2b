@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { AdminNavigation } from '@/components/layout/AdminNavigation';
 
 interface ReportCard {
   id: string;
@@ -117,14 +118,16 @@ export default function ReportsPage() {
   }));
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">📊 Raporlar ve Analizler</h1>
-        <p className="text-muted-foreground">
-          İşletmenizin performansını izleyin ve analiz edin
-        </p>
-      </div>
+    <>
+      <AdminNavigation />
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Header */}
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">📊 Raporlar ve Analizler</h1>
+          <p className="text-muted-foreground">
+            İşletmenizin performansını izleyin ve analiz edin
+          </p>
+        </div>
 
       {/* Search and Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -191,7 +194,8 @@ export default function ReportsPage() {
           </p>
         </Card>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
