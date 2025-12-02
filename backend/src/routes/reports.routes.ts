@@ -5,7 +5,7 @@
  */
 
 import { Router } from 'express';
-import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin } from '../middleware/auth.middleware';
 import {
   getCostUpdateAlerts,
   getReportCategories,
@@ -14,7 +14,7 @@ import {
 const router = Router();
 
 // Tüm raporlar admin yetkisi gerektirir
-router.use(authenticateToken, requireAdmin);
+router.use(authenticate, requireAdmin);
 
 /**
  * Maliyet Güncelleme Uyarıları Raporu
