@@ -33,64 +33,78 @@ const reports: ReportCard[] = [
   {
     id: 'cost-update-alerts',
     title: 'Maliyet Güncelleme Uyarıları',
-    description: 'Son giriş maliyeti güncel maliyetten yüksek olan ürünler',
+    description: 'Son giriş maliyeti güncel maliyetten yüksek olan ürünler - fiyat güncelleme gerekebilir',
     icon: <AlertTriangle className="h-5 w-5" />,
     href: '/reports/cost-update-alerts',
     category: 'cost',
-    badge: 'Önemli',
+    badge: 'Aktif',
   },
   {
-    id: 'loss-products',
-    title: 'Zarar Edilen Ürünler',
-    description: 'Satış fiyatı maliyetin altında olan ürünler',
+    id: 'margin-compliance',
+    title: 'Marj Uyumsuzluğu Raporu',
+    description: 'Tanımlı marj oranlarına uymayan fiyatlar - F1/F2/F3/F4/F5 kontrolü',
     icon: <TrendingDown className="h-5 w-5" />,
-    href: '/reports/loss-products',
+    href: '/reports/margin-compliance',
     category: 'cost',
+    badge: 'Önerilen',
   },
   {
     id: 'profit-analysis',
-    title: 'Kar/Zarar Analizi',
-    description: 'Tüm ürünlerin kar marjı analizi',
+    title: 'Kar Marjı Analizi (Çok Boyutlu)',
+    description: 'Ürün, kategori, marka ve müşteri tipi bazında kar marjı analizi',
     icon: <DollarSign className="h-5 w-5" />,
     href: '/reports/profit-analysis',
+    category: 'cost',
+    badge: 'Önerilen',
+  },
+  {
+    id: 'price-history',
+    title: 'Fiyat Değişim Geçmişi',
+    description: 'Ürün fiyatlarının zaman içindeki değişimi ve güncellenmeye ihtiyaç duyan ürünler',
+    icon: <TrendingUp className="h-5 w-5" />,
+    href: '/reports/price-history',
     category: 'cost',
   },
 
   // Stok Raporları
   {
     id: 'critical-stock',
-    title: 'Kritik Stok Seviyeleri',
-    description: 'Minimum stok seviyesinin altındaki ürünler',
+    title: 'Kritik Stok Seviyeleri (Akıllı)',
+    description: 'Günlük satış ortalamasına göre stok tükenmek üzere olan ürünler - blok satış filtreli',
     icon: <Package className="h-5 w-5" />,
     href: '/reports/critical-stock',
     category: 'stock',
-  },
-  {
-    id: 'inactive-stock',
-    title: 'Hareketsiz Stoklar',
-    description: 'Uzun süredir hareket görmemiş ürünler',
-    icon: <Clock className="h-5 w-5" />,
-    href: '/reports/inactive-stock',
-    category: 'stock',
+    badge: 'Önerilen',
   },
 
-  // Müşteri Raporları
+  // Satış & Müşteri Raporları
   {
-    id: 'overdue-customers',
-    title: 'Vade Aşımı Uyarıları',
-    description: 'Vadesi geçmiş alacakları olan müşteriler',
-    icon: <AlertTriangle className="h-5 w-5 text-red-500" />,
-    href: '/reports/overdue-customers',
+    id: 'top-products-customers',
+    title: 'En Çok Satanlar & Müşteri Analizi',
+    description: 'Yüksek cirolu ürünler, sadık müşteriler ve satış trendleri',
+    icon: <Users className="h-5 w-5" />,
+    href: '/reports/top-products-customers',
     category: 'customer',
-    badge: 'Kritik',
+    badge: 'Önerilen',
   },
   {
-    id: 'top-customers',
-    title: 'En Çok Alışveriş Yapan Müşteriler',
-    description: 'Yüksek cirolu müşteri analizi',
-    icon: <Users className="h-5 w-5" />,
-    href: '/reports/top-customers',
+    id: 'overdue-payments',
+    title: 'Vade & Alacak Takip Raporu',
+    description: 'Vadesi geçmiş alacaklar, aranması gerekenler ve satış durdurma önerileri',
+    icon: <AlertTriangle className="h-5 w-5 text-red-500" />,
+    href: '/reports/overdue-payments',
     category: 'customer',
+    badge: 'Önerilen',
+  },
+
+  // Tedarik Zinciri
+  {
+    id: 'supplier-performance',
+    title: 'Tedarikçi Performans Raporu',
+    description: 'Tedarikçi bazında alım hacmi, teslimat süresi, kalite ve fiyat analizi',
+    icon: <FileText className="h-5 w-5" />,
+    href: '/reports/supplier-performance',
+    category: 'order',
   },
 ];
 
@@ -98,7 +112,8 @@ const categories = [
   { id: 'all', label: 'Tümü', icon: <FileText className="h-4 w-4" /> },
   { id: 'cost', label: 'Fiyat & Maliyet', icon: <DollarSign className="h-4 w-4" /> },
   { id: 'stock', label: 'Stok', icon: <Package className="h-4 w-4" /> },
-  { id: 'customer', label: 'Müşteri', icon: <Users className="h-4 w-4" /> },
+  { id: 'customer', label: 'Satış & Müşteri', icon: <Users className="h-4 w-4" /> },
+  { id: 'order', label: 'Tedarik Zinciri', icon: <FileText className="h-4 w-4" /> },
 ];
 
 export default function ReportsPage() {
