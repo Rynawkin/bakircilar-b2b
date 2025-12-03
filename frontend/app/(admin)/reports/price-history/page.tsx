@@ -170,7 +170,7 @@ export default function PriceHistoryPage() {
     if (direction === 'decrease') {
       return <Badge variant="default" className="bg-green-600">Azalış</Badge>;
     }
-    return <Badge variant="secondary">Karışık</Badge>;
+    return <Badge variant="outline">Karışık</Badge>;
   };
 
   return (
