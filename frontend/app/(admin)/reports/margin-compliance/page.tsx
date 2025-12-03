@@ -553,7 +553,7 @@ export default function MarginCompliancePage() {
                             {item.deviationAmount > 0 ? '+' : ''}{formatCurrency(item.deviationAmount)}
                           </TableCell>
                           <TableCell>
-                            <Badge variant={item.priceSource === 'PRODUCT_OVERRIDE' ? 'default' : 'secondary'}>
+                            <Badge variant={item.priceSource === 'PRODUCT_OVERRIDE' ? 'default' : 'outline'}>
                               {item.priceSource === 'PRODUCT_OVERRIDE' ? 'Ürün' : 'Kategori'}
                             </Badge>
                           </TableCell>
