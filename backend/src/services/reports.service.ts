@@ -262,10 +262,12 @@ export class ReportsService {
    * Marj Uyumsuzluğu Raporu
    *
    * Mikro STOKLAR_USER tablosundaki marj tanımlarını (Marj_1-5) kullanarak
-   * beklenen fiyatları hesaplar ve mevcut fiyatlarla karşılaştırır.
+   * beklenen fiyatları hesaplar ve Mikro'daki gerçek toptan satış fiyatlarıyla karşılaştırır.
    *
-   * Marj değerleri çarpan olarak saklanır (örn: 2 = maliyet x 2)
-   * Expected Price = Maliyet × Marj
+   * Karşılaştırma:
+   * - Beklenen Fiyat = Maliyet × Marj_X
+   * - Gerçek Fiyat = Mikro'daki Toptan Satış X fiyatı (STOK_SATIS_FIYAT_LISTELERI)
+   * - Sapma = Gerçek fiyata uygulanan marj ile tanımlı marj arasındaki fark
    */
   async getMarginComplianceReport(options: {
     customerType?: string; // BAYI, PERAKENDE, VIP, OZEL
@@ -308,31 +310,32 @@ export class ReportsService {
       take: 1000, // Limit to 1000 products for performance
     });
 
-    // Mikro'dan marj tanımlarını çek
+    // Mikro'dan marj tanımlarını ve fiyatları çek
     const mikroService = require('./mikroFactory.service').default;
     await mikroService.connect();
 
     const alerts: MarginComplianceAlert[] = [];
     const customerTypes = customerType
       ? [customerType]
-      : ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'];
+      : ['BAYI', 'PERAKENDE', 'VIP', 'OZEL', 'TOPTAN5'];
 
-    // Marj kolonları customer type mapping
-    const marginColumnMapping: Record<string, string> = {
-      'BAYI': 'Marj_1',
-      'PERAKENDE': 'Marj_2',
-      'VIP': 'Marj_3',
-      'OZEL': 'Marj_4',
+    // Marj kolonları ve fiyat listesi mapping
+    // Her müşteri tipi için hangi marj ve hangi fiyat listesi kullanılacak
+    const mappings: Record<string, { marginCol: string; priceList: number }> = {
+      'BAYI': { marginCol: 'Marj_1', priceList: 1 },
+      'PERAKENDE': { marginCol: 'Marj_2', priceList: 2 },
+      'VIP': { marginCol: 'Marj_3', priceList: 3 },
+      'OZEL': { marginCol: 'Marj_4', priceList: 4 },
+      'TOPTAN5': { marginCol: 'Marj_5', priceList: 5 },
     };
 
     for (const product of products) {
       const currentCost = product.currentCost || 0;
-      const prices = product.prices as any;
 
-      if (!prices || currentCost === 0) continue;
+      if (currentCost === 0) continue;
 
-      // Mikro'dan bu ürünün marj tanımlarını çek
-      let marginData: any = null;
+      // Mikro'dan bu ürünün marj tanımlarını ve fiyatlarını çek
+      let productData: any = null;
       try {
         const result = await mikroService.executeQuery(`
           SELECT
@@ -347,39 +350,57 @@ export class ReportsService {
         `);
 
         if (result.length > 0) {
-          marginData = result[0];
+          productData = result[0];
         }
       } catch (error) {
-        console.error(`Error fetching margins for ${product.mikroCode}:`, error);
+        console.error(`Error fetching data for ${product.mikroCode}:`, error);
         continue;
       }
 
-      if (!marginData) continue;
+      if (!productData) continue;
+
+      // Fiyat listelerini çek
+      let priceListData: any[] = [];
+      try {
+        priceListData = await mikroService.executeQuery(`
+          SELECT
+            sfiyat_listesirano as priceListNo,
+            sfiyat_fiyati as price
+          FROM STOK_SATIS_FIYAT_LISTELERI
+          WHERE sfiyat_stokkod = '${product.mikroCode}'
+            AND sfiyat_fiyati > 0
+            AND sfiyat_listesirano BETWEEN 1 AND 5
+        `);
+      } catch (error) {
+        console.error(`Error fetching price lists for ${product.mikroCode}:`, error);
+        continue;
+      }
 
       for (const custType of customerTypes) {
-        // B2B sistemindeki gerçek fiyat (faturalı)
-        const actualPrice = prices[custType]?.INVOICED || 0;
+        const mapping = mappings[custType];
+        if (!mapping) continue;
 
-        if (actualPrice === 0) continue;
-
-        // Mikro'daki marj değerini al
-        const marginColumn = marginColumnMapping[custType];
-        const marginStr = marginData[marginColumn];
-
+        // Mikro'daki tanımlı marj
+        const marginStr = productData[mapping.marginCol];
         if (!marginStr || marginStr === '') continue;
 
         // Marj değerini parse et (Türkçe virgülü nokta ile değiştir)
         const expectedMarginMultiplier = parseFloat(marginStr.toString().replace(',', '.'));
-
         if (isNaN(expectedMarginMultiplier) || expectedMarginMultiplier === 0) continue;
 
-        // Beklenen fiyat: Maliyet × Marj
+        // Mikro'daki gerçek toptan satış fiyatı
+        const priceListEntry = priceListData.find((p: any) => p.priceListNo === mapping.priceList);
+        if (!priceListEntry || priceListEntry.price === 0) continue;
+
+        const actualPrice = priceListEntry.price;
+
+        // Beklenen fiyat: Maliyet × Tanımlı Marj
         const expectedPrice = currentCost * expectedMarginMultiplier;
 
-        // Actual margin multiplier
+        // Gerçek fiyata uygulanan marj
         const actualMarginMultiplier = actualPrice / currentCost;
 
-        // Sapma: (actual - expected) / expected × 100
+        // Sapma: (gerçek marj - beklenen marj) / beklenen marj × 100
         const deviation = ((actualMarginMultiplier - expectedMarginMultiplier) / expectedMarginMultiplier) * 100;
         const deviationAmount = actualPrice - expectedPrice;
 
@@ -397,13 +418,13 @@ export class ReportsService {
           category: product.category.name,
           currentCost,
           customerType: custType,
-          expectedMargin: expectedMarginMultiplier * 100, // Convert to percentage (multiplier × 100)
+          expectedMargin: expectedMarginMultiplier * 100, // Yüzde olarak (2.0 → 200%)
           expectedPrice,
           actualPrice,
           deviation,
           deviationAmount,
           status: complianceStatus,
-          priceSource: 'CATEGORY_RULE',
+          priceSource: 'MIKRO_MARGIN',
         });
       }
     }
