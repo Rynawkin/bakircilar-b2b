@@ -261,11 +261,11 @@ export class ReportsService {
   /**
    * Marj Uyumsuzluğu Raporu
    *
-   * Mikro'daki fiyat listelerinden (F1-F5) gerçek marjları alır ve gösterir.
-   * Marj = Fiyat / Maliyet (çarpan olarak)
+   * Mikro STOKLAR_USER tablosundaki marj tanımlarını (Marj_1-5) kullanarak
+   * beklenen fiyatları hesaplar ve mevcut fiyatlarla karşılaştırır.
    *
-   * Bu rapor, Mikro'daki fiyat listelerindeki marjları (STOK_SATIS_FIYAT_LISTELERI)
-   * mevcut satış fiyatlarıyla karşılaştırır.
+   * Marj değerleri çarpan olarak saklanır (örn: 2 = maliyet x 2)
+   * Expected Price = Maliyet × Marj
    */
   async getMarginComplianceReport(options: {
     customerType?: string; // BAYI, PERAKENDE, VIP, OZEL
@@ -308,7 +308,7 @@ export class ReportsService {
       take: 1000, // Limit to 1000 products for performance
     });
 
-    // Mikro'dan fiyat listelerini çek
+    // Mikro'dan marj tanımlarını çek
     const mikroService = require('./mikroFactory.service').default;
     await mikroService.connect();
 
@@ -317,13 +317,12 @@ export class ReportsService {
       ? [customerType]
       : ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'];
 
-    // Price list to customer type mapping (F1 = BAYI, F2 = PERAKENDE, etc.)
-    // Bu mapping müşteri kayıtlarından alınmalı, şimdilik varsayılan
-    const priceListMapping: Record<string, number> = {
-      'BAYI': 1,      // F1
-      'PERAKENDE': 2, // F2
-      'VIP': 3,       // F3
-      'OZEL': 4,      // F4
+    // Marj kolonları customer type mapping
+    const marginColumnMapping: Record<string, string> = {
+      'BAYI': 'Marj_1',
+      'PERAKENDE': 'Marj_2',
+      'VIP': 'Marj_3',
+      'OZEL': 'Marj_4',
     };
 
     for (const product of products) {
@@ -332,44 +331,56 @@ export class ReportsService {
 
       if (!prices || currentCost === 0) continue;
 
-      // Mikro'dan bu ürünün fiyat listelerini çek
-      let mikroPrices: any[] = [];
+      // Mikro'dan bu ürünün marj tanımlarını çek
+      let marginData: any = null;
       try {
-        mikroPrices = await mikroService.executeQuery(`
+        const result = await mikroService.executeQuery(`
           SELECT
-            sfiyat_listesirano as priceListNo,
-            sfiyat_fiyati as price
-          FROM STOK_SATIS_FIYAT_LISTELERI
-          WHERE sfiyat_stokkod = '${product.mikroCode}'
-            AND sfiyat_fiyati > 0
+            u.Marj_1,
+            u.Marj_2,
+            u.Marj_3,
+            u.Marj_4,
+            u.Marj_5
+          FROM STOKLAR s
+          LEFT JOIN STOKLAR_USER u ON s.sto_Guid = u.Record_uid
+          WHERE s.sto_kod = '${product.mikroCode}'
         `);
+
+        if (result.length > 0) {
+          marginData = result[0];
+        }
       } catch (error) {
-        console.error(`Error fetching prices for ${product.mikroCode}:`, error);
+        console.error(`Error fetching margins for ${product.mikroCode}:`, error);
         continue;
       }
 
+      if (!marginData) continue;
+
       for (const custType of customerTypes) {
-        // Gerçek fiyat (faturalı fiyat) - B2B sistemindeki fiyat
+        // B2B sistemindeki gerçek fiyat (faturalı)
         const actualPrice = prices[custType]?.INVOICED || 0;
 
         if (actualPrice === 0) continue;
 
-        // Mikro'daki fiyat listesinden expected price'ı al
-        const priceListNo = priceListMapping[custType];
-        const mikroPrice = mikroPrices.find((p: any) => p.priceListNo === priceListNo);
+        // Mikro'daki marj değerini al
+        const marginColumn = marginColumnMapping[custType];
+        const marginStr = marginData[marginColumn];
 
-        if (!mikroPrice || mikroPrice.price === 0) continue;
+        if (!marginStr || marginStr === '') continue;
 
-        const expectedPrice = mikroPrice.price;
+        // Marj değerini parse et (Türkçe virgülü nokta ile değiştir)
+        const expectedMarginMultiplier = parseFloat(marginStr.toString().replace(',', '.'));
 
-        // Expected margin: Mikro'daki fiyattan hesapla (çarpan olarak)
-        const expectedMargin = expectedPrice / currentCost;
+        if (isNaN(expectedMarginMultiplier) || expectedMarginMultiplier === 0) continue;
 
-        // Actual margin: B2B sistemindeki fiyattan hesapla (çarpan olarak)
-        const actualMargin = actualPrice / currentCost;
+        // Beklenen fiyat: Maliyet × Marj
+        const expectedPrice = currentCost * expectedMarginMultiplier;
 
-        // Sapma: expected - actual (yüzde olarak)
-        const deviation = ((actualMargin - expectedMargin) / expectedMargin) * 100;
+        // Actual margin multiplier
+        const actualMarginMultiplier = actualPrice / currentCost;
+
+        // Sapma: (actual - expected) / expected × 100
+        const deviation = ((actualMarginMultiplier - expectedMarginMultiplier) / expectedMarginMultiplier) * 100;
         const deviationAmount = actualPrice - expectedPrice;
 
         // Status: ±2% tolerans
@@ -386,7 +397,7 @@ export class ReportsService {
           category: product.category.name,
           currentCost,
           customerType: custType,
-          expectedMargin: expectedMargin * 100, // Convert to percentage for display
+          expectedMargin: expectedMarginMultiplier * 100, // Convert to percentage (multiplier × 100)
           expectedPrice,
           actualPrice,
           deviation,
