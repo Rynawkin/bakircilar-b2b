@@ -10,6 +10,7 @@ import cariSyncService from '../services/cariSync.service';
 import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
+import reportsService from '../services/reports.service';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
 export class AdminController {
@@ -1398,6 +1399,78 @@ export class AdminController {
         success: true,
         message: `${results.created.length} kullanıcı oluşturuldu`,
         results
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ==================== REPORTS ====================
+
+  /**
+   * GET /admin/reports/cost-update-alerts
+   * Maliyet Güncelleme Uyarıları Raporu
+   */
+  async getCostUpdateAlerts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { page, limit, sortBy, sortOrder, dayDiff, percentDiff } = req.query;
+
+      const data = await reportsService.getCostUpdateAlerts({
+        page: page ? parseInt(page as string) : undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+        sortBy: sortBy as string,
+        sortOrder: sortOrder as 'asc' | 'desc',
+        dayDiff: dayDiff ? parseInt(dayDiff as string) : undefined,
+        percentDiff: percentDiff ? parseInt(percentDiff as string) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /admin/reports/margin-compliance
+   * Marj Uyumsuzluğu Raporu
+   */
+  async getMarginComplianceReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { customerType, category, status, page, limit, sortBy, sortOrder } = req.query;
+
+      const data = await reportsService.getMarginComplianceReport({
+        customerType: customerType as string,
+        category: category as string,
+        status: status as string,
+        page: page ? parseInt(page as string) : undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+        sortBy: sortBy as string,
+        sortOrder: sortOrder as 'asc' | 'desc',
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /admin/reports/categories
+   * Rapor kategorilerini listele
+   */
+  async getReportCategories(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.getReportCategories();
+
+      res.json({
+        success: true,
+        data,
       });
     } catch (error) {
       next(error);

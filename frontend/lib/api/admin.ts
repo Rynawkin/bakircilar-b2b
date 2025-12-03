@@ -288,6 +288,45 @@ export const adminApi = {
     const response = await apiClient.get('/admin/reports/categories');
     return response.data;
   },
+
+  getMarginComplianceReport: async (params: {
+    customerType?: string;
+    category?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<{
+    success: boolean;
+    data: {
+      alerts: any[];
+      summary: {
+        totalProducts: number;
+        compliantCount: number;
+        highDeviationCount: number;
+        lowDeviationCount: number;
+        avgDeviation: number;
+      };
+      pagination: any;
+      metadata: {
+        lastSyncAt: string | null;
+        syncType: string | null;
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params.customerType) queryParams.append('customerType', params.customerType);
+    if (params.category) queryParams.append('category', params.category);
+    if (params.status) queryParams.append('status', params.status);
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+
+    const response = await apiClient.get(`/admin/reports/margin-compliance?${queryParams.toString()}`);
+    return response.data;
+  },
 };
 
 export default adminApi;
