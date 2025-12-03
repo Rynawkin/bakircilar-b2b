@@ -261,17 +261,16 @@ export class ReportsService {
   /**
    * Marj Uyumsuzluğu Raporu
    *
-   * Mevcut fiyatlardan gerçek kar marjlarını hesaplar ve gösterir.
-   * Fiyat = Maliyet × (1 + Marj) formülünden geriye dönük hesaplama yapar.
+   * Mikro'daki fiyat listelerinden (F1-F5) gerçek marjları alır ve gösterir.
+   * Marj = Fiyat / Maliyet (çarpan olarak)
    *
-   * Gerçek Marj = (Fiyat - Maliyet) / Maliyet × 100
-   *
-   * Bu rapor, sistemdeki tüm ürünlerin gerçek kar marjlarını gösterir.
+   * Bu rapor, Mikro'daki fiyat listelerindeki marjları (STOK_SATIS_FIYAT_LISTELERI)
+   * mevcut satış fiyatlarıyla karşılaştırır.
    */
   async getMarginComplianceReport(options: {
     customerType?: string; // BAYI, PERAKENDE, VIP, OZEL
     category?: string; // kategori kodu
-    status?: string; // OK, HIGH, LOW, NON_COMPLIANT (HIGH | LOW) - şu an kullanılmıyor
+    status?: string; // OK, HIGH, LOW, NON_COMPLIANT (HIGH | LOW)
     page?: number;
     limit?: number;
     sortBy?: string;
@@ -283,7 +282,7 @@ export class ReportsService {
       status,
       page = 1,
       limit = 50,
-      sortBy = 'actualMargin',
+      sortBy = 'deviation',
       sortOrder = 'desc',
     } = options;
 
@@ -306,13 +305,26 @@ export class ReportsService {
       include: {
         category: true,
       },
-      take: 5000, // Maksimum 5000 ürün
+      take: 1000, // Limit to 1000 products for performance
     });
+
+    // Mikro'dan fiyat listelerini çek
+    const mikroService = require('./mikroFactory.service').default;
+    await mikroService.connect();
 
     const alerts: MarginComplianceAlert[] = [];
     const customerTypes = customerType
       ? [customerType]
       : ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'];
+
+    // Price list to customer type mapping (F1 = BAYI, F2 = PERAKENDE, etc.)
+    // Bu mapping müşteri kayıtlarından alınmalı, şimdilik varsayılan
+    const priceListMapping: Record<string, number> = {
+      'BAYI': 1,      // F1
+      'PERAKENDE': 2, // F2
+      'VIP': 3,       // F3
+      'OZEL': 4,      // F4
+    };
 
     for (const product of products) {
       const currentCost = product.currentCost || 0;
@@ -320,25 +332,53 @@ export class ReportsService {
 
       if (!prices || currentCost === 0) continue;
 
+      // Mikro'dan bu ürünün fiyat listelerini çek
+      let mikroPrices: any[] = [];
+      try {
+        mikroPrices = await mikroService.executeQuery(`
+          SELECT
+            sfiyat_listesirano as priceListNo,
+            sfiyat_fiyati as price
+          FROM STOK_SATIS_FIYAT_LISTELERI
+          WHERE sfiyat_stokkod = '${product.mikroCode}'
+            AND sfiyat_fiyati > 0
+        `);
+      } catch (error) {
+        console.error(`Error fetching prices for ${product.mikroCode}:`, error);
+        continue;
+      }
+
       for (const custType of customerTypes) {
-        // Gerçek fiyat (faturalı fiyat)
+        // Gerçek fiyat (faturalı fiyat) - B2B sistemindeki fiyat
         const actualPrice = prices[custType]?.INVOICED || 0;
 
         if (actualPrice === 0) continue;
 
-        // Gerçek marjı hesapla: (Fiyat - Maliyet) / Maliyet × 100
-        const actualMargin = ((actualPrice - currentCost) / currentCost) * 100;
+        // Mikro'daki fiyat listesinden expected price'ı al
+        const priceListNo = priceListMapping[custType];
+        const mikroPrice = mikroPrices.find((p: any) => p.priceListNo === priceListNo);
 
-        // Expected margin olarak actual margin kullan (henüz tanımlı marj yok)
-        const expectedMargin = actualMargin;
-        const expectedPrice = actualPrice;
+        if (!mikroPrice || mikroPrice.price === 0) continue;
 
-        // Şimdilik sapma 0 (çünkü expected = actual)
-        const deviationAmount = 0;
-        const deviation = 0;
+        const expectedPrice = mikroPrice.price;
 
-        // Status: Şimdilik hepsi OK (çünkü sapma yok)
-        const complianceStatus: 'OK' | 'HIGH' | 'LOW' = 'OK';
+        // Expected margin: Mikro'daki fiyattan hesapla (çarpan olarak)
+        const expectedMargin = expectedPrice / currentCost;
+
+        // Actual margin: B2B sistemindeki fiyattan hesapla (çarpan olarak)
+        const actualMargin = actualPrice / currentCost;
+
+        // Sapma: expected - actual (yüzde olarak)
+        const deviation = ((actualMargin - expectedMargin) / expectedMargin) * 100;
+        const deviationAmount = actualPrice - expectedPrice;
+
+        // Status: ±2% tolerans
+        let complianceStatus: 'OK' | 'HIGH' | 'LOW' = 'OK';
+        if (deviation > 2) {
+          complianceStatus = 'HIGH';
+        } else if (deviation < -2) {
+          complianceStatus = 'LOW';
+        }
 
         alerts.push({
           productCode: product.mikroCode,
@@ -346,18 +386,20 @@ export class ReportsService {
           category: product.category.name,
           currentCost,
           customerType: custType,
-          expectedMargin, // Şimdilik actual ile aynı
-          expectedPrice, // Şimdilik actual ile aynı
+          expectedMargin: expectedMargin * 100, // Convert to percentage for display
+          expectedPrice,
           actualPrice,
           deviation,
           deviationAmount,
           status: complianceStatus,
-          priceSource: 'CATEGORY_RULE', // Dummy value
+          priceSource: 'CATEGORY_RULE',
         });
       }
     }
 
-    // Status filtresi (şimdilik hepsi OK olduğu için etkisiz)
+    await mikroService.disconnect();
+
+    // Status filtresi
     let filteredAlerts = alerts;
     if (status && status !== 'OK') {
       if (status === 'NON_COMPLIANT') {
@@ -381,10 +423,12 @@ export class ReportsService {
     const totalPages = Math.ceil(totalRecords / limit);
 
     // Summary
-    const compliantCount = alerts.length; // Hepsi compliant
-    const highDeviationCount = 0;
-    const lowDeviationCount = 0;
-    const avgDeviation = 0;
+    const compliantCount = alerts.filter((a) => a.status === 'OK').length;
+    const highDeviationCount = alerts.filter((a) => a.status === 'HIGH').length;
+    const lowDeviationCount = alerts.filter((a) => a.status === 'LOW').length;
+    const avgDeviation = alerts.length > 0
+      ? alerts.reduce((sum, a) => sum + Math.abs(a.deviation), 0) / alerts.length
+      : 0;
 
     // Son senkronizasyon bilgisini al
     const lastSync = await prisma.syncLog.findFirst({
