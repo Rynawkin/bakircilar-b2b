@@ -12,7 +12,8 @@ import {
   Clock,
   DollarSign,
   FileText,
-  Search
+  Search,
+  History
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';

@@ -327,6 +327,84 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/margin-compliance?${queryParams.toString()}`);
     return response.data;
   },
+
+  getPriceHistory: async (params: {
+    startDate?: string;
+    endDate?: string;
+    productCode?: string;
+    productName?: string;
+    category?: string;
+    priceListNo?: number;
+    consistencyStatus?: 'all' | 'consistent' | 'inconsistent';
+    changeDirection?: 'increase' | 'decrease' | 'mixed' | 'all';
+    minChangePercent?: number;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<{
+    success: boolean;
+    data: {
+      changes: Array<{
+        productCode: string;
+        productName: string;
+        category: string;
+        changeDate: string;
+        priceChanges: Array<{
+          listNo: number;
+          listName: string;
+          oldPrice: number;
+          newPrice: number;
+          changeAmount: number;
+          changePercent: number;
+        }>;
+        isConsistent: boolean;
+        updatedListsCount: number;
+        missingLists: number[];
+        avgChangePercent: number;
+        changeDirection: 'increase' | 'decrease' | 'mixed';
+      }>;
+      summary: {
+        totalChanges: number;
+        consistentChanges: number;
+        inconsistentChanges: number;
+        inconsistencyRate: number;
+        avgIncreasePercent: number;
+        avgDecreasePercent: number;
+        topIncreases: Array<{ product: string; percent: number }>;
+        topDecreases: Array<{ product: string; percent: number }>;
+        last30DaysChanges: number;
+        last7DaysChanges: number;
+      };
+      pagination: {
+        page: number;
+        limit: number;
+        totalPages: number;
+        totalRecords: number;
+      };
+      metadata: {
+        dataSource: string;
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params.startDate) queryParams.append('startDate', params.startDate);
+    if (params.endDate) queryParams.append('endDate', params.endDate);
+    if (params.productCode) queryParams.append('productCode', params.productCode);
+    if (params.productName) queryParams.append('productName', params.productName);
+    if (params.category) queryParams.append('category', params.category);
+    if (params.priceListNo) queryParams.append('priceListNo', params.priceListNo.toString());
+    if (params.consistencyStatus) queryParams.append('consistencyStatus', params.consistencyStatus);
+    if (params.changeDirection) queryParams.append('changeDirection', params.changeDirection);
+    if (params.minChangePercent !== undefined) queryParams.append('minChangePercent', params.minChangePercent.toString());
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+
+    const response = await apiClient.get(`/admin/reports/price-history?${queryParams.toString()}`);
+    return response.data;
+  },
 };
 
 export default adminApi;
