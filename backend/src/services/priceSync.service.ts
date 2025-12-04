@@ -157,17 +157,7 @@ class PriceSyncService {
         s.sto_isim,
         s.sto_marka_kodu,
         s.sto_standartmaliyet,
-        s.sto_eldekmiktar,
-        s.sto_satisfiyati1,
-        s.sto_satisfiyati2,
-        s.sto_satisfiyati3,
-        s.sto_satisfiyati4,
-        s.sto_satisfiyati5,
-        s.sto_satisfiyati6,
-        s.sto_satisfiyati7,
-        s.sto_satisfiyati8,
-        s.sto_satisfiyati9,
-        s.sto_satisfiyati10
+        s.sto_eldekmiktar
       FROM STOK_FIYAT_DEGISIKLIKLERI f
       LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
       WHERE f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
@@ -207,17 +197,7 @@ class PriceSyncService {
         s.sto_isim,
         s.sto_marka_kodu,
         s.sto_standartmaliyet,
-        s.sto_eldekmiktar,
-        s.sto_satisfiyati1,
-        s.sto_satisfiyati2,
-        s.sto_satisfiyati3,
-        s.sto_satisfiyati4,
-        s.sto_satisfiyati5,
-        s.sto_satisfiyati6,
-        s.sto_satisfiyati7,
-        s.sto_satisfiyati8,
-        s.sto_satisfiyati9,
-        s.sto_satisfiyati10
+        s.sto_eldekmiktar
       FROM STOK_FIYAT_DEGISIKLIKLERI f
       LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
       WHERE f.fid_tarih > '${fromDate.toISOString()}'
@@ -245,9 +225,9 @@ class PriceSyncService {
         ? (changeAmount / change.fid_eskifiy_tutar) * 100
         : 0;
 
-      // Kar marjlarını hesapla
+      // Kar marjlarını hesapla (sadece STOKLAR'dan gelen 7 fiyat)
       const cost = change.sto_standartmaliyet || 0;
-      const margins = [
+      const prices = [
         change.sto_satisfiyati1,
         change.sto_satisfiyati2,
         change.sto_satisfiyati3,
@@ -255,13 +235,13 @@ class PriceSyncService {
         change.sto_satisfiyati5,
         change.sto_satisfiyati6,
         change.sto_satisfiyati7,
-        change.sto_satisfiyati8,
-        change.sto_satisfiyati9,
-        change.sto_satisfiyati10,
-      ].map((price) => {
+      ];
+
+      // Marjları hesapla (7 fiyat + 3 sıfır = 10 adet)
+      const margins = prices.map((price) => {
         if (!price || price === 0 || cost === 0) return 0;
         return ((price - cost) / price) * 100; // Kar marjı %
-      });
+      }).concat([0, 0, 0]); // Fiyat 8, 9, 10 için sıfır marj
 
       return `(
         '${randomUUID()}',
@@ -277,16 +257,16 @@ class PriceSyncService {
         ${changePercent},
         ${cost || 0},
         ${change.sto_eldekmiktar || 0},
-        ${change.sto_satisfiyati1 || 0},
-        ${change.sto_satisfiyati2 || 0},
-        ${change.sto_satisfiyati3 || 0},
-        ${change.sto_satisfiyati4 || 0},
-        ${change.sto_satisfiyati5 || 0},
-        ${change.sto_satisfiyati6 || 0},
-        ${change.sto_satisfiyati7 || 0},
-        ${change.sto_satisfiyati8 || 0},
-        ${change.sto_satisfiyati9 || 0},
-        ${change.sto_satisfiyati10 || 0},
+        ${prices[0] || 0},
+        ${prices[1] || 0},
+        ${prices[2] || 0},
+        ${prices[3] || 0},
+        ${prices[4] || 0},
+        ${prices[5] || 0},
+        ${prices[6] || 0},
+        0,
+        0,
+        0,
         ${margins[0]},
         ${margins[1]},
         ${margins[2]},
