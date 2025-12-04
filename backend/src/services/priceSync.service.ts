@@ -8,7 +8,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import mikroService from './mikro.service';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -46,7 +46,7 @@ class PriceSyncService {
     recordsSynced: number;
     error?: string;
   }> {
-    const syncId = uuidv4();
+    const syncId = randomUUID();
     const startTime = new Date();
 
     try {
@@ -147,7 +147,7 @@ class PriceSyncService {
   private async performFullSync(): Promise<number> {
     console.log('📥 Fetching all price changes from Mikro...');
 
-    const changes = await mikroService.executeQuery<PriceChangeRecord>(`
+    const changes = await mikroService.executeQuery(`
       SELECT
         f.fid_stok_kod,
         f.fid_tarih,
@@ -197,7 +197,7 @@ class PriceSyncService {
   private async performIncrementalSync(fromDate: Date): Promise<number> {
     console.log(`📥 Fetching price changes since ${fromDate.toISOString()}...`);
 
-    const changes = await mikroService.executeQuery<PriceChangeRecord>(`
+    const changes = await mikroService.executeQuery(`
       SELECT
         f.fid_stok_kod,
         f.fid_tarih,
@@ -264,7 +264,7 @@ class PriceSyncService {
       });
 
       return `(
-        '${uuidv4()}',
+        '${randomUUID()}',
         '${change.fid_stok_kod}',
         '${change.sto_isim?.replace(/'/g, "''") || ''}',
         ${change.sto_marka_kodu ? `'${change.sto_marka_kodu.replace(/'/g, "''")}'` : 'NULL'},
