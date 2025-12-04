@@ -545,6 +545,367 @@ export class ReportsService {
   }
 
   /**
+   * En Çok Satan Ürünler Raporu
+   *
+   * Belirtilen tarih aralığında en çok satılan ürünleri listeler.
+   * Hem satış tutarı hem de karlılık bazında sıralanabilir.
+   */
+  async getTopProducts(options: {
+    startDate?: string;
+    endDate?: string;
+    brand?: string;
+    category?: string;
+    minQuantity?: number;
+    sortBy?: 'revenue' | 'profit' | 'margin' | 'quantity';
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{
+    products: Array<{
+      productCode: string;
+      productName: string;
+      brand: string;
+      category: string;
+      quantity: number;
+      revenue: number;
+      cost: number;
+      profit: number;
+      profitMargin: number;
+      avgPrice: number;
+      customerCount: number;
+    }>;
+    summary: {
+      totalRevenue: number;
+      totalProfit: number;
+      avgProfitMargin: number;
+      totalProducts: number;
+    };
+    pagination: {
+      page: number;
+      limit: number;
+      totalPages: number;
+      totalRecords: number;
+    };
+  }> {
+    const {
+      startDate,
+      endDate,
+      brand,
+      category,
+      minQuantity = 0,
+      sortBy = 'revenue',
+      page = 1,
+      limit = 50,
+    } = options;
+
+    await mikroService.connect();
+
+    // WHERE koşulları
+    const whereConditions = ['sip_cins = 0']; // Sadece satışlar
+
+    if (startDate) {
+      whereConditions.push(`sip_tarih >= '${startDate}'`);
+    }
+    if (endDate) {
+      whereConditions.push(`sip_tarih <= '${endDate}'`);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+
+    // Sipariş satırlarını çek ve grupla
+    const query = `
+      SELECT
+        s.sip_stok_kod as productCode,
+        MAX(st.sto_isim) as productName,
+        MAX(st.sto_marka_kodu) as brand,
+        SUM(s.sip_miktar) as quantity,
+        SUM(s.sip_tutar) as revenue,
+        SUM(s.sip_miktar * st.sto_standartmaliyet) as totalCost,
+        COUNT(DISTINCT s.sip_cari_kod) as customerCount
+      FROM SIPARISLER s
+      LEFT JOIN STOKLAR st ON s.sip_stok_kod = st.sto_kod
+      WHERE ${whereClause}
+        AND s.sip_stok_kod IS NOT NULL
+        AND s.sip_stok_kod != ''
+      GROUP BY s.sip_stok_kod
+      HAVING SUM(s.sip_miktar) >= ${minQuantity}
+    `;
+
+    const rawData = await mikroService.executeQuery(query);
+    await mikroService.disconnect();
+
+    // Filtreleme
+    let filteredData = rawData;
+    if (brand) {
+      filteredData = filteredData.filter((p: any) =>
+        p.brand?.toLowerCase().includes(brand.toLowerCase())
+      );
+    }
+    if (category) {
+      filteredData = filteredData.filter((p: any) =>
+        p.category?.toLowerCase().includes(category.toLowerCase())
+      );
+    }
+
+    // Hesaplamalar
+    const products = filteredData.map((p: any) => {
+      const revenue = p.revenue || 0;
+      const cost = p.totalCost || 0;
+      const profit = revenue - cost;
+      const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
+      const avgPrice = p.quantity > 0 ? revenue / p.quantity : 0;
+
+      return {
+        productCode: p.productCode,
+        productName: p.productName || 'Bilinmiyor',
+        brand: p.brand || 'Belirtilmemiş',
+        category: 'Kategori', // TODO: Get from category table
+        quantity: p.quantity,
+        revenue,
+        cost,
+        profit,
+        profitMargin,
+        avgPrice,
+        customerCount: p.customerCount,
+      };
+    });
+
+    // Sıralama
+    products.sort((a, b) => {
+      switch (sortBy) {
+        case 'profit':
+          return b.profit - a.profit;
+        case 'margin':
+          return b.profitMargin - a.profitMargin;
+        case 'quantity':
+          return b.quantity - a.quantity;
+        case 'revenue':
+        default:
+          return b.revenue - a.revenue;
+      }
+    });
+
+    // Summary
+    const totalRevenue = products.reduce((sum, p) => sum + p.revenue, 0);
+    const totalProfit = products.reduce((sum, p) => sum + p.profit, 0);
+    const avgProfitMargin = products.length > 0
+      ? products.reduce((sum, p) => sum + p.profitMargin, 0) / products.length
+      : 0;
+
+    // Pagination
+    const totalRecords = products.length;
+    const totalPages = Math.ceil(totalRecords / limit);
+    const offset = (page - 1) * limit;
+    const paginatedProducts = products.slice(offset, offset + limit);
+
+    return {
+      products: paginatedProducts,
+      summary: {
+        totalRevenue,
+        totalProfit,
+        avgProfitMargin,
+        totalProducts: totalRecords,
+      },
+      pagination: {
+        page,
+        limit,
+        totalPages,
+        totalRecords,
+      },
+    };
+  }
+
+  /**
+   * En Çok Satın Alan Müşteriler Raporu
+   *
+   * Belirtilen tarih aralığında en çok satın alan müşterileri listeler.
+   * Hem alış tutarı hem de karlılık bazında sıralanabilir.
+   */
+  async getTopCustomers(options: {
+    startDate?: string;
+    endDate?: string;
+    sector?: string;
+    minOrderAmount?: number;
+    sortBy?: 'revenue' | 'profit' | 'margin' | 'orderCount';
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{
+    customers: Array<{
+      customerCode: string;
+      customerName: string;
+      sector: string;
+      orderCount: number;
+      revenue: number;
+      cost: number;
+      profit: number;
+      profitMargin: number;
+      avgOrderAmount: number;
+      topCategory: string;
+      lastOrderDate: Date;
+    }>;
+    summary: {
+      totalRevenue: number;
+      totalProfit: number;
+      avgProfitMargin: number;
+      totalCustomers: number;
+    };
+    pagination: {
+      page: number;
+      limit: number;
+      totalPages: number;
+      totalRecords: number;
+    };
+  }> {
+    const {
+      startDate,
+      endDate,
+      sector,
+      minOrderAmount = 0,
+      sortBy = 'revenue',
+      page = 1,
+      limit = 50,
+    } = options;
+
+    await mikroService.connect();
+
+    // WHERE koşulları
+    const whereConditions = ['sip_cins = 0']; // Sadece satışlar
+
+    if (startDate) {
+      whereConditions.push(`sip_tarih >= '${startDate}'`);
+    }
+    if (endDate) {
+      whereConditions.push(`sip_tarih <= '${endDate}'`);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+
+    // Müşteri bazında sipariş verilerini çek
+    const query = `
+      SELECT
+        s.sip_cari_kod as customerCode,
+        MAX(c.cari_unvan1) as customerName,
+        MAX(c.cari_sektor) as sector,
+        COUNT(DISTINCT s.sip_evrakno_seri + s.sip_evrakno_sira) as orderCount,
+        SUM(s.sip_tutar) as revenue,
+        MAX(s.sip_tarih) as lastOrderDate
+      FROM SIPARISLER s
+      LEFT JOIN CARI_HESAPLAR c ON s.sip_cari_kod = c.cari_kod
+      WHERE ${whereClause}
+        AND s.sip_cari_kod IS NOT NULL
+        AND s.sip_cari_kod != ''
+      GROUP BY s.sip_cari_kod
+      HAVING SUM(s.sip_tutar) >= ${minOrderAmount}
+    `;
+
+    const rawData = await mikroService.executeQuery(query);
+
+    // Her müşteri için maliyet hesabı (ayrı sorgu)
+    const customersWithCost = await Promise.all(
+      rawData.map(async (customer: any) => {
+        const costQuery = `
+          SELECT
+            SUM(s.sip_miktar * st.sto_standartmaliyet) as totalCost
+          FROM SIPARISLER s
+          LEFT JOIN STOKLAR st ON s.sip_stok_kod = st.sto_kod
+          WHERE ${whereClause}
+            AND s.sip_cari_kod = '${customer.customerCode}'
+        `;
+
+        try {
+          const costResult = await mikroService.executeQuery(costQuery);
+          return {
+            ...customer,
+            totalCost: costResult[0]?.totalCost || 0,
+          };
+        } catch (error) {
+          console.error(`Error fetching cost for customer ${customer.customerCode}:`, error);
+          return {
+            ...customer,
+            totalCost: 0,
+          };
+        }
+      })
+    );
+
+    await mikroService.disconnect();
+
+    // Filtreleme
+    let filteredData = customersWithCost;
+    if (sector) {
+      filteredData = filteredData.filter((c: any) =>
+        c.sector?.toLowerCase().includes(sector.toLowerCase())
+      );
+    }
+
+    // Hesaplamalar
+    const customers = filteredData.map((c: any) => {
+      const revenue = c.revenue || 0;
+      const cost = c.totalCost || 0;
+      const profit = revenue - cost;
+      const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
+      const avgOrderAmount = c.orderCount > 0 ? revenue / c.orderCount : 0;
+
+      return {
+        customerCode: c.customerCode,
+        customerName: c.customerName || 'Bilinmiyor',
+        sector: c.sector || 'Belirtilmemiş',
+        orderCount: c.orderCount,
+        revenue,
+        cost,
+        profit,
+        profitMargin,
+        avgOrderAmount,
+        topCategory: 'TODO', // TODO: En çok alınan kategori
+        lastOrderDate: c.lastOrderDate,
+      };
+    });
+
+    // Sıralama
+    customers.sort((a, b) => {
+      switch (sortBy) {
+        case 'profit':
+          return b.profit - a.profit;
+        case 'margin':
+          return b.profitMargin - a.profitMargin;
+        case 'orderCount':
+          return b.orderCount - a.orderCount;
+        case 'revenue':
+        default:
+          return b.revenue - a.revenue;
+      }
+    });
+
+    // Summary
+    const totalRevenue = customers.reduce((sum, c) => sum + c.revenue, 0);
+    const totalProfit = customers.reduce((sum, c) => sum + c.profit, 0);
+    const avgProfitMargin = customers.length > 0
+      ? customers.reduce((sum, c) => sum + c.profitMargin, 0) / customers.length
+      : 0;
+
+    // Pagination
+    const totalRecords = customers.length;
+    const totalPages = Math.ceil(totalRecords / limit);
+    const offset = (page - 1) * limit;
+    const paginatedCustomers = customers.slice(offset, offset + limit);
+
+    return {
+      customers: paginatedCustomers,
+      summary: {
+        totalRevenue,
+        totalProfit,
+        avgProfitMargin,
+        totalCustomers: totalRecords,
+      },
+      pagination: {
+        page,
+        limit,
+        totalPages,
+        totalRecords,
+      },
+    };
+  }
+
+  /**
    * Fiyat Geçmişi Raporu
    *
    * Mikro'daki STOK_FIYAT_DEGISIKLIKLERI tablosundan tüm fiyat değişikliklerini listeler.

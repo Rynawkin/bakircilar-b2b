@@ -1650,6 +1650,76 @@ export class AdminController {
       next(error);
     }
   }
+
+  /**
+   * En Çok Satan Ürünler Raporu
+   */
+  async getTopProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        startDate,
+        endDate,
+        brand,
+        category,
+        minQuantity,
+        sortBy,
+        page,
+        limit,
+      } = req.query;
+
+      const data = await reportsService.getTopProducts({
+        startDate: startDate as string,
+        endDate: endDate as string,
+        brand: brand as string,
+        category: category as string,
+        minQuantity: minQuantity ? parseInt(minQuantity as string) : undefined,
+        sortBy: (sortBy as 'revenue' | 'profit' | 'margin' | 'quantity') || 'revenue',
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * En Çok Satın Alan Müşteriler Raporu
+   */
+  async getTopCustomers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        startDate,
+        endDate,
+        sector,
+        minOrderAmount,
+        sortBy,
+        page,
+        limit,
+      } = req.query;
+
+      const data = await reportsService.getTopCustomers({
+        startDate: startDate as string,
+        endDate: endDate as string,
+        sector: sector as string,
+        minOrderAmount: minOrderAmount ? parseInt(minOrderAmount as string) : undefined,
+        sortBy: (sortBy as 'revenue' | 'profit' | 'margin' | 'orderCount') || 'revenue',
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new AdminController();
