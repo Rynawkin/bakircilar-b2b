@@ -405,6 +405,91 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/price-history?${queryParams.toString()}`);
     return response.data;
   },
+
+  getTopProducts: async (params?: {
+    startDate?: string;
+    endDate?: string;
+    brand?: string;
+    category?: string;
+    minQuantity?: number;
+    sortBy?: 'revenue' | 'profit' | 'margin' | 'quantity';
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      products: Array<{
+        productCode: string;
+        productName: string;
+        brand: string;
+        category: string;
+        quantity: number;
+        revenue: number;
+        cost: number;
+        profit: number;
+        profitMargin: number;
+        avgPrice: number;
+        customerCount: number;
+      }>;
+      summary: {
+        totalRevenue: number;
+        totalProfit: number;
+        avgProfitMargin: number;
+        totalProducts: number;
+      };
+      pagination: {
+        page: number;
+        limit: number;
+        totalPages: number;
+        totalRecords: number;
+      };
+    };
+  }> => {
+    const response = await apiClient.get('/admin/reports/top-products', { params });
+    return response.data;
+  },
+
+  getTopCustomers: async (params?: {
+    startDate?: string;
+    endDate?: string;
+    sector?: string;
+    minOrderAmount?: number;
+    sortBy?: 'revenue' | 'profit' | 'margin' | 'orderCount';
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      customers: Array<{
+        customerCode: string;
+        customerName: string;
+        sector: string;
+        orderCount: number;
+        revenue: number;
+        cost: number;
+        profit: number;
+        profitMargin: number;
+        avgOrderAmount: number;
+        topCategory: string;
+        lastOrderDate: string;
+      }>;
+      summary: {
+        totalRevenue: number;
+        totalProfit: number;
+        avgProfitMargin: number;
+        totalCustomers: number;
+      };
+      pagination: {
+        page: number;
+        limit: number;
+        totalPages: number;
+        totalRecords: number;
+      };
+    };
+  }> => {
+    const response = await apiClient.get('/admin/reports/top-customers', { params });
+    return response.data;
+  },
 };
 
 export default adminApi;
