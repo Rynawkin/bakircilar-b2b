@@ -315,7 +315,7 @@ export default function PriceHistoryPage() {
                 </label>
                 <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                   value={consistencyFilter}
-                  onChange={(e) => {setConsistencyFilter(e.target.value)}
+                  onChange={(e) => setConsistencyFilter(e.target.value)}
                 >
                   <option value="all">Tümü</option>
                   <option value="consistent">Tutarlı (10 liste)</option>
@@ -329,7 +329,7 @@ export default function PriceHistoryPage() {
                 </label>
                 <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                   value={directionFilter}
-                  onChange={(e) => {setDirectionFilter(e.target.value)}
+                  onChange={(e) => setDirectionFilter(e.target.value)}
                 >
                   <option value="all">Tümü</option>
                   <option value="increase">Artış</option>
