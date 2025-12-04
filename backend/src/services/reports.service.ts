@@ -620,7 +620,7 @@ export class ReportsService {
         SUM(s.sip_miktar) as quantity,
         SUM(s.sip_tutar) as revenue,
         SUM(s.sip_miktar * st.sto_standartmaliyet) as totalCost,
-        COUNT(DISTINCT s.sip_cari_kod) as customerCount
+        COUNT(DISTINCT s.sip_musteri_kod) as customerCount
       FROM SIPARISLER s
       LEFT JOIN STOKLAR st ON s.sip_stok_kod = st.sto_kod
       WHERE ${whereClause}
@@ -782,18 +782,18 @@ export class ReportsService {
     // Müşteri bazında sipariş verilerini çek
     const query = `
       SELECT
-        s.sip_cari_kod as customerCode,
+        s.sip_musteri_kod as customerCode,
         MAX(c.cari_unvan1) as customerName,
         MAX(c.cari_sektor) as sector,
         COUNT(DISTINCT s.sip_evrakno_seri + s.sip_evrakno_sira) as orderCount,
         SUM(s.sip_tutar) as revenue,
         MAX(s.sip_tarih) as lastOrderDate
       FROM SIPARISLER s
-      LEFT JOIN CARI_HESAPLAR c ON s.sip_cari_kod = c.cari_kod
+      LEFT JOIN CARI_HESAPLAR c ON s.sip_musteri_kod = c.cari_kod
       WHERE ${whereClause}
-        AND s.sip_cari_kod IS NOT NULL
-        AND s.sip_cari_kod != ''
-      GROUP BY s.sip_cari_kod
+        AND s.sip_musteri_kod IS NOT NULL
+        AND s.sip_musteri_kod != ''
+      GROUP BY s.sip_musteri_kod
       HAVING SUM(s.sip_tutar) >= ${minOrderAmount}
     `;
 
@@ -808,7 +808,7 @@ export class ReportsService {
           FROM SIPARISLER s
           LEFT JOIN STOKLAR st ON s.sip_stok_kod = st.sto_kod
           WHERE ${whereClause}
-            AND s.sip_cari_kod = '${customer.customerCode}'
+            AND s.sip_musteri_kod = '${customer.customerCode}'
         `;
 
         try {
