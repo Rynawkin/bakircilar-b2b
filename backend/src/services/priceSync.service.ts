@@ -156,8 +156,7 @@ class PriceSyncService {
         f.fid_yenifiy_tutar,
         s.sto_isim,
         s.sto_marka_kodu,
-        s.sto_standartmaliyet,
-        s.sto_eldekmiktar
+        s.sto_standartmaliyet
       FROM STOK_FIYAT_DEGISIKLIKLERI f
       LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
       WHERE f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
@@ -196,8 +195,7 @@ class PriceSyncService {
         f.fid_yenifiy_tutar,
         s.sto_isim,
         s.sto_marka_kodu,
-        s.sto_standartmaliyet,
-        s.sto_eldekmiktar
+        s.sto_standartmaliyet
       FROM STOK_FIYAT_DEGISIKLIKLERI f
       LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
       WHERE f.fid_tarih > '${fromDate.toISOString()}'
@@ -256,7 +254,7 @@ class PriceSyncService {
         ${changeAmount},
         ${changePercent},
         ${cost || 0},
-        ${change.sto_eldekmiktar || 0},
+        0,
         ${prices[0] || 0},
         ${prices[1] || 0},
         ${prices[2] || 0},
