@@ -119,6 +119,16 @@ router.post('/users/bulk-create', requireAdmin, adminController.bulkCreateUsers)
 router.get('/reports/cost-update-alerts', requireStaff, adminController.getCostUpdateAlerts);
 router.get('/reports/margin-compliance', requireStaff, adminController.getMarginComplianceReport);
 router.get('/reports/categories', requireStaff, adminController.getReportCategories);
+// Price Sync endpoints
+router.post('/price-sync', requireAdmin, adminController.syncPriceChanges);
+router.get('/price-sync/status', requireStaff, adminController.getPriceSyncStatus);
+
+// New Price History endpoints (PostgreSQL based)
+router.get('/reports/price-history-new', requireStaff, adminController.getPriceHistoryNew);
+router.get('/reports/product-price-detail/:productCode', requireStaff, adminController.getProductPriceDetail);
+router.get('/reports/price-summary-stats', requireStaff, adminController.getPriceSummaryStats);
+
+// Old Price History endpoint (backward compatibility - Mikro based)
 router.get('/reports/price-history', requireStaff, adminController.getPriceHistory);
 
 export default router;

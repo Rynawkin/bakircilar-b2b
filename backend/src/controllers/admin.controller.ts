@@ -11,6 +11,8 @@ import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
+import priceSyncService from '../services/priceSync.service';
+import priceHistoryNewService from '../services/priceHistoryNew.service';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
 export class AdminController {
@@ -1478,8 +1480,133 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/price-sync
+   * Fiyat değişikliklerini Mikro'dan PostgreSQL'e senkronize eder
+   */
+  async syncPriceChanges(req: Request, res: Response, next: NextFunction) {
+    try {
+      console.log('🔄 Price sync başlatıldı...');
+      const result = await priceSyncService.syncPriceChanges();
+
+      res.json({
+        success: result.success,
+        syncType: result.syncType,
+        recordsSynced: result.recordsSynced,
+        error: result.error,
+      });
+    } catch (error: any) {
+      console.error('❌ Price sync hatası:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/price-sync/status
+   * Son senkronizasyon durumunu getirir
+   */
+  async getPriceSyncStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const status = await priceSyncService.getLastSyncStatus();
+
+      res.json({
+        success: true,
+        status,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/price-history-new
+   * Yeni Fiyat Geçmişi Raporu (PostgreSQL'den)
+   */
+  async getPriceHistoryNew(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        startDate,
+        endDate,
+        productCode,
+        productName,
+        brand,
+        category,
+        hasStock,
+        minDaysSinceChange,
+        maxDaysSinceChange,
+        minChangeFrequency,
+        maxChangeFrequency,
+        page,
+        limit,
+        sortBy,
+        sortOrder,
+      } = req.query;
+
+      const data = await priceHistoryNewService.getProductPriceList({
+        startDate: startDate as string,
+        endDate: endDate as string,
+        productCode: productCode as string,
+        productName: productName as string,
+        brand: brand as string,
+        category: category as string,
+        hasStock: hasStock === 'true',
+        minDaysSinceChange: minDaysSinceChange ? parseInt(minDaysSinceChange as string) : undefined,
+        maxDaysSinceChange: maxDaysSinceChange ? parseInt(maxDaysSinceChange as string) : undefined,
+        minChangeFrequency: minChangeFrequency ? parseInt(minChangeFrequency as string) : undefined,
+        maxChangeFrequency: maxChangeFrequency ? parseInt(maxChangeFrequency as string) : undefined,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+        sortBy: (sortBy as any) || 'lastChangeDate',
+        sortOrder: (sortOrder as 'asc' | 'desc') || 'desc',
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/product-price-detail/:productCode
+   * Belirli bir ürünün detaylı fiyat geçmişi
+   */
+  async getProductPriceDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { productCode } = req.params;
+
+      const data = await priceHistoryNewService.getProductPriceHistory(productCode);
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/price-summary-stats
+   * Fiyat değişim özet istatistikleri
+   */
+  async getPriceSummaryStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const stats = await priceHistoryNewService.getSummaryStats();
+
+      res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/price-history
-   * Fiyat Geçmişi Raporu
+   * Fiyat Geçmişi Raporu (ESKİ - backward compatibility)
    */
   async getPriceHistory(req: Request, res: Response, next: NextFunction) {
     try {
