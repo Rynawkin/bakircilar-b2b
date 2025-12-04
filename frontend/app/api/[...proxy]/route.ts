@@ -30,9 +30,14 @@ export async function PATCH(request: NextRequest) {
 
 async function proxyRequest(request: NextRequest, method: string) {
   try {
+    console.log(`[Proxy] BACKEND_URL configured as: ${BACKEND_URL}`);
+
     // Get the path after /api/
     const url = new URL(request.url);
     const pathSegments = url.pathname.split('/').filter(Boolean);
+    console.log(`[Proxy] Original pathname: ${url.pathname}`);
+    console.log(`[Proxy] Path segments: ${JSON.stringify(pathSegments)}`);
+
     // Remove 'api' from the beginning
     pathSegments.shift();
     const backendPath = pathSegments.join('/');
