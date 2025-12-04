@@ -6,6 +6,7 @@
  */
 
 import { prisma } from '../utils/prisma';
+import mikroService from './mikro.service';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -624,10 +625,10 @@ export class ReportsService {
         f.fid_eskifiy_tutar,
         f.fid_yenifiy_tutar,
         s.sto_isim,
-        ISNULL(k.kar_isim, 'Kategori Yok') as kategori
+        'Kategori Yok' as kategori
       FROM STOK_FIYAT_DEGISIKLIKLERI f
       LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
-      LEFT JOIN KATEGORI k ON s.sto_kategori_kod = k.kar_kod
+      
       WHERE ${whereClause}
         AND f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
         AND s.sto_pasif_fl = 0
