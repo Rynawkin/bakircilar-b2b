@@ -166,8 +166,8 @@ class PriceSyncService {
 
     console.log(`📊 Found ${changes.length} price changes`);
 
-    // Batch insert (1000'er kayıt)
-    const batchSize = 1000;
+    // Batch insert (500'er kayıt - daha küçük batch, daha az connection timeout)
+    const batchSize = 500;
     let inserted = 0;
 
     for (let i = 0; i < changes.length; i += batchSize) {
@@ -175,6 +175,11 @@ class PriceSyncService {
       await this.insertPriceChanges(batch);
       inserted += batch.length;
       console.log(`  → Inserted ${inserted}/${changes.length} records`);
+
+      // Her 10 batch'te bir kısa bekleme (connection pool recover için)
+      if (inserted % 5000 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
 
     return inserted;
@@ -280,20 +285,39 @@ class PriceSyncService {
       )`;
     }).join(',\n');
 
-    await prisma.$executeRawUnsafe(`
-      INSERT INTO price_changes (
-        id, product_code, product_name, brand, category, change_date, price_list_no,
-        old_price, new_price, change_amount, change_percent,
-        current_cost, current_stock,
-        price_list_1, price_list_2, price_list_3, price_list_4, price_list_5,
-        price_list_6, price_list_7, price_list_8, price_list_9, price_list_10,
-        margin_list_1, margin_list_2, margin_list_3, margin_list_4, margin_list_5,
-        margin_list_6, margin_list_7, margin_list_8, margin_list_9, margin_list_10,
-        synced_at, created_at
-      )
-      VALUES ${values}
-      ON CONFLICT DO NOTHING
-    `);
+    // Retry logic for connection issues
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        await prisma.$executeRawUnsafe(`
+          INSERT INTO price_changes (
+            id, product_code, product_name, brand, category, change_date, price_list_no,
+            old_price, new_price, change_amount, change_percent,
+            current_cost, current_stock,
+            price_list_1, price_list_2, price_list_3, price_list_4, price_list_5,
+            price_list_6, price_list_7, price_list_8, price_list_9, price_list_10,
+            margin_list_1, margin_list_2, margin_list_3, margin_list_4, margin_list_5,
+            margin_list_6, margin_list_7, margin_list_8, margin_list_9, margin_list_10,
+            synced_at, created_at
+          )
+          VALUES ${values}
+          ON CONFLICT DO NOTHING
+        `);
+        break; // Success, exit retry loop
+      } catch (error: any) {
+        retries--;
+        if (retries === 0 || !error.message?.includes('Server has closed')) {
+          throw error; // Re-throw if no retries left or different error
+        }
+        console.log(`⚠️ Connection lost, retrying... (${retries} attempts left)`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+
+        // Reconnect Prisma
+        await prisma.$disconnect();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await prisma.$connect();
+      }
+    }
   }
 
   /**
