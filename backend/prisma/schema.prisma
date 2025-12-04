@@ -507,3 +507,96 @@ model EmailLog {
   @@index([sentAt])
   @@index([success])
 }
+
+// ==================== PRICE HISTORY ====================
+
+// Fiyat değişiklik geçmişi (Mikro FIYAT_DEGISIM tablosundan sync)
+model PriceChange {
+  id                    String    @id @default(uuid())
+
+  // Ürün bilgileri
+  productCode           String
+  productName           String
+
+  // Fiyat değişikliği
+  oldPrice              Decimal   @db.Decimal(14, 2)
+  newPrice              Decimal   @db.Decimal(14, 2)
+  changeAmount          Decimal   @db.Decimal(14, 2)
+  changePercent         Decimal   @db.Decimal(14, 2)
+  changedAt             DateTime
+
+  // Güncel maliyet ve fiyat listeleri (10 adet)
+  currentCost           Decimal   @db.Decimal(14, 2)
+  priceList1            Decimal?  @db.Decimal(14, 2)
+  priceList2            Decimal?  @db.Decimal(14, 2)
+  priceList3            Decimal?  @db.Decimal(14, 2)
+  priceList4            Decimal?  @db.Decimal(14, 2)
+  priceList5            Decimal?  @db.Decimal(14, 2)
+  priceList6            Decimal?  @db.Decimal(14, 2)
+  priceList7            Decimal?  @db.Decimal(14, 2)
+  priceList8            Decimal?  @db.Decimal(14, 2)
+  priceList9            Decimal?  @db.Decimal(14, 2)
+  priceList10           Decimal?  @db.Decimal(14, 2)
+
+  // Marj oranları (10 adet) - maliyet üzerinden hesaplanan kar marjı yüzdeleri
+  marginList1           Decimal?  @db.Decimal(14, 2)
+  marginList2           Decimal?  @db.Decimal(14, 2)
+  marginList3           Decimal?  @db.Decimal(14, 2)
+  marginList4           Decimal?  @db.Decimal(14, 2)
+  marginList5           Decimal?  @db.Decimal(14, 2)
+  marginList6           Decimal?  @db.Decimal(14, 2)
+  marginList7           Decimal?  @db.Decimal(14, 2)
+  marginList8           Decimal?  @db.Decimal(14, 2)
+  marginList9           Decimal?  @db.Decimal(14, 2)
+  marginList10          Decimal?  @db.Decimal(14, 2)
+
+  createdAt             DateTime  @default(now())
+
+  @@index([productCode])
+  @@index([changedAt])
+  @@index([changePercent])
+}
+
+// Ürün fiyat istatistikleri (özet bilgiler)
+model ProductPriceStat {
+  id                    String    @id @default(uuid())
+
+  productCode           String    @unique
+  productName           String
+
+  // Son değişiklik
+  lastChangeDate        DateTime
+  lastChangePercent     Decimal   @db.Decimal(14, 2)
+
+  // Toplam değişiklik sayısı
+  totalChanges          Int       @default(0)
+
+  // Güncel değerler
+  currentCost           Decimal   @db.Decimal(14, 2)
+  currentPriceList1     Decimal?  @db.Decimal(14, 2)
+  currentPriceList2     Decimal?  @db.Decimal(14, 2)
+  currentPriceList3     Decimal?  @db.Decimal(14, 2)
+  currentPriceList4     Decimal?  @db.Decimal(14, 2)
+  currentPriceList5     Decimal?  @db.Decimal(14, 2)
+  currentPriceList6     Decimal?  @db.Decimal(14, 2)
+  currentPriceList7     Decimal?  @db.Decimal(14, 2)
+  currentPriceList8     Decimal?  @db.Decimal(14, 2)
+  currentPriceList9     Decimal?  @db.Decimal(14, 2)
+  currentPriceList10    Decimal?  @db.Decimal(14, 2)
+
+  currentMarginList1    Decimal?  @db.Decimal(14, 2)
+  currentMarginList2    Decimal?  @db.Decimal(14, 2)
+  currentMarginList3    Decimal?  @db.Decimal(14, 2)
+  currentMarginList4    Decimal?  @db.Decimal(14, 2)
+  currentMarginList5    Decimal?  @db.Decimal(14, 2)
+  currentMarginList6    Decimal?  @db.Decimal(14, 2)
+  currentMarginList7    Decimal?  @db.Decimal(14, 2)
+  currentMarginList8    Decimal?  @db.Decimal(14, 2)
+  currentMarginList9    Decimal?  @db.Decimal(14, 2)
+  currentMarginList10   Decimal?  @db.Decimal(14, 2)
+
+  updatedAt             DateTime  @updatedAt
+
+  @@index([productCode])
+  @@index([lastChangeDate])
+}
