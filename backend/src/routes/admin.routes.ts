@@ -119,5 +119,6 @@ router.post('/users/bulk-create', requireAdmin, adminController.bulkCreateUsers)
 router.get('/reports/cost-update-alerts', requireStaff, adminController.getCostUpdateAlerts);
 router.get('/reports/margin-compliance', requireStaff, adminController.getMarginComplianceReport);
 router.get('/reports/categories', requireStaff, adminController.getReportCategories);
+router.get('/reports/price-history', requireStaff, adminController.getPriceHistory);
 
 export default router;

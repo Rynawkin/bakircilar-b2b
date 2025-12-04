@@ -1476,6 +1476,53 @@ export class AdminController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/admin/reports/price-history
+   * Fiyat Geçmişi Raporu
+   */
+  async getPriceHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        startDate,
+        endDate,
+        productCode,
+        productName,
+        category,
+        priceListNo,
+        consistencyStatus,
+        changeDirection,
+        minChangePercent,
+        page,
+        limit,
+        sortBy,
+        sortOrder,
+      } = req.query;
+
+      const data = await reportsService.getPriceHistory({
+        startDate: startDate as string,
+        endDate: endDate as string,
+        productCode: productCode as string,
+        productName: productName as string,
+        category: category as string,
+        priceListNo: priceListNo ? parseInt(priceListNo as string) : undefined,
+        consistencyStatus: (consistencyStatus as 'all' | 'consistent' | 'inconsistent') || 'all',
+        changeDirection: (changeDirection as 'increase' | 'decrease' | 'mixed' | 'all') || 'all',
+        minChangePercent: minChangePercent ? parseFloat(minChangePercent as string) : undefined,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+        sortBy: (sortBy as string) || 'changeDate',
+        sortOrder: (sortOrder as 'asc' | 'desc') || 'desc',
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new AdminController();
