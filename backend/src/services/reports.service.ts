@@ -50,13 +50,13 @@ interface MarginComplianceAlert {
   category: string;
   currentCost: number;
   customerType: string;
-  expectedMargin: number; // % (e.g., 15 for 15%)
+  expectedMargin: number; // % kar marjı (e.g., 60 for 1.6x multiplier)
   expectedPrice: number;
   actualPrice: number;
   deviation: number; // % deviation
   deviationAmount: number; // TL deviation
   status: 'OK' | 'HIGH' | 'LOW'; // OK: ±2%, HIGH: >2%, LOW: <-2%
-  priceSource: 'CATEGORY_RULE' | 'PRODUCT_OVERRIDE';
+  priceSource: 'CATEGORY_RULE' | 'PRODUCT_OVERRIDE' | 'MIKRO_MARGIN';
 }
 
 interface MarginComplianceResponse {
@@ -77,6 +77,54 @@ interface MarginComplianceResponse {
   metadata: {
     lastSyncAt: Date | null;
     syncType: string | null;
+  };
+}
+
+// Price History types
+interface PriceListChange {
+  listNo: number;
+  listName: string;
+  oldPrice: number;
+  newPrice: number;
+  changeAmount: number;
+  changePercent: number;
+}
+
+interface PriceChange {
+  productCode: string;
+  productName: string;
+  category: string;
+  changeDate: Date;
+  priceChanges: PriceListChange[];
+  isConsistent: boolean; // true if all 10 lists changed on same date
+  updatedListsCount: number;
+  missingLists: number[];
+  avgChangePercent: number;
+  changeDirection: 'increase' | 'decrease' | 'mixed';
+}
+
+interface PriceHistoryResponse {
+  changes: PriceChange[];
+  summary: {
+    totalChanges: number;
+    consistentChanges: number;
+    inconsistentChanges: number;
+    inconsistencyRate: number;
+    avgIncreasePercent: number;
+    avgDecreasePercent: number;
+    topIncreases: { product: string; percent: number }[];
+    topDecreases: { product: string; percent: number }[];
+    last30DaysChanges: number;
+    last7DaysChanges: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+    totalRecords: number;
+  };
+  metadata: {
+    dataSource: string;
   };
 }
 
@@ -307,7 +355,7 @@ export class ReportsService {
       include: {
         category: true,
       },
-      take: 1000, // Limit to 1000 products for performance
+      take: 10, // Limit to 10 products for performance (each product requires 2 Mikro queries)
     });
 
     // Mikro'dan marj tanımlarını ve fiyatları çek
@@ -315,18 +363,19 @@ export class ReportsService {
     await mikroService.connect();
 
     const alerts: MarginComplianceAlert[] = [];
-    const customerTypes = customerType
-      ? [customerType]
-      : ['BAYI', 'PERAKENDE', 'VIP', 'OZEL', 'TOPTAN5'];
 
     // Marj kolonları ve fiyat listesi mapping
-    // Her müşteri tipi için hangi marj ve hangi fiyat listesi kullanılacak
+    // Marj_1-5 ile Liste 6-10 eşleşir
+    const marginTypes = customerType
+      ? [customerType]
+      : ['Marj 1', 'Marj 2', 'Marj 3', 'Marj 4', 'Marj 5'];
+
     const mappings: Record<string, { marginCol: string; priceList: number }> = {
-      'BAYI': { marginCol: 'Marj_1', priceList: 1 },
-      'PERAKENDE': { marginCol: 'Marj_2', priceList: 2 },
-      'VIP': { marginCol: 'Marj_3', priceList: 3 },
-      'OZEL': { marginCol: 'Marj_4', priceList: 4 },
-      'TOPTAN5': { marginCol: 'Marj_5', priceList: 5 },
+      'Marj 1': { marginCol: 'Marj_1', priceList: 6 },
+      'Marj 2': { marginCol: 'Marj_2', priceList: 7 },
+      'Marj 3': { marginCol: 'Marj_3', priceList: 8 },
+      'Marj 4': { marginCol: 'Marj_4', priceList: 9 },
+      'Marj 5': { marginCol: 'Marj_5', priceList: 10 },
     };
 
     for (const product of products) {
@@ -359,7 +408,7 @@ export class ReportsService {
 
       if (!productData) continue;
 
-      // Fiyat listelerini çek
+      // Fiyat listelerini çek (Liste 6-10)
       let priceListData: any[] = [];
       try {
         priceListData = await mikroService.executeQuery(`
@@ -369,15 +418,15 @@ export class ReportsService {
           FROM STOK_SATIS_FIYAT_LISTELERI
           WHERE sfiyat_stokkod = '${product.mikroCode}'
             AND sfiyat_fiyati > 0
-            AND sfiyat_listesirano BETWEEN 1 AND 5
+            AND sfiyat_listesirano BETWEEN 6 AND 10
         `);
       } catch (error) {
         console.error(`Error fetching price lists for ${product.mikroCode}:`, error);
         continue;
       }
 
-      for (const custType of customerTypes) {
-        const mapping = mappings[custType];
+      for (const marginType of marginTypes) {
+        const mapping = mappings[marginType];
         if (!mapping) continue;
 
         // Mikro'daki tanımlı marj
@@ -417,8 +466,8 @@ export class ReportsService {
           productName: product.name,
           category: product.category.name,
           currentCost,
-          customerType: custType,
-          expectedMargin: expectedMarginMultiplier * 100, // Yüzde olarak (2.0 → 200%)
+          customerType: marginType,
+          expectedMargin: (expectedMarginMultiplier - 1) * 100, // Yüzde olarak (1.6 → 60%)
           expectedPrice,
           actualPrice,
           deviation,
@@ -490,6 +539,337 @@ export class ReportsService {
       metadata: {
         lastSyncAt: lastSync?.completedAt || null,
         syncType: lastSync?.syncType || null,
+      },
+    };
+  }
+
+  /**
+   * Fiyat Geçmişi Raporu
+   *
+   * Mikro'daki STOK_FIYAT_DEGISIKLIKLERI tablosundan tüm fiyat değişikliklerini listeler.
+   * Önemli: Her ürünün 10 fiyat listesi olmalı ve hepsi aynı gün güncellenmelidir.
+   * - Liste 1-5: Perakende (KDV Dahil Maliyet × Marj_{1-5})
+   * - Liste 6-10: Faturalı (KDV Hariç Maliyet × Marj_{1-5})
+   */
+  async getPriceHistory(options: {
+    startDate?: string;
+    endDate?: string;
+    productCode?: string;
+    productName?: string;
+    category?: string;
+    priceListNo?: number;
+    consistencyStatus?: 'all' | 'consistent' | 'inconsistent';
+    changeDirection?: 'increase' | 'decrease' | 'mixed' | 'all';
+    minChangePercent?: number;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<PriceHistoryResponse> {
+    const {
+      startDate,
+      endDate,
+      productCode,
+      productName,
+      category,
+      priceListNo,
+      consistencyStatus = 'all',
+      changeDirection = 'all',
+      minChangePercent,
+      page = 1,
+      limit = 50,
+      sortBy = 'changeDate',
+      sortOrder = 'desc',
+    } = options;
+
+    await mikroService.connect();
+
+    // Liste isimleri
+    const priceListNames: { [key: number]: string } = {
+      1: 'Perakende 1',
+      2: 'Perakende 2',
+      3: 'Perakende 3',
+      4: 'Perakende 4',
+      5: 'Perakende 5',
+      6: 'Faturalı 1',
+      7: 'Faturalı 2',
+      8: 'Faturalı 3',
+      9: 'Faturalı 4',
+      10: 'Faturalı 5',
+    };
+
+    // 1. Fiyat değişikliklerini çek
+    let whereConditions = ['1=1'];
+
+    if (startDate) {
+      whereConditions.push(`fid_tarih >= '${startDate}'`);
+    }
+    if (endDate) {
+      whereConditions.push(`fid_tarih <= '${endDate}'`);
+    }
+    if (productCode) {
+      whereConditions.push(`fid_stok_kod LIKE '%${productCode}%'`);
+    }
+    if (priceListNo) {
+      whereConditions.push(`fid_fiyat_no = ${priceListNo}`);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+
+    const priceChangesQuery = `
+      SELECT TOP 10000
+        f.fid_stok_kod,
+        f.fid_tarih,
+        f.fid_fiyat_no,
+        f.fid_eskifiy_tutar,
+        f.fid_yenifiy_tutar,
+        s.sto_isim,
+        ISNULL(k.kar_isim, 'Kategori Yok') as kategori
+      FROM STOK_FIYAT_DEGISIKLIKLERI f
+      LEFT JOIN STOKLAR s ON f.fid_stok_kod = s.sto_kod
+      LEFT JOIN KATEGORI k ON s.sto_kategori_kod = k.kar_kod
+      WHERE ${whereClause}
+        AND f.fid_eskifiy_tutar != f.fid_yenifiy_tutar
+        AND s.sto_pasif_fl = 0
+      ORDER BY f.fid_tarih DESC, f.fid_stok_kod, f.fid_fiyat_no
+    `;
+
+    const rawChanges = await mikroService.executeQuery(priceChangesQuery);
+
+    // 2. Ürün adı filtresi (SQL'de LIKE performans sorunu olabilir, sonradan filtrele)
+    let filteredChanges = rawChanges;
+    if (productName) {
+      const searchTerm = productName.toLowerCase();
+      filteredChanges = rawChanges.filter((c: any) =>
+        c.sto_isim?.toLowerCase().includes(searchTerm)
+      );
+    }
+    if (category) {
+      const searchTerm = category.toLowerCase();
+      filteredChanges = filteredChanges.filter((c: any) =>
+        c.kategori?.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    // 3. Ürün + Tarih bazında grupla
+    const groupedByProductAndDate: {
+      [key: string]: {
+        productCode: string;
+        productName: string;
+        category: string;
+        changeDate: Date;
+        changes: Array<{
+          listNo: number;
+          oldPrice: number;
+          newPrice: number;
+        }>;
+      };
+    } = {};
+
+    for (const change of filteredChanges) {
+      const key = `${change.fid_stok_kod}_${change.fid_tarih.toISOString().split('T')[0]}`;
+
+      if (!groupedByProductAndDate[key]) {
+        groupedByProductAndDate[key] = {
+          productCode: change.fid_stok_kod,
+          productName: change.sto_isim || 'Bilinmiyor',
+          category: change.kategori || 'Kategori Yok',
+          changeDate: change.fid_tarih,
+          changes: [],
+        };
+      }
+
+      groupedByProductAndDate[key].changes.push({
+        listNo: change.fid_fiyat_no,
+        oldPrice: change.fid_eskifiy_tutar,
+        newPrice: change.fid_yenifiy_tutar,
+      });
+    }
+
+    // 4. Her grup için PriceChange objesi oluştur
+    const priceChanges: PriceChange[] = [];
+
+    for (const key in groupedByProductAndDate) {
+      const group = groupedByProductAndDate[key];
+
+      // Consistency check: 10 liste de güncellenmiş mi?
+      const updatedLists = group.changes.map(c => c.listNo);
+      const isConsistent = updatedLists.length === 10;
+      const missingLists = Array.from({ length: 10 }, (_, i) => i + 1)
+        .filter(n => !updatedLists.includes(n));
+
+      // PriceListChange'leri oluştur
+      const priceListChanges: PriceListChange[] = group.changes.map(c => {
+        const changeAmount = c.newPrice - c.oldPrice;
+        const changePercent = c.oldPrice > 0
+          ? (changeAmount / c.oldPrice) * 100
+          : 0;
+
+        return {
+          listNo: c.listNo,
+          listName: priceListNames[c.listNo] || `Liste ${c.listNo}`,
+          oldPrice: c.oldPrice,
+          newPrice: c.newPrice,
+          changeAmount,
+          changePercent,
+        };
+      });
+
+      // Ortalama değişim yüzdesi
+      const avgChangePercent = priceListChanges.length > 0
+        ? priceListChanges.reduce((sum, c) => sum + c.changePercent, 0) / priceListChanges.length
+        : 0;
+
+      // Değişim yönü
+      let direction: 'increase' | 'decrease' | 'mixed' = 'mixed';
+      const increases = priceListChanges.filter(c => c.changeAmount > 0).length;
+      const decreases = priceListChanges.filter(c => c.changeAmount < 0).length;
+
+      if (increases > 0 && decreases === 0) {
+        direction = 'increase';
+      } else if (decreases > 0 && increases === 0) {
+        direction = 'decrease';
+      }
+
+      priceChanges.push({
+        productCode: group.productCode,
+        productName: group.productName,
+        category: group.category,
+        changeDate: group.changeDate,
+        priceChanges: priceListChanges,
+        isConsistent,
+        updatedListsCount: updatedLists.length,
+        missingLists,
+        avgChangePercent,
+        changeDirection: direction,
+      });
+    }
+
+    await mikroService.disconnect();
+
+    // 5. Filtreleme
+    let filtered = priceChanges;
+
+    // Consistency filtresi
+    if (consistencyStatus === 'consistent') {
+      filtered = filtered.filter(c => c.isConsistent);
+    } else if (consistencyStatus === 'inconsistent') {
+      filtered = filtered.filter(c => !c.isConsistent);
+    }
+
+    // Değişim yönü filtresi
+    if (changeDirection !== 'all') {
+      filtered = filtered.filter(c => c.changeDirection === changeDirection);
+    }
+
+    // Min değişim yüzdesi filtresi
+    if (minChangePercent !== undefined) {
+      filtered = filtered.filter(c => Math.abs(c.avgChangePercent) >= minChangePercent);
+    }
+
+    // 6. Sıralama
+    filtered.sort((a, b) => {
+      let aValue: any, bValue: any;
+
+      if (sortBy === 'changeDate') {
+        aValue = a.changeDate.getTime();
+        bValue = b.changeDate.getTime();
+      } else if (sortBy === 'avgChangePercent') {
+        aValue = Math.abs(a.avgChangePercent);
+        bValue = Math.abs(b.avgChangePercent);
+      } else if (sortBy === 'productName') {
+        aValue = a.productName;
+        bValue = b.productName;
+      } else if (sortBy === 'category') {
+        aValue = a.category;
+        bValue = b.category;
+      } else {
+        aValue = a.changeDate.getTime();
+        bValue = b.changeDate.getTime();
+      }
+
+      if (sortOrder === 'desc') {
+        return bValue > aValue ? 1 : bValue < aValue ? -1 : 0;
+      } else {
+        return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+      }
+    });
+
+    // 7. Summary istatistikleri
+    const totalChanges = filtered.length;
+    const consistentChanges = filtered.filter(c => c.isConsistent).length;
+    const inconsistentChanges = totalChanges - consistentChanges;
+    const inconsistencyRate = totalChanges > 0
+      ? (inconsistentChanges / totalChanges) * 100
+      : 0;
+
+    const increases = filtered.filter(c => c.avgChangePercent > 0);
+    const decreases = filtered.filter(c => c.avgChangePercent < 0);
+
+    const avgIncreasePercent = increases.length > 0
+      ? increases.reduce((sum, c) => sum + c.avgChangePercent, 0) / increases.length
+      : 0;
+
+    const avgDecreasePercent = decreases.length > 0
+      ? decreases.reduce((sum, c) => sum + c.avgChangePercent, 0) / decreases.length
+      : 0;
+
+    // En yüksek artışlar
+    const topIncreases = [...filtered]
+      .filter(c => c.avgChangePercent > 0)
+      .sort((a, b) => b.avgChangePercent - a.avgChangePercent)
+      .slice(0, 5)
+      .map(c => ({
+        product: `${c.productCode} - ${c.productName}`,
+        percent: c.avgChangePercent,
+      }));
+
+    // En yüksek azalışlar
+    const topDecreases = [...filtered]
+      .filter(c => c.avgChangePercent < 0)
+      .sort((a, b) => a.avgChangePercent - b.avgChangePercent)
+      .slice(0, 5)
+      .map(c => ({
+        product: `${c.productCode} - ${c.productName}`,
+        percent: c.avgChangePercent,
+      }));
+
+    // Son 30 ve 7 gün
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const last30DaysChanges = filtered.filter(c => c.changeDate >= thirtyDaysAgo).length;
+    const last7DaysChanges = filtered.filter(c => c.changeDate >= sevenDaysAgo).length;
+
+    // 8. Pagination
+    const totalRecords = filtered.length;
+    const totalPages = Math.ceil(totalRecords / limit);
+    const offset = (page - 1) * limit;
+    const paginatedChanges = filtered.slice(offset, offset + limit);
+
+    return {
+      changes: paginatedChanges,
+      summary: {
+        totalChanges,
+        consistentChanges,
+        inconsistentChanges,
+        inconsistencyRate,
+        avgIncreasePercent,
+        avgDecreasePercent,
+        topIncreases,
+        topDecreases,
+        last30DaysChanges,
+        last7DaysChanges,
+      },
+      pagination: {
+        page,
+        limit,
+        totalPages,
+        totalRecords,
+      },
+      metadata: {
+        dataSource: 'MIKRO_STOK_FIYAT_DEGISIKLIKLERI',
       },
     };
   }
