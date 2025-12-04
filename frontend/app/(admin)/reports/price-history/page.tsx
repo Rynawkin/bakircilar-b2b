@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import {
   Table,
   TableBody,
@@ -314,29 +313,29 @@ export default function PriceHistoryPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Tutarlılık
                 </label>
-                <Select
+                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                   value={consistencyFilter}
-                  onValueChange={setConsistencyFilter}
+                  onChange={(e) => {setConsistencyFilter(e.target.value)}
                 >
                   <option value="all">Tümü</option>
                   <option value="consistent">Tutarlı (10 liste)</option>
                   <option value="inconsistent">Tutarsız (&lt;10 liste)</option>
-                </Select>
+                </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Değişim Yönü
                 </label>
-                <Select
+                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                   value={directionFilter}
-                  onValueChange={setDirectionFilter}
+                  onChange={(e) => {setDirectionFilter(e.target.value)}
                 >
                   <option value="all">Tümü</option>
                   <option value="increase">Artış</option>
                   <option value="decrease">Azalış</option>
                   <option value="mixed">Karışık</option>
-                </Select>
+                </select>
               </div>
 
               <div>
