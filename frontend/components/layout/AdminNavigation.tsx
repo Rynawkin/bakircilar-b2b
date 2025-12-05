@@ -26,6 +26,7 @@ const navItems: NavItem[] = [
 const settingsItems: NavItem[] = [
   { name: 'Kategoriler', href: '/categories', icon: '📁', description: 'Fiyatlandırma ayarları' },
   { name: 'Ürün Override', href: '/product-overrides', icon: '🏷️', description: 'Özel fiyatlar' },
+  { name: 'Hariç Tutma', href: '/exclusions', icon: '🚫', description: 'Rapor filtreleme' },
   { name: 'Personel', href: '/staff', icon: '👥', description: 'Personel yönetimi' },
   { name: 'Ayarlar', href: '/settings', icon: '⚙️', description: 'Sistem ayarları' },
 ];
