@@ -600,3 +600,32 @@ model ProductPriceStat {
   @@index([productCode])
   @@index([lastChangeDate])
 }
+
+// ==================== REPORT EXCLUSIONS ====================
+
+enum ExclusionType {
+  PRODUCT_CODE      // Ürün kodu
+  CUSTOMER_CODE     // Cari kodu
+  CUSTOMER_NAME     // Cari adı (kısmi eşleşme)
+  PRODUCT_NAME      // Ürün adı (kısmi eşleşme)
+  SECTOR_CODE       // Sektör kodu
+}
+
+// Raporlardan hariç tutulacak ürün/müşteriler
+model ReportExclusion {
+  id                    String          @id @default(uuid())
+
+  type                  ExclusionType
+  value                 String          // Hariç tutulacak değer (örn: "120.01.001" veya "ÇAMSAN")
+  description           String?         // Açıklama (opsiyonel)
+
+  active                Boolean         @default(true)
+  createdBy             String?         // Kim oluşturdu (User ID)
+
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@index([type])
+  @@index([active])
+  @@index([value])
+}
