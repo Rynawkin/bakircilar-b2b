@@ -1221,6 +1221,110 @@ export class ReportsService {
       },
     };
   }
+
+  /**
+   * Ürün Detay Raporu - Belirli bir ürünün hangi müşterilere satıldığını gösterir
+   */
+  async getProductCustomers(params: {
+    productCode: string;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const {
+      productCode,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 50,
+    } = params;
+
+    await mikroService.connect();
+
+    // WHERE koşulları
+    const whereConditions = [
+      'sth_cins = 0',  // Satış hareketleri
+      'sth_tip = 1',    // Normal hareket (fatura/irsaliye)
+      `sth_stok_kod = '${productCode}'`,
+    ];
+
+    if (startDate) {
+      whereConditions.push(`sth_tarih >= '${startDate}'`);
+    }
+    if (endDate) {
+      whereConditions.push(`sth_tarih <= '${endDate}'`);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+
+    // Müşteri detaylarını çek
+    const query = `
+      SELECT
+        sth.sth_cari_kodu as customerCode,
+        MAX(c.cari_unvan1) as customerName,
+        MAX(c.cari_sektor_kodu) as sectorCode,
+        COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as orderCount,
+        SUM(sth.sth_miktar) as totalQuantity,
+        SUM(sth.sth_tutar) as totalRevenue,
+        SUM(sth.sth_miktar * st.sto_standartmaliyet) as totalCost,
+        MAX(sth.sth_tarih) as lastOrderDate
+      FROM STOK_HAREKETLERI sth
+      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+      WHERE ${whereClause}
+      GROUP BY sth.sth_cari_kodu
+      ORDER BY SUM(sth.sth_tutar) DESC
+    `;
+
+    const rawData = await mikroService.executeQuery(query);
+    await mikroService.disconnect();
+
+    // Kar ve kar marjını hesapla
+    const customers = rawData.map((row: any) => ({
+      customerCode: row.customerCode,
+      customerName: row.customerName || 'Bilinmeyen Müşteri',
+      sectorCode: row.sectorCode || '-',
+      orderCount: row.orderCount,
+      totalQuantity: parseFloat(row.totalQuantity || 0),
+      totalRevenue: parseFloat(row.totalRevenue || 0),
+      totalCost: parseFloat(row.totalCost || 0),
+      totalProfit: parseFloat(row.totalRevenue || 0) - parseFloat(row.totalCost || 0),
+      profitMargin: parseFloat(row.totalRevenue || 0) > 0
+        ? ((parseFloat(row.totalRevenue || 0) - parseFloat(row.totalCost || 0)) / parseFloat(row.totalRevenue || 0)) * 100
+        : 0,
+      lastOrderDate: row.lastOrderDate,
+    }));
+
+    // Summary
+    const totalRevenue = customers.reduce((sum, c) => sum + c.totalRevenue, 0);
+    const totalProfit = customers.reduce((sum, c) => sum + c.totalProfit, 0);
+    const totalQuantity = customers.reduce((sum, c) => sum + c.totalQuantity, 0);
+    const avgProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+    // Pagination
+    const totalRecords = customers.length;
+    const totalPages = Math.ceil(totalRecords / limit);
+    const offset = (page - 1) * limit;
+    const paginatedCustomers = customers.slice(offset, offset + limit);
+
+    return {
+      customers: paginatedCustomers,
+      summary: {
+        totalCustomers: totalRecords,
+        totalQuantity,
+        totalRevenue,
+        totalProfit,
+        avgProfitMargin,
+      },
+      pagination: {
+        page,
+        limit,
+        totalPages,
+        totalRecords,
+      },
+    };
+  }
 }
 
 export default new ReportsService();

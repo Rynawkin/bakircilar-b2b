@@ -1720,6 +1720,36 @@ export class AdminController {
       next(error);
     }
   }
+
+  /**
+   * Ürün Müşteri Detay Raporu - Belirli bir ürünü hangi müşterilerin aldığını gösterir
+   */
+  async getProductCustomers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { productCode } = req.params;
+      const {
+        startDate,
+        endDate,
+        page,
+        limit,
+      } = req.query;
+
+      const result = await reportsService.getProductCustomers({
+        productCode,
+        startDate: startDate as string,
+        endDate: endDate as string,
+        page: page ? parseInt(page as string) : undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new AdminController();

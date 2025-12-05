@@ -121,6 +121,7 @@ router.get('/reports/margin-compliance', requireStaff, adminController.getMargin
 router.get('/reports/categories', requireStaff, adminController.getReportCategories);
 router.get('/reports/top-products', requireStaff, adminController.getTopProducts);
 router.get('/reports/top-customers', requireStaff, adminController.getTopCustomers);
+router.get('/reports/product-customers/:productCode', requireStaff, adminController.getProductCustomers);
 // Price Sync endpoints
 router.post('/price-sync', requireAdmin, adminController.syncPriceChanges);
 router.get('/price-sync/status', requireStaff, adminController.getPriceSyncStatus);
