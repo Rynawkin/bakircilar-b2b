@@ -25,3 +25,4 @@ const nextConfig = {
 }
 
 module.exports = nextConfig
+// Trigger Vercel rebuild -  5 Ara 2025 Cum 10:12:14
