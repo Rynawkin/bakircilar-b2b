@@ -613,6 +613,10 @@ export class ReportsService {
       whereConditions.push(`sth_tarih <= '${endDate}'`);
     }
 
+    // Add exclusion conditions
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    whereConditions.push(...exclusionConditions);
+
     const whereClause = whereConditions.join(' AND ');
 
     // Stok hareketlerini çek ve grupla (gerçek satışlar)
@@ -783,6 +787,10 @@ export class ReportsService {
     if (endDate) {
       whereConditions.push(`sth_tarih <= '${endDate}'`);
     }
+
+    // Add exclusion conditions
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    whereConditions.push(...exclusionConditions);
 
     const whereClause = whereConditions.join(' AND ');
 
@@ -1256,6 +1264,10 @@ export class ReportsService {
     if (endDate) {
       whereConditions.push(`sth_tarih <= '${endDate}'`);
     }
+
+    // Add exclusion conditions (customer-based exclusions only for this report)
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    whereConditions.push(...exclusionConditions);
 
     const whereClause = whereConditions.join(' AND ');
 
