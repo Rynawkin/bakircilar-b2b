@@ -134,4 +134,10 @@ router.get('/reports/price-summary-stats', requireStaff, adminController.getPric
 // Old Price History endpoint (backward compatibility - Mikro based)
 router.get('/reports/price-history', requireStaff, adminController.getPriceHistory);
 
+// Report Exclusions - ADMIN only
+router.get('/exclusions', requireAdmin, adminController.getExclusions);
+router.post('/exclusions', requireAdmin, adminController.createExclusion);
+router.put('/exclusions/:id', requireAdmin, adminController.updateExclusion);
+router.delete('/exclusions/:id', requireAdmin, adminController.deleteExclusion);
+
 export default router;

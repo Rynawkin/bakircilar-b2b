@@ -7,6 +7,7 @@
 
 import { prisma } from '../utils/prisma';
 import mikroService from './mikro.service';
+import exclusionService from './exclusion.service';
 
 interface CostUpdateAlert {
   productCode: string;

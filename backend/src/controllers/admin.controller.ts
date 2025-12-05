@@ -13,6 +13,7 @@ import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
 import priceSyncService from '../services/priceSync.service';
 import priceHistoryNewService from '../services/priceHistoryNew.service';
+import exclusionService from '../services/exclusion.service';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
 export class AdminController {
@@ -1745,6 +1746,94 @@ export class AdminController {
       res.json({
         success: true,
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Exclusion Management - Get all exclusions
+   * GET /api/admin/exclusions
+   */
+  async getExclusions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { activeOnly } = req.query;
+      const exclusions = await exclusionService.getExclusions(activeOnly === 'true');
+
+      res.json({
+        success: true,
+        data: exclusions,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Exclusion Management - Create a new exclusion
+   * POST /api/admin/exclusions
+   */
+  async createExclusion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { type, value, description } = req.body;
+      const userId = (req.user as any)?.userId;
+
+      const exclusion = await exclusionService.createExclusion({
+        type,
+        value,
+        description,
+        createdBy: userId,
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Hariç tutma kuralı oluşturuldu',
+        data: exclusion,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Exclusion Management - Update an exclusion
+   * PUT /api/admin/exclusions/:id
+   */
+  async updateExclusion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { value, description, active } = req.body;
+
+      const exclusion = await exclusionService.updateExclusion(id, {
+        value,
+        description,
+        active,
+      });
+
+      res.json({
+        success: true,
+        message: 'Hariç tutma kuralı güncellendi',
+        data: exclusion,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Exclusion Management - Delete an exclusion
+   * DELETE /api/admin/exclusions/:id
+   */
+  async deleteExclusion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+
+      await exclusionService.deleteExclusion(id);
+
+      res.json({
+        success: true,
+        message: 'Hariç tutma kuralı silindi',
       });
     } catch (error) {
       next(error);
