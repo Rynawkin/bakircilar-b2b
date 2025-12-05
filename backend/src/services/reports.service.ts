@@ -599,35 +599,38 @@ export class ReportsService {
 
     await mikroService.connect();
 
-    // WHERE koşulları
-    const whereConditions = ['sip_cins = 0']; // Sadece satışlar
+    // WHERE koşulları - STOK_HAREKETLERI kullan (gerçek satışlar)
+    const whereConditions = [
+      'sth_cins = 0',  // Satış hareketleri
+      'sth_tip = 1'    // Normal hareket (fatura/irsaliye)
+    ];
 
     if (startDate) {
-      whereConditions.push(`sip_tarih >= '${startDate}'`);
+      whereConditions.push(`sth_tarih >= '${startDate}'`);
     }
     if (endDate) {
-      whereConditions.push(`sip_tarih <= '${endDate}'`);
+      whereConditions.push(`sth_tarih <= '${endDate}'`);
     }
 
     const whereClause = whereConditions.join(' AND ');
 
-    // Sipariş satırlarını çek ve grupla
+    // Stok hareketlerini çek ve grupla (gerçek satışlar)
     const query = `
       SELECT
-        s.sip_stok_kod as productCode,
+        sth.sth_stok_kod as productCode,
         MAX(st.sto_isim) as productName,
         MAX(st.sto_marka_kodu) as brand,
-        SUM(s.sip_miktar) as quantity,
-        SUM(s.sip_tutar) as revenue,
-        SUM(s.sip_miktar * st.sto_standartmaliyet) as totalCost,
-        COUNT(DISTINCT s.sip_musteri_kod) as customerCount
-      FROM SIPARISLER s
-      LEFT JOIN STOKLAR st ON s.sip_stok_kod = st.sto_kod
+        SUM(sth.sth_miktar) as quantity,
+        SUM(sth.sth_tutar) as revenue,
+        SUM(sth.sth_miktar * st.sto_standartmaliyet) as totalCost,
+        COUNT(DISTINCT sth.sth_cari_kodu) as customerCount
+      FROM STOK_HAREKETLERI sth
+      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
       WHERE ${whereClause}
-        AND s.sip_stok_kod IS NOT NULL
-        AND s.sip_stok_kod != ''
-      GROUP BY s.sip_stok_kod
-      HAVING SUM(s.sip_miktar) >= ${minQuantity}
+        AND sth.sth_stok_kod IS NOT NULL
+        AND sth.sth_stok_kod != ''
+      GROUP BY sth.sth_stok_kod
+      HAVING SUM(sth.sth_miktar) >= ${minQuantity}
     `;
 
     const rawData = await mikroService.executeQuery(query);
@@ -767,65 +770,48 @@ export class ReportsService {
 
     await mikroService.connect();
 
-    // WHERE koşulları
-    const whereConditions = ['sip_cins = 0']; // Sadece satışlar
+    // WHERE koşulları - STOK_HAREKETLERI kullan (gerçek satışlar)
+    const whereConditions = [
+      'sth_cins = 0',  // Satış hareketleri
+      'sth_tip = 1'    // Normal hareket (fatura/irsaliye)
+    ];
 
     if (startDate) {
-      whereConditions.push(`sip_tarih >= '${startDate}'`);
+      whereConditions.push(`sth_tarih >= '${startDate}'`);
     }
     if (endDate) {
-      whereConditions.push(`sip_tarih <= '${endDate}'`);
+      whereConditions.push(`sth_tarih <= '${endDate}'`);
     }
 
     const whereClause = whereConditions.join(' AND ');
 
-    // Müşteri bazında sipariş verilerini çek
+    // Müşteri bazında stok hareketlerini çek (gerçek satışlar)
     const query = `
       SELECT
-        s.sip_musteri_kod as customerCode,
+        sth.sth_cari_kodu as customerCode,
         MAX(c.cari_unvan1) as customerName,
         MAX(c.cari_sektor) as sector,
-        COUNT(DISTINCT s.sip_evrakno_seri + s.sip_evrakno_sira) as orderCount,
-        SUM(s.sip_tutar) as revenue,
-        MAX(s.sip_tarih) as lastOrderDate
-      FROM SIPARISLER s
-      LEFT JOIN CARI_HESAPLAR c ON s.sip_musteri_kod = c.cari_kod
+        COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as orderCount,
+        SUM(sth.sth_tutar) as revenue,
+        SUM(sth.sth_miktar * st.sto_standartmaliyet) as totalCost,
+        MAX(sth.sth_tarih) as lastOrderDate
+      FROM STOK_HAREKETLERI sth
+      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
       WHERE ${whereClause}
-        AND s.sip_musteri_kod IS NOT NULL
-        AND s.sip_musteri_kod != ''
-      GROUP BY s.sip_musteri_kod
-      HAVING SUM(s.sip_tutar) >= ${minOrderAmount}
+        AND sth.sth_cari_kodu IS NOT NULL
+        AND sth.sth_cari_kodu != ''
+      GROUP BY sth.sth_cari_kodu
+      HAVING SUM(sth.sth_tutar) >= ${minOrderAmount}
     `;
 
     const rawData = await mikroService.executeQuery(query);
 
-    // Her müşteri için maliyet hesabı (ayrı sorgu)
-    const customersWithCost = await Promise.all(
-      rawData.map(async (customer: any) => {
-        const costQuery = `
-          SELECT
-            SUM(s.sip_miktar * st.sto_standartmaliyet) as totalCost
-          FROM SIPARISLER s
-          LEFT JOIN STOKLAR st ON s.sip_stok_kod = st.sto_kod
-          WHERE ${whereClause}
-            AND s.sip_musteri_kod = '${customer.customerCode}'
-        `;
-
-        try {
-          const costResult = await mikroService.executeQuery(costQuery);
-          return {
-            ...customer,
-            totalCost: costResult[0]?.totalCost || 0,
-          };
-        } catch (error) {
-          console.error(`Error fetching cost for customer ${customer.customerCode}:`, error);
-          return {
-            ...customer,
-            totalCost: 0,
-          };
-        }
-      })
-    );
+    // Artık maliyet de sorguya dahil, ayrı sorgu gerek yok
+    const customersWithCost = rawData.map((customer: any) => ({
+      ...customer,
+      totalCost: customer.totalCost || 0,
+    }));
 
     await mikroService.disconnect();
 
