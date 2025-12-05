@@ -47,15 +47,6 @@ export default function LoginPage() {
     }
   };
 
-  const fillDemoCredentials = (role: 'admin' | 'customer') => {
-    if (role === 'admin') {
-      setEmail('admin@bakircilar.com');
-      setPassword('admin123');
-    } else {
-      setEmail('test@customer.com');
-      setPassword('test123');
-    }
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-600 via-primary-700 to-primary-800 py-12 px-4 sm:px-6 lg:px-8">
@@ -129,37 +120,6 @@ export default function LoginPage() {
             </Button>
           </div>
         </form>
-
-        {/* Demo Credentials */}
-        <div className="rounded-xl bg-white/10 backdrop-blur-sm border border-white/20 p-4 text-white space-y-3">
-          <p className="text-xs font-medium text-primary-100 mb-2">💡 Demo Hesaplar:</p>
-
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-white">
-              <strong>Admin:</strong> admin@bakircilar.com / admin123
-            </div>
-            <button
-              type="button"
-              onClick={() => fillDemoCredentials('admin')}
-              className="px-3 py-1 text-xs bg-white/20 hover:bg-white/30 rounded transition-colors"
-            >
-              Kullan
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-white">
-              <strong>Müşteri:</strong> test@customer.com / test123
-            </div>
-            <button
-              type="button"
-              onClick={() => fillDemoCredentials('customer')}
-              className="px-3 py-1 text-xs bg-white/20 hover:bg-white/30 rounded transition-colors"
-            >
-              Kullan
-            </button>
-          </div>
-        </div>
 
         {/* Footer */}
         <div className="text-center text-xs text-primary-100">

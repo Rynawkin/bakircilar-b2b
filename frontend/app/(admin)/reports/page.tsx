@@ -80,11 +80,20 @@ const reports: ReportCard[] = [
 
   // Satış & Müşteri Raporları
   {
-    id: 'top-products-customers',
-    title: 'En Çok Satanlar & Müşteri Analizi',
-    description: 'Yüksek cirolu ürünler, sadık müşteriler ve satış trendleri',
+    id: 'top-products',
+    title: 'En Çok Satan Ürünler',
+    description: 'Yüksek cirolu ürünler ve satış trendleri',
+    icon: <TrendingUp className="h-5 w-5" />,
+    href: '/reports/top-products',
+    category: 'customer',
+    badge: 'Önerilen',
+  },
+  {
+    id: 'top-customers',
+    title: 'En Çok Satan Müşteriler',
+    description: 'Sadık müşteriler ve en yüksek alım yapan cariler',
     icon: <Users className="h-5 w-5" />,
-    href: '/reports/top-products-customers',
+    href: '/reports/top-customers',
     category: 'customer',
     badge: 'Önerilen',
   },
