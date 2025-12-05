@@ -25,4 +25,4 @@ const nextConfig = {
 }
 
 module.exports = nextConfig
-// Trigger Vercel rebuild -  5 Ara 2025 Cum 10:12:14
+// Trigger Vercel rebuild - Fix top-products & top-customers routes - 5 Ara 2025 10:20
