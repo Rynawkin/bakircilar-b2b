@@ -490,6 +490,47 @@ export const adminApi = {
     const response = await apiClient.get('/admin/reports/top-customers', { params });
     return response.data;
   },
+
+  getProductCustomers: async (params: {
+    productCode: string;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      customers: Array<{
+        customerCode: string;
+        customerName: string;
+        sectorCode: string;
+        orderCount: number;
+        totalQuantity: number;
+        totalRevenue: number;
+        totalCost: number;
+        totalProfit: number;
+        profitMargin: number;
+        lastOrderDate: string;
+      }>;
+      summary: {
+        totalCustomers: number;
+        totalQuantity: number;
+        totalRevenue: number;
+        totalProfit: number;
+        avgProfitMargin: number;
+      };
+      pagination: {
+        page: number;
+        limit: number;
+        totalPages: number;
+        totalRecords: number;
+      };
+    };
+  }> => {
+    const { productCode, ...rest } = params;
+    const response = await apiClient.get(`/admin/reports/product-customers/${productCode}`, { params: rest });
+    return response.data;
+  },
 };
 
 export default adminApi;

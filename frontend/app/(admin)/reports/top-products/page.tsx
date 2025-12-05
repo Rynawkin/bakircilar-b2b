@@ -404,10 +404,12 @@ export default function TopProductsPage() {
                             {formatCurrency(item.avgPrice)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <Users className="h-4 w-4 text-muted-foreground" />
-                              <span>{item.customerCount}</span>
-                            </div>
+                            <Link href={`/reports/product-customers/${item.productCode}`}>
+                              <div className="flex items-center justify-end gap-1 cursor-pointer hover:text-blue-600 transition-colors">
+                                <Users className="h-4 w-4 text-muted-foreground" />
+                                <span className="underline">{item.customerCount}</span>
+                              </div>
+                            </Link>
                           </TableCell>
                         </TableRow>
                       ))
