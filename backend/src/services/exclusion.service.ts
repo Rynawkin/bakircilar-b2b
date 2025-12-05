@@ -177,13 +177,13 @@ class ExclusionService {
     // Exclude specific product codes
     if (exclusions.productCodes.length > 0) {
       const codes = exclusions.productCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
-      conditions.push(`sth.sth_stok_kod NOT IN (${codes})`);
+      conditions.push(`RTRIM(sth.sth_stok_kod) NOT IN (${codes})`);
     }
 
     // Exclude specific customer codes
     if (exclusions.customerCodes.length > 0) {
       const codes = exclusions.customerCodes.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
-      conditions.push(`sth.sth_cari_kodu NOT IN (${codes})`);
+      conditions.push(`RTRIM(sth.sth_cari_kodu) NOT IN (${codes})`);
     }
 
     // Exclude customer names (partial match) - requires CARI_HESAPLAR join
