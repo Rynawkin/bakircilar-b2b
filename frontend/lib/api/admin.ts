@@ -531,6 +531,58 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/product-customers/${productCode}`, { params: rest });
     return response.data;
   },
+
+  // Exclusions
+  getExclusions: async (activeOnly?: boolean): Promise<{
+    success: boolean;
+    data: Array<{
+      id: string;
+      type: 'PRODUCT_CODE' | 'CUSTOMER_CODE' | 'CUSTOMER_NAME' | 'PRODUCT_NAME' | 'SECTOR_CODE';
+      value: string;
+      description?: string;
+      active: boolean;
+      createdAt: string;
+    }>;
+  }> => {
+    const response = await apiClient.get('/admin/exclusions', {
+      params: activeOnly !== undefined ? { activeOnly } : undefined
+    });
+    return response.data;
+  },
+
+  createExclusion: async (data: {
+    type: 'PRODUCT_CODE' | 'CUSTOMER_CODE' | 'CUSTOMER_NAME' | 'PRODUCT_NAME' | 'SECTOR_CODE';
+    value: string;
+    description?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    data: any;
+  }> => {
+    const response = await apiClient.post('/admin/exclusions', data);
+    return response.data;
+  },
+
+  updateExclusion: async (id: string, data: {
+    value?: string;
+    description?: string;
+    active?: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    data: any;
+  }> => {
+    const response = await apiClient.put(`/admin/exclusions/${id}`, data);
+    return response.data;
+  },
+
+  deleteExclusion: async (id: string): Promise<{
+    success: boolean;
+    message: string;
+  }> => {
+    const response = await apiClient.delete(`/admin/exclusions/${id}`);
+    return response.data;
+  },
 };
 
 export default adminApi;
