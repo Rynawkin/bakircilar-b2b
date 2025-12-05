@@ -11,29 +11,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/Select';
-import { Textarea } from '@/components/ui/Textarea';
-import { Switch } from '@/components/ui/Switch';
-import { Plus, Pencil, Trash2, RefreshCw, Filter, XCircle } from 'lucide-react';
+import { Select } from '@/components/ui/Select';
+import { Modal } from '@/components/ui/Modal';
+import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { adminApi } from '@/lib/api/admin';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
-import { toast } from 'sonner';
 
 interface Exclusion {
   id: string;
@@ -41,9 +24,7 @@ interface Exclusion {
   value: string;
   description?: string;
   active: boolean;
-  createdBy?: string;
   createdAt: string;
-  updatedAt: string;
 }
 
 const EXCLUSION_TYPE_LABELS: Record<string, string> = {
@@ -54,23 +35,12 @@ const EXCLUSION_TYPE_LABELS: Record<string, string> = {
   SECTOR_CODE: 'Sektör Kodu',
 };
 
-const EXCLUSION_TYPE_DESCRIPTIONS: Record<string, string> = {
-  PRODUCT_CODE: 'Belirli bir ürün kodunu raporlardan hariç tut',
-  CUSTOMER_CODE: 'Belirli bir cari kodunu raporlardan hariç tut',
-  CUSTOMER_NAME: 'Cari adı içinde bu metni içeren tüm carileri hariç tut',
-  PRODUCT_NAME: 'Ürün adı içinde bu metni içeren tüm ürünleri hariç tut',
-  SECTOR_CODE: 'Belirli bir sektör kodundaki tüm carileri hariç tut',
-};
-
 export default function ExclusionsPage() {
   const [exclusions, setExclusions] = useState<Exclusion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filterActive, setFilterActive] = useState<boolean | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [editingExclusion, setEditingExclusion] = useState<Exclusion | null>(null);
-
-  // Form state
   const [formType, setFormType] = useState<string>('PRODUCT_CODE');
   const [formValue, setFormValue] = useState('');
   const [formDescription, setFormDescription] = useState('');
@@ -81,7 +51,7 @@ export default function ExclusionsPage() {
     setError(null);
 
     try {
-      const result = await adminApi.getExclusions(filterActive === null ? undefined : filterActive);
+      const result = await adminApi.getExclusions();
       if (result.success) {
         setExclusions(result.data);
       } else {
@@ -89,7 +59,6 @@ export default function ExclusionsPage() {
       }
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Bir hata oluştu');
-      toast.error('Hariç tutma kuralları yüklenemedi');
     } finally {
       setLoading(false);
     }
@@ -97,7 +66,7 @@ export default function ExclusionsPage() {
 
   useEffect(() => {
     fetchExclusions();
-  }, [filterActive]);
+  }, []);
 
   const resetForm = () => {
     setFormType('PRODUCT_CODE');
@@ -107,7 +76,7 @@ export default function ExclusionsPage() {
     setEditingExclusion(null);
   };
 
-  const handleOpenDialog = (exclusion?: Exclusion) => {
+  const handleOpenModal = (exclusion?: Exclusion) => {
     if (exclusion) {
       setEditingExclusion(exclusion);
       setFormType(exclusion.type);
@@ -117,45 +86,43 @@ export default function ExclusionsPage() {
     } else {
       resetForm();
     }
-    setDialogOpen(true);
+    setModalOpen(true);
   };
 
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setTimeout(resetForm, 200); // Reset after animation
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setTimeout(resetForm, 200);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formValue.trim()) {
-      toast.error('Değer boş olamaz');
+      alert('Değer boş olamaz');
       return;
     }
 
     try {
       if (editingExclusion) {
-        // Update existing
         await adminApi.updateExclusion(editingExclusion.id, {
           value: formValue,
           description: formDescription || undefined,
           active: formActive,
         });
-        toast.success('Kural güncellendi');
+        alert('Kural güncellendi');
       } else {
-        // Create new
         await adminApi.createExclusion({
           type: formType as any,
           value: formValue,
           description: formDescription || undefined,
         });
-        toast.success('Kural oluşturuldu');
+        alert('Kural oluşturuldu');
       }
 
-      handleCloseDialog();
+      handleCloseModal();
       fetchExclusions();
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'İşlem başarısız');
+      alert(err.response?.data?.error || 'İşlem başarısız');
     }
   };
 
@@ -166,10 +133,10 @@ export default function ExclusionsPage() {
 
     try {
       await adminApi.deleteExclusion(id);
-      toast.success('Kural silindi');
+      alert('Kural silindi');
       fetchExclusions();
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Silme işlemi başarısız');
+      alert(err.response?.data?.error || 'Silme işlemi başarısız');
     }
   };
 
@@ -178,205 +145,50 @@ export default function ExclusionsPage() {
       await adminApi.updateExclusion(exclusion.id, {
         active: !exclusion.active,
       });
-      toast.success(exclusion.active ? 'Kural devre dışı bırakıldı' : 'Kural aktif edildi');
+      alert(exclusion.active ? 'Kural devre dışı bırakıldı' : 'Kural aktif edildi');
       fetchExclusions();
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'İşlem başarısız');
+      alert(err.response?.data?.error || 'İşlem başarısız');
     }
   };
-
-  const filteredExclusions = exclusions;
 
   return (
     <>
       <AdminNavigation />
       <div className="container mx-auto p-6 space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Rapor Hariç Tutma Kuralları</h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-gray-600 mt-1">
               Raporlardan hariç tutulacak ürün ve carileri yönetin
             </p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => handleOpenDialog()}>
-                <Plus className="h-4 w-4 mr-2" />
-                Yeni Kural
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingExclusion ? 'Kuralı Düzenle' : 'Yeni Hariç Tutma Kuralı'}
-                </DialogTitle>
-                <DialogDescription>
-                  Belirli ürün veya carileri raporlardan hariç tutmak için kural oluşturun
-                </DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Type Selection */}
-                <div className="space-y-2">
-                  <Label htmlFor="type">Kural Tipi</Label>
-                  <Select
-                    value={formType}
-                    onValueChange={setFormType}
-                    disabled={!!editingExclusion}
-                  >
-                    <SelectTrigger id="type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(EXCLUSION_TYPE_LABELS).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {EXCLUSION_TYPE_DESCRIPTIONS[formType]}
-                  </p>
-                </div>
-
-                {/* Value Input */}
-                <div className="space-y-2">
-                  <Label htmlFor="value">Değer</Label>
-                  <Input
-                    id="value"
-                    value={formValue}
-                    onChange={(e) => setFormValue(e.target.value)}
-                    placeholder={
-                      formType === 'PRODUCT_CODE'
-                        ? 'Örn: B106430'
-                        : formType === 'CUSTOMER_CODE'
-                        ? 'Örn: C001'
-                        : formType === 'CUSTOMER_NAME'
-                        ? 'Örn: TEST'
-                        : formType === 'PRODUCT_NAME'
-                        ? 'Örn: HURDA'
-                        : 'Örn: 120'
-                    }
-                    required
-                  />
-                  {(formType === 'CUSTOMER_NAME' || formType === 'PRODUCT_NAME') && (
-                    <p className="text-xs text-muted-foreground">
-                      Kısmi eşleşme: Bu metni içeren tüm kayıtlar hariç tutulacak
-                    </p>
-                  )}
-                </div>
-
-                {/* Description */}
-                <div className="space-y-2">
-                  <Label htmlFor="description">Açıklama (İsteğe Bağlı)</Label>
-                  <Textarea
-                    id="description"
-                    value={formDescription}
-                    onChange={(e) => setFormDescription(e.target.value)}
-                    placeholder="Neden bu kuralı oluşturdunuz?"
-                    rows={3}
-                  />
-                </div>
-
-                {/* Active Toggle */}
-                {editingExclusion && (
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      id="active"
-                      checked={formActive}
-                      onCheckedChange={setFormActive}
-                    />
-                    <Label htmlFor="active" className="cursor-pointer">
-                      Kural aktif
-                    </Label>
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex gap-2 justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleCloseDialog}
-                  >
-                    İptal
-                  </Button>
-                  <Button type="submit">
-                    {editingExclusion ? 'Güncelle' : 'Oluştur'}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <Button onClick={() => handleOpenModal()}>
+            <Plus className="h-4 w-4 mr-2" />
+            Yeni Kural
+          </Button>
         </div>
 
-        {/* Filters */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Filtreler</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">Durum:</span>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant={filterActive === null ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setFilterActive(null)}
-                >
-                  Tümü
-                </Button>
-                <Button
-                  variant={filterActive === true ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setFilterActive(true)}
-                >
-                  Aktif
-                </Button>
-                <Button
-                  variant={filterActive === false ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setFilterActive(false)}
-                >
-                  Pasif
-                </Button>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={fetchExclusions}
-                className="ml-auto"
-              >
+            <div className="flex justify-between items-center">
+              <CardTitle>Kurallar ({exclusions.length})</CardTitle>
+              <Button variant="secondary" size="sm" onClick={fetchExclusions}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Yenile
               </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Exclusions Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Kurallar ({filteredExclusions.length})</CardTitle>
             <CardDescription>
               Aktif kurallar raporlarınızdan belirtilen ürün/carileri hariç tutar
             </CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="text-center py-8 text-muted-foreground">
-                Yükleniyor...
-              </div>
+              <div className="text-center py-8 text-gray-500">Yükleniyor...</div>
             ) : error ? (
-              <div className="text-center py-8 text-destructive">{error}</div>
-            ) : filteredExclusions.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                Henüz kural oluşturulmamış
-              </div>
+              <div className="text-center py-8 text-red-600">{error}</div>
+            ) : exclusions.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">Henüz kural oluşturulmamış</div>
             ) : (
               <Table>
                 <TableHeader>
@@ -385,64 +197,57 @@ export default function ExclusionsPage() {
                     <TableHead>Değer</TableHead>
                     <TableHead>Açıklama</TableHead>
                     <TableHead>Durum</TableHead>
-                    <TableHead>Oluşturulma</TableHead>
+                    <TableHead>Tarih</TableHead>
                     <TableHead className="text-right">İşlemler</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredExclusions.map((exclusion) => (
+                  {exclusions.map((exclusion) => (
                     <TableRow key={exclusion.id}>
                       <TableCell>
-                        <div className="font-medium">
-                          {EXCLUSION_TYPE_LABELS[exclusion.type]}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {exclusion.type}
-                        </div>
+                        <div className="font-medium">{EXCLUSION_TYPE_LABELS[exclusion.type]}</div>
+                        <div className="text-xs text-gray-500">{exclusion.type}</div>
                       </TableCell>
                       <TableCell>
-                        <code className="bg-muted px-2 py-1 rounded text-sm">
+                        <code className="bg-gray-100 px-2 py-1 rounded text-sm">
                           {exclusion.value}
                         </code>
                       </TableCell>
                       <TableCell>
-                        <div className="max-w-xs truncate text-sm text-muted-foreground">
+                        <div className="max-w-xs truncate text-sm text-gray-600">
                           {exclusion.description || '-'}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            checked={exclusion.active}
-                            onCheckedChange={() => handleToggleActive(exclusion)}
-                          />
-                          <span className="text-sm">
-                            {exclusion.active ? 'Aktif' : 'Pasif'}
-                          </span>
-                        </div>
+                        <button
+                          onClick={() => handleToggleActive(exclusion)}
+                          className={`px-2 py-1 rounded text-xs font-medium ${
+                            exclusion.active
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}
+                        >
+                          {exclusion.active ? 'Aktif' : 'Pasif'}
+                        </button>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
                           {new Date(exclusion.createdAt).toLocaleDateString('tr-TR')}
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(exclusion.createdAt).toLocaleTimeString('tr-TR')}
-                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button
-                            variant="ghost"
+                            variant="secondary"
                             size="sm"
-                            onClick={() => handleOpenDialog(exclusion)}
+                            onClick={() => handleOpenModal(exclusion)}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
-                            variant="ghost"
+                            variant="danger"
                             size="sm"
                             onClick={() => handleDelete(exclusion.id)}
-                            className="text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -456,6 +261,85 @@ export default function ExclusionsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Modal
+        isOpen={modalOpen}
+        onClose={handleCloseModal}
+        title={editingExclusion ? 'Kuralı Düzenle' : 'Yeni Hariç Tutma Kuralı'}
+        footer={
+          <>
+            <Button variant="secondary" onClick={handleCloseModal}>
+              İptal
+            </Button>
+            <Button onClick={handleSubmit}>
+              {editingExclusion ? 'Güncelle' : 'Oluştur'}
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="type" className="block text-sm font-medium text-gray-700">
+              Kural Tipi
+            </label>
+            <Select
+              id="type"
+              value={formType}
+              onChange={(e) => setFormType(e.target.value)}
+              disabled={!!editingExclusion}
+              className="w-full"
+            >
+              {Object.entries(EXCLUSION_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="value" className="block text-sm font-medium text-gray-700">
+              Değer
+            </label>
+            <Input
+              id="value"
+              value={formValue}
+              onChange={(e) => setFormValue(e.target.value)}
+              placeholder="Örn: B106430"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+              Açıklama (İsteğe Bağlı)
+            </label>
+            <textarea
+              id="description"
+              value={formDescription}
+              onChange={(e) => setFormDescription(e.target.value)}
+              placeholder="Neden bu kuralı oluşturdunuz?"
+              rows={3}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          {editingExclusion && (
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="active"
+                checked={formActive}
+                onChange={(e) => setFormActive(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <label htmlFor="active" className="text-sm font-medium text-gray-700 cursor-pointer">
+                Kural aktif
+              </label>
+            </div>
+          )}
+        </form>
+      </Modal>
     </>
   );
 }
