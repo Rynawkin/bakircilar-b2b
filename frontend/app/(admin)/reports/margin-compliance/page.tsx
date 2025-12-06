@@ -75,6 +75,7 @@ export default function MarginCompliancePage() {
   const [customerTypeFilter, setCustomerTypeFilter] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -98,7 +99,7 @@ export default function MarginCompliancePage() {
         page,
         limit: 50,
         sortBy: 'deviation',
-        sortOrder: 'desc',
+        sortOrder: sortOrder,
         customerType: customerTypeFilter || undefined,
         category: categoryFilter || undefined,
         status: statusFilter || undefined,
@@ -125,7 +126,7 @@ export default function MarginCompliancePage() {
 
   useEffect(() => {
     fetchData();
-  }, [page, customerTypeFilter, categoryFilter, statusFilter]);
+  }, [page, customerTypeFilter, categoryFilter, statusFilter, sortOrder]);
 
   const handleManualSync = async () => {
     if (isSyncing) return;
@@ -413,7 +414,7 @@ export default function MarginCompliancePage() {
             <CardTitle className="text-lg">Filtreler</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Arama</label>
                 <div className="relative">
@@ -465,6 +466,17 @@ export default function MarginCompliancePage() {
                   <option value="HIGH">Yüksek Fiyat (+2%)</option>
                   <option value="LOW">Düşük Fiyat (-2%)</option>
                   <option value="NON_COMPLIANT">Uyumsuz Tümü</option>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Sıralama</label>
+                <Select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+                >
+                  <option value="desc">Yüksekten Düşüğe</option>
+                  <option value="asc">Düşükten Yükseğe</option>
                 </Select>
               </div>
             </div>
