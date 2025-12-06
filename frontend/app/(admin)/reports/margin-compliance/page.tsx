@@ -178,13 +178,42 @@ export default function MarginCompliancePage() {
     }
   };
 
-  const handleExportExcel = () => {
-    if (filteredData.length === 0) {
+  const handleExportExcel = async () => {
+    if (data.length === 0) {
       toast.error('Dışa aktarılacak veri yok');
       return;
     }
 
-    const excelData = filteredData.map((item) => ({
+    const exportToast = toast.loading('Excel dosyası hazırlanıyor...');
+
+    try {
+      // Tüm filtrelenmiş veriyi al (limit=10000)
+      const result = await adminApi.getMarginComplianceReport({
+        page: 1,
+        limit: 10000,
+        sortBy: 'deviation',
+        sortOrder: sortOrder,
+        customerType: customerTypeFilter || undefined,
+        category: categoryFilter || undefined,
+        status: statusFilter || undefined,
+      });
+
+      if (!result.success || result.data.alerts.length === 0) {
+        toast.error('Dışa aktarılacak veri bulunamadı', { id: exportToast });
+        return;
+      }
+
+      const allData = result.data.alerts;
+
+      // Arama filtresi varsa client-side uygula
+      const dataToExport = searchQuery
+        ? allData.filter(item =>
+            item.productCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            item.productName.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        : allData;
+
+      const excelData = dataToExport.map((item) => ({
       'Durum': item.status === 'OK' ? 'Uyumlu' : item.status === 'HIGH' ? 'Yüksek' : 'Düşük',
       'Ürün Kodu': item.productCode,
       'Ürün Adı': item.productName,
@@ -235,14 +264,19 @@ export default function MarginCompliancePage() {
       { wch: 15 },  // Kaynak
     ];
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Marj Uyumsuzluğu');
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Marj Uyumsuzluğu');
 
-    const fileName = `marj-uyumsuzlugu-raporu-${new Date().toISOString().split('T')[0]}.xlsx`;
+      const fileName = `marj-uyumsuzlugu-raporu-${new Date().toISOString().split('T')[0]}.xlsx`;
 
-    XLSX.writeFile(wb, fileName);
+      XLSX.writeFile(wb, fileName);
 
-    toast.success(`${filteredData.length} kayıt Excel'e aktarıldı`);
+      toast.success(`${dataToExport.length} kayıt Excel'e aktarıldı`, { id: exportToast });
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Excel dosyası oluşturulamadı', {
+        id: exportToast,
+      });
+    }
   };
 
   const getStatusBadge = (status: string) => {
