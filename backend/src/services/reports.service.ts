@@ -557,7 +557,7 @@ export class ReportsService {
     brand?: string;
     category?: string;
     minQuantity?: number;
-    sortBy?: 'revenue' | 'profit' | 'margin' | 'margin_asc' | 'quantity';
+    sortBy?: 'revenue' | 'profit' | 'profit_asc' | 'margin' | 'margin_asc' | 'quantity';
     page?: number;
     limit?: number;
   } = {}): Promise<{
@@ -692,6 +692,8 @@ export class ReportsService {
       switch (sortBy) {
         case 'profit':
           return b.profit - a.profit;
+        case 'profit_asc':
+          return a.profit - b.profit;  // Düşükten yükseğe
         case 'margin':
           return b.profitMargin - a.profitMargin;
         case 'margin_asc':
