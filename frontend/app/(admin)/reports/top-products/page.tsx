@@ -325,6 +325,7 @@ export default function TopProductsPage() {
                   <option value="revenue">Ciro (Yüksek → Düşük)</option>
                   <option value="profit">Kar (Yüksek → Düşük)</option>
                   <option value="margin">Kar Marjı (Yüksek → Düşük)</option>
+                  <option value="margin_asc">Kar Marjı (Düşük → Yüksek)</option>
                   <option value="quantity">Miktar (Yüksek → Düşük)</option>
                 </Select>
               </div>
