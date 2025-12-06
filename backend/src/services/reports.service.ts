@@ -619,6 +619,11 @@ export class ReportsService {
 
     const whereClause = whereConditions.join(' AND ');
 
+    // DEBUG LOGGING
+    console.log('=== TOP PRODUCTS EXCLUSION DEBUG ===');
+    console.log('Exclusion conditions:', exclusionConditions);
+    console.log('Full WHERE clause:', whereClause);
+
     // Stok hareketlerini çek ve grupla (gerçek satışlar)
     const query = `
       SELECT
@@ -638,7 +643,12 @@ export class ReportsService {
       HAVING SUM(sth.sth_miktar) >= ${minQuantity}
     `;
 
+    console.log('Full SQL query:', query);
+
     const rawData = await mikroService.executeQuery(query);
+
+    console.log('Raw data count:', rawData.length);
+    console.log('First 3 product codes:', rawData.slice(0, 3).map((p: any) => p.productCode));
     await mikroService.disconnect();
 
     // Filtreleme
