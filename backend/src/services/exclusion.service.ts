@@ -3,9 +3,8 @@
  * Manages products/customers that should be excluded from reports
  */
 
-import { PrismaClient, ExclusionType, ReportExclusion } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { ExclusionType, ReportExclusion } from '@prisma/client';
+import { prisma } from '../utils/prisma';
 
 export interface CreateExclusionData {
   type: ExclusionType;
