@@ -56,8 +56,10 @@ export default function AdminProductsPage() {
   const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // Pagination
+  // Pagination (server-side)
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const itemsPerPage = 50;
 
   // Detail Modal
@@ -82,7 +84,7 @@ export default function AdminProductsPage() {
     if (user?.role === 'ADMIN') {
       fetchProducts();
     }
-  }, [debouncedSearch, hasImage, categoryId, sortBy, sortOrder, user]);
+  }, [debouncedSearch, hasImage, categoryId, sortBy, sortOrder, currentPage, user]);
 
   const fetchData = async () => {
     await Promise.all([fetchProducts(), fetchCategories()]);
@@ -91,7 +93,10 @@ export default function AdminProductsPage() {
   const fetchProducts = async () => {
     setIsSearching(true);
     try {
-      const params: any = {};
+      const params: any = {
+        page: currentPage,
+        limit: itemsPerPage,
+      };
       if (debouncedSearch) params.search = debouncedSearch;
       if (hasImage !== 'all') params.hasImage = hasImage;
       if (categoryId) params.categoryId = categoryId;
@@ -103,7 +108,12 @@ export default function AdminProductsPage() {
 
       const data = await adminApi.getProducts(params);
       setProducts(data.products);
-      setCurrentPage(1); // Reset to first page on filter change
+
+      // Update pagination from backend response
+      if (data.pagination) {
+        setTotalPages(data.pagination.totalPages);
+        setTotalCount(data.pagination.total);
+      }
     } catch (error) {
       console.error('Ürünler yüklenemedi:', error);
       toast.error('Ürünler yüklenemedi');
@@ -129,13 +139,13 @@ export default function AdminProductsPage() {
       setSortBy(field);
       setSortOrder('asc');
     }
+    setCurrentPage(1); // Reset to first page when sorting changes
   };
 
-  // Pagination
-  const totalPages = Math.ceil(products.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentProducts = products.slice(startIndex, endIndex);
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, hasImage, categoryId]);
 
   if (!user || isInitialLoad) {
     return (
@@ -278,19 +288,13 @@ export default function AdminProductsPage() {
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-gray-700">Toplam:</span>
                 <span className="bg-primary-100 text-primary-700 px-3 py-1 rounded-full font-bold">
-                  {products.length} ürün
+                  {totalCount} ürün
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-700">Fotoğraflı:</span>
-                <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full font-bold">
-                  {products.filter(p => p.imageUrl).length}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-700">Fotoğrafsız:</span>
-                <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full font-bold">
-                  {products.filter(p => !p.imageUrl).length}
+                <span className="font-semibold text-gray-700">Sayfa:</span>
+                <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">
+                  {currentPage} / {totalPages}
                 </span>
               </div>
             </div>
@@ -373,14 +377,14 @@ export default function AdminProductsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {currentProducts.length === 0 ? (
+                {products.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                       Ürün bulunamadı
                     </td>
                   </tr>
                 ) : (
-                  currentProducts.map((product) => (
+                  products.map((product) => (
                     <tr key={product.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3">
                         {product.imageUrl ? (
@@ -473,21 +477,48 @@ export default function AdminProductsPage() {
           {totalPages > 1 && (
             <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
               <div className="text-sm text-gray-600">
-                Sayfa {currentPage} / {totalPages} ({products.length} ürün)
+                Sayfa {currentPage} / {totalPages} (Toplam {totalCount} ürün)
               </div>
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
+                  disabled={currentPage === 1 || isSearching}
                   size="sm"
                 >
                   ← Önceki
                 </Button>
+                {/* Page numbers */}
+                <div className="flex gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? 'primary' : 'secondary'}
+                        onClick={() => setCurrentPage(pageNum)}
+                        disabled={isSearching}
+                        size="sm"
+                        className="min-w-[40px]"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
                 <Button
                   variant="secondary"
                   onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                  disabled={currentPage === totalPages}
+                  disabled={currentPage === totalPages || isSearching}
                   size="sm"
                 >
                   Sonraki →
