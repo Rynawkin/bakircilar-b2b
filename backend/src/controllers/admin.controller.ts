@@ -283,8 +283,12 @@ export class AdminController {
       const limitNum = parseInt(limit as string, 10);
       const skip = (pageNum - 1) * limitNum;
 
-      // Get total count for pagination
-      const totalCount = await prisma.product.count({ where });
+      // Get total count and stats for current filter
+      const [totalCount, withImageCount, withoutImageCount] = await Promise.all([
+        prisma.product.count({ where }),
+        prisma.product.count({ where: { ...where, imageUrl: { not: null } } }),
+        prisma.product.count({ where: { ...where, imageUrl: null } }),
+      ]);
 
       const products = await prisma.product.findMany({
         where,
@@ -340,6 +344,11 @@ export class AdminController {
           limit: limitNum,
           total: totalCount,
           totalPages: Math.ceil(totalCount / limitNum),
+        },
+        stats: {
+          total: totalCount,
+          withImage: withImageCount,
+          withoutImage: withoutImageCount,
         },
       });
     } catch (error) {

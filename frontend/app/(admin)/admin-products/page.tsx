@@ -47,6 +47,12 @@ interface Pagination {
   totalPages: number;
 }
 
+interface Stats {
+  total: number;
+  withImage: number;
+  withoutImage: number;
+}
+
 export default function AdminProductsPage() {
   const router = useRouter();
   const { user, loadUserFromStorage, logout } = useAuthStore();
@@ -55,6 +61,7 @@ export default function AdminProductsPage() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
+  const [stats, setStats] = useState<Stats>({ total: 0, withImage: 0, withoutImage: 0 });
 
   // Filters
   const [search, setSearch] = useState('');
@@ -116,6 +123,9 @@ export default function AdminProductsPage() {
       setProducts(data.products);
       if (data.pagination) {
         setPagination(data.pagination);
+      }
+      if (data.stats) {
+        setStats(data.stats);
       }
     } catch (error) {
       console.error('Ürünler yüklenemedi:', error);
@@ -288,25 +298,19 @@ export default function AdminProductsPage() {
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-gray-700">Toplam:</span>
                 <span className="bg-primary-100 text-primary-700 px-3 py-1 rounded-full font-bold">
-                  {pagination.total} ürün
+                  {stats.total} ürün
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-700">Sayfa başı:</span>
-                <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold">
-                  {products.length} gösteriliyor
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-700">Fotoğraflı (bu sayfada):</span>
+                <span className="font-semibold text-gray-700">Fotoğraflı:</span>
                 <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full font-bold">
-                  {products.filter(p => p.imageUrl).length}
+                  {stats.withImage}
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-700">Fotoğrafsız (bu sayfada):</span>
+                <span className="font-semibold text-gray-700">Fotoğrafsız:</span>
                 <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full font-bold">
-                  {products.filter(p => !p.imageUrl).length}
+                  {stats.withoutImage}
                 </span>
               </div>
             </div>
