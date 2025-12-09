@@ -242,7 +242,9 @@ export class AdminController {
         hasImage,
         categoryId,
         sortBy = 'name',
-        sortOrder = 'asc'
+        sortOrder = 'asc',
+        page = '1',
+        limit = '50'
       } = req.query;
 
       const where: any = { active: true };
@@ -276,6 +278,14 @@ export class AdminController {
         orderBy.name = 'asc'; // default
       }
 
+      // Pagination
+      const pageNum = parseInt(page as string, 10);
+      const limitNum = parseInt(limit as string, 10);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Get total count for pagination
+      const totalCount = await prisma.product.count({ where });
+
       const products = await prisma.product.findMany({
         where,
         select: {
@@ -302,6 +312,8 @@ export class AdminController {
           },
         },
         orderBy,
+        skip,
+        take: limitNum,
       });
 
       // Settings'den aktif depoları al
@@ -321,7 +333,15 @@ export class AdminController {
         };
       });
 
-      res.json({ products: productsWithTotalStock });
+      res.json({
+        products: productsWithTotalStock,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limitNum),
+        },
+      });
     } catch (error) {
       next(error);
     }
