@@ -108,7 +108,17 @@ export const adminApi = {
     categoryId?: string;
     sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost';
     sortOrder?: 'asc' | 'desc';
-  }): Promise<{ products: any[] }> => {
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    products: any[];
+    pagination?: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  }> => {
     const response = await apiClient.get('/admin/products', { params });
     return response.data;
   },
