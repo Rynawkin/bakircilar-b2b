@@ -121,9 +121,6 @@ export default function AdminProductsPage() {
 
       const data = await adminApi.getProducts(params);
       setProducts(data.products);
-      if (data.pagination) {
-        setPagination(data.pagination);
-      }
     } catch (error) {
       console.error('Ürünler yüklenemedi:', error);
       toast.error('Ürünler yüklenemedi');
