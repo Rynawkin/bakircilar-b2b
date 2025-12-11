@@ -124,9 +124,6 @@ export default function AdminProductsPage() {
       if (data.pagination) {
         setPagination(data.pagination);
       }
-      if (data.stats) {
-        setStats(data.stats);
-      }
     } catch (error) {
       console.error('Ürünler yüklenemedi:', error);
       toast.error('Ürünler yüklenemedi');

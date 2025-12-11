@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import {
   Table,
   TableBody,
@@ -14,17 +13,17 @@ import {
   TableRow,
 } from '@/components/ui/Table';
 import {
+  TrendingUp,
   TrendingDown,
   ArrowLeft,
   Download,
   RefreshCw,
   Search,
   AlertCircle,
-  CheckCircle,
-  XCircle,
-  Database,
+  Calendar,
   DollarSign,
   Package,
+  Percent,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
@@ -33,62 +32,78 @@ import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
-interface MarginComplianceAlert {
-  productCode: string;
-  productName: string;
-  category: string;
-  currentCost: number;
-  customerType: string;
-  expectedMargin: number;
-  expectedPrice: number;
-  actualPrice: number;
-  deviation: number;
-  deviationAmount: number;
-  status: 'OK' | 'HIGH' | 'LOW';
-  priceSource: 'CATEGORY_RULE' | 'PRODUCT_OVERRIDE';
+// 019703 Raporu veri yapısı
+interface MarginAnalysisRow {
+  msg_S_0089: string; // Evrak No
+  msg_S_0001: string; // Stok Kodu
+  Tip: string; // Bekleyen Sipariş / Fatura
+  GrupKodu: string; // Kategori/Grup
+  SektorKodu: string; // Sektör
+  'Cari Kodu': string;
+  'Cari İsmi': string;
+  'Evrak Tarihi': string;
+  'Evrak No': string;
+  'Belge No': string;
+  'Stok Kodu': string;
+  'Stok İsmi': string;
+  Miktar: number;
+  Birimi: string;
+  BirimSatış: number;
+  BirimSatışKDV: number;
+  Tutar: number;
+  TutarKDV: number;
+  'SÖ-BirimMaliyet': number; // Son giriş maliyeti
+  'Sö-BirimMaliyetKdv': number;
+  'SÖ-BirimKar': number;
+  'SÖ-ToplamKar': number;
+  'SÖ-KarYuzde': number; // Son giriş maliyetine göre kar %
+  OrtalamaMaliyet: number;
+  OrtalamaMaliyetKDVli: number;
+  BirimKarOrtMalGöre: number;
+  ToplamKarOrtMalGöre: number;
+  OrtalamaKarYuzde: number; // Ortalama maliyete göre kar %
+  'Satıcı Kodu': string;
+  'Satıcı İsmi': string;
 }
 
 interface Summary {
-  totalProducts: number;
-  compliantCount: number;
-  highDeviationCount: number;
-  lowDeviationCount: number;
-  avgDeviation: number;
+  totalRecords: number;
+  totalRevenue: number;
+  totalProfit: number;
+  avgMargin: number;
+  highMarginCount: number;
+  lowMarginCount: number;
+  negativeMarginCount: number;
 }
 
 interface Metadata {
-  lastSyncAt: string | null;
-  syncType: string | null;
+  reportDate: string;
+  startDate: string;
+  endDate: string;
+  includeCompleted: number;
 }
 
-export default function MarginCompliancePage() {
-  const [data, setData] = useState<MarginComplianceAlert[]>([]);
+export default function MarginAnalysisPage() {
+  const [data, setData] = useState<MarginAnalysisRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [metadata, setMetadata] = useState<Metadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [categories, setCategories] = useState<string[]>([]);
 
   // Filters
+  const [startDate, setStartDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [searchQuery, setSearchQuery] = useState('');
-  const [customerTypeFilter, setCustomerTypeFilter] = useState<string>('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-
-  const fetchCategories = async () => {
-    try {
-      const result = await adminApi.getReportCategories();
-      if (result.success) {
-        setCategories(result.data.categories);
-      }
-    } catch (err) {
-      console.error('Kategoriler yüklenemedi:', err);
-    }
-  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -96,17 +111,18 @@ export default function MarginCompliancePage() {
 
     try {
       const result = await adminApi.getMarginComplianceReport({
+        startDate: startDate.replace(/-/g, ''),
+        endDate: endDate.replace(/-/g, ''),
+        includeCompleted: 1,
         page,
-        limit: 50,
-        sortBy: 'deviation',
+        limit: 100,
+        sortBy: 'OrtalamaKarYuzde',
         sortOrder: sortOrder,
-        customerType: customerTypeFilter || undefined,
-        category: categoryFilter || undefined,
         status: statusFilter || undefined,
       });
 
       if (result.success) {
-        setData(result.data.alerts);
+        setData(result.data.data);
         setSummary(result.data.summary);
         setMetadata(result.data.metadata);
         setTotalPages(result.data.pagination.totalPages);
@@ -115,520 +131,323 @@ export default function MarginCompliancePage() {
       }
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Rapor yüklenemedi');
+      toast.error('Rapor yüklenemedi');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCategories();
-  }, []);
-
-  useEffect(() => {
     fetchData();
-  }, [page, customerTypeFilter, categoryFilter, statusFilter, sortOrder]);
+  }, [page, statusFilter, sortOrder]);
 
-  const handleManualSync = async () => {
-    if (isSyncing) return;
+  const handleSearch = () => {
+    setPage(1);
+    fetchData();
+  };
 
-    setIsSyncing(true);
-    const syncToast = toast.loading('Senkronizasyon başlatılıyor...');
+  const formatCurrency = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return '₺0.00';
+    return new Intl.NumberFormat('tr-TR', {
+      style: 'currency',
+      currency: 'TRY',
+    }).format(value);
+  };
 
+  const formatPercent = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return '0%';
+    return `${value.toFixed(2)}%`;
+  };
+
+  const formatDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return '-';
     try {
-      const result = await adminApi.triggerSync();
-
-      if (result.syncLogId) {
-        toast.loading('Senkronizasyon devam ediyor...', { id: syncToast });
-
-        // Sync tamamlanana kadar bekle
-        let attempts = 0;
-        const maxAttempts = 60; // 1 dakika
-
-        while (attempts < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 saniye bekle
-
-          const status = await adminApi.getSyncStatus(result.syncLogId);
-
-          if (status.status === 'SUCCESS') {
-            toast.success('Senkronizasyon tamamlandı!', { id: syncToast });
-            await fetchData();
-            break;
-          } else if (status.status === 'FAILED') {
-            toast.error('Senkronizasyon başarısız oldu', { id: syncToast });
-            break;
-          }
-
-          attempts++;
-        }
-
-        if (attempts >= maxAttempts) {
-          toast.dismiss(syncToast);
-          toast('Senkronizasyon hala devam ediyor. Sayfa otomatik yenilenecek.', {
-            icon: '⏳',
-          });
-          await fetchData();
-        }
-      }
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Senkronizasyon başlatılamadı', {
-        id: syncToast,
-      });
-    } finally {
-      setIsSyncing(false);
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('tr-TR');
+    } catch {
+      return dateStr;
     }
   };
 
-  const handleExportExcel = async () => {
+  const getMarginBadge = (margin: number) => {
+    if (margin < 0) {
+      return <Badge variant="destructive">Zarar: {formatPercent(margin)}</Badge>;
+    } else if (margin < 10) {
+      return <Badge variant="destructive">Düşük: {formatPercent(margin)}</Badge>;
+    } else if (margin <= 30) {
+      return <Badge variant="default">Normal: {formatPercent(margin)}</Badge>;
+    } else {
+      return <Badge variant="success">Yüksek: {formatPercent(margin)}</Badge>;
+    }
+  };
+
+  const exportToExcel = () => {
     if (data.length === 0) {
       toast.error('Dışa aktarılacak veri yok');
       return;
     }
 
-    const exportToast = toast.loading('Excel dosyası hazırlanıyor...');
-
-    try {
-      // Tüm filtrelenmiş veriyi al (limit=10000)
-      const result = await adminApi.getMarginComplianceReport({
-        page: 1,
-        limit: 10000,
-        sortBy: 'deviation',
-        sortOrder: sortOrder,
-        customerType: customerTypeFilter || undefined,
-        category: categoryFilter || undefined,
-        status: statusFilter || undefined,
-      });
-
-      if (!result.success || result.data.alerts.length === 0) {
-        toast.error('Dışa aktarılacak veri bulunamadı', { id: exportToast });
-        return;
-      }
-
-      const allData = result.data.alerts;
-
-      // Arama filtresi varsa client-side uygula
-      const dataToExport = searchQuery
-        ? allData.filter(item =>
-            item.productCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.productName.toLowerCase().includes(searchQuery.toLowerCase())
-          )
-        : allData;
-
-      const excelData = dataToExport.map((item) => ({
-      'Durum': item.status === 'OK' ? 'Uyumlu' : item.status === 'HIGH' ? 'Yüksek' : 'Düşük',
-      'Ürün Kodu': item.productCode,
-      'Ürün Adı': item.productName,
-      'Kategori': item.category,
-      'Müşteri Tipi': item.customerType,
-      'Güncel Maliyet (TL)': parseFloat(item.currentCost.toFixed(2)),
-      'Beklenen Marj (%)': parseFloat(item.expectedMargin.toFixed(1)),
-      'Beklenen Fiyat (TL)': parseFloat(item.expectedPrice.toFixed(2)),
-      'Gerçek Fiyat (TL)': parseFloat(item.actualPrice.toFixed(2)),
-      'Sapma (%)': parseFloat(item.deviation.toFixed(2)),
-      'Sapma Tutarı (TL)': parseFloat(item.deviationAmount.toFixed(2)),
-      'Kaynak': item.priceSource === 'PRODUCT_OVERRIDE' ? 'Ürün Özel' : 'Kategori',
-    }));
-
-    // Özet satırı ekle
-    if (summary) {
-      excelData.push({} as any);
-      excelData.push({
-        'Durum': 'TOPLAM',
-        'Ürün Kodu': `${summary.totalProducts} ürün`,
-        'Ürün Adı': `Uyumlu: ${summary.compliantCount}`,
-        'Kategori': `Yüksek: ${summary.highDeviationCount}`,
-        'Müşteri Tipi': `Düşük: ${summary.lowDeviationCount}`,
-        'Güncel Maliyet (TL)': '',
-        'Beklenen Marj (%)': '',
-        'Beklenen Fiyat (TL)': '',
-        'Gerçek Fiyat (TL)': '',
-        'Sapma (%)': `Ort: ${summary.avgDeviation.toFixed(2)}%`,
-        'Sapma Tutarı (TL)': '',
-        'Kaynak': '',
-      } as any);
-    }
-
-    const ws = XLSX.utils.json_to_sheet(excelData);
-
-    ws['!cols'] = [
-      { wch: 10 },  // Durum
-      { wch: 15 },  // Ürün Kodu
-      { wch: 50 },  // Ürün Adı
-      { wch: 20 },  // Kategori
-      { wch: 15 },  // Müşteri Tipi
-      { wch: 18 },  // Güncel Maliyet
-      { wch: 15 },  // Beklenen Marj
-      { wch: 18 },  // Beklenen Fiyat
-      { wch: 18 },  // Gerçek Fiyat
-      { wch: 12 },  // Sapma (%)
-      { wch: 18 },  // Sapma Tutarı
-      { wch: 15 },  // Kaynak
-    ];
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Marj Uyumsuzluğu');
-
-      const fileName = `marj-uyumsuzlugu-raporu-${new Date().toISOString().split('T')[0]}.xlsx`;
-
-      XLSX.writeFile(wb, fileName);
-
-      toast.success(`${dataToExport.length} kayıt Excel'e aktarıldı`, { id: exportToast });
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Excel dosyası oluşturulamadı', {
-        id: exportToast,
-      });
-    }
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar Marjı Analizi');
+    XLSX.writeFile(workbook, `kar-marji-analizi-${startDate}-${endDate}.xlsx`);
+    toast.success('Excel dosyası indirildi');
   };
 
-  const getStatusBadge = (status: string) => {
-    if (status === 'OK') return <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />Uyumlu</Badge>;
-    if (status === 'HIGH') return <Badge className="bg-orange-500"><AlertCircle className="h-3 w-3 mr-1" />Yüksek</Badge>;
-    return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Düşük</Badge>;
-  };
-
-  const getStatusColor = (status: string) => {
-    if (status === 'OK') return 'text-green-600 bg-green-50';
-    if (status === 'HIGH') return 'text-orange-600 bg-orange-50';
-    return 'text-red-600 bg-red-50';
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: 'TRY',
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
-
-  const filteredData = data.filter((item) =>
-    item.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.productCode.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const customerTypeLabels: Record<string, string> = {
-    'BAYI': 'Bayi',
-    'PERAKENDE': 'Perakende',
-    'VIP': 'VIP',
-    'OZEL': 'Özel',
-  };
+  // Search filtering
+  const filteredData = Array.isArray(data) ? data.filter((row) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      row['Stok Kodu']?.toLowerCase().includes(query) ||
+      row['Stok İsmi']?.toLowerCase().includes(query) ||
+      row['Evrak No']?.toLowerCase().includes(query) ||
+      row['Cari İsmi']?.toLowerCase().includes(query)
+    );
+  }) : [];
 
   return (
-    <>
+    <div className="min-h-screen bg-gray-50">
       <AdminNavigation />
-      <div className="container mx-auto p-6 space-y-6">
+
+      <div className="container mx-auto px-4 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Link href="/reports">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Raporlara Dön
-                </Button>
-              </Link>
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <TrendingDown className="h-8 w-8 text-purple-500" />
-              Marj Uyumsuzluğu Raporu
-            </h1>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>Tanımlı kar marjlarına uymayan fiyatlar (Tolerans: ±2%)</span>
-              {metadata?.lastSyncAt && (
-                <div className="flex items-center gap-1">
-                  <Database className="h-4 w-4" />
-                  <span>
-                    Son Senkronizasyon:{' '}
-                    {new Date(metadata.lastSyncAt).toLocaleString('tr-TR')}
-                    {metadata.syncType === 'AUTO' ? ' (Otomatik)' : ' (Manuel)'}
-                  </span>
-                </div>
-              )}
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/admin/reports">
+              <Button variant="outline" size="sm">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Raporlar
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Kar Marjı Analizi</h1>
+              <p className="text-sm text-gray-600 mt-1">
+                Bekleyen siparişler ve faturaların kar marjı detayları (019703 Raporu)
+              </p>
             </div>
           </div>
-
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleManualSync}
-              disabled={isSyncing}
-            >
-              <Database className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Senkronize Ediliyor...' : 'Tekrar Senkronize Et'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={fetchData}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Yenile
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleExportExcel}>
-              <Download className="h-4 w-4 mr-2" />
+            <Button onClick={exportToExcel} variant="outline" size="sm">
+              <Download className="mr-2 h-4 w-4" />
               Excel İndir
+            </Button>
+            <Button onClick={fetchData} variant="outline" size="sm" disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Yenile
             </Button>
           </div>
         </div>
 
         {/* Summary Cards */}
         {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="mb-6 grid gap-4 md:grid-cols-4">
             <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Toplam Ürün</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Toplam Kayıt</CardTitle>
+                <Package className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-2">
-                  <Package className="h-5 w-5 text-blue-500" />
-                  <span className="text-2xl font-bold">{summary.totalProducts}</span>
-                </div>
+                <div className="text-2xl font-bold">{summary.totalRecords}</div>
+                <p className="text-xs text-muted-foreground">İşlem sayısı</p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Uyumlu (±2%)</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Toplam Ciro</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 text-green-500" />
-                  <span className="text-2xl font-bold text-green-600">{summary.compliantCount}</span>
-                  <span className="text-sm text-muted-foreground">
-                    ({((summary.compliantCount / summary.totalProducts) * 100).toFixed(0)}%)
-                  </span>
-                </div>
+                <div className="text-2xl font-bold">{formatCurrency(summary.totalRevenue)}</div>
+                <p className="text-xs text-muted-foreground">KDV Dahil</p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Yüksek Fiyat (+2%)</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Toplam Kar</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-orange-500" />
-                  <span className="text-2xl font-bold text-orange-600">{summary.highDeviationCount}</span>
-                  <span className="text-sm text-muted-foreground">
-                    ({((summary.highDeviationCount / summary.totalProducts) * 100).toFixed(0)}%)
-                  </span>
-                </div>
+                <div className="text-2xl font-bold">{formatCurrency(summary.totalProfit)}</div>
+                <p className="text-xs text-muted-foreground">Ortalama maliyete göre</p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Düşük Fiyat (-2%)</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Ortalama Kar %</CardTitle>
+                <Percent className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-2">
-                  <XCircle className="h-5 w-5 text-red-500" />
-                  <span className="text-2xl font-bold text-red-600">{summary.lowDeviationCount}</span>
-                  <span className="text-sm text-muted-foreground">
-                    ({((summary.lowDeviationCount / summary.totalProducts) * 100).toFixed(0)}%)
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Ortalama Sapma</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-5 w-5 text-purple-500" />
-                  <span className="text-2xl font-bold">
-                    {summary.avgDeviation.toFixed(2)}%
-                  </span>
-                </div>
+                <div className="text-2xl font-bold">{formatPercent(summary.avgMargin)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Yüksek: {summary.highMarginCount} | Düşük: {summary.lowMarginCount} | Zarar: {summary.negativeMarginCount}
+                </p>
               </CardContent>
             </Card>
           </div>
         )}
 
         {/* Filters */}
-        <Card>
+        <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="text-lg">Filtreler</CardTitle>
+            <CardTitle>Filtreler</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Arama</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Ürün kodu veya adı..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
+            <div className="grid gap-4 md:grid-cols-5">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Başlangıç Tarihi</label>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Müşteri Tipi</label>
-                <Select
-                  value={customerTypeFilter}
-                  onChange={(e) => setCustomerTypeFilter(e.target.value)}
-                >
-                  <option value="">Tümü</option>
-                  <option value="BAYI">Bayi</option>
-                  <option value="PERAKENDE">Perakende</option>
-                  <option value="VIP">VIP</option>
-                  <option value="OZEL">Özel</option>
-                </Select>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Bitiş Tarihi</label>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Kategori</label>
-                <Select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                >
-                  <option value="">Tümü</option>
-                  {categories.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Durum</label>
-                <Select
+              <div>
+                <label className="text-sm font-medium mb-2 block">Kar Durumu</label>
+                <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="">Tümü</option>
-                  <option value="OK">Uyumlu (±2%)</option>
-                  <option value="HIGH">Yüksek Fiyat (+2%)</option>
-                  <option value="LOW">Düşük Fiyat (-2%)</option>
-                  <option value="NON_COMPLIANT">Uyumsuz Tümü</option>
-                </Select>
+                  <option value="HIGH">Yüksek Kar (&gt;30%)</option>
+                  <option value="OK">Normal Kar (10-30%)</option>
+                  <option value="LOW">Düşük Kar (&lt;10%)</option>
+                  <option value="NEGATIVE">Zarar (&lt;0%)</option>
+                </select>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Sıralama</label>
-                <Select
+              <div>
+                <label className="text-sm font-medium mb-2 block">Sıralama</label>
+                <select
                   value={sortOrder}
                   onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 >
-                  <option value="desc">Yüksekten Düşüğe</option>
-                  <option value="asc">Düşükten Yükseğe</option>
-                </Select>
+                  <option value="desc">Kar % Azalan</option>
+                  <option value="asc">Kar % Artan</option>
+                </select>
               </div>
+
+              <div className="flex items-end">
+                <Button onClick={handleSearch} className="w-full">
+                  <Search className="mr-2 h-4 w-4" />
+                  Ara
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <Input
+                placeholder="Stok kodu, ürün adı, evrak no veya cari ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
           </CardContent>
         </Card>
 
-        {/* Table */}
+        {/* Data Table */}
         <Card>
-          <CardContent className="p-0">
+          <CardHeader>
+            <CardTitle>Kar Marjı Detayları</CardTitle>
+            <CardDescription>
+              {metadata && `Rapor Tarihi: ${formatDate(metadata.reportDate)} | Tarih Aralığı: ${metadata.startDate} - ${metadata.endDate}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             {loading ? (
-              <div className="p-12 text-center">
-                <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">Yükleniyor...</p>
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
               </div>
             ) : error ? (
-              <div className="p-12 text-center">
-                <AlertCircle className="h-8 w-8 mx-auto mb-4 text-red-500" />
-                <p className="text-red-600">{error}</p>
-                <Button variant="outline" onClick={fetchData} className="mt-4">
-                  Tekrar Dene
-                </Button>
+              <div className="flex flex-col items-center justify-center py-12">
+                <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
+                <p className="text-red-600 font-medium">{error}</p>
+              </div>
+            ) : filteredData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Package className="h-12 w-12 text-gray-400 mb-4" />
+                <p className="text-gray-600">Veri bulunamadı</p>
               </div>
             ) : (
               <>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Durum</TableHead>
-                      <TableHead>Ürün Kodu</TableHead>
-                      <TableHead>Ürün Adı</TableHead>
-                      <TableHead>Kategori</TableHead>
-                      <TableHead>Müşteri Tipi</TableHead>
-                      <TableHead className="text-right">Güncel Maliyet</TableHead>
-                      <TableHead className="text-right">Beklenen Marj</TableHead>
-                      <TableHead className="text-right">Beklenen Fiyat</TableHead>
-                      <TableHead className="text-right">Gerçek Fiyat</TableHead>
-                      <TableHead className="text-right">Sapma (%)</TableHead>
-                      <TableHead className="text-right">Sapma (TL)</TableHead>
-                      <TableHead>Kaynak</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredData.length === 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={12} className="text-center py-12">
-                          <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                          <p className="text-muted-foreground">Veri bulunamadı</p>
-                        </TableCell>
+                        <TableHead>Evrak No</TableHead>
+                        <TableHead>Tip</TableHead>
+                        <TableHead>Evrak Tarihi</TableHead>
+                        <TableHead>Cari</TableHead>
+                        <TableHead>Stok Kodu</TableHead>
+                        <TableHead>Ürün Adı</TableHead>
+                        <TableHead className="text-right">Miktar</TableHead>
+                        <TableHead className="text-right">Birim Satış</TableHead>
+                        <TableHead className="text-right">Tutar (KDV)</TableHead>
+                        <TableHead className="text-right">Ort. Maliyet</TableHead>
+                        <TableHead className="text-right">Birim Kar</TableHead>
+                        <TableHead className="text-right">Toplam Kar</TableHead>
+                        <TableHead className="text-right">Kar %</TableHead>
                       </TableRow>
-                    ) : (
-                      filteredData.map((item, idx) => (
-                        <TableRow key={`${item.productCode}-${item.customerType}-${idx}`} className={getStatusColor(item.status)}>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredData.map((row, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell className="font-mono text-sm">{row['Evrak No']}</TableCell>
                           <TableCell>
-                            {getStatusBadge(item.status)}
+                            <Badge variant="outline">{row.Tip}</Badge>
                           </TableCell>
-                          <TableCell className="font-mono text-sm">{item.productCode}</TableCell>
-                          <TableCell className="max-w-xs truncate">{item.productName}</TableCell>
-                          <TableCell className="text-sm">{item.category}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{customerTypeLabels[item.customerType]}</Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {formatCurrency(item.currentCost)}
-                          </TableCell>
-                          <TableCell className="text-right text-sm">
-                            %{item.expectedMargin.toFixed(1)}
-                          </TableCell>
-                          <TableCell className="text-right font-medium text-blue-600">
-                            {formatCurrency(item.expectedPrice)}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {formatCurrency(item.actualPrice)}
-                          </TableCell>
-                          <TableCell className={`text-right font-bold ${
-                            item.status === 'HIGH' ? 'text-orange-600' :
-                            item.status === 'LOW' ? 'text-red-600' :
-                            'text-green-600'
-                          }`}>
-                            {item.deviation > 0 ? '+' : ''}{item.deviation.toFixed(2)}%
-                          </TableCell>
-                          <TableCell className={`text-right font-medium ${
-                            item.status === 'HIGH' ? 'text-orange-600' :
-                            item.status === 'LOW' ? 'text-red-600' :
-                            'text-green-600'
-                          }`}>
-                            {item.deviationAmount > 0 ? '+' : ''}{formatCurrency(item.deviationAmount)}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={item.priceSource === 'PRODUCT_OVERRIDE' ? 'default' : 'outline'}>
-                              {item.priceSource === 'PRODUCT_OVERRIDE' ? 'Ürün' : 'Kategori'}
-                            </Badge>
-                          </TableCell>
+                          <TableCell>{formatDate(row['Evrak Tarihi'])}</TableCell>
+                          <TableCell className="max-w-[200px] truncate">{row['Cari İsmi']}</TableCell>
+                          <TableCell className="font-mono text-sm">{row['Stok Kodu']}</TableCell>
+                          <TableCell className="max-w-[250px] truncate">{row['Stok İsmi']}</TableCell>
+                          <TableCell className="text-right">{row.Miktar} {row.Birimi}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(row.BirimSatışKDV)}</TableCell>
+                          <TableCell className="text-right font-semibold">{formatCurrency(row.TutarKDV)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(row.OrtalamaMaliyetKDVli)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(row.BirimKarOrtMalGöre)}</TableCell>
+                          <TableCell className="text-right font-semibold">{formatCurrency(row.ToplamKarOrtMalGöre)}</TableCell>
+                          <TableCell className="text-right">{getMarginBadge(row.OrtalamaKarYuzde)}</TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
 
                 {/* Pagination */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between p-4 border-t">
-                    <div className="text-sm text-muted-foreground">
+                  <div className="mt-4 flex items-center justify-between">
+                    <p className="text-sm text-gray-600">
                       Sayfa {page} / {totalPages}
-                    </div>
+                    </p>
                     <div className="flex gap-2">
                       <Button
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={page === 1}
                         variant="outline"
                         size="sm"
-                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page === 1}
                       >
                         Önceki
                       </Button>
                       <Button
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={page === totalPages}
                         variant="outline"
                         size="sm"
-                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                        disabled={page === totalPages}
                       >
                         Sonraki
                       </Button>
@@ -640,6 +459,6 @@ export default function MarginCompliancePage() {
           </CardContent>
         </Card>
       </div>
-    </>
+    </div>
   );
 }

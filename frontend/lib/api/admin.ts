@@ -108,17 +108,7 @@ export const adminApi = {
     categoryId?: string;
     sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost';
     sortOrder?: 'asc' | 'desc';
-    page?: number;
-    limit?: number;
-  }): Promise<{
-    products: any[];
-    pagination?: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-    };
-  }> => {
+  }): Promise<{ products: any[] }> => {
     const response = await apiClient.get('/admin/products', { params });
     return response.data;
   },
@@ -300,6 +290,9 @@ export const adminApi = {
   },
 
   getMarginComplianceReport: async (params: {
+    startDate?: string;
+    endDate?: string;
+    includeCompleted?: number;
     customerType?: string;
     category?: string;
     status?: string;
@@ -310,22 +303,29 @@ export const adminApi = {
   }): Promise<{
     success: boolean;
     data: {
-      alerts: any[];
+      data: any[];
       summary: {
-        totalProducts: number;
-        compliantCount: number;
-        highDeviationCount: number;
-        lowDeviationCount: number;
-        avgDeviation: number;
+        totalRecords: number;
+        totalRevenue: number;
+        totalProfit: number;
+        avgMargin: number;
+        highMarginCount: number;
+        lowMarginCount: number;
+        negativeMarginCount: number;
       };
       pagination: any;
       metadata: {
-        lastSyncAt: string | null;
-        syncType: string | null;
+        reportDate: string;
+        startDate: string;
+        endDate: string;
+        includeCompleted: number;
       };
     };
   }> => {
     const queryParams = new URLSearchParams();
+    if (params.startDate) queryParams.append('startDate', params.startDate);
+    if (params.endDate) queryParams.append('endDate', params.endDate);
+    if (params.includeCompleted !== undefined) queryParams.append('includeCompleted', params.includeCompleted.toString());
     if (params.customerType) queryParams.append('customerType', params.customerType);
     if (params.category) queryParams.append('category', params.category);
     if (params.status) queryParams.append('status', params.status);

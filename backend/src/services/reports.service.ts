@@ -309,240 +309,160 @@ export class ReportsService {
   }
 
   /**
-   * Marj Uyumsuzluğu Raporu
+   * Kar Marjı Analizi Raporu (019703 - Komisyon Faturası Hareket Yönetimi)
    *
-   * Mikro STOKLAR_USER tablosundaki marj tanımlarını (Marj_1-5) kullanarak
-   * beklenen fiyatları hesaplar ve Mikro'daki gerçek toptan satış fiyatlarıyla karşılaştırır.
+   * Mikro'daki fn_KomisyonFaturasiHareketYonetimi fonksiyonunu kullanarak
+   * bekleyen siparişler ve faturalar üzerinden detaylı kar marjı analizi yapar.
    *
-   * Karşılaştırma:
-   * - Beklenen Fiyat = Maliyet × Marj_X
-   * - Gerçek Fiyat = Mikro'daki Toptan Satış X fiyatı (STOK_SATIS_FIYAT_LISTELERI)
-   * - Sapma = Gerçek fiyata uygulanan marj ile tanımlı marj arasındaki fark
+   * Özellikler:
+   * - Son giriş maliyeti ve ortalama maliyete göre kar hesaplar
+   * - Gerçek satış işlemlerini analiz eder
+   * - Evrak bazında detaylı bilgi verir
    */
   async getMarginComplianceReport(options: {
-    customerType?: string; // BAYI, PERAKENDE, VIP, OZEL
-    category?: string; // kategori kodu
-    status?: string; // OK, HIGH, LOW, NON_COMPLIANT (HIGH | LOW)
+    startDate?: string;
+    endDate?: string;
+    includeCompleted?: number; // 1 = tamamlananları da dahil et, 0 = sadece bekleyenler
+    customerType?: string;
+    category?: string;
+    status?: string; // HIGH (>30%), LOW (<10%), NEGATIVE (<0%), OK (10-30%)
     page?: number;
     limit?: number;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
-  } = {}): Promise<MarginComplianceResponse> {
+  } = {}): Promise<any> {
     const {
+      startDate,
+      endDate,
+      includeCompleted = 1,
       customerType,
       category,
       status,
       page = 1,
-      limit = 50,
-      sortBy = 'deviation',
+      limit = 100,
+      sortBy = 'OrtalamaKarYuzde',
       sortOrder = 'desc',
     } = options;
 
-    // WHERE koşulları
-    const where: any = {
-      active: true,
-      currentCost: { not: null, gt: 0 },
-    };
+    // Tarih parametreleri - eğer verilmemişse bugünü kullan
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const start = startDate || today;
+    const end = endDate || today;
 
-    // Kategori filtresi
-    if (category) {
-      where.category = {
-        mikroCode: category,
-      };
-    }
-
-    // Ürünleri çek
-    const products = await prisma.product.findMany({
-      where,
-      include: {
-        category: true,
-      },
-      take: 10, // Limit to 10 products for performance (each product requires 2 Mikro queries)
-    });
-
-    // Mikro'dan marj tanımlarını ve fiyatları çek
+    // Mikro'dan rapor fonksiyonunu çağır
     const mikroService = require('./mikroFactory.service').default;
     await mikroService.connect();
 
-    const alerts: MarginComplianceAlert[] = [];
+    try {
+      const query = `
+        SELECT *
+        FROM dbo.fn_KomisyonFaturasiHareketYonetimi('${start}', '${end}', ${includeCompleted})
+        ORDER BY [msg_S_0089], [msg_S_0001]
+      `;
 
-    // Marj kolonları ve fiyat listesi mapping
-    // Marj_1-5 ile Liste 6-10 eşleşir
-    const marginTypes = customerType
-      ? [customerType]
-      : ['Marj 1', 'Marj 2', 'Marj 3', 'Marj 4', 'Marj 5'];
+      const result = await mikroService.executeQuery(query);
 
-    const mappings: Record<string, { marginCol: string; priceList: number }> = {
-      'Marj 1': { marginCol: 'Marj_1', priceList: 6 },
-      'Marj 2': { marginCol: 'Marj_2', priceList: 7 },
-      'Marj 3': { marginCol: 'Marj_3', priceList: 8 },
-      'Marj 4': { marginCol: 'Marj_4', priceList: 9 },
-      'Marj 5': { marginCol: 'Marj_5', priceList: 10 },
-    };
+      // Filtreleme
+      let filteredData = result;
 
-    for (const product of products) {
-      const currentCost = product.currentCost || 0;
+      // Müşteri tipi filtresi (SektorKodu alanından)
+      if (customerType) {
+        filteredData = filteredData.filter((row: any) =>
+          row.SektorKodu && row.SektorKodu.includes(customerType)
+        );
+      }
 
-      if (currentCost === 0) continue;
+      // Kategori filtresi (GrupKodu alanından)
+      if (category) {
+        filteredData = filteredData.filter((row: any) =>
+          row.GrupKodu && row.GrupKodu.includes(category)
+        );
+      }
 
-      // Mikro'dan bu ürünün marj tanımlarını ve fiyatlarını çek
-      let productData: any = null;
-      try {
-        const result = await mikroService.executeQuery(`
-          SELECT
-            u.Marj_1,
-            u.Marj_2,
-            u.Marj_3,
-            u.Marj_4,
-            u.Marj_5
-          FROM STOKLAR s
-          LEFT JOIN STOKLAR_USER u ON s.sto_Guid = u.Record_uid
-          WHERE s.sto_kod = '${product.mikroCode}'
-        `);
-
-        if (result.length > 0) {
-          productData = result[0];
+      // Kar yüzdesi durumu filtresi
+      if (status) {
+        if (status === 'HIGH') {
+          // Yüksek kar marjı (>30%)
+          filteredData = filteredData.filter((row: any) =>
+            row.OrtalamaKarYuzde > 30
+          );
+        } else if (status === 'LOW') {
+          // Düşük kar marjı (<10%)
+          filteredData = filteredData.filter((row: any) =>
+            row.OrtalamaKarYuzde < 10
+          );
+        } else if (status === 'NEGATIVE') {
+          // Negatif kar (zarar)
+          filteredData = filteredData.filter((row: any) =>
+            row.OrtalamaKarYuzde < 0
+          );
+        } else if (status === 'OK') {
+          // Normal kar marjı (10-30%)
+          filteredData = filteredData.filter((row: any) =>
+            row.OrtalamaKarYuzde >= 10 && row.OrtalamaKarYuzde <= 30
+          );
         }
-      } catch (error) {
-        console.error(`Error fetching data for ${product.mikroCode}:`, error);
-        continue;
       }
 
-      if (!productData) continue;
+      // Sıralama
+      filteredData.sort((a: any, b: any) => {
+        const aValue = a[sortBy] || 0;
+        const bValue = b[sortBy] || 0;
 
-      // Fiyat listelerini çek (Liste 6-10)
-      let priceListData: any[] = [];
-      try {
-        priceListData = await mikroService.executeQuery(`
-          SELECT
-            sfiyat_listesirano as priceListNo,
-            sfiyat_fiyati as price
-          FROM STOK_SATIS_FIYAT_LISTELERI
-          WHERE sfiyat_stokkod = '${product.mikroCode}'
-            AND sfiyat_fiyati > 0
-            AND sfiyat_listesirano BETWEEN 6 AND 10
-        `);
-      } catch (error) {
-        console.error(`Error fetching price lists for ${product.mikroCode}:`, error);
-        continue;
-      }
-
-      for (const marginType of marginTypes) {
-        const mapping = mappings[marginType];
-        if (!mapping) continue;
-
-        // Mikro'daki tanımlı marj
-        const marginStr = productData[mapping.marginCol];
-        if (!marginStr || marginStr === '') continue;
-
-        // Marj değerini parse et (Türkçe virgülü nokta ile değiştir)
-        const expectedMarginMultiplier = parseFloat(marginStr.toString().replace(',', '.'));
-        if (isNaN(expectedMarginMultiplier) || expectedMarginMultiplier === 0) continue;
-
-        // Mikro'daki gerçek toptan satış fiyatı
-        const priceListEntry = priceListData.find((p: any) => p.priceListNo === mapping.priceList);
-        if (!priceListEntry || priceListEntry.price === 0) continue;
-
-        const actualPrice = priceListEntry.price;
-
-        // Beklenen fiyat: Maliyet × Tanımlı Marj
-        const expectedPrice = currentCost * expectedMarginMultiplier;
-
-        // Gerçek fiyata uygulanan marj
-        const actualMarginMultiplier = actualPrice / currentCost;
-
-        // Sapma: (gerçek marj - beklenen marj) / beklenen marj × 100
-        const deviation = ((actualMarginMultiplier - expectedMarginMultiplier) / expectedMarginMultiplier) * 100;
-        const deviationAmount = actualPrice - expectedPrice;
-
-        // Status: ±2% tolerans
-        let complianceStatus: 'OK' | 'HIGH' | 'LOW' = 'OK';
-        if (deviation > 2) {
-          complianceStatus = 'HIGH';
-        } else if (deviation < -2) {
-          complianceStatus = 'LOW';
+        if (sortOrder === 'desc') {
+          return bValue - aValue;
+        } else {
+          return aValue - bValue;
         }
+      });
 
-        alerts.push({
-          productCode: product.mikroCode,
-          productName: product.name,
-          category: product.category.name,
-          currentCost,
-          customerType: marginType,
-          expectedMargin: (expectedMarginMultiplier - 1) * 100, // Yüzde olarak (1.6 → 60%)
-          expectedPrice,
-          actualPrice,
-          deviation,
-          deviationAmount,
-          status: complianceStatus,
-          priceSource: 'MIKRO_MARGIN',
-        });
-      }
+      // Pagination
+      const totalRecords = filteredData.length;
+      const offset = (page - 1) * limit;
+      const paginatedData = filteredData.slice(offset, offset + limit);
+      const totalPages = Math.ceil(totalRecords / limit);
+
+      // Summary hesapla
+      const totalRevenue = filteredData.reduce((sum: number, row: any) => sum + (row.TutarKDV || 0), 0);
+      const totalProfit = filteredData.reduce((sum: number, row: any) => sum + (row.ToplamKarOrtMalGöre || 0), 0);
+      const avgMargin = filteredData.length > 0
+        ? filteredData.reduce((sum: number, row: any) => sum + (row.OrtalamaKarYuzde || 0), 0) / filteredData.length
+        : 0;
+
+      const highMarginCount = filteredData.filter((row: any) => row.OrtalamaKarYuzde > 30).length;
+      const lowMarginCount = filteredData.filter((row: any) => row.OrtalamaKarYuzde < 10).length;
+      const negativeMarginCount = filteredData.filter((row: any) => row.OrtalamaKarYuzde < 0).length;
+
+      await mikroService.disconnect();
+
+      return {
+        data: paginatedData,
+        summary: {
+          totalRecords,
+          totalRevenue,
+          totalProfit,
+          avgMargin,
+          highMarginCount,
+          lowMarginCount,
+          negativeMarginCount,
+        },
+        pagination: {
+          page,
+          limit,
+          totalPages,
+          totalRecords,
+        },
+        metadata: {
+          reportDate: new Date(),
+          startDate: start,
+          endDate: end,
+          includeCompleted,
+        },
+      };
+    } catch (error) {
+      await mikroService.disconnect();
+      throw error;
     }
-
-    await mikroService.disconnect();
-
-    // Status filtresi
-    let filteredAlerts = alerts;
-    if (status && status !== 'OK') {
-      if (status === 'NON_COMPLIANT') {
-        filteredAlerts = alerts.filter((a) => a.status !== 'OK');
-      } else {
-        filteredAlerts = alerts.filter((a) => a.status === status);
-      }
-    }
-
-    // Sıralama
-    filteredAlerts.sort((a, b) => {
-      const aValue = (a as any)[sortBy] || 0;
-      const bValue = (b as any)[sortBy] || 0;
-      return sortOrder === 'desc' ? bValue - aValue : aValue - bValue;
-    });
-
-    // Pagination
-    const totalRecords = filteredAlerts.length;
-    const offset = (page - 1) * limit;
-    const paginatedAlerts = filteredAlerts.slice(offset, offset + limit);
-    const totalPages = Math.ceil(totalRecords / limit);
-
-    // Summary
-    const compliantCount = alerts.filter((a) => a.status === 'OK').length;
-    const highDeviationCount = alerts.filter((a) => a.status === 'HIGH').length;
-    const lowDeviationCount = alerts.filter((a) => a.status === 'LOW').length;
-    const avgDeviation = alerts.length > 0
-      ? alerts.reduce((sum, a) => sum + Math.abs(a.deviation), 0) / alerts.length
-      : 0;
-
-    // Son senkronizasyon bilgisini al
-    const lastSync = await prisma.syncLog.findFirst({
-      where: { status: 'SUCCESS' },
-      orderBy: { completedAt: 'desc' },
-      select: {
-        completedAt: true,
-        syncType: true,
-      },
-    });
-
-    return {
-      alerts: paginatedAlerts,
-      summary: {
-        totalProducts: alerts.length,
-        compliantCount,
-        highDeviationCount,
-        lowDeviationCount,
-        avgDeviation,
-      },
-      pagination: {
-        page,
-        limit,
-        totalPages,
-        totalRecords,
-      },
-      metadata: {
-        lastSyncAt: lastSync?.completedAt || null,
-        syncType: lastSync?.syncType || null,
-      },
-    };
   }
 
   /**
