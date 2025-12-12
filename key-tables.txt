@@ -1,0 +1,81 @@
+📋 ADAY_CARI_HESAPLAR (73 kolon, 0 satır)
+--------------------------------------------------------------------------------
+  • adaycr_Guid: uniqueidentifier
+  • adaycr_DBCno: smallint
+  • adaycr_SpecRECno: int?
+  • adaycr_iptal: bit?
+  • adaycr_fileid: smallint?
+  • adaycr_hidden: bit?
+  • adaycr_kilitli: bit?
+  • adaycr_degisti: bit?
+  • adaycr_checksum: int?
+  • adaycr_create_user: smallint?
+  • adaycr_create_date: datetime
+  • adaycr_lastup_user: smallint?
+  • adaycr_lastup_date: datetime?
+  • adaycr_special1: nvarchar(4)?
+  • adaycr_special2: nvarchar(4)?
+  • adaycr_special3: nvarchar(4)?
+  • adaycr_kod: nvarchar(25)?
+  • adaycr_unvan1: nvarchar(127)?
+  • adaycr_unvan2: nvarchar(127)?
+  • adaycr_sektor_kodu: nvarchar(25)?
+  ... ve 53 kolon daha
+
+📋 ALINAN_TEKLIFLER (87 kolon, 54348 satır)
+--------------------------------------------------------------------------------
+  • altkl_Guid: uniqueidentifier
+  • altkl_DBCno: smallint
+  • altkl_SpecRECno: int?
+  • altkl_iptal: bit?
+  • altkl_fileid: smallint?
+  • altkl_hidden: bit?
+  • altkl_kilitli: bit?
+  • altkl_degisti: bit?
+  • altkl_checksum: int?
+  • altkl_create_user: smallint?
+  • altkl_create_date: datetime
+  • altkl_lastup_user: smallint?
+  • altkl_lastup_date: datetime?
+  • altkl_special1: nvarchar(4)?
+  • altkl_special2: nvarchar(4)?
+  • altkl_special3: nvarchar(4)?
+  • altkl_firmano: int?
+  • altkl_subeno: int?
+  • altkl_teklif_kodu: nvarchar(25)?
+  • altkl_sira_no: int?
+  ... ve 67 kolon daha
+
+📋 ARIZA_GRUPLARI (18 kolon, 0 satır)
+--------------------------------------------------------------------------------
+  • agr_Guid: uniqueidentifier
+  • agr_DBCno: smallint
+  • agr_SpecRECno: int?
+  • agr_iptal: bit?
+  • agr_fileid: smallint?
+  • agr_hidden: bit?
+  • agr_kilitli: bit?
+  • agr_degisti: bit?
+  • agr_checksum: int?
+  • agr_create_user: smallint?
+  • agr_create_date: datetime
+  • agr_lastup_user: smallint?
+  • agr_lastup_date: datetime?
+  • agr_special1: nvarchar(4)?
+  • agr_special2: nvarchar(4)?
+  • agr_special3: nvarchar(4)?
+  • agr_kodu: nvarchar(25)?
+  • agr_adi: nvarchar(50)?
+
+📋 ARIZA_SINIFLARI (18 kolon, 0 satır)
+--------------------------------------------------------------------------------
+  • asn_Guid: uniqueidentifier
+  • asn_DBCno: smallint
+  • asn_SpecRECno: int?
+  • asn_iptal: bit?
+  • asn_fileid: smallint?
+  • asn_hidden: bit?
+  • asn_kilitli: bit?
+  • asn_degisti: bit?
+  • asn_checksum: int?
+  • asn_create_user: smallint?

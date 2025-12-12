@@ -466,7 +466,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Hızlı Arama Widgetları */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
           {/* Stok Arama Widget */}
           <Card className="shadow-lg hover:shadow-xl transition-shadow">
             <div className="space-y-4">
@@ -526,6 +526,27 @@ export default function AdminDashboardPage() {
                 onClick={() => setShowEkstreModal(true)}
               >
                 Ekstre Al →
+              </Button>
+            </div>
+          </Card>
+
+          {/* Diversey Stok Widget */}
+          <Card className="shadow-lg hover:shadow-xl transition-shadow">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-orange-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                  🏢
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-gray-900">Diversey Stok</h3>
+                  <p className="text-sm text-gray-600">Diversey markası ürün stokları</p>
+                </div>
+              </div>
+              <Button
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+                onClick={() => router.push('/diversey/stok')}
+              >
+                Diversey Stok →
               </Button>
             </div>
           </Card>

@@ -36,8 +36,10 @@ export default function LoginPage() {
       // Store'dan user bilgisini al ve yönlendir
       const user = useAuthStore.getState().user;
 
-      if (user?.role === 'ADMIN') {
+      if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
         router.push('/dashboard');
+      } else if (user?.role === 'DIVERSEY') {
+        router.push('/diversey/stok');
       } else {
         router.push('/products');
       }
