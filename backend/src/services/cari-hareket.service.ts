@@ -88,7 +88,7 @@ class CariHareketService {
         cari_unvan1 AS [Cari Adı],
         cari_sektor_kodu AS [Sektör Kodu],
         cari_grup_kodu AS [Grup Kodu],
-        dbo.fn_CariRiskFoyu(cari_kod, 0) AS [Bakiye]
+        CAST(0 AS DECIMAL(18,2)) AS [Bakiye]
       FROM
         dbo.CARI_HESAPLAR WITH (NOLOCK)
       WHERE
