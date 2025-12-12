@@ -18,10 +18,10 @@ export default function DiverseyStokPage() {
       setLoading(true);
       const response = await adminApi.getProducts();
 
-      // Sadece Diversey markasını filtrele (Türkçe karaktere dikkat: DİVERSEY)
+      // Sadece Diversey markasını filtrele (case-insensitive, hem Türkçe hem İngilizce)
       const diverseyProducts = response.products.filter((p: Product) => {
-        const upperName = p.name.toLocaleUpperCase('tr-TR');
-        return upperName.includes('DİVERSEY') || upperName.includes('DIVERSEY');
+        const lowerName = p.name.toLowerCase();
+        return lowerName.includes('diversey') || lowerName.includes('dİversey');
       });
 
       setProducts(diverseyProducts);
