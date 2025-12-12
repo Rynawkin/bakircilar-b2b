@@ -4,6 +4,8 @@ import { useState } from 'react';
 import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface EkstreModalProps {
   isOpen: boolean;
@@ -89,8 +91,124 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
 
     setExportingPDF(true);
     try {
-      // PDF için jsPDF kullanabiliriz, ancak şimdilik Excel'e yönlendirelim
-      alert('PDF export özelliği yakında eklenecek. Şimdilik Excel kullanabilirsiniz.');
+      // Bu yılın ilk ve son günü
+      const currentYear = new Date().getFullYear();
+      const startDate = `${currentYear}-01-01`;
+      const endDate = `${currentYear}-12-31`;
+
+      // Cari hareket föyünü al
+      const response = await adminApi.getCariHareketFoyu({
+        cariKod: selectedCari['Cari Kodu'],
+        startDate,
+        endDate
+      });
+
+      const hareketler = response.data;
+
+      if (hareketler.length === 0) {
+        alert('Bu cari için hareket bulunamadı');
+        return;
+      }
+
+      // PDF oluştur
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      // Başlık
+      doc.setFontSize(16);
+      doc.text('CARİ HESAP EKSTRESİ', 148, 15, { align: 'center' });
+
+      // Cari Bilgileri
+      doc.setFontSize(10);
+      doc.text(`Cari Kodu: ${selectedCari['Cari Kodu']}`, 14, 25);
+      doc.text(`Cari Adı: ${selectedCari['Cari Adı']}`, 14, 30);
+      doc.text(`Dönem: ${currentYear}`, 14, 35);
+      doc.text(`Bakiye: ${formatValue(selectedCari['Bakiye'])} TL`, 14, 40);
+
+      // Tablo verilerini hazırla
+      const tableData = hareketler.map((row: any) => [
+        row['TARİH'] ? new Date(row['TARİH']).toLocaleDateString('tr-TR') : '-',
+        row['SERİ'] || '-',
+        row['SIRA'] || '-',
+        row['BELGE NO'] || '-',
+        row['EVRAK TİPİ'] || '-',
+        row['CİNSİ'] || '-',
+        row['B/A'] || '-',
+        formatValue(row['ANA DÖVİZ BORÇ']),
+        formatValue(row['ANA DÖVİZ ALACAK']),
+        formatValue(row['ANA DÖVİZ BORÇ BAKİYE']),
+        formatValue(row['ANA DÖVİZ BAKİYE'])
+      ]);
+
+      // AutoTable ile tablo oluştur
+      autoTable(doc, {
+        startY: 45,
+        head: [[
+          'Tarih',
+          'Seri',
+          'Sıra',
+          'Belge No',
+          'Evrak Tipi',
+          'Cinsi',
+          'B/A',
+          'Borç',
+          'Alacak',
+          'Borç Bakiye',
+          'Bakiye'
+        ]],
+        body: tableData,
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+          overflow: 'linebreak',
+          halign: 'left'
+        },
+        headStyles: {
+          fillColor: [66, 139, 202],
+          textColor: 255,
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        columnStyles: {
+          0: { cellWidth: 22 },  // Tarih
+          1: { cellWidth: 15 },  // Seri
+          2: { cellWidth: 15 },  // Sıra
+          3: { cellWidth: 25 },  // Belge No
+          4: { cellWidth: 20 },  // Evrak Tipi
+          5: { cellWidth: 30 },  // Cinsi
+          6: { cellWidth: 12 },  // B/A
+          7: { cellWidth: 25, halign: 'right' },  // Borç
+          8: { cellWidth: 25, halign: 'right' },  // Alacak
+          9: { cellWidth: 28, halign: 'right' },  // Borç Bakiye
+          10: { cellWidth: 28, halign: 'right' }  // Bakiye
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        margin: { top: 45, left: 14, right: 14 }
+      });
+
+      // Footer - sayfa numaraları
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.text(
+          `Sayfa ${i} / ${pageCount}`,
+          doc.internal.pageSize.getWidth() / 2,
+          doc.internal.pageSize.getHeight() - 10,
+          { align: 'center' }
+        );
+      }
+
+      // Dosyayı indir
+      const fileName = `${selectedCari['Cari Kodu']}_${selectedCari['Cari Adı']}_${currentYear}_Ekstre.pdf`;
+      doc.save(fileName);
+
+      alert('PDF dosyası başarıyla indirildi');
     } catch (error: any) {
       console.error('PDF export hatası:', error);
       alert('PDF dosyası oluşturulurken bir hata oluştu');
