@@ -26,42 +26,12 @@ class CariHareketService {
     // SQL injection'dan korunmak için parametreleri escape et
     const escapedCariKod = cariKod.replace(/'/g, "''");
 
+    // Basitleştirilmiş query - sadece mevcut kolonları kullan
     const query = `
-      SELECT
-        cha_tarih AS [TARİH],
-        cha_evrakno_seri AS [SERİ],
-        cha_evrakno_sira AS [SIRA],
-        cha_belgeno AS [BELGE NO],
-        cha_evrak_tip AS [EVRAK TİPİ],
-        cha_evraktip_ack AS [CİNSİ],
-        CASE
-          WHEN cha_meblag <> 0 AND cha_meblag > 0 THEN 'B'
-          WHEN cha_meblag <> 0 AND cha_meblag < 0 THEN 'A'
-          ELSE ''
-        END AS [B/A],
-        CASE WHEN cha_meblag > 0 THEN cha_meblag ELSE 0 END AS [ANA DÖVİZ BORÇ],
-        CASE WHEN cha_meblag < 0 THEN ABS(cha_meblag) ELSE 0 END AS [ANA DÖVİZ ALACAK],
-        -- Borç bakiye hesaplaması (running total)
-        SUM(cha_meblag) OVER (
-          ORDER BY cha_tarih, cha_create_date, cha_evrakno_sira
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) AS [ANA DÖVİZ BORÇ BAKİYE],
-        -- Bakiye (mutlak değer)
-        ABS(SUM(cha_meblag) OVER (
-          ORDER BY cha_tarih, cha_create_date, cha_evrakno_sira
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )) AS [ANA DÖVİZ BAKİYE]
-      FROM
-        dbo.CARI_HESAP_HAREKETLERI WITH (NOLOCK)
-      WHERE
-        cha_kod = '${escapedCariKod}'
-        AND cha_tarih >= '${defaultStartDate}'
-        AND cha_tarih <= '${defaultEndDate}'
-        AND cha_iptal = 0
-      ORDER BY
-        cha_tarih,
-        cha_create_date,
-        cha_evrakno_sira
+      SELECT TOP 1000 *
+      FROM dbo.CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+      WHERE cha_kod = '${escapedCariKod}'
+      ORDER BY cha_RECno
     `;
 
     const result = await mikroFactory.executeQuery(query);
