@@ -62,9 +62,27 @@ export default function DiverseyStokPage() {
             placeholder="Ürün adı veya kodu ile ara..."
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+            >
+              Tümünü Göster
+            </button>
+          )}
         </div>
-        <div className="mt-4 text-sm text-gray-600">
-          Toplam {filteredProducts.length} Diversey ürünü bulundu
+        <div className="mt-4 flex justify-between items-center">
+          <span className="text-sm text-gray-600">
+            {searchTerm
+              ? `${filteredProducts.length} sonuç bulundu`
+              : `Toplam ${products.length} Diversey ürünü`}
+          </span>
+          <button
+            onClick={loadProducts}
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+          >
+            🔄 Yenile
+          </button>
         </div>
       </div>
 

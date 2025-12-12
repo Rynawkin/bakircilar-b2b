@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthStore } from '@/lib/store/authStore';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -9,20 +9,26 @@ export default function DiverseyLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading } = useAuth();
+  const { user, loadUserFromStorage, logout } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.push('/login');
-      } else if (user.role !== 'DIVERSEY') {
-        router.push('/dashboard');
-      }
-    }
-  }, [user, loading, router]);
+    loadUserFromStorage();
+  }, [loadUserFromStorage]);
 
-  if (loading || !user || user.role !== 'DIVERSEY') {
+  useEffect(() => {
+    if (user === null) {
+      return; // Still loading
+    }
+
+    if (!user) {
+      router.push('/login');
+    } else if (user.role !== 'DIVERSEY') {
+      router.push('/dashboard');
+    }
+  }, [user, router]);
+
+  if (user === null || !user || user.role !== 'DIVERSEY') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-gray-600">Yükleniyor...</div>
@@ -42,7 +48,7 @@ export default function DiverseyLayout({
             </div>
             <button
               onClick={() => {
-                localStorage.removeItem('token');
+                logout();
                 router.push('/login');
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
