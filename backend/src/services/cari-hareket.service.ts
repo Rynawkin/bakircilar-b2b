@@ -26,13 +26,19 @@ class CariHareketService {
     // SQL injection'dan korunmak için parametreleri escape et
     const escapedCariKod = cariKod.replace(/'/g, "''");
 
-    // Tarih filtreleri ile query
+    // Sadece gerekli kolonları Türkçe başlıklarla getir
     const query = `
-      SELECT *
+      SELECT
+        cha_evrakno_seri AS [Seri],
+        cha_evrakno_sira AS [Sıra],
+        cha_tarihi AS [Tarih],
+        cha_belge_no AS [Belge No],
+        cha_meblag AS [Tutar]
       FROM dbo.CARI_HESAP_HAREKETLERI WITH (NOLOCK)
       WHERE cha_kod = '${escapedCariKod}'
         AND cha_create_date >= '${defaultStartDate}'
         AND cha_create_date < DATEADD(day, 1, '${defaultEndDate}')
+      ORDER BY cha_tarihi
     `;
 
     const result = await mikroFactory.executeQuery(query);
