@@ -102,85 +102,68 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         return;
       }
 
-      // PDF oluştur
+      // PDF oluştur (portrait - dikey, daha az kolon olduğu için)
       const doc = new jsPDF({
-        orientation: 'landscape',
+        orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
       });
 
       // Başlık
       doc.setFontSize(16);
-      doc.text('CARİ HESAP EKSTRESİ', 148, 15, { align: 'center' });
+      doc.text('CARI HESAP EKSTRESI', 105, 15, { align: 'center' });
 
       // Cari Bilgileri
       doc.setFontSize(10);
       doc.text(`Cari Kodu: ${selectedCari['Cari Kodu']}`, 14, 25);
-      doc.text(`Cari Adı: ${selectedCari['Cari Adı']}`, 14, 30);
-      doc.text(`Dönem: ${startDate} - ${endDate}`, 14, 35);
-      doc.text(`Bakiye: ${formatValue(selectedCari['Bakiye'])} TL`, 14, 40);
+      doc.text(`Cari Adi: ${selectedCari['Cari Adı']}`, 14, 30);
+      doc.text(`Donem: ${startDate} - ${endDate}`, 14, 35);
 
-      // Tablo verilerini hazırla
+      // Tablo verilerini hazırla - sadece 5 kolon
       const tableData = hareketler.map((row: any) => [
-        row['TARİH'] ? new Date(row['TARİH']).toLocaleDateString('tr-TR') : '-',
-        row['SERİ'] || '-',
-        row['SIRA'] || '-',
-        row['BELGE NO'] || '-',
-        row['EVRAK TİPİ'] || '-',
-        row['CİNSİ'] || '-',
-        row['B/A'] || '-',
-        formatValue(row['ANA DÖVİZ BORÇ']),
-        formatValue(row['ANA DÖVİZ ALACAK']),
-        formatValue(row['ANA DÖVİZ BORÇ BAKİYE']),
-        formatValue(row['ANA DÖVİZ BAKİYE'])
+        row['Seri'] || '-',
+        row['Sıra'] || '-',
+        row['Tarih'] ? new Date(row['Tarih']).toLocaleDateString('tr-TR') : '-',
+        row['Belge No'] || '-',
+        formatValue(row['Tutar'])
       ]);
 
       // AutoTable ile tablo oluştur
       autoTable(doc, {
-        startY: 45,
+        startY: 42,
         head: [[
-          'Tarih',
           'Seri',
-          'Sıra',
+          'Sira',
+          'Tarih',
           'Belge No',
-          'Evrak Tipi',
-          'Cinsi',
-          'B/A',
-          'Borç',
-          'Alacak',
-          'Borç Bakiye',
-          'Bakiye'
+          'Tutar'
         ]],
         body: tableData,
         styles: {
-          fontSize: 8,
-          cellPadding: 2,
+          fontSize: 9,
+          cellPadding: 3,
           overflow: 'linebreak',
-          halign: 'left'
+          halign: 'left',
+          font: 'helvetica' // Basic Latin charset
         },
         headStyles: {
           fillColor: [66, 139, 202],
           textColor: 255,
           fontStyle: 'bold',
-          halign: 'center'
+          halign: 'center',
+          fontSize: 10
         },
         columnStyles: {
-          0: { cellWidth: 22 },  // Tarih
-          1: { cellWidth: 15 },  // Seri
-          2: { cellWidth: 15 },  // Sıra
-          3: { cellWidth: 25 },  // Belge No
-          4: { cellWidth: 20 },  // Evrak Tipi
-          5: { cellWidth: 30 },  // Cinsi
-          6: { cellWidth: 12 },  // B/A
-          7: { cellWidth: 25, halign: 'right' },  // Borç
-          8: { cellWidth: 25, halign: 'right' },  // Alacak
-          9: { cellWidth: 28, halign: 'right' },  // Borç Bakiye
-          10: { cellWidth: 28, halign: 'right' }  // Bakiye
+          0: { cellWidth: 30 },  // Seri
+          1: { cellWidth: 30 },  // Sira
+          2: { cellWidth: 35 },  // Tarih
+          3: { cellWidth: 45 },  // Belge No
+          4: { cellWidth: 42, halign: 'right' }  // Tutar
         },
         alternateRowStyles: {
           fillColor: [245, 245, 245]
         },
-        margin: { top: 45, left: 14, right: 14 }
+        margin: { top: 42, left: 14, right: 14 }
       });
 
       // Footer - sayfa numaraları
