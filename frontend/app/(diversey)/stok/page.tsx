@@ -19,7 +19,7 @@ export default function DiverseyStokPage() {
       const response = await adminApi.getProducts();
 
       // Sadece Diversey markasını filtrele (marka genelde ürün adında olur)
-      const diverseyProducts = response.data.filter((p: Product) =>
+      const diverseyProducts = response.products.filter((p: Product) =>
         p.name.toUpperCase().includes('DIVERSEY') ||
         p.name.toUpperCase().includes('DİVERSEY')
       );
