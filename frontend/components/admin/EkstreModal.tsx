@@ -19,6 +19,8 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
   const [selectedCari, setSelectedCari] = useState<any | null>(null);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
+  const [endDate, setEndDate] = useState(`${new Date().getFullYear()}-12-31`);
 
   const handleSearch = async () => {
     if (!searchTerm || searchTerm.trim().length === 0) {
@@ -49,11 +51,6 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
 
     setExportingExcel(true);
     try {
-      // Bu yılın ilk ve son günü
-      const currentYear = new Date().getFullYear();
-      const startDate = `${currentYear}-01-01`;
-      const endDate = `${currentYear}-12-31`;
-
       // Cari hareket föyünü al
       const response = await adminApi.getCariHareketFoyu({
         cariKod: selectedCari['Cari Kodu'],
@@ -74,7 +71,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Cari Ekstre');
 
       // Dosyayı indir
-      const fileName = `${selectedCari['Cari Kodu']}_${selectedCari['Cari Adı']}_${currentYear}_Ekstre.xlsx`;
+      const fileName = `${selectedCari['Cari Kodu']}_${selectedCari['Cari Adı']}_${startDate}_${endDate}_Ekstre.xlsx`;
       XLSX.writeFile(workbook, fileName);
 
       alert('Excel dosyası başarıyla indirildi');
@@ -91,11 +88,6 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
 
     setExportingPDF(true);
     try {
-      // Bu yılın ilk ve son günü
-      const currentYear = new Date().getFullYear();
-      const startDate = `${currentYear}-01-01`;
-      const endDate = `${currentYear}-12-31`;
-
       // Cari hareket föyünü al
       const response = await adminApi.getCariHareketFoyu({
         cariKod: selectedCari['Cari Kodu'],
@@ -125,7 +117,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       doc.setFontSize(10);
       doc.text(`Cari Kodu: ${selectedCari['Cari Kodu']}`, 14, 25);
       doc.text(`Cari Adı: ${selectedCari['Cari Adı']}`, 14, 30);
-      doc.text(`Dönem: ${currentYear}`, 14, 35);
+      doc.text(`Dönem: ${startDate} - ${endDate}`, 14, 35);
       doc.text(`Bakiye: ${formatValue(selectedCari['Bakiye'])} TL`, 14, 40);
 
       // Tablo verilerini hazırla
@@ -205,7 +197,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       }
 
       // Dosyayı indir
-      const fileName = `${selectedCari['Cari Kodu']}_${selectedCari['Cari Adı']}_${currentYear}_Ekstre.pdf`;
+      const fileName = `${selectedCari['Cari Kodu']}_${selectedCari['Cari Adı']}_${startDate}_${endDate}_Ekstre.pdf`;
       doc.save(fileName);
 
       alert('PDF dosyası başarıyla indirildi');
@@ -341,11 +333,40 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
                 </button>
               </div>
 
+              {/* Tarih Aralığı Seçimi */}
+              <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h3 className="font-semibold text-lg text-gray-900 mb-4">Tarih Aralığı</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Başlangıç Tarihi
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Bitiş Tarihi
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Export Seçenekleri */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg text-gray-900">Ekstre Formatı Seçin</h3>
                 <p className="text-sm text-gray-600">
-                  {new Date().getFullYear()} yılı için tüm hareketler indirilecektir.
+                  Seçilen tarih aralığı için tüm hareketler indirilecektir.
                 </p>
                 <div className="grid grid-cols-2 gap-4">
                   <button
