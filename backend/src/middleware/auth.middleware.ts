@@ -135,3 +135,21 @@ export const requireOrderApprover = (req: Request, res: Response, next: NextFunc
 
   next();
 };
+
+/**
+ * ADMIN, MANAGER, DIVERSEY veya SALES_REP erişimi
+ * Kullanım: Ürün listesi görüntüleme (DIVERSEY sadece kendi ürünlerini görecek - controller'da filtrelenir)
+ */
+export const requireStaffOrDiversey = (req: Request, res: Response, next: NextFunction): void => {
+  if (!req.user) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  if (req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER' && req.user.role !== 'SALES_REP' && req.user.role !== 'DIVERSEY') {
+    res.status(403).json({ error: 'Staff or Diversey access required' });
+    return;
+  }
+
+  next();
+};

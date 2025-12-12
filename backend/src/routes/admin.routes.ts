@@ -9,7 +9,8 @@ import {
   requireAdmin,
   requireAdminOrManager,
   requireStaff,
-  requireOrderApprover
+  requireOrderApprover,
+  requireStaffOrDiversey
 } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload } from '../middleware/upload.middleware';
@@ -58,8 +59,8 @@ router.get('/sync/cari/latest', requireAdmin, adminController.getLatestCariSync)
 // Cari list from Mikro - Staff (ADMIN, MANAGER, SALES_REP) - filtered by sector in controller
 router.get('/cari-list', requireStaff, adminController.getCariList);
 
-// Products - Staff (ADMIN, MANAGER, SALES_REP)
-router.get('/products', requireStaff, adminController.getProducts);
+// Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
+router.get('/products', requireStaffOrDiversey, adminController.getProducts);
 router.post('/products/:id/image', requireAdminOrManager, upload.single('image'), adminController.uploadProductImage);
 router.delete('/products/:id/image', requireAdminOrManager, adminController.deleteProductImage);
 
