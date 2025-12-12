@@ -463,6 +463,51 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
+        {/* Hızlı Arama Widgetları */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Stok Arama Widget */}
+          <Card className="shadow-lg hover:shadow-xl transition-shadow">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                  📦
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-gray-900">Stok Arama</h3>
+                  <p className="text-sm text-gray-600">Mikro F10 entegrasyonu ile detaylı stok bilgileri</p>
+                </div>
+              </div>
+              <Button
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                onClick={() => router.push('/search/stocks')}
+              >
+                Stok Ara →
+              </Button>
+            </div>
+          </Card>
+
+          {/* Cari Arama Widget */}
+          <Card className="shadow-lg hover:shadow-xl transition-shadow">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-purple-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                  👥
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-gray-900">Cari Arama</h3>
+                  <p className="text-sm text-gray-600">Mikro F10 entegrasyonu ile detaylı cari bilgileri</p>
+                </div>
+              </div>
+              <Button
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold"
+                onClick={() => router.push('/search/customers')}
+              >
+                Cari Ara →
+              </Button>
+            </div>
+          </Card>
+        </div>
+
         {/* Sync Warnings */}
         {syncWarnings && syncWarnings.length > 0 && (
           <Card className="mb-6 shadow-lg border-yellow-300 bg-gradient-to-br from-yellow-50 to-orange-50">

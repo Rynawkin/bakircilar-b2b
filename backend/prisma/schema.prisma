@@ -87,11 +87,35 @@ model User {
   // Relations
   orders        Order[]
   cart          Cart?
+  searchPreferences UserSearchPreferences?
 
   @@index([email])
   @@index([role])
   @@index([mikroCariCode])
   @@index([sectorCode])
+}
+
+// ==================== USER PREFERENCES ====================
+
+// Kullanıcıların stok ve cari arama sayfaları için kolon tercihleri
+model UserSearchPreferences {
+  id                    String    @id @default(uuid())
+
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Stok arama için seçili kolonlar (JSON array)
+  // Örnek: ["sto_kod", "sto_isim", "KDV Oranı", "Güncel Maliyet + Kdv.", ...]
+  stockColumns          String[]  @default([])
+
+  // Cari arama için seçili kolonlar (JSON array)
+  // Örnek: ["cari_kod", "cari_unvan1", "IL", "ILCE", ...]
+  customerColumns       String[]  @default([])
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
 }
 
 // ==================== SETTINGS ====================

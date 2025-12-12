@@ -593,6 +593,72 @@ export const adminApi = {
     const response = await apiClient.delete(`/admin/exclusions/${id}`);
     return response.data;
   },
+
+  // Search - Stok ve Cari arama
+  searchStocks: async (params: {
+    searchTerm?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    success: boolean;
+    data: any[];
+    total: number;
+  }> => {
+    const response = await apiClient.get('/search/stocks', { params });
+    return response.data;
+  },
+
+  getStockColumns: async (): Promise<{
+    columns: string[];
+  }> => {
+    const response = await apiClient.get('/search/stocks/columns');
+    return response.data;
+  },
+
+  searchCustomers: async (params: {
+    searchTerm?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    success: boolean;
+    data: any[];
+    total: number;
+  }> => {
+    const response = await apiClient.get('/search/customers', { params });
+    return response.data;
+  },
+
+  getCustomerColumns: async (): Promise<{
+    columns: string[];
+  }> => {
+    const response = await apiClient.get('/search/customers/columns');
+    return response.data;
+  },
+
+  getSearchPreferences: async (): Promise<{
+    preferences: {
+      id: string;
+      userId: string;
+      stockColumns: string[];
+      customerColumns: string[];
+      createdAt: string;
+      updatedAt: string;
+    };
+  }> => {
+    const response = await apiClient.get('/search/preferences');
+    return response.data;
+  },
+
+  updateSearchPreferences: async (data: {
+    stockColumns?: string[];
+    customerColumns?: string[];
+  }): Promise<{
+    success: boolean;
+    preferences: any;
+  }> => {
+    const response = await apiClient.put('/search/preferences', data);
+    return response.data;
+  },
 };
 
 export default adminApi;
