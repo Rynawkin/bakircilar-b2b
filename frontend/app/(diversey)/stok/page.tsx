@@ -16,10 +16,7 @@ export default function DiverseyStokPage() {
   const loadProducts = async () => {
     try {
       setLoading(true);
-      const response = await adminApi.getProducts({
-        page: 1,
-        limit: 10000
-      });
+      const response = await adminApi.getProducts();
 
       // Sadece Diversey markasını filtrele (marka genelde ürün adında olur)
       const diverseyProducts = response.data.filter((p: Product) =>
