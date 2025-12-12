@@ -113,18 +113,34 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       doc.setFontSize(16);
       doc.text('CARI HESAP EKSTRESI', 105, 15, { align: 'center' });
 
-      // Cari Bilgileri
+      // Cari Bilgileri - Türkçe karakterleri temizle
+      const cleanText = (text: string) => {
+        return text
+          .replace(/İ/g, 'I')
+          .replace(/ı/g, 'i')
+          .replace(/Ş/g, 'S')
+          .replace(/ş/g, 's')
+          .replace(/Ğ/g, 'G')
+          .replace(/ğ/g, 'g')
+          .replace(/Ü/g, 'U')
+          .replace(/ü/g, 'u')
+          .replace(/Ö/g, 'O')
+          .replace(/ö/g, 'o')
+          .replace(/Ç/g, 'C')
+          .replace(/ç/g, 'c');
+      };
+
       doc.setFontSize(10);
       doc.text(`Cari Kodu: ${selectedCari['Cari Kodu']}`, 14, 25);
-      doc.text(`Cari Adi: ${selectedCari['Cari Adı']}`, 14, 30);
+      doc.text(`Cari Adi: ${cleanText(selectedCari['Cari Adı'] || '')}`, 14, 30);
       doc.text(`Donem: ${startDate} - ${endDate}`, 14, 35);
 
-      // Tablo verilerini hazırla - sadece 5 kolon
+      // Tablo verilerini hazırla - sadece 5 kolon, Türkçe karakterleri temizle
       const tableData = hareketler.map((row: any) => [
-        row['Seri'] || '-',
-        row['Sıra'] || '-',
+        cleanText(String(row['Seri'] || '-')),
+        cleanText(String(row['Sıra'] || '-')),
         row['Tarih'] ? new Date(row['Tarih']).toLocaleDateString('tr-TR') : '-',
-        row['Belge No'] || '-',
+        cleanText(String(row['Belge No'] || '-')),
         formatValue(row['Tutar'])
       ]);
 
