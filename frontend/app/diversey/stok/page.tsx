@@ -18,11 +18,11 @@ export default function DiverseyStokPage() {
       setLoading(true);
       const response = await adminApi.getProducts();
 
-      // Sadece Diversey markasını filtrele (marka genelde ürün adında olur)
-      const diverseyProducts = response.products.filter((p: Product) =>
-        p.name.toUpperCase().includes('DIVERSEY') ||
-        p.name.toUpperCase().includes('DİVERSEY')
-      );
+      // Sadece Diversey markasını filtrele (Türkçe karaktere dikkat: DİVERSEY)
+      const diverseyProducts = response.products.filter((p: Product) => {
+        const upperName = p.name.toLocaleUpperCase('tr-TR');
+        return upperName.includes('DİVERSEY') || upperName.includes('DIVERSEY');
+      });
 
       setProducts(diverseyProducts);
     } catch (error) {
@@ -33,11 +33,13 @@ export default function DiverseyStokPage() {
     }
   };
 
-  const filteredProducts = products.filter(p =>
-    searchTerm === '' ||
-    p.name.toUpperCase().includes(searchTerm.toUpperCase()) ||
-    p.mikroCode.toUpperCase().includes(searchTerm.toUpperCase())
-  );
+  const filteredProducts = products.filter(p => {
+    if (searchTerm === '') return true;
+    const upperName = p.name.toLocaleUpperCase('tr-TR');
+    const upperSearch = searchTerm.toLocaleUpperCase('tr-TR');
+    const upperCode = p.mikroCode.toLocaleUpperCase('tr-TR');
+    return upperName.includes(upperSearch) || upperCode.includes(upperSearch);
+  });
 
   if (loading) {
     return (
