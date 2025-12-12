@@ -21,6 +21,10 @@ export default function StockSearchPage() {
   const [limit] = useState(100);
   const [showAll, setShowAll] = useState(false);
 
+  // Detay modal
+  const [selectedStock, setSelectedStock] = useState<any | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+
   // Kullanıcı tercihlerini yükle
   useEffect(() => {
     loadPreferences();
@@ -115,6 +119,16 @@ export default function StockSearchPage() {
     return String(value);
   };
 
+  const handleRowClick = (stock: any) => {
+    setSelectedStock(stock);
+    setShowDetailModal(true);
+  };
+
+  const closeDetailModal = () => {
+    setShowDetailModal(false);
+    setSelectedStock(null);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
@@ -199,15 +213,18 @@ export default function StockSearchPage() {
               </div>
             </div>
 
-            {/* Tablo - Yatay kaydırmalı */}
+            {/* Tablo - Yatay kaydırmalı + sticky kolonlar */}
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {selectedColumns.map((column) => (
+                    {selectedColumns.map((column, idx) => (
                       <th
                         key={column}
-                        className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider whitespace-nowrap"
+                        className={`px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider whitespace-nowrap ${
+                          idx < 2 ? 'sticky bg-gray-50 z-10' : ''
+                        }`}
+                        style={idx === 0 ? { left: 0 } : idx === 1 ? { left: '150px' } : {}}
                       >
                         {getColumnDisplayName(column)}
                       </th>
@@ -218,12 +235,16 @@ export default function StockSearchPage() {
                   {stocks.map((stock, idx) => (
                     <tr
                       key={idx}
-                      className="hover:bg-gray-50 transition-colors"
+                      onClick={() => handleRowClick(stock)}
+                      className="hover:bg-blue-50 transition-colors cursor-pointer"
                     >
-                      {selectedColumns.map((column) => (
+                      {selectedColumns.map((column, colIdx) => (
                         <td
                           key={column}
-                          className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
+                          className={`px-4 py-3 text-sm text-gray-900 whitespace-nowrap ${
+                            colIdx < 2 ? 'sticky bg-white z-10' : ''
+                          }`}
+                          style={colIdx === 0 ? { left: 0 } : colIdx === 1 ? { left: '150px' } : {}}
                         >
                           {formatValue(stock[column])}
                         </td>
@@ -283,6 +304,64 @@ export default function StockSearchPage() {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
                 >
                   {savingPreferences ? 'Kaydediliyor...' : 'Kaydet'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stok Detay Modal */}
+        {showDetailModal && selectedStock && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+              {/* Modal Header */}
+              <div className="p-6 border-b border-gray-200 flex justify-between items-start">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {formatValue(selectedStock['msg_S_0870'])}
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Stok Kodu: {formatValue(selectedStock['msg_S_0078'])}
+                  </p>
+                </div>
+                <button
+                  onClick={closeDetailModal}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Modal Body - Scrollable */}
+              <div className="p-6 overflow-y-auto flex-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {availableColumns.map((column) => {
+                    const value = selectedStock[column];
+                    if (column === 'msg_S_0088') return null; // GUID'i göstermeyelim
+
+                    return (
+                      <div key={column} className="border-b border-gray-200 pb-3">
+                        <dt className="text-sm font-medium text-gray-500 mb-1">
+                          {getColumnDisplayName(column)}
+                        </dt>
+                        <dd className="text-base text-gray-900 font-semibold">
+                          {formatValue(value)}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-6 border-t border-gray-200 flex gap-3 justify-end">
+                <button
+                  onClick={closeDetailModal}
+                  className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Kapat
                 </button>
               </div>
             </div>
