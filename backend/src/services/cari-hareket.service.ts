@@ -35,19 +35,19 @@ class CariHareketService {
         cha_evrak_tip AS [EVRAK TİPİ],
         cha_evraktip_ack AS [CİNSİ],
         CASE
-          WHEN cha_d_borc <> 0 THEN 'B'
-          WHEN cha_d_alacak <> 0 THEN 'A'
+          WHEN cha_meblag <> 0 AND cha_meblag > 0 THEN 'B'
+          WHEN cha_meblag <> 0 AND cha_meblag < 0 THEN 'A'
           ELSE ''
         END AS [B/A],
-        cha_d_borc AS [ANA DÖVİZ BORÇ],
-        cha_d_alacak AS [ANA DÖVİZ ALACAK],
+        CASE WHEN cha_meblag > 0 THEN cha_meblag ELSE 0 END AS [ANA DÖVİZ BORÇ],
+        CASE WHEN cha_meblag < 0 THEN ABS(cha_meblag) ELSE 0 END AS [ANA DÖVİZ ALACAK],
         -- Borç bakiye hesaplaması (running total)
-        SUM(cha_d_borc - cha_d_alacak) OVER (
+        SUM(cha_meblag) OVER (
           ORDER BY cha_tarih, cha_create_date, cha_evrakno_sira
           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS [ANA DÖVİZ BORÇ BAKİYE],
         -- Bakiye (mutlak değer)
-        ABS(SUM(cha_d_borc - cha_d_alacak) OVER (
+        ABS(SUM(cha_meblag) OVER (
           ORDER BY cha_tarih, cha_create_date, cha_evrakno_sira
           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         )) AS [ANA DÖVİZ BAKİYE]
