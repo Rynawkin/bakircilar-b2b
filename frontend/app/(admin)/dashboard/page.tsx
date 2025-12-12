@@ -57,7 +57,7 @@ export default function AdminDashboardPage() {
     }
 
     // user yüklendikten sonra role kontrolü yap
-    if (user.role !== 'ADMIN') {
+    if (user.role !== 'ADMIN' && user.role !== 'MANAGER') {
       router.push('/login');
       return;
     }

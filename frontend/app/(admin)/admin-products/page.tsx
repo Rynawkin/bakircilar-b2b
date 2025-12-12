@@ -85,7 +85,7 @@ export default function AdminProductsPage() {
 
   useEffect(() => {
     if (user === null) return;
-    if (user.role !== 'ADMIN') {
+    if (user.role !== 'ADMIN' && user.role !== 'MANAGER') {
       router.push('/login');
       return;
     }
@@ -94,7 +94,7 @@ export default function AdminProductsPage() {
   }, [user, router]);
 
   useEffect(() => {
-    if (user?.role === 'ADMIN') {
+    if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
       setCurrentPage(1); // Reset page when filters change
       fetchProducts(1);
     }
