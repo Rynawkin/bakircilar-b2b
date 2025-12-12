@@ -244,7 +244,7 @@ export class AdminController {
         sortBy = 'name',
         sortOrder = 'asc',
         page = '1',
-        limit = '50'
+        limit = '10000' // Increased for Diversey users to see all products
       } = req.query;
 
       const where: any = { active: true };
