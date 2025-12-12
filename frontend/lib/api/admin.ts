@@ -659,6 +659,39 @@ export const adminApi = {
     const response = await apiClient.put('/search/preferences', data);
     return response.data;
   },
+
+  // Cari Hareket / Ekstre
+  searchCariForEkstre: async (params: {
+    searchTerm?: string;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: any[];
+    total: number;
+  }> => {
+    const response = await apiClient.get('/cari-hareket/search', { params });
+    return response.data;
+  },
+
+  getCariInfo: async (cariKod: string): Promise<{
+    success: boolean;
+    data: any;
+  }> => {
+    const response = await apiClient.get(`/cari-hareket/info/${cariKod}`);
+    return response.data;
+  },
+
+  getCariHareketFoyu: async (params: {
+    cariKod: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{
+    success: boolean;
+    data: any[];
+  }> => {
+    const response = await apiClient.get('/cari-hareket/foyu', { params });
+    return response.data;
+  },
 };
 
 export default adminApi;

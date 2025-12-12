@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
+import { EkstreModal } from '@/components/admin/EkstreModal';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -45,6 +46,7 @@ export default function AdminDashboardPage() {
     message: string;
     size?: number;
   }> | null>(null);
+  const [showEkstreModal, setShowEkstreModal] = useState(false);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -464,7 +466,7 @@ export default function AdminDashboardPage() {
         )}
 
         {/* Hızlı Arama Widgetları */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           {/* Stok Arama Widget */}
           <Card className="shadow-lg hover:shadow-xl transition-shadow">
             <div className="space-y-4">
@@ -503,6 +505,27 @@ export default function AdminDashboardPage() {
                 onClick={() => router.push('/search/customers')}
               >
                 Cari Ara →
+              </Button>
+            </div>
+          </Card>
+
+          {/* Cari Ekstre Widget */}
+          <Card className="shadow-lg hover:shadow-xl transition-shadow">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-green-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                  📄
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-gray-900">Ekstre Al</h3>
+                  <p className="text-sm text-gray-600">Cari hareket föyü Excel/PDF export</p>
+                </div>
+              </div>
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold"
+                onClick={() => setShowEkstreModal(true)}
+              >
+                Ekstre Al →
               </Button>
             </div>
           </Card>
@@ -754,6 +777,12 @@ export default function AdminDashboardPage() {
             </div>
           </Card>
         </div>
+
+        {/* Ekstre Modal */}
+        <EkstreModal
+          isOpen={showEkstreModal}
+          onClose={() => setShowEkstreModal(false)}
+        />
       </div>
     </div>
   );
