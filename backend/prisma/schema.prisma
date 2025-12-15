@@ -12,6 +12,7 @@ datasource db {
 // ==================== ENUMS ====================
 
 enum UserRole {
+  HEAD_ADMIN  // Süper admin - tüm yetkilere sahip, rol izinlerini yönetebilir
   ADMIN
   CUSTOMER
   SALES_REP   // Satış temsilcisi (sektör bazlı erişim)
@@ -117,6 +118,24 @@ model UserSearchPreferences {
   updatedAt             DateTime  @updatedAt
 
   @@index([userId])
+}
+
+// ==================== ROLE PERMISSIONS ====================
+
+// HEAD_ADMIN tarafından yönetilen rol bazlı izinler
+model RolePermission {
+  id          String    @id @default(uuid())
+
+  role        UserRole  // Hangi rol için geçerli
+  permission  String    // İzin kodu (örn: "dashboard:orders", "dashboard:ekstre", "reports:margin")
+  enabled     Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([role, permission])
+  @@index([role])
+  @@index([enabled])
 }
 
 // ==================== SETTINGS ====================
