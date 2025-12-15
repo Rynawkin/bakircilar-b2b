@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { rolePermissionService, AVAILABLE_PERMISSIONS } from '../services/role-permission.service';
+import { rolePermissionService, AVAILABLE_PERMISSIONS, PERMISSION_DESCRIPTIONS } from '../services/role-permission.service';
 import { UserRole } from '@prisma/client';
 
 class RolePermissionController {
@@ -10,7 +10,8 @@ class RolePermissionController {
   async getAvailablePermissions(req: Request, res: Response, next: NextFunction) {
     try {
       res.json({
-        permissions: AVAILABLE_PERMISSIONS
+        permissions: AVAILABLE_PERMISSIONS,
+        descriptions: PERMISSION_DESCRIPTIONS
       });
     } catch (error) {
       next(error);
@@ -27,7 +28,8 @@ class RolePermissionController {
 
       res.json({
         permissions: allPermissions,
-        availablePermissions: AVAILABLE_PERMISSIONS
+        availablePermissions: AVAILABLE_PERMISSIONS,
+        permissionDescriptions: PERMISSION_DESCRIPTIONS
       });
     } catch (error) {
       next(error);

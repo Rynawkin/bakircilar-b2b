@@ -27,6 +27,31 @@ export const AVAILABLE_PERMISSIONS = {
   'admin:sync': 'Senkronizasyon',
 } as const;
 
+// İzin açıklamaları
+export const PERMISSION_DESCRIPTIONS = {
+  // Dashboard Widgets
+  'dashboard:orders': 'Dashboard\'da bekleyen ve onaylanan sipariş istatistiklerini gösterir',
+  'dashboard:customers': 'Dashboard\'da aktif müşteri sayısını ve müşteri ekleme butonunu gösterir',
+  'dashboard:excess-stock': 'Dashboard\'da fazla stoklu ürün sayısını gösterir',
+  'dashboard:sync': 'Dashboard\'da senkronizasyon butonlarını gösterir',
+  'dashboard:stok-ara': 'Dashboard\'da Mikro F10 stok arama widget\'ını gösterir',
+  'dashboard:cari-ara': 'Dashboard\'da Mikro F10 cari arama widget\'ını gösterir',
+  'dashboard:ekstre': 'Dashboard\'da cari ekstre alma (Excel/PDF export) widget\'ını gösterir',
+  'dashboard:diversey-stok': 'Dashboard\'da Diversey markası ürün stokları widget\'ını gösterir',
+
+  // Report Pages
+  'reports:margin-compliance': 'Marj uyumsuzluk raporuna erişim izni verir',
+  'reports:price-history': 'Fiyat değişim geçmişi raporuna erişim izni verir',
+  'reports:pending-orders': 'Bekleyen siparişler raporuna erişim izni verir',
+
+  // Admin Pages
+  'admin:customers': 'Müşteri listesi ve müşteri yönetim sayfalarına erişim izni verir',
+  'admin:price-rules': 'Kategori ve ürün fiyat kuralları sayfasına erişim izni verir',
+  'admin:settings': 'Sistem ayarları sayfasına erişim izni verir',
+  'admin:products': 'Ürün listesi ve ürün yönetim sayfalarına erişim izni verir',
+  'admin:sync': 'Manuel senkronizasyon başlatma izni verir',
+} as const;
+
 export type PermissionKey = keyof typeof AVAILABLE_PERMISSIONS;
 
 interface GetRolePermissionsParams {
