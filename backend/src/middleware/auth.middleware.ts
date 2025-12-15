@@ -50,6 +50,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
 /**
  * Sadece admin'lerin erişebileceği endpoint'ler için
+ * HEAD_ADMIN her zaman erişebilir
  */
 export const requireAdmin = (req: Request, res: Response, next: NextFunction): void => {
   if (!req.user) {
@@ -57,7 +58,7 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction): v
     return;
   }
 
-  if (req.user.role !== 'ADMIN') {
+  if (req.user.role !== 'HEAD_ADMIN' && req.user.role !== 'ADMIN') {
     res.status(403).json({ error: 'Admin access required' });
     return;
   }
@@ -85,6 +86,7 @@ export const requireCustomer = (req: Request, res: Response, next: NextFunction)
 /**
  * ADMIN veya MANAGER erişimi
  * Kullanım: Kategori/fiyat ayarları, kullanıcı yönetimi (SALES_REP oluşturma)
+ * HEAD_ADMIN her zaman erişebilir
  */
 export const requireAdminOrManager = (req: Request, res: Response, next: NextFunction): void => {
   if (!req.user) {
@@ -92,7 +94,7 @@ export const requireAdminOrManager = (req: Request, res: Response, next: NextFun
     return;
   }
 
-  if (req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER') {
+  if (req.user.role !== 'HEAD_ADMIN' && req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER') {
     res.status(403).json({ error: 'Admin or Manager access required' });
     return;
   }
@@ -103,6 +105,7 @@ export const requireAdminOrManager = (req: Request, res: Response, next: NextFun
 /**
  * ADMIN, MANAGER veya SALES_REP erişimi
  * Kullanım: Müşteri/sipariş listeleme (sektör filtrelemesi controller'da yapılır)
+ * HEAD_ADMIN her zaman erişebilir
  */
 export const requireStaff = (req: Request, res: Response, next: NextFunction): void => {
   if (!req.user) {
@@ -110,7 +113,7 @@ export const requireStaff = (req: Request, res: Response, next: NextFunction): v
     return;
   }
 
-  if (req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER' && req.user.role !== 'SALES_REP') {
+  if (req.user.role !== 'HEAD_ADMIN' && req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER' && req.user.role !== 'SALES_REP') {
     res.status(403).json({ error: 'Staff access required' });
     return;
   }
@@ -121,6 +124,7 @@ export const requireStaff = (req: Request, res: Response, next: NextFunction): v
 /**
  * Sipariş onaylama yetkisi kontrolü
  * Sadece ADMIN ve SALES_REP onaylayabilir (MANAGER onaylayamaz)
+ * HEAD_ADMIN her zaman erişebilir
  */
 export const requireOrderApprover = (req: Request, res: Response, next: NextFunction): void => {
   if (!req.user) {
@@ -128,7 +132,7 @@ export const requireOrderApprover = (req: Request, res: Response, next: NextFunc
     return;
   }
 
-  if (req.user.role !== 'ADMIN' && req.user.role !== 'SALES_REP') {
+  if (req.user.role !== 'HEAD_ADMIN' && req.user.role !== 'ADMIN' && req.user.role !== 'SALES_REP') {
     res.status(403).json({ error: 'Order approval permission required (ADMIN or SALES_REP only)' });
     return;
   }
@@ -139,6 +143,7 @@ export const requireOrderApprover = (req: Request, res: Response, next: NextFunc
 /**
  * ADMIN, MANAGER, DIVERSEY veya SALES_REP erişimi
  * Kullanım: Ürün listesi görüntüleme (DIVERSEY sadece kendi ürünlerini görecek - controller'da filtrelenir)
+ * HEAD_ADMIN her zaman erişebilir
  */
 export const requireStaffOrDiversey = (req: Request, res: Response, next: NextFunction): void => {
   if (!req.user) {
@@ -146,7 +151,7 @@ export const requireStaffOrDiversey = (req: Request, res: Response, next: NextFu
     return;
   }
 
-  if (req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER' && req.user.role !== 'SALES_REP' && req.user.role !== 'DIVERSEY') {
+  if (req.user.role !== 'HEAD_ADMIN' && req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER' && req.user.role !== 'SALES_REP' && req.user.role !== 'DIVERSEY') {
     res.status(403).json({ error: 'Staff or Diversey access required' });
     return;
   }
