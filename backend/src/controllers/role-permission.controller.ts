@@ -136,7 +136,7 @@ class RolePermissionController {
       }
 
       const permissions = await rolePermissionService.getRolePermissions({
-        role: req.user.role
+        role: req.user.role as UserRole
       });
 
       res.json({
