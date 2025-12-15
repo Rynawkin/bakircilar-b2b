@@ -101,7 +101,7 @@ export default function OrderTrackingPage() {
 
   useEffect(() => {
     if (user === null) return;
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER') {
+    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN' && user.role !== 'SALES_REP') {
       router.push('/login');
       return;
     }
