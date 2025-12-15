@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { DashboardStats } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
@@ -15,6 +16,7 @@ import { EkstreModal } from '@/components/admin/EkstreModal';
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -395,161 +397,177 @@ export default function AdminDashboardPage() {
         {/* Stats Cards */}
         {stats && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-yellow-800">⏳ Bekleyen Siparişler</p>
-                  <div className="bg-yellow-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
-                    📋
+            {hasPermission('dashboard:orders') && (
+              <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 shadow-lg hover:shadow-xl transition-shadow">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-yellow-800">⏳ Bekleyen Siparişler</p>
+                    <div className="bg-yellow-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
+                      📋
+                    </div>
                   </div>
+                  <p className="text-4xl font-bold text-yellow-600">{stats.orders.pendingCount}</p>
+                  <Button
+                    size="sm"
+                    className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-semibold"
+                    onClick={() => router.push('/orders')}
+                  >
+                    Siparişleri Gör →
+                  </Button>
                 </div>
-                <p className="text-4xl font-bold text-yellow-600">{stats.orders.pendingCount}</p>
-                <Button
-                  size="sm"
-                  className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-semibold"
-                  onClick={() => router.push('/orders')}
-                >
-                  Siparişleri Gör →
-                </Button>
-              </div>
-            </Card>
+              </Card>
+            )}
 
-            <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-green-800">✅ Bugün Onaylanan</p>
-                  <div className="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
-                    📦
+            {hasPermission('dashboard:orders') && (
+              <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 shadow-lg hover:shadow-xl transition-shadow">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-green-800">✅ Bugün Onaylanan</p>
+                    <div className="bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
+                      📦
+                    </div>
                   </div>
+                  <p className="text-4xl font-bold text-green-600">{stats.orders.approvedToday}</p>
+                  <p className="text-sm font-semibold text-green-700 bg-green-200 px-2 py-1 rounded">
+                    💰 {formatCurrency(stats.orders.totalAmount)}
+                  </p>
                 </div>
-                <p className="text-4xl font-bold text-green-600">{stats.orders.approvedToday}</p>
-                <p className="text-sm font-semibold text-green-700 bg-green-200 px-2 py-1 rounded">
-                  💰 {formatCurrency(stats.orders.totalAmount)}
-                </p>
-              </div>
-            </Card>
+              </Card>
+            )}
 
-            <Card className="bg-gradient-to-br from-primary-50 to-primary-100 border-primary-200 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-primary-800">👥 Aktif Müşteriler</p>
-                  <div className="bg-primary-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
-                    🎯
+            {hasPermission('dashboard:customers') && (
+              <Card className="bg-gradient-to-br from-primary-50 to-primary-100 border-primary-200 shadow-lg hover:shadow-xl transition-shadow">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-primary-800">👥 Aktif Müşteriler</p>
+                    <div className="bg-primary-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
+                      🎯
+                    </div>
                   </div>
+                  <p className="text-4xl font-bold text-primary-600">{stats.customerCount}</p>
+                  <Button
+                    size="sm"
+                    className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold"
+                    onClick={() => router.push('/customers')}
+                  >
+                    Müşteri Ekle →
+                  </Button>
                 </div>
-                <p className="text-4xl font-bold text-primary-600">{stats.customerCount}</p>
-                <Button
-                  size="sm"
-                  className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold"
-                  onClick={() => router.push('/customers')}
-                >
-                  Müşteri Ekle →
-                </Button>
-              </div>
-            </Card>
+              </Card>
+            )}
 
-            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 shadow-lg hover:shadow-xl transition-shadow">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-blue-800">📊 Fazla Stoklu Ürün</p>
-                  <div className="bg-blue-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
-                    📦
+            {hasPermission('dashboard:excess-stock') && (
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 shadow-lg hover:shadow-xl transition-shadow">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-blue-800">📊 Fazla Stoklu Ürün</p>
+                    <div className="bg-blue-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg">
+                      📦
+                    </div>
                   </div>
+                  <p className="text-4xl font-bold text-blue-600">{stats.excessProductCount}</p>
+                  <p className="text-xs text-blue-700 bg-blue-200 px-2 py-1 rounded">
+                    {stats.lastSyncAt ? `🔄 Son sync: ${formatDate(stats.lastSyncAt)}` : '⚠️ Henüz sync yapılmadı'}
+                  </p>
                 </div>
-                <p className="text-4xl font-bold text-blue-600">{stats.excessProductCount}</p>
-                <p className="text-xs text-blue-700 bg-blue-200 px-2 py-1 rounded">
-                  {stats.lastSyncAt ? `🔄 Son sync: ${formatDate(stats.lastSyncAt)}` : '⚠️ Henüz sync yapılmadı'}
-                </p>
-              </div>
-            </Card>
+              </Card>
+            )}
           </div>
         )}
 
         {/* Hızlı Arama Widgetları */}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
           {/* Stok Arama Widget */}
-          <Card className="shadow-lg hover:shadow-xl transition-shadow">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
-                  📦
+          {hasPermission('dashboard:stok-ara') && (
+            <Card className="shadow-lg hover:shadow-xl transition-shadow">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-blue-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                    📦
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-gray-900">Stok Arama</h3>
+                    <p className="text-sm text-gray-600">Mikro F10 entegrasyonu ile detaylı stok bilgileri</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-lg text-gray-900">Stok Arama</h3>
-                  <p className="text-sm text-gray-600">Mikro F10 entegrasyonu ile detaylı stok bilgileri</p>
-                </div>
+                <Button
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                  onClick={() => router.push('/search/stocks')}
+                >
+                  Stok Ara →
+                </Button>
               </div>
-              <Button
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                onClick={() => router.push('/search/stocks')}
-              >
-                Stok Ara →
-              </Button>
-            </div>
-          </Card>
+            </Card>
+          )}
 
           {/* Cari Arama Widget */}
-          <Card className="shadow-lg hover:shadow-xl transition-shadow">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-purple-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
-                  👥
+          {hasPermission('dashboard:cari-ara') && (
+            <Card className="shadow-lg hover:shadow-xl transition-shadow">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-purple-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                    👥
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-gray-900">Cari Arama</h3>
+                    <p className="text-sm text-gray-600">Mikro F10 entegrasyonu ile detaylı cari bilgileri</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-lg text-gray-900">Cari Arama</h3>
-                  <p className="text-sm text-gray-600">Mikro F10 entegrasyonu ile detaylı cari bilgileri</p>
-                </div>
+                <Button
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold"
+                  onClick={() => router.push('/search/customers')}
+                >
+                  Cari Ara →
+                </Button>
               </div>
-              <Button
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold"
-                onClick={() => router.push('/search/customers')}
-              >
-                Cari Ara →
-              </Button>
-            </div>
-          </Card>
+            </Card>
+          )}
 
           {/* Cari Ekstre Widget */}
-          <Card className="shadow-lg hover:shadow-xl transition-shadow">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-green-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
-                  📄
+          {hasPermission('dashboard:ekstre') && (
+            <Card className="shadow-lg hover:shadow-xl transition-shadow">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-green-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                    📄
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-gray-900">Ekstre Al</h3>
+                    <p className="text-sm text-gray-600">Cari hareket föyü Excel/PDF export</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-lg text-gray-900">Ekstre Al</h3>
-                  <p className="text-sm text-gray-600">Cari hareket föyü Excel/PDF export</p>
-                </div>
+                <Button
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold"
+                  onClick={() => setShowEkstreModal(true)}
+                >
+                  Ekstre Al →
+                </Button>
               </div>
-              <Button
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold"
-                onClick={() => setShowEkstreModal(true)}
-              >
-                Ekstre Al →
-              </Button>
-            </div>
-          </Card>
+            </Card>
+          )}
 
           {/* Diversey Stok Widget */}
-          <Card className="shadow-lg hover:shadow-xl transition-shadow">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-orange-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
-                  🏢
+          {hasPermission('dashboard:diversey-stok') && (
+            <Card className="shadow-lg hover:shadow-xl transition-shadow">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-orange-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                    🏢
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-gray-900">Diversey Stok</h3>
+                    <p className="text-sm text-gray-600">Diversey markası ürün stokları</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-lg text-gray-900">Diversey Stok</h3>
-                  <p className="text-sm text-gray-600">Diversey markası ürün stokları</p>
-                </div>
+                <Button
+                  className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+                  onClick={() => router.push('/diversey/stok')}
+                >
+                  Diversey Stok →
+                </Button>
               </div>
-              <Button
-                className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold"
-                onClick={() => router.push('/diversey/stok')}
-              >
-                Diversey Stok →
-              </Button>
-            </div>
-          </Card>
+            </Card>
+          )}
 
           {/* Rol İzinleri Widget - Sadece HEAD_ADMIN için */}
           {user?.role === 'HEAD_ADMIN' && (
