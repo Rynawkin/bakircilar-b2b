@@ -44,6 +44,38 @@ export function AdminNavigation() {
 
   const isActive = (href: string) => pathname === href;
 
+  // Role-based navigation filtering
+  const getVisibleNavItems = () => {
+    if (user?.role === 'SALES_REP') {
+      // SALES_REP sadece Dashboard, Siparişler ve Sipariş Takip görsün
+      return navItems.filter(item =>
+        item.href === '/dashboard' ||
+        item.href === '/orders' ||
+        item.href === '/order-tracking'
+      );
+    }
+    // ADMIN, MANAGER, HEAD_ADMIN tüm menüleri görsün
+    return navItems;
+  };
+
+  const getVisibleSettingsItems = () => {
+    if (user?.role === 'SALES_REP') {
+      // SALES_REP ayarlar menüsünü hiç görmesin
+      return [];
+    }
+    if (user?.role === 'MANAGER') {
+      // MANAGER sadece bazı ayarları görsün
+      return settingsItems.filter(item =>
+        item.href === '/staff' // Sadece personel yönetimi
+      );
+    }
+    // ADMIN ve HEAD_ADMIN tüm ayarları görsün
+    return settingsItems;
+  };
+
+  const visibleNavItems = getVisibleNavItems();
+  const visibleSettingsItems = getVisibleSettingsItems();
+
   return (
     <nav className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg sticky top-0 z-50">
       <div className="container-custom">
@@ -59,7 +91,7 @@ export function AdminNavigation() {
 
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center gap-1">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <button
                 key={item.href}
                 onClick={() => router.push(item.href)}
@@ -75,28 +107,29 @@ export function AdminNavigation() {
               </button>
             ))}
 
-            {/* Settings Dropdown */}
-            <Menu as="div" className="relative">
-              <Menu.Button className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-medium text-white hover:bg-primary-800/50 transition-all">
-                <span className="text-sm">⚙️</span>
-                <span className="hidden xl:inline">Ayarlar</span>
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </Menu.Button>
+            {/* Settings Dropdown - Sadece ayarlar varsa göster */}
+            {visibleSettingsItems.length > 0 && (
+              <Menu as="div" className="relative">
+                <Menu.Button className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-medium text-white hover:bg-primary-800/50 transition-all">
+                  <span className="text-sm">⚙️</span>
+                  <span className="hidden xl:inline">Ayarlar</span>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </Menu.Button>
 
-              <Transition
-                as={Fragment}
-                enter="transition ease-out duration-100"
-                enterFrom="transform opacity-0 scale-95"
-                enterTo="transform opacity-100 scale-100"
-                leave="transition ease-in duration-75"
-                leaveFrom="transform opacity-100 scale-100"
-                leaveTo="transform opacity-0 scale-95"
-              >
-                <Menu.Items className="absolute right-0 mt-2 w-64 origin-top-right bg-white rounded-lg shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none">
-                  <div className="p-2">
-                    {settingsItems.map((item) => (
+                <Transition
+                  as={Fragment}
+                  enter="transition ease-out duration-100"
+                  enterFrom="transform opacity-0 scale-95"
+                  enterTo="transform opacity-100 scale-100"
+                  leave="transition ease-in duration-75"
+                  leaveFrom="transform opacity-100 scale-100"
+                  leaveTo="transform opacity-0 scale-95"
+                >
+                  <Menu.Items className="absolute right-0 mt-2 w-64 origin-top-right bg-white rounded-lg shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none">
+                    <div className="p-2">
+                      {visibleSettingsItems.map((item) => (
                       <Menu.Item key={item.href}>
                         {({ active }) => (
                           <button
@@ -114,12 +147,13 @@ export function AdminNavigation() {
                             </div>
                           </button>
                         )}
-                      </Menu.Item>
-                    ))}
-                  </div>
-                </Menu.Items>
-              </Transition>
-            </Menu>
+                        </Menu.Item>
+                      ))}
+                    </div>
+                  </Menu.Items>
+                </Transition>
+              </Menu>
+            )}
 
             {/* User Menu */}
             <Menu as="div" className="relative ml-1">
@@ -187,7 +221,7 @@ export function AdminNavigation() {
         {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-primary-500 py-4 space-y-2">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <button
                 key={item.href}
                 onClick={() => {
@@ -210,9 +244,10 @@ export function AdminNavigation() {
               </button>
             ))}
 
-            <div className="border-t border-primary-500 pt-2 mt-2">
-              <p className="px-4 py-2 text-xs font-semibold text-primary-200">Ayarlar</p>
-              {settingsItems.map((item) => (
+            {visibleSettingsItems.length > 0 && (
+              <div className="border-t border-primary-500 pt-2 mt-2">
+                <p className="px-4 py-2 text-xs font-semibold text-primary-200">Ayarlar</p>
+                {visibleSettingsItems.map((item) => (
                 <button
                   key={item.href}
                   onClick={() => {
@@ -231,10 +266,11 @@ export function AdminNavigation() {
                     {item.description && (
                       <div className="text-xs opacity-75">{item.description}</div>
                     )}
-                  </div>
-                </button>
-              ))}
-            </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="border-t border-primary-500 pt-2 mt-2">
               <button

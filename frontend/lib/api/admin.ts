@@ -697,6 +697,7 @@ export const adminApi = {
   getAllRolePermissions: async (): Promise<{
     permissions: Record<string, Record<string, boolean>>;
     availablePermissions: Record<string, string>;
+    permissionDescriptions: Record<string, string>;
   }> => {
     const response = await apiClient.get('/role-permissions/all');
     return response.data;

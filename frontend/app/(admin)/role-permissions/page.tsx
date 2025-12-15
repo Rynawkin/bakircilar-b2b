@@ -29,6 +29,7 @@ export default function RolePermissionsPage() {
   const [saving, setSaving] = useState(false);
   const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>({});
   const [availablePermissions, setAvailablePermissions] = useState<Record<string, string>>({});
+  const [permissionDescriptions, setPermissionDescriptions] = useState<Record<string, string>>({});
   const [selectedRole, setSelectedRole] = useState<string>('ADMIN');
 
   useEffect(() => {
@@ -47,6 +48,7 @@ export default function RolePermissionsPage() {
       const data = await adminApi.getAllRolePermissions();
       setPermissions(data.permissions);
       setAvailablePermissions(data.availablePermissions);
+      setPermissionDescriptions(data.permissionDescriptions || {});
     } catch (error) {
       console.error('İzinler yüklenemedi:', error);
       alert('İzinler yüklenirken bir hata oluştu');
@@ -180,11 +182,16 @@ export default function RolePermissionsPage() {
                         key={permission}
                         className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                       >
-                        <div>
+                        <div className="flex-1 mr-4">
                           <div className="font-medium text-gray-900">
                             {availablePermissions[permission]}
                           </div>
-                          <div className="text-sm text-gray-500">{permission}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{permission}</div>
+                          {permissionDescriptions[permission] && (
+                            <div className="text-sm text-gray-600 mt-1">
+                              {permissionDescriptions[permission]}
+                            </div>
+                          )}
                         </div>
                         <button
                           onClick={() => togglePermission(selectedRole, permission, isEnabled)}
