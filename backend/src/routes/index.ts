@@ -13,6 +13,7 @@ import orderTrackingRoutes from './order-tracking.routes';
 import reportsRoutes from './reports.routes';
 import searchRoutes from './search.routes';
 import cariHareketRoutes from './cari-hareket.routes';
+import rolePermissionRoutes from './role-permission.routes';
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.use('/search', searchRoutes);
 router.use('/cari-hareket', cariHareketRoutes);
 router.use('/campaigns', campaignRoutes);
 router.use('/order-tracking', orderTrackingRoutes);
+router.use('/role-permissions', rolePermissionRoutes);
 
 // Customer routes (products, cart, orders) - ana path'te
 router.use('/', customerRoutes);
