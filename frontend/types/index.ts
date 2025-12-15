@@ -4,7 +4,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'MANAGER' | 'CUSTOMER' | 'DIVERSEY';
+  role: 'HEAD_ADMIN' | 'ADMIN' | 'MANAGER' | 'CUSTOMER' | 'DIVERSEY' | 'SALES_REP';
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode?: string;
   active?: boolean;

@@ -59,7 +59,7 @@ export default function AdminDashboardPage() {
     }
 
     // user yüklendikten sonra role kontrolü yap
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER') {
+    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN') {
       router.push('/login');
       return;
     }
@@ -550,6 +550,29 @@ export default function AdminDashboardPage() {
               </Button>
             </div>
           </Card>
+
+          {/* Rol İzinleri Widget - Sadece HEAD_ADMIN için */}
+          {user?.role === 'HEAD_ADMIN' && (
+            <Card className="shadow-lg hover:shadow-xl transition-shadow">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-purple-500 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
+                    🔐
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-gray-900">Rol İzinleri</h3>
+                    <p className="text-sm text-gray-600">Kullanıcı rol izinlerini yönet</p>
+                  </div>
+                </div>
+                <Button
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold"
+                  onClick={() => router.push('/role-permissions')}
+                >
+                  İzinleri Yönet →
+                </Button>
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* Sync Warnings */}

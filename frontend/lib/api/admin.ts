@@ -692,6 +692,37 @@ export const adminApi = {
     const response = await apiClient.get('/cari-hareket/foyu', { params });
     return response.data;
   },
+
+  // Role Permissions (HEAD_ADMIN only)
+  getAllRolePermissions: async (): Promise<{
+    permissions: Record<string, Record<string, boolean>>;
+    availablePermissions: Record<string, string>;
+  }> => {
+    const response = await apiClient.get('/role-permissions/all');
+    return response.data;
+  },
+
+  setRolePermission: async (
+    role: string,
+    permission: string,
+    enabled: boolean
+  ): Promise<{ message: string }> => {
+    const response = await apiClient.put(`/role-permissions/${role}/${permission}`, { enabled });
+    return response.data;
+  },
+
+  resetRolePermissions: async (role: string): Promise<{ message: string; count: number }> => {
+    const response = await apiClient.post(`/role-permissions/${role}/reset`);
+    return response.data;
+  },
+
+  getMyPermissions: async (): Promise<{
+    role: string;
+    permissions: Record<string, boolean>;
+  }> => {
+    const response = await apiClient.get('/role-permissions/my-permissions');
+    return response.data;
+  },
 };
 
 export default adminApi;
