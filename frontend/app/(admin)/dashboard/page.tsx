@@ -59,7 +59,7 @@ export default function AdminDashboardPage() {
     }
 
     // user yüklendikten sonra role kontrolü yap
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN') {
+    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN' && user.role !== 'SALES_REP') {
       router.push('/login');
       return;
     }
