@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Campaign, CreateCampaignRequest } from '@/types';
@@ -10,6 +11,7 @@ import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@
 import { Fragment } from 'react';
 import { LogoLink } from '@/components/ui/Logo';
 import { useAuthStore } from '@/lib/store/authStore';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export default function CampaignsPage() {
   const router = useRouter();
@@ -32,6 +34,18 @@ export default function CampaignsPage() {
     customerTypes: [],
     categoryIds: [],
     productIds: [],
+  });
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'success' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
   });
 
   useEffect(() => {
@@ -76,39 +90,46 @@ export default function CampaignsPage() {
       if (response.ok) {
         await fetchCampaigns();
         handleCloseModal();
+        toast.success(editingCampaign ? 'Kampanya güncellendi' : 'Kampanya oluşturuldu');
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to save campaign');
+        toast.error(error.error || 'Kampanya kaydedilemedi');
       }
     } catch (error) {
       console.error('Error saving campaign:', error);
-      alert('Failed to save campaign');
+      toast.error('Kampanya kaydedilemedi');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Bu kampanyayı silmek istediğinizden emin misiniz?')) {
-      return;
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Kampanyayı Sil',
+      message: 'Bu kampanyayı silmek istediğinizden emin misiniz?',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        try {
+          const response = await fetch(`/api/campaigns/${id}`, {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
 
-    try {
-      const response = await fetch(`/api/campaigns/${id}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        await fetchCampaigns();
-      } else {
-        const error = await response.json();
-        alert(error.error || 'Failed to delete campaign');
-      }
-    } catch (error) {
-      console.error('Error deleting campaign:', error);
-      alert('Failed to delete campaign');
-    }
+          if (response.ok) {
+            await fetchCampaigns();
+            toast.success('Kampanya silindi');
+          } else {
+            const error = await response.json();
+            toast.error(error.error || 'Kampanya silinemedi');
+          }
+        } catch (error) {
+          console.error('Error deleting campaign:', error);
+          toast.error('Kampanya silinemedi');
+        }
+      },
+    });
   };
 
   const handleEdit = (campaign: Campaign) => {
@@ -521,6 +542,18 @@ export default function CampaignsPage() {
           </div>
         </Dialog>
       </Transition>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        confirmLabel="Onayla"
+        cancelLabel="İptal"
+      />
         </div>
       </div>
     </div>

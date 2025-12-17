@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
 import * as XLSX from 'xlsx';
@@ -36,7 +37,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       setCariList(response.data);
     } catch (error: any) {
       console.error('Cari arama hatası:', error);
-      alert('Cari araması yapılırken bir hata oluştu');
+      toast.error('Cari araması yapılırken bir hata oluştu');
     } finally {
       setLoading(false);
     }
@@ -61,7 +62,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const hareketler = response.data;
 
       if (hareketler.length === 0) {
-        alert('Bu cari için hareket bulunamadı');
+        toast.error('Bu cari için hareket bulunamadı');
         return;
       }
 
@@ -74,10 +75,10 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const fileName = `${selectedCari['Cari Kodu']}_${selectedCari['Cari Adı']}_${startDate}_${endDate}_Ekstre.xlsx`;
       XLSX.writeFile(workbook, fileName);
 
-      alert('Excel dosyası başarıyla indirildi');
+      toast.success('Excel dosyası başarıyla indirildi');
     } catch (error: any) {
       console.error('Excel export hatası:', error);
-      alert('Excel dosyası oluşturulurken bir hata oluştu');
+      toast.error('Excel dosyası oluşturulurken bir hata oluştu');
     } finally {
       setExportingExcel(false);
     }
@@ -98,7 +99,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const hareketler = response.data;
 
       if (hareketler.length === 0) {
-        alert('Bu cari için hareket bulunamadı');
+        toast.error('Bu cari için hareket bulunamadı');
         return;
       }
 
@@ -199,10 +200,10 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const fileName = `${selectedCari['Cari Kodu']}_${selectedCari['Cari Adı']}_${startDate}_${endDate}_Ekstre.pdf`;
       doc.save(fileName);
 
-      alert('PDF dosyası başarıyla indirildi');
+      toast.success('PDF dosyası başarıyla indirildi');
     } catch (error: any) {
       console.error('PDF export hatası:', error);
-      alert('PDF dosyası oluşturulurken bir hata oluştu');
+      toast.error('PDF dosyası oluşturulurken bir hata oluştu');
     } finally {
       setExportingPDF(false);
     }

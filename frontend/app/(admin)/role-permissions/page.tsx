@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useRouter } from 'next/navigation';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 // Türkçe rol isimleri
 const ROLE_NAMES: Record<string, string> = {
@@ -31,6 +33,18 @@ export default function RolePermissionsPage() {
   const [availablePermissions, setAvailablePermissions] = useState<Record<string, string>>({});
   const [permissionDescriptions, setPermissionDescriptions] = useState<Record<string, string>>({});
   const [selectedRole, setSelectedRole] = useState<string>('ADMIN');
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'success' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   useEffect(() => {
     // HEAD_ADMIN kontrolü
@@ -51,7 +65,7 @@ export default function RolePermissionsPage() {
       setPermissionDescriptions(data.permissionDescriptions || {});
     } catch (error) {
       console.error('İzinler yüklenemedi:', error);
-      alert('İzinler yüklenirken bir hata oluştu');
+      toast.error('İzinler yüklenirken bir hata oluştu');
     } finally {
       setLoading(false);
     }
@@ -74,28 +88,33 @@ export default function RolePermissionsPage() {
       }));
     } catch (error: any) {
       console.error('İzin güncellenemedi:', error);
-      alert(error.response?.data?.error || 'İzin güncellenirken bir hata oluştu');
+      toast.error(error.response?.data?.error || 'İzin güncellenirken bir hata oluştu');
     } finally {
       setSaving(false);
     }
   };
 
   const resetRole = async (role: string) => {
-    if (!confirm(`${ROLE_NAMES[role]} rolünün izinlerini varsayılana sıfırlamak istediğinize emin misiniz?`)) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-      await adminApi.resetRolePermissions(role);
-      await loadPermissions(); // Reload all permissions
-      alert('İzinler başarıyla sıfırlandı');
-    } catch (error: any) {
-      console.error('İzinler sıfırlanamadı:', error);
-      alert(error.response?.data?.error || 'İzinler sıfırlanırken bir hata oluştu');
-    } finally {
-      setSaving(false);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'İzinleri Sıfırla',
+      message: `${ROLE_NAMES[role]} rolünün izinlerini varsayılana sıfırlamak istediğinize emin misiniz?`,
+      type: 'warning',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        try {
+          setSaving(true);
+          await adminApi.resetRolePermissions(role);
+          await loadPermissions(); // Reload all permissions
+          toast.success('İzinler başarıyla sıfırlandı');
+        } catch (error: any) {
+          console.error('İzinler sıfırlanamadı:', error);
+          toast.error(error.response?.data?.error || 'İzinler sıfırlanırken bir hata oluştu');
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
   };
 
   // Kategoriye göre izinleri grupla
@@ -238,6 +257,18 @@ export default function RolePermissionsPage() {
           </div>
         </div>
       </div>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        confirmLabel="Onayla"
+        cancelLabel="İptal"
+      />
     </div>
   );
 }

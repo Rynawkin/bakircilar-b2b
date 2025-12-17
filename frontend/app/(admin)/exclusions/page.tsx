@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import {
@@ -14,6 +15,7 @@ import {
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { adminApi } from '@/lib/api/admin';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
@@ -45,6 +47,18 @@ export default function ExclusionsPage() {
   const [formValue, setFormValue] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formActive, setFormActive] = useState(true);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'success' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   const fetchExclusions = async () => {
     setLoading(true);
@@ -98,7 +112,7 @@ export default function ExclusionsPage() {
     e.preventDefault();
 
     if (!formValue.trim()) {
-      alert('Değer boş olamaz');
+      toast.error('Değer boş olamaz');
       return;
     }
 
@@ -109,35 +123,40 @@ export default function ExclusionsPage() {
           description: formDescription || undefined,
           active: formActive,
         });
-        alert('Kural güncellendi');
+        toast.success('Kural güncellendi');
       } else {
         await adminApi.createExclusion({
           type: formType as any,
           value: formValue,
           description: formDescription || undefined,
         });
-        alert('Kural oluşturuldu');
+        toast.success('Kural oluşturuldu');
       }
 
       handleCloseModal();
       fetchExclusions();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'İşlem başarısız');
+      toast.error(err.response?.data?.error || 'İşlem başarısız');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Bu kuralı silmek istediğinize emin misiniz?')) {
-      return;
-    }
-
-    try {
-      await adminApi.deleteExclusion(id);
-      alert('Kural silindi');
-      fetchExclusions();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Silme işlemi başarısız');
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Kuralı Sil',
+      message: 'Bu kuralı silmek istediğinize emin misiniz?',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        try {
+          await adminApi.deleteExclusion(id);
+          toast.success('Kural silindi');
+          fetchExclusions();
+        } catch (err: any) {
+          toast.error(err.response?.data?.error || 'Silme işlemi başarısız');
+        }
+      },
+    });
   };
 
   const handleToggleActive = async (exclusion: Exclusion) => {
@@ -145,10 +164,10 @@ export default function ExclusionsPage() {
       await adminApi.updateExclusion(exclusion.id, {
         active: !exclusion.active,
       });
-      alert(exclusion.active ? 'Kural devre dışı bırakıldı' : 'Kural aktif edildi');
+      toast.success(exclusion.active ? 'Kural devre dışı bırakıldı' : 'Kural aktif edildi');
       fetchExclusions();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'İşlem başarısız');
+      toast.error(err.response?.data?.error || 'İşlem başarısız');
     }
   };
 
@@ -340,6 +359,18 @@ export default function ExclusionsPage() {
           )}
         </form>
       </Modal>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        confirmLabel="Onayla"
+        cancelLabel="İptal"
+      />
     </>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { Product } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { useCartStore } from '@/lib/store/cartStore';
@@ -43,7 +44,7 @@ export default function ProductDetailPage() {
     if (!product) return;
 
     if (quantity > product.excessStock) {
-      alert(`Maksimum ${product.excessStock} adet sipariş verebilirsiniz.`);
+      toast.error(`Maksimum ${product.excessStock} adet sipariş verebilirsiniz.`);
       return;
     }
 
@@ -55,10 +56,10 @@ export default function ProductDetailPage() {
         priceType,
       });
 
-      alert('Ürün sepete eklendi!');
+      toast.success('Ürün sepete eklendi!');
       router.push('/cart');
     } catch (error: any) {
-      alert(error.response?.data?.error || 'Sepete eklenirken hata oluştu');
+      toast.error(error.response?.data?.error || 'Sepete eklenirken hata oluştu');
     } finally {
       setIsAdding(false);
     }

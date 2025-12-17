@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { apiClient } from '@/lib/api/client';
 
 interface PendingOrder {
@@ -93,6 +94,18 @@ export default function OrderTrackingPage() {
     supplierEmailSubject: '',
     supplierDays: [] as number[],
     supplierHour: 8,
+  });
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'success' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
   });
 
   useEffect(() => {
@@ -195,65 +208,83 @@ export default function OrderTrackingPage() {
   };
 
   const handleSendCustomerEmails = async () => {
-    const confirmed = confirm('Tüm müşterilere mail gönderilsin mi?');
-    if (!confirmed) return;
-
-    setIsSendingEmails(true);
-    try {
-      const res = await apiClient.post('/order-tracking/admin/send-customer-emails');
-      toast.success(`${res.data.sentCount} müşteriye mail gönderildi!`);
-      fetchData();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Mail gönderilemedi');
-    } finally {
-      setIsSendingEmails(false);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Müşterilere Mail Gönder',
+      message: 'Tüm müşterilere mail gönderilsin mi?',
+      type: 'info',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        setIsSendingEmails(true);
+        try {
+          const res = await apiClient.post('/order-tracking/admin/send-customer-emails');
+          toast.success(`${res.data.sentCount} müşteriye mail gönderildi!`);
+          fetchData();
+        } catch (error: any) {
+          toast.error(error.response?.data?.message || 'Mail gönderilemedi');
+        } finally {
+          setIsSendingEmails(false);
+        }
+      },
+    });
   };
 
   const handleSendSupplierEmails = async () => {
-    const confirmed = confirm('Tüm tedarikçilere mail gönderilsin mi?');
-    if (!confirmed) return;
-
-    setIsSendingEmails(true);
-    try {
-      const res = await apiClient.post('/order-tracking/admin/send-supplier-emails');
-      toast.success(`${res.data.sentCount} tedarikçiye mail gönderildi!`);
-      fetchData();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Mail gönderilemedi');
-    } finally {
-      setIsSendingEmails(false);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Tedarikçilere Mail Gönder',
+      message: 'Tüm tedarikçilere mail gönderilsin mi?',
+      type: 'info',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        setIsSendingEmails(true);
+        try {
+          const res = await apiClient.post('/order-tracking/admin/send-supplier-emails');
+          toast.success(`${res.data.sentCount} tedarikçiye mail gönderildi!`);
+          fetchData();
+        } catch (error: any) {
+          toast.error(error.response?.data?.message || 'Mail gönderilemedi');
+        } finally {
+          setIsSendingEmails(false);
+        }
+      },
+    });
   };
 
   const handleSyncAndSend = async () => {
-    const confirmed = confirm('Sync + Tüm mailleri gönder (müşteri + tedarikçi)?');
-    if (!confirmed) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Sync ve Mail Gönder',
+      message: 'Sync + Tüm mailleri gönder (müşteri + tedarikçi)?',
+      type: 'warning',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        setIsSyncing(true);
+        setIsSendingEmails(true);
+        try {
+          // 1. Sync
+          await apiClient.post('/order-tracking/admin/sync');
 
-    setIsSyncing(true);
-    setIsSendingEmails(true);
-    try {
-      // 1. Sync
-      await apiClient.post('/order-tracking/admin/sync');
+          // 2. Müşterilere mail gönder
+          const customerRes = await apiClient.post('/order-tracking/admin/send-customer-emails');
 
-      // 2. Müşterilere mail gönder
-      const customerRes = await apiClient.post('/order-tracking/admin/send-customer-emails');
+          // 3. Tedarikçilere mail gönder
+          const supplierRes = await apiClient.post('/order-tracking/admin/send-supplier-emails');
 
-      // 3. Tedarikçilere mail gönder
-      const supplierRes = await apiClient.post('/order-tracking/admin/send-supplier-emails');
-
-      toast.success(
-        `Sync tamamlandı! ${customerRes.data.sentCount} müşteri + ${supplierRes.data.sentCount} tedarikçi = ${
-          customerRes.data.sentCount + supplierRes.data.sentCount
-        } mail gönderildi`
-      );
-      fetchData();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'İşlem başarısız');
-    } finally {
-      setIsSyncing(false);
-      setIsSendingEmails(false);
-    }
+          toast.success(
+            `Sync tamamlandı! ${customerRes.data.sentCount} müşteri + ${supplierRes.data.sentCount} tedarikçi = ${
+              customerRes.data.sentCount + supplierRes.data.sentCount
+            } mail gönderildi`
+          );
+          fetchData();
+        } catch (error: any) {
+          toast.error(error.response?.data?.message || 'İşlem başarısız');
+        } finally {
+          setIsSyncing(false);
+          setIsSendingEmails(false);
+        }
+      },
+    });
   };
 
   const handleSendToCustomer = async (customerCode: string) => {
@@ -263,29 +294,35 @@ export default function OrderTrackingPage() {
       ? `${customerCode} kodlu müşterinin siparişleri ${emailOverride} adresine gönderilsin mi?`
       : `${customerCode} kodlu müşteriye mail gönderilsin mi?`;
 
-    const confirmed = confirm(message);
-    if (!confirmed) return;
-
-    setSendingToCustomer(customerCode);
-    try {
-      const res = await apiClient.post(`/order-tracking/admin/send-email/${customerCode}`, {
-        emailOverride: emailOverride || undefined,
-      });
-      toast.success(res.data.message);
-      // Email override'ı temizle
-      if (emailOverride) {
-        setEmailOverrides((prev) => {
-          const updated = { ...prev };
-          delete updated[customerCode];
-          return updated;
-        });
-      }
-      fetchData();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Mail gönderilemedi');
-    } finally {
-      setSendingToCustomer(null);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Müşteriye Mail Gönder',
+      message,
+      type: 'info',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        setSendingToCustomer(customerCode);
+        try {
+          const res = await apiClient.post(`/order-tracking/admin/send-email/${customerCode}`, {
+            emailOverride: emailOverride || undefined,
+          });
+          toast.success(res.data.message);
+          // Email override'ı temizle
+          if (emailOverride) {
+            setEmailOverrides((prev) => {
+              const updated = { ...prev };
+              delete updated[customerCode];
+              return updated;
+            });
+          }
+          fetchData();
+        } catch (error: any) {
+          toast.error(error.response?.data?.message || 'Mail gönderilemedi');
+        } finally {
+          setSendingToCustomer(null);
+        }
+      },
+    });
   };
 
   const toggleCustomerExpanded = (customerCode: string) => {
@@ -935,6 +972,18 @@ export default function OrderTrackingPage() {
           </div>
         </Card>
       </div>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        confirmLabel="Onayla"
+        cancelLabel="İptal"
+      />
     </div>
   );
 }
