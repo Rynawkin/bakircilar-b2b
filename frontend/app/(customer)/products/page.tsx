@@ -56,16 +56,35 @@ export default function ProductsPage() {
     return applyProductFilters(products, advancedFilters);
   }, [products, advancedFilters]);
 
+  // Load static data (categories & warehouses) only once on mount
   useEffect(() => {
     loadUserFromStorage();
     fetchCart();
+    loadStaticData();
   }, [loadUserFromStorage, fetchCart]);
 
+  // Load products whenever filters change
   useEffect(() => {
-    fetchData();
-  }, [selectedCategory, debouncedSearch, selectedWarehouse]);
+    if (categories.length > 0 && warehouses.length > 0) {
+      fetchProducts();
+    }
+  }, [selectedCategory, debouncedSearch, selectedWarehouse, categories, warehouses]);
 
-  const fetchData = async () => {
+  const loadStaticData = async () => {
+    try {
+      const [categoriesData, warehousesData] = await Promise.all([
+        customerApi.getCategories(),
+        customerApi.getWarehouses(),
+      ]);
+
+      setCategories(categoriesData.categories);
+      setWarehouses(warehousesData.warehouses);
+    } catch (error) {
+      console.error('Statik veri yükleme hatası:', error);
+    }
+  };
+
+  const fetchProducts = async () => {
     setIsSearching(true);
     try {
       const searchParams = {
@@ -74,17 +93,10 @@ export default function ProductsPage() {
         warehouse: selectedWarehouse || undefined,
       };
 
-      const [productsData, categoriesData, warehousesData] = await Promise.all([
-        customerApi.getProducts(searchParams),
-        customerApi.getCategories(),
-        customerApi.getWarehouses(),
-      ]);
-
+      const productsData = await customerApi.getProducts(searchParams);
       setProducts(productsData.products);
-      setCategories(categoriesData.categories);
-      setWarehouses(warehousesData.warehouses);
     } catch (error) {
-      console.error('Veri yükleme hatası:', error);
+      console.error('Ürün yükleme hatası:', error);
     } finally {
       setIsSearching(false);
       setIsInitialLoad(false);
