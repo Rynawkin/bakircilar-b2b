@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { DashboardStats } from '@/types';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { EkstreModal } from '@/components/admin/EkstreModal';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -50,9 +51,33 @@ export default function AdminDashboardPage() {
   }> | null>(null);
   const [showEkstreModal, setShowEkstreModal] = useState(false);
 
+  // Refs to store interval and timeout IDs for cleanup
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup function to clear polling
+  const cleanupPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  };
+
   useEffect(() => {
     loadUserFromStorage();
-  }, [loadUserFromStorage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      cleanupPolling();
+    };
+  }, []);
 
   useEffect(() => {
     // user null ise henüz yükleniyor, bekle
@@ -82,7 +107,10 @@ export default function AdminDashboardPage() {
   };
 
   const pollSyncStatus = async (syncLogId: string) => {
-    const pollInterval = setInterval(async () => {
+    // Clean up any existing polling first
+    cleanupPolling();
+
+    pollIntervalRef.current = setInterval(async () => {
       try {
         const status = await adminApi.getSyncStatus(syncLogId);
 
@@ -98,7 +126,7 @@ export default function AdminDashboardPage() {
 
         // Check if completed
         if (status.isCompleted) {
-          clearInterval(pollInterval);
+          cleanupPolling();
           setIsSyncing(false);
           // DON'T clear syncProgress - keep final stats visible!
           // setSyncProgress(null);
@@ -146,15 +174,17 @@ export default function AdminDashboardPage() {
           }
         }
       } catch (error) {
-        console.error('Sync status polling error:', error);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Sync status polling error:', error);
+        }
         // DON'T clear interval on first error - backend might be busy
         // We'll let the timeout handle it
       }
     }, 3000); // Poll every 3 seconds (reduce server load)
 
     // Cleanup after 30 minutes (safety timeout - resimler uzun sürebilir)
-    setTimeout(() => {
-      clearInterval(pollInterval);
+    pollTimeoutRef.current = setTimeout(() => {
+      cleanupPolling();
       if (isSyncing) {
         setIsSyncing(false);
         // Keep last known progress visible
@@ -388,9 +418,10 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <AdminNavigation />
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gray-50">
+        {/* Navigation */}
+        <AdminNavigation />
 
       {/* Main Content */}
       <div className="container-custom py-8">
@@ -847,5 +878,6 @@ export default function AdminDashboardPage() {
         />
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

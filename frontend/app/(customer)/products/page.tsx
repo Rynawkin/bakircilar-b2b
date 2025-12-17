@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Product, Category } from '@/types';
@@ -61,16 +61,10 @@ export default function ProductsPage() {
     loadUserFromStorage();
     fetchCart();
     loadStaticData();
-  }, [loadUserFromStorage, fetchCart]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Load products whenever filters change
-  useEffect(() => {
-    if (categories.length > 0 && warehouses.length > 0) {
-      fetchProducts();
-    }
-  }, [selectedCategory, debouncedSearch, selectedWarehouse, categories, warehouses]);
-
-  const loadStaticData = async () => {
+  const loadStaticData = useCallback(async () => {
     try {
       const [categoriesData, warehousesData] = await Promise.all([
         customerApi.getCategories(),
@@ -82,9 +76,9 @@ export default function ProductsPage() {
     } catch (error) {
       console.error('Statik veri yükleme hatası:', error);
     }
-  };
+  }, []);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setIsSearching(true);
     try {
       const searchParams = {
@@ -101,7 +95,14 @@ export default function ProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  };
+  }, [selectedCategory, debouncedSearch, selectedWarehouse]);
+
+  // Load products whenever filters change
+  useEffect(() => {
+    if (categories.length > 0 && warehouses.length > 0) {
+      fetchProducts();
+    }
+  }, [selectedCategory, debouncedSearch, selectedWarehouse, categories, warehouses, fetchProducts]);
 
   const handleQuickAdd = async (productId: string) => {
     const quantity = quickAddQuantities[productId] || 1;

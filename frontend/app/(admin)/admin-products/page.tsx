@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -81,30 +81,19 @@ export default function AdminProductsPage() {
 
   useEffect(() => {
     loadUserFromStorage();
-  }, [loadUserFromStorage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    if (user === null) return;
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER') {
-      router.push('/login');
-      return;
+  const fetchCategories = useCallback(async () => {
+    try {
+      const data = await adminApi.getCategories();
+      setCategories(data.categories);
+    } catch (error) {
+      console.error('Kategoriler yüklenemedi:', error);
     }
+  }, []);
 
-    fetchData();
-  }, [user, router]);
-
-  useEffect(() => {
-    if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
-      setCurrentPage(1); // Reset page when filters change
-      fetchProducts(1);
-    }
-  }, [debouncedSearch, hasImage, categoryId, sortBy, sortOrder, user]);
-
-  const fetchData = async () => {
-    await Promise.all([fetchProducts(1), fetchCategories()]);
-  };
-
-  const fetchProducts = async (page: number = currentPage) => {
+  const fetchProducts = useCallback(async (page: number = currentPage) => {
     setIsSearching(true);
     try {
       const params: any = {
@@ -117,7 +106,9 @@ export default function AdminProductsPage() {
       params.sortBy = sortBy;
       params.sortOrder = sortOrder;
 
-      console.log('🔍 Admin Products Search Params:', params);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 Admin Products Search Params:', params);
+      }
 
       const data = await adminApi.getProducts(params);
       setProducts(data.products);
@@ -128,16 +119,28 @@ export default function AdminProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  };
+  }, [currentPage, debouncedSearch, hasImage, categoryId, sortBy, sortOrder]);
 
-  const fetchCategories = async () => {
-    try {
-      const data = await adminApi.getCategories();
-      setCategories(data.categories);
-    } catch (error) {
-      console.error('Kategoriler yüklenemedi:', error);
+  const fetchData = useCallback(async () => {
+    await Promise.all([fetchProducts(1), fetchCategories()]);
+  }, [fetchProducts, fetchCategories]);
+
+  useEffect(() => {
+    if (user === null) return;
+    if (user.role !== 'ADMIN' && user.role !== 'MANAGER') {
+      router.push('/login');
+      return;
     }
-  };
+
+    fetchData();
+  }, [user, router, fetchData]);
+
+  useEffect(() => {
+    if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
+      setCurrentPage(1); // Reset page when filters change
+      fetchProducts(1);
+    }
+  }, [debouncedSearch, hasImage, categoryId, sortBy, sortOrder, user, fetchProducts]);
 
   const handleSort = (field: typeof sortBy) => {
     if (sortBy === field) {
