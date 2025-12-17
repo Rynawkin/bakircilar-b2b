@@ -117,7 +117,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: true,
         lastActivity: stored.lastActivity || Date.now(),
       });
-      console.log('✅ Session restored from storage');
     }
   },
 

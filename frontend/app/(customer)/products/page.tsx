@@ -74,9 +74,6 @@ export default function ProductsPage() {
         warehouse: selectedWarehouse || undefined,
       };
 
-      console.log('🔍 Customer Products Search Params:', searchParams);
-      console.log('📝 debouncedSearch value:', debouncedSearch);
-
       const [productsData, categoriesData, warehousesData] = await Promise.all([
         customerApi.getProducts(searchParams),
         customerApi.getCategories(),
