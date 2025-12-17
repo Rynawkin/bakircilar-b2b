@@ -20,6 +20,15 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
   const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
   const [endDate, setEndDate] = useState(`${new Date().getFullYear()}-12-31`);
 
+  // Helper function for formatting values
+  const formatValue = (value: any) => {
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'number') {
+      return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+    }
+    return String(value);
+  };
+
   const handleSearch = async () => {
     if (!searchTerm || searchTerm.trim().length === 0) {
       return;
@@ -212,14 +221,6 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
     } finally {
       setExportingPDF(false);
     }
-  };
-
-  const formatValue = (value: any) => {
-    if (value === null || value === undefined) return '-';
-    if (typeof value === 'number') {
-      return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
-    }
-    return String(value);
   };
 
   if (!isOpen) return null;
