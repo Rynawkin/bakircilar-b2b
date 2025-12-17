@@ -5,11 +5,22 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Menu, Transition } from '@headlessui/react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { LogoLink } from '@/components/ui/Logo';
+import {
+  ShoppingBag,
+  ShoppingCart,
+  Package,
+  User,
+  Settings,
+  LogOut,
+  ChevronDown,
+  Menu as MenuIcon,
+  X
+} from 'lucide-react';
 
 interface NavItem {
   name: string;
   href: string;
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   badge?: number;
 }
 
@@ -25,9 +36,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   };
 
   const navItems: NavItem[] = [
-    { name: 'Ürünler', href: '/products', icon: '🛍️' },
-    { name: 'Sepetim', href: '/cart', icon: '🛒', badge: cartItemCount },
-    { name: 'Siparişlerim', href: '/my-orders', icon: '📦' },
+    { name: 'Ürünler', href: '/products', icon: ShoppingBag },
+    { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
+    { name: 'Siparişlerim', href: '/my-orders', icon: Package },
   ];
 
   const isActive = (href: string) => pathname === href;
@@ -59,7 +70,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                     : 'text-white hover:bg-primary-800/50'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
+                <item.icon className="w-5 h-5" />
                 <span>{item.name}</span>
                 {item.badge && item.badge > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
@@ -76,9 +87,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                   {user?.name?.charAt(0).toUpperCase()}
                 </div>
                 <span className="hidden lg:block">{user?.name?.split(' ')[0]}</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <ChevronDown className="w-4 h-4" />
               </Menu.Button>
 
               <Transition
@@ -109,7 +118,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                             active ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
                           }`}
                         >
-                          <span>👤</span>
+                          <User className="w-4 h-4" />
                           <span>Profilim</span>
                         </button>
                       )}
@@ -122,7 +131,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                             active ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
                           }`}
                         >
-                          <span>⚙️</span>
+                          <Settings className="w-4 h-4" />
                           <span>Tercihlerim</span>
                         </button>
                       )}
@@ -136,7 +145,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                             active ? 'bg-red-50 text-red-700' : 'text-gray-700'
                           }`}
                         >
-                          <span>🚪</span>
+                          <LogOut className="w-4 h-4" />
                           <span>Çıkış Yap</span>
                         </button>
                       )}
@@ -153,13 +162,9 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             className="md:hidden p-2 rounded-lg text-white hover:bg-primary-800/50"
           >
             {mobileMenuOpen ? (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-6 h-6" />
             ) : (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
+              <MenuIcon className="w-6 h-6" />
             )}
           </button>
         </div>
@@ -185,7 +190,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                     : 'text-white hover:bg-primary-800/50'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
+                <item.icon className="w-5 h-5" />
                 <span>{item.name}</span>
                 {item.badge && item.badge > 0 && (
                   <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full px-2 py-0.5">
@@ -203,7 +208,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                 }}
                 className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-white hover:bg-primary-800/50"
               >
-                <span className="text-lg">👤</span>
+                <User className="w-5 h-5" />
                 <span>Profilim</span>
               </button>
               <button
@@ -213,7 +218,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                 }}
                 className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-white hover:bg-primary-800/50"
               >
-                <span className="text-lg">⚙️</span>
+                <Settings className="w-5 h-5" />
                 <span>Tercihlerim</span>
               </button>
             </div>
@@ -223,7 +228,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                 onClick={handleLogout}
                 className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-white hover:bg-red-500/20"
               >
-                <span className="text-lg">🚪</span>
+                <LogOut className="w-5 h-5" />
                 <span>Çıkış Yap</span>
               </button>
             </div>
