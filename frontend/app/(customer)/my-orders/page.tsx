@@ -58,10 +58,10 @@ export default function OrdersPage() {
               <div>
                 <h1 className="text-2xl font-bold text-white flex items-center gap-3">
                   <span className="text-3xl">📦</span>
-                  Siparislerim
+                  Siparişlerim
                 </h1>
                 <p className="text-sm text-primary-100 font-medium">
-                  {isLoading ? 'Yukleniyor...' : orders.length > 0 ? `${orders.length} siparis` : 'Henuz siparis yok'}
+                  {isLoading ? 'Yükleniyor...' : orders.length > 0 ? `${orders.length} sipariş` : 'Henüz sipariş yok'}
                 </p>
               </div>
             </div>
@@ -72,7 +72,7 @@ export default function OrdersPage() {
                 onClick={() => router.push('/products')}
                 className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
-                🛍️ Urunler
+                🛍️ Ürünler
               </Button>
               <Button
                 variant="secondary"
@@ -93,7 +93,7 @@ export default function OrdersPage() {
                 onClick={() => { logout(); router.push('/login'); }}
                 className="text-white hover:bg-primary-800 border border-white/30"
               >
-                Cikis
+                Çıkış
               </Button>
             </div>
 
@@ -134,7 +134,7 @@ export default function OrdersPage() {
                 <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6 pb-6 border-b-2 border-gray-100">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-2xl font-bold text-gray-900">Siparis #{order.orderNumber}</h3>
+                      <h3 className="text-2xl font-bold text-gray-900">Sipariş #{order.orderNumber}</h3>
                       {getStatusBadge(order.status)}
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
@@ -148,7 +148,7 @@ export default function OrdersPage() {
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
-                        Onaylandi: {formatDate(order.approvedAt)}
+                        Onaylandı: {formatDate(order.approvedAt)}
                       </div>
                     )}
                     {order.adminNote && (
@@ -163,7 +163,7 @@ export default function OrdersPage() {
                     <p className="text-3xl font-bold text-primary-700">
                       {formatCurrency(order.totalAmount)}
                     </p>
-                    <p className="text-xs text-gray-600 mt-1">{order.items.length} urun</p>
+                    <p className="text-xs text-gray-600 mt-1">{order.items.length} ürün</p>
                   </div>
                 </div>
 
@@ -173,7 +173,7 @@ export default function OrdersPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                     <p className="text-lg font-bold text-gray-900">
-                      Siparis Detaylari ({order.items.length} urun)
+                      Sipariş Detayları ({order.items.length} ürün)
                     </p>
                   </div>
                   <div className="space-y-3">
@@ -195,7 +195,7 @@ export default function OrdersPage() {
                                 variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
                                 className="text-xs font-semibold"
                               >
-                                {item.priceType === 'INVOICED' ? '📄 Faturali' : '⚪ Beyaz'}
+                                {item.priceType === 'INVOICED' ? '📄 Faturalı' : '⚪ Beyaz'}
                               </Badge>
                             </div>
                           </div>

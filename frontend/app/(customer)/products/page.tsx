@@ -175,7 +175,7 @@ export default function ProductsPage() {
             <div className="hidden sm:block">
               <h1 className="text-xl font-bold text-white flex items-center gap-2">
                 <span className="text-2xl">🛍️</span>
-                Urun Katalogu
+                Ürün Kataloğu
               </h1>
               <p className="text-sm text-primary-100">
                 {user.name} • {getCustomerTypeName(user.customerType || '')}
@@ -209,7 +209,7 @@ export default function ProductsPage() {
               onClick={() => { logout(); router.push('/login'); }}
               className="text-white hover:bg-primary-800 border border-white/30"
             >
-              Cikis
+              Çıkış
             </Button>
           </div>
 
@@ -259,7 +259,7 @@ export default function ProductsPage() {
                 <div className="flex-1 min-w-[250px]">
                   <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
                     <span>📝</span>
-                    Urun Ara
+                    Ürün Ara
                     {search !== debouncedSearch && (
                       <span className="ml-2 text-xs text-primary-600 font-normal">
                         (yazıyorsunuz...)
@@ -267,7 +267,7 @@ export default function ProductsPage() {
                     )}
                   </label>
                   <Input
-                    placeholder="Urun ismi veya kodu..."
+                    placeholder="Ürün ismi veya kodu..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
@@ -284,7 +284,7 @@ export default function ProductsPage() {
                     onChange={(e) => setSelectedWarehouse(e.target.value)}
                     className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
                   >
-                    <option value="">Tum Depolar</option>
+                    <option value="">Tüm Depolar</option>
                     {warehouses.map((warehouse) => (
                       <option key={warehouse} value={warehouse}>
                         {warehouse}
@@ -303,7 +303,7 @@ export default function ProductsPage() {
                     onChange={(e) => setSelectedCategory(e.target.value)}
                     className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
                   >
-                    <option value="">Tum Kategoriler</option>
+                    <option value="">Tüm Kategoriler</option>
                     {categories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.name}
@@ -423,7 +423,7 @@ export default function ProductsPage() {
                         {/* Overlay on hover */}
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-700 px-4 py-2 rounded-lg font-semibold text-sm shadow-xl">
-                            🔍 Detayli Incele
+                            🔍 Detaylı İncele
                           </div>
                         </div>
                       </div>
@@ -456,7 +456,7 @@ export default function ProductsPage() {
                           }`}
                           onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
                         >
-                          <div className="opacity-80 mb-0.5">📄 Faturali</div>
+                          <div className="opacity-80 mb-0.5">📄 Faturalı</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
                           <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
                         </button>
@@ -528,11 +528,11 @@ export default function ProductsPage() {
               <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-gray-100">
                 <h3 className="font-bold text-xl flex items-center gap-2 text-gray-900">
                   <span className="text-2xl">🛒</span>
-                  Sepet Ozeti
+                  Sepet Özeti
                 </h3>
                 {totalItems > 0 && (
                   <span className="bg-gradient-to-br from-primary-600 to-primary-700 text-white text-sm font-bold px-3 py-1.5 rounded-full shadow-md animate-pulse">
-                    {totalItems} Urun
+                    {totalItems} Ürün
                   </span>
                 )}
               </div>
