@@ -5,30 +5,47 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Menu, Transition } from '@headlessui/react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { LogoLink } from '@/components/ui/Logo';
+import {
+  LayoutDashboard,
+  ClipboardList,
+  Mail,
+  Users,
+  Package,
+  Target,
+  BarChart3,
+  Folder,
+  Tag,
+  Ban,
+  Settings,
+  ChevronDown,
+  Menu as MenuIcon,
+  X,
+  LogOut
+} from 'lucide-react';
 
 interface NavItem {
   name: string;
   href: string;
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   description?: string;
 }
 
 const navItems: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: '🎯', description: 'Genel bakış' },
-  { name: 'Siparişler', href: '/orders', icon: '📋', description: 'Sipariş yönetimi' },
-  { name: 'Sipariş Takip', href: '/order-tracking', icon: '📧', description: 'Bekleyen siparişler' },
-  { name: 'Müşteriler', href: '/customers', icon: '👥', description: 'Müşteri listesi' },
-  { name: 'Ürünler', href: '/admin-products', icon: '📦', description: 'Ürün yönetimi' },
-  { name: 'Kampanyalar', href: '/campaigns', icon: '🎯', description: 'İndirim kampanyaları' },
-  { name: 'Raporlar', href: '/reports', icon: '📊', description: 'Raporlar ve analizler' },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, description: 'Genel bakış' },
+  { name: 'Siparişler', href: '/orders', icon: ClipboardList, description: 'Sipariş yönetimi' },
+  { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler' },
+  { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi' },
+  { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi' },
+  { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları' },
+  { name: 'Raporlar', href: '/reports', icon: BarChart3, description: 'Raporlar ve analizler' },
 ];
 
 const settingsItems: NavItem[] = [
-  { name: 'Kategoriler', href: '/categories', icon: '📁', description: 'Fiyatlandırma ayarları' },
-  { name: 'Ürün Override', href: '/product-overrides', icon: '🏷️', description: 'Özel fiyatlar' },
-  { name: 'Hariç Tutma', href: '/exclusions', icon: '🚫', description: 'Rapor filtreleme' },
-  { name: 'Personel', href: '/staff', icon: '👥', description: 'Personel yönetimi' },
-  { name: 'Ayarlar', href: '/settings', icon: '⚙️', description: 'Sistem ayarları' },
+  { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandırma ayarları' },
+  { name: 'Ürün Override', href: '/product-overrides', icon: Tag, description: 'Özel fiyatlar' },
+  { name: 'Hariç Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme' },
+  { name: 'Personel', href: '/staff', icon: Users, description: 'Personel yönetimi' },
+  { name: 'Ayarlar', href: '/settings', icon: Settings, description: 'Sistem ayarları' },
 ];
 
 export function AdminNavigation() {
@@ -102,7 +119,7 @@ export function AdminNavigation() {
                 }`}
                 title={item.description}
               >
-                <span className="text-sm">{item.icon}</span>
+                <item.icon className="w-4 h-4" />
                 <span className="hidden xl:inline">{item.name}</span>
               </button>
             ))}
@@ -111,11 +128,9 @@ export function AdminNavigation() {
             {visibleSettingsItems.length > 0 && (
               <Menu as="div" className="relative">
                 <Menu.Button className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-medium text-white hover:bg-primary-800/50 transition-all">
-                  <span className="text-sm">⚙️</span>
+                  <Settings className="w-4 h-4" />
                   <span className="hidden xl:inline">Ayarlar</span>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  <ChevronDown className="w-3 h-3" />
                 </Menu.Button>
 
                 <Transition
@@ -138,7 +153,7 @@ export function AdminNavigation() {
                               active ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
                             } ${isActive(item.href) ? 'bg-primary-100 font-semibold' : ''}`}
                           >
-                            <span className="text-lg">{item.icon}</span>
+                            <item.icon className="w-4 h-4" />
                             <div className="text-left">
                               <div className="font-medium">{item.name}</div>
                               {item.description && (
@@ -161,9 +176,7 @@ export function AdminNavigation() {
                 <div className="w-7 h-7 rounded-full bg-white text-primary-700 flex items-center justify-center font-bold text-xs">
                   {user?.name?.charAt(0).toUpperCase()}
                 </div>
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <ChevronDown className="w-3 h-3" />
               </Menu.Button>
 
               <Transition
@@ -190,7 +203,7 @@ export function AdminNavigation() {
                             active ? 'bg-red-50 text-red-700' : 'text-gray-700'
                           }`}
                         >
-                          <span>🚪</span>
+                          <LogOut className="w-4 h-4" />
                           <span>Çıkış Yap</span>
                         </button>
                       )}
@@ -207,13 +220,9 @@ export function AdminNavigation() {
             className="lg:hidden p-2 rounded-lg text-white hover:bg-primary-800/50"
           >
             {mobileMenuOpen ? (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-6 h-6" />
             ) : (
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
+              <MenuIcon className="w-6 h-6" />
             )}
           </button>
         </div>
@@ -234,7 +243,7 @@ export function AdminNavigation() {
                     : 'text-white hover:bg-primary-800/50'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
+                <item.icon className="w-5 h-5" />
                 <div className="text-left">
                   <div>{item.name}</div>
                   {item.description && (
@@ -260,7 +269,7 @@ export function AdminNavigation() {
                       : 'text-white hover:bg-primary-800/50'
                   }`}
                 >
-                  <span className="text-lg">{item.icon}</span>
+                  <item.icon className="w-5 h-5" />
                   <div className="text-left">
                     <div>{item.name}</div>
                     {item.description && (
@@ -277,7 +286,7 @@ export function AdminNavigation() {
                 onClick={handleLogout}
                 className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-white hover:bg-red-500/20"
               >
-                <span className="text-lg">🚪</span>
+                <LogOut className="w-5 h-5" />
                 <span>Çıkış Yap</span>
               </button>
             </div>
