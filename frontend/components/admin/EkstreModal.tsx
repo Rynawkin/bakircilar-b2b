@@ -4,9 +4,6 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 interface EkstreModalProps {
   isOpen: boolean;
@@ -52,6 +49,9 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
 
     setExportingExcel(true);
     try {
+      // Dynamically import xlsx library
+      const XLSX = await import('xlsx');
+
       // Cari hareket föyünü al
       const response = await adminApi.getCariHareketFoyu({
         cariKod: selectedCari['Cari Kodu'],
@@ -89,6 +89,12 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
 
     setExportingPDF(true);
     try {
+      // Dynamically import jsPDF and autoTable
+      const [{ default: jsPDF }, autoTable] = await Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable')
+      ]);
+
       // Cari hareket föyünü al
       const response = await adminApi.getCariHareketFoyu({
         cariKod: selectedCari['Cari Kodu'],
