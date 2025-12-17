@@ -89,11 +89,10 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
 
     setExportingPDF(true);
     try {
-      // Dynamically import jsPDF and autoTable
-      const [{ default: jsPDF }, autoTable] = await Promise.all([
-        import('jspdf'),
-        import('jspdf-autotable')
-      ]);
+      // Dynamically import jsPDF
+      const { default: jsPDF } = await import('jspdf');
+      // Import autoTable plugin (extends jsPDF)
+      await import('jspdf-autotable');
 
       // Cari hareket föyünü al
       const response = await adminApi.getCariHareketFoyu({
@@ -151,8 +150,8 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         formatValue(row['Tutar'])
       ]);
 
-      // AutoTable ile tablo oluştur
-      autoTable(doc, {
+      // AutoTable ile tablo oluştur (autoTable extends doc)
+      (doc as any).autoTable({
         startY: 42,
         head: [[
           'Seri',
