@@ -3,6 +3,7 @@
 import { Fragment } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Button } from './Button';
+import { Trash2, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -18,25 +19,25 @@ interface ConfirmDialogProps {
 
 const typeConfig = {
   danger: {
-    icon: '🗑️',
+    icon: Trash2,
     iconBg: 'bg-red-100',
     iconColor: 'text-red-600',
     confirmClass: 'bg-red-600 hover:bg-red-700 text-white',
   },
   warning: {
-    icon: '⚠️',
+    icon: AlertTriangle,
     iconBg: 'bg-yellow-100',
     iconColor: 'text-yellow-600',
     confirmClass: 'bg-yellow-600 hover:bg-yellow-700 text-white',
   },
   success: {
-    icon: '✅',
+    icon: CheckCircle2,
     iconBg: 'bg-green-100',
     iconColor: 'text-green-600',
     confirmClass: 'bg-green-600 hover:bg-green-700 text-white',
   },
   info: {
-    icon: 'ℹ️',
+    icon: Info,
     iconBg: 'bg-blue-100',
     iconColor: 'text-blue-600',
     confirmClass: 'bg-blue-600 hover:bg-blue-700 text-white',
@@ -93,7 +94,7 @@ export function ConfirmDialog({
                 <div className="flex items-start gap-4">
                   {/* Icon */}
                   <div className={`flex-shrink-0 ${config.iconBg} rounded-full w-12 h-12 flex items-center justify-center`}>
-                    <span className="text-2xl">{config.icon}</span>
+                    <config.icon className={`w-6 h-6 ${config.iconColor}`} />
                   </div>
 
                   {/* Content */}
