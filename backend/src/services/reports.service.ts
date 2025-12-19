@@ -178,19 +178,13 @@ export class ReportsService {
     }
 
     // Ürünleri çek
-    const productQuery: any = {
+    const products = await prisma.product.findMany({
       where,
       include: {
         category: true,
       },
-    };
-
-    if (!isAll) {
-      productQuery.skip = offset;
-      productQuery.take = limitValue + 1000; // Daha fazla çek, filtrelemeler sonrası limit'e kes
-    }
-
-    const products = await prisma.product.findMany(productQuery);
+      ...(isAll ? {} : { skip: offset, take: limitValue + 1000 }), // Daha fazla çek, filtrelemeler sonrası limit'e kes
+    });
 
     // Filtreleme ve hesaplama
     const alerts: CostUpdateAlert[] = [];
