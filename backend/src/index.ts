@@ -13,6 +13,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import syncService from './services/sync.service';
 import orderTrackingService from './services/order-tracking.service';
 import emailService from './services/email.service';
+import priceSyncService from './services/priceSync.service';
 
 // Express app
 const app: Application = express();
@@ -95,6 +96,21 @@ if (config.enableCron) {
       }
     } catch (error) {
       console.error('❌ Cron job hatası:', error);
+    }
+  });
+
+  console.log("Price sync cron schedule:", config.priceSyncCronSchedule);
+  cron.schedule(config.priceSyncCronSchedule, async () => {
+    console.log("Automatic price sync started...");
+    try {
+      const result = await priceSyncService.syncPriceChanges();
+      if (result.success) {
+        console.log("Automatic price sync completed:", result.recordsSynced);
+      } else {
+        console.error("Automatic price sync failed:", result.error);
+      }
+    } catch (error) {
+      console.error("Price cron job error:", error);
     }
   });
 

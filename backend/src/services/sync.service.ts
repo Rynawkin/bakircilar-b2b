@@ -15,6 +15,7 @@ import mikroService from './mikroFactory.service';
 import pricingService from './pricing.service';
 import stockService from './stock.service';
 import imageService from './image.service';
+import priceSyncService from './priceSync.service';
 
 class SyncService {
   /**
@@ -77,6 +78,12 @@ class SyncService {
     this.runFullSync(syncLog.id).catch((error) => {
       console.error('❌ Background sync error:', error);
     });
+
+    if (syncType === 'MANUAL') {
+      priceSyncService.syncPriceChanges().catch((error) => {
+        console.error('❌ Background price sync error:', error);
+      });
+    }
 
     return syncLog.id;
   }
