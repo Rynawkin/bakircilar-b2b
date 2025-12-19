@@ -177,13 +177,12 @@ export class ReportsService {
       };
     }
 
-    // Ürünleri çek
+    // Ürünleri çek (tüm eşleşenler, sayfalama sonradan yapılır)
     const products = await prisma.product.findMany({
       where,
       include: {
         category: true,
       },
-      ...(isAll ? {} : { skip: offset, take: limitValue + 1000 }), // Daha fazla çek, filtrelemeler sonrası limit'e kes
     });
 
     // Filtreleme ve hesaplama
@@ -254,7 +253,7 @@ export class ReportsService {
 
     // Pagination
     const totalRecords = alerts.length;
-    const paginatedAlerts = isAll ? alerts : alerts.slice(0, limitValue);
+    const paginatedAlerts = isAll ? alerts : alerts.slice(offset, offset + limitValue);
     const totalPages = isAll ? 1 : Math.ceil(totalRecords / limitValue);
     const paginationLimit = isAll ? totalRecords : limitValue;
 
