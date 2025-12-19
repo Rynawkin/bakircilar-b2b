@@ -566,90 +566,92 @@ model PriceChange {
   id                    String    @id @default(uuid())
 
   // Ürün bilgileri
-  productCode           String
-  productName           String
+  productCode           String @map("product_code")
+  productName           String @map("product_name")
 
   // Fiyat değişikliği
-  oldPrice              Decimal   @db.Decimal(14, 2)
-  newPrice              Decimal   @db.Decimal(14, 2)
-  changeAmount          Decimal   @db.Decimal(14, 2)
-  changePercent         Decimal   @db.Decimal(14, 2)
-  changedAt             DateTime
+  oldPrice              Decimal   @db.Decimal(14, 2) @map("old_price")
+  newPrice              Decimal   @db.Decimal(14, 2) @map("new_price")
+  changeAmount          Decimal   @db.Decimal(14, 2) @map("change_amount")
+  changePercent         Decimal   @db.Decimal(14, 2) @map("change_percent")
+  changedAt             DateTime @map("change_date")
 
   // Güncel maliyet ve fiyat listeleri (10 adet)
-  currentCost           Decimal   @db.Decimal(14, 2)
-  priceList1            Decimal?  @db.Decimal(14, 2)
-  priceList2            Decimal?  @db.Decimal(14, 2)
-  priceList3            Decimal?  @db.Decimal(14, 2)
-  priceList4            Decimal?  @db.Decimal(14, 2)
-  priceList5            Decimal?  @db.Decimal(14, 2)
-  priceList6            Decimal?  @db.Decimal(14, 2)
-  priceList7            Decimal?  @db.Decimal(14, 2)
-  priceList8            Decimal?  @db.Decimal(14, 2)
-  priceList9            Decimal?  @db.Decimal(14, 2)
-  priceList10           Decimal?  @db.Decimal(14, 2)
+  currentCost           Decimal   @db.Decimal(14, 2) @map("current_cost")
+  priceList1            Decimal?  @db.Decimal(14, 2) @map("price_list_1")
+  priceList2            Decimal?  @db.Decimal(14, 2) @map("price_list_2")
+  priceList3            Decimal?  @db.Decimal(14, 2) @map("price_list_3")
+  priceList4            Decimal?  @db.Decimal(14, 2) @map("price_list_4")
+  priceList5            Decimal?  @db.Decimal(14, 2) @map("price_list_5")
+  priceList6            Decimal?  @db.Decimal(14, 2) @map("price_list_6")
+  priceList7            Decimal?  @db.Decimal(14, 2) @map("price_list_7")
+  priceList8            Decimal?  @db.Decimal(14, 2) @map("price_list_8")
+  priceList9            Decimal?  @db.Decimal(14, 2) @map("price_list_9")
+  priceList10           Decimal?  @db.Decimal(14, 2) @map("price_list_10")
 
   // Marj oranları (10 adet) - maliyet üzerinden hesaplanan kar marjı yüzdeleri
-  marginList1           Decimal?  @db.Decimal(14, 2)
-  marginList2           Decimal?  @db.Decimal(14, 2)
-  marginList3           Decimal?  @db.Decimal(14, 2)
-  marginList4           Decimal?  @db.Decimal(14, 2)
-  marginList5           Decimal?  @db.Decimal(14, 2)
-  marginList6           Decimal?  @db.Decimal(14, 2)
-  marginList7           Decimal?  @db.Decimal(14, 2)
-  marginList8           Decimal?  @db.Decimal(14, 2)
-  marginList9           Decimal?  @db.Decimal(14, 2)
-  marginList10          Decimal?  @db.Decimal(14, 2)
+  marginList1           Decimal?  @db.Decimal(14, 2) @map("margin_list_1")
+  marginList2           Decimal?  @db.Decimal(14, 2) @map("margin_list_2")
+  marginList3           Decimal?  @db.Decimal(14, 2) @map("margin_list_3")
+  marginList4           Decimal?  @db.Decimal(14, 2) @map("margin_list_4")
+  marginList5           Decimal?  @db.Decimal(14, 2) @map("margin_list_5")
+  marginList6           Decimal?  @db.Decimal(14, 2) @map("margin_list_6")
+  marginList7           Decimal?  @db.Decimal(14, 2) @map("margin_list_7")
+  marginList8           Decimal?  @db.Decimal(14, 2) @map("margin_list_8")
+  marginList9           Decimal?  @db.Decimal(14, 2) @map("margin_list_9")
+  marginList10          Decimal?  @db.Decimal(14, 2) @map("margin_list_10")
 
-  createdAt             DateTime  @default(now())
+  createdAt             DateTime  @default(now()) @map("created_at")
 
   @@index([productCode])
   @@index([changedAt])
   @@index([changePercent])
+  @@map("price_changes")
 }
 
 // Ürün fiyat istatistikleri (özet bilgiler)
 model ProductPriceStat {
   id                    String    @id @default(uuid())
 
-  productCode           String    @unique
-  productName           String
+  productCode           String    @unique @map("product_code")
+  productName           String @map("product_name")
 
   // Son değişiklik
-  lastChangeDate        DateTime
-  lastChangePercent     Decimal   @db.Decimal(14, 2)
+  lastChangeDate        DateTime @map("last_change_date")
+  lastChangePercent     Decimal   @db.Decimal(14, 2) @map("last_change_percent")
 
   // Toplam değişiklik sayısı
-  totalChanges          Int       @default(0)
+  totalChanges          Int       @default(0) @map("total_changes")
 
   // Güncel değerler
-  currentCost           Decimal   @db.Decimal(14, 2)
-  currentPriceList1     Decimal?  @db.Decimal(14, 2)
-  currentPriceList2     Decimal?  @db.Decimal(14, 2)
-  currentPriceList3     Decimal?  @db.Decimal(14, 2)
-  currentPriceList4     Decimal?  @db.Decimal(14, 2)
-  currentPriceList5     Decimal?  @db.Decimal(14, 2)
-  currentPriceList6     Decimal?  @db.Decimal(14, 2)
-  currentPriceList7     Decimal?  @db.Decimal(14, 2)
-  currentPriceList8     Decimal?  @db.Decimal(14, 2)
-  currentPriceList9     Decimal?  @db.Decimal(14, 2)
-  currentPriceList10    Decimal?  @db.Decimal(14, 2)
+  currentCost           Decimal   @db.Decimal(14, 2) @map("current_cost")
+  currentPriceList1     Decimal?  @db.Decimal(14, 2) @map("current_price_list_1")
+  currentPriceList2     Decimal?  @db.Decimal(14, 2) @map("current_price_list_2")
+  currentPriceList3     Decimal?  @db.Decimal(14, 2) @map("current_price_list_3")
+  currentPriceList4     Decimal?  @db.Decimal(14, 2) @map("current_price_list_4")
+  currentPriceList5     Decimal?  @db.Decimal(14, 2) @map("current_price_list_5")
+  currentPriceList6     Decimal?  @db.Decimal(14, 2) @map("current_price_list_6")
+  currentPriceList7     Decimal?  @db.Decimal(14, 2) @map("current_price_list_7")
+  currentPriceList8     Decimal?  @db.Decimal(14, 2) @map("current_price_list_8")
+  currentPriceList9     Decimal?  @db.Decimal(14, 2) @map("current_price_list_9")
+  currentPriceList10    Decimal?  @db.Decimal(14, 2) @map("current_price_list_10")
 
-  currentMarginList1    Decimal?  @db.Decimal(14, 2)
-  currentMarginList2    Decimal?  @db.Decimal(14, 2)
-  currentMarginList3    Decimal?  @db.Decimal(14, 2)
-  currentMarginList4    Decimal?  @db.Decimal(14, 2)
-  currentMarginList5    Decimal?  @db.Decimal(14, 2)
-  currentMarginList6    Decimal?  @db.Decimal(14, 2)
-  currentMarginList7    Decimal?  @db.Decimal(14, 2)
-  currentMarginList8    Decimal?  @db.Decimal(14, 2)
-  currentMarginList9    Decimal?  @db.Decimal(14, 2)
-  currentMarginList10   Decimal?  @db.Decimal(14, 2)
+  currentMarginList1    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_1")
+  currentMarginList2    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_2")
+  currentMarginList3    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_3")
+  currentMarginList4    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_4")
+  currentMarginList5    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_5")
+  currentMarginList6    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_6")
+  currentMarginList7    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_7")
+  currentMarginList8    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_8")
+  currentMarginList9    Decimal?  @db.Decimal(14, 2) @map("current_margin_list_9")
+  currentMarginList10   Decimal?  @db.Decimal(14, 2) @map("current_margin_list_10")
 
-  updatedAt             DateTime  @updatedAt
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   @@index([productCode])
   @@index([lastChangeDate])
+  @@map("product_price_stats")
 }
 
 // ==================== REPORT EXCLUSIONS ====================
