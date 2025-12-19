@@ -47,11 +47,16 @@ const resolveListNo = (value: any, fallback: number, min: number, max: number): 
 };
 
 const resolveCustomerPriceLists = (
-  user: { customerType?: string; invoicedPriceListNo?: number | null; whitePriceListNo?: number | null },
+  user: {
+    customerType?: string | null;
+    invoicedPriceListNo?: number | null;
+    whitePriceListNo?: number | null;
+  },
   settings: { customerPriceLists?: any } | null
 ): PriceListPair => {
   const config = normalizePriceListConfig(settings?.customerPriceLists);
-  const base = config[user.customerType as keyof CustomerPriceListConfig] || DEFAULT_PRICE_LISTS.BAYI;
+  const customerType = (user.customerType || 'BAYI') as keyof CustomerPriceListConfig;
+  const base = config[customerType] || DEFAULT_PRICE_LISTS.BAYI;
 
   return {
     invoiced: resolveListNo(user.invoicedPriceListNo, base.invoiced, 6, 10),
