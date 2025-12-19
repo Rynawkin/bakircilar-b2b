@@ -21,18 +21,6 @@ interface PriceChangeRecord {
   sto_isim: string;
   sto_marka_kodu: string | null;
   sto_standartmaliyet: number;
-  sto_eldekmiktar: number;
-  // Tüm liste fiyatları
-  sto_satisfiyati1: number;
-  sto_satisfiyati2: number;
-  sto_satisfiyati3: number;
-  sto_satisfiyati4: number;
-  sto_satisfiyati5: number;
-  sto_satisfiyati6: number;
-  sto_satisfiyati7: number;
-  sto_satisfiyati8: number;
-  sto_satisfiyati9: number;
-  sto_satisfiyati10: number;
 }
 
 class PriceSyncService {
@@ -141,11 +129,50 @@ class PriceSyncService {
     }
   }
 
+  private async fetchPriceListMap(): Promise<Map<string, number[]>> {
+    console.log('📥 Fetching current price lists from Mikro...');
+
+    const rows = await mikroService.executeQuery(`
+      SELECT
+        sfiyat_stokkod,
+        sfiyat_listesirano,
+        sfiyat_fiyati
+      FROM STOK_SATIS_FIYAT_LISTELERI
+      WHERE sfiyat_listesirano BETWEEN 1 AND 10
+        AND sfiyat_deposirano = 0
+        AND sfiyat_doviz = 0
+        AND sfiyat_odemeplan = 0
+        AND sfiyat_iptal = 0
+        AND sfiyat_fiyati > 0
+    `);
+
+    const priceListMap = new Map<string, number[]>();
+
+    for (const row of rows) {
+      const code = (row.sfiyat_stokkod || '').trim();
+      const listNo = Number(row.sfiyat_listesirano);
+
+      if (!code || Number.isNaN(listNo) || listNo < 1 || listNo > 10) continue;
+
+      if (!priceListMap.has(code)) {
+        priceListMap.set(code, Array(10).fill(0));
+      }
+
+      const prices = priceListMap.get(code)!;
+      prices[listNo - 1] = Number(row.sfiyat_fiyati) || 0;
+    }
+
+    console.log(`📊 Loaded price lists for ${priceListMap.size} products`);
+
+    return priceListMap;
+  }
+
   /**
    * Tüm fiyat geçmişini çeker
    */
   private async performFullSync(): Promise<number> {
     console.log('📥 Fetching all price changes from Mikro...');
+    const priceListMap = await this.fetchPriceListMap();
 
     const changes = await mikroService.executeQuery(`
       SELECT
@@ -172,7 +199,7 @@ class PriceSyncService {
 
     for (let i = 0; i < changes.length; i += batchSize) {
       const batch = changes.slice(i, i + batchSize);
-      await this.insertPriceChanges(batch);
+      await this.insertPriceChanges(batch, priceListMap);
       inserted += batch.length;
       console.log(`  → Inserted ${inserted}/${changes.length} records`);
 
@@ -212,7 +239,8 @@ class PriceSyncService {
     console.log(`📊 Found ${changes.length} new price changes`);
 
     if (changes.length > 0) {
-      await this.insertPriceChanges(changes);
+      const priceListMap = await this.fetchPriceListMap();
+      await this.insertPriceChanges(changes, priceListMap);
     }
 
     return changes.length;
@@ -221,30 +249,27 @@ class PriceSyncService {
   /**
    * Fiyat değişikliklerini PostgreSQL'e ekler
    */
-  private async insertPriceChanges(changes: PriceChangeRecord[]): Promise<void> {
+  private async insertPriceChanges(
+    changes: PriceChangeRecord[],
+    priceListMap: Map<string, number[]>,
+  ): Promise<void> {
     const values = changes.map((change) => {
       const changeAmount = change.fid_yenifiy_tutar - change.fid_eskifiy_tutar;
       const changePercent = change.fid_eskifiy_tutar !== 0
         ? (changeAmount / change.fid_eskifiy_tutar) * 100
         : 0;
 
-      // Kar marjlarını hesapla (sadece STOKLAR'dan gelen 7 fiyat)
       const cost = change.sto_standartmaliyet || 0;
-      const prices = [
-        change.sto_satisfiyati1,
-        change.sto_satisfiyati2,
-        change.sto_satisfiyati3,
-        change.sto_satisfiyati4,
-        change.sto_satisfiyati5,
-        change.sto_satisfiyati6,
-        change.sto_satisfiyati7,
-      ];
+      const priceLists = priceListMap.get((change.fid_stok_kod || '').trim());
+      const prices = priceLists
+        ? [...priceLists]
+        : Array(10).fill(0);
 
-      // Marjları hesapla (7 fiyat + 3 sıfır = 10 adet)
+      // Marjları hesapla (10 fiyat)
       const margins = prices.map((price) => {
         if (!price || price === 0 || cost === 0) return 0;
         return ((price - cost) / price) * 100; // Kar marjı %
-      }).concat([0, 0, 0]); // Fiyat 8, 9, 10 için sıfır marj
+      });
 
       return `(
         '${randomUUID()}',
@@ -267,9 +292,9 @@ class PriceSyncService {
         ${prices[4] || 0},
         ${prices[5] || 0},
         ${prices[6] || 0},
-        0,
-        0,
-        0,
+        ${prices[7] || 0},
+        ${prices[8] || 0},
+        ${prices[9] || 0},
         ${margins[0]},
         ${margins[1]},
         ${margins[2]},
@@ -277,9 +302,9 @@ class PriceSyncService {
         ${margins[4]},
         ${margins[5]},
         ${margins[6]},
-        ${margins[7]},
-        ${margins[8]},
-        ${margins[9]},
+        ${margins[7] || 0},
+        ${margins[8] || 0},
+        ${margins[9] || 0},
         CURRENT_TIMESTAMP,
         CURRENT_TIMESTAMP
       )`;
