@@ -216,6 +216,17 @@ class SyncService {
 
     console.log(`📊 Mikro'dan ${mikroProducts.length} ürün çekildi`);
 
+    if (mikroProducts.length > 0) {
+      const mikroCodes = mikroProducts.map((product) => product.code);
+      await prisma.product.updateMany({
+        where: {
+          active: true,
+          mikroCode: { notIn: mikroCodes },
+        },
+        data: { active: false },
+      });
+    }
+
     let count = 0;
     let skippedNoCategory = 0;
 

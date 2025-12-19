@@ -57,6 +57,18 @@ export default function ProductsPage() {
   const getDisplayStock = (product: Product) =>
     product.availableStock ?? product.excessStock ?? 0;
 
+  const getNormalStock = (product: Product) => {
+    const totalStock = getDisplayStock(product);
+    const excessStock = product.excessStock ?? 0;
+    return Math.max(0, totalStock - excessStock);
+  };
+
+  const getDiscountPercent = (listPrice?: number, salePrice?: number) => {
+    if (!listPrice || listPrice <= 0 || !salePrice || salePrice >= listPrice) return null;
+    const discount = Math.round(((listPrice - salePrice) / listPrice) * 100);
+    return discount > 0 ? discount : null;
+  };
+
   // Apply advanced filters to products
   const filteredProducts = useMemo(() => {
     return applyProductFilters(products, advancedFilters);
@@ -459,8 +471,14 @@ export default function ProductsPage() {
                         {/* Stock badge */}
                         <div className="absolute top-2 right-2 bg-gradient-to-br from-green-500 to-green-600 text-white text-xs font-bold px-2 py-1 rounded-lg shadow-lg">
                           <div className="text-[10px] uppercase tracking-wide opacity-80">Stok</div>
-                          <div>{getDisplayStock(product)} {product.unit}</div>
+                          <div>{getNormalStock(product)} {product.unit}</div>
                         </div>
+                        {product.excessStock > 0 && (
+                          <div className="absolute top-2 left-2 bg-gradient-to-br from-orange-500 to-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg shadow-lg">
+                            <div className="text-[10px] uppercase tracking-wide opacity-80">Fazla</div>
+                            <div>{product.excessStock} {product.unit}</div>
+                          </div>
+                        )}
                         {/* Overlay on hover */}
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-700 px-4 py-2 rounded-lg font-semibold text-sm shadow-xl">
@@ -499,6 +517,14 @@ export default function ProductsPage() {
                         >
                           <div className="opacity-80 mb-0.5">📄 Faturalı</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
+                          {product.excessPrices && product.excessStock > 0 && (
+                            <div className="text-[10px] text-green-700 font-semibold">
+                              Fazla: {formatCurrency(product.excessPrices.invoiced)}
+                              {getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced) && (
+                                <span> (-%{getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced)})</span>
+                              )}
+                            </div>
+                          )}
                           <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
                         </button>
                         <button
@@ -511,6 +537,14 @@ export default function ProductsPage() {
                         >
                           <div className="opacity-80 mb-0.5">⚪ Beyaz</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
+                          {product.excessPrices && product.excessStock > 0 && (
+                            <div className="text-[10px] text-green-700 font-semibold">
+                              Fazla: {formatCurrency(product.excessPrices.white)}
+                              {getDiscountPercent(product.prices.white, product.excessPrices.white) && (
+                                <span> (-%{getDiscountPercent(product.prices.white, product.excessPrices.white)})</span>
+                              )}
+                            </div>
+                          )}
                           <div className="text-[10px] opacity-70 mt-0.5">Özel</div>
                         </button>
                       </div>

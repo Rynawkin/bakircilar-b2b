@@ -106,6 +106,7 @@ export const adminApi = {
     search?: string;
     hasImage?: 'true' | 'false';
     categoryId?: string;
+    priceListStatus?: 'all' | 'missing' | 'available';
     sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost';
     sortOrder?: 'asc' | 'desc';
   }): Promise<{ products: any[] }> => {

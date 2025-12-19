@@ -69,6 +69,7 @@ export default function AdminProductsPage() {
   const debouncedSearch = useDebounce(search, 300);
   const [hasImage, setHasImage] = useState<'all' | 'true' | 'false'>('all');
   const [categoryId, setCategoryId] = useState<string>('');
+  const [priceListStatus, setPriceListStatus] = useState<'all' | 'missing' | 'available'>('all');
   const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -104,6 +105,7 @@ export default function AdminProductsPage() {
       if (debouncedSearch) params.search = debouncedSearch;
       if (hasImage !== 'all') params.hasImage = hasImage;
       if (categoryId) params.categoryId = categoryId;
+      if (priceListStatus !== 'all') params.priceListStatus = priceListStatus;
       params.sortBy = sortBy;
       params.sortOrder = sortOrder;
 
@@ -120,7 +122,7 @@ export default function AdminProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  }, [currentPage, debouncedSearch, hasImage, categoryId, sortBy, sortOrder]);
+  }, [currentPage, debouncedSearch, hasImage, categoryId, priceListStatus, sortBy, sortOrder]);
 
   const fetchData = useCallback(async () => {
     await Promise.all([fetchProducts(1), fetchCategories()]);
@@ -141,7 +143,7 @@ export default function AdminProductsPage() {
       setCurrentPage(1); // Reset page when filters change
       fetchProducts(1);
     }
-  }, [debouncedSearch, hasImage, categoryId, sortBy, sortOrder, user, fetchProducts]);
+  }, [debouncedSearch, hasImage, categoryId, priceListStatus, sortBy, sortOrder, user, fetchProducts]);
 
   const handleSort = (field: typeof sortBy) => {
     if (sortBy === field) {
@@ -227,7 +229,7 @@ export default function AdminProductsPage() {
             </div>
 
             {/* Filters Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Image Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -260,6 +262,22 @@ export default function AdminProductsPage() {
                       {cat.name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              {/* Price List Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Mikro Satış Fiyatı
+                </label>
+                <select
+                  value={priceListStatus}
+                  onChange={(e) => setPriceListStatus(e.target.value as any)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">Tümü</option>
+                  <option value="available">Fiyatı Olanlar</option>
+                  <option value="missing">Fiyatı Olmayanlar</option>
                 </select>
               </div>
 

@@ -82,14 +82,18 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
   const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
   const listInvoiced = product.listPrices?.invoiced;
   const listWhite = product.listPrices?.white;
-  const invoicedDiscount =
-    listInvoiced && listInvoiced > 0
-      ? Math.round(((listInvoiced - product.prices.invoiced) / listInvoiced) * 100)
-      : null;
-  const whiteDiscount =
-    listWhite && listWhite > 0
-      ? Math.round(((listWhite - product.prices.white) / listWhite) * 100)
-      : null;
+  const excessInvoiced = product.excessPrices?.invoiced;
+  const excessWhite = product.excessPrices?.white;
+
+  const calcDiscount = (listPrice?: number, salePrice?: number) => {
+    if (!listPrice || listPrice <= 0 || !salePrice || salePrice >= listPrice) return null;
+    return Math.round(((listPrice - salePrice) / listPrice) * 100);
+  };
+
+  const invoicedDiscount = calcDiscount(listInvoiced, product.prices.invoiced);
+  const whiteDiscount = calcDiscount(listWhite, product.prices.white);
+  const excessInvoicedDiscount = calcDiscount(product.prices.invoiced, excessInvoiced);
+  const excessWhiteDiscount = calcDiscount(product.prices.white, excessWhite);
 
   const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
@@ -223,13 +227,21 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                     {formatCurrency(product.prices.invoiced)}
                   </div>
                   {isDiscounted && listInvoiced && listInvoiced > 0 && (
-                    <div className="text-xs text-gray-500 line-through">
-                      {formatCurrency(listInvoiced)}
+                    <div className="text-xs text-gray-500">
+                      Liste: <span className="line-through">{formatCurrency(listInvoiced)}</span>
                     </div>
                   )}
-                  {isDiscounted && invoicedDiscount && invoicedDiscount > 0 && (
+                  {isDiscounted && invoicedDiscount && (
                     <div className="text-xs text-green-700 font-semibold">
-                      %{invoicedDiscount} indirim
+                      <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{invoicedDiscount}</span> indirim
+                    </div>
+                  )}
+                  {!isDiscounted && product.excessStock > 0 && excessInvoiced && (
+                    <div className="text-xs text-green-700 font-semibold">
+                      Fazla Stok: {formatCurrency(excessInvoiced)}
+                      {excessInvoicedDiscount && (
+                        <span> (-%{excessInvoicedDiscount})</span>
+                      )}
                     </div>
                   )}
                   <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-primary-600 font-semibold">+KDV</span></div>
@@ -247,13 +259,21 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                     {formatCurrency(product.prices.white)}
                   </div>
                   {isDiscounted && listWhite && listWhite > 0 && (
-                    <div className="text-xs text-gray-500 line-through">
-                      {formatCurrency(listWhite)}
+                    <div className="text-xs text-gray-500">
+                      Liste: <span className="line-through">{formatCurrency(listWhite)}</span>
                     </div>
                   )}
-                  {isDiscounted && whiteDiscount && whiteDiscount > 0 && (
+                  {isDiscounted && whiteDiscount && (
                     <div className="text-xs text-green-700 font-semibold">
-                      %{whiteDiscount} indirim
+                      <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{whiteDiscount}</span> indirim
+                    </div>
+                  )}
+                  {!isDiscounted && product.excessStock > 0 && excessWhite && (
+                    <div className="text-xs text-green-700 font-semibold">
+                      Fazla Stok: {formatCurrency(excessWhite)}
+                      {excessWhiteDiscount && (
+                        <span> (-%{excessWhiteDiscount})</span>
+                      )}
                     </div>
                   )}
                   <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-gray-700 font-semibold">Özel Fiyat</span></div>

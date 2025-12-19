@@ -441,9 +441,19 @@ export default function DiscountedProductsPage() {
                   </div>
                 )}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {filteredProducts.map((product) => (
-                  <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
-                    <div className="space-y-3 flex flex-col h-full">
+                {filteredProducts.map((product) => {
+                  const invoicedDiscount = getDiscountPercent(
+                    product.listPrices?.invoiced,
+                    product.prices.invoiced
+                  );
+                  const whiteDiscount = getDiscountPercent(
+                    product.listPrices?.white,
+                    product.prices.white
+                  );
+
+                  return (
+                    <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
+                      <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
                       <div
                         className="w-full h-40 bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 overflow-hidden relative cursor-pointer"
@@ -506,13 +516,13 @@ export default function DiscountedProductsPage() {
                           <div className="opacity-80 mb-0.5">📄 Faturalı</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
                           {product.listPrices?.invoiced && product.listPrices.invoiced > 0 && (
-                            <div className="text-[10px] text-gray-500 line-through">
-                              {formatCurrency(product.listPrices.invoiced)}
+                            <div className="text-[10px] text-gray-500">
+                              Liste: <span className="line-through">{formatCurrency(product.listPrices.invoiced)}</span>
                             </div>
                           )}
-                          {getDiscountPercent(product.listPrices?.invoiced, product.prices.invoiced) && (
+                          {invoicedDiscount && (
                             <div className="text-[10px] text-green-700 font-semibold">
-                              %{getDiscountPercent(product.listPrices?.invoiced, product.prices.invoiced)} indirim
+                              <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{invoicedDiscount}</span> indirim
                             </div>
                           )}
                           <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
@@ -528,13 +538,13 @@ export default function DiscountedProductsPage() {
                           <div className="opacity-80 mb-0.5">⚪ Beyaz</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
                           {product.listPrices?.white && product.listPrices.white > 0 && (
-                            <div className="text-[10px] text-gray-500 line-through">
-                              {formatCurrency(product.listPrices.white)}
+                            <div className="text-[10px] text-gray-500">
+                              Liste: <span className="line-through">{formatCurrency(product.listPrices.white)}</span>
                             </div>
                           )}
-                          {getDiscountPercent(product.listPrices?.white, product.prices.white) && (
+                          {whiteDiscount && (
                             <div className="text-[10px] text-green-700 font-semibold">
-                              %{getDiscountPercent(product.listPrices?.white, product.prices.white)} indirim
+                              <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{whiteDiscount}</span> indirim
                             </div>
                           )}
                           <div className="text-[10px] opacity-70 mt-0.5">Özel</div>
@@ -582,8 +592,9 @@ export default function DiscountedProductsPage() {
                         </Button>
                       </div>
                     </div>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
               </div>
             )}

@@ -41,6 +41,10 @@ export interface Product {
     invoiced: number;
     white: number;
   };
+  excessPrices?: {
+    invoiced: number;
+    white: number;
+  };
   listPrices?: {
     invoiced: number;
     white: number;

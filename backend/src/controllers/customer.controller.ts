@@ -207,14 +207,16 @@ export class CustomerController {
         let maxOrderQuantity = isDiscounted ? excessStock : availableStock;
 
         if (warehouse) {
-          const stockSource = isDiscounted ? warehouseExcessStocks : warehouseStocks;
-          const warehouseQty = stockSource?.[warehouse as string] || 0;
+          const warehouseKey = warehouse as string;
+          const warehouseQty = warehouseStocks?.[warehouseKey] || 0;
+          const warehouseExcessQty = warehouseExcessStocks?.[warehouseKey] || 0;
           if (isDiscounted) {
-            excessStock = warehouseQty;
+            excessStock = warehouseExcessQty;
           } else {
             availableStock = warehouseQty;
+            excessStock = warehouseExcessQty;
           }
-          maxOrderQuantity = warehouseQty;
+          maxOrderQuantity = isDiscounted ? warehouseExcessQty : warehouseQty;
         }
 
         return {
@@ -233,6 +235,7 @@ export class CustomerController {
             name: product.category.name,
           },
           prices: isDiscounted ? customerPrices : listPrices,
+          excessPrices: customerPrices,
           listPrices: isDiscounted ? listPricesRaw : undefined,
           pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
         };
@@ -293,7 +296,7 @@ export class CustomerController {
         },
       });
 
-      if (!product) {
+      if (!product || !product.active) {
         return res.status(404).json({ error: 'Product not found' });
       }
 
@@ -334,6 +337,7 @@ export class CustomerController {
         imageUrl: product.imageUrl,
         category: product.category,
         prices: isDiscounted ? customerPrices : listPrices,
+        excessPrices: customerPrices,
         listPrices: isDiscounted ? listPricesRaw : undefined,
         pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
       });

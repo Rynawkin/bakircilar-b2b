@@ -250,6 +250,7 @@ export class AdminController {
         search,
         hasImage,
         categoryId,
+        priceListStatus = 'all',
         sortBy = 'name',
         sortOrder = 'asc',
         page = '1',
@@ -276,6 +277,34 @@ export class AdminController {
       // Kategori filtresi
       if (categoryId) {
         where.categoryId = categoryId as string;
+      }
+
+      if (priceListStatus === 'missing' || priceListStatus === 'available') {
+        const availableRows = await prisma.$queryRaw<{ product_code: string }[]>`
+          SELECT DISTINCT product_code
+          FROM product_price_stats
+          WHERE COALESCE(current_price_list_1, 0) > 0
+             OR COALESCE(current_price_list_2, 0) > 0
+             OR COALESCE(current_price_list_3, 0) > 0
+             OR COALESCE(current_price_list_4, 0) > 0
+             OR COALESCE(current_price_list_5, 0) > 0
+             OR COALESCE(current_price_list_6, 0) > 0
+             OR COALESCE(current_price_list_7, 0) > 0
+             OR COALESCE(current_price_list_8, 0) > 0
+             OR COALESCE(current_price_list_9, 0) > 0
+             OR COALESCE(current_price_list_10, 0) > 0
+        `;
+        const availableCodes = availableRows.map((row) => row.product_code);
+
+        if (priceListStatus === 'available') {
+          where.mikroCode = {
+            in: availableCodes.length > 0 ? availableCodes : ['__none__'],
+          };
+        } else if (availableCodes.length > 0) {
+          where.mikroCode = {
+            notIn: availableCodes,
+          };
+        }
       }
 
       // Sıralama ayarları
