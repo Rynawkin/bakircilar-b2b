@@ -24,6 +24,125 @@ interface PriceChangeRecord {
 }
 
 class PriceSyncService {
+  private async upsertMissingPriceStats(priceListMap: Map<string, number[]>): Promise<void> {
+    const codes = Array.from(priceListMap.keys());
+    if (codes.length === 0) return;
+
+    const existingRows = await prisma.productPriceStat.findMany({
+      where: { productCode: { in: codes } },
+      select: { productCode: true },
+    });
+    const existingSet = new Set(existingRows.map((row) => row.productCode));
+    const missingCodes = codes.filter((code) => !existingSet.has(code));
+
+    if (missingCodes.length === 0) return;
+
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: missingCodes } },
+      select: { mikroCode: true, name: true, currentCost: true },
+    });
+    const productMap = new Map(
+      products.map((product) => [product.mikroCode, product])
+    );
+
+    const batchSize = 500;
+    for (let i = 0; i < missingCodes.length; i += batchSize) {
+      const batch = missingCodes.slice(i, i + batchSize);
+      const values = batch.map((code) => {
+        const priceLists = priceListMap.get(code) || Array(10).fill(0);
+        const product = productMap.get(code);
+        const productName = (product?.name || code).replace(/'/g, "''");
+        const cost = product?.currentCost;
+        const costValue = cost === null || cost === undefined ? 'NULL' : cost;
+
+        const margins = priceLists.map((price) => {
+          if (!price || price === 0 || !cost || cost === 0) return 0;
+          return ((price - cost) / price) * 100;
+        });
+
+        return `(
+          '${randomUUID()}',
+          '${code}',
+          '${productName}',
+          NULL,
+          NULL,
+          0,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          ${costValue},
+          NULL,
+          ${priceLists[0] || 0},
+          ${priceLists[1] || 0},
+          ${priceLists[2] || 0},
+          ${priceLists[3] || 0},
+          ${priceLists[4] || 0},
+          ${priceLists[5] || 0},
+          ${priceLists[6] || 0},
+          ${priceLists[7] || 0},
+          ${priceLists[8] || 0},
+          ${priceLists[9] || 0},
+          ${margins[0] || 0},
+          ${margins[1] || 0},
+          ${margins[2] || 0},
+          ${margins[3] || 0},
+          ${margins[4] || 0},
+          ${margins[5] || 0},
+          ${margins[6] || 0},
+          ${margins[7] || 0},
+          ${margins[8] || 0},
+          ${margins[9] || 0},
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP
+        )`;
+      }).join(',\n');
+
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO product_price_stats (
+          id, product_code, product_name, brand, category,
+          total_changes, first_change_date, last_change_date,
+          days_since_last_change, avg_change_frequency_days,
+          current_cost, current_stock,
+          current_price_list_1, current_price_list_2, current_price_list_3,
+          current_price_list_4, current_price_list_5, current_price_list_6,
+          current_price_list_7, current_price_list_8, current_price_list_9,
+          current_price_list_10,
+          current_margin_list_1, current_margin_list_2, current_margin_list_3,
+          current_margin_list_4, current_margin_list_5, current_margin_list_6,
+          current_margin_list_7, current_margin_list_8, current_margin_list_9,
+          current_margin_list_10,
+          updated_at, created_at
+        )
+        VALUES ${values}
+        ON CONFLICT (product_code) DO UPDATE SET
+          product_name = EXCLUDED.product_name,
+          current_cost = EXCLUDED.current_cost,
+          current_price_list_1 = EXCLUDED.current_price_list_1,
+          current_price_list_2 = EXCLUDED.current_price_list_2,
+          current_price_list_3 = EXCLUDED.current_price_list_3,
+          current_price_list_4 = EXCLUDED.current_price_list_4,
+          current_price_list_5 = EXCLUDED.current_price_list_5,
+          current_price_list_6 = EXCLUDED.current_price_list_6,
+          current_price_list_7 = EXCLUDED.current_price_list_7,
+          current_price_list_8 = EXCLUDED.current_price_list_8,
+          current_price_list_9 = EXCLUDED.current_price_list_9,
+          current_price_list_10 = EXCLUDED.current_price_list_10,
+          current_margin_list_1 = EXCLUDED.current_margin_list_1,
+          current_margin_list_2 = EXCLUDED.current_margin_list_2,
+          current_margin_list_3 = EXCLUDED.current_margin_list_3,
+          current_margin_list_4 = EXCLUDED.current_margin_list_4,
+          current_margin_list_5 = EXCLUDED.current_margin_list_5,
+          current_margin_list_6 = EXCLUDED.current_margin_list_6,
+          current_margin_list_7 = EXCLUDED.current_margin_list_7,
+          current_margin_list_8 = EXCLUDED.current_margin_list_8,
+          current_margin_list_9 = EXCLUDED.current_margin_list_9,
+          current_margin_list_10 = EXCLUDED.current_margin_list_10,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+    }
+  }
+
   /**
    * Ana senkronizasyon metodu
    * Otomatik olarak full veya incremental sync yapar
@@ -60,13 +179,14 @@ class PriceSyncService {
 
       // Mikro'ya bağlan
       await mikroService.connect();
+      const priceListMap = await this.fetchPriceListMap();
 
       let recordsSynced = 0;
       let lastSyncedDate: Date | null = null;
 
       if (syncType === 'full') {
         // Tüm geçmişi çek
-        recordsSynced = await this.performFullSync();
+        recordsSynced = await this.performFullSync(priceListMap);
 
         // En son değişiklik tarihini al
         const maxDate = await prisma.$queryRaw<any[]>`
@@ -76,7 +196,7 @@ class PriceSyncService {
       } else {
         // Sadece son sync'ten sonraki değişiklikleri çek
         const fromDate = lastSync[0].last_synced_date;
-        recordsSynced = await this.performIncrementalSync(fromDate);
+        recordsSynced = await this.performIncrementalSync(fromDate, priceListMap);
 
         // Yeni en son tarih
         const maxDate = await prisma.$queryRaw<any[]>`
@@ -87,6 +207,7 @@ class PriceSyncService {
 
       // İstatistikleri güncelle
       await this.updateProductStats();
+      await this.upsertMissingPriceStats(priceListMap);
 
       await mikroService.disconnect();
 
@@ -170,9 +291,8 @@ class PriceSyncService {
   /**
    * Tüm fiyat geçmişini çeker
    */
-  private async performFullSync(): Promise<number> {
+  private async performFullSync(priceListMap: Map<string, number[]>): Promise<number> {
     console.log('📥 Fetching all price changes from Mikro...');
-    const priceListMap = await this.fetchPriceListMap();
 
     const changes = await mikroService.executeQuery(`
       SELECT
@@ -215,7 +335,10 @@ class PriceSyncService {
   /**
    * Belirli bir tarihten sonraki değişiklikleri çeker
    */
-  private async performIncrementalSync(fromDate: Date): Promise<number> {
+  private async performIncrementalSync(
+    fromDate: Date,
+    priceListMap: Map<string, number[]>
+  ): Promise<number> {
     console.log(`📥 Fetching price changes since ${fromDate.toISOString()}...`);
 
     const changes = await mikroService.executeQuery(`
@@ -239,7 +362,6 @@ class PriceSyncService {
     console.log(`📊 Found ${changes.length} new price changes`);
 
     if (changes.length > 0) {
-      const priceListMap = await this.fetchPriceListMap();
       await this.insertPriceChanges(changes, priceListMap);
     }
 
