@@ -156,7 +156,10 @@ export class ReportsService {
       sortOrder = 'desc',
     } = options;
 
-    const offset = (page - 1) * limit;
+    const pageValue = Number.isFinite(page) && page > 0 ? page : 1;
+    const limitValue = Number.isFinite(limit) ? limit : 50;
+    const isAll = limitValue <= 0;
+    const offset = isAll ? 0 : (pageValue - 1) * limitValue;
 
     // WHERE koşulları
     const where: any = {
@@ -175,14 +178,19 @@ export class ReportsService {
     }
 
     // Ürünleri çek
-    const products = await prisma.product.findMany({
+    const productQuery: any = {
       where,
       include: {
         category: true,
       },
-      skip: offset,
-      take: limit + 1000, // Daha fazla çek, filtrelemeler sonrası limit'e kes
-    });
+    };
+
+    if (!isAll) {
+      productQuery.skip = offset;
+      productQuery.take = limitValue + 1000; // Daha fazla çek, filtrelemeler sonrası limit'e kes
+    }
+
+    const products = await prisma.product.findMany(productQuery);
 
     // Filtreleme ve hesaplama
     const alerts: CostUpdateAlert[] = [];
@@ -252,8 +260,9 @@ export class ReportsService {
 
     // Pagination
     const totalRecords = alerts.length;
-    const paginatedAlerts = alerts.slice(0, limit);
-    const totalPages = Math.ceil(totalRecords / limit);
+    const paginatedAlerts = isAll ? alerts : alerts.slice(0, limitValue);
+    const totalPages = isAll ? 1 : Math.ceil(totalRecords / limitValue);
+    const paginationLimit = isAll ? totalRecords : limitValue;
 
     // Summary hesaplama
     const totalRiskAmount = alerts.reduce((sum, a) => sum + a.riskAmount, 0);
@@ -281,8 +290,8 @@ export class ReportsService {
         avgDiffPercent,
       },
       pagination: {
-        page,
-        limit,
+        page: isAll ? 1 : pageValue,
+        limit: paginationLimit,
         totalPages,
         totalRecords,
       },

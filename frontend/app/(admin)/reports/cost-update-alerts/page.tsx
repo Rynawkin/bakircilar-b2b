@@ -67,6 +67,7 @@ export default function CostUpdateAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,80 +161,117 @@ export default function CostUpdateAlertsPage() {
     }
   };
 
-  const handleExportExcel = () => {
-    if (filteredData.length === 0) {
-      toast.error('Dışa aktarılacak veri yok');
-      return;
+  const handleExportExcel = async () => {
+    if (isExporting) return;
+
+    setIsExporting(true);
+    const exportToast = toast.loading('Excel hazırlanıyor...');
+
+    try {
+      const result = await adminApi.getCostUpdateAlerts({
+        page: 1,
+        limit: 0,
+        sortBy: 'riskAmount',
+        sortOrder: 'desc',
+        dayDiff: dayDiffFilter || undefined,
+        percentDiff: percentDiffFilter || undefined,
+      });
+
+      if (!result.success) {
+        throw new Error('Bir hata oluştu');
+      }
+
+      const exportBase = result.data.products as CostUpdateAlert[];
+      const searchTerm = searchQuery.trim().toLowerCase();
+      const exportData = searchTerm.length > 0
+        ? exportBase.filter((item) =>
+            item.productName.toLowerCase().includes(searchTerm) ||
+            item.productCode.toLowerCase().includes(searchTerm)
+          )
+        : exportBase;
+
+      if (exportData.length === 0) {
+        toast.error('Dışa aktarılacak veri yok', { id: exportToast });
+        return;
+      }
+
+      const exportSummary = result.data.summary;
+
+      // Excel verisi hazırla - her satır bir obje
+      const excelData = exportData.map((item) => ({
+        'Ürün Kodu': item.productCode,
+        'Ürün Adı': item.productName,
+        'Kategori': item.category,
+        'Güncel Mal. Tarihi': formatDate(item.currentCostDate),
+        'Güncel Maliyet (TL)': parseFloat(item.currentCost.toFixed(2)),
+        'Son Giriş Tarihi': formatDate(item.lastEntryDate),
+        'Son Giriş Mal. (TL)': parseFloat(item.lastEntryCost.toFixed(2)),
+        'Fark (TL)': parseFloat(item.diffAmount.toFixed(2)),
+        'Fark (%)': parseFloat(item.diffPercent.toFixed(1)),
+        'Gün Farkı': item.dayDiff,
+        'Eldeki Stok': parseFloat(item.stockQuantity.toFixed(0)),
+        'Risk Tutarı (TL)': parseFloat(item.riskAmount.toFixed(2)),
+        'Satış Fiyatı (TL)': parseFloat(item.salePrice.toFixed(2)),
+      }));
+
+      // Özet satırı ekle
+      if (exportSummary) {
+        excelData.push({} as any); // Boş satır
+        excelData.push({
+          'Ürün Kodu': 'TOPLAM',
+          'Ürün Adı': `${exportSummary.totalAlerts} ürün`,
+          'Kategori': '',
+          'Güncel Mal. Tarihi': '',
+          'Güncel Maliyet (TL)': '',
+          'Son Giriş Tarihi': '',
+          'Son Giriş Mal. (TL)': '',
+          'Fark (TL)': '',
+          'Fark (%)': `Ort: ${exportSummary.avgDiffPercent.toFixed(1)}%`,
+          'Gün Farkı': '',
+          'Eldeki Stok': '',
+          'Risk Tutarı (TL)': parseFloat(exportSummary.totalRiskAmount.toFixed(2)),
+          'Satış Fiyatı (TL)': '',
+        } as any);
+      }
+
+      // Worksheet oluştur
+      const ws = XLSX.utils.json_to_sheet(excelData);
+
+      // Sütun genişliklerini ayarla
+      ws['!cols'] = [
+        { wch: 15 },  // Ürün Kodu
+        { wch: 50 },  // Ürün Adı
+        { wch: 20 },  // Kategori
+        { wch: 18 },  // Güncel Mal. Tarihi
+        { wch: 18 },  // Güncel Maliyet
+        { wch: 18 },  // Son Giriş Tarihi
+        { wch: 18 },  // Son Giriş Mal.
+        { wch: 12 },  // Fark (TL)
+        { wch: 12 },  // Fark (%)
+        { wch: 12 },  // Gün Farkı
+        { wch: 15 },  // Eldeki Stok
+        { wch: 18 },  // Risk Tutarı
+        { wch: 18 },  // Satış Fiyatı
+      ];
+
+      // Workbook oluştur
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Maliyet Uyarıları');
+
+      // Dosya adı
+      const fileName = `maliyet-guncelleme-uyarilari-${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      // İndir
+      XLSX.writeFile(wb, fileName);
+
+      toast.success(`${exportData.length} kayıt Excel'e aktarıldı`, { id: exportToast });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err.message || 'Excel oluşturulamadı', {
+        id: exportToast,
+      });
+    } finally {
+      setIsExporting(false);
     }
-
-    // Excel verisi hazırla - her satır bir obje
-    const excelData = filteredData.map((item) => ({
-      'Ürün Kodu': item.productCode,
-      'Ürün Adı': item.productName,
-      'Kategori': item.category,
-      'Güncel Mal. Tarihi': formatDate(item.currentCostDate),
-      'Güncel Maliyet (TL)': parseFloat(item.currentCost.toFixed(2)),
-      'Son Giriş Tarihi': formatDate(item.lastEntryDate),
-      'Son Giriş Mal. (TL)': parseFloat(item.lastEntryCost.toFixed(2)),
-      'Fark (TL)': parseFloat(item.diffAmount.toFixed(2)),
-      'Fark (%)': parseFloat(item.diffPercent.toFixed(1)),
-      'Gün Farkı': item.dayDiff,
-      'Eldeki Stok': parseFloat(item.stockQuantity.toFixed(0)),
-      'Risk Tutarı (TL)': parseFloat(item.riskAmount.toFixed(2)),
-      'Satış Fiyatı (TL)': parseFloat(item.salePrice.toFixed(2)),
-    }));
-
-    // Özet satırı ekle
-    if (summary) {
-      excelData.push({} as any); // Boş satır
-      excelData.push({
-        'Ürün Kodu': 'TOPLAM',
-        'Ürün Adı': `${summary.totalAlerts} ürün`,
-        'Kategori': '',
-        'Güncel Mal. Tarihi': '',
-        'Güncel Maliyet (TL)': '',
-        'Son Giriş Tarihi': '',
-        'Son Giriş Mal. (TL)': '',
-        'Fark (TL)': '',
-        'Fark (%)': `Ort: ${summary.avgDiffPercent.toFixed(1)}%`,
-        'Gün Farkı': '',
-        'Eldeki Stok': '',
-        'Risk Tutarı (TL)': parseFloat(summary.totalRiskAmount.toFixed(2)),
-        'Satış Fiyatı (TL)': '',
-      } as any);
-    }
-
-    // Worksheet oluştur
-    const ws = XLSX.utils.json_to_sheet(excelData);
-
-    // Sütun genişliklerini ayarla
-    ws['!cols'] = [
-      { wch: 15 },  // Ürün Kodu
-      { wch: 50 },  // Ürün Adı
-      { wch: 20 },  // Kategori
-      { wch: 18 },  // Güncel Mal. Tarihi
-      { wch: 18 },  // Güncel Maliyet
-      { wch: 18 },  // Son Giriş Tarihi
-      { wch: 18 },  // Son Giriş Mal.
-      { wch: 12 },  // Fark (TL)
-      { wch: 12 },  // Fark (%)
-      { wch: 12 },  // Gün Farkı
-      { wch: 15 },  // Eldeki Stok
-      { wch: 18 },  // Risk Tutarı
-      { wch: 18 },  // Satış Fiyatı
-    ];
-
-    // Workbook oluştur
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Maliyet Uyarıları');
-
-    // Dosya adı
-    const fileName = `maliyet-guncelleme-uyarilari-${new Date().toISOString().split('T')[0]}.xlsx`;
-
-    // İndir
-    XLSX.writeFile(wb, fileName);
-
-    toast.success(`${filteredData.length} kayıt Excel'e aktarıldı`);
   };
 
   const getRiskLevelColor = (percent: number) => {
@@ -316,7 +354,7 @@ export default function CostUpdateAlertsPage() {
               <RefreshCw className="h-4 w-4 mr-2" />
               Yenile
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExportExcel}>
+            <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={isExporting}>
               <Download className="h-4 w-4 mr-2" />
               Excel İndir
             </Button>

@@ -1506,10 +1506,12 @@ export class AdminController {
   async getCostUpdateAlerts(req: Request, res: Response, next: NextFunction) {
     try {
       const { page, limit, sortBy, sortOrder, dayDiff, percentDiff } = req.query;
+      const pageValue = page !== undefined ? parseInt(page as string, 10) : undefined;
+      const limitValue = limit !== undefined ? parseInt(limit as string, 10) : undefined;
 
       const data = await reportsService.getCostUpdateAlerts({
-        page: page ? parseInt(page as string) : undefined,
-        limit: limit ? parseInt(limit as string) : undefined,
+        page: pageValue,
+        limit: limitValue,
         sortBy: sortBy as string,
         sortOrder: sortOrder as 'asc' | 'desc',
         dayDiff: dayDiff ? parseInt(dayDiff as string) : undefined,

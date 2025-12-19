@@ -36,7 +36,7 @@ export const config = {
 
   // Cron
   enableCron: process.env.ENABLE_CRON === 'true',
-  syncCronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 * * * *', // Her saat başı
+  syncCronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 18 * * *', // Daily at 18:00
   priceSyncCronSchedule: process.env.PRICE_SYNC_CRON_SCHEDULE || '0 18 * * *', // Her gün 18:00
 
   // App
