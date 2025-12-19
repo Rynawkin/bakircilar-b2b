@@ -28,7 +28,6 @@ ALTER TABLE price_changes
   ALTER COLUMN margin_list_10 TYPE DECIMAL(18,4);
 
 ALTER TABLE product_price_stats
-  ALTER COLUMN last_change_percent TYPE DECIMAL(18,4),
   ALTER COLUMN avg_change_frequency_days TYPE DECIMAL(18,4),
   ALTER COLUMN current_cost TYPE DECIMAL(18,4),
   ALTER COLUMN current_stock TYPE DECIMAL(18,4),

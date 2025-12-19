@@ -618,7 +618,6 @@ model ProductPriceStat {
 
   // Son değişiklik
   lastChangeDate        DateTime @map("last_change_date")
-  lastChangePercent     Decimal   @db.Decimal(18, 4) @map("last_change_percent")
 
   // Toplam değişiklik sayısı
   totalChanges          Int       @default(0) @map("total_changes")
