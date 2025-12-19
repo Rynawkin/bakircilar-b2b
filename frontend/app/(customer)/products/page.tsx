@@ -218,6 +218,13 @@ export default function ProductsPage() {
             </Button>
             <Button
               variant="secondary"
+              onClick={() => router.push('/previously-purchased')}
+              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
+            >
+              Daha Once Aldiklarim
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => router.push('/cart')}
               className="relative bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
             >
@@ -263,6 +270,7 @@ export default function ProductsPage() {
               items={[
                 { label: 'Urunler', href: '/products', icon: '??' },
                 { label: 'Indirimli Urunler', href: '/discounted-products', icon: '???' },
+                { label: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: '??' },
                 { label: 'Sepetim', href: '/cart', icon: '??' },
                 { label: 'Siparislerim', href: '/my-orders', icon: '??' },
                 { label: 'Profilim', href: '/profile', icon: '??' },

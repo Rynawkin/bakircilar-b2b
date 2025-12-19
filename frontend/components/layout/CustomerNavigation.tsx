@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   Package,
+  Clock,
   User,
   Settings,
   LogOut,
@@ -37,6 +38,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
   const navItems: NavItem[] = [
     { name: 'Ürünler', href: '/products', icon: ShoppingBag },
+    { name: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: Clock },
     { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
     { name: 'Siparişlerim', href: '/my-orders', icon: Package },
   ];

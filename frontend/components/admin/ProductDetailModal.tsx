@@ -14,6 +14,10 @@ export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailMo
   if (!product) return null;
 
   const customerTypes = ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'];
+  const getListPrice = (listNo: number) => {
+    const value = product.mikroPriceLists?.[String(listNo)];
+    return typeof value === 'number' ? value : Number(value) || 0;
+  };
 
   return (
     <Modal
@@ -151,6 +155,49 @@ export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailMo
               ) : (
                 <div className="text-sm text-gray-400">Bilgi yok</div>
               )}
+            </div>
+          </div>
+        </div>
+
+        {/* Mikro Liste Fiyatlari */}
+        <div>
+          <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <span className="text-xl">$</span>
+            Mikro Liste Fiyatlari
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <div className="text-sm font-semibold text-gray-900 mb-3">Perakende Satis Listeleri</div>
+              <div className="space-y-2">
+                {[1, 2, 3, 4, 5].map((listNo) => {
+                  const price = getListPrice(listNo);
+                  return (
+                    <div key={listNo} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Liste {listNo}</span>
+                      <span className="font-semibold text-gray-900">
+                        {price > 0 ? formatCurrency(price) : '-'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <div className="text-sm font-semibold text-gray-900 mb-3">Toptan Satis Listeleri</div>
+              <div className="space-y-2">
+                {[6, 7, 8, 9, 10].map((listNo) => {
+                  const price = getListPrice(listNo);
+                  const labelNo = listNo - 5;
+                  return (
+                    <div key={listNo} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-600">Liste {labelNo}</span>
+                      <span className="font-semibold text-gray-900">
+                        {price > 0 ? formatCurrency(price) : '-'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>

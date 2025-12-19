@@ -364,6 +364,13 @@ export class MikroMockService {
   }
 
   /**
+   * Mock: daha Çônce satŽñY yapŽñlan Ç¬rÇ¬n kodlarŽñ
+   */
+  async getPurchasedProductCodes(_cariCode: string): Promise<string[]> {
+    return ['URN-001', 'URN-004', 'URN-005', 'URN-008', 'URN-010'];
+  }
+
+  /**
    * Mock bekleyen siparişler
    */
   async getPendingOrders(): Promise<MikroPendingOrder[]> {

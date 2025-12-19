@@ -28,6 +28,7 @@ interface Product {
   calculatedCost: number | null;
   vatRate: number;
   prices: any;
+  mikroPriceLists?: Record<string, number>;
   imageUrl: string | null;
   category: {
     id: string;

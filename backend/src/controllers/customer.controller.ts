@@ -7,6 +7,7 @@ import { prisma } from '../utils/prisma';
 import stockService from '../services/stock.service';
 import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
+import mikroService from '../services/mikroFactory.service';
 import orderService from '../services/order.service';
 import { CustomerPriceListConfig, PriceListPair, ProductPrices } from '../types';
 
@@ -80,6 +81,7 @@ export class CustomerController {
     try {
       const { categoryId, search, warehouse, mode } = req.query;
       const isDiscounted = mode === 'discounted' || mode === 'excess';
+      const isPurchased = mode === 'purchased';
 
       // Kullanıcı bilgisini al
       const user = await prisma.user.findUnique({
@@ -87,6 +89,7 @@ export class CustomerController {
         select: {
           id: true,
           customerType: true,
+          mikroCariCode: true,
           invoicedPriceListNo: true,
           whitePriceListNo: true,
         },
@@ -94,6 +97,18 @@ export class CustomerController {
 
       if (!user || !user.customerType) {
         return res.status(400).json({ error: 'User has no customer type' });
+      }
+
+      if (isPurchased && !user.mikroCariCode) {
+        return res.status(400).json({ error: 'User has no Mikro cari code' });
+      }
+
+      let purchasedCodes: string[] = [];
+      if (isPurchased) {
+        purchasedCodes = await mikroService.getPurchasedProductCodes(user.mikroCariCode as string);
+        if (purchasedCodes.length === 0) {
+          return res.json({ products: [] });
+        }
       }
 
       const settings = await prisma.settings.findFirst({
@@ -111,31 +126,58 @@ export class CustomerController {
             categoryId: categoryId as string,
             search: search as string,
           })
-        : await prisma.product.findMany({
-            where: {
-              active: true,
-              ...(categoryId ? { categoryId: categoryId as string } : {}),
-              ...(search
-                ? {
-                    OR: [
-                      { name: { contains: search as string, mode: 'insensitive' } },
-                      { mikroCode: { contains: search as string, mode: 'insensitive' } },
-                    ],
-                  }
-                : {}),
-            },
-            include: {
-              category: {
-                select: {
-                  id: true,
-                  name: true,
+        : isPurchased
+          ? await prisma.product.findMany({
+              where: {
+                active: true,
+                mikroCode: { in: purchasedCodes },
+                ...(categoryId ? { categoryId: categoryId as string } : {}),
+                ...(search
+                  ? {
+                      OR: [
+                        { name: { contains: search as string, mode: 'insensitive' } },
+                        { mikroCode: { contains: search as string, mode: 'insensitive' } },
+                      ],
+                    }
+                  : {}),
+              },
+              include: {
+                category: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
                 },
               },
-            },
-            orderBy: {
-              name: 'asc',
-            },
-          });
+              orderBy: {
+                name: 'asc',
+              },
+            })
+          : await prisma.product.findMany({
+              where: {
+                active: true,
+                ...(categoryId ? { categoryId: categoryId as string } : {}),
+                ...(search
+                  ? {
+                      OR: [
+                        { name: { contains: search as string, mode: 'insensitive' } },
+                        { mikroCode: { contains: search as string, mode: 'insensitive' } },
+                      ],
+                    }
+                  : {}),
+              },
+              include: {
+                category: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+              orderBy: {
+                name: 'asc',
+              },
+            });
 
       const priceStatsMap = await priceListService.getPriceStatsMap(
         products.map((product) => product.mikroCode)

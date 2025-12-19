@@ -251,6 +251,42 @@ class MikroService {
   }
 
   /**
+   * Cari bazlŽñ daha Çônce satŽñY yapŽñlan Ç¬rÇ¬n kodlarŽñnŽñ getir
+   */
+  async getPurchasedProductCodes(cariCode: string): Promise<string[]> {
+    if (!cariCode) {
+      return [];
+    }
+
+    await this.connect();
+
+    const request = this.pool!.request();
+    request.input('cariCode', sql.NVarChar, cariCode);
+
+    const query = `
+      SELECT DISTINCT
+        sth_stok_kod as productCode
+      FROM STOK_HAREKETLERI
+      WHERE
+        sth_tip = 1
+        AND sth_cari_kodu = @cariCode
+        AND (
+          (sth_evraktip = 4)
+          OR
+          (sth_evraktip = 1 AND sth_fat_uid != '00000000-0000-0000-0000-000000000000')
+          OR
+          (sth_fat_uid = '00000000-0000-0000-0000-000000000000')
+        )
+        AND sth_stok_kod IS NOT NULL
+    `;
+
+    const result = await request.query(query);
+    return result.recordset
+      .map((row: any) => row.productCode)
+      .filter((code: string) => !!code);
+  }
+
+  /**
    * Bekleyen siparişler (müşteri siparişleri ve satın alma siparişleri)
    *
    * F10'dan alınan gerçek sorgu:

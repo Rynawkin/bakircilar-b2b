@@ -14,6 +14,7 @@ import reportsService from '../services/reports.service';
 import priceSyncService from '../services/priceSync.service';
 import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
+import priceListService from '../services/price-list.service';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
 const DEFAULT_CUSTOMER_PRICE_LISTS = {
@@ -328,7 +329,11 @@ export class AdminController {
         take: limitNum,
       });
 
-      // Settings'den aktif depoları al
+      const priceStatsMap = await priceListService.getPriceStatsMap(
+        products.map((product) => product.mikroCode)
+      );
+
+      // Settings'den aktif depolar?? al
       const settings = await prisma.settings.findFirst();
       const includedWarehouses = settings?.includedWarehouses || [];
 
@@ -339,9 +344,17 @@ export class AdminController {
           return sum + (warehouseStocks[warehouse] || 0);
         }, 0);
 
+        const priceStats = priceStatsMap.get(product.mikroCode) || null;
+        const mikroPriceLists: Record<string, number> = {};
+
+        for (let listNo = 1; listNo <= 10; listNo += 1) {
+          mikroPriceLists[listNo] = priceListService.getListPrice(priceStats, listNo);
+        }
+
         return {
           ...product,
           totalStock,
+          mikroPriceLists,
         };
       });
 
