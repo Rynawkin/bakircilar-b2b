@@ -4,13 +4,17 @@ import { useState, useEffect } from 'react';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 
 interface ProductDetailModalProps {
   product: Product | null;
   isOpen: boolean;
   onClose: () => void;
-  onAddToCart: (productId: string, quantity: number, priceType: 'INVOICED' | 'WHITE') => Promise<void>;
+  onAddToCart: (
+    productId: string,
+    quantity: number,
+    priceType: 'INVOICED' | 'WHITE',
+    priceMode?: 'LIST' | 'EXCESS'
+  ) => Promise<void>;
 }
 
 export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: ProductDetailModalProps) {
@@ -56,7 +60,8 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
 
     setIsAdding(true);
     try {
-      await onAddToCart(product.id, quantity, priceType);
+      const priceMode = product.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST';
+      await onAddToCart(product.id, quantity, priceType, priceMode);
       onClose();
     } catch (error) {
       // Error is handled in parent
@@ -66,6 +71,25 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
   };
 
   if (!isOpen || !product) return null;
+
+  const isDiscounted = product.pricingMode === 'EXCESS';
+  const maxQuantity =
+    product.maxOrderQuantity ??
+    (isDiscounted ? product.excessStock : product.availableStock ?? product.excessStock ?? 0);
+  const displayStock = isDiscounted
+    ? product.excessStock
+    : product.availableStock ?? product.excessStock ?? 0;
+  const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
+  const listInvoiced = product.listPrices?.invoiced;
+  const listWhite = product.listPrices?.white;
+  const invoicedDiscount =
+    listInvoiced && listInvoiced > 0
+      ? Math.round(((listInvoiced - product.prices.invoiced) / listInvoiced) * 100)
+      : null;
+  const whiteDiscount =
+    listWhite && listWhite > 0
+      ? Math.round(((listWhite - product.prices.white) / listWhite) * 100)
+      : null;
 
   const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
@@ -126,9 +150,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
 
               {/* Stock Badge */}
               <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm text-gray-900 px-4 py-2 rounded-lg shadow-lg border border-gray-200">
-                <div className="text-xs text-gray-600 font-medium">Fazla Stok</div>
+                <div className="text-xs text-gray-600 font-medium">
+                  {isDiscounted ? 'Fazla Stok' : 'Stok'}
+                </div>
                 <div className="text-lg font-bold text-green-600">
-                  {product.excessStock} {product.unit}
+                  {displayStock} {product.unit}
                 </div>
               </div>
             </div>
@@ -140,16 +166,16 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
             )}
 
             {/* Warehouse Stock Breakdown */}
-            {product.warehouseExcessStocks && Object.keys(product.warehouseExcessStocks).length > 0 && (
+            {warehouseBreakdown && Object.keys(warehouseBreakdown).length > 0 && (
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
                 <h4 className="font-semibold text-sm text-gray-900 mb-3 flex items-center gap-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
                   </svg>
-                  Depo Dagilimi
+                  {isDiscounted ? 'Depo Dagilimi (Fazla Stok)' : 'Depo Dagilimi'}
                 </h4>
                 <div className="space-y-2">
-                  {Object.entries(product.warehouseExcessStocks).map(([warehouse, stock]) => (
+                  {Object.entries(warehouseBreakdown).map(([warehouse, stock]) => (
                     <div key={warehouse} className="flex justify-between items-center text-sm">
                       <span className="text-gray-700 font-medium">{warehouse}</span>
                       <span className="bg-white px-3 py-1 rounded-lg border border-gray-200 font-semibold text-gray-900">
@@ -158,6 +184,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                     </div>
                   ))}
                 </div>
+                {isDiscounted && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    * Sadece fazla stoklu depolar gosterilir
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -191,6 +222,16 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                   <div className="text-2xl font-bold text-primary-600">
                     {formatCurrency(product.prices.invoiced)}
                   </div>
+                  {isDiscounted && listInvoiced && listInvoiced > 0 && (
+                    <div className="text-xs text-gray-500 line-through">
+                      {formatCurrency(listInvoiced)}
+                    </div>
+                  )}
+                  {isDiscounted && invoicedDiscount && invoicedDiscount > 0 && (
+                    <div className="text-xs text-green-700 font-semibold">
+                      %{invoicedDiscount} indirim
+                    </div>
+                  )}
                   <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-primary-600 font-semibold">+KDV</span></div>
                 </button>
                 <button
@@ -205,6 +246,16 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                   <div className="text-2xl font-bold text-gray-900">
                     {formatCurrency(product.prices.white)}
                   </div>
+                  {isDiscounted && listWhite && listWhite > 0 && (
+                    <div className="text-xs text-gray-500 line-through">
+                      {formatCurrency(listWhite)}
+                    </div>
+                  )}
+                  {isDiscounted && whiteDiscount && whiteDiscount > 0 && (
+                    <div className="text-xs text-green-700 font-semibold">
+                      %{whiteDiscount} indirim
+                    </div>
+                  )}
                   <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-gray-700 font-semibold">Özel Fiyat</span></div>
                 </button>
               </div>
@@ -231,7 +282,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                     if (value === '' || parseInt(value) === 0) {
                       return; // Allow empty during typing
                     }
-                    const numValue = Math.max(1, Math.min(product.excessStock, parseInt(value)));
+                    const numValue = Math.max(1, Math.min(maxQuantity, parseInt(value)));
                     setQuantity(numValue);
                   }}
                   onBlur={(e) => {
@@ -243,7 +294,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                   className="text-center font-bold text-xl h-12 w-24 border-2 border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg px-3"
                 />
                 <button
-                  onClick={() => setQuantity(Math.min(product.excessStock, quantity + 1))}
+                  onClick={() => setQuantity(Math.min(maxQuantity, quantity + 1))}
                   className="bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl w-12 h-12 flex items-center justify-center font-bold text-xl transition-colors"
                 >
                   +
@@ -251,7 +302,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
                 <span className="text-gray-600 font-semibold">{product.unit}</span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Maksimum: {product.excessStock} {product.unit}
+                Maksimum: {maxQuantity} {product.unit}
               </p>
             </div>
 
@@ -283,17 +334,19 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
             </Button>
 
             {/* Info */}
-            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                <div className="text-xs text-blue-800">
-                  <p className="font-semibold mb-1">Fazla Stoklu Urun</p>
-                  <p>Bu urun fazla stok durumunda oldugu icin ozel fiyatlarla sunulmaktadir.</p>
+            {isDiscounted && (
+              <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  <div className="text-xs text-blue-800">
+                    <p className="font-semibold mb-1">Fazla Stoklu Urun</p>
+                    <p>Bu urun fazla stok durumunda oldugu icin ozel fiyatlarla sunulmaktadir.</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

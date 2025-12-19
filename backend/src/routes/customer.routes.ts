@@ -19,6 +19,7 @@ const addToCartSchema = z.object({
   productId: z.string().uuid('Invalid product ID'),
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
   priceType: z.enum(['INVOICED', 'WHITE']),
+  priceMode: z.enum(['LIST', 'EXCESS']).optional(),
 });
 
 const updateCartItemSchema = z.object({
@@ -34,7 +35,8 @@ router.get(
     keyGenerator: (req) => {
       const userId = req.user?.userId || 'guest';
       const customerType = req.user?.role || 'default';
-      return `list:${userId}:${customerType}`;
+      const { categoryId, search, warehouse, mode } = req.query;
+      return `list:${userId}:${customerType}:${mode || 'all'}:${categoryId || ''}:${search || ''}:${warehouse || ''}`;
     },
   }),
   customerController.getProducts
@@ -48,7 +50,8 @@ router.get(
     keyGenerator: (req) => {
       const userId = req.user?.userId || 'guest';
       const customerType = req.user?.role || 'default';
-      return `${req.params.id}:${userId}:${customerType}`;
+      const mode = req.query.mode || 'all';
+      return `${req.params.id}:${userId}:${customerType}:${mode}`;
     },
   }),
   customerController.getProductById

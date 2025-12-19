@@ -13,7 +13,12 @@ import {
 
 export const customerApi = {
   // Products
-  getProducts: async (params?: { categoryId?: string; search?: string; warehouse?: string }): Promise<{ products: Product[] }> => {
+  getProducts: async (params?: {
+    categoryId?: string;
+    search?: string;
+    warehouse?: string;
+    mode?: 'all' | 'discounted' | 'excess';
+  }): Promise<{ products: Product[] }> => {
     const response = await apiClient.get('/products', { params });
     return response.data;
   },

@@ -6,8 +6,66 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import stockService from '../services/stock.service';
 import pricingService from '../services/pricing.service';
+import priceListService from '../services/price-list.service';
 import orderService from '../services/order.service';
-import { ProductPrices } from '../types';
+import { CustomerPriceListConfig, PriceListPair, ProductPrices } from '../types';
+
+const DEFAULT_PRICE_LISTS: CustomerPriceListConfig = {
+  BAYI: { invoiced: 6, white: 1 },
+  PERAKENDE: { invoiced: 6, white: 1 },
+  VIP: { invoiced: 6, white: 1 },
+  OZEL: { invoiced: 6, white: 1 },
+};
+
+const resolvePair = (value: any, fallback: PriceListPair): PriceListPair => {
+  const invoiced = Number(value?.invoiced);
+  const white = Number(value?.white);
+  return {
+    invoiced: Number.isFinite(invoiced) ? invoiced : fallback.invoiced,
+    white: Number.isFinite(white) ? white : fallback.white,
+  };
+};
+
+const normalizePriceListConfig = (raw: any): CustomerPriceListConfig => {
+  if (!raw || typeof raw !== 'object') {
+    return DEFAULT_PRICE_LISTS;
+  }
+
+  return {
+    BAYI: resolvePair(raw.BAYI, DEFAULT_PRICE_LISTS.BAYI),
+    PERAKENDE: resolvePair(raw.PERAKENDE, DEFAULT_PRICE_LISTS.PERAKENDE),
+    VIP: resolvePair(raw.VIP, DEFAULT_PRICE_LISTS.VIP),
+    OZEL: resolvePair(raw.OZEL, DEFAULT_PRICE_LISTS.OZEL),
+  };
+};
+
+const resolveListNo = (value: any, fallback: number, min: number, max: number): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < min || parsed > max) return fallback;
+  return parsed;
+};
+
+const resolveCustomerPriceLists = (
+  user: { customerType?: string; invoicedPriceListNo?: number | null; whitePriceListNo?: number | null },
+  settings: { customerPriceLists?: any } | null
+): PriceListPair => {
+  const config = normalizePriceListConfig(settings?.customerPriceLists);
+  const base = config[user.customerType as keyof CustomerPriceListConfig] || DEFAULT_PRICE_LISTS.BAYI;
+
+  return {
+    invoiced: resolveListNo(user.invoicedPriceListNo, base.invoiced, 6, 10),
+    white: resolveListNo(user.whitePriceListNo, base.white, 1, 5),
+  };
+};
+
+const sumStocks = (warehouseStocks: Record<string, number>, includedWarehouses: string[]): number => {
+  if (!warehouseStocks) return 0;
+  if (!includedWarehouses || includedWarehouses.length === 0) {
+    return Object.values(warehouseStocks).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+  }
+  return includedWarehouses.reduce((sum, warehouse) => sum + (Number(warehouseStocks[warehouse]) || 0), 0);
+};
 
 export class CustomerController {
   /**
@@ -15,24 +73,69 @@ export class CustomerController {
    */
   async getProducts(req: Request, res: Response, next: NextFunction) {
     try {
-      const { categoryId, search, warehouse } = req.query;
+      const { categoryId, search, warehouse, mode } = req.query;
+      const isDiscounted = mode === 'discounted' || mode === 'excess';
 
       // Kullanıcı bilgisini al
       const user = await prisma.user.findUnique({
         where: { id: req.user!.userId },
+        select: {
+          id: true,
+          customerType: true,
+          invoicedPriceListNo: true,
+          whitePriceListNo: true,
+        },
       });
 
       if (!user || !user.customerType) {
         return res.status(400).json({ error: 'User has no customer type' });
       }
 
-      // Fazla stoklu ürünleri getir
-      const products = await stockService.getExcessStockProducts({
-        categoryId: categoryId as string,
-        search: search as string,
+      const settings = await prisma.settings.findFirst({
+        select: {
+          includedWarehouses: true,
+          customerPriceLists: true,
+        },
       });
 
-      // Her ürün için müşteri tipine göre fiyatları filtrele
+      const priceListPair = resolveCustomerPriceLists(user, settings);
+      const includedWarehouses = settings?.includedWarehouses || [];
+
+      const products = isDiscounted
+        ? await stockService.getExcessStockProducts({
+            categoryId: categoryId as string,
+            search: search as string,
+          })
+        : await prisma.product.findMany({
+            where: {
+              active: true,
+              ...(categoryId ? { categoryId: categoryId as string } : {}),
+              ...(search
+                ? {
+                    OR: [
+                      { name: { contains: search as string, mode: 'insensitive' } },
+                      { mikroCode: { contains: search as string, mode: 'insensitive' } },
+                    ],
+                  }
+                : {}),
+            },
+            include: {
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+            orderBy: {
+              name: 'asc',
+            },
+          });
+
+      const priceStatsMap = await priceListService.getPriceStatsMap(
+        products.map((product) => product.mikroCode)
+      );
+
       let productsWithPrices = products.map((product) => {
         const prices = product.prices as unknown as ProductPrices;
         const customerPrices = pricingService.getPriceForCustomer(
@@ -40,12 +143,31 @@ export class CustomerController {
           user.customerType as any
         );
 
-        // Depo filtresi varsa, o depo için stok miktarını al
-        let excessStock = product.excessStock;
-        const warehouseStocks = product.warehouseStocks as any;
+        const priceStats = priceStatsMap.get(product.mikroCode) || null;
+        const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
+        const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
+        const listPrices = {
+          invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
+          white: listWhite > 0 ? listWhite : customerPrices.white,
+        };
+        const listPricesRaw =
+          listInvoiced > 0 || listWhite > 0 ? { invoiced: listInvoiced, white: listWhite } : undefined;
 
-        if (warehouse && warehouseStocks) {
-          excessStock = warehouseStocks[warehouse as string] || 0;
+        const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
+        const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
+        let availableStock = sumStocks(warehouseStocks, includedWarehouses);
+        let excessStock = product.excessStock;
+        let maxOrderQuantity = isDiscounted ? excessStock : availableStock;
+
+        if (warehouse) {
+          const stockSource = isDiscounted ? warehouseExcessStocks : warehouseStocks;
+          const warehouseQty = stockSource?.[warehouse as string] || 0;
+          if (isDiscounted) {
+            excessStock = warehouseQty;
+          } else {
+            availableStock = warehouseQty;
+          }
+          maxOrderQuantity = warehouseQty;
         }
 
         return {
@@ -54,19 +176,23 @@ export class CustomerController {
           mikroCode: product.mikroCode,
           unit: product.unit,
           excessStock,
+          availableStock,
+          maxOrderQuantity,
           imageUrl: product.imageUrl,
-          warehouseStocks: product.warehouseStocks,
+          warehouseStocks,
+          warehouseExcessStocks,
           category: {
             id: product.category.id,
             name: product.category.name,
           },
-          prices: customerPrices,
+          prices: isDiscounted ? customerPrices : listPrices,
+          listPrices: isDiscounted ? listPricesRaw : undefined,
+          pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
         };
       });
 
-      // Depo filtresi varsa, sadece o depoda stok olanları göster
       if (warehouse) {
-        productsWithPrices = productsWithPrices.filter(p => p.excessStock > 0);
+        productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
       }
 
       res.json({ products: productsWithPrices });
@@ -81,14 +207,32 @@ export class CustomerController {
   async getProductById(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      const { mode } = req.query;
+      const isDiscounted = mode === 'discounted' || mode === 'excess';
 
       const user = await prisma.user.findUnique({
         where: { id: req.user!.userId },
+        select: {
+          id: true,
+          customerType: true,
+          invoicedPriceListNo: true,
+          whitePriceListNo: true,
+        },
       });
 
       if (!user || !user.customerType) {
         return res.status(400).json({ error: 'User has no customer type' });
       }
+
+      const settings = await prisma.settings.findFirst({
+        select: {
+          includedWarehouses: true,
+          customerPriceLists: true,
+        },
+      });
+
+      const priceListPair = resolveCustomerPriceLists(user, settings);
+      const includedWarehouses = settings?.includedWarehouses || [];
 
       const product = await prisma.product.findUnique({
         where: { id },
@@ -106,7 +250,7 @@ export class CustomerController {
         return res.status(404).json({ error: 'Product not found' });
       }
 
-      if (product.excessStock <= 0) {
+      if (isDiscounted && product.excessStock <= 0) {
         return res.status(400).json({ error: 'Product is not available' });
       }
 
@@ -116,16 +260,35 @@ export class CustomerController {
         user.customerType as any
       );
 
+      const priceStats = await priceListService.getPriceStats(product.mikroCode);
+      const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
+      const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
+      const listPrices = {
+        invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
+        white: listWhite > 0 ? listWhite : customerPrices.white,
+      };
+      const listPricesRaw =
+        listInvoiced > 0 || listWhite > 0 ? { invoiced: listInvoiced, white: listWhite } : undefined;
+
+      const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
+      const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
+      const availableStock = sumStocks(warehouseStocks, includedWarehouses);
+
       res.json({
         id: product.id,
         name: product.name,
         mikroCode: product.mikroCode,
         unit: product.unit,
         excessStock: product.excessStock,
-        warehouseStocks: product.warehouseStocks,
+        availableStock,
+        maxOrderQuantity: isDiscounted ? product.excessStock : availableStock,
+        warehouseStocks,
+        warehouseExcessStocks,
         imageUrl: product.imageUrl,
         category: product.category,
-        prices: customerPrices,
+        prices: isDiscounted ? customerPrices : listPrices,
+        listPrices: isDiscounted ? listPricesRaw : undefined,
+        pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
       });
     } catch (error) {
       next(error);
@@ -273,11 +436,18 @@ export class CustomerController {
    */
   async addToCart(req: Request, res: Response, next: NextFunction) {
     try {
-      const { productId, quantity, priceType } = req.body;
+      const { productId, quantity, priceType, priceMode } = req.body;
+      const effectivePriceMode = priceMode === 'EXCESS' ? 'EXCESS' : 'LIST';
 
       // Kullanıcı bilgisi
       const user = await prisma.user.findUnique({
         where: { id: req.user!.userId },
+        select: {
+          id: true,
+          customerType: true,
+          invoicedPriceListNo: true,
+          whitePriceListNo: true,
+        },
       });
 
       if (!user || !user.customerType) {
@@ -293,6 +463,10 @@ export class CustomerController {
         return res.status(404).json({ error: 'Product not found' });
       }
 
+      if (effectivePriceMode === 'EXCESS' && product.excessStock <= 0) {
+        return res.status(400).json({ error: 'Product is not discounted' });
+      }
+
       // Real-time stock check from Mikro ERP
       const stockCheck = await stockService.checkRealtimeStock(productId, quantity);
 
@@ -304,14 +478,34 @@ export class CustomerController {
         });
       }
 
-      // Fiyatı al
       const prices = product.prices as unknown as ProductPrices;
       const customerPrices = pricingService.getPriceForCustomer(
         prices,
         user.customerType as any
       );
 
-      const unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
+      let unitPrice = 0;
+
+      if (effectivePriceMode === 'EXCESS') {
+        unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
+      } else {
+        const settings = await prisma.settings.findFirst({
+          select: {
+            customerPriceLists: true,
+          },
+        });
+        const priceListPair = resolveCustomerPriceLists(user, settings);
+        const priceStats = await priceListService.getPriceStats(product.mikroCode);
+        const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
+        const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
+
+        const listPrices = {
+          invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
+          white: listWhite > 0 ? listWhite : customerPrices.white,
+        };
+
+        unitPrice = priceType === 'INVOICED' ? listPrices.invoiced : listPrices.white;
+      }
 
       // Cart'ı bul veya oluştur
       let cart = await prisma.cart.findUnique({

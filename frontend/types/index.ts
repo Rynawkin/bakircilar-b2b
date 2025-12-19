@@ -28,6 +28,8 @@ export interface Product {
   mikroCode: string;
   unit: string;
   excessStock: number;
+  availableStock?: number;
+  maxOrderQuantity?: number;
   imageUrl?: string;
   warehouseStocks?: Record<string, number>;
   warehouseExcessStocks?: Record<string, number>;
@@ -39,6 +41,11 @@ export interface Product {
     invoiced: number;
     white: number;
   };
+  listPrices?: {
+    invoiced: number;
+    white: number;
+  };
+  pricingMode?: 'LIST' | 'EXCESS';
 }
 
 export interface Category {
@@ -76,6 +83,7 @@ export interface AddToCartRequest {
   productId: string;
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
+  priceMode?: 'LIST' | 'EXCESS';
 }
 
 // ==================== ORDER TYPES ====================
@@ -135,6 +143,12 @@ export interface Settings {
     priceWeightOld?: number;
   };
   whiteVatFormula: string;
+  customerPriceLists?: {
+    BAYI: { invoiced: number; white: number };
+    PERAKENDE: { invoiced: number; white: number };
+    VIP: { invoiced: number; white: number };
+    OZEL: { invoiced: number; white: number };
+  };
   lastSyncAt?: string;
 }
 
@@ -146,6 +160,8 @@ export interface Customer {
   name: string;
   customerType: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode: string;
+  invoicedPriceListNo?: number | null;
+  whitePriceListNo?: number | null;
   active: boolean;
   createdAt: string;
   // Mikro-synced fields
@@ -166,6 +182,8 @@ export interface CreateCustomerRequest {
   name: string;
   customerType: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode: string;
+  invoicedPriceListNo?: number | null;
+  whitePriceListNo?: number | null;
 }
 
 // ==================== CATEGORY PRICE RULE ====================

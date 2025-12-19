@@ -27,10 +27,11 @@ export function applyProductFilters(products: Product[], filters: FilterState): 
   // Apply stock range filter
   if (filters.minStock !== undefined || filters.maxStock !== undefined) {
     filteredProducts = filteredProducts.filter((product) => {
-      if (filters.minStock !== undefined && product.excessStock < filters.minStock) {
+      const stockValue = product.maxOrderQuantity ?? product.availableStock ?? product.excessStock;
+      if (filters.minStock !== undefined && stockValue < filters.minStock) {
         return false;
       }
-      if (filters.maxStock !== undefined && product.excessStock > filters.maxStock) {
+      if (filters.maxStock !== undefined && stockValue > filters.maxStock) {
         return false;
       }
       return true;
@@ -56,9 +57,11 @@ export function applyProductFilters(products: Product[], filters: FilterState): 
           return priceB - priceA;
         }
         case 'stock-asc':
-          return a.excessStock - b.excessStock;
+          return (a.maxOrderQuantity ?? a.availableStock ?? a.excessStock) -
+            (b.maxOrderQuantity ?? b.availableStock ?? b.excessStock);
         case 'stock-desc':
-          return b.excessStock - a.excessStock;
+          return (b.maxOrderQuantity ?? b.availableStock ?? b.excessStock) -
+            (a.maxOrderQuantity ?? a.availableStock ?? a.excessStock);
         default:
           return 0;
       }

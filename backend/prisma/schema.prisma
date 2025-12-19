@@ -65,6 +65,9 @@ model User {
   customerType        CustomerType?
   mikroCariCode       String?       @unique // Mikro ERP'deki cari kodu
   vatDisplayPreference String       @default("WITH_VAT") // "WITH_VAT" | "WITHOUT_VAT"
+  // Optional price list overrides (use settings when null)
+  invoicedPriceListNo Int?
+  whitePriceListNo    Int?
 
   // Mikro'dan senkronize edilen cari bilgileri
   city                String?       // Şehir
@@ -159,6 +162,10 @@ model Settings {
   // KDV hesaplama formülü (beyaz fiyat için)
   // Varsayılan: cost * (1 + vat/2)
   whiteVatFormula           String                  @default("cost * (1 + vat/2)")
+
+  // Customer segment -> price list mapping (JSON)
+  // Example: {"BAYI":{"invoiced":6,"white":1},"PERAKENDE":{"invoiced":6,"white":1}}
+  customerPriceLists        Json?
 
   // Son senkronizasyon
   lastSyncAt                DateTime?

@@ -16,6 +16,13 @@ import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
+const DEFAULT_CUSTOMER_PRICE_LISTS = {
+  BAYI: { invoiced: 6, white: 1 },
+  PERAKENDE: { invoiced: 6, white: 1 },
+  VIP: { invoiced: 6, white: 1 },
+  OZEL: { invoiced: 6, white: 1 },
+};
+
 export class AdminController {
   /**
    * GET /api/admin/settings
@@ -32,6 +39,7 @@ export class AdminController {
             includedWarehouses: ['DEPO1', 'MERKEZ'],
             minimumExcessThreshold: 10,
             costCalculationMethod: 'LAST_ENTRY',
+            customerPriceLists: DEFAULT_CUSTOMER_PRICE_LISTS,
           },
         });
       }
@@ -382,6 +390,8 @@ export class AdminController {
           name: true,
           customerType: true,
           mikroCariCode: true,
+          invoicedPriceListNo: true,
+          whitePriceListNo: true,
           active: true,
           createdAt: true,
           // Mikro ERP fields
@@ -411,7 +421,7 @@ export class AdminController {
    */
   async createCustomer(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, password, name, customerType, mikroCariCode } =
+      const { email, password, name, customerType, mikroCariCode, invoicedPriceListNo, whitePriceListNo } =
         req.body as CreateCustomerRequest;
 
       // Email kontrolü
@@ -471,6 +481,8 @@ export class AdminController {
           role: 'CUSTOMER',
           customerType,
           mikroCariCode,
+          invoicedPriceListNo: invoicedPriceListNo ?? undefined,
+          whitePriceListNo: whitePriceListNo ?? undefined,
           ...mikroCariData,
         },
         select: {
@@ -479,6 +491,8 @@ export class AdminController {
           name: true,
           customerType: true,
           mikroCariCode: true,
+          invoicedPriceListNo: true,
+          whitePriceListNo: true,
           city: true,
           district: true,
           phone: true,
@@ -514,7 +528,7 @@ export class AdminController {
   async updateCustomer(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { email, customerType, active } = req.body;
+      const { email, customerType, active, invoicedPriceListNo, whitePriceListNo } = req.body;
 
       // Validate customer exists
       const existingCustomer = await prisma.user.findUnique({
@@ -545,6 +559,8 @@ export class AdminController {
       if (email !== undefined) updateData.email = email;
       if (customerType !== undefined) updateData.customerType = customerType;
       if (active !== undefined) updateData.active = active;
+      if (invoicedPriceListNo !== undefined) updateData.invoicedPriceListNo = invoicedPriceListNo;
+      if (whitePriceListNo !== undefined) updateData.whitePriceListNo = whitePriceListNo;
 
       const updatedCustomer = await prisma.user.update({
         where: { id },
@@ -557,6 +573,8 @@ export class AdminController {
           mikroName: true,
           customerType: true,
           mikroCariCode: true,
+          invoicedPriceListNo: true,
+          whitePriceListNo: true,
           active: true,
           city: true,
           district: true,

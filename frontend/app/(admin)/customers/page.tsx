@@ -125,7 +125,13 @@ export default function CustomersPage() {
     }
   };
 
-  const handleEditCustomer = async (customerId: string, data: { email?: string; customerType?: string; active?: boolean }) => {
+  const handleEditCustomer = async (customerId: string, data: {
+    email?: string;
+    customerType?: string;
+    active?: boolean;
+    invoicedPriceListNo?: number | null;
+    whitePriceListNo?: number | null;
+  }) => {
     try {
       await adminApi.updateCustomer(customerId, data);
       toast.success('Müşteri başarıyla güncellendi! ✅');

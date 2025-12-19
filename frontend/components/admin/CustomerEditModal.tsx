@@ -6,21 +6,45 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { Customer } from '@/types';
-import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
+import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
 import { formatCurrency } from '@/lib/utils/format';
 
 interface CustomerEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   customer: Customer | null;
-  onSave: (customerId: string, data: { email?: string; customerType?: string; active?: boolean }) => Promise<void>;
+  onSave: (customerId: string, data: {
+    email?: string;
+    customerType?: string;
+    active?: boolean;
+    invoicedPriceListNo?: number | null;
+    whitePriceListNo?: number | null;
+  }) => Promise<void>;
 }
+
+const RETAIL_LISTS = [
+  { value: 1, label: 'Perakende Satis 1' },
+  { value: 2, label: 'Perakende Satis 2' },
+  { value: 3, label: 'Perakende Satis 3' },
+  { value: 4, label: 'Perakende Satis 4' },
+  { value: 5, label: 'Perakende Satis 5' },
+];
+
+const WHOLESALE_LISTS = [
+  { value: 6, label: 'Toptan Satis 1' },
+  { value: 7, label: 'Toptan Satis 2' },
+  { value: 8, label: 'Toptan Satis 3' },
+  { value: 9, label: 'Toptan Satis 4' },
+  { value: 10, label: 'Toptan Satis 5' },
+];
 
 export function CustomerEditModal({ isOpen, onClose, customer, onSave }: CustomerEditModalProps) {
   const [formData, setFormData] = useState({
     email: '',
     customerType: 'PERAKENDE',
     active: true,
+    invoicedPriceListNo: '',
+    whitePriceListNo: '',
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -30,6 +54,8 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
         email: customer.email,
         customerType: customer.customerType || 'PERAKENDE',
         active: customer.active,
+        invoicedPriceListNo: customer.invoicedPriceListNo ? String(customer.invoicedPriceListNo) : '',
+        whitePriceListNo: customer.whitePriceListNo ? String(customer.whitePriceListNo) : '',
       });
     }
   }, [customer]);
@@ -40,7 +66,17 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
 
     setIsSaving(true);
     try {
-      await onSave(customer.id, formData);
+      await onSave(customer.id, {
+        email: formData.email,
+        customerType: formData.customerType,
+        active: formData.active,
+        invoicedPriceListNo: formData.invoicedPriceListNo
+          ? parseInt(formData.invoicedPriceListNo, 10)
+          : null,
+        whitePriceListNo: formData.whitePriceListNo
+          ? parseInt(formData.whitePriceListNo, 10)
+          : null,
+      });
       onClose();
     } finally {
       setIsSaving(false);
@@ -78,6 +114,46 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
               ))}
             </select>
             <p className="text-xs text-gray-500 mt-1">Fiyatlandırma segmenti</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Fiyat Listesi Override</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Faturali Liste (Toptan)</label>
+                <select
+                  className="input"
+                  value={formData.invoicedPriceListNo}
+                  onChange={(e) => setFormData({ ...formData, invoicedPriceListNo: e.target.value })}
+                >
+                  <option value="">Varsayilan (segment ayari)</option>
+                  {WHOLESALE_LISTS.map((list) => (
+                    <option key={list.value} value={list.value}>
+                      {list.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Beyaz Liste (Perakende)</label>
+                <select
+                  className="input"
+                  value={formData.whitePriceListNo}
+                  onChange={(e) => setFormData({ ...formData, whitePriceListNo: e.target.value })}
+                >
+                  <option value="">Varsayilan (segment ayari)</option>
+                  {RETAIL_LISTS.map((list) => (
+                    <option key={list.value} value={list.value}>
+                      {list.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Bos birakilirsa segment bazli fiyat listesi kullanilir.
+            </p>
           </div>
 
           <div>

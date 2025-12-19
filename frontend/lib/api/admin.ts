@@ -128,6 +128,8 @@ export const adminApi = {
     email?: string;
     customerType?: string;
     active?: boolean;
+    invoicedPriceListNo?: number | null;
+    whitePriceListNo?: number | null;
   }): Promise<{ message: string; customer: Customer }> => {
     const response = await apiClient.put(`/admin/customers/${id}`, data);
     return response.data;

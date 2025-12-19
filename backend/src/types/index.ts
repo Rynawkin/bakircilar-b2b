@@ -33,6 +33,20 @@ export interface CreateCustomerRequest {
   name: string;
   customerType: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode: string;
+  invoicedPriceListNo?: number | null;
+  whitePriceListNo?: number | null;
+}
+
+export interface PriceListPair {
+  invoiced: number;
+  white: number;
+}
+
+export interface CustomerPriceListConfig {
+  BAYI: PriceListPair;
+  PERAKENDE: PriceListPair;
+  VIP: PriceListPair;
+  OZEL: PriceListPair;
 }
 
 // ==================== MIKRO TYPES ====================
@@ -133,6 +147,7 @@ export interface AddToCartRequest {
   productId: string;
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
+  priceMode?: 'LIST' | 'EXCESS';
 }
 
 export interface CartResponse {
@@ -210,6 +225,7 @@ export interface SettingsResponse {
   costCalculationMethod: string;
   dynamicCostParams?: any;
   whiteVatFormula: string;
+  customerPriceLists?: CustomerPriceListConfig;
   lastSyncAt?: string;
 }
 
@@ -221,6 +237,7 @@ export interface UpdateSettingsRequest {
   costCalculationMethod?: string;
   dynamicCostParams?: any;
   whiteVatFormula?: string;
+  customerPriceLists?: CustomerPriceListConfig;
 }
 
 // ==================== PRICE RULE TYPES ====================

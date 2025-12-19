@@ -21,7 +21,7 @@ import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilt
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 
-export default function ProductsPage() {
+export default function DiscountedProductsPage() {
   const router = useRouter();
   const { user, loadUserFromStorage, logout } = useAuthStore();
   const { cart, fetchCart, addToCart, removeItem } = useCartStore();
@@ -55,7 +55,13 @@ export default function ProductsPage() {
     product.maxOrderQuantity ?? product.availableStock ?? product.excessStock ?? 0;
 
   const getDisplayStock = (product: Product) =>
-    product.availableStock ?? product.excessStock ?? 0;
+    product.excessStock ?? product.maxOrderQuantity ?? 0;
+
+  const getDiscountPercent = (listPrice?: number, salePrice?: number) => {
+    if (!listPrice || listPrice <= 0 || !salePrice) return null;
+    const discount = Math.round(((listPrice - salePrice) / listPrice) * 100);
+    return discount > 0 ? discount : null;
+  };
 
   // Apply advanced filters to products
   const filteredProducts = useMemo(() => {
@@ -91,7 +97,7 @@ export default function ProductsPage() {
         categoryId: selectedCategory || undefined,
         search: debouncedSearch || undefined,
         warehouse: selectedWarehouse || undefined,
-        mode: 'all' as const,
+        mode: 'discounted' as const,
       };
 
       const productsData = await customerApi.getProducts(searchParams);
@@ -122,7 +128,7 @@ export default function ProductsPage() {
         productId,
         quantity,
         priceType,
-        priceMode: 'LIST',
+        priceMode: 'EXCESS',
       });
 
       // Reset quantity after adding
@@ -144,7 +150,7 @@ export default function ProductsPage() {
     productId: string,
     quantity: number,
     priceType: 'INVOICED' | 'WHITE',
-    priceMode: 'LIST' | 'EXCESS' = 'LIST'
+    priceMode: 'LIST' | 'EXCESS' = 'EXCESS'
   ) => {
     try {
       await addToCart({
@@ -195,11 +201,11 @@ export default function ProductsPage() {
       <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-xl sticky top-0 z-10 border-b-4 border-primary-800">
         <div className="container-custom py-4 flex justify-between items-center">
           <div className="flex items-center gap-6">
-            <LogoLink href="/products" variant="light" />
+            <LogoLink href="/discounted-products" variant="light" />
             <div className="hidden sm:block">
               <h1 className="text-xl font-bold text-white flex items-center gap-2">
                 <span className="text-2xl">🛍️</span>
-                Ürün Kataloğu
+                Indirimli Urunler
               </h1>
               <p className="text-sm text-primary-100">
                 {user.name} • {getCustomerTypeName(user.customerType || '')}
@@ -211,10 +217,10 @@ export default function ProductsPage() {
           <div className="hidden lg:flex gap-2">
             <Button
               variant="secondary"
-              onClick={() => router.push('/discounted-products')}
+              onClick={() => router.push('/products')}
               className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
             >
-              Indirimli Urunler
+              Ürünler
             </Button>
             <Button
               variant="secondary"
@@ -401,11 +407,11 @@ export default function ProductsPage() {
               <Card>
                 <EmptyState
                   icon={search || selectedCategory || selectedWarehouse ? 'search' : 'products'}
-                  title={search || selectedCategory || selectedWarehouse ? 'Ürün Bulunamadı' : 'Henüz Ürün Yok'}
+                  title={search || selectedCategory || selectedWarehouse ? 'Ürün Bulunamadı' : 'Henüz Indirimli Ürün Yok'}
                   description={
                     search || selectedCategory || selectedWarehouse
                       ? 'Arama kriterlerinize uygun ürün bulunamadı. Filtreleri değiştirerek tekrar deneyin.'
-                      : 'Ürünler senkronize edildiğinde burada görüntülenecektir.'
+                      : 'Fazla stoklu ürünler burada görüntülenecektir.'
                   }
                   actionLabel={search || selectedCategory || selectedWarehouse ? 'Filtreleri Temizle' : undefined}
                   onAction={search || selectedCategory || selectedWarehouse ? () => {
@@ -450,7 +456,7 @@ export default function ProductsPage() {
                         )}
                         {/* Stock badge */}
                         <div className="absolute top-2 right-2 bg-gradient-to-br from-green-500 to-green-600 text-white text-xs font-bold px-2 py-1 rounded-lg shadow-lg">
-                          <div className="text-[10px] uppercase tracking-wide opacity-80">Stok</div>
+                          <div className="text-[10px] uppercase tracking-wide opacity-80">Fazla Stok</div>
                           <div>{getDisplayStock(product)} {product.unit}</div>
                         </div>
                         {/* Overlay on hover */}
@@ -491,6 +497,16 @@ export default function ProductsPage() {
                         >
                           <div className="opacity-80 mb-0.5">📄 Faturalı</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
+                          {product.listPrices?.invoiced && product.listPrices.invoiced > 0 && (
+                            <div className="text-[10px] text-gray-500 line-through">
+                              {formatCurrency(product.listPrices.invoiced)}
+                            </div>
+                          )}
+                          {getDiscountPercent(product.listPrices?.invoiced, product.prices.invoiced) && (
+                            <div className="text-[10px] text-green-700 font-semibold">
+                              %{getDiscountPercent(product.listPrices?.invoiced, product.prices.invoiced)} indirim
+                            </div>
+                          )}
                           <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
                         </button>
                         <button
@@ -503,6 +519,16 @@ export default function ProductsPage() {
                         >
                           <div className="opacity-80 mb-0.5">⚪ Beyaz</div>
                           <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
+                          {product.listPrices?.white && product.listPrices.white > 0 && (
+                            <div className="text-[10px] text-gray-500 line-through">
+                              {formatCurrency(product.listPrices.white)}
+                            </div>
+                          )}
+                          {getDiscountPercent(product.listPrices?.white, product.prices.white) && (
+                            <div className="text-[10px] text-green-700 font-semibold">
+                              %{getDiscountPercent(product.listPrices?.white, product.prices.white)} indirim
+                            </div>
+                          )}
                           <div className="text-[10px] opacity-70 mt-0.5">Özel</div>
                         </button>
                       </div>

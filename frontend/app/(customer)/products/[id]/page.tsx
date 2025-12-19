@@ -43,8 +43,8 @@ export default function ProductDetailPage() {
   const handleAddToCart = async () => {
     if (!product) return;
 
-    if (quantity > product.excessStock) {
-      toast.error(`Maksimum ${product.excessStock} adet sipariş verebilirsiniz.`);
+    if (quantity > maxQuantity) {
+      toast.error(`Maksimum ${maxQuantity} adet sipariş verebilirsiniz.`);
       return;
     }
 
@@ -54,6 +54,7 @@ export default function ProductDetailPage() {
         productId: product.id,
         quantity,
         priceType,
+        priceMode,
       });
 
       toast.success('Ürün sepete eklendi!');
@@ -86,6 +87,16 @@ export default function ProductDetailPage() {
     );
   }
 
+  const isDiscounted = product.pricingMode === 'EXCESS';
+  const maxQuantity =
+    product.maxOrderQuantity ??
+    (isDiscounted ? product.excessStock : product.availableStock ?? product.excessStock ?? 0);
+  const displayStock = isDiscounted
+    ? product.excessStock
+    : product.availableStock ?? product.excessStock ?? 0;
+  const priceMode = isDiscounted ? 'EXCESS' : 'LIST';
+  const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
+
   const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
 
@@ -111,18 +122,22 @@ export default function ProductDetailPage() {
 
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm text-gray-600 mb-2">Toplam Fazla Stok</p>
+                    <p className="text-sm text-gray-600 mb-2">
+                      {isDiscounted ? 'Toplam Fazla Stok' : 'Toplam Stok'}
+                    </p>
                     <p className="text-2xl font-bold text-green-600">
-                      {product.excessStock} {product.unit}
+                      {displayStock} {product.unit}
                     </p>
                   </div>
 
-                  {/* Warehouse Excess Stock Details */}
-                  {product.warehouseExcessStocks && typeof product.warehouseExcessStocks === 'object' && Object.keys(product.warehouseExcessStocks).length > 0 && (
+                  {/* Warehouse Stock Details */}
+                  {warehouseBreakdown && typeof warehouseBreakdown === 'object' && Object.keys(warehouseBreakdown).length > 0 && (
                     <div className="border-t pt-4">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Depo Bazlı Fazla Stoklar</p>
+                      <p className="text-sm font-medium text-gray-700 mb-2">
+                        {isDiscounted ? 'Depo Bazlı Fazla Stoklar' : 'Depo Bazlı Stoklar'}
+                      </p>
                       <div className="grid grid-cols-2 gap-2">
-                        {Object.entries(product.warehouseExcessStocks as Record<string, number>)
+                        {Object.entries(warehouseBreakdown as Record<string, number>)
                           .filter(([_, stock]) => stock > 0)
                           .map(([warehouse, stock]) => (
                             <div key={warehouse} className="flex justify-between text-sm bg-green-50 p-2 rounded border border-green-200">
@@ -131,9 +146,11 @@ export default function ProductDetailPage() {
                             </div>
                           ))}
                       </div>
-                      <p className="text-xs text-gray-500 mt-2">
-                        * Sadece fazla stoklu depolar gösteriliyor
-                      </p>
+                      {isDiscounted && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          * Sadece fazla stoklu depolar gösteriliyor
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -190,12 +207,12 @@ export default function ProductDetailPage() {
                     <Input
                       type="number"
                       min={1}
-                      max={product.excessStock}
+                      max={maxQuantity}
                       value={quantity}
                       onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Maksimum: {product.excessStock} {product.unit}
+                      Maksimum: {maxQuantity} {product.unit}
                     </p>
                   </div>
 

@@ -9,6 +9,39 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LogoLink } from '@/components/ui/Logo';
+import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
+
+const RETAIL_LISTS = [
+  { value: 1, label: 'Perakende Satis 1' },
+  { value: 2, label: 'Perakende Satis 2' },
+  { value: 3, label: 'Perakende Satis 3' },
+  { value: 4, label: 'Perakende Satis 4' },
+  { value: 5, label: 'Perakende Satis 5' },
+];
+
+const WHOLESALE_LISTS = [
+  { value: 6, label: 'Toptan Satis 1' },
+  { value: 7, label: 'Toptan Satis 2' },
+  { value: 8, label: 'Toptan Satis 3' },
+  { value: 9, label: 'Toptan Satis 4' },
+  { value: 10, label: 'Toptan Satis 5' },
+];
+
+const DEFAULT_CUSTOMER_PRICE_LISTS: NonNullable<Settings['customerPriceLists']> = {
+  BAYI: { invoiced: 6, white: 1 },
+  PERAKENDE: { invoiced: 6, white: 1 },
+  VIP: { invoiced: 6, white: 1 },
+  OZEL: { invoiced: 6, white: 1 },
+};
+
+const normalizePriceLists = (
+  value?: Settings['customerPriceLists']
+): NonNullable<Settings['customerPriceLists']> => ({
+  BAYI: { ...DEFAULT_CUSTOMER_PRICE_LISTS.BAYI, ...(value?.BAYI || {}) },
+  PERAKENDE: { ...DEFAULT_CUSTOMER_PRICE_LISTS.PERAKENDE, ...(value?.PERAKENDE || {}) },
+  VIP: { ...DEFAULT_CUSTOMER_PRICE_LISTS.VIP, ...(value?.VIP || {}) },
+  OZEL: { ...DEFAULT_CUSTOMER_PRICE_LISTS.OZEL, ...(value?.OZEL || {}) },
+});
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -23,7 +56,10 @@ export default function SettingsPage() {
   const fetchSettings = async () => {
     try {
       const data = await adminApi.getSettings();
-      setSettings(data);
+      setSettings({
+        ...data,
+        customerPriceLists: normalizePriceLists(data.customerPriceLists),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +110,7 @@ export default function SettingsPage() {
       </header>
 
       <div className="container-custom py-8 max-w-3xl">
-        <form onSubmit={handleSave}>
+        <form onSubmit={handleSave} className="space-y-6">
           <Card title="Fazla Stok Hesaplama">
             <div className="space-y-4">
               <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded mb-4">
@@ -241,11 +277,81 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              <Button type="submit" isLoading={isSaving} className="w-full">
-                Ayarları Kaydet
-              </Button>
             </div>
           </Card>
+
+          <Card title="Fiyat Listesi Eslesmesi">
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
+                Segment bazinda hangi fiyat listesinin kullanilacagini belirleyin.
+                Faturali fiyatlar icin toptan listeler, beyaz fiyatlar icin perakende listeler secilir.
+              </div>
+
+              <div className="space-y-4">
+                {CUSTOMER_TYPES.map((type) => (
+                  <div key={type.value} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+                    <div className="font-semibold text-gray-900">{type.label}</div>
+
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Faturali (Toptan)</label>
+                      <select
+                        className="input w-full"
+                        value={settings.customerPriceLists?.[type.value as keyof typeof settings.customerPriceLists]?.invoiced || 6}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            customerPriceLists: {
+                              ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS),
+                              [type.value]: {
+                                ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS)[type.value as keyof typeof DEFAULT_CUSTOMER_PRICE_LISTS],
+                                invoiced: parseInt(e.target.value, 10),
+                              },
+                            },
+                          })
+                        }
+                      >
+                        {WHOLESALE_LISTS.map((list) => (
+                          <option key={list.value} value={list.value}>
+                            {list.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Beyaz (Perakende)</label>
+                      <select
+                        className="input w-full"
+                        value={settings.customerPriceLists?.[type.value as keyof typeof settings.customerPriceLists]?.white || 1}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            customerPriceLists: {
+                              ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS),
+                              [type.value]: {
+                                ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS)[type.value as keyof typeof DEFAULT_CUSTOMER_PRICE_LISTS],
+                                white: parseInt(e.target.value, 10),
+                              },
+                            },
+                          })
+                        }
+                      >
+                        {RETAIL_LISTS.map((list) => (
+                          <option key={list.value} value={list.value}>
+                            {list.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          <Button type="submit" isLoading={isSaving} className="w-full">
+            Ayarlari Kaydet
+          </Button>
         </form>
       </div>
     </div>
