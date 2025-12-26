@@ -87,6 +87,17 @@ const formatStockValue = (value: any) => {
   return String(value);
 };
 
+const getMikroListPrice = (
+  mikroPriceLists: QuoteItemForm['mikroPriceLists'],
+  listNo: number
+) => {
+  if (!mikroPriceLists) return 0;
+  const byNumber = (mikroPriceLists as Record<number, number>)[listNo];
+  if (typeof byNumber === 'number') return byNumber;
+  const byString = (mikroPriceLists as Record<string, number>)[String(listNo)];
+  return typeof byString === 'number' ? byString : 0;
+};
+
 export default function AdminQuoteNewPage() {
   const router = useRouter();
   const [customers, setCustomers] = useState<any[]>([]);
@@ -324,7 +335,7 @@ export default function AdminQuoteNewPage() {
       return;
     }
     const listNo = Number(value);
-    const listPrice = item.mikroPriceLists?.[listNo] || 0;
+    const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
     updateItem(item.id, {
       priceListNo: listNo,
       unitPrice: listPrice || undefined,
@@ -369,7 +380,7 @@ export default function AdminQuoteNewPage() {
     setQuoteItems((prev) =>
       prev.map((item) => {
         if (item.isManualLine) return item;
-        const listPrice = item.mikroPriceLists?.[listNo] || 0;
+        const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
         return {
           ...item,
           priceSource: 'PRICE_LIST',
@@ -905,7 +916,7 @@ export default function AdminQuoteNewPage() {
                                 <option value="">Liste sec</option>
                                 {Object.keys(PRICE_LIST_LABELS).map((key) => {
                                   const listNo = Number(key);
-                                  const listPrice = item.mikroPriceLists?.[listNo] || 0;
+                                  const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
                                   return (
                                     <option key={key} value={key}>
                                       {PRICE_LIST_LABELS[listNo]} ({listPrice ? formatCurrency(listPrice) : 'Fiyat yok'})
