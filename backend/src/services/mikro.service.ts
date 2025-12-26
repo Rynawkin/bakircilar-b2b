@@ -345,10 +345,10 @@ class MikroService {
     const request = this.pool!.request();
     request.input('cariCode', sql.NVarChar, cariCode);
 
-    const query = `
-      SELECT DISTINCT
-        sth_stok_kod as productCode
-      FROM STOK_HAREKETLERI
+      const query = `
+        SELECT DISTINCT
+          LTRIM(RTRIM(sth_stok_kod)) as productCode
+        FROM STOK_HAREKETLERI
       WHERE
         sth_tip = 1
         AND sth_cari_kodu = @cariCode
@@ -362,10 +362,10 @@ class MikroService {
         AND sth_stok_kod IS NOT NULL
     `;
 
-    const result = await request.query(query);
-    return result.recordset
-      .map((row: any) => row.productCode)
-      .filter((code: string) => !!code);
+      const result = await request.query(query);
+      return result.recordset
+        .map((row: any) => (row.productCode || '').trim())
+        .filter((code: string) => !!code);
   }
 
   /**
@@ -382,10 +382,15 @@ class MikroService {
 
     await this.connect();
 
-    const safeCodes = productCodes
-      .map((code) => code.replace(/'/g, "''"))
-      .map((code) => `'${code}'`)
-      .join(', ');
+      const safeCodes = productCodes
+        .map((code) => code.trim())
+        .filter((code) => code.length > 0)
+        .map((code) => code.replace(/'/g, "''"))
+        .map((code) => `'${code}'`)
+        .join(', ');
+      if (!safeCodes) {
+        return [];
+      }
 
     const request = this.pool!.request();
     request.input('cariCode', sql.NVarChar, cariCode);

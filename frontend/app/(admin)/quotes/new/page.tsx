@@ -135,8 +135,10 @@ export default function AdminQuoteNewPage() {
   }, [selectedCustomer, lastSalesCount]);
 
   useEffect(() => {
+    if (productTab !== 'search') return;
+
     if (!searchTerm.trim()) {
-      setSearchResults([]);
+      fetchSearchResults('');
       return;
     }
 
@@ -145,7 +147,7 @@ export default function AdminQuoteNewPage() {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [searchTerm]);
+  }, [searchTerm, productTab]);
 
   useEffect(() => {
     const codes = Array.from(new Set(
@@ -217,22 +219,21 @@ export default function AdminQuoteNewPage() {
 
   const fetchPurchasedProducts = async (customerId: string, limit: number) => {
     try {
-      const { customer, products } = await adminApi.getCustomerPurchasedProducts(customerId, limit);
+      const { products } = await adminApi.getCustomerPurchasedProducts(customerId, limit);
       setPurchasedProducts(products || []);
-      if (customer) {
-        setSelectedCustomer((prev: any) => ({ ...prev, ...customer }));
-      }
     } catch (error) {
       console.error('Daha once alinan urunler alinmadi:', error);
+      toast.error('Daha once alinan urunler alinmadi.');
       setPurchasedProducts([]);
     }
   };
 
-  const fetchSearchResults = async (term: string) => {
+  const fetchSearchResults = async (term?: string) => {
+    const trimmedTerm = term?.trim();
     setSearchLoading(true);
     try {
       const result = await adminApi.getProducts({
-        search: term,
+        search: trimmedTerm || undefined,
         limit: 50,
         sortBy: 'name',
         sortOrder: 'asc',
@@ -240,6 +241,7 @@ export default function AdminQuoteNewPage() {
       setSearchResults(result.products || []);
     } catch (error) {
       console.error('Urun aramasi basarisiz:', error);
+      toast.error('Urun aramasi basarisiz.');
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
