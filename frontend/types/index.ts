@@ -188,6 +188,7 @@ export interface Quote {
   customer?: {
     id: string;
     name: string;
+    email?: string;
     displayName?: string;
     mikroCariCode?: string;
     customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';

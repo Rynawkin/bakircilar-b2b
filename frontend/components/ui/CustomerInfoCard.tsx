@@ -4,7 +4,7 @@ import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 
 interface CustomerInfo {
   name: string;
-  email: string;
+  email?: string;
   mikroCariCode: string;
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   city?: string;
@@ -76,7 +76,7 @@ export function CustomerInfoCard({ customer, compact = false }: CustomerInfoCard
       <div className="flex items-start justify-between mb-4">
         <div>
           <h4 className="font-bold text-lg text-gray-900">{customer.name}</h4>
-          <p className="text-sm text-gray-600">{customer.email}</p>
+          {customer.email && <p className="text-sm text-gray-600">{customer.email}</p>}
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
           {customer.customerType && getCustomerTypeBadge(customer.customerType)}
