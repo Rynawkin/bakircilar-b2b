@@ -179,27 +179,39 @@ export default function AdminQuoteNewPage() {
   }, [quoteItems]);
 
   const loadInitialData = async () => {
-    try {
-      const [customersResult, quotePrefs, searchPrefs, columnResult] = await Promise.all([
-        adminApi.getCustomers(),
-        adminApi.getQuotePreferences(),
-        adminApi.getSearchPreferences(),
-        adminApi.getStockColumns(),
-      ]);
+    const results = await Promise.allSettled([
+      adminApi.getCustomers(),
+      adminApi.getQuotePreferences(),
+      adminApi.getSearchPreferences(),
+      adminApi.getStockColumns(),
+    ]);
 
-      setCustomers(customersResult.customers || []);
-      if (quotePrefs?.preferences) {
-        setLastSalesCount(quotePrefs.preferences.lastSalesCount || 1);
-        setWhatsappTemplate(quotePrefs.preferences.whatsappTemplate || '');
-      }
-      if (searchPrefs?.preferences?.stockColumns?.length) {
-        setSelectedColumns(searchPrefs.preferences.stockColumns);
-      }
-      if (columnResult?.columns?.length) {
-        setAvailableColumns(columnResult.columns);
-      }
-    } catch (error) {
-      console.error('Baslangic verileri yuklenemedi:', error);
+    const [customersResult, quotePrefsResult, searchPrefsResult, columnResult] = results;
+
+    if (customersResult.status === 'fulfilled') {
+      setCustomers(customersResult.value.customers || []);
+    } else {
+      console.error('Musteri listesi yuklenemedi:', customersResult.reason);
+      toast.error('Musteri listesi yuklenemedi.');
+    }
+
+    if (quotePrefsResult.status === 'fulfilled' && quotePrefsResult.value?.preferences) {
+      setLastSalesCount(quotePrefsResult.value.preferences.lastSalesCount || 1);
+      setWhatsappTemplate(quotePrefsResult.value.preferences.whatsappTemplate || '');
+    } else if (quotePrefsResult.status === 'rejected') {
+      console.error('Teklif tercihleri yuklenemedi:', quotePrefsResult.reason);
+    }
+
+    if (searchPrefsResult.status === 'fulfilled' && searchPrefsResult.value?.preferences?.stockColumns?.length) {
+      setSelectedColumns(searchPrefsResult.value.preferences.stockColumns);
+    } else if (searchPrefsResult.status === 'rejected') {
+      console.error('Arama tercihleri yuklenemedi:', searchPrefsResult.reason);
+    }
+
+    if (columnResult.status === 'fulfilled' && columnResult.value?.columns?.length) {
+      setAvailableColumns(columnResult.value.columns);
+    } else if (columnResult.status === 'rejected') {
+      console.error('Stok kolonlari yuklenemedi:', columnResult.reason);
     }
   };
 
