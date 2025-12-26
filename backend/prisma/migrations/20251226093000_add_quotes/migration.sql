@@ -1,4 +1,4 @@
-﻿-- CreateEnum
+-- CreateEnum
 CREATE TYPE "QuoteStatus" AS ENUM ('PENDING_APPROVAL', 'SENT_TO_MIKRO', 'REJECTED', 'CUSTOMER_ACCEPTED', 'CUSTOMER_REJECTED');
 
 -- CreateEnum
