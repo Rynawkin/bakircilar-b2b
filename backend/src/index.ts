@@ -14,6 +14,7 @@ import syncService from './services/sync.service';
 import orderTrackingService from './services/order-tracking.service';
 import emailService from './services/email.service';
 import priceSyncService from './services/priceSync.service';
+import quoteService from './services/quote.service';
 
 // Express app
 const app: Application = express();
@@ -82,6 +83,7 @@ app.use(errorHandler);
 // ==================== CRON JOBS ====================
 
 if (config.enableCron) {
+  const cronOptions = { timezone: config.cronTimezone };
   console.log('🕐 Cron job aktif - Senkronizasyon planı:', config.syncCronSchedule);
 
   // B2B Stok Senkronizasyonu
@@ -97,7 +99,7 @@ if (config.enableCron) {
     } catch (error) {
       console.error('❌ Cron job hatası:', error);
     }
-  });
+  }, cronOptions);
 
   console.log("Price sync cron schedule:", config.priceSyncCronSchedule);
   cron.schedule(config.priceSyncCronSchedule, async () => {
@@ -112,7 +114,18 @@ if (config.enableCron) {
     } catch (error) {
       console.error("Price cron job error:", error);
     }
-  });
+  }, cronOptions);
+
+  console.log('Quote sync cron schedule:', config.quoteSyncCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.quoteSyncCronSchedule, async () => {
+    console.log('Quote sync started...');
+    try {
+      const result = await quoteService.syncQuotesFromMikro();
+      console.log('Quote sync completed:', result);
+    } catch (error) {
+      console.error('Quote sync error:', error);
+    }
+  }, cronOptions);
 
   // Sipariş Takip Modülü - Otomatik sync + mail
   (async () => {
@@ -145,7 +158,7 @@ if (config.enableCron) {
             } catch (error) {
               console.error('❌ Müşteri sipariş takip cron job hatası:', error);
             }
-          });
+          }, cronOptions);
         } else {
           console.log('⏸️  Müşteri sipariş takip cron job devre dışı');
         }
@@ -175,7 +188,7 @@ if (config.enableCron) {
             } catch (error) {
               console.error('❌ Tedarikçi sipariş takip cron job hatası:', error);
             }
-          });
+          }, cronOptions);
         } else {
           console.log('⏸️  Tedarikçi sipariş takip cron job devre dışı');
         }

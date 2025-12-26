@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   Package,
   Clock,
+  FileText,
   User,
   Settings,
   LogOut,
@@ -41,6 +42,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     { name: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: Clock },
     { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
     { name: 'Siparişlerim', href: '/my-orders', icon: Package },
+    { name: 'Tekliflerim', href: '/my-quotes', icon: FileText },
   ];
 
   const isActive = (href: string) => pathname === href;

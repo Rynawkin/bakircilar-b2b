@@ -373,6 +373,45 @@ export class MikroMockService {
   /**
    * Mock bekleyen siparişler
    */
+  /**
+   * Mock: cari bazlÄ± son satÄ±ÅŸ hareketleri
+   */
+  async getCustomerSalesMovements(
+    _cariCode: string,
+    productCodes: string[],
+    limit = 1
+  ): Promise<Array<{
+    productCode: string;
+    saleDate: Date;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+    vatAmount: number;
+    vatRate: number;
+    vatZeroed: boolean;
+  }>> {
+    const now = new Date();
+    return productCodes.flatMap((code) => {
+      return Array.from({ length: limit }).map((_, idx) => {
+        const quantity = Math.max(1, idx + 1);
+        const unitPrice = 100 + idx * 10;
+        const lineTotal = unitPrice * quantity;
+        const vatRate = 0.18;
+        const vatAmount = lineTotal * vatRate;
+        return {
+          productCode: code,
+          saleDate: new Date(now.getTime() - idx * 86400000),
+          quantity,
+          unitPrice,
+          lineTotal,
+          vatAmount,
+          vatRate,
+          vatZeroed: false,
+        };
+      });
+    });
+  }
+
   async getPendingOrders(): Promise<MikroPendingOrder[]> {
     return [
       // Bekleyen müşteri siparişleri
@@ -511,6 +550,41 @@ export class MikroMockService {
    * Mock cari hesap kontrolü ve oluşturma
    * Gerçek sistemde Mikro'ya cari kaydı yazacak
    */
+  /**
+   * Mock Mikro'ya teklif yazma
+   */
+  async writeQuote(quoteData: {
+    cariCode: string;
+    quoteNumber: string;
+    validityDate: Date;
+    description: string;
+    items: Array<{
+      productCode: string;
+      quantity: number;
+      unitPrice: number;
+      vatRate: number;
+      lineDescription?: string;
+      priceListNo?: number;
+    }>;
+  }): Promise<{ quoteNumber: string; guid?: string }> {
+    const mockQuoteNumber = `M-${Math.floor(Math.random() * 10000) + 1000}`;
+
+    console.log('ğŸ“ [MOCK] Mikro\'ya teklif yazÄ±ldÄ±:', {
+      quoteNumber: mockQuoteNumber,
+      ...quoteData,
+    });
+
+    return {
+      quoteNumber: mockQuoteNumber,
+      guid: undefined,
+    };
+  }
+
+  async getQuoteLines(params: { evrakSeri: string; evrakSira: number }): Promise<any[]> {
+    console.log('[MOCK] Teklif satirlari isteniyor:', params);
+    return [];
+  }
+
   async ensureCariExists(cariData: {
     cariCode: string;
     unvan: string;

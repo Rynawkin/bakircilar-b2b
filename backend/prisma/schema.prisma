@@ -44,6 +44,20 @@ enum OrderItemStatus {
   REJECTED  // Reddedildi
 }
 
+enum QuoteStatus {
+  PENDING_APPROVAL   // Admin onayÄ± bekliyor
+  SENT_TO_MIKRO      // Mikro'ya gÃ¶nderildi
+  REJECTED           // Admin tarafÄ±ndan reddedildi
+  CUSTOMER_ACCEPTED  // MÃ¼ÅŸteri kabul etti
+  CUSTOMER_REJECTED  // MÃ¼ÅŸteri reddetti
+}
+
+enum QuotePriceSource {
+  LAST_SALE   // Son satÄ±ÅŸ fiyatÄ±
+  PRICE_LIST  // Mikro fiyat listesi
+  MANUAL      // Manuel fiyat
+}
+
 enum CostCalculationMethod {
   LAST_ENTRY      // Son giriş fiyatı
   CURRENT_COST    // Güncel maliyet
@@ -68,6 +82,8 @@ model User {
   // Optional price list overrides (use settings when null)
   invoicedPriceListNo Int?
   whitePriceListNo    Int?
+  quoteLastSalesCount Int          @default(1)
+  quoteWhatsappTemplate String?
 
   // Mikro'dan senkronize edilen cari bilgileri
   city                String?       // Şehir
@@ -93,6 +109,9 @@ model User {
   orders        Order[]
   cart          Cart?
   searchPreferences UserSearchPreferences?
+  quotes             Quote[]       @relation("QuoteCustomer")
+  createdQuotes      Quote[]       @relation("QuoteCreator")
+  adminQuotes        Quote[]       @relation("QuoteAdmin")
 
   @@index([email])
   @@index([role])
@@ -384,6 +403,90 @@ model OrderItem {
 
   @@index([orderId])
   @@index([status])
+}
+
+// ==================== QUOTES ====================
+
+model Quote {
+  id                String        @id @default(uuid())
+  quoteNumber       String        @unique // "TEK-2025-00001"
+
+  status            QuoteStatus   @default(PENDING_APPROVAL)
+
+  customerId        String
+  customer          User          @relation("QuoteCustomer", fields: [customerId], references: [id])
+
+  createdById       String
+  createdBy         User          @relation("QuoteCreator", fields: [createdById], references: [id])
+
+  adminUserId       String?
+  adminUser         User?         @relation("QuoteAdmin", fields: [adminUserId], references: [id])
+
+  items             QuoteItem[]
+  note              String?
+  validityDate      DateTime
+  vatZeroed         Boolean       @default(false)
+  totalAmount       Float
+  totalVat          Float
+  grandTotal        Float
+
+  mikroNumber       String?
+  mikroGuid         String?
+  mikroUpdatedAt    DateTime?
+
+  adminNote         String?
+  adminActionAt     DateTime?
+  customerRespondedAt DateTime?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([customerId])
+  @@index([createdById])
+  @@index([status])
+  @@index([mikroNumber])
+}
+
+model QuoteItem {
+  id                String            @id @default(uuid())
+
+  quoteId           String
+  quote             Quote             @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  productId         String?
+  product           Product?          @relation(fields: [productId], references: [id])
+
+  productCode       String
+  productName       String
+  quantity          Int
+  unitPrice         Float
+  totalPrice        Float
+
+  priceSource       QuotePriceSource
+  priceListNo       Int?
+  priceType         PriceType         @default(INVOICED)
+
+  vatRate           Float
+  vatZeroed         Boolean           @default(false)
+
+  isManualLine      Boolean           @default(false)
+  isBlocked         Boolean           @default(false)
+  blockedReason     String?
+
+  sourceSaleDate    DateTime?
+  sourceSalePrice   Float?
+  sourceSaleQuantity Float?
+  sourceSaleVatZeroed Boolean?
+
+  lineDescription   String?
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([quoteId])
+  @@index([productId])
+  @@index([productCode])
+  @@index([priceSource])
 }
 
 // ==================== SYNC LOGS ====================

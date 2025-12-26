@@ -4,7 +4,8 @@
 
 import { Router } from 'express';
 import customerController from '../controllers/customer.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import quoteController from '../controllers/quote.controller';
+import { authenticate, requireCustomer } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { cacheMiddleware, invalidateCacheMiddleware } from '../middleware/cache.middleware';
 import { z } from 'zod';
@@ -100,5 +101,11 @@ router.post(
 );
 router.get('/orders', customerController.getOrders);
 router.get('/orders/:id', customerController.getOrderById);
+
+// Quotes (customer)
+router.get('/quotes', requireCustomer, quoteController.getCustomerQuotes);
+router.get('/quotes/:id', requireCustomer, quoteController.getCustomerQuoteById);
+router.post('/quotes/:id/accept', requireCustomer, quoteController.acceptQuote);
+router.post('/quotes/:id/reject', requireCustomer, quoteController.rejectCustomerQuote);
 
 export default router;

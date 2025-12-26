@@ -9,6 +9,7 @@ import {
   Cart,
   AddToCartRequest,
   Order,
+  Quote,
 } from '@/types';
 
 export const customerApi = {
@@ -74,6 +75,27 @@ export const customerApi = {
 
   getOrderById: async (id: string): Promise<Order> => {
     const response = await apiClient.get(`/orders/${id}`);
+    return response.data;
+  },
+
+  // Quotes
+  getQuotes: async (): Promise<{ quotes: Quote[] }> => {
+    const response = await apiClient.get('/quotes');
+    return response.data;
+  },
+
+  getQuoteById: async (id: string): Promise<{ quote: Quote }> => {
+    const response = await apiClient.get(`/quotes/${id}`);
+    return response.data;
+  },
+
+  acceptQuote: async (id: string): Promise<{ quote: Quote }> => {
+    const response = await apiClient.post(`/quotes/${id}/accept`);
+    return response.data;
+  },
+
+  rejectQuote: async (id: string): Promise<{ quote: Quote }> => {
+    const response = await apiClient.post(`/quotes/${id}/reject`);
     return response.data;
   },
 };

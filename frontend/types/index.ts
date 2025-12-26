@@ -133,6 +133,87 @@ export interface PendingOrderForAdmin extends Order {
   };
 }
 
+// ==================== QUOTE TYPES ====================
+
+export type QuoteStatus =
+  | 'PENDING_APPROVAL'
+  | 'SENT_TO_MIKRO'
+  | 'REJECTED'
+  | 'CUSTOMER_ACCEPTED'
+  | 'CUSTOMER_REJECTED';
+
+export type QuotePriceSource = 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL';
+
+export interface QuoteItem {
+  id: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  priceSource: QuotePriceSource;
+  priceListNo?: number;
+  priceType: 'INVOICED' | 'WHITE';
+  vatRate: number;
+  vatZeroed: boolean;
+  isManualLine: boolean;
+  isBlocked: boolean;
+  blockedReason?: string;
+  sourceSaleDate?: string;
+  sourceSalePrice?: number;
+  sourceSaleQuantity?: number;
+  sourceSaleVatZeroed?: boolean;
+  lineDescription?: string;
+}
+
+export interface Quote {
+  id: string;
+  quoteNumber: string;
+  status: QuoteStatus;
+  note?: string;
+  validityDate: string;
+  vatZeroed: boolean;
+  totalAmount: number;
+  totalVat: number;
+  grandTotal: number;
+  mikroNumber?: string;
+  mikroGuid?: string;
+  mikroUpdatedAt?: string;
+  adminNote?: string;
+  adminActionAt?: string;
+  customerRespondedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  items: QuoteItem[];
+  customer?: {
+    id: string;
+    name: string;
+    displayName?: string;
+    mikroCariCode?: string;
+    customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
+    city?: string;
+    district?: string;
+    phone?: string;
+    groupCode?: string;
+    sectorCode?: string;
+    paymentTerm?: number;
+    hasEInvoice?: boolean;
+    balance?: number;
+    isLocked?: boolean;
+  };
+  createdBy?: {
+    id: string;
+    name: string;
+    email?: string;
+    role?: string;
+  };
+  adminUser?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+}
+
 // ==================== SETTINGS TYPES ====================
 
 export interface Settings {

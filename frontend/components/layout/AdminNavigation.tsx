@@ -16,6 +16,7 @@ import {
   Folder,
   Tag,
   Ban,
+  FileText,
   Settings,
   ChevronDown,
   Menu as MenuIcon,
@@ -33,6 +34,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, description: 'Genel bakış' },
   { name: 'Siparişler', href: '/orders', icon: ClipboardList, description: 'Sipariş yönetimi' },
+  { name: 'Teklifler', href: '/quotes', icon: FileText, description: 'Teklif yönetimi' },
   { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler' },
   { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi' },
   { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi' },
@@ -68,7 +70,8 @@ export function AdminNavigation() {
       return navItems.filter(item =>
         item.href === '/dashboard' ||
         item.href === '/orders' ||
-        item.href === '/order-tracking'
+        item.href === '/order-tracking' ||
+        item.href === '/quotes'
       );
     }
     // ADMIN, MANAGER, HEAD_ADMIN tüm menüleri görsün

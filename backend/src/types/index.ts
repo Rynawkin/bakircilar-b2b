@@ -84,6 +84,17 @@ export interface MikroSalesMovement {
   totalQuantity: number;
 }
 
+export interface MikroCustomerSaleMovement {
+  productCode: string;
+  saleDate: Date;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  vatAmount: number;
+  vatRate: number;
+  vatZeroed: boolean;
+}
+
 export interface MikroPendingOrder {
   productCode: string;
   quantity: number;

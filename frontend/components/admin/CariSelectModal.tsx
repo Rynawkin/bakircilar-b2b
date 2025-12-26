@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 
 interface MikroCari {
+  userId?: string;
   code: string;
   name: string;
   city?: string;

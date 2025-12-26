@@ -61,6 +61,26 @@ export const searchStocks = async (req: Request, res: Response) => {
 };
 
 /**
+ * POST /api/search/stocks/by-codes
+ * Belirli stok kodlarÄ±nÄ±n F10 verilerini getirir
+ * Body: { codes: string[] }
+ */
+export const getStocksByCodes = async (req: Request, res: Response) => {
+  try {
+    const { codes } = req.body as { codes?: string[] };
+    if (!Array.isArray(codes) || codes.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const result = await stockF10Service.getStocksByCodes(codes);
+    res.json({ success: true, data: result, total: result.length });
+  } catch (error: any) {
+    console.error('Stok kodlarÄ± getirilirken hata:', error);
+    res.status(500).json({ message: 'Stok kodlarÄ± alÄ±namadÄ±', error: error.message });
+  }
+};
+
+/**
  * GET /api/search/customers
  * Cari F10 araması yapar
  * Query params:

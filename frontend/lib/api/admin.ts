@@ -10,6 +10,7 @@ import {
   Customer,
   CreateCustomerRequest,
   PendingOrderForAdmin,
+  Quote,
   CategoryWithPriceRules,
   SetPriceRuleRequest,
   DashboardStats,
@@ -109,6 +110,8 @@ export const adminApi = {
     priceListStatus?: 'all' | 'missing' | 'available';
     sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost';
     sortOrder?: 'asc' | 'desc';
+    page?: number;
+    limit?: number;
   }): Promise<{ products: any[] }> => {
     const response = await apiClient.get('/admin/products', { params });
     return response.data;
@@ -155,6 +158,63 @@ export const adminApi = {
 
   rejectOrder: async (id: string, adminNote: string): Promise<{ message: string }> => {
     const response = await apiClient.post(`/admin/orders/${id}/reject`, { adminNote });
+    return response.data;
+  },
+
+  // Quotes (Teklifler)
+  getQuotePreferences: async (): Promise<{ preferences: { lastSalesCount: number; whatsappTemplate: string } }> => {
+    const response = await apiClient.get('/admin/quotes/preferences');
+    return response.data;
+  },
+
+  updateQuotePreferences: async (data: {
+    lastSalesCount?: number;
+    whatsappTemplate?: string;
+  }): Promise<{ preferences: { lastSalesCount: number; whatsappTemplate: string } }> => {
+    const response = await apiClient.put('/admin/quotes/preferences', data);
+    return response.data;
+  },
+
+  getCustomerPurchasedProducts: async (
+    customerId: string,
+    limit?: number
+  ): Promise<{
+    customer: any;
+    products: any[];
+  }> => {
+    const response = await apiClient.get(`/admin/quotes/customer/${customerId}/purchased-products`, {
+      params: limit ? { limit } : undefined,
+    });
+    return response.data;
+  },
+
+  createQuote: async (data: any): Promise<{ quote: Quote }> => {
+    const response = await apiClient.post('/admin/quotes', data);
+    return response.data;
+  },
+
+  getQuotes: async (status?: string): Promise<{ quotes: Quote[] }> => {
+    const response = await apiClient.get('/admin/quotes', { params: status ? { status } : undefined });
+    return response.data;
+  },
+
+  getQuoteById: async (id: string): Promise<{ quote: Quote }> => {
+    const response = await apiClient.get(`/admin/quotes/${id}`);
+    return response.data;
+  },
+
+  syncQuote: async (id: string): Promise<{ quote: Quote; updated: boolean }> => {
+    const response = await apiClient.post(`/admin/quotes/${id}/sync`);
+    return response.data;
+  },
+
+  approveQuote: async (id: string, adminNote?: string): Promise<{ quote: Quote }> => {
+    const response = await apiClient.post(`/admin/quotes/${id}/approve`, { adminNote });
+    return response.data;
+  },
+
+  rejectQuote: async (id: string, adminNote: string): Promise<{ quote: Quote }> => {
+    const response = await apiClient.post(`/admin/quotes/${id}/reject`, { adminNote });
     return response.data;
   },
 
@@ -608,6 +668,15 @@ export const adminApi = {
     total: number;
   }> => {
     const response = await apiClient.get('/search/stocks', { params });
+    return response.data;
+  },
+
+  getStocksByCodes: async (codes: string[]): Promise<{
+    success: boolean;
+    data: any[];
+    total: number;
+  }> => {
+    const response = await apiClient.post('/search/stocks/by-codes', { codes });
     return response.data;
   },
 

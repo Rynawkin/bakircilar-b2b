@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import adminController from '../controllers/admin.controller';
+import quoteController from '../controllers/quote.controller';
 import {
   authenticate,
   requireAdmin,
@@ -82,6 +83,17 @@ router.post('/orders/:id/approve', requireOrderApprover, adminController.approve
 router.post('/orders/:id/reject', requireOrderApprover, adminController.rejectOrder);
 router.post('/orders/:id/approve-items', requireOrderApprover, adminController.approveOrderItems);
 router.post('/orders/:id/reject-items', requireOrderApprover, adminController.rejectOrderItems);
+
+// Quotes (Teklifler) - Staff for list/create, ADMIN for approval
+router.get('/quotes/preferences', requireStaff, quoteController.getPreferences);
+router.put('/quotes/preferences', requireStaff, quoteController.updatePreferences);
+router.get('/quotes/customer/:customerId/purchased-products', requireStaff, quoteController.getCustomerPurchasedProducts);
+router.post('/quotes', requireStaff, quoteController.createQuote);
+router.get('/quotes', requireStaff, quoteController.getQuotes);
+router.get('/quotes/:id', requireStaff, quoteController.getQuoteById);
+router.post('/quotes/:id/sync', requireStaff, quoteController.syncQuoteFromMikro);
+router.post('/quotes/:id/approve', requireAdmin, quoteController.approveQuote);
+router.post('/quotes/:id/reject', requireAdmin, quoteController.rejectQuote);
 
 // Categories & Pricing - ADMIN/MANAGER only
 router.get('/categories', requireAdminOrManager, adminController.getCategories);
