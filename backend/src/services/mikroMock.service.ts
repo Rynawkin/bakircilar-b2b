@@ -570,8 +570,8 @@ export class MikroMockService {
     const mockQuoteNumber = `M-${Math.floor(Math.random() * 10000) + 1000}`;
 
     console.log('ğŸ“ [MOCK] Mikro\'ya teklif yazÄ±ldÄ±:', {
-      quoteNumber: mockQuoteNumber,
       ...quoteData,
+      mockQuoteNumber,
     });
 
     return {
