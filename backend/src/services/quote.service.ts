@@ -8,6 +8,7 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import priceListService from './price-list.service';
 import { generateQuoteNumber } from '../utils/quoteNumber';
+import { MikroCustomerSaleMovement } from '../types';
 
 type QuotePriceSource = 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL';
 type PriceType = 'INVOICED' | 'WHITE';
@@ -147,11 +148,16 @@ class QuoteService {
       products.map((product) => product.mikroCode)
     );
 
-    const salesMovements = await mikroService.getCustomerSalesMovements(
-      customer.mikroCariCode,
-      purchasedCodes,
-      Math.max(1, lastSalesCount)
-    );
+    let salesMovements: MikroCustomerSaleMovement[] = [];
+    try {
+      salesMovements = await mikroService.getCustomerSalesMovements(
+        customer.mikroCariCode,
+        purchasedCodes,
+        Math.max(1, lastSalesCount)
+      );
+    } catch (error) {
+      console.error('Customer sales movements failed', { customerId, error });
+    }
 
     const salesMap = new Map<string, typeof salesMovements>();
     for (const movement of salesMovements) {
@@ -182,7 +188,22 @@ class QuoteService {
       };
     });
 
-    return { customer, products: productsWithLists };
+    const getSaleTime = (value?: string | Date) => {
+      if (!value) return 0;
+      const time = new Date(value).getTime();
+      return Number.isNaN(time) ? 0 : time;
+    };
+
+    const sortedProducts = productsWithLists.sort((a, b) => {
+      const aTime = getSaleTime(a.lastSales?.[0]?.saleDate);
+      const bTime = getSaleTime(b.lastSales?.[0]?.saleDate);
+      if (aTime === bTime) {
+        return a.name.localeCompare(b.name, 'tr');
+      }
+      return bTime - aTime;
+    });
+
+    return { customer, products: sortedProducts };
   }
 
   async createQuote(input: CreateQuoteInput, createdById: string) {

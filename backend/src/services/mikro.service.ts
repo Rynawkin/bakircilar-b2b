@@ -402,7 +402,10 @@ class MikroService {
           sth_stok_kod as productCode,
           sth_tarih as saleDate,
           sth_miktar as quantity,
-          sth_b_fiyat as unitPrice,
+          CASE
+            WHEN sth_miktar = 0 THEN 0
+            ELSE sth_tutar / NULLIF(sth_miktar, 0)
+          END as unitPrice,
           sth_tutar as lineTotal,
           sth_vergi as vatAmount,
           CASE

@@ -104,6 +104,7 @@ export default function AdminQuoteNewPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [showCariModal, setShowCariModal] = useState(false);
   const [purchasedProducts, setPurchasedProducts] = useState<QuoteProduct[]>([]);
+  const [selectedPurchasedCodes, setSelectedPurchasedCodes] = useState<Set<string>>(new Set());
   const [purchasedSearch, setPurchasedSearch] = useState('');
   const [productTab, setProductTab] = useState<'purchased' | 'search'>('purchased');
   const [searchTerm, setSearchTerm] = useState('');
@@ -130,6 +131,7 @@ export default function AdminQuoteNewPage() {
   }, []);
 
   useEffect(() => {
+    setSelectedPurchasedCodes(new Set());
     if (!selectedCustomer) return;
     fetchPurchasedProducts(selectedCustomer.id, lastSalesCount);
   }, [selectedCustomer, lastSalesCount]);
@@ -221,10 +223,12 @@ export default function AdminQuoteNewPage() {
     try {
       const { products } = await adminApi.getCustomerPurchasedProducts(customerId, limit);
       setPurchasedProducts(products || []);
+      setSelectedPurchasedCodes(new Set());
     } catch (error) {
       console.error('Daha once alinan urunler alinmadi:', error);
       toast.error('Daha once alinan urunler alinmadi.');
       setPurchasedProducts([]);
+      setSelectedPurchasedCodes(new Set());
     }
   };
 
@@ -276,16 +280,46 @@ export default function AdminQuoteNewPage() {
     );
   }, [purchasedProducts, purchasedSearch]);
 
-  const addProductToQuote = (product: QuoteProduct) => {
-    if (quoteItems.some((item) => !item.isManualLine && item.productCode === product.mikroCode)) {
-      toast.error('Urun zaten teklife eklendi.');
+  const selectedPurchasedCount = selectedPurchasedCodes.size;
+
+  const togglePurchasedSelection = (code: string) => {
+    setSelectedPurchasedCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  };
+
+  const selectAllPurchased = () => {
+    const codes = filteredPurchasedProducts.map((product) => product.mikroCode);
+    setSelectedPurchasedCodes(new Set(codes));
+  };
+
+  const clearPurchasedSelection = () => {
+    setSelectedPurchasedCodes(new Set());
+  };
+
+  const addSelectedPurchasedToQuote = () => {
+    if (selectedPurchasedCount === 0) {
+      toast.error('Secili urun yok.');
       return;
     }
+    const selectedProducts = purchasedProducts.filter((product) =>
+      selectedPurchasedCodes.has(product.mikroCode)
+    );
+    addProductsToQuote(selectedProducts);
+    setSelectedPurchasedCodes(new Set());
+  };
 
+  const buildQuoteItem = (product: QuoteProduct): QuoteItemForm => {
     const purchasedMatch = purchasedProducts.find((item) => item.mikroCode === product.mikroCode);
     const sourceProduct = purchasedMatch || product;
 
-    const newItem: QuoteItemForm = {
+    return {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       productId: sourceProduct.id,
       productCode: sourceProduct.mikroCode,
@@ -301,8 +335,47 @@ export default function AdminQuoteNewPage() {
       currentCost: sourceProduct.currentCost ?? null,
       mikroPriceLists: sourceProduct.mikroPriceLists,
     };
+  };
 
-    setQuoteItems((prev) => [...prev, newItem]);
+  const addProductsToQuote = (productsToAdd: QuoteProduct[]) => {
+    if (!productsToAdd.length) {
+      toast.error('Urun bulunamadi.');
+      return;
+    }
+
+    let addedCount = 0;
+
+    setQuoteItems((prev) => {
+      const existingCodes = new Set(
+        prev
+          .filter((item) => !item.isManualLine)
+          .map((item) => item.productCode)
+      );
+      const handled = new Set<string>();
+      const next = [...prev];
+
+      productsToAdd.forEach((product) => {
+        if (!product?.mikroCode) return;
+        if (existingCodes.has(product.mikroCode) || handled.has(product.mikroCode)) return;
+        handled.add(product.mikroCode);
+        existingCodes.add(product.mikroCode);
+        next.push(buildQuoteItem(product));
+        addedCount += 1;
+      });
+
+      return next;
+    });
+
+    if (addedCount === 0) {
+      toast.error('Secili urunler zaten teklifte.');
+      return;
+    }
+
+    toast.success(`${addedCount} urun eklendi.`);
+  };
+
+  const addProductToQuote = (product: QuoteProduct) => {
+    addProductsToQuote([product]);
   };
 
   const addManualLine = () => {
@@ -601,8 +674,8 @@ export default function AdminQuoteNewPage() {
   const columnsCount = 7 + selectedColumns.length + 1;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-lg">
         <div className="container-custom py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-6">
@@ -625,12 +698,17 @@ export default function AdminQuoteNewPage() {
         </div>
       </header>
 
-      <div className="container-custom py-8 space-y-6">
-        <Card>
+      <div className="container-custom py-8">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          <div className="xl:col-span-5 space-y-6">
+        <Card className="border-0 shadow-lg bg-white/90">
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold">Musteri Secimi</h2>
+                <div>
+                  <h2 className="text-lg font-semibold">Musteri</h2>
+                  <p className="text-xs text-gray-500">Teklif icin cari secin.</p>
+                </div>
                 <Button variant="secondary" onClick={() => setShowCariModal(true)}>
                   Musteri Sec
                 </Button>
@@ -641,14 +719,14 @@ export default function AdminQuoteNewPage() {
                 <div className="text-sm text-gray-500">Teklif icin musteri secin.</div>
               )}
             </div>
-            <div className="w-full lg:w-80 space-y-4">
+            <div className="w-full lg:w-80 space-y-4 rounded-lg bg-slate-50/70 p-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Gecerlilik Tarihi</label>
                 <input
                   type="date"
                   value={validityDate}
                   onChange={(e) => setValidityDate(e.target.value)}
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
                 />
               </div>
               <div>
@@ -657,7 +735,7 @@ export default function AdminQuoteNewPage() {
                     type="checkbox"
                     checked={vatZeroed}
                     onChange={(e) => handleGlobalVatZeroChange(e.target.checked)}
-                    className="h-4 w-4"
+                    className="h-4 w-4 accent-primary-600"
                   />
                   Tum satirlarda KDV sifirla
                 </label>
@@ -668,125 +746,164 @@ export default function AdminQuoteNewPage() {
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={3}
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
                   placeholder="Teklif notu"
                 />
               </div>
             </div>
           </div>
         </Card>
-
-        <Card>
-          <div className="flex flex-col md:flex-row gap-6">
-            <div className="flex-1">
-              <h2 className="text-lg font-semibold mb-3">Teklif Ayarlari</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Son Satis Adedi</label>
-                  <select
-                    value={lastSalesCount}
-                    onChange={(e) => handleLastSalesCountChange(Number(e.target.value))}
-                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                  >
-                    {Array.from({ length: 10 }).map((_, idx) => (
-                      <option key={idx + 1} value={idx + 1}>
-                        {idx + 1}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Sablonu</label>
-                  <textarea
-                    value={whatsappTemplate}
-                    onChange={(e) => setWhatsappTemplate(e.target.value)}
-                    rows={2}
-                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                    placeholder="{{customerName}} {{quoteNumber}}"
-                  />
-                </div>
+        <Card className="border-0 shadow-lg bg-white/90">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Teklif Ayarlari</h2>
+                <p className="text-xs text-gray-500">Son satis ve mesaj tercihleriniz.</p>
               </div>
-              <div className="mt-3">
-                <Button variant="secondary" onClick={saveWhatsappTemplate}>
-                  Tercihleri Kaydet
-                </Button>
-              </div>
+              <Button variant="secondary" onClick={saveWhatsappTemplate}>
+                Tercihleri Kaydet
+              </Button>
             </div>
-            <div className="w-full md:w-64">
-              <h2 className="text-lg font-semibold mb-3">Fiyat Listesi Uygula</h2>
-              <div className="flex flex-col gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Son Satis Adedi</label>
                 <select
-                  value={bulkPriceListNo}
-                  onChange={(e) => setBulkPriceListNo(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  value={lastSalesCount}
+                  onChange={(e) => handleLastSalesCountChange(Number(e.target.value))}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Liste Sec</option>
-                  {Object.keys(PRICE_LIST_LABELS).map((key) => (
-                    <option key={key} value={key}>
-                      {PRICE_LIST_LABELS[Number(key)]}
+                  {Array.from({ length: 10 }).map((_, idx) => (
+                    <option key={idx + 1} value={idx + 1}>
+                      {idx + 1}
                     </option>
                   ))}
                 </select>
-                <Button variant="secondary" onClick={applyPriceListToAll}>
-                  Tum Satirlara Uygula
-                </Button>
+                <p className="mt-1 text-xs text-gray-500">Her urun icin son {lastSalesCount} satis gosterilir.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Sablonu</label>
+                <textarea
+                  value={whatsappTemplate}
+                  onChange={(e) => setWhatsappTemplate(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  placeholder="{{customerName}} {{quoteNumber}}"
+                />
               </div>
             </div>
           </div>
         </Card>
-
-        <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Urun Ekle</h2>
-            <div className="flex gap-2">
-              <Button variant={productTab === 'purchased' ? 'primary' : 'secondary'} onClick={() => setProductTab('purchased')}>
+        <Card className="border-0 shadow-lg bg-white/90">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Urun Havuzu</h2>
+              <p className="text-xs text-gray-500">Son {lastSalesCount} satis gosteriliyor.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={productTab === 'purchased' ? 'primary' : 'secondary'}
+                onClick={() => setProductTab('purchased')}
+                size="sm"
+              >
                 Daha Once Alinanlar
               </Button>
-              <Button variant={productTab === 'search' ? 'primary' : 'secondary'} onClick={() => setProductTab('search')}>
+              <Button
+                variant={productTab === 'search' ? 'primary' : 'secondary'}
+                onClick={() => setProductTab('search')}
+                size="sm"
+              >
                 Tum Urunler
               </Button>
-              <Button variant="secondary" onClick={addManualLine}>
+              <Button variant="secondary" onClick={addManualLine} size="sm">
                 Manuel Satir Ekle
               </Button>
             </div>
           </div>
 
           {productTab === 'purchased' && (
-            <div className="space-y-3">
-              <Input
-                placeholder="Urun ara..."
-                value={purchasedSearch}
-                onChange={(e) => setPurchasedSearch(e.target.value)}
-              />
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <Input
+                  placeholder="Urun ara..."
+                  value={purchasedSearch}
+                  onChange={(e) => setPurchasedSearch(e.target.value)}
+                  className="lg:max-w-xs"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-gray-500">
+                    {selectedPurchasedCount} secili / {filteredPurchasedProducts.length} urun
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={clearPurchasedSelection}>
+                    Secimi Temizle
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={selectAllPurchased}>
+                    Tumunu Sec
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={addSelectedPurchasedToQuote}
+                    disabled={selectedPurchasedCount === 0}
+                  >
+                    Secilileri Ekle
+                  </Button>
+                </div>
+              </div>
               {filteredPurchasedProducts.length === 0 ? (
                 <div className="text-sm text-gray-500">Urun bulunamadi.</div>
               ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {filteredPurchasedProducts.map((product) => (
-                    <div key={product.mikroCode} className="border rounded-lg p-3 bg-gray-50">
-                      <div className="flex justify-between items-start gap-3">
-                        <div>
-                          <p className="font-semibold text-gray-900">{product.name}</p>
-                          <p className="text-xs text-gray-500">{product.mikroCode}</p>
-                          {product.lastSales?.length ? (
-                            <div className="mt-2 space-y-1">
-                              {product.lastSales.map((sale, idx) => (
-                                <div key={idx} className="text-xs text-gray-600">
-                                  {formatDateShort(sale.saleDate)} - {sale.quantity} adet - {formatCurrency(sale.unitPrice)}
-                                  {sale.vatZeroed && <Badge variant="info" className="ml-2 text-xs">KDV 0</Badge>}
-                                </div>
-                              ))}
+                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                  {filteredPurchasedProducts.map((product) => {
+                    const isSelected = selectedPurchasedCodes.has(product.mikroCode);
+                    return (
+                      <div
+                        key={product.mikroCode}
+                        className={`rounded-xl border p-4 transition ${
+                          isSelected
+                            ? 'border-primary-200 bg-primary-50/70'
+                            : 'border-gray-200 bg-white/90 hover:border-primary-200'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => togglePurchasedSelection(product.mikroCode)}
+                              className="mt-1 h-4 w-4 accent-primary-600"
+                            />
+                            <div>
+                              <p className="font-semibold text-gray-900">{product.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {product.mikroCode}
+                                {product.unit ? ` - ${product.unit}` : ''}
+                              </p>
                             </div>
-                          ) : (
-                            <p className="text-xs text-gray-400 mt-1">Satis yok</p>
-                          )}
+                          </div>
+                          <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
+                            Teklife Ekle
+                          </Button>
                         </div>
-                        <Button variant="secondary" onClick={() => addProductToQuote(product)}>
-                          Teklife Ekle
-                        </Button>
+                        {product.lastSales?.length ? (
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {product.lastSales.map((sale, idx) => (
+                              <div
+                                key={idx}
+                                className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs"
+                              >
+                                <span className="font-medium text-gray-700">{formatDateShort(sale.saleDate)}</span>
+                                <span className="text-gray-500">{sale.quantity} adet</span>
+                                <span className="font-semibold text-gray-900">{formatCurrency(sale.unitPrice)}</span>
+                                {sale.vatZeroed && <Badge variant="info" className="text-[10px]">KDV 0</Badge>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-gray-400">Satis yok</p>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -804,15 +921,15 @@ export default function AdminQuoteNewPage() {
               ) : searchResults.length === 0 ? (
                 <div className="text-sm text-gray-500">Arama sonucu yok.</div>
               ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                <div className="grid gap-3 md:grid-cols-2 max-h-[420px] overflow-y-auto pr-1">
                   {searchResults.map((product) => (
-                    <div key={product.mikroCode} className="border rounded-lg p-3 bg-gray-50">
+                    <div key={product.mikroCode} className="rounded-xl border border-gray-200 bg-white/90 p-4">
                       <div className="flex justify-between items-start gap-3">
                         <div>
                           <p className="font-semibold text-gray-900">{product.name}</p>
                           <p className="text-xs text-gray-500">{product.mikroCode}</p>
                         </div>
-                        <Button variant="secondary" onClick={() => addProductToQuote(product)}>
+                        <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
                           Teklife Ekle
                         </Button>
                       </div>
@@ -823,17 +940,38 @@ export default function AdminQuoteNewPage() {
             </div>
           )}
         </Card>
-
-        <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Teklif Kalemleri</h2>
-            <Button variant="secondary" onClick={() => setShowColumnSelector(true)}>
-              Kolonlari Sec
-            </Button>
+          </div>
+          <div className="xl:col-span-7 space-y-6">
+        <Card className="border-0 shadow-lg bg-white/90">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold">Teklif Kalemleri ({quoteItems.length})</h2>
+              <p className="text-xs text-gray-500">Fiyat kaynagini secip satirlari duzenleyin.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={bulkPriceListNo}
+                onChange={(e) => setBulkPriceListNo(e.target.value ? Number(e.target.value) : '')}
+                className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm"
+              >
+                <option value="">Liste Sec</option>
+                {Object.keys(PRICE_LIST_LABELS).map((key) => (
+                  <option key={key} value={key}>
+                    {PRICE_LIST_LABELS[Number(key)]}
+                  </option>
+                ))}
+              </select>
+              <Button variant="secondary" size="sm" onClick={applyPriceListToAll}>
+                Tum Satirlara Uygula
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)}>
+                Kolonlari Sec
+              </Button>
+            </div>
           </div>
 
           {hasBlockedPreview && (
-            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+            <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
               Manuel fiyatli satirlardan bazilari %5 kar altinda. Bu teklif admin onayina gidecek.
             </div>
           )}
@@ -841,9 +979,9 @@ export default function AdminQuoteNewPage() {
           {quoteItems.length === 0 ? (
             <div className="text-sm text-gray-500">Teklife urun eklenmedi.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100">
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead className="bg-slate-100 text-xs uppercase tracking-wide text-gray-600">
                   <tr>
                     <th className="px-3 py-2 text-left">Urun</th>
                     <th className="px-3 py-2 text-left">Miktar</th>
@@ -895,7 +1033,7 @@ export default function AdminQuoteNewPage() {
                               min={1}
                               value={item.quantity}
                               onChange={(e) => updateItem(item.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
-                              className="w-20 rounded border border-gray-300 px-2 py-1"
+                              className="w-20 rounded-lg border border-gray-300 px-2 py-1"
                             />
                           </td>
                           <td className="px-3 py-2">
@@ -905,7 +1043,7 @@ export default function AdminQuoteNewPage() {
                               <select
                                 value={item.priceSource || ''}
                                 onChange={(e) => handlePriceSourceChange(item, e.target.value)}
-                                className="rounded border border-gray-300 px-2 py-1"
+                                className="rounded-lg border border-gray-300 bg-white px-2 py-1"
                               >
                                 <option value="">Secin</option>
                                 <option value="LAST_SALE">Son Satis</option>
@@ -925,7 +1063,7 @@ export default function AdminQuoteNewPage() {
                               <select
                                 value={item.priceListNo || ''}
                                 onChange={(e) => handlePriceListChange(item, e.target.value)}
-                                className="rounded border border-gray-300 px-2 py-1"
+                                className="rounded-lg border border-gray-300 bg-white px-2 py-1"
                               >
                                 <option value="">Liste sec</option>
                                 {Object.keys(PRICE_LIST_LABELS).map((key) => {
@@ -943,7 +1081,7 @@ export default function AdminQuoteNewPage() {
                                 <select
                                   value={item.selectedSaleIndex ?? ''}
                                   onChange={(e) => handleLastSaleChange(item, e.target.value)}
-                                  className="rounded border border-gray-300 px-2 py-1"
+                                  className="rounded-lg border border-gray-300 bg-white px-2 py-1"
                                 >
                                   <option value="">Satis sec</option>
                                   {item.lastSales.map((sale, idx) => (
@@ -977,7 +1115,7 @@ export default function AdminQuoteNewPage() {
                                 <select
                                   value={item.manualVatRate === 0.1 ? '0.1' : '0.2'}
                                   onChange={(e) => handleManualVatChange(item, e.target.value)}
-                                  className="rounded border border-gray-300 px-2 py-1"
+                                  className="rounded-lg border border-gray-300 bg-white px-2 py-1"
                                 >
                                   <option value="0.1">%10</option>
                                   <option value="0.2">%20</option>
@@ -1004,7 +1142,7 @@ export default function AdminQuoteNewPage() {
                             </td>
                           ))}
                           <td className="px-3 py-2 text-right">
-                            <Button variant="danger" onClick={() => removeItem(item.id)}>
+                            <Button variant="danger" size="sm" onClick={() => removeItem(item.id)}>
                               Sil
                             </Button>
                           </td>
@@ -1027,27 +1165,32 @@ export default function AdminQuoteNewPage() {
           )}
         </Card>
 
-        <Card>
-          <div className="flex flex-col md:flex-row justify-between gap-4">
-            <div>
-              <p className="text-sm text-gray-500">Ara Toplam</p>
-              <p className="text-xl font-semibold">{formatCurrency(totals.totalAmount)}</p>
+        <Card className="border-0 shadow-lg bg-white/90 lg:sticky lg:top-6">
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-gray-500">Ara Toplam</p>
+                <p className="text-xl font-semibold">{formatCurrency(totals.totalAmount)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">KDV</p>
+                <p className="text-xl font-semibold">{formatCurrency(totals.totalVat)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Genel Toplam</p>
+                <p className="text-2xl font-bold text-primary-600">{formatCurrency(totals.grandTotal)}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-gray-500">KDV</p>
-              <p className="text-xl font-semibold">{formatCurrency(totals.totalVat)}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Genel Toplam</p>
-              <p className="text-2xl font-bold text-primary-600">{formatCurrency(totals.grandTotal)}</p>
-            </div>
-            <div className="flex items-end">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-xs text-gray-500">{quoteItems.length} kalem secili</p>
               <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
                 {submitting ? 'Gonderiliyor...' : 'Teklif Olustur'}
               </Button>
             </div>
           </div>
         </Card>
+          </div>
+        </div>
       </div>
 
       <CariSelectModal
