@@ -103,6 +103,7 @@ export default function AdminQuoteNewPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [showCariModal, setShowCariModal] = useState(false);
+  const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [purchasedProducts, setPurchasedProducts] = useState<QuoteProduct[]>([]);
   const [selectedPurchasedCodes, setSelectedPurchasedCodes] = useState<Set<string>>(new Set());
   const [purchasedSearch, setPurchasedSearch] = useState('');
@@ -343,35 +344,26 @@ export default function AdminQuoteNewPage() {
       return;
     }
 
-    let addedCount = 0;
-
-    setQuoteItems((prev) => {
-      const existingCodes = new Set(
-        prev
-          .filter((item) => !item.isManualLine)
-          .map((item) => item.productCode)
-      );
-      const handled = new Set<string>();
-      const next = [...prev];
-
-      productsToAdd.forEach((product) => {
-        if (!product?.mikroCode) return;
-        if (existingCodes.has(product.mikroCode) || handled.has(product.mikroCode)) return;
-        handled.add(product.mikroCode);
-        existingCodes.add(product.mikroCode);
-        next.push(buildQuoteItem(product));
-        addedCount += 1;
-      });
-
-      return next;
+    const existingCodes = new Set(
+      quoteItems
+        .filter((item) => !item.isManualLine)
+        .map((item) => item.productCode)
+    );
+    const handled = new Set<string>();
+    const uniqueProducts = productsToAdd.filter((product) => {
+      if (!product?.mikroCode) return false;
+      if (existingCodes.has(product.mikroCode) || handled.has(product.mikroCode)) return false;
+      handled.add(product.mikroCode);
+      return true;
     });
 
-    if (addedCount === 0) {
+    if (uniqueProducts.length === 0) {
       toast.error('Secili urunler zaten teklifte.');
       return;
     }
 
-    toast.success(`${addedCount} urun eklendi.`);
+    setQuoteItems((prev) => [...prev, ...uniqueProducts.map(buildQuoteItem)]);
+    toast.success(`${uniqueProducts.length} urun eklendi.`);
   };
 
   const addProductToQuote = (product: QuoteProduct) => {
@@ -700,58 +692,23 @@ export default function AdminQuoteNewPage() {
 
       <div className="container-custom py-8">
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          {showLeftPanel && (
           <div className="xl:col-span-5 space-y-6">
         <Card className="border-0 shadow-lg bg-white/90">
-          <div className="flex flex-col lg:flex-row gap-6">
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="text-lg font-semibold">Musteri</h2>
-                  <p className="text-xs text-gray-500">Teklif icin cari secin.</p>
-                </div>
-                <Button variant="secondary" onClick={() => setShowCariModal(true)}>
-                  Musteri Sec
-                </Button>
-              </div>
-              {selectedCustomer ? (
-                <CustomerInfoCard customer={selectedCustomer} />
-              ) : (
-                <div className="text-sm text-gray-500">Teklif icin musteri secin.</div>
-              )}
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-semibold">Musteri</h2>
+              <p className="text-xs text-gray-500">Teklif icin cari secin.</p>
             </div>
-            <div className="w-full lg:w-80 space-y-4 rounded-lg bg-slate-50/70 p-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Gecerlilik Tarihi</label>
-                <input
-                  type="date"
-                  value={validityDate}
-                  onChange={(e) => setValidityDate(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={vatZeroed}
-                    onChange={(e) => handleGlobalVatZeroChange(e.target.checked)}
-                    className="h-4 w-4 accent-primary-600"
-                  />
-                  Tum satirlarda KDV sifirla
-                </label>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Not</label>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-                  placeholder="Teklif notu"
-                />
-              </div>
-            </div>
+            <Button variant="secondary" onClick={() => setShowCariModal(true)}>
+              Musteri Sec
+            </Button>
           </div>
+          {selectedCustomer ? (
+            <CustomerInfoCard customer={selectedCustomer} />
+          ) : (
+            <div className="text-sm text-gray-500">Teklif icin musteri secin.</div>
+          )}
         </Card>
         <Card className="border-0 shadow-lg bg-white/90">
           <div className="flex flex-col gap-4">
@@ -941,7 +898,51 @@ export default function AdminQuoteNewPage() {
           )}
         </Card>
           </div>
-          <div className="xl:col-span-7 space-y-6">
+          )}
+          <div className={`${showLeftPanel ? 'xl:col-span-7' : 'xl:col-span-12'} space-y-6`}>
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setShowLeftPanel((prev) => !prev)}>
+                {showLeftPanel ? 'Sol Paneli Gizle' : 'Sol Paneli Goster'}
+              </Button>
+            </div>
+            <Card className="border-0 shadow-lg bg-white/90">
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Teklif Bilgileri</h2>
+                  <p className="text-xs text-gray-500">Gecerlilik, not ve KDV ayarlari.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Gecerlilik Tarihi</label>
+                    <input
+                      type="date"
+                      value={validityDate}
+                      onChange={(e) => setValidityDate(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-slate-50/70 px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={vatZeroed}
+                      onChange={(e) => handleGlobalVatZeroChange(e.target.checked)}
+                      className="h-4 w-4 accent-primary-600"
+                    />
+                    <span className="text-gray-700">Tum satirlarda KDV sifirla</span>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Not</label>
+                    <textarea
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                      placeholder="Teklif notu"
+                    />
+                  </div>
+                </div>
+              </div>
+            </Card>
         <Card className="border-0 shadow-lg bg-white/90">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between mb-4">
             <div>
