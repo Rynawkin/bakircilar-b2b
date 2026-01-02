@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import type { DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -121,6 +122,7 @@ export default function AdminQuoteNewPage() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [savingColumns, setSavingColumns] = useState(false);
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
   const [stockDataMap, setStockDataMap] = useState<Record<string, any>>({});
   const [bulkPriceListNo, setBulkPriceListNo] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
@@ -502,12 +504,58 @@ export default function AdminQuoteNewPage() {
     try {
       await adminApi.updateSearchPreferences({ stockColumns: selectedColumns });
       setShowColumnSelector(false);
+      toast.success('Kolon dizilimi kaydedildi.');
     } catch (error) {
       console.error('Kolon tercihleri kaydedilemedi:', error);
       toast.error('Kolon tercihleri kaydedilemedi.');
     } finally {
       setSavingColumns(false);
     }
+  };
+
+  const selectAllColumns = () => {
+    setSelectedColumns(availableColumns);
+  };
+
+  const clearAllColumns = () => {
+    setSelectedColumns([]);
+  };
+
+  const handleColumnDragStart = (column: string) => (event: DragEvent<HTMLDivElement>) => {
+    setDraggingColumn(column);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', column);
+  };
+
+  const handleColumnDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleColumnDrop = (targetColumn: string) => (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const sourceColumn = draggingColumn || event.dataTransfer.getData('text/plain');
+    if (!sourceColumn || sourceColumn === targetColumn) {
+      setDraggingColumn(null);
+      return;
+    }
+
+    setSelectedColumns((prev) => {
+      const next = prev.filter((column) => column !== sourceColumn);
+      const targetIndex = next.indexOf(targetColumn);
+      if (targetIndex === -1) {
+        next.push(sourceColumn);
+      } else {
+        next.splice(targetIndex, 0, sourceColumn);
+      }
+      return next;
+    });
+
+    setDraggingColumn(null);
+  };
+
+  const handleColumnDragEnd = () => {
+    setDraggingColumn(null);
   };
 
   const getManualWarning = (item: QuoteItemForm) => {
@@ -859,6 +907,13 @@ export default function AdminQuoteNewPage() {
                                 {product.mikroCode}
                                 {product.unit ? ` - ${product.unit}` : ''}
                               </p>
+                              <div className="mt-1 text-xs text-slate-500">
+                                <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
+                                {formatStockValue(product.warehouseStocks?.['1'])}
+                                <span className="mx-2 text-slate-300">|</span>
+                                <span className="font-medium text-slate-600">Topca (6)</span>{' '}
+                                {formatStockValue(product.warehouseStocks?.['6'])}
+                              </div>
                             </div>
                           </div>
                           <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
@@ -909,6 +964,13 @@ export default function AdminQuoteNewPage() {
                         <div>
                           <p className="font-semibold text-gray-900">{product.name}</p>
                           <p className="text-xs text-gray-500">{product.mikroCode}</p>
+                          <div className="mt-1 text-xs text-slate-500">
+                            <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
+                            {formatStockValue(product.warehouseStocks?.['1'])}
+                            <span className="mx-2 text-slate-300">|</span>
+                            <span className="font-medium text-slate-600">Topca (6)</span>{' '}
+                            {formatStockValue(product.warehouseStocks?.['6'])}
+                          </div>
                         </div>
                         <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
                           Teklife Ekle
@@ -1249,29 +1311,74 @@ export default function AdminQuoteNewPage() {
               <Button variant="secondary" onClick={() => setShowColumnSelector(false)}>
                 Iptal
               </Button>
-              <Button variant="primary" onClick={saveColumnPreferences} disabled={savingColumns || selectedColumns.length === 0}>
-                {savingColumns ? 'Kaydediliyor...' : 'Kaydet'}
+              <Button variant="primary" onClick={saveColumnPreferences} disabled={savingColumns}>
+                {savingColumns ? 'Kaydediliyor...' : 'Dizilimi Kaydet'}
               </Button>
             </>
           }
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {availableColumns.map((column) => (
-              <label key={column} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedColumns.includes(column)}
-                  onChange={() => {
-                    setSelectedColumns((prev) =>
-                      prev.includes(column)
-                        ? prev.filter((item) => item !== column)
-                        : [...prev, column]
-                    );
-                  }}
-                />
-                {getColumnDisplayName(column)}
-              </label>
-            ))}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+              <p className="text-xs text-gray-500">Kolonlari secin ve siralamayi surukleyin.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" size="sm" onClick={selectAllColumns} className="rounded-full">
+                  Tumunu Sec
+                </Button>
+                <Button variant="ghost" size="sm" onClick={clearAllColumns} className="rounded-full">
+                  Tumunu Kaldir
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-gray-700 mb-2">Secili Kolonlar (surukle birak)</div>
+              {selectedColumns.length === 0 ? (
+                <div className="text-xs text-gray-400">Secili kolon yok.</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {selectedColumns.map((column) => (
+                    <div
+                      key={column}
+                      role="button"
+                      tabIndex={0}
+                      draggable
+                      onDragStart={handleColumnDragStart(column)}
+                      onDragOver={handleColumnDragOver}
+                      onDrop={handleColumnDrop(column)}
+                      onDragEnd={handleColumnDragEnd}
+                      className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
+                        draggingColumn === column
+                          ? 'border-primary-200 bg-primary-50 text-primary-700'
+                          : 'border-gray-200 bg-white text-gray-700'
+                      }`}
+                      title="Surukleyerek sirala"
+                    >
+                      <span className="text-gray-400">::</span>
+                      {getColumnDisplayName(column)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {availableColumns.map((column) => (
+                <label key={column} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedColumns.includes(column)}
+                    onChange={() => {
+                      setSelectedColumns((prev) =>
+                        prev.includes(column)
+                          ? prev.filter((item) => item !== column)
+                          : [...prev, column]
+                      );
+                    }}
+                  />
+                  {getColumnDisplayName(column)}
+                </label>
+              ))}
+            </div>
           </div>
         </Modal>
       )}
