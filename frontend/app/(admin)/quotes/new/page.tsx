@@ -664,10 +664,15 @@ export default function AdminQuoteNewPage() {
   };
 
   const columnsCount = 7 + selectedColumns.length + 1;
+  const cardShell = 'rounded-2xl border border-slate-200/80 bg-white/95 shadow-[0_10px_30px_rgba(15,23,42,0.08)]';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-lg">
+    <div className="min-h-screen bg-slate-50 relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-32 right-[-140px] h-72 w-72 rounded-full bg-primary-200/40 blur-3xl" />
+        <div className="absolute top-1/3 -left-24 h-80 w-80 rounded-full bg-slate-200/70 blur-3xl" />
+      </div>
+      <header className="relative z-10 bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-lg">
         <div className="container-custom py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-6">
@@ -690,11 +695,25 @@ export default function AdminQuoteNewPage() {
         </div>
       </header>
 
-      <div className="container-custom py-8">
+      <div className="relative z-10 container-custom py-8">
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           {showLeftPanel && (
-          <div className="xl:col-span-5 space-y-6">
-        <Card className="border-0 shadow-lg bg-white/90">
+          <div className="xl:col-span-4 space-y-6">
+        <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Sol Panel</p>
+            <p className="text-xs text-gray-500">Musteri ve urun secimi.</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowLeftPanel(false)}
+            className="rounded-full border-slate-200 bg-white text-gray-700 hover:bg-slate-50"
+          >
+            Sol Paneli Gizle
+          </Button>
+        </div>
+        <Card className={cardShell}>
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-lg font-semibold">Musteri</h2>
@@ -710,7 +729,7 @@ export default function AdminQuoteNewPage() {
             <div className="text-sm text-gray-500">Teklif icin musteri secin.</div>
           )}
         </Card>
-        <Card className="border-0 shadow-lg bg-white/90">
+        <Card className={cardShell}>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
@@ -727,7 +746,7 @@ export default function AdminQuoteNewPage() {
                 <select
                   value={lastSalesCount}
                   onChange={(e) => handleLastSalesCountChange(Number(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                 >
                   {Array.from({ length: 10 }).map((_, idx) => (
                     <option key={idx + 1} value={idx + 1}>
@@ -743,35 +762,39 @@ export default function AdminQuoteNewPage() {
                   value={whatsappTemplate}
                   onChange={(e) => setWhatsappTemplate(e.target.value)}
                   rows={2}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                   placeholder="{{customerName}} {{quoteNumber}}"
                 />
               </div>
             </div>
           </div>
         </Card>
-        <Card className="border-0 shadow-lg bg-white/90">
+        <Card className={cardShell}>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-semibold">Urun Havuzu</h2>
               <p className="text-xs text-gray-500">Son {lastSalesCount} satis gosteriliyor.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant={productTab === 'purchased' ? 'primary' : 'secondary'}
-                onClick={() => setProductTab('purchased')}
-                size="sm"
-              >
-                Daha Once Alinanlar
-              </Button>
-              <Button
-                variant={productTab === 'search' ? 'primary' : 'secondary'}
-                onClick={() => setProductTab('search')}
-                size="sm"
-              >
-                Tum Urunler
-              </Button>
-              <Button variant="secondary" onClick={addManualLine} size="sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center rounded-full bg-slate-100 p-1">
+                <Button
+                  variant="ghost"
+                  onClick={() => setProductTab('purchased')}
+                  size="sm"
+                  className={`rounded-full px-4 ${productTab === 'purchased' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+                >
+                  Daha Once Alinanlar
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setProductTab('search')}
+                  size="sm"
+                  className={`rounded-full px-4 ${productTab === 'search' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+                >
+                  Tum Urunler
+                </Button>
+              </div>
+              <Button variant="secondary" onClick={addManualLine} size="sm" className="rounded-full">
                 Manuel Satir Ekle
               </Button>
             </div>
@@ -793,7 +816,7 @@ export default function AdminQuoteNewPage() {
                   <Button variant="ghost" size="sm" onClick={clearPurchasedSelection}>
                     Secimi Temizle
                   </Button>
-                  <Button variant="secondary" size="sm" onClick={selectAllPurchased}>
+                  <Button variant="secondary" size="sm" onClick={selectAllPurchased} className="rounded-full">
                     Tumunu Sec
                   </Button>
                   <Button
@@ -801,6 +824,7 @@ export default function AdminQuoteNewPage() {
                     size="sm"
                     onClick={addSelectedPurchasedToQuote}
                     disabled={selectedPurchasedCount === 0}
+                    className="rounded-full"
                   >
                     Secilileri Ekle
                   </Button>
@@ -899,13 +923,21 @@ export default function AdminQuoteNewPage() {
         </Card>
           </div>
           )}
-          <div className={`${showLeftPanel ? 'xl:col-span-7' : 'xl:col-span-12'} space-y-6`}>
-            <div className="flex justify-end">
-              <Button variant="ghost" size="sm" onClick={() => setShowLeftPanel((prev) => !prev)}>
-                {showLeftPanel ? 'Sol Paneli Gizle' : 'Sol Paneli Goster'}
-              </Button>
-            </div>
-            <Card className="border-0 shadow-lg bg-white/90">
+          <div className={`${showLeftPanel ? 'xl:col-span-8' : 'xl:col-span-12'} space-y-6`}>
+            {!showLeftPanel && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200 bg-white/80 px-4 py-3 text-sm shadow-sm">
+                <span className="text-gray-500">Sol panel gizli.</span>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setShowLeftPanel(true)}
+                  className="rounded-full px-4"
+                >
+                  Sol Paneli Goster
+                </Button>
+              </div>
+            )}
+            <Card className={cardShell}>
               <div className="flex flex-col gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">Teklif Bilgileri</h2>
@@ -918,10 +950,10 @@ export default function AdminQuoteNewPage() {
                       type="date"
                       value={validityDate}
                       onChange={(e) => setValidityDate(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                     />
                   </div>
-                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-slate-50/70 px-3 py-2 text-sm">
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm">
                     <input
                       type="checkbox"
                       checked={vatZeroed}
@@ -936,24 +968,24 @@ export default function AdminQuoteNewPage() {
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       rows={3}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                       placeholder="Teklif notu"
                     />
                   </div>
                 </div>
               </div>
             </Card>
-        <Card className="border-0 shadow-lg bg-white/90">
+        <Card className={cardShell}>
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold">Teklif Kalemleri ({quoteItems.length})</h2>
               <p className="text-xs text-gray-500">Fiyat kaynagini secip satirlari duzenleyin.</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">
               <select
                 value={bulkPriceListNo}
                 onChange={(e) => setBulkPriceListNo(e.target.value ? Number(e.target.value) : '')}
-                className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-sm"
               >
                 <option value="">Liste Sec</option>
                 {Object.keys(PRICE_LIST_LABELS).map((key) => (
@@ -962,10 +994,10 @@ export default function AdminQuoteNewPage() {
                   </option>
                 ))}
               </select>
-              <Button variant="secondary" size="sm" onClick={applyPriceListToAll}>
+              <Button variant="secondary" size="sm" onClick={applyPriceListToAll} className="rounded-full">
                 Tum Satirlara Uygula
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)}>
+              <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)} className="rounded-full">
                 Kolonlari Sec
               </Button>
             </div>
@@ -980,9 +1012,9 @@ export default function AdminQuoteNewPage() {
           {quoteItems.length === 0 ? (
             <div className="text-sm text-gray-500">Teklife urun eklenmedi.</div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="w-full min-w-[900px] text-sm">
-                <thead className="bg-slate-100 text-xs uppercase tracking-wide text-gray-600">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white">
+              <table className="w-full min-w-[980px] text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-gray-600">
                   <tr>
                     <th className="px-3 py-2 text-left">Urun</th>
                     <th className="px-3 py-2 text-left">Miktar</th>
@@ -1166,7 +1198,7 @@ export default function AdminQuoteNewPage() {
           )}
         </Card>
 
-        <Card className="border-0 shadow-lg bg-white/90 lg:sticky lg:top-6">
+        <Card className={`${cardShell} border-primary-100 bg-gradient-to-br from-white via-white to-primary-50/60 lg:sticky lg:top-6`}>
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
