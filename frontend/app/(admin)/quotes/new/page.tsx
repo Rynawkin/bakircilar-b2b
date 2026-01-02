@@ -923,6 +923,14 @@ export default function AdminQuoteNewPage() {
               <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)} className="rounded-full">
                 Kolonlari Sec
               </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowProductPoolModal(true)}
+                className="rounded-full"
+              >
+                Urun Havuzunu Ac
+              </Button>
             </div>
           </div>
 
