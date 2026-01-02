@@ -106,6 +106,7 @@ export const adminApi = {
   getProducts: async (params?: {
     search?: string;
     hasImage?: 'true' | 'false';
+    hasStock?: 'true' | 'false';
     imageSyncStatus?: 'all' | 'SUCCESS' | 'SKIPPED' | 'FAILED';
     imageSyncErrorType?: string;
     categoryId?: string;

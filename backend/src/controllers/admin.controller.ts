@@ -281,7 +281,8 @@ export class AdminController {
         sortBy = 'name',
         sortOrder = 'asc',
         page = '1',
-        limit = '10000' // Increased for Diversey users to see all products
+        limit = '10000', // Increased for Diversey users to see all products
+        hasStock,
       } = req.query;
 
       const where: any = { active: true };
@@ -363,13 +364,7 @@ export class AdminController {
       const pageNum = parseInt(page as string, 10);
       const limitNum = parseInt(limit as string, 10);
       const skip = (pageNum - 1) * limitNum;
-
-      // Get total count and stats for current filter
-      const [totalCount, withImageCount, withoutImageCount] = await Promise.all([
-        prisma.product.count({ where }),
-        prisma.product.count({ where: { ...where, imageUrl: { not: null } } }),
-        prisma.product.count({ where: { ...where, imageUrl: null } }),
-      ]);
+      const filterByStock = hasStock === 'true' || hasStock === 'false';
 
       const products = await prisma.product.findMany({
         where,
@@ -402,13 +397,8 @@ export class AdminController {
           },
         },
         orderBy,
-        skip,
-        take: limitNum,
+        ...(filterByStock ? {} : { skip, take: limitNum }),
       });
-
-      const priceStatsMap = await priceListService.getPriceStatsMap(
-        products.map((product) => product.mikroCode)
-      );
 
       // Settings'den aktif depolar?? al
       const settings = await prisma.settings.findFirst();
@@ -421,6 +411,42 @@ export class AdminController {
           return sum + (warehouseStocks[warehouse] || 0);
         }, 0);
 
+        return {
+          ...product,
+          totalStock,
+        };
+      });
+
+      let filteredProducts = productsWithTotalStock;
+      let totalCount = 0;
+      let withImageCount = 0;
+      let withoutImageCount = 0;
+
+      if (filterByStock) {
+        filteredProducts = productsWithTotalStock.filter((product) => {
+          const inStock = (product.totalStock || 0) > 0;
+          return hasStock === 'true' ? inStock : !inStock;
+        });
+        totalCount = filteredProducts.length;
+        withImageCount = filteredProducts.filter((product) => product.imageUrl).length;
+        withoutImageCount = totalCount - withImageCount;
+      } else {
+        [totalCount, withImageCount, withoutImageCount] = await Promise.all([
+          prisma.product.count({ where }),
+          prisma.product.count({ where: { ...where, imageUrl: { not: null } } }),
+          prisma.product.count({ where: { ...where, imageUrl: null } }),
+        ]);
+      }
+
+      const pagedProducts = filterByStock
+        ? filteredProducts.slice(skip, skip + limitNum)
+        : productsWithTotalStock;
+
+      const priceStatsMap = await priceListService.getPriceStatsMap(
+        pagedProducts.map((product) => product.mikroCode)
+      );
+
+      const productsWithPriceLists = pagedProducts.map((product) => {
         const priceStats = priceStatsMap.get(product.mikroCode) || null;
         const mikroPriceLists: Record<string, number> = {};
 
@@ -430,13 +456,12 @@ export class AdminController {
 
         return {
           ...product,
-          totalStock,
           mikroPriceLists,
         };
       });
 
       res.json({
-        products: productsWithTotalStock,
+        products: productsWithPriceLists,
         pagination: {
           page: pageNum,
           limit: limitNum,
