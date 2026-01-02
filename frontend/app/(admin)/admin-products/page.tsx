@@ -30,6 +30,11 @@ interface Product {
   prices: any;
   mikroPriceLists?: Record<string, number>;
   imageUrl: string | null;
+  imageChecksum?: string | null;
+  imageSyncStatus?: string | null;
+  imageSyncErrorType?: string | null;
+  imageSyncErrorMessage?: string | null;
+  imageSyncUpdatedAt?: string | null;
   category: {
     id: string;
     name: string;
@@ -68,9 +73,10 @@ export default function AdminProductsPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [hasImage, setHasImage] = useState<'all' | 'true' | 'false'>('all');
+  const [imageSyncErrorType, setImageSyncErrorType] = useState<'all' | 'NO_IMAGE' | 'NO_GUID' | 'IMAGE_TOO_LARGE' | 'IMAGE_DOWNLOAD_ERROR' | 'IMAGE_PROCESS_ERROR' | 'NO_SERVICE'>('all');
   const [categoryId, setCategoryId] = useState<string>('');
   const [priceListStatus, setPriceListStatus] = useState<'all' | 'missing' | 'available'>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Pagination
@@ -80,6 +86,8 @@ export default function AdminProductsPage() {
   // Detail Modal
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [isBulkSyncing, setIsBulkSyncing] = useState(false);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -104,6 +112,7 @@ export default function AdminProductsPage() {
       };
       if (debouncedSearch) params.search = debouncedSearch;
       if (hasImage !== 'all') params.hasImage = hasImage;
+      if (imageSyncErrorType !== 'all') params.imageSyncErrorType = imageSyncErrorType;
       if (categoryId) params.categoryId = categoryId;
       if (priceListStatus !== 'all') params.priceListStatus = priceListStatus;
       params.sortBy = sortBy;
@@ -115,6 +124,12 @@ export default function AdminProductsPage() {
 
       const data = await adminApi.getProducts(params);
       setProducts(data.products);
+      if (data.pagination) {
+        setPagination(data.pagination);
+      }
+      if (data.stats) {
+        setStats(data.stats);
+      }
     } catch (error) {
       console.error('Ürünler yüklenemedi:', error);
       toast.error('Ürünler yüklenemedi');
@@ -122,7 +137,7 @@ export default function AdminProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  }, [currentPage, debouncedSearch, hasImage, categoryId, priceListStatus, sortBy, sortOrder]);
+  }, [currentPage, debouncedSearch, hasImage, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder]);
 
   const fetchData = useCallback(async () => {
     await Promise.all([fetchProducts(1), fetchCategories()]);
@@ -143,7 +158,7 @@ export default function AdminProductsPage() {
       setCurrentPage(1); // Reset page when filters change
       fetchProducts(1);
     }
-  }, [debouncedSearch, hasImage, categoryId, priceListStatus, sortBy, sortOrder, user, fetchProducts]);
+  }, [debouncedSearch, hasImage, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder, user, fetchProducts]);
 
   const handleSort = (field: typeof sortBy) => {
     if (sortBy === field) {
@@ -156,6 +171,63 @@ export default function AdminProductsPage() {
 
   // For displaying current page products (backend already paginated)
   const currentProducts = products;
+  const currentPageIds = currentProducts.map((product) => product.id);
+  const allSelectedOnPage = currentPageIds.length > 0 && currentPageIds.every((id) => selectedProductIds.includes(id));
+
+  const toggleSelectAll = () => {
+    if (allSelectedOnPage) {
+      setSelectedProductIds((prev) => prev.filter((id) => !currentPageIds.includes(id)));
+      return;
+    }
+
+    setSelectedProductIds((prev) => Array.from(new Set([...prev, ...currentPageIds])));
+  };
+
+  const toggleProductSelection = (productId: string) => {
+    setSelectedProductIds((prev) => {
+      if (prev.includes(productId)) {
+        return prev.filter((id) => id !== productId);
+      }
+      return [...prev, productId];
+    });
+  };
+
+  const handleBulkImageSync = async () => {
+    if (selectedProductIds.length === 0) {
+      toast.error('Secili urun bulunamadi');
+      return;
+    }
+
+    setIsBulkSyncing(true);
+    try {
+      await adminApi.triggerSelectedImageSync(selectedProductIds);
+      toast.success('Secili urunler icin resim senkronu baslatildi');
+    } catch (error) {
+      console.error('Secili resim senkronu baslatilamadi:', error);
+      toast.error('Resim senkronu baslatilamadi');
+    } finally {
+      setIsBulkSyncing(false);
+    }
+  };
+
+  const getImageSyncErrorLabel = (value?: string | null) => {
+    switch (value) {
+      case 'NO_IMAGE':
+        return 'Mikro resim yok';
+      case 'NO_GUID':
+        return 'GUID yok';
+      case 'IMAGE_TOO_LARGE':
+        return 'Resim cok buyuk';
+      case 'IMAGE_DOWNLOAD_ERROR':
+        return 'Indirme hatasi';
+      case 'IMAGE_PROCESS_ERROR':
+        return 'Isleme hatasi';
+      case 'NO_SERVICE':
+        return 'Mock/No Service';
+      default:
+        return '';
+    }
+  };
 
   if (!user || isInitialLoad) {
     return (
@@ -229,7 +301,7 @@ export default function AdminProductsPage() {
             </div>
 
             {/* Filters Row */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               {/* Image Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -243,6 +315,26 @@ export default function AdminProductsPage() {
                   <option value="all">Tümü</option>
                   <option value="true">Fotoğrafı Olanlar</option>
                   <option value="false">Fotoğrafı Olmayanlar</option>
+                </select>
+              </div>
+
+              {/* Image Error Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Resim Hata Tipi
+                </label>
+                <select
+                  value={imageSyncErrorType}
+                  onChange={(e) => setImageSyncErrorType(e.target.value as any)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">Tumu</option>
+                  <option value="NO_IMAGE">NO_IMAGE</option>
+                  <option value="NO_GUID">NO_GUID</option>
+                  <option value="IMAGE_TOO_LARGE">IMAGE_TOO_LARGE</option>
+                  <option value="IMAGE_DOWNLOAD_ERROR">IMAGE_DOWNLOAD_ERROR</option>
+                  <option value="IMAGE_PROCESS_ERROR">IMAGE_PROCESS_ERROR</option>
+                  <option value="NO_SERVICE">MOCK_MODE / NO_SERVICE</option>
                 </select>
               </div>
 
@@ -297,6 +389,8 @@ export default function AdminProductsPage() {
                     <option value="excessStock">Fazla Stok</option>
                     <option value="lastEntryDate">Son Giriş Tarihi</option>
                     <option value="currentCost">Güncel Maliyet</option>
+                    <option value="imageSyncErrorType">Resim Hata</option>
+                    <option value="imageSyncUpdatedAt">Resim Guncelleme</option>
                   </select>
                   <Button
                     variant="secondary"
@@ -335,6 +429,18 @@ export default function AdminProductsPage() {
 
         {/* Products Table */}
         <Card className="shadow-lg overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-gray-200 bg-white">
+            <div className="text-sm text-gray-600">
+              Secili urun: <span className="font-semibold text-gray-900">{selectedProductIds.length}</span>
+            </div>
+            <Button
+              variant="primary"
+              onClick={handleBulkImageSync}
+              disabled={isBulkSyncing || selectedProductIds.length === 0}
+            >
+              {isBulkSyncing ? 'Resim senkronu baslatiliyor...' : 'Secili urunlerin resmini guncelle'}
+            </Button>
+          </div>
           <div className="relative">
             {/* Loading Overlay */}
             {isSearching && (
@@ -350,7 +456,19 @@ export default function AdminProductsPage() {
               <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    <input
+                      type="checkbox"
+                      aria-label="Tumunu sec"
+                      checked={allSelectedOnPage}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                     Fotoğraf
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Resim Durumu
                   </th>
                   <th
                     className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-200"
@@ -411,13 +529,22 @@ export default function AdminProductsPage() {
               <tbody className="divide-y divide-gray-200">
                 {currentProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                       Ürün bulunamadı
                     </td>
                   </tr>
                 ) : (
                   currentProducts.map((product) => (
                     <tr key={product.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          aria-label={`Sec ${product.name}`}
+                          checked={selectedProductIds.includes(product.id)}
+                          onChange={() => toggleProductSelection(product.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         {product.imageUrl ? (
                           <div className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden shadow-sm">
@@ -430,6 +557,37 @@ export default function AdminProductsPage() {
                         ) : (
                           <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-2xl">
                             📦
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {product.imageUrl ? (
+                          <div>
+                            <div className="text-xs font-semibold text-green-700">Var</div>
+                            {product.imageChecksum && (
+                              <div className="text-[10px] text-gray-500">
+                                SHA: {product.imageChecksum.slice(0, 12)}...
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="text-xs font-semibold text-yellow-700">Eksik</div>
+                            {product.imageSyncErrorType && (
+                              <div className="text-xs text-gray-600">
+                                {getImageSyncErrorLabel(product.imageSyncErrorType) || product.imageSyncErrorType}
+                              </div>
+                            )}
+                            {product.imageSyncErrorMessage && (
+                              <div className="text-[10px] text-gray-500">
+                                {product.imageSyncErrorMessage}
+                              </div>
+                            )}
+                            {product.imageChecksum && (
+                              <div className="text-[10px] text-gray-500">
+                                SHA: {product.imageChecksum.slice(0, 12)}...
+                              </div>
+                            )}
                           </div>
                         )}
                       </td>

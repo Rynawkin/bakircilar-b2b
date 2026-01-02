@@ -4,8 +4,10 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
+import path from 'path';
 import { hashPassword } from '../utils/password';
 import syncService from '../services/sync.service';
+import imageService from '../services/image.service';
 import cariSyncService from '../services/cariSync.service';
 import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
@@ -111,6 +113,29 @@ export class AdminController {
 
       res.json({
         message: 'Image sync started',
+        syncLogId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/products/image-sync
+   * Start image sync for selected products
+   */
+  async triggerSelectedImageSync(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { productIds } = req.body as { productIds?: string[] };
+
+      if (!Array.isArray(productIds) || productIds.length === 0) {
+        return res.status(400).json({ error: 'Product IDs are required' });
+      }
+
+      const syncLogId = await syncService.startImageSyncForProducts(productIds);
+
+      res.json({
+        message: 'Selected image sync started',
         syncLogId,
       });
     } catch (error) {
@@ -249,6 +274,8 @@ export class AdminController {
       const {
         search,
         hasImage,
+        imageSyncStatus,
+        imageSyncErrorType,
         categoryId,
         priceListStatus = 'all',
         sortBy = 'name',
@@ -272,6 +299,14 @@ export class AdminController {
         where.imageUrl = { not: null };
       } else if (hasImage === 'false') {
         where.imageUrl = null;
+      }
+
+      if (imageSyncStatus && imageSyncStatus !== 'all') {
+        where.imageSyncStatus = imageSyncStatus as string;
+      }
+
+      if (imageSyncErrorType && imageSyncErrorType !== 'all') {
+        where.imageSyncErrorType = imageSyncErrorType as string;
       }
 
       // Kategori filtresi
@@ -309,7 +344,15 @@ export class AdminController {
 
       // Sıralama ayarları
       const orderBy: any = {};
-      const validSortFields = ['name', 'mikroCode', 'excessStock', 'lastEntryDate', 'currentCost'];
+      const validSortFields = [
+        'name',
+        'mikroCode',
+        'excessStock',
+        'lastEntryDate',
+        'currentCost',
+        'imageSyncErrorType',
+        'imageSyncUpdatedAt',
+      ];
       if (validSortFields.includes(sortBy as string)) {
         orderBy[sortBy as string] = sortOrder === 'desc' ? 'desc' : 'asc';
       } else {
@@ -346,6 +389,11 @@ export class AdminController {
           vatRate: true,
           prices: true,
           imageUrl: true,
+          imageChecksum: true,
+          imageSyncStatus: true,
+          imageSyncErrorType: true,
+          imageSyncErrorMessage: true,
+          imageSyncUpdatedAt: true,
           category: {
             select: {
               id: true,
@@ -1323,11 +1371,26 @@ export class AdminController {
 
       // Dosya bilgileri
       const imageUrl = `/uploads/${req.file.filename}`;
+      const filePath = path.join(process.cwd(), 'uploads', req.file.filename);
+      let checksum: string | null = null;
+
+      try {
+        checksum = await imageService.getChecksumForFile(filePath);
+      } catch (error: any) {
+        console.error('Image checksum hesaplanamadi:', error.message);
+      }
 
       // Ürünü güncelle
       const product = await prisma.product.update({
         where: { id },
-        data: { imageUrl },
+        data: {
+          imageUrl,
+          imageChecksum: checksum,
+          imageSyncStatus: 'SUCCESS',
+          imageSyncErrorType: null,
+          imageSyncErrorMessage: null,
+          imageSyncUpdatedAt: new Date(),
+        },
       });
 
       res.json({
@@ -1350,7 +1413,14 @@ export class AdminController {
 
       const product = await prisma.product.update({
         where: { id },
-        data: { imageUrl: null },
+        data: {
+          imageUrl: null,
+          imageChecksum: null,
+          imageSyncStatus: null,
+          imageSyncErrorType: null,
+          imageSyncErrorMessage: null,
+          imageSyncUpdatedAt: new Date(),
+        },
       });
 
       res.json({

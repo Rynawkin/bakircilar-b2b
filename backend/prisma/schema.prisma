@@ -260,6 +260,11 @@ model Product {
 
   // Ürün resmi
   imageUrl                String?
+  imageChecksum           String?
+  imageSyncStatus         String?
+  imageSyncErrorType      String?
+  imageSyncErrorMessage   String?
+  imageSyncUpdatedAt      DateTime?
 
   active                  Boolean   @default(true)
   createdAt               DateTime  @default(now())
@@ -274,6 +279,9 @@ model Product {
   @@index([mikroCode])
   @@index([excessStock])
   @@index([categoryId])
+  @@index([imageSyncStatus])
+  @@index([imageSyncErrorType])
+  @@index([imageSyncUpdatedAt])
 }
 
 // ==================== PRICE RULES ====================

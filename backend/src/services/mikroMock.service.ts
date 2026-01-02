@@ -248,6 +248,21 @@ export class MikroMockService {
     ];
   }
 
+  async getProductGuidsByCodes(productCodes: string[]): Promise<Array<{ code: string; guid: string | null }>> {
+    if (!productCodes || productCodes.length === 0) {
+      return [];
+    }
+
+    const uniqueCodes = Array.from(
+      new Set(productCodes.map((code) => (code || '').trim()).filter((code) => code.length > 0))
+    );
+
+    return uniqueCodes.map((code) => ({
+      code,
+      guid: null,
+    }));
+  }
+
   /**
    * Mock depo stokları
    */

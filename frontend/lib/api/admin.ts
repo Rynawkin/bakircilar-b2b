@@ -106,14 +106,21 @@ export const adminApi = {
   getProducts: async (params?: {
     search?: string;
     hasImage?: 'true' | 'false';
+    imageSyncStatus?: 'all' | 'SUCCESS' | 'SKIPPED' | 'FAILED';
+    imageSyncErrorType?: string;
     categoryId?: string;
     priceListStatus?: 'all' | 'missing' | 'available';
-    sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost';
+    sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt';
     sortOrder?: 'asc' | 'desc';
     page?: number;
     limit?: number;
-  }): Promise<{ products: any[] }> => {
+  }): Promise<{ products: any[]; pagination: any; stats: any }> => {
     const response = await apiClient.get('/admin/products', { params });
+    return response.data;
+  },
+
+  triggerSelectedImageSync: async (productIds: string[]): Promise<{ message: string; syncLogId: string }> => {
+    const response = await apiClient.post('/admin/products/image-sync', { productIds });
     return response.data;
   },
 

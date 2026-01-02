@@ -277,6 +277,43 @@ class MikroService {
     }));
   }
 
+  async getProductGuidsByCodes(productCodes: string[]): Promise<Array<{ code: string; guid: string | null }>> {
+    if (!productCodes || productCodes.length === 0) {
+      return [];
+    }
+
+    await this.connect();
+
+    const uniqueCodes = Array.from(
+      new Set(productCodes.map((code) => (code || '').trim()).filter((code) => code.length > 0))
+    );
+
+    const safeCodes = uniqueCodes
+      .map((code) => code.replace(/'/g, "''"))
+      .map((code) => `'${code}'`)
+      .join(', ');
+
+    if (!safeCodes) {
+      return [];
+    }
+
+    const { PRODUCTS, PRODUCTS_COLUMNS } = MIKRO_TABLES;
+    const query = `
+      SELECT
+        ${PRODUCTS_COLUMNS.CODE} as code,
+        sto_Guid as guid
+      FROM ${PRODUCTS}
+      WHERE ${PRODUCTS_COLUMNS.CODE} IN (${safeCodes})
+    `;
+
+    const result = await this.pool!.request().query(query);
+
+    return result.recordset.map((row: any) => ({
+      code: row.code,
+      guid: row.guid || null,
+    }));
+  }
+
   /**
    * Depo stoklarÄ±nÄ± Ã§ek
    * NOT: Bu metod artÄ±k getProducts() iÃ§inde Ã§ekiliyor

@@ -8,6 +8,7 @@ import mssql from 'mssql';
 import fs from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
+import crypto from 'crypto';
 import { config } from '../config';
 import mikroService from './mikroFactory.service';
 
@@ -18,6 +19,8 @@ interface ImageDownloadResult {
   error?: string;
   skipped?: boolean;
   skipReason?: string;
+  checksum?: string;
+  errorType?: string;
 }
 
 interface ImageSyncStats {
@@ -51,6 +54,11 @@ class ImageService {
       await fs.mkdir(this.UPLOAD_DIR, { recursive: true });
       console.log(`📁 Upload klasörü oluşturuldu: ${this.UPLOAD_DIR}`);
     }
+  }
+
+  async getChecksumForFile(filePath: string): Promise<string> {
+    const buffer = await fs.readFile(filePath);
+    return crypto.createHash('sha256').update(buffer).digest('hex');
   }
 
   /**
@@ -123,6 +131,7 @@ class ImageService {
           success: false,
           skipped: true,
           skipReason: 'Mock mode - resim indirme devre dışı',
+          errorType: 'NO_SERVICE',
         };
       }
 
@@ -133,6 +142,7 @@ class ImageService {
           success: false,
           skipped: true,
           skipReason: 'Gerçek Mikro service kullanılmıyor',
+          errorType: 'NO_SERVICE',
         };
       }
 
@@ -163,6 +173,7 @@ class ImageService {
           success: false,
           skipped: true,
           skipReason: 'Mikro\'da resim yok',
+          errorType: 'NO_IMAGE',
         };
       }
 
@@ -177,6 +188,7 @@ class ImageService {
           skipped: true,
           skipReason: `Resim çok büyük (${sizeMB} MB > ${this.MAX_IMAGE_SIZE / 1024 / 1024} MB limit)`,
           size: dataSize,
+          errorType: 'IMAGE_TOO_LARGE',
         };
       }
 
@@ -202,6 +214,7 @@ class ImageService {
           // Başarılı!
           await fs.unlink(tempPath);
           const stats = await fs.stat(filepath);
+          const checksum = await this.getChecksumForFile(filepath);
           const totalTime = Date.now() - startTime;
           console.log(`✅ Resim kaydedildi (2048px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB) - Toplam: ${totalTime}ms (sorgu: ${queryTime}ms, yazma: ${writeTime}ms, convert: ${convertTime}ms)`);
 
@@ -209,6 +222,7 @@ class ImageService {
             success: true,
             localPath: `/uploads/products/${filename}`,
             size: stats.size,
+            checksum,
           };
         } catch (firstTryError: any) {
           console.log(`⚠️ 2048px başarısız (${productCode}), 800px deneniyor...`);
@@ -220,12 +234,14 @@ class ImageService {
             // Başarılı!
             await fs.unlink(tempPath);
             const stats = await fs.stat(filepath);
+            const checksum = await this.getChecksumForFile(filepath);
             console.log(`✅ Resim kaydedildi (800px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
 
             return {
               success: true,
               localPath: `/uploads/products/${filename}`,
               size: stats.size,
+              checksum,
             };
           } catch (secondTryError: any) {
             console.log(`⚠️ 800px başarısız (${productCode}), 600px deneniyor...`);
@@ -237,12 +253,14 @@ class ImageService {
               // Başarılı!
               await fs.unlink(tempPath);
               const stats = await fs.stat(filepath);
+              const checksum = await this.getChecksumForFile(filepath);
               console.log(`✅ Resim kaydedildi (600px): ${productCode} (${(stats.size / 1024).toFixed(0)} KB)`);
 
               return {
                 success: true,
                 localPath: `/uploads/products/${filename}`,
                 size: stats.size,
+                checksum,
               };
             } catch (thirdTryError: any) {
               // Tüm denemeler başarısız
@@ -261,8 +279,8 @@ class ImageService {
 
         return {
           success: false,
-          skipped: true,
-          skipReason: `Resim işlenemedi - tüm boyutlar denendi`,
+          error: 'Resim islenemedi - tum boyutlar denendi',
+          errorType: 'IMAGE_PROCESS_ERROR',
         };
       }
     } catch (error: any) {
@@ -270,6 +288,7 @@ class ImageService {
       return {
         success: false,
         error: error.message,
+        errorType: 'IMAGE_DOWNLOAD_ERROR',
       };
     }
   }
@@ -282,6 +301,7 @@ class ImageService {
     syncLogId?: string
   ): Promise<ImageSyncStats> {
     await this.ensureUploadDir();
+    const { prisma } = await import('../utils/prisma');
 
     const stats: ImageSyncStats = {
       downloaded: 0,
@@ -298,7 +318,6 @@ class ImageService {
 
     // SyncLog'a toplam resim sayısını kaydet
     if (syncLogId) {
-      const { prisma } = await import('../utils/prisma');
       await prisma.syncLog.update({
         where: { id: syncLogId },
         data: {
@@ -311,22 +330,32 @@ class ImageService {
 
     for (const product of productsWithoutImage) {
       const result = await this.downloadImageFromMikro(product.mikroCode, product.guid);
+      const updateData: {
+        imageUrl?: string | null;
+        imageChecksum?: string | null;
+        imageSyncStatus: string;
+        imageSyncErrorType?: string | null;
+        imageSyncErrorMessage?: string | null;
+        imageSyncUpdatedAt: Date;
+      } = {
+        imageSyncStatus: '',
+        imageSyncUpdatedAt: new Date(),
+      };
 
       if (result.success && result.localPath) {
         stats.downloaded++;
-
-        // PostgreSQL'de imageUrl güncelle
-        try {
-          const { prisma } = await import('../utils/prisma');
-          await prisma.product.update({
-            where: { id: product.id },
-            data: { imageUrl: result.localPath },
-          });
-        } catch (error: any) {
-          console.error(`❌ ImageUrl güncelleme hatası (${product.mikroCode}):`, error.message);
-        }
+        updateData.imageUrl = result.localPath;
+        updateData.imageChecksum = result.checksum || null;
+        updateData.imageSyncStatus = 'SUCCESS';
+        updateData.imageSyncErrorType = null;
+        updateData.imageSyncErrorMessage = null;
       } else if (result.skipped) {
         stats.skipped++;
+        updateData.imageUrl = null;
+        updateData.imageChecksum = null;
+        updateData.imageSyncStatus = 'SKIPPED';
+        updateData.imageSyncErrorType = result.errorType || 'NO_IMAGE';
+        updateData.imageSyncErrorMessage = result.skipReason || result.error || null;
 
         // İlk 10 skip'i logla (debug için)
         if (stats.skipped <= 10) {
@@ -334,7 +363,7 @@ class ImageService {
         }
 
         // Uyarı ekle (sadece boyut nedeniyle atlananlar için)
-        if (result.size && result.size > this.MAX_IMAGE_SIZE) {
+        if (result.errorType === 'IMAGE_TOO_LARGE' || (result.size && result.size > this.MAX_IMAGE_SIZE)) {
           stats.warnings.push({
             type: 'IMAGE_TOO_LARGE',
             productCode: product.mikroCode,
@@ -345,16 +374,30 @@ class ImageService {
         }
       } else {
         stats.failed++;
+        updateData.imageUrl = null;
+        updateData.imageChecksum = null;
+        updateData.imageSyncStatus = 'FAILED';
+        updateData.imageSyncErrorType = result.errorType || 'IMAGE_DOWNLOAD_ERROR';
+        updateData.imageSyncErrorMessage = result.error || result.skipReason || null;
 
         // Gerçek hata varsa uyarı ekle
         if (result.error) {
           stats.warnings.push({
-            type: 'IMAGE_DOWNLOAD_ERROR',
+            type: result.errorType || 'IMAGE_DOWNLOAD_ERROR',
             productCode: product.mikroCode,
             productName: product.name,
             message: result.error,
           });
         }
+      }
+
+      try {
+        await prisma.product.update({
+          where: { id: product.id },
+          data: updateData,
+        });
+      } catch (error: any) {
+        console.error(`Image sync guncelleme hatasi (${product.mikroCode}):`, error.message);
       }
 
       // Her 10 üründe bir progress göster ve SyncLog'u güncelle
@@ -365,7 +408,6 @@ class ImageService {
         // SyncLog'u güncelle
         if (syncLogId) {
           try {
-            const { prisma } = await import('../utils/prisma');
             await prisma.syncLog.update({
               where: { id: syncLogId },
               data: {

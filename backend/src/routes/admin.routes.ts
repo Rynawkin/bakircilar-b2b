@@ -62,6 +62,7 @@ router.get('/cari-list', requireStaff, adminController.getCariList);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
 router.get('/products', requireStaffOrDiversey, adminController.getProducts);
+router.post('/products/image-sync', requireAdminOrManager, adminController.triggerSelectedImageSync);
 router.post('/products/:id/image', requireAdminOrManager, upload.single('image'), adminController.uploadProductImage);
 router.delete('/products/:id/image', requireAdminOrManager, adminController.deleteProductImage);
 
