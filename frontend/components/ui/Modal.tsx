@@ -9,7 +9,7 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   footer?: ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
 }
 
 export function Modal({ isOpen, onClose, title, children, footer, size = 'md' }: ModalProps) {
@@ -41,7 +41,9 @@ export function Modal({ isOpen, onClose, title, children, footer, size = 'md' }:
     md: 'max-w-lg',
     lg: 'max-w-2xl',
     xl: 'max-w-4xl',
+    full: 'max-w-none w-[96vw]',
   };
+  const heightClass = size === 'full' ? 'h-[92vh] max-h-[92vh]' : 'max-h-[90vh]';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -53,7 +55,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = 'md' }:
 
       {/* Modal */}
       <div
-        className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200`}
+        className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} ${heightClass} flex flex-col animate-in fade-in zoom-in duration-200`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

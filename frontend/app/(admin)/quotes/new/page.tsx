@@ -105,6 +105,7 @@ export default function AdminQuoteNewPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [showCariModal, setShowCariModal] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
+  const [showProductPoolModal, setShowProductPoolModal] = useState(false);
   const [purchasedProducts, setPurchasedProducts] = useState<QuoteProduct[]>([]);
   const [selectedPurchasedCodes, setSelectedPurchasedCodes] = useState<Set<string>>(new Set());
   const [purchasedSearch, setPurchasedSearch] = useState('');
@@ -824,164 +825,24 @@ export default function AdminQuoteNewPage() {
               <p className="text-xs text-gray-500">Son {lastSalesCount} satis gosteriliyor.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center rounded-full bg-slate-100 p-1">
-                <Button
-                  variant="ghost"
-                  onClick={() => setProductTab('purchased')}
-                  size="sm"
-                  className={`rounded-full px-4 ${productTab === 'purchased' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
-                >
-                  Daha Once Alinanlar
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setProductTab('search')}
-                  size="sm"
-                  className={`rounded-full px-4 ${productTab === 'search' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
-                >
-                  Tum Urunler
-                </Button>
-              </div>
               <Button variant="secondary" onClick={addManualLine} size="sm" className="rounded-full">
                 Manuel Satir Ekle
               </Button>
+              <Button
+                variant="primary"
+                onClick={() => setShowProductPoolModal(true)}
+                size="sm"
+                className="rounded-full"
+              >
+                Urun Havuzunu Ac
+              </Button>
             </div>
           </div>
-
-          {productTab === 'purchased' && (
-            <div className="space-y-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <Input
-                  placeholder="Urun ara..."
-                  value={purchasedSearch}
-                  onChange={(e) => setPurchasedSearch(e.target.value)}
-                  className="lg:max-w-xs"
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-gray-500">
-                    {selectedPurchasedCount} secili / {filteredPurchasedProducts.length} urun
-                  </span>
-                  <Button variant="ghost" size="sm" onClick={clearPurchasedSelection}>
-                    Secimi Temizle
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={selectAllPurchased} className="rounded-full">
-                    Tumunu Sec
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={addSelectedPurchasedToQuote}
-                    disabled={selectedPurchasedCount === 0}
-                    className="rounded-full"
-                  >
-                    Secilileri Ekle
-                  </Button>
-                </div>
-              </div>
-              {filteredPurchasedProducts.length === 0 ? (
-                <div className="text-sm text-gray-500">Urun bulunamadi.</div>
-              ) : (
-                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                  {filteredPurchasedProducts.map((product) => {
-                    const isSelected = selectedPurchasedCodes.has(product.mikroCode);
-                    return (
-                      <div
-                        key={product.mikroCode}
-                        className={`rounded-xl border p-4 transition ${
-                          isSelected
-                            ? 'border-primary-200 bg-primary-50/70'
-                            : 'border-gray-200 bg-white/90 hover:border-primary-200'
-                        }`}
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="flex items-start gap-3">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => togglePurchasedSelection(product.mikroCode)}
-                              className="mt-1 h-4 w-4 accent-primary-600"
-                            />
-                            <div>
-                              <p className="font-semibold text-gray-900">{product.name}</p>
-                              <p className="text-xs text-gray-500">
-                                {product.mikroCode}
-                                {product.unit ? ` - ${product.unit}` : ''}
-                              </p>
-                              <div className="mt-1 text-xs text-slate-500">
-                                <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
-                                {formatStockValue(product.warehouseStocks?.['1'])}
-                                <span className="mx-2 text-slate-300">|</span>
-                                <span className="font-medium text-slate-600">Topca (6)</span>{' '}
-                                {formatStockValue(product.warehouseStocks?.['6'])}
-                              </div>
-                            </div>
-                          </div>
-                          <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
-                            Teklife Ekle
-                          </Button>
-                        </div>
-                        {product.lastSales?.length ? (
-                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                            {product.lastSales.map((sale, idx) => (
-                              <div
-                                key={idx}
-                                className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs"
-                              >
-                                <span className="font-medium text-gray-700">{formatDateShort(sale.saleDate)}</span>
-                                <span className="text-gray-500">{sale.quantity} adet</span>
-                                <span className="font-semibold text-gray-900">{formatCurrency(sale.unitPrice)}</span>
-                                {sale.vatZeroed && <Badge variant="info" className="text-[10px]">KDV 0</Badge>}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="mt-2 text-xs text-gray-400">Satis yok</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {productTab === 'search' && (
-            <div className="space-y-3">
-              <Input
-                placeholder="Urun adi veya kodu"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              {searchLoading ? (
-                <div className="text-sm text-gray-500">Araniyor...</div>
-              ) : searchResults.length === 0 ? (
-                <div className="text-sm text-gray-500">Arama sonucu yok.</div>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2 max-h-[420px] overflow-y-auto pr-1">
-                  {searchResults.map((product) => (
-                    <div key={product.mikroCode} className="rounded-xl border border-gray-200 bg-white/90 p-4">
-                      <div className="flex justify-between items-start gap-3">
-                        <div>
-                          <p className="font-semibold text-gray-900">{product.name}</p>
-                          <p className="text-xs text-gray-500">{product.mikroCode}</p>
-                          <div className="mt-1 text-xs text-slate-500">
-                            <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
-                            {formatStockValue(product.warehouseStocks?.['1'])}
-                            <span className="mx-2 text-slate-300">|</span>
-                            <span className="font-medium text-slate-600">Topca (6)</span>{' '}
-                            {formatStockValue(product.warehouseStocks?.['6'])}
-                          </div>
-                        </div>
-                        <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
-                          Teklife Ekle
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+            <span>Secili urun: {selectedPurchasedCount}</span>
+            <span>Toplam urun: {purchasedProducts.length}</span>
+            <span>Mod: {productTab === 'purchased' ? 'Daha Once Alinanlar' : 'Tum Urunler'}</span>
+          </div>
         </Card>
           </div>
           )}
@@ -1299,6 +1160,179 @@ export default function AdminQuoteNewPage() {
           }
         }}
       />
+
+      <Modal
+        isOpen={showProductPoolModal}
+        onClose={() => setShowProductPoolModal(false)}
+        title="Urun Havuzu"
+        size="full"
+      >
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center rounded-full bg-slate-100 p-1">
+                <Button
+                  variant="ghost"
+                  onClick={() => setProductTab('purchased')}
+                  size="sm"
+                  className={`rounded-full px-4 ${productTab === 'purchased' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+                >
+                  Daha Once Alinanlar
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setProductTab('search')}
+                  size="sm"
+                  className={`rounded-full px-4 ${productTab === 'search' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+                >
+                  Tum Urunler
+                </Button>
+              </div>
+              <Button variant="secondary" onClick={addManualLine} size="sm" className="rounded-full">
+                Manuel Satir Ekle
+              </Button>
+            </div>
+            <div className="text-xs text-gray-500">
+              Son {lastSalesCount} satis gosteriliyor.
+            </div>
+          </div>
+
+          {productTab === 'purchased' && (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <Input
+                  placeholder="Urun ara..."
+                  value={purchasedSearch}
+                  onChange={(e) => setPurchasedSearch(e.target.value)}
+                  className="lg:max-w-xs"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-gray-500">
+                    {selectedPurchasedCount} secili / {filteredPurchasedProducts.length} urun
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={clearPurchasedSelection}>
+                    Secimi Temizle
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={selectAllPurchased} className="rounded-full">
+                    Tumunu Sec
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={addSelectedPurchasedToQuote}
+                    disabled={selectedPurchasedCount === 0}
+                    className="rounded-full"
+                  >
+                    Secilileri Ekle
+                  </Button>
+                </div>
+              </div>
+              {filteredPurchasedProducts.length === 0 ? (
+                <div className="text-sm text-gray-500">Urun bulunamadi.</div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3 max-h-[60vh] overflow-y-auto pr-2">
+                  {filteredPurchasedProducts.map((product) => {
+                    const isSelected = selectedPurchasedCodes.has(product.mikroCode);
+                    return (
+                      <div
+                        key={product.mikroCode}
+                        className={`rounded-xl border p-4 transition ${
+                          isSelected
+                            ? 'border-primary-200 bg-primary-50/70'
+                            : 'border-gray-200 bg-white/90 hover:border-primary-200'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => togglePurchasedSelection(product.mikroCode)}
+                              className="mt-1 h-4 w-4 accent-primary-600"
+                            />
+                            <div>
+                              <p className="font-semibold text-gray-900">{product.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {product.mikroCode}
+                                {product.unit ? ` - ${product.unit}` : ''}
+                              </p>
+                              <div className="mt-1 text-xs text-slate-500">
+                                <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
+                                {formatStockValue(product.warehouseStocks?.['1'])}
+                                <span className="mx-2 text-slate-300">|</span>
+                                <span className="font-medium text-slate-600">Topca (6)</span>{' '}
+                                {formatStockValue(product.warehouseStocks?.['6'])}
+                              </div>
+                            </div>
+                          </div>
+                          <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
+                            Teklife Ekle
+                          </Button>
+                        </div>
+                        {product.lastSales?.length ? (
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {product.lastSales.map((sale, idx) => (
+                              <div
+                                key={idx}
+                                className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs"
+                              >
+                                <span className="font-medium text-gray-700">{formatDateShort(sale.saleDate)}</span>
+                                <span className="text-gray-500">{sale.quantity} adet</span>
+                                <span className="font-semibold text-gray-900">{formatCurrency(sale.unitPrice)}</span>
+                                {sale.vatZeroed && <Badge variant="info" className="text-[10px]">KDV 0</Badge>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-gray-400">Satis yok</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {productTab === 'search' && (
+            <div className="space-y-3">
+              <Input
+                placeholder="Urun adi veya kodu"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              {searchLoading ? (
+                <div className="text-sm text-gray-500">Araniyor...</div>
+              ) : searchResults.length === 0 ? (
+                <div className="text-sm text-gray-500">Arama sonucu yok.</div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 max-h-[60vh] overflow-y-auto pr-2">
+                  {searchResults.map((product) => (
+                    <div key={product.mikroCode} className="rounded-xl border border-gray-200 bg-white/90 p-4">
+                      <div className="flex justify-between items-start gap-3">
+                        <div>
+                          <p className="font-semibold text-gray-900">{product.name}</p>
+                          <p className="text-xs text-gray-500">{product.mikroCode}</p>
+                          <div className="mt-1 text-xs text-slate-500">
+                            <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
+                            {formatStockValue(product.warehouseStocks?.['1'])}
+                            <span className="mx-2 text-slate-300">|</span>
+                            <span className="font-medium text-slate-600">Topca (6)</span>{' '}
+                            {formatStockValue(product.warehouseStocks?.['6'])}
+                          </div>
+                        </div>
+                        <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
+                          Teklife Ekle
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {showColumnSelector && (
         <Modal
