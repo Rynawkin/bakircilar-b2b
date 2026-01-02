@@ -743,10 +743,10 @@ export default function AdminQuoteNewPage() {
         </div>
       </header>
 
-      <div className="relative z-10 container-custom py-8">
+      <div className="relative z-10 container-custom max-w-[1600px] py-8 2xl:px-10">
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           {showLeftPanel && (
-          <div className="xl:col-span-4 space-y-6">
+          <div className="xl:col-span-5 space-y-6">
         <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
           <div>
             <p className="text-sm font-semibold text-gray-900">Sol Panel</p>
@@ -985,7 +985,7 @@ export default function AdminQuoteNewPage() {
         </Card>
           </div>
           )}
-          <div className={`${showLeftPanel ? 'xl:col-span-8' : 'xl:col-span-12'} space-y-6`}>
+          <div className={`${showLeftPanel ? 'xl:col-span-7' : 'xl:col-span-12'} space-y-6`}>
             {!showLeftPanel && (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200 bg-white/80 px-4 py-3 text-sm shadow-sm">
                 <span className="text-gray-500">Sol panel gizli.</span>
