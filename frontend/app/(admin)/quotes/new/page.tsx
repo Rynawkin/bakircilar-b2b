@@ -1154,12 +1154,13 @@ export default function AdminQuoteNewPage() {
                               </select>
                             )}
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 min-w-[240px]">
                             {item.isManualLine ? (
                               <Input
                                 placeholder="Birim fiyat"
                                 value={item.unitPrice ?? ''}
                                 onChange={(e) => handleManualPriceChange(item, e.target.value)}
+                                className="min-w-[180px]"
                               />
                             ) : item.priceSource === 'PRICE_LIST' ? (
                               <select
@@ -1201,29 +1202,30 @@ export default function AdminQuoteNewPage() {
                                   placeholder="Birim fiyat"
                                   value={item.unitPrice ?? ''}
                                   onChange={(e) => handleManualPriceChange(item, e.target.value)}
+                                  className="min-w-[180px]"
                                 />
                                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                   <div>
-                                    <label className="text-[11px] font-medium text-gray-500">
+                                    <label className="block text-[11px] font-medium text-gray-500 leading-tight">
                                       Son giris kar (%)
                                     </label>
                                     <input
                                       type="number"
                                       value={item.manualMarginEntry ?? ''}
                                       onChange={(e) => handleManualMarginChange(item, 'entry', e.target.value)}
-                                      className="mt-1 w-full min-w-[120px] rounded-lg border border-gray-300 px-2 py-1 text-xs"
+                                      className="mt-1 w-full min-w-[150px] rounded-lg border border-gray-300 px-2 py-1 text-xs"
                                       placeholder="Orn: 5"
                                     />
                                   </div>
                                   <div>
-                                    <label className="text-[11px] font-medium text-gray-500">
+                                    <label className="block text-[11px] font-medium text-gray-500 leading-tight">
                                       Guncel maliyet kar (%)
                                     </label>
                                     <input
                                       type="number"
                                       value={item.manualMarginCost ?? ''}
                                       onChange={(e) => handleManualMarginChange(item, 'cost', e.target.value)}
-                                      className="mt-1 w-full min-w-[120px] rounded-lg border border-gray-300 px-2 py-1 text-xs"
+                                      className="mt-1 w-full min-w-[150px] rounded-lg border border-gray-300 px-2 py-1 text-xs"
                                       placeholder="Orn: 8"
                                     />
                                   </div>
