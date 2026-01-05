@@ -50,6 +50,8 @@ interface QuoteItemForm {
   vatZeroed?: boolean;
   isManualLine?: boolean;
   manualVatRate?: number;
+  manualMarginEntry?: number;
+  manualMarginCost?: number;
   lineDescription?: string;
   lastSales?: LastSale[];
   selectedSaleIndex?: number;
@@ -422,6 +424,8 @@ export default function AdminQuoteNewPage() {
       priceListNo: undefined,
       unitPrice: undefined,
       selectedSaleIndex: undefined,
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
     });
   };
 
@@ -458,7 +462,30 @@ export default function AdminQuoteNewPage() {
 
   const handleManualPriceChange = (item: QuoteItemForm, value: string) => {
     const parsed = Number(value);
-    updateItem(item.id, { unitPrice: Number.isFinite(parsed) ? parsed : undefined });
+    updateItem(item.id, {
+      unitPrice: Number.isFinite(parsed) ? parsed : undefined,
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
+    });
+  };
+
+  const handleManualMarginChange = (
+    item: QuoteItemForm,
+    source: 'entry' | 'cost',
+    value: string
+  ) => {
+    const parsed = Number(value);
+    const margin = Number.isFinite(parsed) ? parsed : undefined;
+    const base = source === 'entry' ? (item.lastEntryPrice || 0) : (item.currentCost || 0);
+    const nextPrice = base > 0 && margin !== undefined
+      ? base * (1 + margin / 100)
+      : undefined;
+
+    updateItem(item.id, {
+      unitPrice: nextPrice ?? item.unitPrice,
+      manualMarginEntry: source === 'entry' ? margin : undefined,
+      manualMarginCost: source === 'cost' ? margin : undefined,
+    });
   };
 
   const handleManualVatChange = (item: QuoteItemForm, value: string) => {
@@ -487,6 +514,9 @@ export default function AdminQuoteNewPage() {
           priceSource: 'PRICE_LIST',
           priceListNo: listNo,
           unitPrice: listPrice || undefined,
+          selectedSaleIndex: undefined,
+          manualMarginEntry: undefined,
+          manualMarginCost: undefined,
         };
       })
     );
@@ -512,6 +542,8 @@ export default function AdminQuoteNewPage() {
           unitPrice: sale.unitPrice || undefined,
           vatZeroed: sale.vatZeroed || false,
           priceListNo: undefined,
+          manualMarginEntry: undefined,
+          manualMarginCost: undefined,
         };
       })
     );
@@ -615,12 +647,14 @@ export default function AdminQuoteNewPage() {
     setDraggingColumn(null);
   };
 
-  const getManualWarning = (item: QuoteItemForm) => {
-    if (item.priceSource !== 'MANUAL' || item.isManualLine) return null;
+  const getMarginInfo = (item: QuoteItemForm) => {
+    if (item.isManualLine) return null;
     const unitPrice = item.unitPrice || 0;
     const lastEntry = item.lastEntryPrice || 0;
     const currentCost = item.currentCost || 0;
-    const blocked = lastEntry > 0 && unitPrice > 0 && unitPrice < lastEntry * 1.05;
+    if (!unitPrice || (lastEntry <= 0 && currentCost <= 0)) {
+      return null;
+    }
 
     const lastEntryDiff = lastEntry > 0
       ? ((unitPrice - lastEntry) / lastEntry) * 100
@@ -628,6 +662,10 @@ export default function AdminQuoteNewPage() {
     const currentCostDiff = currentCost > 0
       ? ((unitPrice - currentCost) / currentCost) * 100
       : null;
+    const blocked = item.priceSource === 'MANUAL' && lastEntry > 0 && unitPrice < lastEntry * 1.05;
+    const vatRate = item.vatRate || 0;
+    const lastEntryWithVat = lastEntry > 0 ? lastEntry * (1 + vatRate) : null;
+    const openPurchase = lastEntry > 0 && lastEntryWithVat !== null && Math.abs(lastEntryWithVat - lastEntry) < 0.01;
 
     return {
       blocked,
@@ -635,6 +673,7 @@ export default function AdminQuoteNewPage() {
       currentCost,
       lastEntryDiff,
       currentCostDiff,
+      openPurchase,
     };
   };
 
@@ -1023,7 +1062,7 @@ export default function AdminQuoteNewPage() {
                 </thead>
                 <tbody className="divide-y">
                   {quoteItems.map((item) => {
-                    const manualWarning = getManualWarning(item);
+                    const marginInfo = getMarginInfo(item);
                     const lineTotal = (item.unitPrice || 0) * (item.quantity || 0);
 
                     return (
@@ -1044,7 +1083,7 @@ export default function AdminQuoteNewPage() {
                               <div>
                                 <div className="font-medium text-gray-900">{item.productName}</div>
                                 <div className="text-xs text-gray-500">{item.productCode}</div>
-                                {manualWarning?.blocked && (
+                                {marginInfo?.blocked && (
                                   <Badge variant="danger" className="text-xs mt-1">Blok</Badge>
                                 )}
                               </div>
@@ -1117,11 +1156,39 @@ export default function AdminQuoteNewPage() {
                                 <span className="text-xs text-gray-500">Satis yok</span>
                               )
                             ) : item.priceSource === 'MANUAL' ? (
-                              <Input
-                                placeholder="Birim fiyat"
-                                value={item.unitPrice ?? ''}
-                                onChange={(e) => handleManualPriceChange(item, e.target.value)}
-                              />
+                              <div className="space-y-2">
+                                <Input
+                                  placeholder="Birim fiyat"
+                                  value={item.unitPrice ?? ''}
+                                  onChange={(e) => handleManualPriceChange(item, e.target.value)}
+                                />
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  <div>
+                                    <label className="text-[11px] font-medium text-gray-500">
+                                      Son giris kar (%)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      value={item.manualMarginEntry ?? ''}
+                                      onChange={(e) => handleManualMarginChange(item, 'entry', e.target.value)}
+                                      className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs"
+                                      placeholder="Orn: 5"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[11px] font-medium text-gray-500">
+                                      Guncel maliyet kar (%)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      value={item.manualMarginCost ?? ''}
+                                      onChange={(e) => handleManualMarginChange(item, 'cost', e.target.value)}
+                                      className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs"
+                                      placeholder="Orn: 8"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
                             ) : (
                               <span className="text-xs text-gray-400">Secim bekleniyor</span>
                             )}
@@ -1170,26 +1237,31 @@ export default function AdminQuoteNewPage() {
                             </Button>
                           </td>
                         </tr>
-                        {manualWarning && (
+                        {marginInfo && (
                           <tr className="bg-yellow-50">
                             <td colSpan={columnsCount} className="px-3 py-2">
                               <div className="flex flex-wrap items-center gap-2 text-xs">
                                 <span className="rounded-full bg-yellow-200/70 px-2 py-1 font-semibold text-yellow-900">
-                                  Manuel fiyat analizi
+                                  Fiyat analizi
                                 </span>
                                 <span className="rounded-full border border-yellow-200 bg-white px-2 py-1 text-gray-700">
-                                  Son giris: <span className="font-semibold text-gray-900">{formatCurrency(manualWarning.lastEntry)}</span>
-                                  <span className={`ml-1 font-semibold ${getPercentTone(manualWarning.lastEntryDiff)}`}>
-                                    Kar {formatPercent(manualWarning.lastEntryDiff)}
+                                  Son giris (KDV haric): <span className="font-semibold text-gray-900">{formatCurrency(marginInfo.lastEntry)}</span>
+                                  <span className={`ml-1 font-semibold ${getPercentTone(marginInfo.lastEntryDiff)}`}>
+                                    Kar {formatPercent(marginInfo.lastEntryDiff)}
                                   </span>
                                 </span>
                                 <span className="rounded-full border border-yellow-200 bg-white px-2 py-1 text-gray-700">
-                                  Guncel maliyet: <span className="font-semibold text-gray-900">{formatCurrency(manualWarning.currentCost)}</span>
-                                  <span className={`ml-1 font-semibold ${getPercentTone(manualWarning.currentCostDiff)}`}>
-                                    Kar {formatPercent(manualWarning.currentCostDiff)}
+                                  Guncel maliyet (KDV haric): <span className="font-semibold text-gray-900">{formatCurrency(marginInfo.currentCost)}</span>
+                                  <span className={`ml-1 font-semibold ${getPercentTone(marginInfo.currentCostDiff)}`}>
+                                    Kar {formatPercent(marginInfo.currentCostDiff)}
                                   </span>
                                 </span>
-                                {manualWarning.blocked && (
+                                {marginInfo.openPurchase && (
+                                  <span className="rounded-full bg-blue-100 px-2 py-1 font-semibold text-blue-700">
+                                    Acik alis (KDV dahil = haric)
+                                  </span>
+                                )}
+                                {marginInfo.blocked && (
                                   <span className="rounded-full bg-red-100 px-2 py-1 font-semibold text-red-700">
                                     Blok: %5 altinda
                                   </span>
