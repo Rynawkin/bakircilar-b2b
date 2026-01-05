@@ -99,6 +99,20 @@ const getMikroListPrice = (
   return typeof byString === 'number' ? byString : 0;
 };
 
+const formatPercent = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-';
+  const rounded = Math.round(value * 10) / 10;
+  const sign = rounded > 0 ? '+' : '';
+  return `${sign}${rounded.toFixed(1)}%`;
+};
+
+const getPercentTone = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return 'text-gray-500';
+  }
+  return value >= 0 ? 'text-emerald-700' : 'text-red-600';
+};
+
 export default function AdminQuoteNewPage() {
   const router = useRouter();
   const [customers, setCustomers] = useState<any[]>([]);
@@ -426,7 +440,11 @@ export default function AdminQuoteNewPage() {
 
   const handleLastSaleChange = (item: QuoteItemForm, value: string) => {
     if (!value) {
-      updateItem(item.id, { selectedSaleIndex: undefined, unitPrice: undefined });
+      updateItem(item.id, {
+        selectedSaleIndex: undefined,
+        unitPrice: undefined,
+        vatZeroed: false,
+      });
       return;
     }
     const saleIndex = Number(value);
@@ -434,6 +452,7 @@ export default function AdminQuoteNewPage() {
     updateItem(item.id, {
       selectedSaleIndex: saleIndex,
       unitPrice: sale?.unitPrice || undefined,
+      vatZeroed: sale?.vatZeroed || false,
     });
   };
 
@@ -471,6 +490,43 @@ export default function AdminQuoteNewPage() {
         };
       })
     );
+  };
+
+  const applyLastSaleToAll = () => {
+    let applied = 0;
+    let missing = 0;
+
+    setQuoteItems((prev) =>
+      prev.map((item) => {
+        if (item.isManualLine) return item;
+        const sale = item.lastSales?.[0];
+        if (!sale) {
+          missing += 1;
+          return item;
+        }
+        applied += 1;
+        return {
+          ...item,
+          priceSource: 'LAST_SALE',
+          selectedSaleIndex: 0,
+          unitPrice: sale.unitPrice || undefined,
+          vatZeroed: sale.vatZeroed || false,
+          priceListNo: undefined,
+        };
+      })
+    );
+
+    if (applied === 0) {
+      toast.error('Son satis bulunamadi.');
+      return;
+    }
+
+    if (missing > 0) {
+      toast.success(`${applied} satira uygulandi. ${missing} satirda satis yok.`);
+      return;
+    }
+
+    toast.success('Son satis tum satirlara uygulandi.');
   };
 
   const handleGlobalVatZeroChange = (value: boolean) => {
@@ -920,6 +976,9 @@ export default function AdminQuoteNewPage() {
               <Button variant="secondary" size="sm" onClick={applyPriceListToAll} className="rounded-full">
                 Tum Satirlara Uygula
               </Button>
+              <Button variant="secondary" size="sm" onClick={applyLastSaleToAll} className="rounded-full">
+                Son Satisi Uygula
+              </Button>
               <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)} className="rounded-full">
                 Kolonlari Sec
               </Button>
@@ -1113,10 +1172,29 @@ export default function AdminQuoteNewPage() {
                         </tr>
                         {manualWarning && (
                           <tr className="bg-yellow-50">
-                            <td colSpan={columnsCount} className="px-3 py-2 text-xs text-yellow-800">
-                              Manuel fiyat: Son giris {formatCurrency(manualWarning.lastEntry)} ({manualWarning.lastEntryDiff?.toFixed(1) || 0}%),
-                              Guncel maliyet {formatCurrency(manualWarning.currentCost)} ({manualWarning.currentCostDiff?.toFixed(1) || 0}%).
-                              {manualWarning.blocked && ' Blok: %5 altinda.'}
+                            <td colSpan={columnsCount} className="px-3 py-2">
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="rounded-full bg-yellow-200/70 px-2 py-1 font-semibold text-yellow-900">
+                                  Manuel fiyat analizi
+                                </span>
+                                <span className="rounded-full border border-yellow-200 bg-white px-2 py-1 text-gray-700">
+                                  Son giris: <span className="font-semibold text-gray-900">{formatCurrency(manualWarning.lastEntry)}</span>
+                                  <span className={`ml-1 font-semibold ${getPercentTone(manualWarning.lastEntryDiff)}`}>
+                                    Kar {formatPercent(manualWarning.lastEntryDiff)}
+                                  </span>
+                                </span>
+                                <span className="rounded-full border border-yellow-200 bg-white px-2 py-1 text-gray-700">
+                                  Guncel maliyet: <span className="font-semibold text-gray-900">{formatCurrency(manualWarning.currentCost)}</span>
+                                  <span className={`ml-1 font-semibold ${getPercentTone(manualWarning.currentCostDiff)}`}>
+                                    Kar {formatPercent(manualWarning.currentCostDiff)}
+                                  </span>
+                                </span>
+                                {manualWarning.blocked && (
+                                  <span className="rounded-full bg-red-100 px-2 py-1 font-semibold text-red-700">
+                                    Blok: %5 altinda
+                                  </span>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         )}
