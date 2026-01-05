@@ -88,6 +88,7 @@ router.post('/orders/:id/reject-items', requireOrderApprover, adminController.re
 // Quotes (Teklifler) - Staff for list/create, ADMIN for approval
 router.get('/quotes/preferences', requireStaff, quoteController.getPreferences);
 router.put('/quotes/preferences', requireStaff, quoteController.updatePreferences);
+router.get('/quotes/responsibles', requireStaff, quoteController.getResponsibles);
 router.get('/quotes/customer/:customerId/purchased-products', requireStaff, quoteController.getCustomerPurchasedProducts);
 router.post('/quotes', requireStaff, quoteController.createQuote);
 router.get('/quotes', requireStaff, quoteController.getQuotes);

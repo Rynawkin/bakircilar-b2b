@@ -135,6 +135,8 @@ export default function AdminQuoteNewPage() {
   const [vatZeroed, setVatZeroed] = useState(false);
   const [lastSalesCount, setLastSalesCount] = useState(1);
   const [whatsappTemplate, setWhatsappTemplate] = useState('');
+  const [responsibles, setResponsibles] = useState<Array<{ code: string; name: string; surname: string }>>([]);
+  const [selectedResponsibleCode, setSelectedResponsibleCode] = useState('');
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
@@ -208,9 +210,16 @@ export default function AdminQuoteNewPage() {
       adminApi.getQuotePreferences(),
       adminApi.getSearchPreferences(),
       adminApi.getStockColumns(),
+      adminApi.getQuoteResponsibles(),
     ]);
 
-    const [customersResult, quotePrefsResult, searchPrefsResult, columnResult] = results;
+    const [
+      customersResult,
+      quotePrefsResult,
+      searchPrefsResult,
+      columnResult,
+      responsiblesResult,
+    ] = results;
 
     if (customersResult.status === 'fulfilled') {
       setCustomers(customersResult.value.customers || []);
@@ -222,6 +231,7 @@ export default function AdminQuoteNewPage() {
     if (quotePrefsResult.status === 'fulfilled' && quotePrefsResult.value?.preferences) {
       setLastSalesCount(quotePrefsResult.value.preferences.lastSalesCount || 1);
       setWhatsappTemplate(quotePrefsResult.value.preferences.whatsappTemplate || '');
+      setSelectedResponsibleCode(quotePrefsResult.value.preferences.responsibleCode || '');
     } else if (quotePrefsResult.status === 'rejected') {
       console.error('Teklif tercihleri yuklenemedi:', quotePrefsResult.reason);
     }
@@ -236,6 +246,12 @@ export default function AdminQuoteNewPage() {
       setAvailableColumns(columnResult.value.columns);
     } else if (columnResult.status === 'rejected') {
       console.error('Stok kolonlari yuklenemedi:', columnResult.reason);
+    }
+
+    if (responsiblesResult.status === 'fulfilled') {
+      setResponsibles(responsiblesResult.value.responsibles || []);
+    } else if (responsiblesResult.status === 'rejected') {
+      console.error('Sorumlu listesi yuklenemedi:', responsiblesResult.reason);
     }
   };
 
@@ -566,11 +582,12 @@ export default function AdminQuoteNewPage() {
     setQuoteItems((prev) => prev.map((item) => ({ ...item, vatZeroed: value })));
   };
 
-  const saveWhatsappTemplate = async () => {
+  const saveQuotePreferences = async () => {
     try {
       await adminApi.updateQuotePreferences({
         lastSalesCount,
         whatsappTemplate,
+        responsibleCode: selectedResponsibleCode || null,
       });
       toast.success('Tercihler kaydedildi.');
     } catch (error) {
@@ -766,6 +783,8 @@ export default function AdminQuoteNewPage() {
         customerId: selectedCustomer.id,
         validityDate,
         note,
+        documentNo: note,
+        responsibleCode: selectedResponsibleCode || undefined,
         vatZeroed,
         items: quoteItems.map((item) => {
           const sale = item.priceSource === 'LAST_SALE' && item.selectedSaleIndex !== undefined
@@ -880,7 +899,7 @@ export default function AdminQuoteNewPage() {
                 <h2 className="text-lg font-semibold">Teklif Ayarlari</h2>
                 <p className="text-xs text-gray-500">Son satis ve mesaj tercihleriniz.</p>
               </div>
-              <Button variant="secondary" onClick={saveWhatsappTemplate}>
+              <Button variant="secondary" onClick={saveQuotePreferences}>
                 Tercihleri Kaydet
               </Button>
             </div>
@@ -909,6 +928,24 @@ export default function AdminQuoteNewPage() {
                   className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                   placeholder="{{customerName}} {{quoteNumber}}"
                 />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sorumlu</label>
+                <select
+                  value={selectedResponsibleCode}
+                  onChange={(e) => setSelectedResponsibleCode(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+                >
+                  <option value="">Sorumlu secin</option>
+                  {responsibles.map((person) => (
+                    <option key={person.code} value={person.code}>
+                      {person.code} - {person.name} {person.surname}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Secilen sorumlu Mikro teklifinde kullanilir. Kaydetmek icin "Tercihleri Kaydet" deyin.
+                </p>
               </div>
             </div>
           </div>
@@ -989,6 +1026,9 @@ export default function AdminQuoteNewPage() {
                       className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                       placeholder="Teklif notu"
                     />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Not, Mikro'da belge no alanina da yazilir.
+                    </p>
                   </div>
                 </div>
               </div>

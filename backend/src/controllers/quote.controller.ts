@@ -4,6 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import quoteService from '../services/quote.service';
+import mikroService from '../services/mikroFactory.service';
 
 export class QuoteController {
   /**
@@ -23,10 +24,11 @@ export class QuoteController {
    */
   async updatePreferences(req: Request, res: Response, next: NextFunction) {
     try {
-      const { lastSalesCount, whatsappTemplate } = req.body || {};
+      const { lastSalesCount, whatsappTemplate, responsibleCode } = req.body || {};
       const preferences = await quoteService.updatePreferences(req.user!.userId, {
         lastSalesCount,
         whatsappTemplate,
+        responsibleCode,
       });
       res.json({ preferences });
     } catch (error) {
@@ -46,6 +48,18 @@ export class QuoteController {
 
       const result = await quoteService.getCustomerPurchasedProducts(customerId, lastSalesCount);
       res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/quotes/responsibles
+   */
+  async getResponsibles(req: Request, res: Response, next: NextFunction) {
+    try {
+      const responsibles = await mikroService.getCariPersonelList();
+      res.json({ responsibles });
     } catch (error) {
       next(error);
     }

@@ -170,7 +170,13 @@ export const adminApi = {
   },
 
   // Quotes (Teklifler)
-  getQuotePreferences: async (): Promise<{ preferences: { lastSalesCount: number; whatsappTemplate: string } }> => {
+  getQuotePreferences: async (): Promise<{
+    preferences: {
+      lastSalesCount: number;
+      whatsappTemplate: string;
+      responsibleCode?: string | null;
+    };
+  }> => {
     const response = await apiClient.get('/admin/quotes/preferences');
     return response.data;
   },
@@ -178,8 +184,22 @@ export const adminApi = {
   updateQuotePreferences: async (data: {
     lastSalesCount?: number;
     whatsappTemplate?: string;
-  }): Promise<{ preferences: { lastSalesCount: number; whatsappTemplate: string } }> => {
+    responsibleCode?: string | null;
+  }): Promise<{
+    preferences: {
+      lastSalesCount: number;
+      whatsappTemplate: string;
+      responsibleCode?: string | null;
+    };
+  }> => {
     const response = await apiClient.put('/admin/quotes/preferences', data);
+    return response.data;
+  },
+
+  getQuoteResponsibles: async (): Promise<{
+    responsibles: Array<{ code: string; name: string; surname: string }>;
+  }> => {
+    const response = await apiClient.get('/admin/quotes/responsibles');
     return response.data;
   },
 

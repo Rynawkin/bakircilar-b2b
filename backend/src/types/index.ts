@@ -115,6 +115,12 @@ export interface MikroCari {
   balance: number;
 }
 
+export interface MikroCariPersonel {
+  code: string;
+  name: string;
+  surname: string;
+}
+
 // ==================== PRODUCT TYPES ====================
 
 export interface ProductPrices {

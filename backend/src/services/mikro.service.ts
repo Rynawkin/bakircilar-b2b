@@ -16,6 +16,7 @@ import {
   MikroCustomerSaleMovement,
   MikroPendingOrder,
   MikroCari,
+  MikroCariPersonel,
 } from '../types';
 
 class MikroService {
@@ -612,6 +613,34 @@ class MikroService {
   }
 
   /**
+   * Cari personel listesini getir
+   */
+  async getCariPersonelList(): Promise<MikroCariPersonel[]> {
+    await this.connect();
+
+    const result = await this.pool!.request().query(`
+      SELECT
+        cari_per_kod as code,
+        cari_per_adi as name,
+        cari_per_soyadi as surname
+      FROM CARI_PERSONEL_TANIMLARI
+      WHERE cari_per_iptal = 0
+        AND cari_per_kilitli = 0
+        AND cari_per_kod IS NOT NULL
+        AND cari_per_kod != ''
+      ORDER BY cari_per_kod
+    `);
+
+    return result.recordset
+      .map((row: any) => ({
+        code: (row.code || '').trim(),
+        name: row.name || '',
+        surname: row.surname || '',
+      }))
+      .filter((row) => row.code);
+  }
+
+  /**
    * AnlÄ±k stok kontrolÃ¼ (Mikro fonksiyonu kullanarak)
    */
   async getRealtimeStock(
@@ -878,6 +907,8 @@ class MikroService {
     quoteNumber: string;
     validityDate: Date;
     description: string;
+    documentNo?: string;
+    responsibleCode?: string;
     items: Array<{
       productCode: string;
       quantity: number;
@@ -889,7 +920,7 @@ class MikroService {
   }): Promise<{ quoteNumber: string; guid?: string }> {
     await this.connect();
 
-    const { cariCode, validityDate, description, items } = quoteData;
+    const { cariCode, validityDate, description, documentNo, responsibleCode, items } = quoteData;
     const evrakSeri = 'B2B';
 
     console.log('âš¡ Teklif parametreleri:', {
@@ -917,6 +948,8 @@ class MikroService {
 
       const now = new Date();
       const lineNote = (description || '').trim();
+      const documentNoValue = (documentNo || '').trim().slice(0, 50);
+      const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -957,7 +990,9 @@ class MikroService {
             TKL_VERGISIZ_FL,
             tkl_Tevkifat_turu,
             tkl_tevkifat_sifirlandi_fl,
-            tkl_belge_tarih
+            tkl_belge_tarih,
+            tkl_belge_no,
+            tkl_Sorumlu_Kod
           ) VALUES (
             @seri,
             @sira,
@@ -984,7 +1019,9 @@ class MikroService {
             @vergiSiz,
             @tevkifatTur,
             @tevkifatSifir,
-            @belgeTarih
+            @belgeTarih,
+            @belgeNo,
+            @sorumluKod
           )
         `;
 
@@ -1016,6 +1053,8 @@ class MikroService {
           .input('tevkifatTur', sql.TinyInt, 0)
           .input('tevkifatSifir', sql.Bit, 0)
           .input('belgeTarih', sql.DateTime, now)
+          .input('belgeNo', sql.NVarChar(50), documentNoValue || null)
+          .input('sorumluKod', sql.NVarChar(25), responsibleValue || null)
           .query(insertQuery);
       }
 

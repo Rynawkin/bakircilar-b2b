@@ -84,6 +84,7 @@ model User {
   whitePriceListNo    Int?
   quoteLastSalesCount Int          @default(1)
   quoteWhatsappTemplate String?
+  quoteResponsibleCode String?
 
   // Mikro'dan senkronize edilen cari bilgileri
   city                String?       // Şehir
@@ -433,6 +434,8 @@ model Quote {
 
   items             QuoteItem[]
   note              String?
+  documentNo        String?
+  responsibleCode   String?
   validityDate      DateTime
   vatZeroed         Boolean       @default(false)
   totalAmount       Float

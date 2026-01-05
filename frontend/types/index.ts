@@ -171,6 +171,8 @@ export interface Quote {
   quoteNumber: string;
   status: QuoteStatus;
   note?: string;
+  documentNo?: string;
+  responsibleCode?: string;
   validityDate: string;
   vatZeroed: boolean;
   totalAmount: number;

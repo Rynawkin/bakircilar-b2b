@@ -11,6 +11,7 @@ import {
   MikroWarehouseStock,
   MikroSalesMovement,
   MikroPendingOrder,
+  MikroCariPersonel,
 } from '../types';
 
 export class MikroMockService {
@@ -517,6 +518,19 @@ export class MikroMockService {
   }
 
   /**
+   * Mock cari personel listesi
+   */
+  async getCariPersonelList(): Promise<MikroCariPersonel[]> {
+    return [
+      { code: '195.01.001', name: 'Necati', surname: 'UCAREP' },
+      { code: '195.01.002', name: 'Ensar', surname: 'UCAREP' },
+      { code: '195.01.003', name: 'Burcu', surname: 'Tiryaki' },
+      { code: '195.01.006', name: 'Duygu', surname: 'Tiryaki' },
+      { code: '195.01.007', name: 'Selim', surname: 'IMAK' },
+    ];
+  }
+
+  /**
    * Anlık stok kontrolü (tek ürün için)
    */
   async getRealtimeStock(
@@ -573,6 +587,8 @@ export class MikroMockService {
     quoteNumber: string;
     validityDate: Date;
     description: string;
+    documentNo?: string;
+    responsibleCode?: string;
     items: Array<{
       productCode: string;
       quantity: number;

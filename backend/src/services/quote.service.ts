@@ -38,6 +38,8 @@ interface CreateQuoteInput {
   customerId: string;
   validityDate: string;
   note?: string;
+  documentNo?: string;
+  responsibleCode?: string;
   vatZeroed?: boolean;
   items: QuoteItemInput[];
 }
@@ -77,22 +79,30 @@ class QuoteService {
       select: {
         quoteLastSalesCount: true,
         quoteWhatsappTemplate: true,
+        quoteResponsibleCode: true,
       },
     });
 
     return {
       lastSalesCount: user?.quoteLastSalesCount ?? 1,
       whatsappTemplate: user?.quoteWhatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE,
+      responsibleCode: user?.quoteResponsibleCode || null,
     };
   }
 
-  async updatePreferences(userId: string, data: { lastSalesCount?: number; whatsappTemplate?: string }) {
+  async updatePreferences(
+    userId: string,
+    data: { lastSalesCount?: number; whatsappTemplate?: string; responsibleCode?: string | null }
+  ) {
     const updateData: any = {};
     if (data.lastSalesCount !== undefined) {
       updateData.quoteLastSalesCount = Math.max(1, Math.min(10, data.lastSalesCount));
     }
     if (data.whatsappTemplate !== undefined) {
       updateData.quoteWhatsappTemplate = data.whatsappTemplate.trim();
+    }
+    if (data.responsibleCode !== undefined) {
+      updateData.quoteResponsibleCode = data.responsibleCode || null;
     }
 
     const user = await prisma.user.update({
@@ -101,12 +111,14 @@ class QuoteService {
       select: {
         quoteLastSalesCount: true,
         quoteWhatsappTemplate: true,
+        quoteResponsibleCode: true,
       },
     });
 
     return {
       lastSalesCount: user.quoteLastSalesCount,
       whatsappTemplate: user.quoteWhatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE,
+      responsibleCode: user.quoteResponsibleCode || null,
     };
   }
 
@@ -207,7 +219,7 @@ class QuoteService {
   }
 
   async createQuote(input: CreateQuoteInput, createdById: string) {
-    const { customerId, validityDate, note, vatZeroed = false, items } = input;
+    const { customerId, validityDate, note, documentNo, responsibleCode, vatZeroed = false, items } = input;
 
     if (!customerId || !validityDate || !Array.isArray(items) || items.length === 0) {
       throw new Error('Missing required fields');
@@ -370,6 +382,9 @@ class QuoteService {
 
     const grandTotal = totalAmount + totalVat;
 
+    const resolvedDocumentNo = (documentNo || note || '').trim();
+    const resolvedResponsibleCode = (responsibleCode || '').trim();
+
     let mikroNumber: string | undefined;
     let mikroGuid: string | undefined;
 
@@ -379,6 +394,8 @@ class QuoteService {
         quoteNumber,
         validityDate: new Date(validityDate),
         description: note?.trim() || '',
+        documentNo: resolvedDocumentNo,
+        responsibleCode: resolvedResponsibleCode,
         items: preparedItems.map((item) => ({
           productCode: item.productCode,
           quantity: item.quantity,
@@ -399,6 +416,8 @@ class QuoteService {
         customerId: customer.id,
         createdById,
         note: note?.trim() || null,
+        documentNo: resolvedDocumentNo || null,
+        responsibleCode: resolvedResponsibleCode || null,
         validityDate: new Date(validityDate),
         vatZeroed,
         totalAmount,
@@ -547,6 +566,8 @@ class QuoteService {
       quoteNumber: quote.quoteNumber,
       validityDate: quote.validityDate,
       description: quote.note || '',
+      documentNo: quote.documentNo || quote.note || '',
+      responsibleCode: quote.responsibleCode || '',
       items: quote.items.map((item) => ({
         productCode: item.productCode,
         quantity: item.quantity,
