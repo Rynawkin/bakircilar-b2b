@@ -696,7 +696,7 @@ export default function AdminQuoteNewPage() {
   }, [quoteItems, vatZeroed]);
 
   const hasBlockedPreview = useMemo(() => {
-    return quoteItems.some((item) => getManualWarning(item)?.blocked);
+    return quoteItems.some((item) => getMarginInfo(item)?.blocked);
   }, [quoteItems]);
 
   const validateQuote = () => {
