@@ -1211,7 +1211,7 @@ export default function AdminQuoteNewPage() {
                                       type="number"
                                       value={item.manualMarginEntry ?? ''}
                                       onChange={(e) => handleManualMarginChange(item, 'entry', e.target.value)}
-                                      className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs"
+                                      className="mt-1 w-full min-w-[120px] rounded-lg border border-gray-300 px-2 py-1 text-xs"
                                       placeholder="Orn: 5"
                                     />
                                   </div>
@@ -1223,7 +1223,7 @@ export default function AdminQuoteNewPage() {
                                       type="number"
                                       value={item.manualMarginCost ?? ''}
                                       onChange={(e) => handleManualMarginChange(item, 'cost', e.target.value)}
-                                      className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs"
+                                      className="mt-1 w-full min-w-[120px] rounded-lg border border-gray-300 px-2 py-1 text-xs"
                                       placeholder="Orn: 8"
                                     />
                                   </div>
