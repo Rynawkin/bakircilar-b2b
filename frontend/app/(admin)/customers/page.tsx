@@ -15,6 +15,7 @@ import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { CustomerEditModal } from '@/components/admin/CustomerEditModal';
 import { BulkCreateUsersModal } from '@/components/admin/BulkCreateUsersModal';
+import { useAuthStore } from '@/lib/store/authStore';
 
 interface MikroCari {
   code: string;
@@ -32,6 +33,7 @@ interface MikroCari {
 
 export default function CustomersPage() {
   const router = useRouter();
+  const { user, loadUserFromStorage } = useAuthStore();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cariList, setCariList] = useState<MikroCari[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -52,9 +54,20 @@ export default function CustomersPage() {
   });
 
   useEffect(() => {
+    loadUserFromStorage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (user === null) return;
+    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN' && user.role !== 'SALES_REP') {
+      router.push('/login');
+      return;
+    }
+
     fetchCustomers();
     fetchCariList();
-  }, []);
+  }, [user, router]);
 
   const fetchCustomers = async () => {
     try {
@@ -147,6 +160,14 @@ export default function CustomersPage() {
     setShowEditModal(true);
   };
 
+  const canEditCustomer =
+    user?.role === 'ADMIN' ||
+    user?.role === 'MANAGER' ||
+    user?.role === 'HEAD_ADMIN';
+  const canBulkCreate =
+    user?.role === 'ADMIN' ||
+    user?.role === 'HEAD_ADMIN';
+
   if (isLoading) {
     return <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div></div>;
   }
@@ -164,13 +185,15 @@ export default function CustomersPage() {
               </div>
             </div>
             <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => setShowBulkCreateModal(true)}
-                className="bg-green-600 text-white hover:bg-green-700"
-              >
-                👥 Toplu Kullanıcı Oluştur
-              </Button>
+              {canBulkCreate && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowBulkCreateModal(true)}
+                  className="bg-green-600 text-white hover:bg-green-700"
+                >
+                  👥 Toplu Kullanıcı Oluştur
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -454,13 +477,17 @@ export default function CustomersPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateShort(customer.createdAt)}</td>
                       <td className="px-4 py-3 text-center">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => openEditModal(customer)}
-                        >
-                          ✏️ Düzenle
-                        </Button>
+                        {canEditCustomer ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => openEditModal(customer)}
+                          >
+                            ✏️ Düzenle
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-gray-400">Yetki yok</span>
+                        )}
                       </td>
                     </tr>
                   ))

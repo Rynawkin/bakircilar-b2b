@@ -538,6 +538,17 @@ export class AdminController {
     try {
       const { email, password, name, customerType, mikroCariCode, invoicedPriceListNo, whitePriceListNo } =
         req.body as CreateCustomerRequest;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+      const isSalesRep = userRole === 'SALES_REP';
+
+      if (isSalesRep && assignedSectorCodes.length === 0) {
+        return res.status(403).json({ error: 'No assigned sector codes' });
+      }
+
+      if (isSalesRep && !mikroCariCode) {
+        return res.status(400).json({ error: 'Mikro cari code is required' });
+      }
 
       // Email kontrolü
       const existingUser = await prisma.user.findUnique({
@@ -568,6 +579,16 @@ export class AdminController {
         try {
           const cariList = await mikroService.getCariDetails();
           const cari = cariList.find(c => c.code === mikroCariCode);
+
+          if (isSalesRep) {
+            if (!cari) {
+              return res.status(400).json({ error: 'Mikro cari not found' });
+            }
+            if (!cari.sectorCode || !assignedSectorCodes.includes(cari.sectorCode)) {
+              return res.status(403).json({ error: 'You can only create customers from your assigned sectors' });
+            }
+          }
+
           if (cari) {
             mikroCariData = {
               city: cari.city,

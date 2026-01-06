@@ -44,8 +44,11 @@ const buildWhatsappMessage = (template: string, quote: Quote, link: string, cust
     .replace(/{{validUntil}}/g, formatDate(quote.validityDate));
 };
 
-const cleanPdfText = (text: string) => {
-  return text
+const cleanPdfText = (text: string | number | null | undefined) => {
+  const value = text ?? '';
+  return String(value)
+    .replace(/\r?\n/g, ' ')
+    .replace(/₺/g, 'TL')
     .replace(/İ/g, 'I')
     .replace(/ı/g, 'i')
     .replace(/Ş/g, 'S')
@@ -223,32 +226,75 @@ export default function AdminQuotesPage() {
       await import('jspdf-autotable');
 
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 14;
       const customerName = quote.customer?.displayName || quote.customer?.name || '';
+      const validityText = quote.validityDate ? formatDate(quote.validityDate) : '-';
+      const safeCurrency = (value?: number | null) =>
+        formatCurrency(Number.isFinite(value) ? (value as number) : 0);
 
-      doc.setFontSize(16);
-      doc.text(cleanPdfText('TEKLİF FORMU'), 105, 15, { align: 'center' });
+      const colors = {
+        primary: [37, 99, 235] as const,
+        dark: [15, 23, 42] as const,
+        muted: [100, 116, 139] as const,
+        light: [248, 250, 252] as const,
+        border: [226, 232, 240] as const,
+      };
 
+      doc.setFillColor(...colors.primary);
+      doc.rect(0, 0, pageWidth, 20, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(12);
+      doc.text(cleanPdfText('BAKIRCILAR KAMPANYA'), marginX, 12);
+      doc.setFontSize(11);
+      doc.text(cleanPdfText('TEKLIF FORMU'), pageWidth - marginX, 12, { align: 'right' });
+
+      const infoY = 24;
+      const boxHeight = 28;
+      const boxGap = 6;
+      const boxWidth = (pageWidth - marginX * 2 - boxGap) / 2;
+      const rightBoxX = marginX + boxWidth + boxGap;
+
+      doc.setFillColor(...colors.light);
+      doc.setDrawColor(...colors.border);
+      doc.roundedRect(marginX, infoY, boxWidth, boxHeight, 2, 2, 'F');
+      doc.roundedRect(rightBoxX, infoY, boxWidth, boxHeight, 2, 2, 'F');
+
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.muted);
+      doc.text(cleanPdfText('MUSTERI'), marginX + 4, infoY + 6);
       doc.setFontSize(10);
-      doc.text(cleanPdfText(`Teklif No: ${quote.quoteNumber}`), 14, 25);
-      doc.text(cleanPdfText(`Müşteri: ${customerName}`), 14, 30);
-      doc.text(cleanPdfText(`Geçerlilik: ${formatDate(quote.validityDate)}`), 14, 35);
+      doc.setTextColor(...colors.dark);
+      doc.text(cleanPdfText(`Musteri: ${customerName || '-'}`), marginX + 4, infoY + 13);
+
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.muted);
+      doc.text(cleanPdfText('TEKLIF BILGILERI'), rightBoxX + 4, infoY + 6);
+      doc.setTextColor(...colors.dark);
+      doc.text(cleanPdfText(`Teklif No: ${quote.quoteNumber || '-'}`), rightBoxX + 4, infoY + 13);
+      doc.text(cleanPdfText(`Gecerlilik: ${validityText}`), rightBoxX + 4, infoY + 18);
       if (quote.mikroNumber) {
-        doc.text(cleanPdfText(`Mikro No: ${quote.mikroNumber}`), 14, 40);
+        doc.text(cleanPdfText(`Mikro No: ${quote.mikroNumber}`), rightBoxX + 4, infoY + 23);
       }
 
-      const tableData = quote.items.map((item) => [
-        cleanPdfText(item.productCode),
-        cleanPdfText(item.productName),
-        item.quantity.toString(),
-        formatCurrency(item.unitPrice),
-        formatCurrency(item.totalPrice),
-      ]);
+      const tableStartY = infoY + boxHeight + 8;
+      const items = Array.isArray(quote.items) ? quote.items : [];
+      const tableData = items.length > 0
+        ? items.map((item) => [
+          cleanPdfText(item.productCode),
+          cleanPdfText(item.productName),
+          String(item.quantity ?? 0),
+          cleanPdfText(safeCurrency(item.unitPrice)),
+          cleanPdfText(safeCurrency(item.totalPrice)),
+        ])
+        : [[cleanPdfText('-'), cleanPdfText('Urun yok'), '0', '-', '-']];
 
       (doc as any).autoTable({
-        startY: 46,
+        startY: tableStartY,
         head: [[
           'Stok Kodu',
-          'Ürün',
+          'Urun',
           'Miktar',
           'Birim Fiyat',
           'Tutar',
@@ -260,33 +306,57 @@ export default function AdminQuotesPage() {
           overflow: 'linebreak',
           halign: 'left',
           font: 'helvetica',
+          textColor: colors.dark,
+          lineColor: colors.border,
+          lineWidth: 0.1,
         },
         headStyles: {
-          fillColor: [66, 139, 202],
+          fillColor: colors.primary,
           textColor: 255,
           fontStyle: 'bold',
           halign: 'center',
           fontSize: 10,
         },
         columnStyles: {
-          0: { cellWidth: 28 },
-          1: { cellWidth: 60 },
+          0: { cellWidth: 26 },
+          1: { cellWidth: 66 },
           2: { cellWidth: 18, halign: 'right' },
-          3: { cellWidth: 30, halign: 'right' },
-          4: { cellWidth: 30, halign: 'right' },
+          3: { cellWidth: 28, halign: 'right' },
+          4: { cellWidth: 28, halign: 'right' },
         },
         alternateRowStyles: {
-          fillColor: [245, 245, 245],
+          fillColor: [245, 247, 250],
         },
-        margin: { top: 46, left: 14, right: 14 },
+        margin: { left: marginX, right: marginX },
       });
 
-      const finalY = (doc as any).lastAutoTable?.finalY || 60;
-      doc.setFontSize(11);
-      doc.text(cleanPdfText(`Ara Toplam: ${formatCurrency(quote.totalAmount)}`), 140, finalY + 8);
-      doc.text(cleanPdfText(`KDV: ${formatCurrency(quote.totalVat)}`), 140, finalY + 14);
-      doc.setFontSize(12);
-      doc.text(cleanPdfText(`Genel Toplam: ${formatCurrency(quote.grandTotal)}`), 140, finalY + 22);
+      const finalY = (doc as any).lastAutoTable?.finalY || tableStartY;
+      const summaryWidth = 74;
+      const summaryHeight = 24;
+      let summaryY = finalY + 8;
+      const summaryX = pageWidth - marginX - summaryWidth;
+
+      if (summaryY + summaryHeight > pageHeight - 10) {
+        doc.addPage();
+        summaryY = 20;
+      }
+
+      doc.setFillColor(...colors.light);
+      doc.roundedRect(summaryX, summaryY, summaryWidth, summaryHeight, 2, 2, 'F');
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.muted);
+      doc.text(cleanPdfText('Ara Toplam'), summaryX + 4, summaryY + 7);
+      doc.text(cleanPdfText('KDV'), summaryX + 4, summaryY + 13);
+      doc.setFontSize(10);
+      doc.setTextColor(...colors.dark);
+      doc.text(cleanPdfText('Genel Toplam'), summaryX + 4, summaryY + 19);
+
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.dark);
+      doc.text(cleanPdfText(safeCurrency(quote.totalAmount)), summaryX + summaryWidth - 4, summaryY + 7, { align: 'right' });
+      doc.text(cleanPdfText(safeCurrency(quote.totalVat)), summaryX + summaryWidth - 4, summaryY + 13, { align: 'right' });
+      doc.setFontSize(10);
+      doc.text(cleanPdfText(safeCurrency(quote.grandTotal)), summaryX + summaryWidth - 4, summaryY + 19, { align: 'right' });
 
       const fileName = `${quote.quoteNumber}_${cleanPdfText(customerName || 'Teklif')}.pdf`;
       doc.save(fileName);

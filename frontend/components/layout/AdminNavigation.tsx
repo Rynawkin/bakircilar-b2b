@@ -71,7 +71,8 @@ export function AdminNavigation() {
         item.href === '/dashboard' ||
         item.href === '/orders' ||
         item.href === '/order-tracking' ||
-        item.href === '/quotes'
+        item.href === '/quotes' ||
+        item.href === '/customers'
       );
     }
     // ADMIN, MANAGER, HEAD_ADMIN tüm menüleri görsün

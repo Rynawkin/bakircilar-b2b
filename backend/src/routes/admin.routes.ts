@@ -74,7 +74,7 @@ const updateCustomerSchema = z.object({
 
 // Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
 router.get('/customers', requireStaff, adminController.getCustomers);
-router.post('/customers', requireAdminOrManager, validateBody(createCustomerSchema), adminController.createCustomer);
+router.post('/customers', requireStaff, validateBody(createCustomerSchema), adminController.createCustomer);
 router.put('/customers/:id', requireAdminOrManager, validateBody(updateCustomerSchema), adminController.updateCustomer);
 
 // Orders - Staff for GET (filtered by sector), OrderApprover (ADMIN/SALES_REP) for approval
