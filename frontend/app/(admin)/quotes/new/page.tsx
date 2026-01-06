@@ -14,6 +14,7 @@ import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { Modal } from '@/components/ui/Modal';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import type { CustomerContact } from '@/types';
 
 interface LastSale {
@@ -344,13 +345,22 @@ export default function AdminQuoteNewPage() {
   }, [customers]);
 
   const filteredPurchasedProducts = useMemo(() => {
-    if (!purchasedSearch.trim()) return purchasedProducts;
-    const search = purchasedSearch.toLowerCase();
-    return purchasedProducts.filter((product) =>
-      product.mikroCode.toLowerCase().includes(search) ||
-      product.name.toLowerCase().includes(search)
-    );
+    const tokens = buildSearchTokens(purchasedSearch);
+    if (tokens.length === 0) return purchasedProducts;
+    return purchasedProducts.filter((product) => {
+      const haystack = normalizeSearchText(`${product.mikroCode || ''} ${product.name || ''}`);
+      return matchesSearchTokens(haystack, tokens);
+    });
   }, [purchasedProducts, purchasedSearch]);
+
+  const filteredSearchResults = useMemo(() => {
+    const tokens = buildSearchTokens(searchTerm);
+    if (tokens.length === 0) return searchResults;
+    return searchResults.filter((product) => {
+      const haystack = normalizeSearchText(`${product.mikroCode || ''} ${product.name || ''}`);
+      return matchesSearchTokens(haystack, tokens);
+    });
+  }, [searchResults, searchTerm]);
 
   const selectedPurchasedCount = selectedPurchasedCodes.size;
 
@@ -1562,11 +1572,11 @@ export default function AdminQuoteNewPage() {
               />
               {searchLoading ? (
                 <div className="text-sm text-gray-500">Araniyor...</div>
-              ) : searchResults.length === 0 ? (
+              ) : filteredSearchResults.length === 0 ? (
                 <div className="text-sm text-gray-500">Arama sonucu yok.</div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 max-h-[60vh] overflow-y-auto pr-2">
-                  {searchResults.map((product) => (
+                  {filteredSearchResults.map((product) => (
                     <div key={product.mikroCode} className="rounded-xl border border-gray-200 bg-white/90 p-4">
                       <div className="flex justify-between items-start gap-3">
                         <div>

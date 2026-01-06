@@ -5,6 +5,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 interface MikroCari {
   userId?: string;
@@ -35,21 +36,24 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCari, setSelectedCari] = useState<MikroCari | null>(null);
 
-  const filteredCariList = useMemo(() => {
-    if (!searchTerm) return cariList;
+  const searchTokens = useMemo(() => buildSearchTokens(searchTerm), [searchTerm]);
 
-    const lowerSearch = searchTerm.toLowerCase();
-    return cariList.filter(
-      cari =>
-        (cari.code?.toLowerCase() || '').includes(lowerSearch) ||
-        (cari.name?.toLowerCase() || '').includes(lowerSearch) ||
-        (cari.city?.toLowerCase() || '').includes(lowerSearch) ||
-        (cari.district?.toLowerCase() || '').includes(lowerSearch) ||
-        (cari.phone?.toLowerCase() || '').includes(lowerSearch) ||
-        (cari.sectorCode?.toLowerCase() || '').includes(lowerSearch) ||
-        (cari.groupCode?.toLowerCase() || '').includes(lowerSearch)
-    );
-  }, [cariList, searchTerm]);
+  const filteredCariList = useMemo(() => {
+    if (searchTokens.length === 0) return cariList;
+
+    return cariList.filter((cari) => {
+      const haystack = normalizeSearchText([
+        cari.code,
+        cari.name,
+        cari.city,
+        cari.district,
+        cari.phone,
+        cari.sectorCode,
+        cari.groupCode,
+      ].filter(Boolean).join(' '));
+      return matchesSearchTokens(haystack, searchTokens);
+    });
+  }, [cariList, searchTokens]);
 
   const handleRowClick = (cari: MikroCari) => {
     setSelectedCari(cari);
