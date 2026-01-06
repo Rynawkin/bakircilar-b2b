@@ -313,8 +313,8 @@ export default function AdminQuotesPage() {
       const logoUrl = resolveImageUrl(logoPath);
       const logoData = logoUrl ? await loadImageData(logoUrl) : null;
       const logoDimensions = logoData ? await getImageDimensions(logoData) : null;
-      const logoMaxWidth = 26;
-      const logoMaxHeight = 12;
+      const logoMaxWidth = 70;
+      const logoMaxHeight = 20;
       const logoSize = logoData
         ? logoDimensions
           ? fitWithin(logoDimensions.width, logoDimensions.height, logoMaxWidth, logoMaxHeight)
@@ -349,16 +349,15 @@ export default function AdminQuotesPage() {
       const createdByEmail = quote.createdBy?.email || '-';
       const createdByPhone = quote.createdBy?.phone || '-';
 
-      const headerHeight = 22;
+      const headerHeight = 28;
       doc.setFillColor(...colors.primary);
       doc.rect(0, 0, pageWidth, headerHeight, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(11);
 
-      const brandTextX = logoSize ? marginX + logoSize.width + 4 : marginX;
-      doc.text(cleanPdfText('BAKIRCILAR KAMPANYA'), brandTextX, 13);
+      const headerTextY = headerHeight / 2 + 2;
       doc.setFontSize(12);
-      doc.text(cleanPdfText('TEKLIF FORMU'), pageWidth - marginX, 13, { align: 'right' });
+      doc.text(cleanPdfText('TEKLIF FORMU'), pageWidth - marginX, headerTextY, { align: 'right' });
 
       if (logoData && logoSize) {
         const logoFormat = getImageFormat(logoData);
