@@ -14,6 +14,7 @@ import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { Modal } from '@/components/ui/Modal';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import type { CustomerContact } from '@/types';
 
 interface LastSale {
   saleDate: string;
@@ -108,6 +109,11 @@ const formatPercent = (value?: number | null) => {
   return `${sign}${rounded.toFixed(1)}%`;
 };
 
+const roundUp2 = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.ceil((value + Number.EPSILON) * 100) / 100;
+};
+
 const getPercentTone = (value?: number | null) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return 'text-gray-500';
@@ -119,6 +125,9 @@ export default function AdminQuoteNewPage() {
   const router = useRouter();
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
+  const [customerContacts, setCustomerContacts] = useState<CustomerContact[]>([]);
+  const [selectedContactId, setSelectedContactId] = useState('');
+  const [contactsLoading, setContactsLoading] = useState(false);
   const [showCariModal, setShowCariModal] = useState(false);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showProductPoolModal, setShowProductPoolModal] = useState(false);
@@ -157,6 +166,13 @@ export default function AdminQuoteNewPage() {
     if (!selectedCustomer) return;
     fetchPurchasedProducts(selectedCustomer.id, lastSalesCount);
   }, [selectedCustomer, lastSalesCount]);
+
+  useEffect(() => {
+    setCustomerContacts([]);
+    setSelectedContactId('');
+    if (!selectedCustomer) return;
+    fetchCustomerContacts(selectedCustomer.id);
+  }, [selectedCustomer]);
 
   useEffect(() => {
     if (productTab !== 'search') return;
@@ -265,6 +281,23 @@ export default function AdminQuoteNewPage() {
       toast.error('Daha once alinan urunler alinmadi.');
       setPurchasedProducts([]);
       setSelectedPurchasedCodes(new Set());
+    }
+  };
+
+  const fetchCustomerContacts = async (customerId: string) => {
+    setContactsLoading(true);
+    try {
+      const { contacts } = await adminApi.getCustomerContacts(customerId);
+      setCustomerContacts(contacts || []);
+      if (contacts && contacts.length > 0) {
+        setSelectedContactId(contacts[0].id);
+      }
+    } catch (error) {
+      console.error('İletişim kişileri yüklenemedi:', error);
+      setCustomerContacts([]);
+      setSelectedContactId('');
+    } finally {
+      setContactsLoading(false);
     }
   };
 
@@ -666,7 +699,7 @@ export default function AdminQuoteNewPage() {
 
   const getMarginInfo = (item: QuoteItemForm) => {
     if (item.isManualLine) return null;
-    const unitPrice = item.unitPrice || 0;
+    const unitPrice = roundUp2(item.unitPrice || 0);
     const lastEntry = item.lastEntryPrice || 0;
     const currentCost = item.currentCost || 0;
     if (!unitPrice || (lastEntry <= 0 && currentCost <= 0)) {
@@ -698,7 +731,7 @@ export default function AdminQuoteNewPage() {
     return quoteItems.reduce(
       (acc, item) => {
         const quantity = item.quantity || 0;
-        const unitPrice = item.unitPrice || 0;
+        const unitPrice = roundUp2(item.unitPrice || 0);
         const lineTotal = quantity * unitPrice;
         const vatRate = item.vatRate || 0;
         const vatZeroedLine = vatZeroed || item.vatZeroed;
@@ -785,6 +818,7 @@ export default function AdminQuoteNewPage() {
         note,
         documentNo: note,
         responsibleCode: selectedResponsibleCode || undefined,
+        contactId: selectedContactId || undefined,
         vatZeroed,
         items: quoteItems.map((item) => {
           const sale = item.priceSource === 'LAST_SALE' && item.selectedSaleIndex !== undefined
@@ -796,7 +830,7 @@ export default function AdminQuoteNewPage() {
             productCode: item.productCode,
             productName: item.productName,
             quantity: item.quantity,
-            unitPrice: item.unitPrice || 0,
+            unitPrice: roundUp2(item.unitPrice || 0),
             priceSource: item.priceSource,
             priceListNo: item.priceListNo,
             priceType: 'INVOICED',
@@ -1008,7 +1042,28 @@ export default function AdminQuoteNewPage() {
                       className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                     />
                   </div>
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">İlgili Kişi</label>
+                    <select
+                      value={selectedContactId}
+                      onChange={(e) => setSelectedContactId(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+                      disabled={!selectedCustomer || contactsLoading}
+                    >
+                      <option value="">İlgili seçin</option>
+                      {customerContacts.map((contact) => (
+                        <option key={contact.id} value={contact.id}>
+                          {contact.name}
+                          {contact.phone ? ` - ${contact.phone}` : ''}
+                          {contact.email ? ` (${contact.email})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {!contactsLoading && selectedCustomer && customerContacts.length === 0 && (
+                      <p className="mt-1 text-xs text-gray-500">Bu müşteri için kayıtlı kişi yok.</p>
+                    )}
+                  </div>
+                  <div className="md:col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm">
                     <input
                       type="checkbox"
                       checked={vatZeroed}
@@ -1103,7 +1158,8 @@ export default function AdminQuoteNewPage() {
                 <tbody className="divide-y">
                   {quoteItems.map((item) => {
                     const marginInfo = getMarginInfo(item);
-                    const lineTotal = (item.unitPrice || 0) * (item.quantity || 0);
+                    const roundedUnitPrice = roundUp2(item.unitPrice || 0);
+                    const lineTotal = roundedUnitPrice * (item.quantity || 0);
 
                     return (
                       <Fragment key={item.id}>
@@ -1236,10 +1292,10 @@ export default function AdminQuoteNewPage() {
                             )}
                           </td>
                           <td className="px-3 py-2 text-right">
-                            {item.unitPrice ? formatCurrency(item.unitPrice) : '-'}
+                            {roundedUnitPrice ? formatCurrency(roundedUnitPrice) : '-'}
                           </td>
                           <td className="px-3 py-2 text-right">
-                            {item.unitPrice ? formatCurrency(lineTotal) : '-'}
+                            {roundedUnitPrice ? formatCurrency(lineTotal) : '-'}
                           </td>
                           <td className="px-3 py-2">
                             <div className="flex flex-col gap-1">

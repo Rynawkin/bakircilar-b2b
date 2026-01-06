@@ -177,6 +177,10 @@ export interface Quote {
   note?: string;
   documentNo?: string;
   responsibleCode?: string;
+  contactId?: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   validityDate: string;
   vatZeroed: boolean;
   totalAmount: number;
@@ -278,6 +282,16 @@ export interface CreateCustomerRequest {
   mikroCariCode: string;
   invoicedPriceListNo?: number | null;
   whitePriceListNo?: number | null;
+}
+
+export interface CustomerContact {
+  id: string;
+  customerId: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ==================== CATEGORY PRICE RULE ====================

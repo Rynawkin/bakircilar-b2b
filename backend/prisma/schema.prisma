@@ -113,6 +113,7 @@ model User {
   quotes             Quote[]       @relation("QuoteCustomer")
   createdQuotes      Quote[]       @relation("QuoteCreator")
   adminQuotes        Quote[]       @relation("QuoteAdmin")
+  contacts           CustomerContact[]
 
   @@index([email])
   @@index([role])
@@ -436,6 +437,11 @@ model Quote {
   note              String?
   documentNo        String?
   responsibleCode   String?
+  contactId         String?
+  contact           CustomerContact? @relation("QuoteContact", fields: [contactId], references: [id])
+  contactName       String?
+  contactPhone      String?
+  contactEmail      String?
   validityDate      DateTime
   vatZeroed         Boolean       @default(false)
   totalAmount       Float
@@ -499,6 +505,23 @@ model QuoteItem {
   @@index([productId])
   @@index([productCode])
   @@index([priceSource])
+}
+
+model CustomerContact {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  name       String
+  phone      String?
+  email      String?
+
+  quotes      Quote[] @relation("QuoteContact")
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([customerId])
 }
 
 // ==================== SYNC LOGS ====================

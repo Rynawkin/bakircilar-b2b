@@ -233,8 +233,17 @@ export default function AdminQuotesPage() {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const marginX = 14;
-      const safeCurrency = (value?: number | null) =>
-        formatCurrency(Number.isFinite(value) ? (value as number) : 0);
+      const formatCurrencyTL = (value?: number | null) => {
+        const amount = Number.isFinite(value) ? (value as number) : 0;
+        return `${amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+      };
+
+      const formatRate = (value?: number | null) => {
+        if (!Number.isFinite(value)) return '-';
+        return Number(value).toLocaleString('tr-TR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+      };
+
+      const safeCurrency = (value?: number | null) => formatCurrencyTL(value);
 
       const colors = {
         primary: [37, 99, 235] as const,
@@ -274,14 +283,27 @@ export default function AdminQuotesPage() {
       const logoUrl = resolveImageUrl(logoPath);
       const logoData = logoUrl ? await loadImageData(logoUrl) : null;
 
+      let usdRate: number | null = null;
+      try {
+        const usdResult = await adminApi.getUsdSellingRate();
+        const parsed = Number(usdResult?.rate);
+        usdRate = Number.isFinite(parsed) ? parsed : null;
+      } catch (error) {
+        console.error('USD kur alinamadi:', error);
+      }
+
       const companyName =
         quote.customer?.mikroName ||
         quote.customer?.displayName ||
         quote.customer?.name ||
         '-';
-      const contactName = quote.customer?.displayName || quote.customer?.name || '-';
-      const customerPhone = quote.customer?.phone || '-';
-      const customerEmail = quote.customer?.email || '-';
+      const contactName =
+        quote.contactName ||
+        quote.customer?.displayName ||
+        quote.customer?.name ||
+        '-';
+      const customerPhone = quote.contactPhone || quote.customer?.phone || '-';
+      const customerEmail = quote.contactEmail || quote.customer?.email || '-';
       const quoteDate = quote.createdAt ? formatDateShort(quote.createdAt) : '-';
       const validityText = quote.validityDate ? formatDateShort(quote.validityDate) : '-';
       const documentNo = quote.documentNo || '-';
@@ -460,31 +482,123 @@ export default function AdminQuotesPage() {
 
       const finalY = (doc as any).lastAutoTable?.finalY || tableStartY;
       const summaryWidth = 74;
-      const summaryHeight = 24;
-      let summaryY = finalY + 8;
       const summaryX = pageWidth - marginX - summaryWidth;
 
-      if (summaryY + summaryHeight > pageHeight - 10) {
+      const toDateOnly = (value?: string | Date | null) => {
+        if (!value) return null;
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        return date;
+      };
+
+      const createdDate = toDateOnly(quote.createdAt);
+      const validDate = toDateOnly(quote.validityDate);
+      const validityDays =
+        createdDate && validDate
+          ? Math.max(0, Math.round((validDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)))
+          : 0;
+      const paymentTerm = quote.customer?.paymentTerm;
+
+      const terms = [
+        `Teklif gecerlilik suresi: ${validityDays} gun`,
+        paymentTerm ? `Vade: ${paymentTerm} gun` : 'Vade: -',
+        'Fiyatlarimiza KDV dahil degildir.',
+        'Dovizli islemlerde TCMB USD satis kuru baz alinir.',
+        `USD satis kuru: ${usdRate ? formatRate(usdRate) : '-'}`,
+      ];
+
+      const summaryRows = [
+        { label: 'Ara Toplam', value: safeCurrency(quote.totalAmount) },
+        { label: 'Iskonto', value: safeCurrency(0) },
+        { label: 'KDV', value: safeCurrency(quote.totalVat) },
+        { label: 'Genel Toplam', value: safeCurrency(quote.grandTotal), highlight: true },
+      ];
+
+      const termLineGap = 4.2;
+      const termPadding = 5;
+      const termTitle = 'TEKLIF SARTLARI';
+      const termTitleOffset = 6;
+      const termBoxWidth = pageWidth - marginX * 2 - summaryWidth - 8;
+      const wrappedTerms = terms.flatMap((line) =>
+        doc.splitTextToSize(cleanPdfText(line), termBoxWidth - 8) as string[]
+      );
+      const termBoxHeight = Math.max(
+        wrappedTerms.length * termLineGap + termPadding * 2 + termTitleOffset,
+        26
+      );
+
+      const summaryLineGap = 5;
+      const summaryHeight = Math.max(summaryRows.length * summaryLineGap + 6, 26);
+
+      const footerLineGap = 4.2;
+      const footerLines = [
+        'BAKIRCILAR AMBALAJ END.-TEM VE KIRTASIYE',
+        'MERKEZ: RASIMPASA MAH. ATATURK BLV. NO:69/A HENDEK/SAKARYA',
+        'SUBE 1: TOPCA TOPTANCILAR CARSISI A BLOK NO: 20 - ERENLER/SAKARYA',
+        'TEL: 0264 614 67 77  FAX: 0264 614 66 60 - info@bakircilarambalaj.com',
+        'www.bakircilargrup.com',
+      ];
+      const footerHeight = footerLines.length * footerLineGap + 4;
+
+      let sectionY = finalY + 8;
+      const sectionHeight = Math.max(termBoxHeight, summaryHeight);
+
+      if (sectionY + sectionHeight + footerHeight > pageHeight - 10) {
         doc.addPage();
-        summaryY = 20;
+        sectionY = 20;
       }
 
       doc.setFillColor(...colors.light);
-      doc.roundedRect(summaryX, summaryY, summaryWidth, summaryHeight, 2, 2, 'F');
-      doc.setFontSize(9);
+      doc.roundedRect(marginX, sectionY, termBoxWidth, termBoxHeight, 2, 2, 'F');
+      doc.setFontSize(8);
       doc.setTextColor(...colors.muted);
-      doc.text(cleanPdfText('Ara Toplam'), summaryX + 4, summaryY + 7);
-      doc.text(cleanPdfText('KDV'), summaryX + 4, summaryY + 13);
-      doc.setFontSize(10);
-      doc.setTextColor(...colors.dark);
-      doc.text(cleanPdfText('Genel Toplam'), summaryX + 4, summaryY + 19);
-
+      doc.text(cleanPdfText(termTitle), marginX + 4, sectionY + 4);
       doc.setFontSize(9);
       doc.setTextColor(...colors.dark);
-      doc.text(cleanPdfText(safeCurrency(quote.totalAmount)), summaryX + summaryWidth - 4, summaryY + 7, { align: 'right' });
-      doc.text(cleanPdfText(safeCurrency(quote.totalVat)), summaryX + summaryWidth - 4, summaryY + 13, { align: 'right' });
-      doc.setFontSize(10);
-      doc.text(cleanPdfText(safeCurrency(quote.grandTotal)), summaryX + summaryWidth - 4, summaryY + 19, { align: 'right' });
+      let termY = sectionY + termPadding + termTitleOffset;
+      wrappedTerms.forEach((line) => {
+        doc.text(line, marginX + 4, termY);
+        termY += termLineGap;
+      });
+
+      doc.setFillColor(...colors.light);
+      doc.roundedRect(summaryX, sectionY, summaryWidth, summaryHeight, 2, 2, 'F');
+      const summaryStartY = sectionY + 6;
+      summaryRows.forEach((row, index) => {
+        const y = summaryStartY + index * summaryLineGap;
+        const labelSize = row.highlight ? 10 : 9;
+        const valueSize = row.highlight ? 10 : 9;
+        doc.setFontSize(labelSize);
+        doc.setTextColor(...colors.muted);
+        doc.text(cleanPdfText(row.label), summaryX + 4, y);
+        doc.setFontSize(valueSize);
+        doc.setTextColor(...colors.dark);
+        doc.text(cleanPdfText(row.value), summaryX + summaryWidth - 4, y, { align: 'right' });
+      });
+
+      const footerStartY = sectionY + sectionHeight + 12;
+
+      if (footerStartY + footerHeight > pageHeight - 8) {
+        doc.addPage();
+        doc.setFontSize(8);
+        doc.setTextColor(...colors.muted);
+        let footerY = 20;
+        footerLines.forEach((line) => {
+          doc.text(cleanPdfText(line), pageWidth / 2, footerY, { align: 'center' });
+          footerY += footerLineGap;
+        });
+      } else {
+        doc.setDrawColor(...colors.border);
+        doc.line(marginX, footerStartY - 6, pageWidth - marginX, footerStartY - 6);
+        doc.setFontSize(8);
+        doc.setTextColor(...colors.muted);
+        let footerY = footerStartY;
+        footerLines.forEach((line) => {
+          doc.text(cleanPdfText(line), pageWidth / 2, footerY, { align: 'center' });
+          footerY += footerLineGap;
+        });
+      }
 
       const fileName = `${quote.quoteNumber}_${cleanPdfText(companyName || 'Teklif')}.pdf`;
       doc.save(fileName);

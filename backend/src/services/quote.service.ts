@@ -40,6 +40,7 @@ interface CreateQuoteInput {
   note?: string;
   documentNo?: string;
   responsibleCode?: string;
+  contactId?: string;
   vatZeroed?: boolean;
   items: QuoteItemInput[];
 }
@@ -53,6 +54,11 @@ const normalizePriceType = (value?: string): PriceType =>
 const safeNumber = (value: any, fallback = 0): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const roundUp2 = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.ceil((value + Number.EPSILON) * 100) / 100;
 };
 
 class QuoteService {
@@ -219,7 +225,16 @@ class QuoteService {
   }
 
   async createQuote(input: CreateQuoteInput, createdById: string) {
-    const { customerId, validityDate, note, documentNo, responsibleCode, vatZeroed = false, items } = input;
+    const {
+      customerId,
+      validityDate,
+      note,
+      documentNo,
+      responsibleCode,
+      contactId,
+      vatZeroed = false,
+      items,
+    } = input;
 
     if (!customerId || !validityDate || !Array.isArray(items) || items.length === 0) {
       throw new Error('Missing required fields');
@@ -237,6 +252,23 @@ class QuoteService {
 
     if (!customer || !customer.mikroCariCode) {
       throw new Error('Customer not found or missing Mikro cari code');
+    }
+
+    let contact: { id: string; name: string; phone: string | null; email: string | null } | null = null;
+    if (contactId) {
+      const contactRow = await prisma.customerContact.findUnique({
+        where: { id: contactId },
+        select: { id: true, customerId: true, name: true, phone: true, email: true },
+      });
+      if (!contactRow || contactRow.customerId !== customerId) {
+        throw new Error('Contact not found for customer');
+      }
+      contact = {
+        id: contactRow.id,
+        name: contactRow.name,
+        phone: contactRow.phone,
+        email: contactRow.email,
+      };
     }
 
     const productIds = items
@@ -261,7 +293,10 @@ class QuoteService {
       products.map((product) => product.mikroCode)
     );
 
+    const currentYear = new Date().getFullYear();
+    const quotePrefix = `TEK-${currentYear}-`;
     const lastQuote = await prisma.quote.findFirst({
+      where: { quoteNumber: { startsWith: quotePrefix } },
       orderBy: { createdAt: 'desc' },
       select: { quoteNumber: true },
     });
@@ -336,6 +371,7 @@ class QuoteService {
         priceListNo = listNo;
       }
 
+      unitPrice = roundUp2(unitPrice);
       if (unitPrice <= 0) {
         throw new Error(`Unit price missing for item ${index + 1}`);
       }
@@ -409,15 +445,21 @@ class QuoteService {
       mikroGuid = mikroResult?.guid;
     }
 
+    const finalQuoteNumber = mikroNumber || quoteNumber;
+
     const quote = await prisma.quote.create({
       data: {
-        quoteNumber,
+        quoteNumber: finalQuoteNumber,
         status: hasBlockedItem ? 'PENDING_APPROVAL' : 'SENT_TO_MIKRO',
         customerId: customer.id,
         createdById,
         note: note?.trim() || null,
         documentNo: resolvedDocumentNo || null,
         responsibleCode: resolvedResponsibleCode || null,
+        contactId: contact?.id ?? null,
+        contactName: contact?.name ?? null,
+        contactPhone: contact?.phone ?? null,
+        contactEmail: contact?.email ?? null,
         validityDate: new Date(validityDate),
         vatZeroed,
         totalAmount,
@@ -610,6 +652,7 @@ class QuoteService {
         adminActionAt: new Date(),
         mikroNumber: mikroResult?.quoteNumber || null,
         mikroGuid: mikroResult?.guid || null,
+        quoteNumber: mikroResult?.quoteNumber || quote.quoteNumber,
       },
       include: { items: true },
     });

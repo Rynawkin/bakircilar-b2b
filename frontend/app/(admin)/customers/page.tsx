@@ -160,6 +160,11 @@ export default function CustomersPage() {
     setShowEditModal(true);
   };
 
+  const canOpenCustomer =
+    user?.role === 'ADMIN' ||
+    user?.role === 'MANAGER' ||
+    user?.role === 'HEAD_ADMIN' ||
+    user?.role === 'SALES_REP';
   const canEditCustomer =
     user?.role === 'ADMIN' ||
     user?.role === 'MANAGER' ||
@@ -477,13 +482,13 @@ export default function CustomersPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateShort(customer.createdAt)}</td>
                       <td className="px-4 py-3 text-center">
-                        {canEditCustomer ? (
+                        {canOpenCustomer ? (
                           <Button
                             size="sm"
                             variant="secondary"
                             onClick={() => openEditModal(customer)}
                           >
-                            ✏️ Düzenle
+                            {canEditCustomer ? '✏️ Düzenle' : '👤 Kişiler'}
                           </Button>
                         ) : (
                           <span className="text-xs text-gray-400">Yetki yok</span>
@@ -502,6 +507,7 @@ export default function CustomersPage() {
           onClose={() => setShowEditModal(false)}
           customer={customerToEdit}
           onSave={handleEditCustomer}
+          canEditFields={canEditCustomer}
         />
 
         <BulkCreateUsersModal

@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
+import adminApi from '@/lib/api/admin';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { Customer } from '@/types';
+import { Customer, CustomerContact } from '@/types';
 import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
 import { formatCurrency } from '@/lib/utils/format';
 
@@ -20,6 +22,7 @@ interface CustomerEditModalProps {
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
   }) => Promise<void>;
+  canEditFields?: boolean;
 }
 
 const RETAIL_LISTS = [
@@ -38,7 +41,13 @@ const WHOLESALE_LISTS = [
   { value: 10, label: 'Toptan Satis 5' },
 ];
 
-export function CustomerEditModal({ isOpen, onClose, customer, onSave }: CustomerEditModalProps) {
+export function CustomerEditModal({
+  isOpen,
+  onClose,
+  customer,
+  onSave,
+  canEditFields = true,
+}: CustomerEditModalProps) {
   const [formData, setFormData] = useState({
     email: '',
     customerType: 'PERAKENDE',
@@ -47,6 +56,15 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
     whitePriceListNo: '',
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [contacts, setContacts] = useState<CustomerContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactForm, setContactForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+  });
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const [contactSaving, setContactSaving] = useState(false);
 
   useEffect(() => {
     if (customer) {
@@ -60,9 +78,102 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
     }
   }, [customer]);
 
+  useEffect(() => {
+    if (!isOpen || !customer) return;
+    setContactForm({ name: '', phone: '', email: '' });
+    setEditingContactId(null);
+    const loadContacts = async () => {
+      setContactsLoading(true);
+      try {
+        const result = await adminApi.getCustomerContacts(customer.id);
+        setContacts(result.contacts || []);
+      } catch (error) {
+        console.error('Kişi listesi yüklenemedi:', error);
+        toast.error('Kişi listesi yüklenemedi.');
+        setContacts([]);
+      } finally {
+        setContactsLoading(false);
+      }
+    };
+
+    loadContacts();
+  }, [isOpen, customer]);
+
+  const resetContactForm = () => {
+    setContactForm({ name: '', phone: '', email: '' });
+    setEditingContactId(null);
+  };
+
+  const handleContactSave = async () => {
+    if (!customer) return;
+    const trimmedName = contactForm.name.trim();
+    if (!trimmedName) {
+      toast.error('Kişi adı gerekli.');
+      return;
+    }
+
+    setContactSaving(true);
+    try {
+      if (editingContactId) {
+        await adminApi.updateCustomerContact(customer.id, editingContactId, {
+          name: trimmedName,
+          phone: contactForm.phone ? contactForm.phone.trim() : undefined,
+          email: contactForm.email ? contactForm.email.trim() : undefined,
+        });
+        toast.success('Kişi güncellendi.');
+      } else {
+        await adminApi.createCustomerContact(customer.id, {
+          name: trimmedName,
+          phone: contactForm.phone ? contactForm.phone.trim() : undefined,
+          email: contactForm.email ? contactForm.email.trim() : undefined,
+        });
+        toast.success('Kişi eklendi.');
+      }
+      const result = await adminApi.getCustomerContacts(customer.id);
+      setContacts(result.contacts || []);
+      resetContactForm();
+    } catch (error) {
+      console.error('Kişi kaydedilemedi:', error);
+      toast.error('Kişi kaydedilemedi.');
+    } finally {
+      setContactSaving(false);
+    }
+  };
+
+  const handleEditContact = (contact: CustomerContact) => {
+    setEditingContactId(contact.id);
+    setContactForm({
+      name: contact.name || '',
+      phone: contact.phone || '',
+      email: contact.email || '',
+    });
+  };
+
+  const handleDeleteContact = async (contact: CustomerContact) => {
+    if (!customer) return;
+    if (!confirm('Kişiyi silmek istediğinize emin misiniz?')) return;
+
+    setContactSaving(true);
+    try {
+      await adminApi.deleteCustomerContact(customer.id, contact.id);
+      toast.success('Kişi silindi.');
+      const result = await adminApi.getCustomerContacts(customer.id);
+      setContacts(result.contacts || []);
+      if (editingContactId === contact.id) {
+        resetContactForm();
+      }
+    } catch (error) {
+      console.error('Kişi silinemedi:', error);
+      toast.error('Kişi silinemedi.');
+    } finally {
+      setContactSaving(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customer) return;
+    if (!canEditFields) return;
 
     setIsSaving(true);
     try {
@@ -89,6 +200,7 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
     <Modal isOpen={isOpen} onClose={onClose} title="Müşteri Düzenle" size="lg">
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Editable Fields Section */}
+        {canEditFields && (
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-gray-700 border-b pb-2">✏️ Düzenlenebilir Alanlar</h3>
 
@@ -184,6 +296,105 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
             </div>
           </div>
         </div>
+        )}
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700">İletişim Kişileri</h3>
+              <p className="text-xs text-gray-500">Müşteri için kayıtlı ilgili kişiler.</p>
+            </div>
+            {contactsLoading && (
+              <span className="text-xs text-gray-400">Yükleniyor...</span>
+            )}
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <Input
+              label="Ad Soyad"
+              type="text"
+              value={contactForm.name}
+              onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+              placeholder="Örn: Ahmet Yılmaz"
+            />
+            <Input
+              label="Telefon"
+              type="text"
+              value={contactForm.phone}
+              onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
+              placeholder="05xx..."
+            />
+            <Input
+              label="E-Posta"
+              type="email"
+              value={contactForm.email}
+              onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+              placeholder="ornek@email.com"
+            />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              onClick={handleContactSave}
+              isLoading={contactSaving}
+            >
+              {editingContactId ? 'Kişiyi Güncelle' : 'Kişi Ekle'}
+            </Button>
+            {editingContactId && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={resetContactForm}
+                disabled={contactSaving}
+              >
+                Vazgeç
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            {!contactsLoading && contacts.length === 0 && (
+              <div className="text-xs text-gray-500">Kayıtlı kişi yok.</div>
+            )}
+            {contacts.map((contact) => (
+              <div
+                key={contact.id}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{contact.name}</div>
+                    <div className="text-xs text-gray-500">
+                      Tel: {contact.phone || '-'} | Mail: {contact.email || '-'}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleEditContact(contact)}
+                    >
+                      Düzenle
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="danger"
+                      onClick={() => handleDeleteContact(contact)}
+                    >
+                      Sil
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* Read-Only Mikro Fields Section */}
         <div className="bg-gray-50 rounded-lg p-4 border-2 border-gray-200">
@@ -276,9 +487,11 @@ export function CustomerEditModal({ isOpen, onClose, customer, onSave }: Custome
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1" disabled={isSaving}>
             İptal
           </Button>
-          <Button type="submit" variant="primary" className="flex-1" isLoading={isSaving}>
-            {isSaving ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
-          </Button>
+          {canEditFields && (
+            <Button type="submit" variant="primary" className="flex-1" isLoading={isSaving}>
+              {isSaving ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
+            </Button>
+          )}
         </div>
       </form>
     </Modal>

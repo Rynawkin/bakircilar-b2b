@@ -8,6 +8,7 @@ import {
   SyncResponse,
   SyncStatus,
   Customer,
+  CustomerContact,
   CreateCustomerRequest,
   PendingOrderForAdmin,
   Quote,
@@ -147,6 +148,36 @@ export const adminApi = {
     return response.data;
   },
 
+  getCustomerContacts: async (customerId: string): Promise<{ contacts: CustomerContact[] }> => {
+    const response = await apiClient.get(`/admin/customers/${customerId}/contacts`);
+    return response.data;
+  },
+
+  createCustomerContact: async (
+    customerId: string,
+    data: { name: string; phone?: string; email?: string }
+  ): Promise<{ contact: CustomerContact }> => {
+    const response = await apiClient.post(`/admin/customers/${customerId}/contacts`, data);
+    return response.data;
+  },
+
+  updateCustomerContact: async (
+    customerId: string,
+    contactId: string,
+    data: { name?: string; phone?: string; email?: string }
+  ): Promise<{ contact: CustomerContact }> => {
+    const response = await apiClient.put(`/admin/customers/${customerId}/contacts/${contactId}`, data);
+    return response.data;
+  },
+
+  deleteCustomerContact: async (
+    customerId: string,
+    contactId: string
+  ): Promise<{ message: string }> => {
+    const response = await apiClient.delete(`/admin/customers/${customerId}/contacts/${contactId}`);
+    return response.data;
+  },
+
   // Orders
   getAllOrders: async (status?: string): Promise<{ orders: PendingOrderForAdmin[] }> => {
     const params = status ? { status } : {};
@@ -243,6 +274,11 @@ export const adminApi = {
 
   rejectQuote: async (id: string, adminNote: string): Promise<{ quote: Quote }> => {
     const response = await apiClient.post(`/admin/quotes/${id}/reject`, { adminNote });
+    return response.data;
+  },
+
+  getUsdSellingRate: async (): Promise<{ currency: string; rate: number; fetchedAt: string; source: string }> => {
+    const response = await apiClient.get('/admin/exchange/usd');
     return response.data;
   },
 

@@ -76,6 +76,10 @@ const updateCustomerSchema = z.object({
 router.get('/customers', requireStaff, adminController.getCustomers);
 router.post('/customers', requireStaff, validateBody(createCustomerSchema), adminController.createCustomer);
 router.put('/customers/:id', requireAdminOrManager, validateBody(updateCustomerSchema), adminController.updateCustomer);
+router.get('/customers/:id/contacts', requireStaff, adminController.getCustomerContacts);
+router.post('/customers/:id/contacts', requireStaff, adminController.createCustomerContact);
+router.put('/customers/:id/contacts/:contactId', requireStaff, adminController.updateCustomerContact);
+router.delete('/customers/:id/contacts/:contactId', requireStaff, adminController.deleteCustomerContact);
 
 // Orders - Staff for GET (filtered by sector), OrderApprover (ADMIN/SALES_REP) for approval
 router.get('/orders', requireStaff, adminController.getAllOrders);
@@ -96,6 +100,9 @@ router.get('/quotes/:id', requireStaff, quoteController.getQuoteById);
 router.post('/quotes/:id/sync', requireStaff, quoteController.syncQuoteFromMikro);
 router.post('/quotes/:id/approve', requireAdmin, quoteController.approveQuote);
 router.post('/quotes/:id/reject', requireAdmin, quoteController.rejectQuote);
+
+// Exchange rates
+router.get('/exchange/usd', requireStaff, adminController.getUsdSellingRate);
 
 // Categories & Pricing - ADMIN/MANAGER only
 router.get('/categories', requireAdminOrManager, adminController.getCategories);

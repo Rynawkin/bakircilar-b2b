@@ -3,6 +3,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import https from 'https';
 import { prisma } from '../utils/prisma';
 import path from 'path';
 import { hashPassword } from '../utils/password';
@@ -24,6 +25,66 @@ const DEFAULT_CUSTOMER_PRICE_LISTS = {
   PERAKENDE: { invoiced: 6, white: 1 },
   VIP: { invoiced: 6, white: 1 },
   OZEL: { invoiced: 6, white: 1 },
+};
+
+const TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
+const USD_RATE_TTL_MS = 60 * 60 * 1000;
+let usdRateCache: { rate: number; fetchedAt: number } | null = null;
+
+const fetchTcmbXml = () =>
+  new Promise<string>((resolve, reject) => {
+    const request = https.get(TCMB_URL, (response) => {
+      if (response.statusCode && response.statusCode >= 400) {
+        response.resume();
+        reject(new Error(`TCMB request failed with status ${response.statusCode}`));
+        return;
+      }
+
+      response.setEncoding('utf8');
+      let data = '';
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+      response.on('end', () => resolve(data));
+    });
+
+    request.on('error', reject);
+  });
+
+const parseUsdSellingRate = (xml: string) => {
+  const currencyMatch = xml.match(/<Currency[^>]*CurrencyCode="USD"[^>]*>([\s\S]*?)<\/Currency>/);
+  if (!currencyMatch) return null;
+  const currencyBlock = currencyMatch[1];
+  const sellingMatch =
+    currencyBlock.match(/<ForexSelling>([^<]+)<\/ForexSelling>/) ||
+    currencyBlock.match(/<BanknoteSelling>([^<]+)<\/BanknoteSelling>/);
+  if (!sellingMatch) return null;
+  const raw = sellingMatch[1].trim().replace(',', '.');
+  const rate = Number(raw);
+  return Number.isFinite(rate) ? rate : null;
+};
+
+const fetchUsdSellingRate = async () => {
+  const now = Date.now();
+  if (usdRateCache && now - usdRateCache.fetchedAt < USD_RATE_TTL_MS) {
+    return {
+      rate: usdRateCache.rate,
+      fetchedAt: new Date(usdRateCache.fetchedAt).toISOString(),
+    };
+  }
+
+  const xml = await fetchTcmbXml();
+  const rate = parseUsdSellingRate(xml);
+  if (!rate) {
+    throw new Error('USD selling rate not found');
+  }
+
+  usdRateCache = { rate, fetchedAt: now };
+
+  return {
+    rate,
+    fetchedAt: new Date(now).toISOString(),
+  };
 };
 
 export class AdminController {
@@ -727,6 +788,210 @@ export class AdminController {
       res.json({
         message: 'Customer updated successfully',
         customer: updatedCustomer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/customers/:id/contacts
+   */
+  async getCustomerContacts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      if (userRole === 'SALES_REP') {
+        const customer = await prisma.user.findUnique({
+          where: { id },
+          select: { role: true, sectorCode: true },
+        });
+
+        if (!customer || customer.role !== 'CUSTOMER') {
+          return res.status(404).json({ error: 'Customer not found' });
+        }
+
+        if (!customer.sectorCode || !assignedSectorCodes.includes(customer.sectorCode)) {
+          return res.status(403).json({ error: 'You can only access customers in your assigned sectors' });
+        }
+      }
+
+      const contacts = await prisma.customerContact.findMany({
+        where: { customerId: id },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      res.json({ contacts });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/customers/:id/contacts
+   */
+  async createCustomerContact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { name, phone, email } = req.body || {};
+      const trimmedName = (name || '').trim();
+
+      if (!trimmedName) {
+        return res.status(400).json({ error: 'Contact name is required' });
+      }
+
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      const customer = await prisma.user.findUnique({
+        where: { id },
+        select: { role: true, sectorCode: true },
+      });
+
+      if (!customer || customer.role !== 'CUSTOMER') {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      if (userRole === 'SALES_REP') {
+        if (!customer.sectorCode || !assignedSectorCodes.includes(customer.sectorCode)) {
+          return res.status(403).json({ error: 'You can only access customers in your assigned sectors' });
+        }
+      }
+
+      const contact = await prisma.customerContact.create({
+        data: {
+          customerId: id,
+          name: trimmedName,
+          phone: phone ? String(phone).trim() : null,
+          email: email ? String(email).trim() : null,
+        },
+      });
+
+      res.status(201).json({ contact });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/admin/customers/:id/contacts/:contactId
+   */
+  async updateCustomerContact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id, contactId } = req.params;
+      const { name, phone, email } = req.body || {};
+
+      if (name === undefined && phone === undefined && email === undefined) {
+        return res.status(400).json({ error: 'No fields provided to update' });
+      }
+
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      const customer = await prisma.user.findUnique({
+        where: { id },
+        select: { role: true, sectorCode: true },
+      });
+
+      if (!customer || customer.role !== 'CUSTOMER') {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      if (userRole === 'SALES_REP') {
+        if (!customer.sectorCode || !assignedSectorCodes.includes(customer.sectorCode)) {
+          return res.status(403).json({ error: 'You can only access customers in your assigned sectors' });
+        }
+      }
+
+      const existingContact = await prisma.customerContact.findFirst({
+        where: { id: contactId, customerId: id },
+      });
+
+      if (!existingContact) {
+        return res.status(404).json({ error: 'Contact not found' });
+      }
+
+      const updateData: any = {};
+      if (name !== undefined) {
+        const trimmed = String(name).trim();
+        if (!trimmed) {
+          return res.status(400).json({ error: 'Contact name is required' });
+        }
+        updateData.name = trimmed;
+      }
+      if (phone !== undefined) {
+        const trimmedPhone = String(phone).trim();
+        updateData.phone = trimmedPhone ? trimmedPhone : null;
+      }
+      if (email !== undefined) {
+        const trimmedEmail = String(email).trim();
+        updateData.email = trimmedEmail ? trimmedEmail : null;
+      }
+
+      const contact = await prisma.customerContact.update({
+        where: { id: contactId },
+        data: updateData,
+      });
+
+      res.json({ contact });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /api/admin/customers/:id/contacts/:contactId
+   */
+  async deleteCustomerContact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id, contactId } = req.params;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      const customer = await prisma.user.findUnique({
+        where: { id },
+        select: { role: true, sectorCode: true },
+      });
+
+      if (!customer || customer.role !== 'CUSTOMER') {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      if (userRole === 'SALES_REP') {
+        if (!customer.sectorCode || !assignedSectorCodes.includes(customer.sectorCode)) {
+          return res.status(403).json({ error: 'You can only access customers in your assigned sectors' });
+        }
+      }
+
+      const existingContact = await prisma.customerContact.findFirst({
+        where: { id: contactId, customerId: id },
+      });
+
+      if (!existingContact) {
+        return res.status(404).json({ error: 'Contact not found' });
+      }
+
+      await prisma.customerContact.delete({ where: { id: contactId } });
+
+      res.json({ message: 'Contact deleted successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/exchange/usd
+   */
+  async getUsdSellingRate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await fetchUsdSellingRate();
+      res.json({
+        currency: 'USD',
+        rate: result.rate,
+        fetchedAt: result.fetchedAt,
+        source: 'TCMB',
       });
     } catch (error) {
       next(error);
