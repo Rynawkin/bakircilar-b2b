@@ -223,7 +223,11 @@ export default function AdminQuotesPage() {
   const handlePdfExport = async (quote: Quote) => {
     try {
       const { default: jsPDF } = await import('jspdf');
-      await import('jspdf-autotable');
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
+      if (typeof autoTable !== 'function') {
+        throw new Error('autoTable is not available');
+      }
 
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -290,7 +294,7 @@ export default function AdminQuotesPage() {
         ])
         : [[cleanPdfText('-'), cleanPdfText('Urun yok'), '0', '-', '-']];
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: tableStartY,
         head: [[
           'Stok Kodu',
