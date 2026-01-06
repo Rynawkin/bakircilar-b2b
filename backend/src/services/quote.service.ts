@@ -451,12 +451,23 @@ class QuoteService {
     const quotes = await prisma.quote.findMany({
       where,
       include: {
-        items: true,
+        items: {
+          include: {
+            product: {
+              select: {
+                imageUrl: true,
+                unit: true,
+              },
+            },
+          },
+        },
         customer: {
           select: {
             id: true,
             name: true,
+            email: true,
             displayName: true,
+            mikroName: true,
             mikroCariCode: true,
             customerType: true,
             city: true,
@@ -475,6 +486,7 @@ class QuoteService {
             id: true,
             name: true,
             email: true,
+            phone: true,
             role: true,
           },
         },
@@ -492,17 +504,28 @@ class QuoteService {
     const quote = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        items: true,
+        items: {
+          include: {
+            product: {
+              select: {
+                imageUrl: true,
+                unit: true,
+              },
+            },
+          },
+        },
         customer: {
           select: {
             id: true,
             name: true,
             displayName: true,
+            email: true,
+            mikroName: true,
             mikroCariCode: true,
           },
         },
         createdBy: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true, email: true, phone: true },
         },
         adminUser: {
           select: { id: true, name: true, email: true },

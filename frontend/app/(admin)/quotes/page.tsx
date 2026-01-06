@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { LogoLink } from '@/components/ui/Logo';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { useAuthStore } from '@/lib/store/authStore';
-import { formatCurrency, formatDate } from '@/lib/utils/format';
+import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
 
 type QuoteStatusFilter = QuoteStatus | 'ALL';
 
@@ -233,8 +233,6 @@ export default function AdminQuotesPage() {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const marginX = 14;
-      const customerName = quote.customer?.displayName || quote.customer?.name || '';
-      const validityText = quote.validityDate ? formatDate(quote.validityDate) : '-';
       const safeCurrency = (value?: number | null) =>
         formatCurrency(Number.isFinite(value) ? (value as number) : 0);
 
@@ -246,67 +244,179 @@ export default function AdminQuotesPage() {
         border: [226, 232, 240] as const,
       };
 
-      doc.setFillColor(...colors.primary);
-      doc.rect(0, 0, pageWidth, 20, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(12);
-      doc.text(cleanPdfText('BAKIRCILAR KAMPANYA'), marginX, 12);
-      doc.setFontSize(11);
-      doc.text(cleanPdfText('TEKLIF FORMU'), pageWidth - marginX, 12, { align: 'right' });
+      const resolveImageUrl = (url?: string | null) => {
+        if (!url) return null;
+        if (url.startsWith('http://') || url.startsWith('https://')) return url;
+        if (url.startsWith('/')) return `${window.location.origin}${url}`;
+        return `${window.location.origin}/${url}`;
+      };
 
-      const infoY = 24;
-      const boxHeight = 28;
+      const loadImageData = async (url: string): Promise<string | null> => {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) return null;
+          const blob = await response.blob();
+          return await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        } catch (error) {
+          return null;
+        }
+      };
+
+      const getImageFormat = (dataUrl: string) =>
+        dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
+
+      const logoPath = '/quote-logo.png';
+      const logoUrl = resolveImageUrl(logoPath);
+      const logoData = logoUrl ? await loadImageData(logoUrl) : null;
+
+      const companyName =
+        quote.customer?.mikroName ||
+        quote.customer?.displayName ||
+        quote.customer?.name ||
+        '-';
+      const contactName = quote.customer?.displayName || quote.customer?.name || '-';
+      const customerPhone = quote.customer?.phone || '-';
+      const customerEmail = quote.customer?.email || '-';
+      const quoteDate = quote.createdAt ? formatDateShort(quote.createdAt) : '-';
+      const validityText = quote.validityDate ? formatDateShort(quote.validityDate) : '-';
+      const documentNo = quote.documentNo || '-';
+      const createdByName = quote.createdBy?.name || '-';
+      const createdByEmail = quote.createdBy?.email || '-';
+      const createdByPhone = quote.createdBy?.phone || '-';
+
+      doc.setFillColor(...colors.primary);
+      doc.rect(0, 0, pageWidth, 22, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(11);
+
+      const brandTextX = logoData ? marginX + 26 : marginX;
+      doc.text(cleanPdfText('BAKIRCILAR KAMPANYA'), brandTextX, 13);
+      doc.setFontSize(12);
+      doc.text(cleanPdfText('TEKLIF FORMU'), pageWidth - marginX, 13, { align: 'right' });
+
+      if (logoData) {
+        const logoFormat = getImageFormat(logoData);
+        doc.addImage(logoData, logoFormat, marginX, 5, 22, 12);
+      }
+
+      const infoY = 28;
+      const boxHeight = 52;
       const boxGap = 6;
       const boxWidth = (pageWidth - marginX * 2 - boxGap) / 2;
       const rightBoxX = marginX + boxWidth + boxGap;
+      const lineGap = 4.5;
 
       doc.setFillColor(...colors.light);
       doc.setDrawColor(...colors.border);
       doc.roundedRect(marginX, infoY, boxWidth, boxHeight, 2, 2, 'F');
       doc.roundedRect(rightBoxX, infoY, boxWidth, boxHeight, 2, 2, 'F');
 
-      doc.setFontSize(9);
-      doc.setTextColor(...colors.muted);
-      doc.text(cleanPdfText('MUSTERI'), marginX + 4, infoY + 6);
-      doc.setFontSize(10);
-      doc.setTextColor(...colors.dark);
-      doc.text(cleanPdfText(`Musteri: ${customerName || '-'}`), marginX + 4, infoY + 13);
+      const writeLines = (lines: string[], x: number, startY: number, width: number) => {
+        let currentY = startY;
+        lines.forEach((line) => {
+          const wrapped = doc.splitTextToSize(cleanPdfText(line), width) as string[];
+          wrapped.forEach((chunk) => {
+            doc.text(chunk, x, currentY);
+            currentY += lineGap;
+          });
+        });
+      };
 
       doc.setFontSize(9);
+      doc.setTextColor(...colors.muted);
+      doc.text(cleanPdfText('FIRMA BILGILERI'), marginX + 4, infoY + 6);
+      doc.setTextColor(...colors.dark);
+      writeLines(
+        [
+          `Firma: ${companyName}`,
+          `Ilgili: ${contactName}`,
+          `Tel: ${customerPhone}`,
+          `Mail: ${customerEmail}`,
+        ],
+        marginX + 4,
+        infoY + 12,
+        boxWidth - 8
+      );
+
       doc.setTextColor(...colors.muted);
       doc.text(cleanPdfText('TEKLIF BILGILERI'), rightBoxX + 4, infoY + 6);
       doc.setTextColor(...colors.dark);
-      doc.text(cleanPdfText(`Teklif No: ${quote.quoteNumber || '-'}`), rightBoxX + 4, infoY + 13);
-      doc.text(cleanPdfText(`Gecerlilik: ${validityText}`), rightBoxX + 4, infoY + 18);
-      if (quote.mikroNumber) {
-        doc.text(cleanPdfText(`Mikro No: ${quote.mikroNumber}`), rightBoxX + 4, infoY + 23);
-      }
+      writeLines(
+        [
+          `Tarih: ${quoteDate}`,
+          `Teklif No: ${quote.quoteNumber || '-'}`,
+          `Belge No: ${documentNo}`,
+          `Gecerlilik: ${validityText}`,
+          `Teklifi Veren: ${createdByName}`,
+          `Mail: ${createdByEmail}`,
+          `Tel: ${createdByPhone}`,
+        ],
+        rightBoxX + 4,
+        infoY + 12,
+        boxWidth - 8
+      );
 
-      const tableStartY = infoY + boxHeight + 8;
+      const tableStartY = infoY + boxHeight + 10;
       const items = Array.isArray(quote.items) ? quote.items : [];
+      const imageCache = new Map<string, string | null>();
+      const imageDataByIndex = await Promise.all(
+        items.map(async (item) => {
+          const imageUrl = resolveImageUrl(item.product?.imageUrl || null);
+          if (!imageUrl) return null;
+          if (imageCache.has(imageUrl)) {
+            return imageCache.get(imageUrl) || null;
+          }
+          const dataUrl = await loadImageData(imageUrl);
+          imageCache.set(imageUrl, dataUrl);
+          return dataUrl;
+        })
+      );
+      const imageMap = new Map<string, string>();
+
       const tableData = items.length > 0
-        ? items.map((item) => [
-          cleanPdfText(item.productCode),
-          cleanPdfText(item.productName),
-          String(item.quantity ?? 0),
-          cleanPdfText(safeCurrency(item.unitPrice)),
-          cleanPdfText(safeCurrency(item.totalPrice)),
-        ])
-        : [[cleanPdfText('-'), cleanPdfText('Urun yok'), '0', '-', '-']];
+        ? items.map((item, index) => {
+          const imageKey = imageDataByIndex[index] ? `img_${index}` : '';
+          if (imageKey && imageDataByIndex[index]) {
+            imageMap.set(imageKey, imageDataByIndex[index] as string);
+          }
+          return [
+            cleanPdfText(item.productName),
+            { content: '', imageKey },
+            String(item.quantity ?? 0),
+            cleanPdfText(item.product?.unit || '-'),
+            cleanPdfText(safeCurrency(item.unitPrice)),
+            cleanPdfText(safeCurrency(item.totalPrice)),
+          ];
+        })
+        : [[
+          cleanPdfText('Urun yok'),
+          '',
+          '0',
+          '-',
+          '-',
+          '-',
+        ]];
 
       autoTable(doc, {
         startY: tableStartY,
         head: [[
-          'Stok Kodu',
-          'Urun',
+          'Urun Adi',
+          'Gorsel',
           'Miktar',
+          'Birim',
           'Birim Fiyat',
-          'Tutar',
+          'Toplam',
         ]],
         body: tableData,
         styles: {
           fontSize: 9,
-          cellPadding: 3,
+          cellPadding: 2,
+          minCellHeight: 18,
           overflow: 'linebreak',
           halign: 'left',
           font: 'helvetica',
@@ -322,16 +432,30 @@ export default function AdminQuotesPage() {
           fontSize: 10,
         },
         columnStyles: {
-          0: { cellWidth: 26 },
-          1: { cellWidth: 66 },
-          2: { cellWidth: 18, halign: 'right' },
-          3: { cellWidth: 28, halign: 'right' },
+          0: { cellWidth: 68 },
+          1: { cellWidth: 18, halign: 'center' },
+          2: { cellWidth: 14, halign: 'right' },
+          3: { cellWidth: 16, halign: 'center' },
           4: { cellWidth: 28, halign: 'right' },
+          5: { cellWidth: 28, halign: 'right' },
         },
         alternateRowStyles: {
           fillColor: [245, 247, 250],
         },
         margin: { left: marginX, right: marginX },
+        didDrawCell: (data: any) => {
+          if (data.section !== 'body' || data.column.index !== 1) return;
+          const raw = data.cell.raw as { imageKey?: string };
+          const imageKey = raw?.imageKey;
+          if (!imageKey) return;
+          const imageData = imageMap.get(imageKey);
+          if (!imageData) return;
+          const format = getImageFormat(imageData);
+          const size = Math.min(data.cell.width - 2, data.cell.height - 2);
+          const x = data.cell.x + (data.cell.width - size) / 2;
+          const y = data.cell.y + (data.cell.height - size) / 2;
+          doc.addImage(imageData, format, x, y, size, size);
+        },
       });
 
       const finalY = (doc as any).lastAutoTable?.finalY || tableStartY;
@@ -362,7 +486,7 @@ export default function AdminQuotesPage() {
       doc.setFontSize(10);
       doc.text(cleanPdfText(safeCurrency(quote.grandTotal)), summaryX + summaryWidth - 4, summaryY + 19, { align: 'right' });
 
-      const fileName = `${quote.quoteNumber}_${cleanPdfText(customerName || 'Teklif')}.pdf`;
+      const fileName = `${quote.quoteNumber}_${cleanPdfText(companyName || 'Teklif')}.pdf`;
       doc.save(fileName);
     } catch (error) {
       console.error('PDF oluşturma hatası:', error);

@@ -164,6 +164,10 @@ export interface QuoteItem {
   sourceSaleQuantity?: number;
   sourceSaleVatZeroed?: boolean;
   lineDescription?: string;
+  product?: {
+    imageUrl?: string | null;
+    unit?: string | null;
+  };
 }
 
 export interface Quote {
@@ -192,6 +196,7 @@ export interface Quote {
     name: string;
     email?: string;
     displayName?: string;
+    mikroName?: string;
     mikroCariCode?: string;
     customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
     city?: string;
@@ -208,6 +213,7 @@ export interface Quote {
     id: string;
     name: string;
     email?: string;
+    phone?: string;
     role?: string;
   };
   adminUser?: {
