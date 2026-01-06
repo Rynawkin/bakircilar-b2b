@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LogoLink } from '@/components/ui/Logo';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 export default function CategoriesPage() {
   const router = useRouter();
@@ -28,18 +29,18 @@ export default function CategoriesPage() {
   }, []);
 
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    const tokens = buildSearchTokens(searchQuery);
+    if (tokens.length === 0) {
       setFilteredCategories(categories);
-    } else {
-      const query = searchQuery.toLowerCase();
-      setFilteredCategories(
-        categories.filter(
-          (cat) =>
-            cat.name.toLowerCase().includes(query) ||
-            cat.mikroCode.toLowerCase().includes(query)
-        )
-      );
+      return;
     }
+
+    setFilteredCategories(
+      categories.filter((cat) => {
+        const haystack = normalizeSearchText(`${cat.name} ${cat.mikroCode}`);
+        return matchesSearchTokens(haystack, tokens);
+      })
+    );
   }, [searchQuery, categories]);
 
   const fetchCategories = async () => {

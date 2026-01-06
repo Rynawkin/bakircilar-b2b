@@ -11,6 +11,15 @@ interface CariSearchParams {
   limit?: number;
 }
 
+const buildSqlSearchTokens = (value?: string) => {
+  if (!value) return [] as string[];
+  return value
+    .replace(/\*/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+};
+
 class CariHareketService {
   /**
    * Cari Hareket Föyü (041410) - Mikro'daki gibi tam detaylı hareket listesi
@@ -55,8 +64,14 @@ class CariHareketService {
     let whereClause = "cari_grup_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'DİĞER' and cari_grup_kodu NOT LIKE 'DİĞER'";
 
     if (searchTerm && searchTerm.trim()) {
-      const escapedTerm = searchTerm.trim().replace(/'/g, "''");
-      whereClause += ` AND (cari_unvan1 LIKE '%${escapedTerm}%' OR cari_kod LIKE '%${escapedTerm}%' OR cari_unvan2 LIKE '%${escapedTerm}%')`;
+      const tokens = buildSqlSearchTokens(searchTerm);
+      if (tokens.length > 0) {
+        const tokenClauses = tokens.map((token) => {
+          const escaped = token.replace(/'/g, "''");
+          return `(cari_unvan1 LIKE '%${escaped}%' OR cari_kod LIKE '%${escaped}%' OR cari_unvan2 LIKE '%${escaped}%')`;
+        });
+        whereClause += ` AND ${tokenClauses.join(' AND ')}`;
+      }
     }
 
     const query = `

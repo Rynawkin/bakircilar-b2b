@@ -18,6 +18,7 @@ import {
 import Link from 'next/link';
 import { useState } from 'react';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 interface ReportCard {
   id: string;
@@ -131,8 +132,9 @@ export default function ReportsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const filteredReports = reports.filter((report) => {
-    const matchesSearch = report.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         report.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const tokens = buildSearchTokens(searchQuery);
+    const haystack = normalizeSearchText(`${report.title} ${report.description}`);
+    const matchesSearch = tokens.length === 0 || matchesSearchTokens(haystack, tokens);
     const matchesCategory = selectedCategory === 'all' || report.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });

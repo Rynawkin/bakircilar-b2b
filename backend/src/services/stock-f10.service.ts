@@ -7,6 +7,15 @@ interface StockF10SearchParams {
   offset?: number;
 }
 
+const buildSqlSearchTokens = (value?: string) => {
+  if (!value) return [] as string[];
+  return value
+    .replace(/\*/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+};
+
 class StockF10Service {
   // Stok F10 sorgusunu çalıştırır
   async searchStocks(params: StockF10SearchParams = {}): Promise<any> {
@@ -21,8 +30,14 @@ class StockF10Service {
         .join(', ');
       whereClause += ` AND sto_kod IN (${safeCodes})`;
     } else if (searchTerm && searchTerm.trim()) {
-      const escapedTerm = searchTerm.trim().replace(/'/g, "''");
-      whereClause += ` AND (sto_isim LIKE '%${escapedTerm}%' OR sto_kod LIKE '%${escapedTerm}%')`;
+      const tokens = buildSqlSearchTokens(searchTerm);
+      if (tokens.length > 0) {
+        const tokenClauses = tokens.map((token) => {
+          const escaped = token.replace(/'/g, "''");
+          return `(sto_isim LIKE '%${escaped}%' OR sto_kod LIKE '%${escaped}%')`;
+        });
+        whereClause += ` AND ${tokenClauses.join(' AND ')}`;
+      }
     }
 
     const query = `

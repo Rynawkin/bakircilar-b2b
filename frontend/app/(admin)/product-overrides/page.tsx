@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { LogoLink } from '@/components/ui/Logo';
 import { formatCurrency } from '@/lib/utils/format';
 import { getCustomerTypeName, CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 interface Product {
   id: string;
@@ -161,10 +162,12 @@ export default function AdminProductOverridesPage() {
     }
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchInput.toLowerCase()) ||
-    p.mikroCode.toLowerCase().includes(searchInput.toLowerCase())
-  );
+  const filteredProducts = products.filter((product) => {
+    const tokens = buildSearchTokens(searchInput);
+    if (tokens.length === 0) return true;
+    const haystack = normalizeSearchText(`${product.name} ${product.mikroCode}`);
+    return matchesSearchTokens(haystack, tokens);
+  });
 
   if (isLoading) {
     return (

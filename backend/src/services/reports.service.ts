@@ -8,6 +8,7 @@
 import { prisma } from '../utils/prisma';
 import mikroService from './mikro.service';
 import exclusionService from './exclusion.service';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -575,15 +576,19 @@ export class ReportsService {
 
     // Filtreleme
     let filteredData = rawData;
-    if (brand) {
-      filteredData = filteredData.filter((p: any) =>
-        p.brand?.toLowerCase().includes(brand.toLowerCase())
-      );
+    const brandTokens = buildSearchTokens(brand);
+    if (brandTokens.length > 0) {
+      filteredData = filteredData.filter((p: any) => {
+        const haystack = normalizeSearchText(p.brand || '');
+        return matchesSearchTokens(haystack, brandTokens);
+      });
     }
-    if (category) {
-      filteredData = filteredData.filter((p: any) =>
-        p.category?.toLowerCase().includes(category.toLowerCase())
-      );
+    const categoryTokens = buildSearchTokens(category);
+    if (categoryTokens.length > 0) {
+      filteredData = filteredData.filter((p: any) => {
+        const haystack = normalizeSearchText(p.category || '');
+        return matchesSearchTokens(haystack, categoryTokens);
+      });
     }
 
     // Hesaplamalar
@@ -762,10 +767,12 @@ export class ReportsService {
 
     // Filtreleme
     let filteredData = customersWithCost;
-    if (sector) {
-      filteredData = filteredData.filter((c: any) =>
-        c.sector?.toLowerCase().includes(sector.toLowerCase())
-      );
+    const sectorTokens = buildSearchTokens(sector);
+    if (sectorTokens.length > 0) {
+      filteredData = filteredData.filter((c: any) => {
+        const haystack = normalizeSearchText(c.sector || '');
+        return matchesSearchTokens(haystack, sectorTokens);
+      });
     }
 
     // Hesaplamalar
@@ -931,17 +938,19 @@ export class ReportsService {
 
     // 2. Ürün adı filtresi (SQL'de LIKE performans sorunu olabilir, sonradan filtrele)
     let filteredChanges = rawChanges;
-    if (productName) {
-      const searchTerm = productName.toLowerCase();
-      filteredChanges = rawChanges.filter((c: any) =>
-        c.sto_isim?.toLowerCase().includes(searchTerm)
-      );
+    const productTokens = buildSearchTokens(productName);
+    if (productTokens.length > 0) {
+      filteredChanges = rawChanges.filter((c: any) => {
+        const haystack = normalizeSearchText(c.sto_isim || '');
+        return matchesSearchTokens(haystack, productTokens);
+      });
     }
-    if (category) {
-      const searchTerm = category.toLowerCase();
-      filteredChanges = filteredChanges.filter((c: any) =>
-        c.kategori?.toLowerCase().includes(searchTerm)
-      );
+    const categoryTokens = buildSearchTokens(category);
+    if (categoryTokens.length > 0) {
+      filteredChanges = filteredChanges.filter((c: any) => {
+        const haystack = normalizeSearchText(c.kategori || '');
+        return matchesSearchTokens(haystack, categoryTokens);
+      });
     }
 
     // 3. Ürün + Tarih bazında grupla

@@ -18,6 +18,7 @@ import priceSyncService from '../services/priceSync.service';
 import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
 import priceListService from '../services/price-list.service';
+import { splitSearchTokens } from '../utils/search';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
 const DEFAULT_CUSTOMER_PRICE_LISTS = {
@@ -349,11 +350,14 @@ export class AdminController {
       const where: any = { active: true };
 
       // Arama filtresi
-      if (search) {
-        where.OR = [
-          { name: { contains: search as string, mode: 'insensitive' } },
-          { mikroCode: { contains: search as string, mode: 'insensitive' } },
-        ];
+      const searchTokens = splitSearchTokens(search as string | undefined);
+      if (searchTokens.length > 0) {
+        where.AND = searchTokens.map((token) => ({
+          OR: [
+            { name: { contains: token, mode: 'insensitive' } },
+            { mikroCode: { contains: token, mode: 'insensitive' } },
+          ],
+        }));
       }
 
       // Resim filtresi

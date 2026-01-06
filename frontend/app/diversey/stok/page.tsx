@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import adminApi from '@/lib/api/admin';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import { Product } from '@/types';
 
 export default function DiverseyStokPage() {
@@ -20,8 +21,8 @@ export default function DiverseyStokPage() {
 
       // Sadece Diversey markasını filtrele (case-insensitive, hem Türkçe hem İngilizce)
       const diverseyProducts = response.products.filter((p: Product) => {
-        const lowerName = p.name.toLowerCase();
-        return lowerName.includes('diversey') || lowerName.includes('dİversey');
+        const normalizedName = normalizeSearchText(p.name);
+        return normalizedName.includes('diversey');
       });
 
       setProducts(diverseyProducts);
@@ -33,12 +34,11 @@ export default function DiverseyStokPage() {
     }
   };
 
-  const filteredProducts = products.filter(p => {
-    if (searchTerm === '') return true;
-    const upperName = p.name.toLocaleUpperCase('tr-TR');
-    const upperSearch = searchTerm.toLocaleUpperCase('tr-TR');
-    const upperCode = p.mikroCode.toLocaleUpperCase('tr-TR');
-    return upperName.includes(upperSearch) || upperCode.includes(upperSearch);
+  const filteredProducts = products.filter((product) => {
+    const tokens = buildSearchTokens(searchTerm);
+    if (tokens.length === 0) return true;
+    const haystack = normalizeSearchText(`${product.name} ${product.mikroCode}`);
+    return matchesSearchTokens(haystack, tokens);
   });
 
   if (loading) {

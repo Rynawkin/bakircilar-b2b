@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/Badge';
 import { LogoLink } from '@/components/ui/Logo';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { CustomerEditModal } from '@/components/admin/CustomerEditModal';
 import { BulkCreateUsersModal } from '@/components/admin/BulkCreateUsersModal';
@@ -125,17 +126,19 @@ export default function CustomersPage() {
     }
 
     // Filter by search term
-    if (searchTerm) {
-      const lowerSearch = searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        c =>
-          c.name.toLowerCase().includes(lowerSearch) ||
-          c.email.toLowerCase().includes(lowerSearch) ||
-          c.mikroCariCode.toLowerCase().includes(lowerSearch) ||
-          c.city?.toLowerCase().includes(lowerSearch) ||
-          c.district?.toLowerCase().includes(lowerSearch) ||
-          c.phone?.toLowerCase().includes(lowerSearch)
-      );
+    const tokens = buildSearchTokens(searchTerm);
+    if (tokens.length > 0) {
+      filtered = filtered.filter((c) => {
+        const haystack = normalizeSearchText([
+          c.name,
+          c.email,
+          c.mikroCariCode,
+          c.city,
+          c.district,
+          c.phone,
+        ].filter(Boolean).join(' '));
+        return matchesSearchTokens(haystack, tokens);
+      });
     }
 
     return filtered;

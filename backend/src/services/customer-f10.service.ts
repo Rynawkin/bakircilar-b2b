@@ -6,6 +6,15 @@ interface CustomerF10SearchParams {
   offset?: number;
 }
 
+const buildSqlSearchTokens = (value?: string) => {
+  if (!value) return [] as string[];
+  return value
+    .replace(/\*/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+};
+
 class CustomerF10Service {
   // Cari F10 sorgusunu çalıştırır
   async searchCustomers(params: CustomerF10SearchParams = {}): Promise<any> {
@@ -14,8 +23,14 @@ class CustomerF10Service {
     // WHERE koşulu - arama terimi varsa ekle
     let whereClause = "cari_grup_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'DİĞER' and cari_grup_kodu NOT LIKE 'DİĞER'";
     if (searchTerm && searchTerm.trim()) {
-      const escapedTerm = searchTerm.trim().replace(/'/g, "''");
-      whereClause += ` AND (cari_unvan1 LIKE '%${escapedTerm}%' OR cari_kod LIKE '%${escapedTerm}%' OR cari_unvan2 LIKE '%${escapedTerm}%')`;
+      const tokens = buildSqlSearchTokens(searchTerm);
+      if (tokens.length > 0) {
+        const tokenClauses = tokens.map((token) => {
+          const escaped = token.replace(/'/g, "''");
+          return `(cari_unvan1 LIKE '%${escaped}%' OR cari_kod LIKE '%${escaped}%' OR cari_unvan2 LIKE '%${escaped}%')`;
+        });
+        whereClause += ` AND ${tokenClauses.join(' AND ')}`;
+      }
     }
 
     const query = `

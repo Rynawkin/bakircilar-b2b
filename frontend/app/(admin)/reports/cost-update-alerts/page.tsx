@@ -29,6 +29,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
@@ -182,12 +183,12 @@ export default function CostUpdateAlertsPage() {
       }
 
       const exportBase = result.data.products as CostUpdateAlert[];
-      const searchTerm = searchQuery.trim().toLowerCase();
-      const exportData = searchTerm.length > 0
-        ? exportBase.filter((item) =>
-            item.productName.toLowerCase().includes(searchTerm) ||
-            item.productCode.toLowerCase().includes(searchTerm)
-          )
+      const tokens = buildSearchTokens(searchQuery);
+      const exportData = tokens.length > 0
+        ? exportBase.filter((item) => {
+            const haystack = normalizeSearchText(`${item.productName} ${item.productCode}`);
+            return matchesSearchTokens(haystack, tokens);
+          })
         : exportBase;
 
       if (exportData.length === 0) {
@@ -301,10 +302,12 @@ export default function CostUpdateAlertsPage() {
     return new Date(dateStr).toLocaleDateString('tr-TR');
   };
 
-  const filteredData = data.filter((item) =>
-    item.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.productCode.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredData = data.filter((item) => {
+    const tokens = buildSearchTokens(searchQuery);
+    if (tokens.length === 0) return true;
+    const haystack = normalizeSearchText(`${item.productName} ${item.productCode}`);
+    return matchesSearchTokens(haystack, tokens);
+  });
 
   return (
     <>

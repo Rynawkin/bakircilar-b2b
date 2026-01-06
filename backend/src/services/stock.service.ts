@@ -5,6 +5,7 @@
  */
 
 import { prisma } from '../utils/prisma';
+import { splitSearchTokens } from '../utils/search';
 import mikroService from './mikroFactory.service';
 
 class StockService {
@@ -270,11 +271,14 @@ class StockService {
       where.categoryId = filters.categoryId;
     }
 
-    if (filters?.search) {
-      where.OR = [
-        { name: { contains: filters.search, mode: 'insensitive' } },
-        { mikroCode: { contains: filters.search, mode: 'insensitive' } },
-      ];
+    const searchTokens = splitSearchTokens(filters?.search);
+    if (searchTokens.length > 0) {
+      where.AND = searchTokens.map((token) => ({
+        OR: [
+          { name: { contains: token, mode: 'insensitive' } },
+          { mikroCode: { contains: token, mode: 'insensitive' } },
+        ],
+      }));
     }
 
     if (filters?.minStock) {

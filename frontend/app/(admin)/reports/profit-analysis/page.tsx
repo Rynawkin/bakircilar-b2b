@@ -29,6 +29,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
@@ -196,14 +197,15 @@ export default function MarginAnalysisPage() {
 
   // Search filtering
   const filteredData = Array.isArray(data) ? data.filter((row) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      row['Stok Kodu']?.toLowerCase().includes(query) ||
-      row['Stok İsmi']?.toLowerCase().includes(query) ||
-      row['Evrak No']?.toLowerCase().includes(query) ||
-      row['Cari İsmi']?.toLowerCase().includes(query)
-    );
+    const tokens = buildSearchTokens(searchQuery);
+    if (tokens.length === 0) return true;
+    const haystack = normalizeSearchText([
+      row['Stok Kodu'],
+      row['Stok İsmi'],
+      row['Evrak No'],
+      row['Cari İsmi'],
+    ].filter(Boolean).join(' '));
+    return matchesSearchTokens(haystack, tokens);
   }) : [];
 
   return (

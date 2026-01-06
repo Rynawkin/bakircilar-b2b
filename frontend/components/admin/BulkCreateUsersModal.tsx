@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils/format';
+import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 
@@ -121,15 +122,16 @@ export function BulkCreateUsersModal({ isOpen, onClose, onSuccess }: BulkCreateU
     }
   };
 
-  const filteredCaris = availableCaris.filter(cari => {
-    if (!searchTerm) return true;
-    const lowerSearch = searchTerm.toLowerCase();
-    return (
-      cari.code.toLowerCase().includes(lowerSearch) ||
-      cari.name.toLowerCase().includes(lowerSearch) ||
-      cari.city?.toLowerCase().includes(lowerSearch) ||
-      cari.district?.toLowerCase().includes(lowerSearch)
-    );
+  const filteredCaris = availableCaris.filter((cari) => {
+    const tokens = buildSearchTokens(searchTerm);
+    if (tokens.length === 0) return true;
+    const haystack = normalizeSearchText([
+      cari.code,
+      cari.name,
+      cari.city,
+      cari.district,
+    ].filter(Boolean).join(' '));
+    return matchesSearchTokens(haystack, tokens);
   });
 
   return (

@@ -9,6 +9,7 @@ import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
 import mikroService from '../services/mikroFactory.service';
 import orderService from '../services/order.service';
+import { splitSearchTokens } from '../utils/search';
 import { CustomerPriceListConfig, PriceListPair, ProductPrices } from '../types';
 
 const DEFAULT_PRICE_LISTS: CustomerPriceListConfig = {
@@ -82,6 +83,7 @@ export class CustomerController {
       const { categoryId, search, warehouse, mode } = req.query;
       const isDiscounted = mode === 'discounted' || mode === 'excess';
       const isPurchased = mode === 'purchased';
+      const searchTokens = splitSearchTokens(search as string | undefined);
 
       // Kullanıcı bilgisini al
       const user = await prisma.user.findUnique({
@@ -132,12 +134,14 @@ export class CustomerController {
                 active: true,
                 mikroCode: { in: purchasedCodes },
                 ...(categoryId ? { categoryId: categoryId as string } : {}),
-                ...(search
+                ...(searchTokens.length > 0
                   ? {
-                      OR: [
-                        { name: { contains: search as string, mode: 'insensitive' } },
-                        { mikroCode: { contains: search as string, mode: 'insensitive' } },
-                      ],
+                      AND: searchTokens.map((token) => ({
+                        OR: [
+                          { name: { contains: token, mode: 'insensitive' } },
+                          { mikroCode: { contains: token, mode: 'insensitive' } },
+                        ],
+                      })),
                     }
                   : {}),
               },
@@ -157,12 +161,14 @@ export class CustomerController {
               where: {
                 active: true,
                 ...(categoryId ? { categoryId: categoryId as string } : {}),
-                ...(search
+                ...(searchTokens.length > 0
                   ? {
-                      OR: [
-                        { name: { contains: search as string, mode: 'insensitive' } },
-                        { mikroCode: { contains: search as string, mode: 'insensitive' } },
-                      ],
+                      AND: searchTokens.map((token) => ({
+                        OR: [
+                          { name: { contains: token, mode: 'insensitive' } },
+                          { mikroCode: { contains: token, mode: 'insensitive' } },
+                        ],
+                      })),
                     }
                   : {}),
               },
