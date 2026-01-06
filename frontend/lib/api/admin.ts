@@ -212,6 +212,7 @@ export const adminApi = {
       lastSalesCount: number;
       whatsappTemplate: string;
       responsibleCode?: string | null;
+      columnWidths?: Record<string, number> | null;
     };
   }> => {
     const response = await apiClient.get('/admin/quotes/preferences');
@@ -222,11 +223,13 @@ export const adminApi = {
     lastSalesCount?: number;
     whatsappTemplate?: string;
     responsibleCode?: string | null;
+    columnWidths?: Record<string, number>;
   }): Promise<{
     preferences: {
       lastSalesCount: number;
       whatsappTemplate: string;
       responsibleCode?: string | null;
+      columnWidths?: Record<string, number> | null;
     };
   }> => {
     const response = await apiClient.put('/admin/quotes/preferences', data);

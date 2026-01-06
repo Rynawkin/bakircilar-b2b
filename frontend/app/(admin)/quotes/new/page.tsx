@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -79,6 +79,75 @@ const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
   { value: 'price_asc', label: 'Fiyat (Dusukten)' },
   { value: 'price_desc', label: 'Fiyat (Yuksekten)' },
 ];
+
+const BASE_COLUMN_WIDTHS: Record<string, number> = {
+  product: 320,
+  quantity: 90,
+  priceSource: 140,
+  selection: 220,
+  unitPrice: 110,
+  lineTotal: 110,
+  vat: 90,
+  actions: 44,
+};
+
+const MIN_COLUMN_WIDTHS: Record<string, number> = {
+  product: 240,
+  quantity: 80,
+  priceSource: 110,
+  selection: 180,
+  unitPrice: 90,
+  lineTotal: 90,
+  vat: 80,
+  actions: 40,
+  stock: 120,
+};
+
+const DEFAULT_STOCK_COLUMN_WIDTH = 150;
+const MAX_COLUMN_WIDTH = 520;
+
+const getDefaultColumnWidth = (key: string) => {
+  if (key.startsWith('stock:')) return DEFAULT_STOCK_COLUMN_WIDTH;
+  return BASE_COLUMN_WIDTHS[key] ?? 140;
+};
+
+const getMinColumnWidth = (key: string) => {
+  if (key.startsWith('stock:')) return MIN_COLUMN_WIDTHS.stock;
+  return MIN_COLUMN_WIDTHS[key] ?? 80;
+};
+
+const clampColumnWidth = (key: string, value: number) => {
+  const min = getMinColumnWidth(key);
+  const max = MAX_COLUMN_WIDTH;
+  return Math.min(max, Math.max(min, Math.round(value)));
+};
+
+const buildColumnWidthMap = (
+  savedWidths: Record<string, unknown> | null | undefined,
+  selectedColumns: string[]
+) => {
+  const widths: Record<string, number> = {};
+
+  Object.entries(BASE_COLUMN_WIDTHS).forEach(([key, value]) => {
+    widths[key] = value;
+  });
+
+  selectedColumns.forEach((column) => {
+    const key = `stock:${column}`;
+    widths[key] = DEFAULT_STOCK_COLUMN_WIDTH;
+  });
+
+  if (savedWidths && typeof savedWidths === 'object') {
+    Object.entries(savedWidths).forEach(([key, value]) => {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        widths[key] = clampColumnWidth(key, parsed);
+      }
+    });
+  }
+
+  return widths;
+};
 
 const PRICE_LIST_LABELS: Record<number, string> = {
   1: 'Perakende Satis 1',
@@ -187,9 +256,14 @@ export default function AdminQuoteNewPage() {
   const [selectedResponsibleCode, setSelectedResponsibleCode] = useState('');
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() =>
+    buildColumnWidthMap(undefined, [])
+  );
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [savingColumns, setSavingColumns] = useState(false);
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const resizeRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
   const [stockDataMap, setStockDataMap] = useState<Record<string, any>>({});
   const [bulkPriceListNo, setBulkPriceListNo] = useState<number | ''>('');
   const [poolSort, setPoolSort] = useState<PoolSortOption>('default');
@@ -238,6 +312,22 @@ export default function AdminQuoteNewPage() {
   }, [searchTerm, productTab]);
 
   useEffect(() => {
+    if (selectedColumns.length === 0) return;
+    setColumnWidths((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      selectedColumns.forEach((column) => {
+        const key = `stock:${column}`;
+        if (!Number.isFinite(next[key])) {
+          next[key] = DEFAULT_STOCK_COLUMN_WIDTH;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [selectedColumns]);
+
+  useEffect(() => {
     const codes = Array.from(new Set(
       quoteItems
         .filter((item) => !item.isManualLine)
@@ -284,6 +374,7 @@ export default function AdminQuoteNewPage() {
       columnResult,
       responsiblesResult,
     ] = results;
+    let initialSelectedColumns: string[] = [];
 
     if (customersResult.status === 'fulfilled') {
       setCustomers(customersResult.value.customers || []);
@@ -301,10 +392,21 @@ export default function AdminQuoteNewPage() {
     }
 
     if (searchPrefsResult.status === 'fulfilled' && searchPrefsResult.value?.preferences?.stockColumns?.length) {
-      setSelectedColumns(searchPrefsResult.value.preferences.stockColumns);
+      initialSelectedColumns = searchPrefsResult.value.preferences.stockColumns;
+      setSelectedColumns(initialSelectedColumns);
     } else if (searchPrefsResult.status === 'rejected') {
       console.error('Arama tercihleri yuklenemedi:', searchPrefsResult.reason);
     }
+
+    if (initialSelectedColumns.length === 0) {
+      initialSelectedColumns = selectedColumns;
+    }
+
+    const savedWidths =
+      quotePrefsResult.status === 'fulfilled'
+        ? quotePrefsResult.value?.preferences?.columnWidths
+        : null;
+    setColumnWidths(buildColumnWidthMap(savedWidths, initialSelectedColumns));
 
     if (columnResult.status === 'fulfilled' && columnResult.value?.columns?.length) {
       setAvailableColumns(columnResult.value.columns);
@@ -769,12 +871,27 @@ export default function AdminQuoteNewPage() {
   const saveColumnPreferences = async () => {
     setSavingColumns(true);
     try {
-      await adminApi.updateSearchPreferences({ stockColumns: selectedColumns });
+      const widthKeys = new Set([
+        ...Object.keys(BASE_COLUMN_WIDTHS),
+        ...selectedColumns.map((column) => `stock:${column}`),
+      ]);
+      const columnWidthsPayload: Record<string, number> = {};
+      widthKeys.forEach((key) => {
+        const width = columnWidths[key];
+        if (Number.isFinite(width)) {
+          columnWidthsPayload[key] = clampColumnWidth(key, width);
+        }
+      });
+
+      await Promise.all([
+        adminApi.updateSearchPreferences({ stockColumns: selectedColumns }),
+        adminApi.updateQuotePreferences({ columnWidths: columnWidthsPayload }),
+      ]);
       setShowColumnSelector(false);
-      toast.success('Kolon dizilimi kaydedildi.');
+      toast.success('Gorunum kaydedildi.');
     } catch (error) {
       console.error('Kolon tercihleri kaydedilemedi:', error);
-      toast.error('Kolon tercihleri kaydedilemedi.');
+      toast.error('Gorunum kaydedilemedi.');
     } finally {
       setSavingColumns(false);
     }
@@ -824,6 +941,75 @@ export default function AdminQuoteNewPage() {
   const handleColumnDragEnd = () => {
     setDraggingColumn(null);
   };
+
+  const tableColumnKeys = useMemo(
+    () => [
+      'product',
+      'quantity',
+      'priceSource',
+      'selection',
+      'unitPrice',
+      'lineTotal',
+      'vat',
+      ...selectedColumns.map((column) => `stock:${column}`),
+      'actions',
+    ],
+    [selectedColumns]
+  );
+
+  const getColumnWidth = (key: string) => {
+    const value = columnWidths[key];
+    if (Number.isFinite(value)) return value;
+    return getDefaultColumnWidth(key);
+  };
+
+  const startColumnResize = (key: string) => (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resizeRef.current = {
+      key,
+      startX: event.clientX,
+      startWidth: getColumnWidth(key),
+    };
+    setIsResizing(true);
+  };
+
+  const renderResizeHandle = (key: string) => (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      onMouseDown={startColumnResize(key)}
+      onClick={(event) => event.stopPropagation()}
+      className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+    >
+      <span className="absolute right-0 top-0 h-full w-px bg-slate-200" aria-hidden />
+    </div>
+  );
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const { key, startX, startWidth } = resizeRef.current;
+      const delta = event.clientX - startX;
+      const nextWidth = clampColumnWidth(key, startWidth + delta);
+      setColumnWidths((prev) => ({ ...prev, [key]: nextWidth }));
+    };
+
+    const handleMouseUp = () => {
+      resizeRef.current = null;
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   const getMarginInfo = (item: QuoteItemForm) => {
     if (item.isManualLine) return null;
@@ -988,7 +1174,7 @@ export default function AdminQuoteNewPage() {
     }
   };
 
-  const columnsCount = 7 + selectedColumns.length + 1;
+  const columnsCount = tableColumnKeys.length;
   const cardShell = 'rounded-2xl border border-slate-200/80 bg-white/95 shadow-[0_10px_30px_rgba(15,23,42,0.08)]';
 
   return (
@@ -1241,6 +1427,15 @@ export default function AdminQuoteNewPage() {
               <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)} className="rounded-full">
                 Kolonlari Sec
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={saveColumnPreferences}
+                disabled={savingColumns}
+                className="rounded-full"
+              >
+                {savingColumns ? 'Kaydediliyor...' : 'Gorunusu Kaydet'}
+              </Button>
               <Button variant="secondary" size="sm" onClick={addManualLine} className="rounded-full">
                 Manuel Satir Ekle
               </Button>
@@ -1265,19 +1460,46 @@ export default function AdminQuoteNewPage() {
             <div className="text-sm text-gray-500">Teklife urun eklenmedi.</div>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white">
-              <table className="w-full min-w-[980px] text-sm">
+              <table className="w-full min-w-[1100px] table-fixed text-sm">
+                <colgroup>
+                  {tableColumnKeys.map((key) => (
+                    <col key={key} style={{ width: `${getColumnWidth(key)}px` }} />
+                  ))}
+                </colgroup>
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-gray-600">
                   <tr>
-                    <th className="px-3 py-2 text-left">Urun</th>
-                    <th className="px-3 py-2 text-left">Miktar</th>
-                    <th className="px-3 py-2 text-left">Fiyat Kaynagi</th>
-                    <th className="px-3 py-2 text-left">Secim</th>
-                    <th className="px-3 py-2 text-right">Birim Fiyat</th>
-                    <th className="px-3 py-2 text-right">Toplam</th>
-                    <th className="px-3 py-2 text-left">KDV</th>
+                    <th className="relative select-none px-3 py-2 text-left">
+                      Urun
+                      {renderResizeHandle('product')}
+                    </th>
+                    <th className="relative select-none px-3 py-2 text-left">
+                      Miktar
+                      {renderResizeHandle('quantity')}
+                    </th>
+                    <th className="relative select-none px-3 py-2 text-left">
+                      Fiyat Kaynagi
+                      {renderResizeHandle('priceSource')}
+                    </th>
+                    <th className="relative select-none px-3 py-2 text-left">
+                      Secim
+                      {renderResizeHandle('selection')}
+                    </th>
+                    <th className="relative select-none px-3 py-2 text-right">
+                      Birim Fiyat
+                      {renderResizeHandle('unitPrice')}
+                    </th>
+                    <th className="relative select-none px-3 py-2 text-right">
+                      Toplam
+                      {renderResizeHandle('lineTotal')}
+                    </th>
+                    <th className="relative select-none px-3 py-2 text-left">
+                      KDV
+                      {renderResizeHandle('vat')}
+                    </th>
                     {selectedColumns.map((column) => (
-                      <th key={column} className="px-3 py-2 text-left whitespace-nowrap">
+                      <th key={column} className="relative select-none px-3 py-2 text-left whitespace-nowrap">
                         {getColumnDisplayName(column)}
+                        {renderResizeHandle(`stock:${column}`)}
                       </th>
                     ))}
                     <th className="px-3 py-2"></th>
@@ -1299,6 +1521,7 @@ export default function AdminQuoteNewPage() {
                                   placeholder="Manuel urun adi"
                                   value={item.productName}
                                   onChange={(e) => updateItem(item.id, { productName: e.target.value })}
+                                  className="w-full min-w-[220px]"
                                 />
                                 <div className="text-xs text-gray-500">Kod: {item.productCode}</div>
                                 <Badge variant="warning" className="text-xs">Manuel</Badge>
@@ -1338,13 +1561,13 @@ export default function AdminQuoteNewPage() {
                               </select>
                             )}
                           </td>
-                          <td className="px-3 py-2 min-w-[240px]">
+                          <td className="px-3 py-2">
                             {item.isManualLine ? (
                               <Input
                                 placeholder="Birim fiyat"
                                 value={item.unitPrice ?? ''}
                                 onChange={(e) => handleManualPriceChange(item, e.target.value)}
-                                className="min-w-[180px]"
+                                className="w-full"
                               />
                             ) : item.priceSource === 'PRICE_LIST' ? (
                               <select
@@ -1708,13 +1931,22 @@ export default function AdminQuoteNewPage() {
                     return (
                       <div
                         key={product.mikroCode}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => togglePurchasedSelection(product.mikroCode)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            togglePurchasedSelection(product.mikroCode);
+                          }
+                        }}
                         className={`rounded-xl border p-4 transition ${
                           isSelected
                             ? 'border-primary-200 bg-primary-50/70'
                             : colorClass
                               ? `${colorClass} hover:border-primary-200`
                               : 'border-gray-200 bg-white/90 hover:border-primary-200'
-                        }`}
+                        } cursor-pointer`}
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex items-start gap-3">
@@ -1722,13 +1954,10 @@ export default function AdminQuoteNewPage() {
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => togglePurchasedSelection(product.mikroCode)}
+                              onClick={(event) => event.stopPropagation()}
                               className="mt-1 h-4 w-4 accent-primary-600"
                             />
-                            <button
-                              type="button"
-                              onClick={() => togglePurchasedSelection(product.mikroCode)}
-                              className="text-left"
-                            >
+                            <div className="text-left">
                               <p className="font-semibold text-gray-900">{product.name}</p>
                               <p className="text-xs text-gray-500">
                                 {product.mikroCode}
@@ -1741,9 +1970,16 @@ export default function AdminQuoteNewPage() {
                                 <span className="font-medium text-slate-600">Topca</span>{' '}
                                 {formatStockValue(product.warehouseStocks?.['6'])}
                               </div>
-                            </button>
+                            </div>
                           </div>
-                          <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              addProductToQuote(product);
+                            }}
+                          >
                             Teklife Ekle
                           </Button>
                         </div>
@@ -1830,7 +2066,7 @@ export default function AdminQuoteNewPage() {
                 Iptal
               </Button>
               <Button variant="primary" onClick={saveColumnPreferences} disabled={savingColumns}>
-                {savingColumns ? 'Kaydediliyor...' : 'Dizilimi Kaydet'}
+                {savingColumns ? 'Kaydediliyor...' : 'Gorunusu Kaydet'}
               </Button>
             </>
           }

@@ -85,6 +85,7 @@ model User {
   quoteLastSalesCount Int          @default(1)
   quoteWhatsappTemplate String?
   quoteResponsibleCode String?
+  quoteColumnWidths    Json?
 
   // Mikro'dan senkronize edilen cari bilgileri
   city                String?       // Şehir

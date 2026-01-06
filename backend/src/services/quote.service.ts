@@ -79,6 +79,19 @@ class QuoteService {
     return date.toISOString().slice(0, 10);
   }
 
+  private sanitizeColumnWidths(input?: Record<string, unknown> | null) {
+    if (!input || typeof input !== 'object') return null;
+    const sanitized: Record<string, number> = {};
+    Object.entries(input).forEach(([key, value]) => {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        const rounded = Math.round(parsed);
+        sanitized[key] = Math.min(800, Math.max(40, rounded));
+      }
+    });
+    return Object.keys(sanitized).length > 0 ? sanitized : null;
+  }
+
   async getPreferences(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -86,6 +99,7 @@ class QuoteService {
         quoteLastSalesCount: true,
         quoteWhatsappTemplate: true,
         quoteResponsibleCode: true,
+        quoteColumnWidths: true,
       },
     });
 
@@ -93,12 +107,18 @@ class QuoteService {
       lastSalesCount: user?.quoteLastSalesCount ?? 1,
       whatsappTemplate: user?.quoteWhatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE,
       responsibleCode: user?.quoteResponsibleCode || null,
+      columnWidths: (user?.quoteColumnWidths as Record<string, number> | null) || null,
     };
   }
 
   async updatePreferences(
     userId: string,
-    data: { lastSalesCount?: number; whatsappTemplate?: string; responsibleCode?: string | null }
+    data: {
+      lastSalesCount?: number;
+      whatsappTemplate?: string;
+      responsibleCode?: string | null;
+      columnWidths?: Record<string, unknown> | null;
+    }
   ) {
     const updateData: any = {};
     if (data.lastSalesCount !== undefined) {
@@ -110,6 +130,9 @@ class QuoteService {
     if (data.responsibleCode !== undefined) {
       updateData.quoteResponsibleCode = data.responsibleCode || null;
     }
+    if (data.columnWidths !== undefined) {
+      updateData.quoteColumnWidths = this.sanitizeColumnWidths(data.columnWidths);
+    }
 
     const user = await prisma.user.update({
       where: { id: userId },
@@ -118,6 +141,7 @@ class QuoteService {
         quoteLastSalesCount: true,
         quoteWhatsappTemplate: true,
         quoteResponsibleCode: true,
+        quoteColumnWidths: true,
       },
     });
 
@@ -125,6 +149,7 @@ class QuoteService {
       lastSalesCount: user.quoteLastSalesCount,
       whatsappTemplate: user.quoteWhatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE,
       responsibleCode: user.quoteResponsibleCode || null,
+      columnWidths: (user.quoteColumnWidths as Record<string, number> | null) || null,
     };
   }
 
