@@ -62,6 +62,24 @@ interface QuoteItemForm {
   mikroPriceLists?: Record<number, number> | Record<string, number>;
 }
 
+type PoolSortOption = 'default' | 'stock1_desc' | 'stock6_desc' | 'price_asc' | 'price_desc';
+
+type PoolColorRule = {
+  enabled: boolean;
+  warehouse: '1' | '6';
+  operator: '>' | '>=' | '<' | '<=' | '=';
+  threshold: number;
+  color: 'green' | 'yellow' | 'blue' | 'red' | 'slate';
+};
+
+const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
+  { value: 'default', label: 'Varsayilan Siralama' },
+  { value: 'stock1_desc', label: 'Merkez Depo Stok (Yuksekten)' },
+  { value: 'stock6_desc', label: 'Topca Depo Stok (Yuksekten)' },
+  { value: 'price_asc', label: 'Fiyat (Dusukten)' },
+  { value: 'price_desc', label: 'Fiyat (Yuksekten)' },
+];
+
 const PRICE_LIST_LABELS: Record<number, string> = {
   1: 'Perakende Satis 1',
   2: 'Perakende Satis 2',
@@ -90,6 +108,26 @@ const formatStockValue = (value: any) => {
     return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
   }
   return String(value);
+};
+
+const getStockNumber = (product: QuoteProduct, warehouse: '1' | '6') => {
+  const value = product.warehouseStocks?.[warehouse];
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getProductSortPrice = (product: QuoteProduct) => {
+  const lastSalePrice = product.lastSales?.[0]?.unitPrice;
+  if (Number.isFinite(lastSalePrice)) return Number(lastSalePrice);
+  const listValues = product.mikroPriceLists
+    ? Object.values(product.mikroPriceLists)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  if (listValues.length > 0) {
+    return Math.min(...listValues);
+  }
+  return 0;
 };
 
 const getMikroListPrice = (
@@ -154,6 +192,15 @@ export default function AdminQuoteNewPage() {
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
   const [stockDataMap, setStockDataMap] = useState<Record<string, any>>({});
   const [bulkPriceListNo, setBulkPriceListNo] = useState<number | ''>('');
+  const [poolSort, setPoolSort] = useState<PoolSortOption>('default');
+  const [showPoolColorOptions, setShowPoolColorOptions] = useState(false);
+  const [poolColorRule, setPoolColorRule] = useState<PoolColorRule>({
+    enabled: false,
+    warehouse: '1',
+    operator: '>',
+    threshold: 0,
+    color: 'green',
+  });
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -361,6 +408,74 @@ export default function AdminQuoteNewPage() {
       return matchesSearchTokens(haystack, tokens);
     });
   }, [searchResults, searchTerm]);
+
+  const sortPoolProducts = (items: QuoteProduct[]) => {
+    if (poolSort === 'default') return items;
+    const sorted = [...items];
+    switch (poolSort) {
+      case 'stock1_desc':
+        sorted.sort((a, b) => getStockNumber(b, '1') - getStockNumber(a, '1'));
+        break;
+      case 'stock6_desc':
+        sorted.sort((a, b) => getStockNumber(b, '6') - getStockNumber(a, '6'));
+        break;
+      case 'price_asc':
+        sorted.sort((a, b) => getProductSortPrice(a) - getProductSortPrice(b));
+        break;
+      case 'price_desc':
+        sorted.sort((a, b) => getProductSortPrice(b) - getProductSortPrice(a));
+        break;
+      default:
+        break;
+    }
+    return sorted;
+  };
+
+  const sortedPurchasedProducts = useMemo(
+    () => sortPoolProducts(filteredPurchasedProducts),
+    [filteredPurchasedProducts, poolSort]
+  );
+
+  const sortedSearchResults = useMemo(
+    () => sortPoolProducts(filteredSearchResults),
+    [filteredSearchResults, poolSort]
+  );
+
+  const getPoolColorClass = (product: QuoteProduct) => {
+    if (!poolColorRule.enabled) return '';
+    const value = getStockNumber(product, poolColorRule.warehouse);
+    const threshold = Number(poolColorRule.threshold) || 0;
+    let matches = false;
+    switch (poolColorRule.operator) {
+      case '>':
+        matches = value > threshold;
+        break;
+      case '>=':
+        matches = value >= threshold;
+        break;
+      case '<':
+        matches = value < threshold;
+        break;
+      case '<=':
+        matches = value <= threshold;
+        break;
+      case '=':
+        matches = value === threshold;
+        break;
+      default:
+        matches = false;
+        break;
+    }
+    if (!matches) return '';
+    const colorMap: Record<PoolColorRule['color'], string> = {
+      green: 'bg-emerald-50 border-emerald-200',
+      yellow: 'bg-amber-50 border-amber-200',
+      blue: 'bg-blue-50 border-blue-200',
+      red: 'bg-rose-50 border-rose-200',
+      slate: 'bg-slate-50 border-slate-200',
+    };
+    return colorMap[poolColorRule.color] || '';
+  };
 
   const selectedPurchasedCount = selectedPurchasedCodes.size;
 
@@ -1004,9 +1119,6 @@ export default function AdminQuoteNewPage() {
               <p className="text-xs text-gray-500">Son {lastSalesCount} satis gosteriliyor.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" onClick={addManualLine} size="sm" className="rounded-full">
-                Manuel Satir Ekle
-              </Button>
               <Button
                 variant="primary"
                 onClick={() => setShowProductPoolModal(true)}
@@ -1128,6 +1240,9 @@ export default function AdminQuoteNewPage() {
               </Button>
               <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)} className="rounded-full">
                 Kolonlari Sec
+              </Button>
+              <Button variant="secondary" size="sm" onClick={addManualLine} className="rounded-full">
+                Manuel Satir Ekle
               </Button>
               <Button
                 variant="primary"
@@ -1457,14 +1572,101 @@ export default function AdminQuoteNewPage() {
                   Tum Urunler
                 </Button>
               </div>
-              <Button variant="secondary" onClick={addManualLine} size="sm" className="rounded-full">
-                Manuel Satir Ekle
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              <span>Son {lastSalesCount} satis gosteriliyor.</span>
+              <select
+                value={poolSort}
+                onChange={(e) => setPoolSort(e.target.value as PoolSortOption)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600"
+              >
+                {POOL_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant={showPoolColorOptions ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setShowPoolColorOptions((prev) => !prev)}
+                className="rounded-full"
+              >
+                Renklendirme
               </Button>
             </div>
-            <div className="text-xs text-gray-500">
-              Son {lastSalesCount} satis gosteriliyor.
-            </div>
           </div>
+          {showPoolColorOptions && (
+            <div className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-xs text-gray-600">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={poolColorRule.enabled}
+                    onChange={(e) => setPoolColorRule((prev) => ({ ...prev, enabled: e.target.checked }))}
+                    className="h-4 w-4 accent-primary-600"
+                  />
+                  Renklendirme aktif
+                </label>
+                <select
+                  value={poolColorRule.warehouse}
+                  onChange={(e) =>
+                    setPoolColorRule((prev) => ({ ...prev, warehouse: e.target.value as '1' | '6' }))
+                  }
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                >
+                  <option value="1">Merkez</option>
+                  <option value="6">Topca</option>
+                </select>
+                <select
+                  value={poolColorRule.operator}
+                  onChange={(e) =>
+                    setPoolColorRule((prev) => ({
+                      ...prev,
+                      operator: e.target.value as PoolColorRule['operator'],
+                    }))
+                  }
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                >
+                  <option value=">">Buyuk</option>
+                  <option value=">=">Buyuk Esit</option>
+                  <option value="<">Kucuk</option>
+                  <option value="<=">Kucuk Esit</option>
+                  <option value="=">Esit</option>
+                </select>
+                <input
+                  type="number"
+                  value={poolColorRule.threshold}
+                  onChange={(e) =>
+                    setPoolColorRule((prev) => ({
+                      ...prev,
+                      threshold: Number(e.target.value),
+                    }))
+                  }
+                  className="w-20 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                />
+                <select
+                  value={poolColorRule.color}
+                  onChange={(e) =>
+                    setPoolColorRule((prev) => ({
+                      ...prev,
+                      color: e.target.value as PoolColorRule['color'],
+                    }))
+                  }
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                >
+                  <option value="green">Yesil</option>
+                  <option value="yellow">Sari</option>
+                  <option value="blue">Mavi</option>
+                  <option value="red">Kirmizi</option>
+                  <option value="slate">Gri</option>
+                </select>
+                <span className="text-[11px] text-slate-400">
+                  Ornek: Merkez buyuk 0 = yesil
+                </span>
+              </div>
+            </div>
+          )}
 
           {productTab === 'purchased' && (
             <div className="space-y-4">
@@ -1496,19 +1698,22 @@ export default function AdminQuoteNewPage() {
                   </Button>
                 </div>
               </div>
-              {filteredPurchasedProducts.length === 0 ? (
+              {sortedPurchasedProducts.length === 0 ? (
                 <div className="text-sm text-gray-500">Urun bulunamadi.</div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3 max-h-[60vh] overflow-y-auto pr-2">
-                  {filteredPurchasedProducts.map((product) => {
+                  {sortedPurchasedProducts.map((product) => {
                     const isSelected = selectedPurchasedCodes.has(product.mikroCode);
+                    const colorClass = getPoolColorClass(product);
                     return (
                       <div
                         key={product.mikroCode}
                         className={`rounded-xl border p-4 transition ${
                           isSelected
                             ? 'border-primary-200 bg-primary-50/70'
-                            : 'border-gray-200 bg-white/90 hover:border-primary-200'
+                            : colorClass
+                              ? `${colorClass} hover:border-primary-200`
+                              : 'border-gray-200 bg-white/90 hover:border-primary-200'
                         }`}
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1519,20 +1724,24 @@ export default function AdminQuoteNewPage() {
                               onChange={() => togglePurchasedSelection(product.mikroCode)}
                               className="mt-1 h-4 w-4 accent-primary-600"
                             />
-                            <div>
+                            <button
+                              type="button"
+                              onClick={() => togglePurchasedSelection(product.mikroCode)}
+                              className="text-left"
+                            >
                               <p className="font-semibold text-gray-900">{product.name}</p>
                               <p className="text-xs text-gray-500">
                                 {product.mikroCode}
                                 {product.unit ? ` - ${product.unit}` : ''}
                               </p>
                               <div className="mt-1 text-xs text-slate-500">
-                                <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
+                                <span className="font-medium text-slate-600">Merkez</span>{' '}
                                 {formatStockValue(product.warehouseStocks?.['1'])}
                                 <span className="mx-2 text-slate-300">|</span>
-                                <span className="font-medium text-slate-600">Topca (6)</span>{' '}
+                                <span className="font-medium text-slate-600">Topca</span>{' '}
                                 {formatStockValue(product.warehouseStocks?.['6'])}
                               </div>
-                            </div>
+                            </button>
                           </div>
                           <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
                             Teklife Ekle
@@ -1572,21 +1781,26 @@ export default function AdminQuoteNewPage() {
               />
               {searchLoading ? (
                 <div className="text-sm text-gray-500">Araniyor...</div>
-              ) : filteredSearchResults.length === 0 ? (
+              ) : sortedSearchResults.length === 0 ? (
                 <div className="text-sm text-gray-500">Arama sonucu yok.</div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 max-h-[60vh] overflow-y-auto pr-2">
-                  {filteredSearchResults.map((product) => (
-                    <div key={product.mikroCode} className="rounded-xl border border-gray-200 bg-white/90 p-4">
+                  {sortedSearchResults.map((product) => {
+                    const colorClass = getPoolColorClass(product);
+                    return (
+                    <div
+                      key={product.mikroCode}
+                      className={`rounded-xl border p-4 ${colorClass || 'border-gray-200 bg-white/90'}`}
+                    >
                       <div className="flex justify-between items-start gap-3">
                         <div>
                           <p className="font-semibold text-gray-900">{product.name}</p>
                           <p className="text-xs text-gray-500">{product.mikroCode}</p>
                           <div className="mt-1 text-xs text-slate-500">
-                            <span className="font-medium text-slate-600">Merkez (1)</span>{' '}
+                            <span className="font-medium text-slate-600">Merkez</span>{' '}
                             {formatStockValue(product.warehouseStocks?.['1'])}
                             <span className="mx-2 text-slate-300">|</span>
-                            <span className="font-medium text-slate-600">Topca (6)</span>{' '}
+                            <span className="font-medium text-slate-600">Topca</span>{' '}
                             {formatStockValue(product.warehouseStocks?.['6'])}
                           </div>
                         </div>
@@ -1595,7 +1809,8 @@ export default function AdminQuoteNewPage() {
                         </Button>
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </div>
