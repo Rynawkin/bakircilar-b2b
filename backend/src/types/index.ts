@@ -110,7 +110,10 @@ export interface MikroCari {
   isLocked: boolean;
   groupCode?: string;
   sectorCode?: string;
-  paymentTerm?: number;
+  paymentTerm?: number | null;
+  paymentPlanNo?: number | null;
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
   hasEInvoice: boolean;
   balance: number;
 }

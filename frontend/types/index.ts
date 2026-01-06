@@ -8,6 +8,9 @@ export interface User {
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode?: string;
   active?: boolean;
+  paymentPlanNo?: number | null;
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
 }
 
 export interface LoginRequest {
@@ -120,16 +123,19 @@ export interface PendingOrderForAdmin extends Order {
     name: string;
     email: string;
     mikroCariCode: string;
-    customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
-    city?: string;
-    district?: string;
-    phone?: string;
-    groupCode?: string;
-    sectorCode?: string;
-    paymentTerm?: number;
-    hasEInvoice?: boolean;
-    balance?: number;
-    isLocked?: boolean;
+  customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
+  city?: string;
+  district?: string;
+  phone?: string;
+  groupCode?: string;
+  sectorCode?: string;
+  paymentTerm?: number;
+  paymentPlanNo?: number | null;
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
+  hasEInvoice?: boolean;
+  balance?: number;
+  isLocked?: boolean;
   };
 }
 
@@ -269,6 +275,9 @@ export interface Customer {
   groupCode?: string;
   sectorCode?: string;
   paymentTerm?: number;
+  paymentPlanNo?: number | null;
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
   hasEInvoice?: boolean;
   balance?: number;
   isLocked?: boolean;

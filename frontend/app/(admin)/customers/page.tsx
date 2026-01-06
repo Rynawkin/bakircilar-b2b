@@ -27,9 +27,26 @@ interface MikroCari {
   groupCode?: string;
   sectorCode?: string;
   paymentTerm?: number;
+  paymentPlanNo?: number | null;
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
   hasEInvoice: boolean;
   balance: number;
 }
+
+const getPaymentPlanLabel = (cari: {
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
+  paymentTerm?: number | null;
+}) => {
+  if (cari.paymentPlanName || cari.paymentPlanCode) {
+    return [cari.paymentPlanCode, cari.paymentPlanName].filter(Boolean).join(' - ');
+  }
+  if (cari.paymentTerm !== undefined && cari.paymentTerm !== null) {
+    return `${cari.paymentTerm} gun`;
+  }
+  return '-';
+};
 
 export default function CustomersPage() {
   const router = useRouter();
@@ -314,8 +331,8 @@ export default function CustomersPage() {
                   />
 
                   <Input
-                    label="Vade Günü"
-                    value={selectedCari?.paymentTerm ? `${selectedCari.paymentTerm} gün` : ''}
+                    label="Vade Planı"
+                    value={selectedCari ? getPaymentPlanLabel(selectedCari) : ''}
                     readOnly
                     disabled={!selectedCari}
                     placeholder="Cari seçilince dolar"
@@ -433,7 +450,7 @@ export default function CustomersPage() {
                   <th className="px-4 py-3 font-medium">Telefon</th>
                   <th className="px-4 py-3 font-medium">Grup Kodu</th>
                   <th className="px-4 py-3 font-medium">Sektör Kodu</th>
-                  <th className="px-4 py-3 font-medium">Vade Günü</th>
+                  <th className="px-4 py-3 font-medium">Vade Planı</th>
                   <th className="px-4 py-3 font-medium">E-Fatura</th>
                   <th className="px-4 py-3 font-medium">Bakiye</th>
                   <th className="px-4 py-3 font-medium">Durum</th>
@@ -462,7 +479,7 @@ export default function CustomersPage() {
                       <td className="px-4 py-3 font-mono text-xs">{customer.phone || '-'}</td>
                       <td className="px-4 py-3 text-gray-600">{customer.groupCode || '-'}</td>
                       <td className="px-4 py-3 text-gray-600">{customer.sectorCode || '-'}</td>
-                      <td className="px-4 py-3 text-center">{customer.paymentTerm || '-'}</td>
+                      <td className="px-4 py-3 text-center">{getPaymentPlanLabel(customer)}</td>
                       <td className="px-4 py-3">
                         <Badge variant={customer.hasEInvoice ? 'success' : 'default'}>
                           {customer.hasEInvoice ? 'Evet' : 'Hayır'}

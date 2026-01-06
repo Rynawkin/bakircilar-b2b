@@ -279,9 +279,47 @@ export default function AdminQuotesPage() {
       const getImageFormat = (dataUrl: string) =>
         dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
 
+      const getImageDimensions = (dataUrl: string): Promise<{ width: number; height: number } | null> =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const width = img.naturalWidth || img.width;
+            const height = img.naturalHeight || img.height;
+            if (!width || !height) {
+              resolve(null);
+              return;
+            }
+            resolve({ width, height });
+          };
+          img.onerror = () => resolve(null);
+          img.src = dataUrl;
+        });
+
+      const fitWithin = (width: number, height: number, maxWidth: number, maxHeight: number) => {
+        if (!width || !height) {
+          return { width: maxWidth, height: maxHeight };
+        }
+        const ratio = width / height;
+        let fittedWidth = maxWidth;
+        let fittedHeight = fittedWidth / ratio;
+        if (fittedHeight > maxHeight) {
+          fittedHeight = maxHeight;
+          fittedWidth = fittedHeight * ratio;
+        }
+        return { width: fittedWidth, height: fittedHeight };
+      };
+
       const logoPath = '/quote-logo.png';
       const logoUrl = resolveImageUrl(logoPath);
       const logoData = logoUrl ? await loadImageData(logoUrl) : null;
+      const logoDimensions = logoData ? await getImageDimensions(logoData) : null;
+      const logoMaxWidth = 26;
+      const logoMaxHeight = 12;
+      const logoSize = logoData
+        ? logoDimensions
+          ? fitWithin(logoDimensions.width, logoDimensions.height, logoMaxWidth, logoMaxHeight)
+          : { width: logoMaxWidth, height: logoMaxHeight }
+        : null;
 
       let usdRate: number | null = null;
       try {
@@ -311,19 +349,21 @@ export default function AdminQuotesPage() {
       const createdByEmail = quote.createdBy?.email || '-';
       const createdByPhone = quote.createdBy?.phone || '-';
 
+      const headerHeight = 22;
       doc.setFillColor(...colors.primary);
-      doc.rect(0, 0, pageWidth, 22, 'F');
+      doc.rect(0, 0, pageWidth, headerHeight, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(11);
 
-      const brandTextX = logoData ? marginX + 26 : marginX;
+      const brandTextX = logoSize ? marginX + logoSize.width + 4 : marginX;
       doc.text(cleanPdfText('BAKIRCILAR KAMPANYA'), brandTextX, 13);
       doc.setFontSize(12);
       doc.text(cleanPdfText('TEKLIF FORMU'), pageWidth - marginX, 13, { align: 'right' });
 
-      if (logoData) {
+      if (logoData && logoSize) {
         const logoFormat = getImageFormat(logoData);
-        doc.addImage(logoData, logoFormat, marginX, 5, 22, 12);
+        const logoY = (headerHeight - logoSize.height) / 2;
+        doc.addImage(logoData, logoFormat, marginX, logoY, logoSize.width, logoSize.height);
       }
 
       const infoY = 28;
@@ -499,10 +539,15 @@ export default function AdminQuotesPage() {
           ? Math.max(0, Math.round((validDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)))
           : 0;
       const paymentTerm = quote.customer?.paymentTerm;
+      const paymentPlanLabel = quote.customer?.paymentPlanName || quote.customer?.paymentPlanCode
+        ? [quote.customer?.paymentPlanCode, quote.customer?.paymentPlanName].filter(Boolean).join(' - ')
+        : paymentTerm !== undefined && paymentTerm !== null
+          ? `${paymentTerm} gun`
+          : '-';
 
       const terms = [
         `Teklif gecerlilik suresi: ${validityDays} gun`,
-        paymentTerm ? `Vade: ${paymentTerm} gun` : 'Vade: -',
+        `Vade: ${paymentPlanLabel}`,
         'Fiyatlarimiza KDV dahil degildir.',
         'Dovizli islemlerde TCMB USD satis kuru baz alinir.',
         `USD satis kuru: ${usdRate ? formatRate(usdRate) : '-'}`,

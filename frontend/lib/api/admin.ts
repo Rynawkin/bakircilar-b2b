@@ -61,6 +61,9 @@ export const adminApi = {
     groupCode?: string;
     sectorCode?: string;
     paymentTerm?: number;
+    paymentPlanNo?: number | null;
+    paymentPlanCode?: string | null;
+    paymentPlanName?: string | null;
     hasEInvoice: boolean;
     balance: number;
   }> }> => {
@@ -80,6 +83,9 @@ export const adminApi = {
       groupCode?: string;
       sectorCode?: string;
       paymentTerm?: number;
+      paymentPlanNo?: number | null;
+      paymentPlanCode?: string | null;
+      paymentPlanName?: string | null;
       hasEInvoice: boolean;
       balance: number;
     }>;

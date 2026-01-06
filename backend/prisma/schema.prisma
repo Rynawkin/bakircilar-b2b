@@ -93,7 +93,10 @@ model User {
   isLocked            Boolean       @default(false) // Cari kilitli mi
   groupCode           String?       // Grup kodu
   sectorCode          String?       // Sektör kodu
-  paymentTerm         Int?          // Vade günü
+  paymentTerm         Int?          // Vade günü (deprecated - use payment plan)
+  paymentPlanNo       Int?
+  paymentPlanCode     String?
+  paymentPlanName     String?
   hasEInvoice         Boolean       @default(false) // E-fatura var mı
   balance             Float         @default(0) // Güncel bakiye (TL)
   balanceUpdatedAt    DateTime?     // Bakiye güncellenme tarihi

@@ -563,7 +563,10 @@ class MikroService {
     isLocked: boolean;
     groupCode?: string;
     sectorCode?: string;
-    paymentTerm?: number;
+    paymentTerm?: number | null;
+    paymentPlanNo?: number | null;
+    paymentPlanCode?: string | null;
+    paymentPlanName?: string | null;
     hasEInvoice: boolean;
     balance: number;
   }>> {
@@ -577,7 +580,9 @@ class MikroService {
         cari_grup_kodu as groupCode,
         cari_sektor_kodu as sectorCode,
         cari_CepTel as phone,
-        cari_odemeplan_no * -1 as paymentTerm,
+        ABS(cari_odemeplan_no) as paymentPlanNo,
+        odp.odp_kodu as paymentPlanCode,
+        odp.odp_adi as paymentPlanName,
         cari_efatura_fl as hasEInvoice,
 
         -- Adres bilgileri (1 numaralÄ± adres = ana adres)
@@ -590,6 +595,7 @@ class MikroService {
         dbo.fn_CariHesapAnaDovizBakiye('', 0, cari_kod, '', '', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL) as balance
 
       FROM CARI_HESAPLAR
+      LEFT JOIN ODEME_PLANLARI odp ON odp.odp_no = ABS(cari_odemeplan_no)
       WHERE cari_kod IS NOT NULL
         AND cari_kod != ''
       ORDER BY cari_unvan1
@@ -597,19 +603,28 @@ class MikroService {
 
     const result = await this.pool!.request().query(query);
 
-    return result.recordset.map((row: any) => ({
-      code: row.code,
-      name: row.name,
-      city: row.city,
-      district: row.district,
-      phone: row.phone,
-      isLocked: row.isLocked === 1,
-      groupCode: row.groupCode,
-      sectorCode: row.sectorCode,
-      paymentTerm: row.paymentTerm,
-      hasEInvoice: row.hasEInvoice === 1,
-      balance: row.balance || 0,
-    }));
+    return result.recordset.map((row: any) => {
+      const planCode = row.paymentPlanCode ? String(row.paymentPlanCode).trim() : '';
+      const planCodeNumber = planCode ? Number(planCode.replace(',', '.')) : NaN;
+      const paymentTerm = Number.isInteger(planCodeNumber) ? planCodeNumber : null;
+
+      return {
+        code: row.code,
+        name: row.name,
+        city: row.city,
+        district: row.district,
+        phone: row.phone,
+        isLocked: row.isLocked === 1,
+        groupCode: row.groupCode,
+        sectorCode: row.sectorCode,
+        paymentTerm,
+        paymentPlanNo: row.paymentPlanNo ? Number(row.paymentPlanNo) : null,
+        paymentPlanCode: planCode || null,
+        paymentPlanName: row.paymentPlanName ? String(row.paymentPlanName).trim() : null,
+        hasEInvoice: row.hasEInvoice === 1,
+        balance: row.balance || 0,
+      };
+    });
   }
 
   /**

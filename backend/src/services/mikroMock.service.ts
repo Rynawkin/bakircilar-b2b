@@ -470,7 +470,10 @@ export class MikroMockService {
     isLocked: boolean;
     groupCode?: string;
     sectorCode?: string;
-    paymentTerm?: number;
+    paymentTerm?: number | null;
+    paymentPlanNo?: number | null;
+    paymentPlanCode?: string | null;
+    paymentPlanName?: string | null;
     hasEInvoice: boolean;
     balance: number;
   }>> {
@@ -485,6 +488,9 @@ export class MikroMockService {
         groupCode: 'BAYI',
         sectorCode: 'SATIŞ',
         paymentTerm: 30,
+        paymentPlanNo: 1,
+        paymentPlanCode: '30',
+        paymentPlanName: '30 GUN VADE',
         hasEInvoice: true,
         balance: 15000,
       },
@@ -498,6 +504,9 @@ export class MikroMockService {
         groupCode: 'PERAKENDE',
         sectorCode: 'SATIŞ',
         paymentTerm: 15,
+        paymentPlanNo: 15,
+        paymentPlanCode: '15',
+        paymentPlanName: '15 GUN VADE',
         hasEInvoice: true,
         balance: -5000,
       },
@@ -511,6 +520,9 @@ export class MikroMockService {
         groupCode: 'VIP',
         sectorCode: 'SATIŞ',
         paymentTerm: 45,
+        paymentPlanNo: 8,
+        paymentPlanCode: '45',
+        paymentPlanName: '45 GUN VADE',
         hasEInvoice: false,
         balance: 0,
       },

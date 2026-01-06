@@ -13,6 +13,9 @@ interface CustomerInfo {
   groupCode?: string;
   sectorCode?: string;
   paymentTerm?: number;
+  paymentPlanNo?: number | null;
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
   hasEInvoice?: boolean;
   balance?: number;
   isLocked?: boolean;
@@ -38,6 +41,13 @@ const getCustomerTypeBadge = (type?: string) => {
 };
 
 export function CustomerInfoCard({ customer, compact = false }: CustomerInfoCardProps) {
+  const paymentPlanLabel =
+    customer.paymentPlanName || customer.paymentPlanCode
+      ? [customer.paymentPlanCode, customer.paymentPlanName].filter(Boolean).join(' - ')
+      : customer.paymentTerm !== undefined && customer.paymentTerm !== null
+        ? `${customer.paymentTerm} gun`
+        : null;
+
   if (compact) {
     return (
       <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
@@ -61,9 +71,9 @@ export function CustomerInfoCard({ customer, compact = false }: CustomerInfoCard
               <span className="font-medium">Telefon:</span> {customer.phone}
             </div>
           )}
-          {customer.paymentTerm !== undefined && customer.paymentTerm !== null && (
+          {paymentPlanLabel && (
             <div>
-              <span className="font-medium">Vade:</span> {customer.paymentTerm} gun
+              <span className="font-medium">Vade:</span> {paymentPlanLabel}
             </div>
           )}
         </div>
@@ -108,10 +118,10 @@ export function CustomerInfoCard({ customer, compact = false }: CustomerInfoCard
           </div>
         )}
 
-        {customer.paymentTerm !== undefined && customer.paymentTerm !== null && (
+        {paymentPlanLabel && (
           <div className="bg-white rounded p-3 shadow-sm">
-            <p className="text-gray-500 text-xs mb-1">Vade (Gun)</p>
-            <p className="font-semibold text-gray-900">{customer.paymentTerm} gun</p>
+            <p className="text-gray-500 text-xs mb-1">Vade</p>
+            <p className="font-semibold text-gray-900">{paymentPlanLabel}</p>
           </div>
         )}
 

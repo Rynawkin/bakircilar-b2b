@@ -335,6 +335,9 @@ export default function AdminQuoteNewPage() {
         groupCode: customer.groupCode,
         sectorCode: customer.sectorCode,
         paymentTerm: customer.paymentTerm,
+        paymentPlanNo: customer.paymentPlanNo ?? null,
+        paymentPlanCode: customer.paymentPlanCode ?? null,
+        paymentPlanName: customer.paymentPlanName ?? null,
         hasEInvoice: customer.hasEInvoice || false,
         balance: customer.balance || 0,
       }));

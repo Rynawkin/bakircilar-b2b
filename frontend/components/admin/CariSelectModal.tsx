@@ -17,6 +17,9 @@ interface MikroCari {
   groupCode?: string;
   sectorCode?: string;
   paymentTerm?: number;
+  paymentPlanNo?: number | null;
+  paymentPlanCode?: string | null;
+  paymentPlanName?: string | null;
   hasEInvoice: boolean;
   balance: number;
 }
@@ -65,6 +68,16 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
     setSelectedCari(null);
     setSearchTerm('');
     onClose();
+  };
+
+  const getPaymentPlanLabel = (cari: MikroCari) => {
+    if (cari.paymentPlanName || cari.paymentPlanCode) {
+      return [cari.paymentPlanCode, cari.paymentPlanName].filter(Boolean).join(' - ');
+    }
+    if (cari.paymentTerm !== undefined && cari.paymentTerm !== null) {
+      return `${cari.paymentTerm} gün`;
+    }
+    return '-';
   };
 
   return (
@@ -116,7 +129,7 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
               <p><span className="font-medium">Telefon:</span> {selectedCari.phone || '-'}</p>
               <p><span className="font-medium">Grup Kodu:</span> {selectedCari.groupCode || '-'}</p>
               <p><span className="font-medium">Sektör Kodu:</span> {selectedCari.sectorCode || '-'}</p>
-              <p><span className="font-medium">Vade:</span> {selectedCari.paymentTerm !== undefined ? `${selectedCari.paymentTerm} gün` : '-'}</p>
+              <p><span className="font-medium">Vade:</span> {getPaymentPlanLabel(selectedCari)}</p>
               <p className="col-span-2">
                 <span className="font-medium">Bakiye:</span>{' '}
                 <span className={selectedCari.balance >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
@@ -176,7 +189,7 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
                       {cari.sectorCode || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 text-center">
-                      {cari.paymentTerm !== undefined ? `${cari.paymentTerm} gün` : '-'}
+                      {getPaymentPlanLabel(cari)}
                     </td>
                     <td className="px-4 py-3 text-sm text-right font-medium">
                       <span className={cari.balance >= 0 ? 'text-green-600' : 'text-red-600'}>

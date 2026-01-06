@@ -78,6 +78,14 @@ export function CustomerEditModal({
     }
   }, [customer]);
 
+  const paymentPlanLabel = customer
+    ? customer.paymentPlanName || customer.paymentPlanCode
+      ? [customer.paymentPlanCode, customer.paymentPlanName].filter(Boolean).join(' - ')
+      : customer.paymentTerm !== undefined && customer.paymentTerm !== null
+        ? `${customer.paymentTerm} gun`
+        : '-'
+    : '-';
+
   useEffect(() => {
     if (!isOpen || !customer) return;
     setContactForm({ name: '', phone: '', email: '' });
@@ -456,9 +464,9 @@ export function CustomerEditModal({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Vade Günü</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Vade Planı</label>
               <div className="bg-white border border-gray-200 rounded px-3 py-2 text-sm text-gray-800">
-                {customer.paymentTerm ? `${customer.paymentTerm} gün` : '-'}
+                {paymentPlanLabel}
               </div>
             </div>
 
