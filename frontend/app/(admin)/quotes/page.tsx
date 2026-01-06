@@ -350,19 +350,14 @@ export default function AdminQuotesPage() {
       const createdByPhone = quote.createdBy?.phone || '-';
 
       const headerHeight = 28;
-      doc.setFillColor(...colors.primary);
+      doc.setFillColor(255, 255, 255);
       doc.rect(0, 0, pageWidth, headerHeight, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(11);
-
-      const headerTextY = headerHeight / 2 + 2;
-      doc.setFontSize(12);
-      doc.text(cleanPdfText('TEKLIF FORMU'), pageWidth - marginX, headerTextY, { align: 'right' });
 
       if (logoData && logoSize) {
         const logoFormat = getImageFormat(logoData);
         const logoY = (headerHeight - logoSize.height) / 2;
-        doc.addImage(logoData, logoFormat, marginX, logoY, logoSize.width, logoSize.height);
+        const logoX = (pageWidth - logoSize.width) / 2;
+        doc.addImage(logoData, logoFormat, logoX, logoY, logoSize.width, logoSize.height);
       }
 
       const infoY = 28;
