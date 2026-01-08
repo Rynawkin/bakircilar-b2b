@@ -17,6 +17,7 @@ import {
   Tag,
   Ban,
   FileText,
+  ListTodo,
   Settings,
   ChevronDown,
   Menu as MenuIcon,
@@ -38,6 +39,7 @@ const navItems: NavItem[] = [
   { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler' },
   { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi' },
   { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi' },
+  { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Gorev ve talepler' },
   { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları' },
   { name: 'Raporlar', href: '/reports', icon: BarChart3, description: 'Raporlar ve analizler' },
 ];
@@ -72,7 +74,8 @@ export function AdminNavigation() {
         item.href === '/orders' ||
         item.href === '/order-tracking' ||
         item.href === '/quotes' ||
-        item.href === '/customers'
+        item.href === '/customers' ||
+        item.href === '/requests'
       );
     }
     // ADMIN, MANAGER, HEAD_ADMIN tüm menüleri görsün

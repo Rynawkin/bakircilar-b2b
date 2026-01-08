@@ -239,6 +239,116 @@ export interface Quote {
   };
 }
 
+// ==================== TASK TYPES ====================
+
+export type TaskStatus = 'NEW' | 'TRIAGE' | 'IN_PROGRESS' | 'WAITING' | 'REVIEW' | 'DONE' | 'CANCELLED';
+export type TaskPriority = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type TaskType =
+  | 'BUG'
+  | 'IMPROVEMENT'
+  | 'FEATURE'
+  | 'OPERATION'
+  | 'PROCUREMENT'
+  | 'REPORT'
+  | 'DATA_SYNC'
+  | 'ACCESS'
+  | 'DESIGN_UX'
+  | 'OTHER';
+export type TaskVisibility = 'PUBLIC' | 'INTERNAL';
+export type TaskLinkType = 'PRODUCT' | 'QUOTE' | 'ORDER' | 'CUSTOMER' | 'PAGE' | 'OTHER';
+export type TaskView = 'KANBAN' | 'LIST';
+
+export interface TaskUser {
+  id: string;
+  name: string;
+  email?: string;
+  role?: string;
+}
+
+export interface TaskLink {
+  id: string;
+  type: TaskLinkType;
+  label?: string | null;
+  referenceId?: string | null;
+  referenceCode?: string | null;
+  referenceUrl?: string | null;
+}
+
+export interface TaskComment {
+  id: string;
+  body: string;
+  visibility: TaskVisibility;
+  createdAt: string;
+  author: TaskUser;
+}
+
+export interface TaskAttachment {
+  id: string;
+  fileName: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  visibility: TaskVisibility;
+  createdAt: string;
+  uploadedBy: TaskUser;
+}
+
+export interface TaskStatusHistory {
+  id: string;
+  fromStatus?: TaskStatus | null;
+  toStatus: TaskStatus;
+  createdAt: string;
+  changedBy?: TaskUser | null;
+}
+
+export interface TaskTemplate {
+  id: string;
+  title: string;
+  description?: string | null;
+  type: TaskType;
+  priority: TaskPriority;
+  defaultStatus: TaskStatus;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description?: string | null;
+  type: TaskType;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastActivityAt: string;
+  completedAt?: string | null;
+  createdBy: TaskUser;
+  assignedTo?: TaskUser | null;
+  customer?: {
+    id: string;
+    name: string;
+    displayName?: string;
+    mikroName?: string;
+    mikroCariCode?: string;
+    sectorCode?: string;
+  } | null;
+  links?: TaskLink[];
+  _count?: {
+    comments: number;
+    attachments: number;
+  };
+}
+
+export interface TaskDetail extends Task {
+  comments: TaskComment[];
+  attachments: TaskAttachment[];
+  statusHistory: TaskStatusHistory[];
+}
+
 // ==================== SETTINGS TYPES ====================
 
 export interface Settings {

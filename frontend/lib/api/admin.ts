@@ -15,6 +15,13 @@ import {
   CategoryWithPriceRules,
   SetPriceRuleRequest,
   DashboardStats,
+  Task,
+  TaskDetail,
+  TaskTemplate,
+  TaskView,
+  TaskComment,
+  TaskAttachment,
+  TaskLink,
 } from '@/types';
 
 export const adminApi = {
@@ -294,6 +301,137 @@ export const adminApi = {
 
   getUsdSellingRate: async (): Promise<{ currency: string; rate: number; fetchedAt: string; source: string }> => {
     const response = await apiClient.get('/admin/exchange/usd');
+    return response.data;
+  },
+
+  // Tasks
+  getTaskPreferences: async (): Promise<{ preferences: { defaultView: TaskView } }> => {
+    const response = await apiClient.get('/admin/tasks/preferences');
+    return response.data;
+  },
+
+  updateTaskPreferences: async (defaultView: TaskView): Promise<{ preferences: { defaultView: TaskView } }> => {
+    const response = await apiClient.put('/admin/tasks/preferences', { defaultView });
+    return response.data;
+  },
+
+  getTaskAssignees: async (): Promise<{ assignees: Array<{ id: string; name: string; email?: string; role?: string }> }> => {
+    const response = await apiClient.get('/admin/tasks/assignees');
+    return response.data;
+  },
+
+  getTasks: async (params?: {
+    status?: string | string[];
+    type?: string;
+    priority?: string;
+    assignedToId?: string;
+    createdById?: string;
+    customerId?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ tasks: Task[] }> => {
+    const response = await apiClient.get('/admin/tasks', { params });
+    return response.data;
+  },
+
+  getTaskById: async (id: string): Promise<{ task: TaskDetail }> => {
+    const response = await apiClient.get(`/admin/tasks/${id}`);
+    return response.data;
+  },
+
+  createTask: async (data: {
+    title?: string;
+    description?: string | null;
+    type?: string;
+    status?: string;
+    priority?: string;
+    dueDate?: string | null;
+    assignedToId?: string | null;
+    customerId?: string | null;
+    templateId?: string | null;
+    links?: Array<{
+      type: string;
+      label?: string;
+      referenceId?: string;
+      referenceCode?: string;
+      referenceUrl?: string;
+    }>;
+  }): Promise<{ task: TaskDetail }> => {
+    const response = await apiClient.post('/admin/tasks', data);
+    return response.data;
+  },
+
+  updateTask: async (id: string, data: {
+    title?: string;
+    description?: string | null;
+    type?: string;
+    status?: string;
+    priority?: string;
+    dueDate?: string | null;
+    assignedToId?: string | null;
+    customerId?: string | null;
+  }): Promise<{ task: TaskDetail }> => {
+    const response = await apiClient.put(`/admin/tasks/${id}`, data);
+    return response.data;
+  },
+
+  addTaskComment: async (id: string, data: { body: string; visibility?: string }): Promise<{ comment: TaskComment }> => {
+    const response = await apiClient.post(`/admin/tasks/${id}/comments`, data);
+    return response.data;
+  },
+
+  addTaskAttachment: async (id: string, formData: FormData): Promise<{ attachment: TaskAttachment }> => {
+    const response = await apiClient.post(`/admin/tasks/${id}/attachments`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  addTaskLink: async (id: string, data: {
+    type: string;
+    label?: string;
+    referenceId?: string;
+    referenceCode?: string;
+    referenceUrl?: string;
+  }): Promise<{ link: TaskLink }> => {
+    const response = await apiClient.post(`/admin/tasks/${id}/links`, data);
+    return response.data;
+  },
+
+  deleteTaskLink: async (id: string, linkId: string): Promise<{ success: boolean }> => {
+    const response = await apiClient.delete(`/admin/tasks/${id}/links/${linkId}`);
+    return response.data;
+  },
+
+  getTaskTemplates: async (activeOnly = true): Promise<{ templates: TaskTemplate[] }> => {
+    const response = await apiClient.get('/admin/tasks/templates', {
+      params: { activeOnly },
+    });
+    return response.data;
+  },
+
+  createTaskTemplate: async (data: {
+    title: string;
+    description?: string | null;
+    type: string;
+    priority?: string;
+    defaultStatus?: string;
+    isActive?: boolean;
+  }): Promise<{ template: TaskTemplate }> => {
+    const response = await apiClient.post('/admin/tasks/templates', data);
+    return response.data;
+  },
+
+  updateTaskTemplate: async (id: string, data: {
+    title?: string;
+    description?: string | null;
+    type?: string;
+    priority?: string;
+    defaultStatus?: string;
+    isActive?: boolean;
+  }): Promise<{ template: TaskTemplate }> => {
+    const response = await apiClient.put(`/admin/tasks/templates/${id}`, data);
     return response.data;
   },
 

@@ -64,6 +64,56 @@ enum CostCalculationMethod {
   DYNAMIC         // Dinamik hesaplama (tarih ve fiyat farklarına göre)
 }
 
+enum TaskStatus {
+  NEW
+  TRIAGE
+  IN_PROGRESS
+  WAITING
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskType {
+  BUG
+  IMPROVEMENT
+  FEATURE
+  OPERATION
+  PROCUREMENT
+  REPORT
+  DATA_SYNC
+  ACCESS
+  DESIGN_UX
+  OTHER
+}
+
+enum TaskVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+enum TaskLinkType {
+  PRODUCT
+  QUOTE
+  ORDER
+  CUSTOMER
+  PAGE
+  OTHER
+}
+
+enum TaskView {
+  KANBAN
+  LIST
+}
+
 // ==================== USERS ====================
 
 model User {
@@ -88,6 +138,7 @@ model User {
   quoteColumnWidths    Json?
   quotePoolSort        String?
   quotePoolColorRules  Json?
+  taskDefaultView       TaskView    @default(KANBAN)
 
   // Mikro'dan senkronize edilen cari bilgileri
   city                String?       // Şehir
@@ -120,6 +171,10 @@ model User {
   createdQuotes      Quote[]       @relation("QuoteCreator")
   adminQuotes        Quote[]       @relation("QuoteAdmin")
   contacts           CustomerContact[]
+  createdTasks       Task[]       @relation("TaskCreator")
+  assignedTasks      Task[]       @relation("TaskAssignee")
+  customerTasks      Task[]       @relation("TaskCustomer")
+  taskTemplates      TaskTemplate[] @relation("TaskTemplateCreator")
 
   @@index([email])
   @@index([role])
@@ -827,4 +882,125 @@ model ReportExclusion {
   @@index([type])
   @@index([active])
   @@index([value])
+}
+
+// ==================== TASKS ====================
+
+model Task {
+  id              String        @id @default(uuid())
+  title           String
+  description     String?
+  type            TaskType
+  status          TaskStatus    @default(NEW)
+  priority        TaskPriority  @default(NONE)
+  dueDate         DateTime?
+
+  createdById     String
+  createdBy       User          @relation("TaskCreator", fields: [createdById], references: [id])
+  assignedToId    String?
+  assignedTo      User?         @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  customerId      String?
+  customer        User?         @relation("TaskCustomer", fields: [customerId], references: [id])
+  sectorCode      String?
+
+  templateId      String?
+  template        TaskTemplate? @relation(fields: [templateId], references: [id])
+
+  lastActivityAt  DateTime      @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  comments        TaskComment[]
+  attachments     TaskAttachment[]
+  links           TaskLink[]
+  statusHistory   TaskStatusHistory[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([type])
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([customerId])
+  @@index([sectorCode])
+  @@index([lastActivityAt])
+}
+
+model TaskComment {
+  id          String          @id @default(uuid())
+  taskId      String
+  task        Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User            @relation(fields: [authorId], references: [id])
+  body        String
+  visibility  TaskVisibility  @default(PUBLIC)
+  createdAt   DateTime        @default(now())
+
+  @@index([taskId])
+  @@index([authorId])
+}
+
+model TaskAttachment {
+  id            String          @id @default(uuid())
+  taskId        String
+  task          Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedById  String
+  uploadedBy    User            @relation(fields: [uploadedById], references: [id])
+  fileName      String
+  originalName  String
+  mimeType      String
+  size          Int
+  url           String
+  visibility    TaskVisibility  @default(PUBLIC)
+  createdAt     DateTime        @default(now())
+
+  @@index([taskId])
+  @@index([uploadedById])
+}
+
+model TaskLink {
+  id            String        @id @default(uuid())
+  taskId        String
+  task          Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  type          TaskLinkType
+  label         String?
+  referenceId   String?
+  referenceCode String?
+  referenceUrl  String?
+  createdAt     DateTime      @default(now())
+
+  @@index([taskId])
+  @@index([type])
+}
+
+model TaskStatusHistory {
+  id            String       @id @default(uuid())
+  taskId        String
+  task          Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fromStatus    TaskStatus?
+  toStatus      TaskStatus
+  changedById   String?
+  changedBy     User?        @relation(fields: [changedById], references: [id])
+  createdAt     DateTime     @default(now())
+
+  @@index([taskId])
+  @@index([changedById])
+}
+
+model TaskTemplate {
+  id            String        @id @default(uuid())
+  title         String
+  description   String?
+  type          TaskType
+  priority      TaskPriority  @default(NONE)
+  defaultStatus TaskStatus    @default(NEW)
+  checklist     Json?
+  isActive      Boolean       @default(true)
+
+  createdById   String?
+  createdBy     User?         @relation("TaskTemplateCreator", fields: [createdById], references: [id])
+  tasks         Task[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }

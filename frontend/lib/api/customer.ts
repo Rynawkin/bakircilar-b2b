@@ -10,6 +10,11 @@ import {
   AddToCartRequest,
   Order,
   Quote,
+  Task,
+  TaskDetail,
+  TaskView,
+  TaskComment,
+  TaskAttachment,
 } from '@/types';
 
 export const customerApi = {
@@ -96,6 +101,54 @@ export const customerApi = {
 
   rejectQuote: async (id: string): Promise<{ quote: Quote }> => {
     const response = await apiClient.post(`/quotes/${id}/reject`);
+    return response.data;
+  },
+
+  // Tasks (customer)
+  getTaskPreferences: async (): Promise<{ preferences: { defaultView: TaskView } }> => {
+    const response = await apiClient.get('/tasks/preferences');
+    return response.data;
+  },
+
+  updateTaskPreferences: async (defaultView: TaskView): Promise<{ preferences: { defaultView: TaskView } }> => {
+    const response = await apiClient.put('/tasks/preferences', { defaultView });
+    return response.data;
+  },
+
+  getTasks: async (params?: {
+    status?: string | string[];
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ tasks: Task[] }> => {
+    const response = await apiClient.get('/tasks', { params });
+    return response.data;
+  },
+
+  getTaskById: async (id: string): Promise<{ task: TaskDetail }> => {
+    const response = await apiClient.get(`/tasks/${id}`);
+    return response.data;
+  },
+
+  createTask: async (data: {
+    title: string;
+    description?: string | null;
+    type?: string;
+    priority?: string;
+  }): Promise<{ task: TaskDetail }> => {
+    const response = await apiClient.post('/tasks', data);
+    return response.data;
+  },
+
+  addTaskComment: async (id: string, data: { body: string }): Promise<{ comment: TaskComment }> => {
+    const response = await apiClient.post(`/tasks/${id}/comments`, data);
+    return response.data;
+  },
+
+  addTaskAttachment: async (id: string, formData: FormData): Promise<{ attachment: TaskAttachment }> => {
+    const response = await apiClient.post(`/tasks/${id}/attachments`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   },
 };

@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import adminController from '../controllers/admin.controller';
 import quoteController from '../controllers/quote.controller';
+import taskController from '../controllers/task.controller';
 import {
   authenticate,
   requireAdmin,
@@ -14,7 +15,7 @@ import {
   requireStaffOrDiversey
 } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
-import { upload } from '../middleware/upload.middleware';
+import { upload, taskUpload } from '../middleware/upload.middleware';
 import { z } from 'zod';
 
 const router = Router();
@@ -41,6 +42,91 @@ const productPriceOverrideSchema = z.object({
   productId: z.string().uuid(),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']),
   profitMargin: z.number().min(0).max(5),
+});
+
+const taskStatusSchema = z.enum(['NEW', 'TRIAGE', 'IN_PROGRESS', 'WAITING', 'REVIEW', 'DONE', 'CANCELLED']);
+const taskPrioritySchema = z.enum(['NONE', 'LOW', 'MEDIUM', 'HIGH', 'URGENT']);
+const taskTypeSchema = z.enum([
+  'BUG',
+  'IMPROVEMENT',
+  'FEATURE',
+  'OPERATION',
+  'PROCUREMENT',
+  'REPORT',
+  'DATA_SYNC',
+  'ACCESS',
+  'DESIGN_UX',
+  'OTHER',
+]);
+const taskVisibilitySchema = z.enum(['PUBLIC', 'INTERNAL']);
+const taskLinkTypeSchema = z.enum(['PRODUCT', 'QUOTE', 'ORDER', 'CUSTOMER', 'PAGE', 'OTHER']);
+const taskViewSchema = z.enum(['KANBAN', 'LIST']);
+
+const taskLinkSchema = z.object({
+  type: taskLinkTypeSchema,
+  label: z.string().optional(),
+  referenceId: z.string().optional(),
+  referenceCode: z.string().optional(),
+  referenceUrl: z.string().optional(),
+});
+
+const createTaskSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  type: taskTypeSchema.optional(),
+  status: taskStatusSchema.optional(),
+  priority: taskPrioritySchema.optional(),
+  dueDate: z.string().optional().nullable(),
+  assignedToId: z.string().uuid().optional().nullable(),
+  customerId: z.string().uuid().optional().nullable(),
+  templateId: z.string().uuid().optional().nullable(),
+  links: z.array(taskLinkSchema).optional(),
+});
+
+const updateTaskSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  type: taskTypeSchema.optional(),
+  status: taskStatusSchema.optional(),
+  priority: taskPrioritySchema.optional(),
+  dueDate: z.string().optional().nullable(),
+  assignedToId: z.string().uuid().optional().nullable(),
+  customerId: z.string().uuid().optional().nullable(),
+});
+
+const taskCommentSchema = z.object({
+  body: z.string().min(1),
+  visibility: taskVisibilitySchema.optional(),
+});
+
+const taskLinkCreateSchema = z.object({
+  type: taskLinkTypeSchema,
+  label: z.string().optional(),
+  referenceId: z.string().optional(),
+  referenceCode: z.string().optional(),
+  referenceUrl: z.string().optional(),
+});
+
+const taskTemplateSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional().nullable(),
+  type: taskTypeSchema,
+  priority: taskPrioritySchema.optional(),
+  defaultStatus: taskStatusSchema.optional(),
+  isActive: z.boolean().optional(),
+});
+
+const taskTemplateUpdateSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  type: taskTypeSchema.optional(),
+  priority: taskPrioritySchema.optional(),
+  defaultStatus: taskStatusSchema.optional(),
+  isActive: z.boolean().optional(),
+});
+
+const taskPreferencesSchema = z.object({
+  defaultView: taskViewSchema,
 });
 
 // Settings - ADMIN only
@@ -100,6 +186,22 @@ router.get('/quotes/:id', requireStaff, quoteController.getQuoteById);
 router.post('/quotes/:id/sync', requireStaff, quoteController.syncQuoteFromMikro);
 router.post('/quotes/:id/approve', requireAdmin, quoteController.approveQuote);
 router.post('/quotes/:id/reject', requireAdmin, quoteController.rejectQuote);
+
+// Tasks (Talepler) - Staff access
+router.get('/tasks/preferences', requireStaff, taskController.getPreferences);
+router.put('/tasks/preferences', requireStaff, validateBody(taskPreferencesSchema), taskController.updatePreferences);
+router.get('/tasks/assignees', requireStaff, taskController.getAssignees);
+router.get('/tasks/templates', requireStaff, taskController.getTemplates);
+router.post('/tasks/templates', requireAdminOrManager, validateBody(taskTemplateSchema), taskController.createTemplate);
+router.put('/tasks/templates/:id', requireAdminOrManager, validateBody(taskTemplateUpdateSchema), taskController.updateTemplate);
+router.get('/tasks', requireStaff, taskController.getTasks);
+router.post('/tasks', requireStaff, validateBody(createTaskSchema), taskController.createTask);
+router.get('/tasks/:id', requireStaff, taskController.getTaskById);
+router.put('/tasks/:id', requireStaff, validateBody(updateTaskSchema), taskController.updateTask);
+router.post('/tasks/:id/comments', requireStaff, validateBody(taskCommentSchema), taskController.addComment);
+router.post('/tasks/:id/attachments', requireStaff, taskUpload.single('file'), taskController.addAttachment);
+router.post('/tasks/:id/links', requireStaff, validateBody(taskLinkCreateSchema), taskController.addLink);
+router.delete('/tasks/:id/links/:linkId', requireStaff, taskController.deleteLink);
 
 // Exchange rates
 router.get('/exchange/usd', requireStaff, adminController.getUsdSellingRate);

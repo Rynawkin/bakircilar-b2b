@@ -11,6 +11,7 @@ import {
   Package,
   Clock,
   FileText,
+  ListTodo,
   User,
   Settings,
   LogOut,
@@ -43,6 +44,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
     { name: 'Siparişlerim', href: '/my-orders', icon: Package },
     { name: 'Tekliflerim', href: '/my-quotes', icon: FileText },
+    { name: 'Taleplerim', href: '/my-requests', icon: ListTodo },
   ];
 
   const isActive = (href: string) => pathname === href;

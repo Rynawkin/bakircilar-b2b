@@ -5,7 +5,9 @@
 import { Router } from 'express';
 import customerController from '../controllers/customer.controller';
 import quoteController from '../controllers/quote.controller';
+import taskController from '../controllers/task.controller';
 import { authenticate, requireCustomer } from '../middleware/auth.middleware';
+import { taskUpload } from '../middleware/upload.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { cacheMiddleware, invalidateCacheMiddleware } from '../middleware/cache.middleware';
 import { z } from 'zod';
@@ -25,6 +27,37 @@ const addToCartSchema = z.object({
 
 const updateCartItemSchema = z.object({
   quantity: z.number().int().min(1, 'Quantity must be at least 1'),
+});
+
+const taskTypeSchema = z.enum([
+  'BUG',
+  'IMPROVEMENT',
+  'FEATURE',
+  'OPERATION',
+  'PROCUREMENT',
+  'REPORT',
+  'DATA_SYNC',
+  'ACCESS',
+  'DESIGN_UX',
+  'OTHER',
+]);
+const taskPrioritySchema = z.enum(['NONE', 'LOW', 'MEDIUM', 'HIGH', 'URGENT']);
+const taskStatusSchema = z.enum(['NEW', 'TRIAGE', 'IN_PROGRESS', 'WAITING', 'REVIEW', 'DONE', 'CANCELLED']);
+const taskViewSchema = z.enum(['KANBAN', 'LIST']);
+
+const createCustomerTaskSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional().nullable(),
+  type: taskTypeSchema.optional(),
+  priority: taskPrioritySchema.optional(),
+});
+
+const taskCommentSchema = z.object({
+  body: z.string().min(1),
+});
+
+const taskPreferencesSchema = z.object({
+  defaultView: taskViewSchema,
 });
 
 // Products (with cache - 5 minutes TTL)
@@ -107,5 +140,14 @@ router.get('/quotes', requireCustomer, quoteController.getCustomerQuotes);
 router.get('/quotes/:id', requireCustomer, quoteController.getCustomerQuoteById);
 router.post('/quotes/:id/accept', requireCustomer, quoteController.acceptQuote);
 router.post('/quotes/:id/reject', requireCustomer, quoteController.rejectCustomerQuote);
+
+// Tasks (customer)
+router.get('/tasks/preferences', requireCustomer, taskController.getPreferences);
+router.put('/tasks/preferences', requireCustomer, validateBody(taskPreferencesSchema), taskController.updatePreferences);
+router.get('/tasks', requireCustomer, taskController.getCustomerTasks);
+router.post('/tasks', requireCustomer, validateBody(createCustomerTaskSchema), taskController.createCustomerTask);
+router.get('/tasks/:id', requireCustomer, taskController.getCustomerTaskById);
+router.post('/tasks/:id/comments', requireCustomer, validateBody(taskCommentSchema), taskController.addCustomerComment);
+router.post('/tasks/:id/attachments', requireCustomer, taskUpload.single('file'), taskController.addCustomerAttachment);
 
 export default router;
