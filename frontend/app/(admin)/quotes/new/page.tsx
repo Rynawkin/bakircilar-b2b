@@ -1685,7 +1685,7 @@ export default function AdminQuoteNewPage() {
             <div className="text-sm text-gray-500">Teklife urun eklenmedi.</div>
           ) : (
             <div
-              className="overflow-x-auto overflow-y-visible rounded-2xl border border-slate-200/80 bg-white"
+              className="max-h-[70vh] overflow-x-auto overflow-y-auto rounded-2xl border border-slate-200/80 bg-white"
               onDragOver={handleTableDragOver}
             >
               <table className="w-full min-w-[1100px] table-fixed text-sm">
@@ -1694,50 +1694,50 @@ export default function AdminQuoteNewPage() {
                     <col key={key} style={{ width: `${getColumnWidth(key)}px` }} />
                   ))}
                 </colgroup>
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-gray-600">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wide text-gray-600">
                   <tr>
-                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
                       #
                       {renderResizeHandle('rowNumber')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
                       Urun
                       {renderResizeHandle('product')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
                       Miktar
                       {renderResizeHandle('quantity')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
                       Fiyat Kaynagi
                       {renderResizeHandle('priceSource')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
                       Secim
                       {renderResizeHandle('selection')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-right bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-right bg-slate-50">
                       Birim Fiyat
                       {renderResizeHandle('unitPrice')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-right bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-right bg-slate-50">
                       Toplam
                       {renderResizeHandle('lineTotal')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
                       KDV
                       {renderResizeHandle('vat')}
                     </th>
                     {selectedColumns.map((column) => (
                       <th
                         key={column}
-                        className="relative select-none px-3 py-2 text-left whitespace-nowrap bg-slate-50 sticky top-0 z-10"
+                        className="relative select-none px-3 py-2 text-left whitespace-nowrap bg-slate-50"
                       >
                         {getColumnDisplayName(column)}
                         {renderResizeHandle(`stock:${column}`)}
                       </th>
                     ))}
-                    <th className="px-3 py-2 bg-slate-50 sticky top-0 z-10"></th>
+                    <th className="px-3 py-2 bg-slate-50"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
