@@ -138,6 +138,7 @@ model User {
   quoteColumnWidths    Json?
   quotePoolSort        String?
   quotePoolColorRules  Json?
+  taskColorRules       Json?
   taskDefaultView       TaskView    @default(KANBAN)
 
   // Mikro'dan senkronize edilen cari bilgileri
@@ -178,6 +179,7 @@ model User {
   taskComments       TaskComment[] @relation("TaskCommentAuthor")
   taskAttachments    TaskAttachment[] @relation("TaskAttachmentUploader")
   taskStatusChanges  TaskStatusHistory[] @relation("TaskStatusChanger")
+  notifications      Notification[]
 
   @@index([email])
   @@index([role])
@@ -1006,4 +1008,18 @@ model TaskTemplate {
 
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String?
+  linkUrl   String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
 }

@@ -24,10 +24,14 @@ export class TaskController {
   async updatePreferences(req: Request, res: Response, next: NextFunction) {
     try {
       const view = req.body?.defaultView as TaskView | undefined;
-      if (!view) {
-        return res.status(400).json({ error: 'defaultView is required' });
+      const colorRules = req.body?.colorRules as unknown[] | undefined;
+      if (!view && colorRules === undefined) {
+        return res.status(400).json({ error: 'defaultView or colorRules is required' });
       }
-      const preferences = await taskService.updatePreferences(req.user!.userId, view);
+      const preferences = await taskService.updatePreferences(req.user!.userId, {
+        defaultView: view,
+        colorRules,
+      });
       res.json({ preferences });
     } catch (error) {
       next(error);

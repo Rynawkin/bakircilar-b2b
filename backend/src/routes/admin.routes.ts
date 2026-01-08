@@ -6,6 +6,7 @@ import { Router } from 'express';
 import adminController from '../controllers/admin.controller';
 import quoteController from '../controllers/quote.controller';
 import taskController from '../controllers/task.controller';
+import notificationController from '../controllers/notification.controller';
 import {
   authenticate,
   requireAdmin,
@@ -126,7 +127,12 @@ const taskTemplateUpdateSchema = z.object({
 });
 
 const taskPreferencesSchema = z.object({
-  defaultView: taskViewSchema,
+  defaultView: taskViewSchema.optional(),
+  colorRules: z.array(z.any()).optional(),
+});
+
+const notificationReadSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1),
 });
 
 // Settings - ADMIN only
@@ -202,6 +208,11 @@ router.post('/tasks/:id/comments', requireStaff, validateBody(taskCommentSchema)
 router.post('/tasks/:id/attachments', requireStaff, taskUpload.single('file'), taskController.addAttachment);
 router.post('/tasks/:id/links', requireStaff, validateBody(taskLinkCreateSchema), taskController.addLink);
 router.delete('/tasks/:id/links/:linkId', requireStaff, taskController.deleteLink);
+
+// Notifications
+router.get('/notifications', requireStaff, notificationController.getNotifications);
+router.post('/notifications/read', requireStaff, validateBody(notificationReadSchema), notificationController.markRead);
+router.post('/notifications/read-all', requireStaff, notificationController.markAllRead);
 
 // Exchange rates
 router.get('/exchange/usd', requireStaff, adminController.getUsdSellingRate);

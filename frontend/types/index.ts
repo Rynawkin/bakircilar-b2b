@@ -349,6 +349,15 @@ export interface TaskDetail extends Task {
   statusHistory: TaskStatusHistory[];
 }
 
+export interface Notification {
+  id: string;
+  title: string;
+  body?: string | null;
+  linkUrl?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
 // ==================== SETTINGS TYPES ====================
 
 export interface Settings {

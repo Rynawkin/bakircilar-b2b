@@ -15,6 +15,7 @@ import {
   TaskView,
   TaskComment,
   TaskAttachment,
+  Notification,
 } from '@/types';
 
 export const customerApi = {
@@ -105,13 +106,13 @@ export const customerApi = {
   },
 
   // Tasks (customer)
-  getTaskPreferences: async (): Promise<{ preferences: { defaultView: TaskView } }> => {
+  getTaskPreferences: async (): Promise<{ preferences: { defaultView: TaskView; colorRules?: any[] | null } }> => {
     const response = await apiClient.get('/tasks/preferences');
     return response.data;
   },
 
-  updateTaskPreferences: async (defaultView: TaskView): Promise<{ preferences: { defaultView: TaskView } }> => {
-    const response = await apiClient.put('/tasks/preferences', { defaultView });
+  updateTaskPreferences: async (data: { defaultView?: TaskView; colorRules?: any[] | null }): Promise<{ preferences: { defaultView: TaskView; colorRules?: any[] | null } }> => {
+    const response = await apiClient.put('/tasks/preferences', data);
     return response.data;
   },
 
@@ -149,6 +150,22 @@ export const customerApi = {
     const response = await apiClient.post(`/tasks/${id}/attachments`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
+    return response.data;
+  },
+
+  // Notifications
+  getNotifications: async (params?: { unreadOnly?: boolean; limit?: number; offset?: number }): Promise<{ notifications: Notification[]; unreadCount: number }> => {
+    const response = await apiClient.get('/notifications', { params });
+    return response.data;
+  },
+
+  markNotificationsRead: async (ids: string[]): Promise<{ updated: number }> => {
+    const response = await apiClient.post('/notifications/read', { ids });
+    return response.data;
+  },
+
+  markNotificationsReadAll: async (): Promise<{ updated: number }> => {
+    const response = await apiClient.post('/notifications/read-all');
     return response.data;
   },
 };

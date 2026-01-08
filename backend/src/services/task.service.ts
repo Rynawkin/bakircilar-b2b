@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { splitSearchTokens } from '../utils/search';
+import notificationService from './notification.service';
 import {
   TaskPriority,
   TaskStatus,
@@ -11,6 +12,8 @@ import {
 } from '@prisma/client';
 
 const STAFF_ROLES: UserRole[] = ['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP'];
+const TASK_COLOR_OPTIONS = ['red', 'purple', 'amber', 'blue', 'slate', 'green'];
+const TASK_NOTIFICATION_LINK = '/requests';
 
 const isAdminRole = (role?: string) =>
   role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
@@ -79,22 +82,57 @@ class TaskService {
   async getPreferences(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { taskDefaultView: true },
+      select: { taskDefaultView: true, taskColorRules: true },
     });
     return {
       defaultView: user?.taskDefaultView || TaskView.KANBAN,
+      colorRules: this.sanitizeColorRules(user?.taskColorRules) || null,
     };
   }
 
-  async updatePreferences(userId: string, view: TaskView) {
+  async updatePreferences(userId: string, data: {
+    defaultView?: TaskView;
+    colorRules?: unknown[] | null;
+  }) {
+    const updateData: any = {};
+    if (data.defaultView) {
+      updateData.taskDefaultView = data.defaultView;
+    }
+    if (data.colorRules !== undefined) {
+      updateData.taskColorRules = this.sanitizeColorRules(data.colorRules);
+    }
+    if (Object.keys(updateData).length === 0) {
+      const current = await this.getPreferences(userId);
+      return current;
+    }
     const user = await prisma.user.update({
       where: { id: userId },
-      data: { taskDefaultView: view },
-      select: { taskDefaultView: true },
+      data: updateData,
+      select: { taskDefaultView: true, taskColorRules: true },
     });
     return {
       defaultView: user.taskDefaultView,
+      colorRules: this.sanitizeColorRules(user.taskColorRules) || null,
     };
+  }
+
+  private sanitizeColorRules(input?: unknown) {
+    if (!Array.isArray(input)) return null;
+    const sanitized = input
+      .map((rule) => {
+        if (!rule || typeof rule !== 'object') return null;
+        const entry = rule as Record<string, unknown>;
+        const days = Number.isFinite(Number(entry.days)) ? Math.round(Number(entry.days)) : 0;
+        const color = typeof entry.color === 'string' && TASK_COLOR_OPTIONS.includes(entry.color)
+          ? entry.color
+          : 'red';
+        const enabled = entry.enabled !== undefined ? Boolean(entry.enabled) : true;
+        const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : undefined;
+        if (days <= 0) return null;
+        return { id, days, color, enabled };
+      })
+      .filter(Boolean);
+    return sanitized.length > 0 ? sanitized : null;
   }
 
   async getAssignees() {
@@ -130,6 +168,20 @@ class TaskService {
         { customer: { mikroCariCode: { contains: token, mode: 'insensitive' as const } } },
       ],
     }));
+  }
+
+  private getParticipantIds(task: { createdById: string; assignedToId?: string | null; customerId?: string | null }) {
+    return [task.createdById, task.assignedToId, task.customerId].filter(Boolean) as string[];
+  }
+
+  private async notifyParticipants(task: { createdById: string; assignedToId?: string | null; customerId?: string | null }, actorId: string, payload: { title: string; body?: string | null }) {
+    const recipients = this.getParticipantIds(task).filter((id) => id !== actorId);
+    if (recipients.length === 0) return;
+    await notificationService.createForUsers(recipients, {
+      title: payload.title,
+      body: payload.body || null,
+      linkUrl: TASK_NOTIFICATION_LINK,
+    });
   }
 
   async getTasksForStaff(userId: string, role: string, query: {
@@ -366,6 +418,14 @@ class TaskService {
       include: taskDetailInclude,
     });
 
+    if (assignedToId && assignedToId !== userId) {
+      await notificationService.createForUsers([assignedToId], {
+        title: 'Yeni talep atandi',
+        body: title,
+        linkUrl: TASK_NOTIFICATION_LINK,
+      });
+    }
+
     return task;
   }
 
@@ -382,7 +442,7 @@ class TaskService {
 
     const customer = await prisma.user.findUnique({
       where: { id: userId },
-      select: { sectorCode: true },
+      select: { sectorCode: true, name: true, displayName: true, mikroName: true },
     });
     const sectorCode = customer?.sectorCode || null;
 
@@ -423,6 +483,15 @@ class TaskService {
       },
       include: taskDetailInclude,
     });
+
+    if (assignedToId) {
+      const customerLabel = customer?.displayName || customer?.mikroName || customer?.name || '';
+      await notificationService.createForUsers([assignedToId], {
+        title: 'Yeni musteri talebi',
+        body: customerLabel ? `${customerLabel} - ${title}` : title,
+        linkUrl: TASK_NOTIFICATION_LINK,
+      });
+    }
 
     return task;
   }
@@ -465,6 +534,7 @@ class TaskService {
     }
 
     const statusChanged = payload.status && payload.status !== existing.status;
+    const assigneeChanged = payload.assignedToId !== undefined && payload.assignedToId !== existing.assignedToId;
     if (payload.status) {
       data.status = payload.status;
       if (payload.status === TaskStatus.DONE || payload.status === TaskStatus.CANCELLED) {
@@ -492,6 +562,21 @@ class TaskService {
       })] : []),
     ]);
 
+    if (assigneeChanged && task.assignedToId && task.assignedToId !== userId) {
+      await notificationService.createForUsers([task.assignedToId], {
+        title: 'Talep size atandi',
+        body: task.title,
+        linkUrl: TASK_NOTIFICATION_LINK,
+      });
+    }
+
+    if (statusChanged) {
+      await this.notifyParticipants(task, userId, {
+        title: 'Talep durumu guncellendi',
+        body: `${task.title} (${task.status})`,
+      });
+    }
+
     return task;
   }
 
@@ -516,6 +601,11 @@ class TaskService {
     await prisma.task.update({
       where: { id: task.id },
       data: { lastActivityAt: new Date() },
+    });
+
+    await this.notifyParticipants(task, userId, {
+      title: 'Talep yorumu',
+      body: task.title,
     });
 
     return comment;
@@ -544,6 +634,11 @@ class TaskService {
       data: { lastActivityAt: new Date() },
     });
 
+    await this.notifyParticipants(task, userId, {
+      title: 'Talep yorumu',
+      body: task.title,
+    });
+
     return comment;
   }
 
@@ -570,6 +665,11 @@ class TaskService {
       data: { lastActivityAt: new Date() },
     });
 
+    await this.notifyParticipants(task, userId, {
+      title: 'Talep dosyasi eklendi',
+      body: task.title,
+    });
+
     return attachment;
   }
 
@@ -594,6 +694,11 @@ class TaskService {
     await prisma.task.update({
       where: { id: task.id },
       data: { lastActivityAt: new Date() },
+    });
+
+    await this.notifyParticipants(task, userId, {
+      title: 'Talep dosyasi eklendi',
+      body: task.title,
     });
 
     return attachment;

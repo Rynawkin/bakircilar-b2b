@@ -6,6 +6,7 @@ import { Router } from 'express';
 import customerController from '../controllers/customer.controller';
 import quoteController from '../controllers/quote.controller';
 import taskController from '../controllers/task.controller';
+import notificationController from '../controllers/notification.controller';
 import { authenticate, requireCustomer } from '../middleware/auth.middleware';
 import { taskUpload } from '../middleware/upload.middleware';
 import { validateBody } from '../middleware/validation.middleware';
@@ -57,7 +58,12 @@ const taskCommentSchema = z.object({
 });
 
 const taskPreferencesSchema = z.object({
-  defaultView: taskViewSchema,
+  defaultView: taskViewSchema.optional(),
+  colorRules: z.array(z.any()).optional(),
+});
+
+const notificationReadSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1),
 });
 
 // Products (with cache - 5 minutes TTL)
@@ -149,5 +155,10 @@ router.post('/tasks', requireCustomer, validateBody(createCustomerTaskSchema), t
 router.get('/tasks/:id', requireCustomer, taskController.getCustomerTaskById);
 router.post('/tasks/:id/comments', requireCustomer, validateBody(taskCommentSchema), taskController.addCustomerComment);
 router.post('/tasks/:id/attachments', requireCustomer, taskUpload.single('file'), taskController.addCustomerAttachment);
+
+// Notifications (customer)
+router.get('/notifications', requireCustomer, notificationController.getNotifications);
+router.post('/notifications/read', requireCustomer, validateBody(notificationReadSchema), notificationController.markRead);
+router.post('/notifications/read-all', requireCustomer, notificationController.markAllRead);
 
 export default router;

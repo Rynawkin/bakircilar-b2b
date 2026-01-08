@@ -94,7 +94,7 @@ export default function CustomerRequestsPage() {
   const handleViewChange = async (value: TaskView) => {
     setView(value);
     try {
-      await customerApi.updateTaskPreferences(value);
+      await customerApi.updateTaskPreferences({ defaultView: value });
     } catch (error) {
       console.error('Task view preference not saved:', error);
     }
