@@ -190,7 +190,7 @@ export default function AdminRequestsPage() {
     if (tokens.length === 0) return customers;
     return customers.filter((customer) => {
       const haystack = normalizeSearchText(
-        `${customer.mikroCariCode || ''} ${customer.name || ''} ${customer.displayName || ''} ${customer.mikroName || ''}`
+        `${customer.mikroCariCode || ''} ${customer.name || ''} ${customer.email || ''} ${customer.city || ''} ${customer.district || ''}`
       );
       return matchesSearchTokens(haystack, tokens);
     });
