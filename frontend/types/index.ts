@@ -156,6 +156,7 @@ export interface QuoteItem {
   id: string;
   productCode: string;
   productName: string;
+  unit?: string;
   quantity: number;
   unitPrice: number;
   totalPrice: number;

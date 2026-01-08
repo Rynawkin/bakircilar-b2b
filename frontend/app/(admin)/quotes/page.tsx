@@ -229,32 +229,47 @@ export default function AdminQuotesPage() {
     }
   };
 
-  const handleWhatsappShare = (quote: Quote) => {
+  const handleWhatsappShare = async (quote: Quote) => {
     const customerName = quote.customer?.displayName || quote.customer?.name || '';
     const redirectPath = `/my-quotes/${quote.id}`;
     const quoteLink = `${window.location.origin}/login?redirect=${encodeURIComponent(redirectPath)}`;
     const message = buildWhatsappMessage(whatsappTemplate, quote, quoteLink, customerName);
+
+    const canShareFile = typeof navigator !== 'undefined' && !!navigator.share && !!navigator.canShare;
+    if (canShareFile) {
+      try {
+        const { doc, fileName } = await buildQuotePdf(quote);
+        const blob = doc.output('blob');
+        const file = new File([blob], fileName, { type: 'application/pdf' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], text: message, title: fileName });
+          return;
+        }
+      } catch (error) {
+        console.error('PDF paylaşımı başarısız:', error);
+      }
+    }
+
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
 
-  const handlePdfExport = async (quote: Quote) => {
-    try {
-      const { default: jsPDF } = await import('jspdf');
-      const autoTableModule = await import('jspdf-autotable');
-      const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
-      if (typeof autoTable !== 'function') {
-        throw new Error('autoTable is not available');
-      }
+  const buildQuotePdf = async (quote: Quote) => {
+    const { default: jsPDF } = await import('jspdf');
+    const autoTableModule = await import('jspdf-autotable');
+    const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
+    if (typeof autoTable !== 'function') {
+      throw new Error('autoTable is not available');
+    }
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const marginX = 14;
-      const formatCurrencyTL = (value?: number | null) => {
-        const amount = Number.isFinite(value) ? (value as number) : 0;
-        return `${amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
-      };
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 14;
+    const formatCurrencyTL = (value?: number | null) => {
+      const amount = Number.isFinite(value) ? (value as number) : 0;
+      return `${amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+    };
 
       const formatRate = (value?: number | null) => {
         if (!Number.isFinite(value)) return '-';
@@ -462,7 +477,7 @@ export default function AdminQuotesPage() {
             cleanPdfText(item.productName),
             { content: '', imageKey },
             String(item.quantity ?? 0),
-            cleanPdfText(item.product?.unit || '-'),
+            cleanPdfText(item.unit || item.product?.unit || '-'),
             cleanPdfText(safeCurrency(item.unitPrice)),
             cleanPdfText(safeCurrency(item.totalPrice)),
           ];
@@ -657,7 +672,13 @@ export default function AdminQuotesPage() {
         });
       }
 
-      const fileName = `${quote.quoteNumber}_${cleanPdfText(companyName || 'Teklif')}.pdf`;
+    const fileName = `${quote.quoteNumber}_${cleanPdfText(companyName || 'Teklif')}.pdf`;
+    return { doc, fileName };
+  };
+
+  const handlePdfExport = async (quote: Quote) => {
+    try {
+      const { doc, fileName } = await buildQuotePdf(quote);
       doc.save(fileName);
     } catch (error) {
       console.error('PDF oluşturma hatası:', error);

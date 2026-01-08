@@ -17,6 +17,7 @@ interface QuoteItemInput {
   productId?: string;
   productCode?: string;
   productName?: string;
+  unit?: string;
   quantity: number;
   unitPrice: number;
   priceSource: QuotePriceSource;
@@ -409,13 +410,17 @@ class QuoteService {
       const productName = isManualLine
         ? (item.productName || '')
         : (product as any).name;
+      const resolvedUnit = isManualLine
+        ? (item.unit || '')
+        : ((product as any).unit || '');
+      const unit = resolvedUnit.trim() || 'ADET';
 
       if (!productCode || !productName) {
         throw new Error(`Product information missing for item ${index + 1}`);
       }
 
       if (isManualLine) {
-        const allowedCodes = ['B101070', 'B101071'];
+        const allowedCodes = ['B101070', 'B101071', 'B110365'];
         if (!allowedCodes.includes(productCode)) {
           throw new Error(`Manual line product code must be one of: ${allowedCodes.join(', ')}`);
         }
@@ -425,8 +430,8 @@ class QuoteService {
         ? safeNumber(item.manualVatRate, 0)
         : safeNumber((product as any).vatRate, 0);
 
-      if (isManualLine && vatRate !== 0.1 && vatRate !== 0.2) {
-        throw new Error(`Manual line VAT rate must be 0.1 or 0.2`);
+      if (isManualLine && vatRate !== 0.01 && vatRate !== 0.1 && vatRate !== 0.2) {
+        throw new Error(`Manual line VAT rate must be 0.01, 0.1 or 0.2`);
       }
 
       let unitPrice = safeNumber(item.unitPrice, 0);
@@ -472,6 +477,7 @@ class QuoteService {
         productId: isManualLine ? null : (product as any).id,
         productCode,
         productName,
+        unit,
         quantity,
         unitPrice,
         totalPrice,
@@ -788,7 +794,7 @@ class QuoteService {
       throw new Error('Mikro quote not found');
     }
 
-    const manualCodes = new Set(['B101070', 'B101071']);
+    const manualCodes = new Set(['B101070', 'B101071', 'B110365']);
     const productCodes = Array.from(new Set(
       mikroLines
         .map((line) => (line.productCode || '').trim())
@@ -830,6 +836,7 @@ class QuoteService {
       const product = productMap.get(line.productCode);
       const isManualLine = !product || manualCodes.has(line.productCode);
       const productName = product ? product.name : (line.lineDescription || 'Manual line');
+      const unit = product?.unit || match?.unit || 'ADET';
       const priceListNo = line.priceListNo || null;
       const priceSource = priceListNo ? 'PRICE_LIST' : 'MANUAL';
       const vatZeroed = line.vatRate === 0;
@@ -850,6 +857,7 @@ class QuoteService {
         productId: product ? product.id : null,
         productCode: line.productCode,
         productName,
+        unit,
         quantity: line.quantity,
         unitPrice: line.unitPrice,
         totalPrice: line.lineTotal,

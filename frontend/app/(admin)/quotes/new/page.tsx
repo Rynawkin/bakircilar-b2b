@@ -283,14 +283,14 @@ const getMatchingPriceListLabel = (
   unitPrice?: number | null
 ) => {
   if (!mikroPriceLists || !Number.isFinite(unitPrice as number)) return null;
-  const target = Number(unitPrice);
-  const tolerance = 0.01;
+  const roundTo2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+  const target = roundTo2(Number(unitPrice));
   for (const [key, value] of Object.entries(mikroPriceLists)) {
     const listNo = Number(key);
     if (!Number.isFinite(listNo)) continue;
     const listPrice = Number(value);
     if (!Number.isFinite(listPrice) || listPrice <= 0) continue;
-    if (Math.abs(listPrice - target) <= tolerance) {
+    if (roundTo2(listPrice) === target) {
       return PRICE_LIST_LABELS[listNo] || `Liste ${listNo}`;
     }
   }
@@ -343,6 +343,7 @@ export default function AdminQuoteNewPage() {
   const [selectedResponsibleCode, setSelectedResponsibleCode] = useState('');
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [stockUnits, setStockUnits] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() =>
     buildColumnWidthMap(undefined, [])
   );
@@ -447,6 +448,7 @@ export default function AdminQuoteNewPage() {
       adminApi.getQuotePreferences(),
       adminApi.getSearchPreferences(),
       adminApi.getStockColumns(),
+      adminApi.getStockUnits(),
       adminApi.getQuoteResponsibles(),
     ]);
 
@@ -455,6 +457,7 @@ export default function AdminQuoteNewPage() {
       quotePrefsResult,
       searchPrefsResult,
       columnResult,
+      unitsResult,
       responsiblesResult,
     ] = results;
     let initialSelectedColumns: string[] = [];
@@ -508,6 +511,12 @@ export default function AdminQuoteNewPage() {
       setAvailableColumns(nextColumns);
     } else if (columnResult.status === 'rejected') {
       console.error('Stok kolonlari yuklenemedi:', columnResult.reason);
+    }
+
+    if (unitsResult.status === 'fulfilled' && unitsResult.value?.units?.length) {
+      setStockUnits(unitsResult.value.units);
+    } else if (unitsResult.status === 'rejected') {
+      console.error('Stok birimleri yuklenemedi:', unitsResult.reason);
     }
 
     if (responsiblesResult.status === 'fulfilled') {
@@ -768,11 +777,12 @@ export default function AdminQuoteNewPage() {
   };
 
   const addManualLine = () => {
+    const fallbackUnit = stockUnits[0] || 'ADET';
     const newItem: QuoteItemForm = {
       id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       productCode: 'B101071',
       productName: '',
-      unit: '',
+      unit: fallbackUnit,
       unit2: null,
       unit2Factor: null,
       quantity: 1,
@@ -1325,6 +1335,7 @@ export default function AdminQuoteNewPage() {
             productId: item.isManualLine ? undefined : item.productId,
             productCode: item.productCode,
             productName: item.productName,
+            unit: item.unit,
             quantity: item.quantity,
             unitPrice: roundUp2(item.unitPrice || 0),
             priceSource: item.priceSource,
@@ -1720,6 +1731,9 @@ export default function AdminQuoteNewPage() {
                                       placeholder="Manuel urun adi"
                                       value={item.productName}
                                       onChange={(e) => updateItem(item.id, { productName: e.target.value })}
+                                      lang="tr"
+                                      autoCorrect="off"
+                                      spellCheck={false}
                                       className="w-full min-w-[220px]"
                                     />
                                     <div className="text-xs text-gray-500">Kod: {item.productCode}</div>
@@ -1743,13 +1757,30 @@ export default function AdminQuoteNewPage() {
                             </div>
                           </td>
                           <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={item.quantity === 0 ? '' : item.quantity}
-                              onChange={(e) => handleQuantityChange(item, e.target.value)}
-                              className="w-20 rounded-lg border border-gray-300 px-2 py-1"
-                            />
+                            <div className="flex flex-col gap-1">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={item.quantity === 0 ? '' : item.quantity}
+                                onChange={(e) => handleQuantityChange(item, e.target.value)}
+                                className="w-20 rounded-lg border border-gray-300 px-2 py-1"
+                              />
+                              {item.isManualLine ? (
+                                <select
+                                  value={item.unit || ''}
+                                  onChange={(e) => updateItem(item.id, { unit: e.target.value })}
+                                  className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs"
+                                >
+                                  {(stockUnits.length > 0 ? stockUnits : ['ADET']).map((unit) => (
+                                    <option key={unit} value={unit}>
+                                      {unit}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : item.unit ? (
+                                <span className="text-[11px] text-gray-500">{item.unit}</span>
+                              ) : null}
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             {item.isManualLine ? (
@@ -1796,22 +1827,35 @@ export default function AdminQuoteNewPage() {
                               </select>
                             ) : item.priceSource === 'LAST_SALE' ? (
                               item.lastSales?.length ? (
-                                <select
-                                  value={item.selectedSaleIndex ?? ''}
-                                  onChange={(e) => handleLastSaleChange(item, e.target.value)}
-                                  className="rounded-lg border border-gray-300 bg-white px-2 py-1"
-                                >
-                                  <option value="">Satis sec</option>
-                                  {item.lastSales.map((sale, idx) => {
-                                    const listLabel = getMatchingPriceListLabel(item.mikroPriceLists, sale.unitPrice);
-                                    return (
-                                      <option key={idx} value={idx}>
-                                        {formatDateShort(sale.saleDate)} - {formatCurrency(sale.unitPrice)} ({sale.quantity})
-                                        {listLabel ? ` (${listLabel})` : ''}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
+                                <div className="space-y-1">
+                                  <select
+                                    value={item.selectedSaleIndex ?? ''}
+                                    onChange={(e) => handleLastSaleChange(item, e.target.value)}
+                                    className="rounded-lg border border-gray-300 bg-white px-2 py-1"
+                                  >
+                                    <option value="">Satis sec</option>
+                                    {item.lastSales.map((sale, idx) => {
+                                      const listLabel = getMatchingPriceListLabel(item.mikroPriceLists, sale.unitPrice);
+                                      return (
+                                        <option key={idx} value={idx}>
+                                          {formatDateShort(sale.saleDate)} - {formatCurrency(sale.unitPrice)} ({sale.quantity})
+                                          {listLabel ? ` (${listLabel})` : ''}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                  {item.selectedSaleIndex !== undefined && item.lastSales[item.selectedSaleIndex] && (
+                                    (() => {
+                                      const selectedSale = item.lastSales?.[item.selectedSaleIndex];
+                                      const listLabel = getMatchingPriceListLabel(item.mikroPriceLists, selectedSale?.unitPrice);
+                                      return listLabel ? (
+                                        <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                                          {listLabel}
+                                        </span>
+                                      ) : null;
+                                    })()
+                                  )}
+                                </div>
                               ) : (
                                 <span className="text-xs text-gray-500">Satis yok</span>
                               )

@@ -484,6 +484,7 @@ model QuoteItem {
 
   productCode       String
   productName       String
+  unit              String           @default("ADET")
   quantity          Int
   unitPrice         Float
   totalPrice        Float

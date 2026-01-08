@@ -766,6 +766,13 @@ export const adminApi = {
     return response.data;
   },
 
+  getStockUnits: async (): Promise<{
+    units: string[];
+  }> => {
+    const response = await apiClient.get('/search/stocks/units');
+    return response.data;
+  },
+
   searchCustomers: async (params: {
     searchTerm?: string;
     limit?: number;

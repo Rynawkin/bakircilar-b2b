@@ -972,6 +972,7 @@ class MikroService {
       const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
       const paymentPlanValue = Number.isFinite(paymentPlanNo as number) ? Number(paymentPlanNo) : 0;
       const sorMerkez = process.env.MIKRO_SORMERK || 'HENDEK';
+      const mikroUserNo = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
       const zeroGuid = '00000000-0000-0000-0000-000000000000';
 
       for (let i = 0; i < items.length; i++) {
@@ -1108,9 +1109,9 @@ class MikroService {
           .input('kapat', sql.Bit, 0)
           .input('hidden', sql.Bit, 0)
           .input('kilitli', sql.Bit, 0)
-          .input('createUser', sql.SmallInt, 1)
+          .input('createUser', sql.SmallInt, mikroUserNo)
           .input('createDate', sql.DateTime, now)
-          .input('lastupUser', sql.SmallInt, 1)
+          .input('lastupUser', sql.SmallInt, mikroUserNo)
           .input('lastupDate', sql.DateTime, now)
           .input('firmano', sql.Int, 0)
           .input('subeno', sql.Int, 0)
@@ -1193,7 +1194,7 @@ class MikroService {
         .input('seri', sql.NVarChar(20), evrakSeri)
         .input('sira', sql.Int, evrakSira)
         .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
-        .input('onayKulNo', sql.SmallInt, 1)
+        .input('onayKulNo', sql.SmallInt, mikroUserNo)
         .input('sorMerkez', sql.NVarChar(25), sorMerkez)
         .query(normalizeQuery);
 

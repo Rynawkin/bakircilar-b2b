@@ -18,6 +18,43 @@ export const getStockColumns = async (req: Request, res: Response) => {
 };
 
 /**
+ * GET /api/search/stocks/units
+ * Stok birimlerini (birim1 + birim2) döndürür
+ */
+export const getStockUnits = async (req: Request, res: Response) => {
+  try {
+    const [unitRows, unit2Rows] = await Promise.all([
+      prisma.product.findMany({
+        select: { unit: true },
+        distinct: ['unit'],
+      }),
+      prisma.product.findMany({
+        select: { unit2: true },
+        distinct: ['unit2'],
+        where: { unit2: { not: null } },
+      }),
+    ]);
+
+    const units = new Set<string>();
+    unitRows.forEach((row) => {
+      if (row.unit) units.add(row.unit.trim());
+    });
+    unit2Rows.forEach((row) => {
+      if (row.unit2) units.add(row.unit2.trim());
+    });
+
+    const sorted = Array.from(units)
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'tr'));
+
+    res.json({ units: sorted });
+  } catch (error: any) {
+    console.error('Stok birimleri alınırken hata:', error);
+    res.status(500).json({ message: 'Stok birimleri alınamadı', error: error.message });
+  }
+};
+
+/**
  * GET /api/search/customers/columns
  * Cari F10 için tüm mevcut kolonları döndürür
  */
