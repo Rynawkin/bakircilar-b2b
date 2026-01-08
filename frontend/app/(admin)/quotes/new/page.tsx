@@ -353,8 +353,13 @@ export default function AdminQuoteNewPage() {
   const [savingColumns, setSavingColumns] = useState(false);
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [isQuoteTableFullscreen, setIsQuoteTableFullscreen] = useState(false);
   const resizeRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const tableScrollBarRef = useRef<HTMLDivElement | null>(null);
+  const scrollSyncRef = useRef(false);
+  const [tableScrollMetrics, setTableScrollMetrics] = useState({ scrollWidth: 0, clientWidth: 0 });
   const [stockDataMap, setStockDataMap] = useState<Record<string, any>>({});
   const [bulkPriceListNo, setBulkPriceListNo] = useState<number | ''>('');
   const [poolSort, setPoolSort] = useState<PoolSortOption>('default');
@@ -368,6 +373,27 @@ export default function AdminQuoteNewPage() {
     setValidityDate(defaultDate.toISOString().slice(0, 10));
     loadInitialData();
   }, []);
+
+  useEffect(() => {
+    if (!isQuoteTableFullscreen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isQuoteTableFullscreen]);
+
+  useEffect(() => {
+    if (!isQuoteTableFullscreen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsQuoteTableFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isQuoteTableFullscreen]);
 
   useEffect(() => {
     setSelectedPurchasedCodes(new Set());
@@ -412,6 +438,30 @@ export default function AdminQuoteNewPage() {
       return changed ? next : prev;
     });
   }, [selectedColumns]);
+
+  useEffect(() => {
+    const container = tableScrollRef.current;
+    if (!container) return;
+
+    const updateMetrics = () => {
+      setTableScrollMetrics({
+        scrollWidth: container.scrollWidth,
+        clientWidth: container.clientWidth,
+      });
+    };
+
+    updateMetrics();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateMetrics());
+      observer.observe(container);
+      return () => observer.disconnect();
+    }
+
+    const handleResize = () => updateMetrics();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [selectedColumns, columnWidths, quoteItems.length, isQuoteTableFullscreen]);
 
   useEffect(() => {
     const codes = Array.from(new Set(
@@ -1105,19 +1155,7 @@ export default function AdminQuoteNewPage() {
   const handleRowDragOver = (event: DragEvent<HTMLTableRowElement>) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-
-    if (draggingItemId) {
-      const threshold = 120;
-      const maxStep = 18;
-      const viewportHeight = window.innerHeight;
-      if (event.clientY < threshold) {
-        const ratio = (threshold - event.clientY) / threshold;
-        window.scrollBy({ top: -Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
-      } else if (event.clientY > viewportHeight - threshold) {
-        const ratio = (event.clientY - (viewportHeight - threshold)) / threshold;
-        window.scrollBy({ top: Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
-      }
-    }
+    autoScrollForDrag(event.clientY);
   };
 
   const handleRowDrop = (targetId: string) => (event: DragEvent<HTMLTableRowElement>) => {
@@ -1145,18 +1183,72 @@ export default function AdminQuoteNewPage() {
     setDraggingItemId(null);
   };
 
+  const handleTableScroll = () => {
+    if (scrollSyncRef.current) return;
+    const container = tableScrollRef.current;
+    if (!container || !tableScrollBarRef.current) return;
+    scrollSyncRef.current = true;
+    tableScrollBarRef.current.scrollLeft = container.scrollLeft;
+    requestAnimationFrame(() => {
+      scrollSyncRef.current = false;
+    });
+  };
+
+  const handleScrollBarScroll = () => {
+    if (scrollSyncRef.current) return;
+    const bar = tableScrollBarRef.current;
+    if (!bar || !tableScrollRef.current) return;
+    scrollSyncRef.current = true;
+    tableScrollRef.current.scrollLeft = bar.scrollLeft;
+    requestAnimationFrame(() => {
+      scrollSyncRef.current = false;
+    });
+  };
+
   const handleTableDragOver = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    if (!draggingItemId) return;
+    autoScrollForDrag(event.clientY);
+  };
 
-    const threshold = 120;
-    const maxStep = 18;
+  useEffect(() => {
+    if (!draggingItemId) return undefined;
+    const handleWindowDragOver = (event: globalThis.DragEvent) => {
+      event.preventDefault();
+      autoScrollForDrag(event.clientY);
+    };
+    window.addEventListener('dragover', handleWindowDragOver);
+    return () => window.removeEventListener('dragover', handleWindowDragOver);
+  }, [draggingItemId]);
+
+  const autoScrollForDrag = (clientY: number) => {
+    if (!draggingItemId) return;
+    const threshold = 80;
+    const maxStep = 22;
+    const container = tableScrollRef.current;
+
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      const canScroll = container.scrollHeight > container.clientHeight;
+      if (canScroll && clientY >= rect.top && clientY <= rect.bottom) {
+        if (clientY < rect.top + threshold) {
+          const ratio = (rect.top + threshold - clientY) / threshold;
+          container.scrollTop -= Math.ceil(maxStep * ratio);
+          return;
+        }
+        if (clientY > rect.bottom - threshold) {
+          const ratio = (clientY - (rect.bottom - threshold)) / threshold;
+          container.scrollTop += Math.ceil(maxStep * ratio);
+          return;
+        }
+      }
+    }
+
     const viewportHeight = window.innerHeight;
-    if (event.clientY < threshold) {
-      const ratio = (threshold - event.clientY) / threshold;
+    if (clientY < threshold) {
+      const ratio = (threshold - clientY) / threshold;
       window.scrollBy({ top: -Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
-    } else if (event.clientY > viewportHeight - threshold) {
-      const ratio = (event.clientY - (viewportHeight - threshold)) / threshold;
+    } else if (clientY > viewportHeight - threshold) {
+      const ratio = (clientY - (viewportHeight - threshold)) / threshold;
       window.scrollBy({ top: Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
     }
   };
@@ -1401,6 +1493,14 @@ export default function AdminQuoteNewPage() {
 
   const columnsCount = tableColumnKeys.length;
   const cardShell = 'rounded-2xl border border-slate-200/80 bg-white/95 shadow-[0_10px_30px_rgba(15,23,42,0.08)]';
+  const showTableScrollBar = tableScrollMetrics.scrollWidth > tableScrollMetrics.clientWidth + 4;
+  const tableCardClass = `${cardShell}${isQuoteTableFullscreen ? ' fixed inset-4 z-50 flex flex-col overflow-hidden' : ''}`;
+  const tableContainerClass = `rounded-2xl border border-slate-200/80 bg-white ${
+    isQuoteTableFullscreen ? 'flex-1 min-h-0 overflow-auto' : 'max-h-[70vh] overflow-auto'
+  }`;
+  const scrollBarWrapperClass = isQuoteTableFullscreen
+    ? 'sticky bottom-0 z-20 bg-white/90 backdrop-blur'
+    : '';
 
   return (
     <div className="min-h-screen bg-slate-50 relative overflow-x-hidden overflow-y-visible">
@@ -1624,7 +1724,20 @@ export default function AdminQuoteNewPage() {
                 </div>
               </div>
             </Card>
-        <Card className={cardShell}>
+        {isQuoteTableFullscreen && (
+          <div
+            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-sm"
+            onClick={() => setIsQuoteTableFullscreen(false)}
+          />
+        )}
+        <Card
+          className={tableCardClass}
+          onClick={(event) => {
+            if (isQuoteTableFullscreen) {
+              event.stopPropagation();
+            }
+          }}
+        >
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold">Teklif Kalemleri ({quoteItems.length})</h2>
@@ -1665,6 +1778,14 @@ export default function AdminQuoteNewPage() {
                 Manuel Satir Ekle
               </Button>
               <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsQuoteTableFullscreen((prev) => !prev)}
+                className="rounded-full"
+              >
+                {isQuoteTableFullscreen ? 'Tam Ekrandan Cik' : 'Tam Ekran'}
+              </Button>
+              <Button
                 variant="primary"
                 size="sm"
                 onClick={() => setShowProductPoolModal(true)}
@@ -1685,8 +1806,10 @@ export default function AdminQuoteNewPage() {
             <div className="text-sm text-gray-500">Teklife urun eklenmedi.</div>
           ) : (
             <div
-              className="max-h-[70vh] overflow-x-auto overflow-y-auto rounded-2xl border border-slate-200/80 bg-white"
+              ref={tableScrollRef}
+              className={tableContainerClass}
               onDragOver={handleTableDragOver}
+              onScroll={handleTableScroll}
             >
               <table className="w-full min-w-[1100px] table-fixed text-sm">
                 <colgroup>
@@ -2032,6 +2155,17 @@ export default function AdminQuoteNewPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+          {showTableScrollBar && (
+            <div className={`mt-3 rounded-full border border-slate-200 px-2 py-1 ${scrollBarWrapperClass}`}>
+              <div
+                ref={tableScrollBarRef}
+                className="h-3 overflow-x-auto overflow-y-hidden"
+                onScroll={handleScrollBarScroll}
+              >
+                <div style={{ width: `${tableScrollMetrics.scrollWidth}px` }} className="h-3" />
+              </div>
             </div>
           )}
         </Card>
