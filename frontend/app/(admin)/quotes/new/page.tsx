@@ -1403,7 +1403,7 @@ export default function AdminQuoteNewPage() {
   const cardShell = 'rounded-2xl border border-slate-200/80 bg-white/95 shadow-[0_10px_30px_rgba(15,23,42,0.08)]';
 
   return (
-    <div className="min-h-screen bg-slate-50 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 relative overflow-x-hidden overflow-y-visible">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-32 right-[-140px] h-72 w-72 rounded-full bg-primary-200/40 blur-3xl" />
         <div className="absolute top-1/3 -left-24 h-80 w-80 rounded-full bg-slate-200/70 blur-3xl" />
