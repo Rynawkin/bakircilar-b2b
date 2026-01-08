@@ -1685,7 +1685,7 @@ export default function AdminQuoteNewPage() {
             <div className="text-sm text-gray-500">Teklife urun eklenmedi.</div>
           ) : (
             <div
-              className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white"
+              className="overflow-x-auto overflow-y-visible rounded-2xl border border-slate-200/80 bg-white"
               onDragOver={handleTableDragOver}
             >
               <table className="w-full min-w-[1100px] table-fixed text-sm">
