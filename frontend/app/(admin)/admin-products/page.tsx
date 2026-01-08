@@ -8,6 +8,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { LogoLink } from '@/components/ui/Logo';
 import { ProductDetailModal } from '@/components/admin/ProductDetailModal';
 import { useDebounce } from '@/lib/hooks/useDebounce';
@@ -17,6 +18,8 @@ interface Product {
   name: string;
   mikroCode: string;
   unit: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
   excessStock: number;
   totalStock: number;
   warehouseStocks: Record<string, number>;
@@ -552,7 +555,9 @@ export default function AdminProductsPage() {
                     </td>
                   </tr>
                 ) : (
-                  currentProducts.map((product) => (
+                  currentProducts.map((product) => {
+                    const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                    return (
                     <tr key={product.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3">
                         <input
@@ -612,6 +617,7 @@ export default function AdminProductsPage() {
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{product.name}</div>
                         <div className="text-sm text-gray-500">{product.unit}</div>
+                        {unitLabel && <div className="text-xs text-gray-500">{unitLabel}</div>}
                       </td>
                       <td className="px-4 py-3">
                         <span className="font-mono text-sm text-gray-700">{product.mikroCode}</span>
@@ -675,7 +681,8 @@ export default function AdminProductsPage() {
                         </Button>
                       </td>
                     </tr>
-                  ))
+                  );
+                  })
                 )}
               </tbody>
             </table>

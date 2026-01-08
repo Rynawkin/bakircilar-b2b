@@ -63,6 +63,8 @@ export interface MikroProduct {
   name: string;
   categoryId: string;
   unit: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
   vatRate: number;
   lastEntryPrice?: number;
   lastEntryDate?: Date;

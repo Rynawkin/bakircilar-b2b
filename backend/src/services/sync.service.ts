@@ -250,6 +250,9 @@ class SyncService {
 
       // Depo stokları zaten mikroProduct.warehouseStocks içinde geliyor
       const warehouseStocksJson = mikroProduct.warehouseStocks || {};
+      const unit2 = mikroProduct.unit2?.trim() || null;
+      const rawUnit2Factor = Number(mikroProduct.unit2Factor);
+      const unit2Factor = Number.isFinite(rawUnit2Factor) && rawUnit2Factor !== 0 ? rawUnit2Factor : null;
 
       // Satış geçmişini topla (günlük)
       const productSales = salesHistory.filter((s) => s.productCode === mikroProduct.code);
@@ -279,6 +282,8 @@ class SyncService {
         update: {
           name: mikroProduct.name,
           unit: mikroProduct.unit,
+          unit2,
+          unit2Factor,
           categoryId: category.id,
           lastEntryPrice: mikroProduct.lastEntryPrice,
           lastEntryDate: mikroProduct.lastEntryDate,
@@ -295,6 +300,8 @@ class SyncService {
           mikroCode: mikroProduct.code,
           name: mikroProduct.name,
           unit: mikroProduct.unit,
+          unit2,
+          unit2Factor,
           categoryId: category.id,
           lastEntryPrice: mikroProduct.lastEntryPrice,
           lastEntryDate: mikroProduct.lastEntryDate,

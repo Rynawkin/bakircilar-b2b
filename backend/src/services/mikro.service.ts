@@ -189,6 +189,8 @@ class MikroService {
         ${PRODUCTS_COLUMNS.NAME} as name,
         ${PRODUCTS_COLUMNS.CATEGORY_CODE} as categoryId,
         ${PRODUCTS_COLUMNS.UNIT} as unit,
+        ${PRODUCTS_COLUMNS.UNIT2} as unit2,
+        ${PRODUCTS_COLUMNS.UNIT2_FACTOR} as unit2Factor,
         ${PRODUCTS_COLUMNS.VAT_RATE} as vatCode,
         ${PRODUCTS_COLUMNS.CURRENT_COST} as currentCost,
         sto_Guid as guid,
@@ -261,6 +263,8 @@ class MikroService {
       name: product.name,
       categoryId: product.categoryId,
       unit: product.unit,
+      unit2: product.unit2 || null,
+      unit2Factor: Number.isFinite(Number(product.unit2Factor)) ? Number(product.unit2Factor) : null,
       vatCode: product.vatCode,
       vatRate: this.convertVatCodeToRate(product.vatCode),
       currentCost: product.currentCost,
@@ -924,6 +928,7 @@ class MikroService {
     description: string;
     documentNo?: string;
     responsibleCode?: string;
+    paymentPlanNo?: number | null;
     items: Array<{
       productCode: string;
       quantity: number;
@@ -935,7 +940,7 @@ class MikroService {
   }): Promise<{ quoteNumber: string; guid?: string }> {
     await this.connect();
 
-    const { cariCode, validityDate, description, documentNo, responsibleCode, items } = quoteData;
+    const { cariCode, validityDate, description, documentNo, responsibleCode, paymentPlanNo, items } = quoteData;
     const evrakSeri = 'B2B';
 
     console.log('âš¡ Teklif parametreleri:', {
@@ -965,6 +970,7 @@ class MikroService {
       const lineNote = (description || '').trim();
       const documentNoValue = (documentNo || '').trim().slice(0, 50);
       const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
+      const paymentPlanValue = Number.isFinite(paymentPlanNo as number) ? Number(paymentPlanNo) : 0;
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -1007,7 +1013,20 @@ class MikroService {
             tkl_tevkifat_sifirlandi_fl,
             tkl_belge_tarih,
             tkl_belge_no,
-            tkl_Sorumlu_Kod
+            tkl_Sorumlu_Kod,
+            tkl_iptal,
+            TKL_KAPAT_FL,
+            tkl_hidden,
+            tkl_kilitli,
+            tkl_create_user,
+            tkl_create_date,
+            tkl_lastup_user,
+            tkl_lastup_date,
+            tkl_firmano,
+            tkl_subeno,
+            tkl_Odeme_Plani,
+            tkl_durumu,
+            tkl_harekettipi
           ) VALUES (
             @seri,
             @sira,
@@ -1036,7 +1055,20 @@ class MikroService {
             @tevkifatSifir,
             @belgeTarih,
             @belgeNo,
-            @sorumluKod
+            @sorumluKod,
+            @iptal,
+            @kapat,
+            @hidden,
+            @kilitli,
+            @createUser,
+            @createDate,
+            @lastupUser,
+            @lastupDate,
+            @firmano,
+            @subeno,
+            @odemePlan,
+            @durum,
+            @hareketTipi
           )
         `;
 
@@ -1068,8 +1100,21 @@ class MikroService {
           .input('tevkifatTur', sql.TinyInt, 0)
           .input('tevkifatSifir', sql.Bit, 0)
           .input('belgeTarih', sql.DateTime, now)
-          .input('belgeNo', sql.NVarChar(50), documentNoValue || null)
+          .input('belgeNo', sql.NVarChar(50), documentNoValue)
           .input('sorumluKod', sql.NVarChar(25), responsibleValue || null)
+          .input('iptal', sql.Bit, 0)
+          .input('kapat', sql.Bit, 0)
+          .input('hidden', sql.Bit, 0)
+          .input('kilitli', sql.Bit, 0)
+          .input('createUser', sql.SmallInt, 1)
+          .input('createDate', sql.DateTime, now)
+          .input('lastupUser', sql.SmallInt, 1)
+          .input('lastupDate', sql.DateTime, now)
+          .input('firmano', sql.Int, 0)
+          .input('subeno', sql.Int, 0)
+          .input('odemePlan', sql.Int, paymentPlanValue)
+          .input('durum', sql.TinyInt, 0)
+          .input('hareketTipi', sql.TinyInt, 0)
           .query(insertQuery);
       }
 

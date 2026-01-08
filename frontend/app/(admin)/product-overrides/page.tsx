@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { LogoLink } from '@/components/ui/Logo';
 import { formatCurrency } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getCustomerTypeName, CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
@@ -18,6 +19,8 @@ interface Product {
   name: string;
   mikroCode: string;
   unit: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
   excessStock: number;
   prices: any;
   category: { id: string; name: string };
@@ -238,7 +241,9 @@ export default function AdminProductOverridesPage() {
                     <p className="text-gray-600">Ürün bulunamadı</p>
                   </div>
                 ) : (
-                  filteredProducts.map((product) => (
+                  filteredProducts.map((product) => {
+                    const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                    return (
                     <div
                       key={product.id}
                       className={`p-4 border-2 rounded-lg cursor-pointer hover:shadow-md transition-all ${
@@ -264,6 +269,9 @@ export default function AdminProductOverridesPage() {
                           {product.excessStock} {product.unit}
                         </Badge>
                       </div>
+                      {unitLabel && (
+                        <div className="mt-2 text-xs text-gray-500">{unitLabel}</div>
+                      )}
 
                       {selectedProduct?.id === product.id && (
                         <div className="mt-3 pt-3 border-t border-primary-200">
@@ -281,7 +289,8 @@ export default function AdminProductOverridesPage() {
                         </div>
                       )}
                     </div>
-                  ))
+                  );
+                  })
                 )}
               </div>
             </Card>

@@ -14,6 +14,7 @@ import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { Modal } from '@/components/ui/Modal';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import type { CustomerContact } from '@/types';
 
@@ -30,6 +31,8 @@ interface QuoteProduct {
   name: string;
   mikroCode: string;
   unit?: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
   vatRate: number;
   lastEntryPrice?: number | null;
   currentCost?: number | null;
@@ -44,6 +47,9 @@ interface QuoteItemForm {
   productId?: string;
   productCode: string;
   productName: string;
+  unit?: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
   quantity: number;
   priceSource?: 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL' | '';
   priceListNo?: number;
@@ -262,6 +268,7 @@ export default function AdminQuoteNewPage() {
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [savingColumns, setSavingColumns] = useState(false);
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const resizeRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [stockDataMap, setStockDataMap] = useState<Record<string, any>>({});
@@ -623,6 +630,9 @@ export default function AdminQuoteNewPage() {
       productId: sourceProduct.id,
       productCode: sourceProduct.mikroCode,
       productName: sourceProduct.name,
+      unit: sourceProduct.unit,
+      unit2: sourceProduct.unit2 || null,
+      unit2Factor: sourceProduct.unit2Factor ?? null,
       quantity: 1,
       priceSource: '',
       unitPrice: undefined,
@@ -637,31 +647,14 @@ export default function AdminQuoteNewPage() {
   };
 
   const addProductsToQuote = (productsToAdd: QuoteProduct[]) => {
-    if (!productsToAdd.length) {
+    const validProducts = productsToAdd.filter((product) => product?.mikroCode);
+    if (validProducts.length === 0) {
       toast.error('Urun bulunamadi.');
       return;
     }
 
-    const existingCodes = new Set(
-      quoteItems
-        .filter((item) => !item.isManualLine)
-        .map((item) => item.productCode)
-    );
-    const handled = new Set<string>();
-    const uniqueProducts = productsToAdd.filter((product) => {
-      if (!product?.mikroCode) return false;
-      if (existingCodes.has(product.mikroCode) || handled.has(product.mikroCode)) return false;
-      handled.add(product.mikroCode);
-      return true;
-    });
-
-    if (uniqueProducts.length === 0) {
-      toast.error('Secili urunler zaten teklifte.');
-      return;
-    }
-
-    setQuoteItems((prev) => [...prev, ...uniqueProducts.map(buildQuoteItem)]);
-    toast.success(`${uniqueProducts.length} urun eklendi.`);
+    setQuoteItems((prev) => [...prev, ...validProducts.map(buildQuoteItem)]);
+    toast.success(`${validProducts.length} urun eklendi.`);
   };
 
   const addProductToQuote = (product: QuoteProduct) => {
@@ -673,6 +666,9 @@ export default function AdminQuoteNewPage() {
       id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       productCode: 'B101071',
       productName: '',
+      unit: '',
+      unit2: null,
+      unit2Factor: null,
       quantity: 1,
       priceSource: 'MANUAL',
       unitPrice: undefined,
@@ -740,9 +736,11 @@ export default function AdminQuoteNewPage() {
   };
 
   const handleManualPriceChange = (item: QuoteItemForm, value: string) => {
-    const parsed = Number(value);
+    const trimmed = value.trim();
+    const normalized = trimmed.replace(',', '.');
+    const parsed = trimmed.length > 0 ? Number(normalized) : undefined;
     updateItem(item.id, {
-      unitPrice: Number.isFinite(parsed) ? parsed : undefined,
+      unitPrice: Number.isFinite(parsed as number) ? (parsed as number) : trimmed.length === 0 ? undefined : item.unitPrice,
       manualMarginEntry: undefined,
       manualMarginCost: undefined,
     });
@@ -768,8 +766,8 @@ export default function AdminQuoteNewPage() {
   };
 
   const handleManualVatChange = (item: QuoteItemForm, value: string) => {
-    const rate = value === '0.1' ? 0.1 : 0.2;
-    const code = rate === 0.1 ? 'B101070' : 'B101071';
+    const rate = value === '0.01' ? 0.01 : value === '0.1' ? 0.1 : 0.2;
+    const code = rate === 0.01 ? 'B110365' : rate === 0.1 ? 'B101070' : 'B101071';
     updateItem(item.id, {
       manualVatRate: rate,
       vatRate: rate,
@@ -942,6 +940,42 @@ export default function AdminQuoteNewPage() {
     setDraggingColumn(null);
   };
 
+  const handleRowDragStart = (itemId: string) => (event: DragEvent<HTMLButtonElement>) => {
+    setDraggingItemId(itemId);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', itemId);
+  };
+
+  const handleRowDragOver = (event: DragEvent<HTMLTableRowElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleRowDrop = (targetId: string) => (event: DragEvent<HTMLTableRowElement>) => {
+    event.preventDefault();
+    const sourceId = draggingItemId || event.dataTransfer.getData('text/plain');
+    if (!sourceId || sourceId === targetId) {
+      setDraggingItemId(null);
+      return;
+    }
+
+    setQuoteItems((prev) => {
+      const next = [...prev];
+      const sourceIndex = next.findIndex((item) => item.id === sourceId);
+      const targetIndex = next.findIndex((item) => item.id === targetId);
+      if (sourceIndex === -1 || targetIndex === -1) return prev;
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+
+    setDraggingItemId(null);
+  };
+
+  const handleRowDragEnd = () => {
+    setDraggingItemId(null);
+  };
+
   const tableColumnKeys = useMemo(
     () => [
       'product',
@@ -1090,7 +1124,7 @@ export default function AdminQuoteNewPage() {
           toast.error(`Manuel satir fiyat girilmeli (Satir ${i + 1}).`);
           return false;
         }
-        if (!item.manualVatRate || (item.manualVatRate !== 0.1 && item.manualVatRate !== 0.2)) {
+        if (!item.manualVatRate || ![0.01, 0.1, 0.2].includes(item.manualVatRate)) {
           toast.error(`Manuel satir KDV secimi gerekli (Satir ${i + 1}).`);
           return false;
         }
@@ -1513,28 +1547,52 @@ export default function AdminQuoteNewPage() {
 
                     return (
                       <Fragment key={item.id}>
-                        <tr className="bg-white">
+                        <tr
+                          className={`bg-white ${draggingItemId === item.id ? 'opacity-70' : ''}`}
+                          onDragOver={handleRowDragOver}
+                          onDrop={handleRowDrop(item.id)}
+                        >
                           <td className="px-3 py-2">
-                            {item.isManualLine ? (
-                              <div className="space-y-1">
-                                <Input
-                                  placeholder="Manuel urun adi"
-                                  value={item.productName}
-                                  onChange={(e) => updateItem(item.id, { productName: e.target.value })}
-                                  className="w-full min-w-[220px]"
-                                />
-                                <div className="text-xs text-gray-500">Kod: {item.productCode}</div>
-                                <Badge variant="warning" className="text-xs">Manuel</Badge>
-                              </div>
-                            ) : (
-                              <div>
-                                <div className="font-medium text-gray-900">{item.productName}</div>
-                                <div className="text-xs text-gray-500">{item.productCode}</div>
-                                {marginInfo?.blocked && (
-                                  <Badge variant="danger" className="text-xs mt-1">Blok</Badge>
+                            <div className="flex items-start gap-2">
+                              <button
+                                type="button"
+                                draggable
+                                onDragStart={handleRowDragStart(item.id)}
+                                onDragEnd={handleRowDragEnd}
+                                className="mt-1 cursor-grab text-gray-400 hover:text-gray-600"
+                                aria-label="Satiri tasimak icin surukle"
+                                title="Satiri tasimak icin surukle"
+                              >
+                                ::
+                              </button>
+                              <div className="min-w-0 flex-1">
+                                {item.isManualLine ? (
+                                  <div className="space-y-1">
+                                    <Input
+                                      placeholder="Manuel urun adi"
+                                      value={item.productName}
+                                      onChange={(e) => updateItem(item.id, { productName: e.target.value })}
+                                      className="w-full min-w-[220px]"
+                                    />
+                                    <div className="text-xs text-gray-500">Kod: {item.productCode}</div>
+                                    <Badge variant="warning" className="text-xs">Manuel</Badge>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <div className="font-medium text-gray-900">{item.productName}</div>
+                                    <div className="text-xs text-gray-500">{item.productCode}</div>
+                                    {getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor) && (
+                                      <div className="text-xs text-gray-500">
+                                        {getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor)}
+                                      </div>
+                                    )}
+                                    {marginInfo?.blocked && (
+                                      <Badge variant="danger" className="text-xs mt-1">Blok</Badge>
+                                    )}
+                                  </div>
                                 )}
                               </div>
-                            )}
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             <input
@@ -1567,6 +1625,8 @@ export default function AdminQuoteNewPage() {
                                 placeholder="Birim fiyat"
                                 value={item.unitPrice ?? ''}
                                 onChange={(e) => handleManualPriceChange(item, e.target.value)}
+                                inputMode="decimal"
+                                type="text"
                                 className="w-full"
                               />
                             ) : item.priceSource === 'PRICE_LIST' ? (
@@ -1609,6 +1669,8 @@ export default function AdminQuoteNewPage() {
                                   placeholder="Birim fiyat"
                                   value={item.unitPrice ?? ''}
                                   onChange={(e) => handleManualPriceChange(item, e.target.value)}
+                                  inputMode="decimal"
+                                  type="text"
                                   className="min-w-[180px]"
                                 />
                                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1652,10 +1714,11 @@ export default function AdminQuoteNewPage() {
                             <div className="flex flex-col gap-1">
                               {item.isManualLine ? (
                                 <select
-                                  value={item.manualVatRate === 0.1 ? '0.1' : '0.2'}
+                                  value={item.manualVatRate === 0.01 ? '0.01' : item.manualVatRate === 0.1 ? '0.1' : '0.2'}
                                   onChange={(e) => handleManualVatChange(item, e.target.value)}
                                   className="rounded-lg border border-gray-300 bg-white px-2 py-1"
                                 >
+                                  <option value="0.01">%1</option>
                                   <option value="0.1">%10</option>
                                   <option value="0.2">%20</option>
                                 </select>
@@ -1687,7 +1750,11 @@ export default function AdminQuoteNewPage() {
                           </td>
                         </tr>
                         {marginInfo && (
-                          <tr className="bg-yellow-50">
+                          <tr
+                            className="bg-yellow-50"
+                            onDragOver={handleRowDragOver}
+                            onDrop={handleRowDrop(item.id)}
+                          >
                             <td colSpan={columnsCount} className="px-3 py-2">
                               <div className="flex flex-wrap items-center gap-2 text-xs">
                                 <span className="rounded-full bg-yellow-200/70 px-2 py-1 font-semibold text-yellow-900">
@@ -1928,6 +1995,7 @@ export default function AdminQuoteNewPage() {
                   {sortedPurchasedProducts.map((product) => {
                     const isSelected = selectedPurchasedCodes.has(product.mikroCode);
                     const colorClass = getPoolColorClass(product);
+                    const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
                     return (
                       <div
                         key={product.mikroCode}
@@ -1970,6 +2038,9 @@ export default function AdminQuoteNewPage() {
                                 <span className="font-medium text-slate-600">Topca</span>{' '}
                                 {formatStockValue(product.warehouseStocks?.['6'])}
                               </div>
+                              {unitLabel && (
+                                <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
+                              )}
                             </div>
                           </div>
                           <Button
@@ -2023,6 +2094,7 @@ export default function AdminQuoteNewPage() {
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 max-h-[60vh] overflow-y-auto pr-2">
                   {sortedSearchResults.map((product) => {
                     const colorClass = getPoolColorClass(product);
+                    const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
                     return (
                     <div
                       key={product.mikroCode}
@@ -2039,6 +2111,9 @@ export default function AdminQuoteNewPage() {
                             <span className="font-medium text-slate-600">Topca</span>{' '}
                             {formatStockValue(product.warehouseStocks?.['6'])}
                           </div>
+                          {unitLabel && (
+                            <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
+                          )}
                         </div>
                         <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
                           Teklife Ekle

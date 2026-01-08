@@ -20,6 +20,8 @@ export const MIKRO_TABLES = {
     NAME: 'sto_isim',
     CATEGORY_CODE: 'sto_kategori_kodu',
     UNIT: 'sto_birim1_ad',
+    UNIT2: 'sto_birim2_ad',
+    UNIT2_FACTOR: 'sto_birim2_katsayi',
     VAT_RATE: 'sto_toptan_Vergi', // VAT kodu (dbo.fn_VergiYuzde ile çevrilmeli)
     CURRENT_COST: 'sto_standartmaliyet', // Standart maliyet
     PASSIVE: 'sto_pasif_fl', // false=aktif, true=pasif

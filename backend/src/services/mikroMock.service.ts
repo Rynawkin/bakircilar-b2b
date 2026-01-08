@@ -601,6 +601,7 @@ export class MikroMockService {
     description: string;
     documentNo?: string;
     responsibleCode?: string;
+    paymentPlanNo?: number | null;
     items: Array<{
       productCode: string;
       quantity: number;

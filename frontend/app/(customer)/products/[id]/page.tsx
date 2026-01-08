@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -99,6 +100,7 @@ export default function ProductDetailPage() {
 
   const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
+  const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -118,7 +120,10 @@ export default function ProductDetailPage() {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">{product.name}</h1>
                 <p className="text-sm text-gray-500 mb-4">Kod: {product.mikroCode}</p>
-                <p className="text-sm text-gray-600 mb-6">Kategori: {product.category.name}</p>
+                <p className="text-sm text-gray-600 mb-2">Kategori: {product.category.name}</p>
+                {unitLabel && (
+                  <p className="text-xs text-gray-500 mb-6">{unitLabel}</p>
+                )}
 
                 <div className="space-y-4">
                   <div>

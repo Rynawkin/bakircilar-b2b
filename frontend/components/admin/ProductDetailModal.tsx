@@ -3,6 +3,7 @@
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 
 interface ProductDetailModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailMo
     const value = product.mikroPriceLists?.[String(listNo)];
     return typeof value === 'number' ? value : Number(value) || 0;
   };
+  const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
 
   return (
     <Modal
@@ -62,6 +64,11 @@ export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailMo
                   <span className="text-gray-600">KDV Oranı:</span>
                   <span className="ml-2 font-semibold text-gray-900">%{(product.vatRate * 100).toFixed(0)}</span>
                 </div>
+                {unitLabel && (
+                  <div className="col-span-2 text-xs text-gray-600">
+                    {unitLabel}
+                  </div>
+                )}
               </div>
             </div>
           </div>

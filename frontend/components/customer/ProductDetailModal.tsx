@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { Button } from '@/components/ui/Button';
 
 interface ProductDetailModalProps {
@@ -97,6 +98,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
 
   const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
+  const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
 
   return (
     <div
@@ -208,6 +210,9 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
               <p className="text-sm text-gray-600 font-mono bg-gray-100 px-3 py-2 rounded-lg inline-block">
                 Kod: {product.mikroCode}
               </p>
+              {unitLabel && (
+                <p className="mt-2 text-xs text-gray-500">{unitLabel}</p>
+              )}
             </div>
 
             {/* Price Type Selection */}

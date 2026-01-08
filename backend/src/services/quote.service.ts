@@ -221,6 +221,8 @@ class QuoteService {
         name: product.name,
         mikroCode: product.mikroCode,
         unit: product.unit,
+        unit2: product.unit2 || null,
+        unit2Factor: product.unit2Factor ?? null,
         vatRate: product.vatRate,
         lastEntryPrice: product.lastEntryPrice,
         currentCost: product.currentCost,
@@ -272,6 +274,7 @@ class QuoteService {
         name: true,
         displayName: true,
         mikroCariCode: true,
+        paymentPlanNo: true,
       },
     });
 
@@ -457,6 +460,7 @@ class QuoteService {
         description: note?.trim() || '',
         documentNo: resolvedDocumentNo,
         responsibleCode: resolvedResponsibleCode,
+        paymentPlanNo: customer.paymentPlanNo ?? 0,
         items: preparedItems.map((item) => ({
           productCode: item.productCode,
           quantity: item.quantity,
@@ -638,7 +642,7 @@ class QuoteService {
       where: { id: quoteId },
       include: {
         items: true,
-        customer: { select: { mikroCariCode: true } },
+        customer: { select: { mikroCariCode: true, paymentPlanNo: true } },
       },
     });
 
@@ -661,6 +665,7 @@ class QuoteService {
       description: quote.note || '',
       documentNo: quote.documentNo || quote.note || '',
       responsibleCode: quote.responsibleCode || '',
+      paymentPlanNo: quote.customer.paymentPlanNo ?? 0,
       items: quote.items.map((item) => ({
         productCode: item.productCode,
         quantity: item.quantity,

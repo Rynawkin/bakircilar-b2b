@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Product" ADD COLUMN "unit2" TEXT;
+ALTER TABLE "Product" ADD COLUMN "unit2Factor" DOUBLE PRECISION;

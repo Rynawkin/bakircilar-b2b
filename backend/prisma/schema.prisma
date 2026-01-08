@@ -222,6 +222,8 @@ model Product {
   mikroCode               String    @unique
   name                    String
   unit                    String    @default("ADET") // Birim
+  unit2                   String?   // 2. Birim
+  unit2Factor             Float?    // 2. Birim Katsayısı
 
   categoryId              String
   category                Category  @relation(fields: [categoryId], references: [id])

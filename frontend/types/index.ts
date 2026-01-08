@@ -30,6 +30,8 @@ export interface Product {
   name: string;
   mikroCode: string;
   unit: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
   excessStock: number;
   availableStock?: number;
   maxOrderQuantity?: number;

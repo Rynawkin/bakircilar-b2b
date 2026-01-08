@@ -438,6 +438,8 @@ export class AdminController {
           name: true,
           mikroCode: true,
           unit: true,
+          unit2: true,
+          unit2Factor: true,
           excessStock: true,
           warehouseStocks: true,
           warehouseExcessStocks: true,

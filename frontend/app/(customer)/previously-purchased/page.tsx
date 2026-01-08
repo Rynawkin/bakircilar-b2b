@@ -12,6 +12,7 @@ import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { MobileMenu } from '@/components/ui/MobileMenu';
 import { formatCurrency } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { LogoLink } from '@/components/ui/Logo';
@@ -447,7 +448,9 @@ export default function PreviouslyPurchasedPage() {
                   </div>
                 )}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {filteredProducts.map((product) => (
+                {filteredProducts.map((product) => {
+                  const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                  return (
                   <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
                     <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
@@ -499,6 +502,9 @@ export default function PreviouslyPurchasedPage() {
                           <span className="bg-gradient-to-r from-primary-100 to-primary-200 text-primary-700 text-xs font-semibold px-2 py-0.5 rounded inline-block">
                             {product.category.name}
                           </span>
+                          {unitLabel && (
+                            <span className="text-xs text-gray-500">{unitLabel}</span>
+                          )}
                         </div>
                       </div>
 
@@ -591,7 +597,8 @@ export default function PreviouslyPurchasedPage() {
                       </div>
                     </div>
                   </Card>
-                ))}
+                );
+                })}
               </div>
               </div>
             )}

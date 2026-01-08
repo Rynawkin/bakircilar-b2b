@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import adminApi from '@/lib/api/admin';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { Product } from '@/types';
 
 export default function DiverseyStokPage() {
@@ -116,29 +117,33 @@ export default function DiverseyStokPage() {
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map((product) => (
-                  <tr key={product.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {product.mikroCode}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {product.name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {product.category.name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {product.unit}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                      {product.excessStock > 0 ? (
-                        <span className="text-green-600">{product.excessStock}</span>
-                      ) : (
-                        <span className="text-gray-400">0</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                filteredProducts.map((product) => {
+                  const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                  return (
+                    <tr key={product.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {product.mikroCode}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {product.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {product.category.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        <div>{product.unit}</div>
+                        {unitLabel && <div className="text-xs text-gray-500">{unitLabel}</div>}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+                        {product.excessStock > 0 ? (
+                          <span className="text-green-600">{product.excessStock}</span>
+                        ) : (
+                          <span className="text-gray-400">0</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
