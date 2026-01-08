@@ -1071,8 +1071,9 @@ export default function AdminRequestsPage() {
                   {detailTask.statusHistory.map((history) => (
                     <div key={history.id} className="flex items-center justify-between">
                       <span>
-                        {history.fromStatus ? TASK_STATUS_LABELS[history.fromStatus as TaskStatus] : 'Baslangic'} ->
-                        {` ${TASK_STATUS_LABELS[history.toStatus]}`}
+                        {history.fromStatus ? TASK_STATUS_LABELS[history.fromStatus as TaskStatus] : 'Baslangic'}
+                        {' -> '}
+                        {TASK_STATUS_LABELS[history.toStatus]}
                       </span>
                       <span>{formatDateShort(history.createdAt)}</span>
                     </div>
