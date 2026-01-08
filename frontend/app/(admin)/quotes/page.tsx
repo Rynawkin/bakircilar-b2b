@@ -214,7 +214,8 @@ export default function AdminQuotesPage() {
 
   const handleWhatsappShare = (quote: Quote) => {
     const customerName = quote.customer?.displayName || quote.customer?.name || '';
-    const quoteLink = `${window.location.origin}/my-quotes/${quote.id}`;
+    const redirectPath = `/my-quotes/${quote.id}`;
+    const quoteLink = `${window.location.origin}/login?redirect=${encodeURIComponent(redirectPath)}`;
     const message = buildWhatsappMessage(whatsappTemplate, quote, quoteLink, customerName);
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');

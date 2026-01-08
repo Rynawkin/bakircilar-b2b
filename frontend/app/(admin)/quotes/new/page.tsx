@@ -54,6 +54,7 @@ interface QuoteItemForm {
   priceSource?: 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL' | '';
   priceListNo?: number;
   unitPrice?: number;
+  manualPriceInput?: string;
   vatRate: number;
   vatZeroed?: boolean;
   isManualLine?: boolean;
@@ -71,11 +72,36 @@ interface QuoteItemForm {
 type PoolSortOption = 'default' | 'stock1_desc' | 'stock6_desc' | 'price_asc' | 'price_desc';
 
 type PoolColorRule = {
+  id: string;
   enabled: boolean;
   warehouse: '1' | '6';
   operator: '>' | '>=' | '<' | '<=' | '=';
   threshold: number;
   color: 'green' | 'yellow' | 'blue' | 'red' | 'slate';
+};
+
+const createPoolColorRule = (overrides?: Partial<PoolColorRule>): PoolColorRule => ({
+  id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  enabled: false,
+  warehouse: '1',
+  operator: '>',
+  threshold: 0,
+  color: 'green',
+  ...overrides,
+});
+
+const normalizePoolColorRule = (rule?: Partial<PoolColorRule> | null): PoolColorRule => {
+  const validOperator = rule?.operator;
+  const validColor = rule?.color;
+  const validWarehouse = rule?.warehouse;
+  return {
+    id: typeof rule?.id === 'string' && rule.id ? rule.id : createPoolColorRule().id,
+    enabled: Boolean(rule?.enabled),
+    warehouse: validWarehouse === '6' ? '6' : '1',
+    operator: validOperator && ['>', '>=', '<', '<=', '='].includes(validOperator) ? validOperator : '>',
+    threshold: Number.isFinite(Number(rule?.threshold)) ? Number(rule?.threshold) : 0,
+    color: validColor && ['green', 'yellow', 'blue', 'red', 'slate'].includes(validColor) ? validColor : 'green',
+  };
 };
 
 const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
@@ -185,6 +211,20 @@ const formatStockValue = (value: any) => {
   return String(value);
 };
 
+const getStockColumnValue = (column: string, row?: Record<string, any>) => {
+  if (!row) return '-';
+  if (column === 'Koli Ici') {
+    const label = getUnitConversionLabel(row['Birim'], row['2. Birim'], row['2. Birim Katsayısı']);
+    return label || '-';
+  }
+  return formatStockValue(row[column]);
+};
+
+const formatManualPriceInput = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '';
+  return value.toLocaleString('tr-TR', { useGrouping: false, maximumFractionDigits: 6 });
+};
+
 const getStockNumber = (product: QuoteProduct, warehouse: '1' | '6') => {
   const value = product.warehouseStocks?.[warehouse];
   const parsed = Number(value);
@@ -214,6 +254,25 @@ const getMikroListPrice = (
   if (typeof byNumber === 'number') return byNumber;
   const byString = (mikroPriceLists as Record<string, number>)[String(listNo)];
   return typeof byString === 'number' ? byString : 0;
+};
+
+const getMatchingPriceListLabel = (
+  mikroPriceLists: QuoteItemForm['mikroPriceLists'],
+  unitPrice?: number | null
+) => {
+  if (!mikroPriceLists || !Number.isFinite(unitPrice as number)) return null;
+  const target = Number(unitPrice);
+  const tolerance = 0.01;
+  for (const [key, value] of Object.entries(mikroPriceLists)) {
+    const listNo = Number(key);
+    if (!Number.isFinite(listNo)) continue;
+    const listPrice = Number(value);
+    if (!Number.isFinite(listPrice) || listPrice <= 0) continue;
+    if (Math.abs(listPrice - target) <= tolerance) {
+      return PRICE_LIST_LABELS[listNo] || `Liste ${listNo}`;
+    }
+  }
+  return null;
 };
 
 const formatPercent = (value?: number | null) => {
@@ -275,13 +334,8 @@ export default function AdminQuoteNewPage() {
   const [bulkPriceListNo, setBulkPriceListNo] = useState<number | ''>('');
   const [poolSort, setPoolSort] = useState<PoolSortOption>('default');
   const [showPoolColorOptions, setShowPoolColorOptions] = useState(false);
-  const [poolColorRule, setPoolColorRule] = useState<PoolColorRule>({
-    enabled: false,
-    warehouse: '1',
-    operator: '>',
-    threshold: 0,
-    color: 'green',
-  });
+  const [poolColorRules, setPoolColorRules] = useState<PoolColorRule[]>(() => [createPoolColorRule()]);
+  const [savingPoolPreferences, setSavingPoolPreferences] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -394,6 +448,16 @@ export default function AdminQuoteNewPage() {
       setLastSalesCount(quotePrefsResult.value.preferences.lastSalesCount || 1);
       setWhatsappTemplate(quotePrefsResult.value.preferences.whatsappTemplate || '');
       setSelectedResponsibleCode(quotePrefsResult.value.preferences.responsibleCode || '');
+      const savedPoolSort = quotePrefsResult.value.preferences.poolSort;
+      if (POOL_SORT_OPTIONS.some((option) => option.value === savedPoolSort)) {
+        setPoolSort(savedPoolSort as PoolSortOption);
+      }
+      const savedRules = quotePrefsResult.value.preferences.poolColorRules;
+      if (Array.isArray(savedRules) && savedRules.length > 0) {
+        setPoolColorRules(savedRules.map((rule: any) => normalizePoolColorRule(rule)));
+      } else {
+        setPoolColorRules([createPoolColorRule()]);
+      }
     } else if (quotePrefsResult.status === 'rejected') {
       console.error('Teklif tercihleri yuklenemedi:', quotePrefsResult.reason);
     }
@@ -416,7 +480,10 @@ export default function AdminQuoteNewPage() {
     setColumnWidths(buildColumnWidthMap(savedWidths, initialSelectedColumns));
 
     if (columnResult.status === 'fulfilled' && columnResult.value?.columns?.length) {
-      setAvailableColumns(columnResult.value.columns);
+      const nextColumns = columnResult.value.columns.includes('Koli Ici')
+        ? columnResult.value.columns
+        : [...columnResult.value.columns, 'Koli Ici'];
+      setAvailableColumns(nextColumns);
     } else if (columnResult.status === 'rejected') {
       console.error('Stok kolonlari yuklenemedi:', columnResult.reason);
     }
@@ -550,32 +617,20 @@ export default function AdminQuoteNewPage() {
     [filteredSearchResults, poolSort]
   );
 
+  const updatePoolColorRule = (id: string, patch: Partial<PoolColorRule>) => {
+    setPoolColorRules((prev) => prev.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
+  };
+
+  const addPoolColorRule = () => {
+    setPoolColorRules((prev) => [...prev, createPoolColorRule({ enabled: true })]);
+  };
+
+  const removePoolColorRule = (id: string) => {
+    setPoolColorRules((prev) => prev.filter((rule) => rule.id !== id));
+  };
+
   const getPoolColorClass = (product: QuoteProduct) => {
-    if (!poolColorRule.enabled) return '';
-    const value = getStockNumber(product, poolColorRule.warehouse);
-    const threshold = Number(poolColorRule.threshold) || 0;
-    let matches = false;
-    switch (poolColorRule.operator) {
-      case '>':
-        matches = value > threshold;
-        break;
-      case '>=':
-        matches = value >= threshold;
-        break;
-      case '<':
-        matches = value < threshold;
-        break;
-      case '<=':
-        matches = value <= threshold;
-        break;
-      case '=':
-        matches = value === threshold;
-        break;
-      default:
-        matches = false;
-        break;
-    }
-    if (!matches) return '';
+    if (poolColorRules.length === 0) return '';
     const colorMap: Record<PoolColorRule['color'], string> = {
       green: 'bg-emerald-50 border-emerald-200',
       yellow: 'bg-amber-50 border-amber-200',
@@ -583,7 +638,36 @@ export default function AdminQuoteNewPage() {
       red: 'bg-rose-50 border-rose-200',
       slate: 'bg-slate-50 border-slate-200',
     };
-    return colorMap[poolColorRule.color] || '';
+    for (const rule of poolColorRules) {
+      if (!rule.enabled) continue;
+      const value = getStockNumber(product, rule.warehouse);
+      const threshold = Number(rule.threshold) || 0;
+      let matches = false;
+      switch (rule.operator) {
+        case '>':
+          matches = value > threshold;
+          break;
+        case '>=':
+          matches = value >= threshold;
+          break;
+        case '<':
+          matches = value < threshold;
+          break;
+        case '<=':
+          matches = value <= threshold;
+          break;
+        case '=':
+          matches = value === threshold;
+          break;
+        default:
+          matches = false;
+          break;
+      }
+      if (matches) {
+        return colorMap[rule.color] || '';
+      }
+    }
+    return '';
   };
 
   const selectedPurchasedCount = selectedPurchasedCodes.size;
@@ -672,6 +756,7 @@ export default function AdminQuoteNewPage() {
       quantity: 1,
       priceSource: 'MANUAL',
       unitPrice: undefined,
+      manualPriceInput: '',
       vatRate: 0.2,
       vatZeroed: false,
       isManualLine: true,
@@ -694,10 +779,12 @@ export default function AdminQuoteNewPage() {
 
   const handlePriceSourceChange = (item: QuoteItemForm, value: string) => {
     if (item.isManualLine) return;
+    const nextSource = value as QuoteItemForm['priceSource'];
     updateItem(item.id, {
-      priceSource: value as QuoteItemForm['priceSource'],
+      priceSource: nextSource,
       priceListNo: undefined,
-      unitPrice: undefined,
+      unitPrice: nextSource === 'MANUAL' ? item.unitPrice : undefined,
+      manualPriceInput: nextSource === 'MANUAL' ? formatManualPriceInput(item.unitPrice) : undefined,
       selectedSaleIndex: undefined,
       manualMarginEntry: undefined,
       manualMarginCost: undefined,
@@ -714,6 +801,7 @@ export default function AdminQuoteNewPage() {
     updateItem(item.id, {
       priceListNo: listNo,
       unitPrice: listPrice || undefined,
+      manualPriceInput: undefined,
     });
   };
 
@@ -732,6 +820,7 @@ export default function AdminQuoteNewPage() {
       selectedSaleIndex: saleIndex,
       unitPrice: sale?.unitPrice || undefined,
       vatZeroed: sale?.vatZeroed || false,
+      manualPriceInput: undefined,
     });
   };
 
@@ -739,8 +828,14 @@ export default function AdminQuoteNewPage() {
     const trimmed = value.trim();
     const normalized = trimmed.replace(',', '.');
     const parsed = trimmed.length > 0 ? Number(normalized) : undefined;
+    const nextPrice = trimmed.length === 0
+      ? undefined
+      : Number.isFinite(parsed as number)
+        ? (parsed as number)
+        : item.unitPrice;
     updateItem(item.id, {
-      unitPrice: Number.isFinite(parsed as number) ? (parsed as number) : trimmed.length === 0 ? undefined : item.unitPrice,
+      unitPrice: nextPrice,
+      manualPriceInput: value,
       manualMarginEntry: undefined,
       manualMarginCost: undefined,
     });
@@ -751,8 +846,9 @@ export default function AdminQuoteNewPage() {
     source: 'entry' | 'cost',
     value: string
   ) => {
-    const parsed = Number(value);
-    const margin = Number.isFinite(parsed) ? parsed : undefined;
+    const trimmed = value.trim();
+    const parsed = trimmed.length > 0 ? Number(trimmed) : undefined;
+    const margin = Number.isFinite(parsed as number) ? (parsed as number) : undefined;
     const base = source === 'entry' ? (item.lastEntryPrice || 0) : (item.currentCost || 0);
     const nextPrice = base > 0 && margin !== undefined
       ? base * (1 + margin / 100)
@@ -760,6 +856,7 @@ export default function AdminQuoteNewPage() {
 
     updateItem(item.id, {
       unitPrice: nextPrice ?? item.unitPrice,
+      manualPriceInput: undefined,
       manualMarginEntry: source === 'entry' ? margin : undefined,
       manualMarginCost: source === 'cost' ? margin : undefined,
     });
@@ -791,6 +888,7 @@ export default function AdminQuoteNewPage() {
           priceSource: 'PRICE_LIST',
           priceListNo: listNo,
           unitPrice: listPrice || undefined,
+          manualPriceInput: undefined,
           selectedSaleIndex: undefined,
           manualMarginEntry: undefined,
           manualMarginCost: undefined,
@@ -819,6 +917,7 @@ export default function AdminQuoteNewPage() {
           unitPrice: sale.unitPrice || undefined,
           vatZeroed: sale.vatZeroed || false,
           priceListNo: undefined,
+          manualPriceInput: undefined,
           manualMarginEntry: undefined,
           manualMarginCost: undefined,
         };
@@ -853,6 +952,22 @@ export default function AdminQuoteNewPage() {
       toast.success('Tercihler kaydedildi.');
     } catch (error) {
       toast.error('Tercihler kaydedilemedi.');
+    }
+  };
+
+  const savePoolPreferences = async () => {
+    setSavingPoolPreferences(true);
+    try {
+      await adminApi.updateQuotePreferences({
+        poolSort,
+        poolColorRules,
+      });
+      toast.success('Urun havuzu gorunumu kaydedildi.');
+    } catch (error) {
+      console.error('Urun havuzu tercihleri kaydedilemedi:', error);
+      toast.error('Urun havuzu tercihleri kaydedilemedi.');
+    } finally {
+      setSavingPoolPreferences(false);
     }
   };
 
@@ -1623,7 +1738,7 @@ export default function AdminQuoteNewPage() {
                             {item.isManualLine ? (
                               <Input
                                 placeholder="Birim fiyat"
-                                value={item.unitPrice ?? ''}
+                                value={item.manualPriceInput ?? formatManualPriceInput(item.unitPrice)}
                                 onChange={(e) => handleManualPriceChange(item, e.target.value)}
                                 inputMode="decimal"
                                 type="text"
@@ -1654,11 +1769,15 @@ export default function AdminQuoteNewPage() {
                                   className="rounded-lg border border-gray-300 bg-white px-2 py-1"
                                 >
                                   <option value="">Satis sec</option>
-                                  {item.lastSales.map((sale, idx) => (
-                                    <option key={idx} value={idx}>
-                                      {formatDateShort(sale.saleDate)} - {formatCurrency(sale.unitPrice)} ({sale.quantity})
-                                    </option>
-                                  ))}
+                                  {item.lastSales.map((sale, idx) => {
+                                    const listLabel = getMatchingPriceListLabel(item.mikroPriceLists, sale.unitPrice);
+                                    return (
+                                      <option key={idx} value={idx}>
+                                        {formatDateShort(sale.saleDate)} - {formatCurrency(sale.unitPrice)} ({sale.quantity})
+                                        {listLabel ? ` (${listLabel})` : ''}
+                                      </option>
+                                    );
+                                  })}
                                 </select>
                               ) : (
                                 <span className="text-xs text-gray-500">Satis yok</span>
@@ -1667,7 +1786,7 @@ export default function AdminQuoteNewPage() {
                               <div className="space-y-2">
                                 <Input
                                   placeholder="Birim fiyat"
-                                  value={item.unitPrice ?? ''}
+                                  value={item.manualPriceInput ?? formatManualPriceInput(item.unitPrice)}
                                   onChange={(e) => handleManualPriceChange(item, e.target.value)}
                                   inputMode="decimal"
                                   type="text"
@@ -1740,7 +1859,7 @@ export default function AdminQuoteNewPage() {
                           </td>
                           {selectedColumns.map((column) => (
                             <td key={column} className="px-3 py-2 whitespace-nowrap">
-                              {item.isManualLine ? '-' : formatStockValue(stockDataMap[item.productCode]?.[column])}
+                              {item.isManualLine ? '-' : getStockColumnValue(column, stockDataMap[item.productCode])}
                             </td>
                           ))}
                           <td className="px-3 py-2 text-right">
@@ -1884,73 +2003,93 @@ export default function AdminQuoteNewPage() {
               >
                 Renklendirme
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={savePoolPreferences}
+                disabled={savingPoolPreferences}
+                className="rounded-full"
+              >
+                {savingPoolPreferences ? 'Kaydediliyor...' : 'Gorunusu Kaydet'}
+              </Button>
             </div>
           </div>
           {showPoolColorOptions && (
-            <div className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-xs text-gray-600">
+            <div className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-xs text-gray-600 space-y-3">
+              {poolColorRules.length === 0 ? (
+                <div className="text-xs text-slate-400">Renklendirme kurali yok.</div>
+              ) : (
+                <div className="space-y-3">
+                  {poolColorRules.map((rule, index) => (
+                    <div key={rule.id} className="flex flex-wrap items-center gap-3">
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">
+                        Kural {index + 1}
+                      </span>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={rule.enabled}
+                          onChange={(e) => updatePoolColorRule(rule.id, { enabled: e.target.checked })}
+                          className="h-4 w-4 accent-primary-600"
+                        />
+                        Aktif
+                      </label>
+                      <select
+                        value={rule.warehouse}
+                        onChange={(e) => updatePoolColorRule(rule.id, { warehouse: e.target.value as '1' | '6' })}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                      >
+                        <option value="1">Merkez</option>
+                        <option value="6">Topca</option>
+                      </select>
+                      <select
+                        value={rule.operator}
+                        onChange={(e) =>
+                          updatePoolColorRule(rule.id, { operator: e.target.value as PoolColorRule['operator'] })
+                        }
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                      >
+                        <option value=">">Buyuk</option>
+                        <option value=">=">Buyuk Esit</option>
+                        <option value="<">Kucuk</option>
+                        <option value="<=">Kucuk Esit</option>
+                        <option value="=">Esit</option>
+                      </select>
+                      <input
+                        type="number"
+                        value={rule.threshold}
+                        onChange={(e) => updatePoolColorRule(rule.id, { threshold: Number(e.target.value) })}
+                        className="w-20 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                      />
+                      <select
+                        value={rule.color}
+                        onChange={(e) =>
+                          updatePoolColorRule(rule.id, { color: e.target.value as PoolColorRule['color'] })
+                        }
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
+                      >
+                        <option value="green">Yesil</option>
+                        <option value="yellow">Sari</option>
+                        <option value="blue">Mavi</option>
+                        <option value="red">Kirmizi</option>
+                        <option value="slate">Gri</option>
+                      </select>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removePoolColorRule(rule.id)}
+                        className="rounded-full text-red-600"
+                      >
+                        Sil
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={poolColorRule.enabled}
-                    onChange={(e) => setPoolColorRule((prev) => ({ ...prev, enabled: e.target.checked }))}
-                    className="h-4 w-4 accent-primary-600"
-                  />
-                  Renklendirme aktif
-                </label>
-                <select
-                  value={poolColorRule.warehouse}
-                  onChange={(e) =>
-                    setPoolColorRule((prev) => ({ ...prev, warehouse: e.target.value as '1' | '6' }))
-                  }
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
-                >
-                  <option value="1">Merkez</option>
-                  <option value="6">Topca</option>
-                </select>
-                <select
-                  value={poolColorRule.operator}
-                  onChange={(e) =>
-                    setPoolColorRule((prev) => ({
-                      ...prev,
-                      operator: e.target.value as PoolColorRule['operator'],
-                    }))
-                  }
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
-                >
-                  <option value=">">Buyuk</option>
-                  <option value=">=">Buyuk Esit</option>
-                  <option value="<">Kucuk</option>
-                  <option value="<=">Kucuk Esit</option>
-                  <option value="=">Esit</option>
-                </select>
-                <input
-                  type="number"
-                  value={poolColorRule.threshold}
-                  onChange={(e) =>
-                    setPoolColorRule((prev) => ({
-                      ...prev,
-                      threshold: Number(e.target.value),
-                    }))
-                  }
-                  className="w-20 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
-                />
-                <select
-                  value={poolColorRule.color}
-                  onChange={(e) =>
-                    setPoolColorRule((prev) => ({
-                      ...prev,
-                      color: e.target.value as PoolColorRule['color'],
-                    }))
-                  }
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
-                >
-                  <option value="green">Yesil</option>
-                  <option value="yellow">Sari</option>
-                  <option value="blue">Mavi</option>
-                  <option value="red">Kirmizi</option>
-                  <option value="slate">Gri</option>
-                </select>
+                <Button variant="secondary" size="sm" onClick={addPoolColorRule} className="rounded-full">
+                  Kural Ekle
+                </Button>
                 <span className="text-[11px] text-slate-400">
                   Ornek: Merkez buyuk 0 = yesil
                 </span>
@@ -2056,7 +2195,9 @@ export default function AdminQuoteNewPage() {
                         </div>
                         {product.lastSales?.length ? (
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                            {product.lastSales.map((sale, idx) => (
+                            {product.lastSales.map((sale, idx) => {
+                              const listLabel = getMatchingPriceListLabel(product.mikroPriceLists, sale.unitPrice);
+                              return (
                               <div
                                 key={idx}
                                 className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs"
@@ -2064,9 +2205,15 @@ export default function AdminQuoteNewPage() {
                                 <span className="font-medium text-gray-700">{formatDateShort(sale.saleDate)}</span>
                                 <span className="text-gray-500">{sale.quantity} adet</span>
                                 <span className="font-semibold text-gray-900">{formatCurrency(sale.unitPrice)}</span>
+                                {listLabel && (
+                                  <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                                    {listLabel}
+                                  </span>
+                                )}
                                 {sale.vatZeroed && <Badge variant="info" className="text-[10px]">KDV 0</Badge>}
                               </div>
-                            ))}
+                            );
+                            })}
                           </div>
                         ) : (
                           <p className="mt-2 text-xs text-gray-400">Satis yok</p>

@@ -971,6 +971,8 @@ class MikroService {
       const documentNoValue = (documentNo || '').trim().slice(0, 50);
       const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
       const paymentPlanValue = Number.isFinite(paymentPlanNo as number) ? Number(paymentPlanNo) : 0;
+      const sorMerkez = process.env.MIKRO_SORMERK || 'HENDEK';
+      const zeroGuid = '00000000-0000-0000-0000-000000000000';
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -1117,6 +1119,82 @@ class MikroService {
           .input('hareketTipi', sql.TinyInt, 0)
           .query(insertQuery);
       }
+
+      const normalizeQuery = `
+        UPDATE VERILEN_TEKLIFLER
+        SET
+          tkl_SpecRECno = ISNULL(tkl_SpecRECno, 0),
+          tkl_degisti = ISNULL(tkl_degisti, 0),
+          tkl_checksum = ISNULL(tkl_checksum, 0),
+          tkl_special1 = ISNULL(tkl_special1, ''),
+          tkl_special2 = ISNULL(tkl_special2, ''),
+          tkl_special3 = ISNULL(tkl_special3, ''),
+          tkl_asgari_miktar = ISNULL(tkl_asgari_miktar, 0),
+          tkl_Alisfiyati = ISNULL(tkl_Alisfiyati, 0),
+          tkl_karorani = ISNULL(tkl_karorani, 0),
+          tkl_iskonto1 = ISNULL(tkl_iskonto1, 0),
+          tkl_iskonto2 = ISNULL(tkl_iskonto2, 0),
+          tkl_iskonto3 = ISNULL(tkl_iskonto3, 0),
+          tkl_iskonto4 = ISNULL(tkl_iskonto4, 0),
+          tkl_iskonto5 = ISNULL(tkl_iskonto5, 0),
+          tkl_iskonto6 = ISNULL(tkl_iskonto6, 0),
+          tkl_masraf1 = ISNULL(tkl_masraf1, 0),
+          tkl_masraf2 = ISNULL(tkl_masraf2, 0),
+          tkl_masraf3 = ISNULL(tkl_masraf3, 0),
+          tkl_masraf4 = ISNULL(tkl_masraf4, 0),
+          tkl_masraf_vergi_pnt = ISNULL(tkl_masraf_vergi_pnt, 0),
+          tkl_masraf_vergi = ISNULL(tkl_masraf_vergi, 0),
+          tkl_isk_mas1 = ISNULL(tkl_isk_mas1, 0),
+          TKL_ISK_MAS2 = ISNULL(TKL_ISK_MAS2, 1),
+          TKL_ISK_MAS3 = ISNULL(TKL_ISK_MAS3, 1),
+          TKL_ISK_MAS4 = ISNULL(TKL_ISK_MAS4, 1),
+          TKL_ISK_MAS5 = ISNULL(TKL_ISK_MAS5, 1),
+          TKL_ISK_MAS6 = ISNULL(TKL_ISK_MAS6, 1),
+          TKL_ISK_MAS7 = ISNULL(TKL_ISK_MAS7, 1),
+          TKL_ISK_MAS8 = ISNULL(TKL_ISK_MAS8, 1),
+          TKL_ISK_MAS9 = ISNULL(TKL_ISK_MAS9, 1),
+          TKL_ISK_MAS10 = ISNULL(TKL_ISK_MAS10, 1),
+          TKL_SAT_ISKMAS1 = ISNULL(TKL_SAT_ISKMAS1, 0),
+          TKL_SAT_ISKMAS2 = ISNULL(TKL_SAT_ISKMAS2, 0),
+          TKL_SAT_ISKMAS3 = ISNULL(TKL_SAT_ISKMAS3, 0),
+          TKL_SAT_ISKMAS4 = ISNULL(TKL_SAT_ISKMAS4, 0),
+          TKL_SAT_ISKMAS5 = ISNULL(TKL_SAT_ISKMAS5, 0),
+          TKL_SAT_ISKMAS6 = ISNULL(TKL_SAT_ISKMAS6, 0),
+          TKL_SAT_ISKMAS7 = ISNULL(TKL_SAT_ISKMAS7, 0),
+          TKL_SAT_ISKMAS8 = ISNULL(TKL_SAT_ISKMAS8, 0),
+          TKL_SAT_ISKMAS9 = ISNULL(TKL_SAT_ISKMAS9, 0),
+          TKL_SAT_ISKMAS10 = ISNULL(TKL_SAT_ISKMAS10, 0),
+          TKL_TESLIMTURU = ISNULL(TKL_TESLIMTURU, ''),
+          tkl_adres_no = ISNULL(tkl_adres_no, 1),
+          tkl_yetkili_uid = ISNULL(tkl_yetkili_uid, @zeroGuid),
+          tkl_TedarikEdilecekCari = ISNULL(tkl_TedarikEdilecekCari, ''),
+          tkl_paket_kod = ISNULL(tkl_paket_kod, ''),
+          tkl_OnaylayanKulNo = ISNULL(tkl_OnaylayanKulNo, @onayKulNo),
+          tkl_cari_sormerk = ISNULL(tkl_cari_sormerk, @sorMerkez),
+          tkl_stok_sormerk = ISNULL(tkl_stok_sormerk, @sorMerkez),
+          tkl_kapatmanedenkod = ISNULL(tkl_kapatmanedenkod, ''),
+          tkl_servisisemrikodu = ISNULL(tkl_servisisemrikodu, ''),
+          tkl_HareketGrupKodu1 = ISNULL(tkl_HareketGrupKodu1, ''),
+          tkl_HareketGrupKodu2 = ISNULL(tkl_HareketGrupKodu2, ''),
+          tkl_HareketGrupKodu3 = ISNULL(tkl_HareketGrupKodu3, ''),
+          tkl_Olcu1 = ISNULL(tkl_Olcu1, 0),
+          tkl_Olcu2 = ISNULL(tkl_Olcu2, 0),
+          tkl_Olcu3 = ISNULL(tkl_Olcu3, 0),
+          tkl_Olcu4 = ISNULL(tkl_Olcu4, 0),
+          tkl_Olcu5 = ISNULL(tkl_Olcu5, 0),
+          tkl_FormulMiktarNo = ISNULL(tkl_FormulMiktarNo, 0),
+          tkl_FormulMiktar = ISNULL(tkl_FormulMiktar, 0)
+        WHERE tkl_evrakno_seri = @seri AND tkl_evrakno_sira = @sira
+      `;
+
+      await transaction
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri)
+        .input('sira', sql.Int, evrakSira)
+        .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
+        .input('onayKulNo', sql.SmallInt, 1)
+        .input('sorMerkez', sql.NVarChar(25), sorMerkez)
+        .query(normalizeQuery);
 
       await transaction.commit();
 

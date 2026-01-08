@@ -86,6 +86,8 @@ model User {
   quoteWhatsappTemplate String?
   quoteResponsibleCode String?
   quoteColumnWidths    Json?
+  quotePoolSort        String?
+  quotePoolColorRules  Json?
 
   // Mikro'dan senkronize edilen cari bilgileri
   city                String?       // Şehir

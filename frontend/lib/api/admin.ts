@@ -213,6 +213,8 @@ export const adminApi = {
       whatsappTemplate: string;
       responsibleCode?: string | null;
       columnWidths?: Record<string, number> | null;
+      poolSort?: string | null;
+      poolColorRules?: any[] | null;
     };
   }> => {
     const response = await apiClient.get('/admin/quotes/preferences');
@@ -224,12 +226,16 @@ export const adminApi = {
     whatsappTemplate?: string;
     responsibleCode?: string | null;
     columnWidths?: Record<string, number>;
+    poolSort?: string | null;
+    poolColorRules?: any[] | null;
   }): Promise<{
     preferences: {
       lastSalesCount: number;
       whatsappTemplate: string;
       responsibleCode?: string | null;
       columnWidths?: Record<string, number> | null;
+      poolSort?: string | null;
+      poolColorRules?: any[] | null;
     };
   }> => {
     const response = await apiClient.put('/admin/quotes/preferences', data);

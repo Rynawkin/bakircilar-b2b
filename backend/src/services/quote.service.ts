@@ -48,6 +48,14 @@ interface CreateQuoteInput {
 const DEFAULT_WHATSAPP_TEMPLATE =
   'Merhaba {{customerName}}, teklifiniz hazÄ±r. Teklif No: {{quoteNumber}}. Link: {{quoteLink}}. GeÃ§erlilik: {{validUntil}}.';
 
+const VALID_POOL_SORTS = new Set([
+  'default',
+  'stock1_desc',
+  'stock6_desc',
+  'price_asc',
+  'price_desc',
+]);
+
 const normalizePriceType = (value?: string): PriceType =>
   value === 'WHITE' ? 'WHITE' : 'INVOICED';
 
@@ -92,6 +100,28 @@ class QuoteService {
     return Object.keys(sanitized).length > 0 ? sanitized : null;
   }
 
+  private sanitizePoolColorRules(input?: unknown) {
+    if (!Array.isArray(input)) return null;
+    const sanitized = input
+      .map((rule) => {
+        if (!rule || typeof rule !== 'object') return null;
+        const entry = rule as Record<string, unknown>;
+        const warehouse = entry.warehouse === '6' ? '6' : '1';
+        const operator = typeof entry.operator === 'string' && ['>', '>=', '<', '<=', '='].includes(entry.operator)
+          ? entry.operator
+          : '>';
+        const color = typeof entry.color === 'string' && ['green', 'yellow', 'blue', 'red', 'slate'].includes(entry.color)
+          ? entry.color
+          : 'green';
+        const threshold = Number.isFinite(Number(entry.threshold)) ? Number(entry.threshold) : 0;
+        const enabled = Boolean(entry.enabled);
+        const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : undefined;
+        return { id, enabled, warehouse, operator, threshold, color };
+      })
+      .filter(Boolean);
+    return sanitized.length > 0 ? sanitized : null;
+  }
+
   async getPreferences(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -100,6 +130,8 @@ class QuoteService {
         quoteWhatsappTemplate: true,
         quoteResponsibleCode: true,
         quoteColumnWidths: true,
+        quotePoolSort: true,
+        quotePoolColorRules: true,
       },
     });
 
@@ -108,6 +140,8 @@ class QuoteService {
       whatsappTemplate: user?.quoteWhatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE,
       responsibleCode: user?.quoteResponsibleCode || null,
       columnWidths: (user?.quoteColumnWidths as Record<string, number> | null) || null,
+      poolSort: user?.quotePoolSort || 'default',
+      poolColorRules: this.sanitizePoolColorRules(user?.quotePoolColorRules) || null,
     };
   }
 
@@ -118,6 +152,8 @@ class QuoteService {
       whatsappTemplate?: string;
       responsibleCode?: string | null;
       columnWidths?: Record<string, unknown> | null;
+      poolSort?: string | null;
+      poolColorRules?: unknown[] | null;
     }
   ) {
     const updateData: any = {};
@@ -133,6 +169,13 @@ class QuoteService {
     if (data.columnWidths !== undefined) {
       updateData.quoteColumnWidths = this.sanitizeColumnWidths(data.columnWidths);
     }
+    if (data.poolSort !== undefined) {
+      updateData.quotePoolSort =
+        data.poolSort && VALID_POOL_SORTS.has(data.poolSort) ? data.poolSort : 'default';
+    }
+    if (data.poolColorRules !== undefined) {
+      updateData.quotePoolColorRules = this.sanitizePoolColorRules(data.poolColorRules);
+    }
 
     const user = await prisma.user.update({
       where: { id: userId },
@@ -142,6 +185,8 @@ class QuoteService {
         quoteWhatsappTemplate: true,
         quoteResponsibleCode: true,
         quoteColumnWidths: true,
+        quotePoolSort: true,
+        quotePoolColorRules: true,
       },
     });
 
@@ -150,6 +195,8 @@ class QuoteService {
       whatsappTemplate: user.quoteWhatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE,
       responsibleCode: user.quoteResponsibleCode || null,
       columnWidths: (user.quoteColumnWidths as Record<string, number> | null) || null,
+      poolSort: user.quotePoolSort || 'default',
+      poolColorRules: this.sanitizePoolColorRules(user.quotePoolColorRules) || null,
     };
   }
 

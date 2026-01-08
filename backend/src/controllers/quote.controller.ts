@@ -24,12 +24,14 @@ export class QuoteController {
    */
   async updatePreferences(req: Request, res: Response, next: NextFunction) {
     try {
-      const { lastSalesCount, whatsappTemplate, responsibleCode, columnWidths } = req.body || {};
+      const { lastSalesCount, whatsappTemplate, responsibleCode, columnWidths, poolSort, poolColorRules } = req.body || {};
       const preferences = await quoteService.updatePreferences(req.user!.userId, {
         lastSalesCount,
         whatsappTemplate,
         responsibleCode,
         columnWidths,
+        poolSort,
+        poolColorRules,
       });
       res.json({ preferences });
     } catch (error) {
