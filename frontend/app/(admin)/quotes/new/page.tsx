@@ -225,6 +225,28 @@ const formatManualPriceInput = (value?: number | null) => {
   return value.toLocaleString('tr-TR', { useGrouping: false, maximumFractionDigits: 6 });
 };
 
+const parseDecimalInput = (input: string) => {
+  const raw = input.replace(/\s+/g, '');
+  if (!raw) return { value: undefined };
+  const lastComma = raw.lastIndexOf(',');
+  const lastDot = raw.lastIndexOf('.');
+  let normalized = raw;
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    const decimalSeparator = lastComma > lastDot ? ',' : '.';
+    const thousandsSeparator = decimalSeparator === ',' ? '.' : ',';
+    normalized = raw.replace(new RegExp(`\\${thousandsSeparator}`, 'g'), '');
+    normalized = normalized.replace(decimalSeparator, '.');
+  } else if (lastComma !== -1) {
+    normalized = raw.replace(/\./g, '').replace(',', '.');
+  } else {
+    normalized = raw.replace(/,/g, '');
+  }
+
+  const parsed = Number(normalized);
+  return { value: Number.isFinite(parsed) ? parsed : undefined };
+};
+
 const getStockNumber = (product: QuoteProduct, warehouse: '1' | '6') => {
   const value = product.warehouseStocks?.[warehouse];
   const parsed = Number(value);
@@ -826,18 +848,25 @@ export default function AdminQuoteNewPage() {
 
   const handleManualPriceChange = (item: QuoteItemForm, value: string) => {
     const trimmed = value.trim();
-    const normalized = trimmed.replace(',', '.');
-    const parsed = trimmed.length > 0 ? Number(normalized) : undefined;
-    const nextPrice = trimmed.length === 0
-      ? undefined
-      : Number.isFinite(parsed as number)
-        ? (parsed as number)
-        : item.unitPrice;
+    const parsed = trimmed.length > 0 ? parseDecimalInput(trimmed).value : undefined;
+    const nextPrice = trimmed.length === 0 ? undefined : parsed;
     updateItem(item.id, {
       unitPrice: nextPrice,
       manualPriceInput: value,
       manualMarginEntry: undefined,
       manualMarginCost: undefined,
+    });
+  };
+
+  const handleQuantityChange = (item: QuoteItemForm, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      updateItem(item.id, { quantity: 0 });
+      return;
+    }
+    const parsed = parseDecimalInput(trimmed).value;
+    updateItem(item.id, {
+      quantity: parsed !== undefined ? Math.max(0, parsed) : item.quantity,
     });
   };
 
@@ -1230,6 +1259,10 @@ export default function AdminQuoteNewPage() {
 
     for (let i = 0; i < quoteItems.length; i++) {
       const item = quoteItems[i];
+      if (!item.quantity || item.quantity <= 0) {
+        toast.error(`Miktar girilmeli (Satir ${i + 1}).`);
+        return false;
+      }
       if (item.isManualLine) {
         if (!item.productName?.trim()) {
           toast.error(`Manuel satir urun adi gerekli (Satir ${i + 1}).`);
@@ -1711,10 +1744,10 @@ export default function AdminQuoteNewPage() {
                           </td>
                           <td className="px-3 py-2">
                             <input
-                              type="number"
-                              min={1}
-                              value={item.quantity}
-                              onChange={(e) => updateItem(item.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                              type="text"
+                              inputMode="decimal"
+                              value={item.quantity === 0 ? '' : item.quantity}
+                              onChange={(e) => handleQuantityChange(item, e.target.value)}
                               className="w-20 rounded-lg border border-gray-300 px-2 py-1"
                             />
                           </td>

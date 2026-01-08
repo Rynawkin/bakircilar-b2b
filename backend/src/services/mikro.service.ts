@@ -1172,6 +1172,7 @@ class MikroService {
           tkl_OnaylayanKulNo = ISNULL(tkl_OnaylayanKulNo, @onayKulNo),
           tkl_cari_sormerk = ISNULL(tkl_cari_sormerk, @sorMerkez),
           tkl_stok_sormerk = ISNULL(tkl_stok_sormerk, @sorMerkez),
+          tkl_ProjeKodu = ISNULL(tkl_ProjeKodu, 'R'),
           tkl_kapatmanedenkod = ISNULL(tkl_kapatmanedenkod, ''),
           tkl_servisisemrikodu = ISNULL(tkl_servisisemrikodu, ''),
           tkl_HareketGrupKodu1 = ISNULL(tkl_HareketGrupKodu1, ''),

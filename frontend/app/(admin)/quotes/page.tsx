@@ -18,6 +18,22 @@ type QuoteStatusFilter = QuoteStatus | 'ALL';
 const DEFAULT_WHATSAPP_TEMPLATE =
   'Merhaba {{customerName}}, teklifiniz hazır. Teklif No: {{quoteNumber}}. Link: {{quoteLink}}. Geçerlilik: {{validUntil}}.';
 
+const normalizeTurkishText = (text: string) => {
+  return text
+    .replace(/Ã‡/g, 'Ç')
+    .replace(/Ã§/g, 'ç')
+    .replace(/Ä°/g, 'İ')
+    .replace(/Ä±/g, 'ı')
+    .replace(/Ã–/g, 'Ö')
+    .replace(/Ã¶/g, 'ö')
+    .replace(/Ãœ/g, 'Ü')
+    .replace(/Ã¼/g, 'ü')
+    .replace(/Ä/g, 'Ğ')
+    .replace(/ÄŸ/g, 'ğ')
+    .replace(/Å/g, 'Ş')
+    .replace(/ÅŸ/g, 'ş');
+};
+
 const getStatusBadge = (status: QuoteStatus) => {
   switch (status) {
     case 'PENDING_APPROVAL':
@@ -36,9 +52,10 @@ const getStatusBadge = (status: QuoteStatus) => {
 };
 
 const buildWhatsappMessage = (template: string, quote: Quote, link: string, customerName: string) => {
-  const safeTemplate = template || DEFAULT_WHATSAPP_TEMPLATE;
+  const safeTemplate = normalizeTurkishText(template || DEFAULT_WHATSAPP_TEMPLATE);
+  const safeCustomerName = normalizeTurkishText(customerName || '');
   return safeTemplate
-    .replace(/{{customerName}}/g, customerName || '')
+    .replace(/{{customerName}}/g, safeCustomerName)
     .replace(/{{quoteNumber}}/g, quote.quoteNumber)
     .replace(/{{quoteLink}}/g, link)
     .replace(/{{validUntil}}/g, formatDate(quote.validityDate));
@@ -100,7 +117,7 @@ export default function AdminQuotesPage() {
     try {
       const { preferences } = await adminApi.getQuotePreferences();
       if (preferences?.whatsappTemplate) {
-        setWhatsappTemplate(preferences.whatsappTemplate);
+        setWhatsappTemplate(normalizeTurkishText(preferences.whatsappTemplate));
       }
     } catch (error) {
       console.error('Teklif tercihleri alınamadı:', error);
