@@ -171,10 +171,13 @@ model User {
   createdQuotes      Quote[]       @relation("QuoteCreator")
   adminQuotes        Quote[]       @relation("QuoteAdmin")
   contacts           CustomerContact[]
-  createdTasks       Task[]       @relation("TaskCreator")
-  assignedTasks      Task[]       @relation("TaskAssignee")
-  customerTasks      Task[]       @relation("TaskCustomer")
+  createdTasks       Task[]        @relation("TaskCreator")
+  assignedTasks      Task[]        @relation("TaskAssignee")
+  customerTasks      Task[]        @relation("TaskCustomer")
   taskTemplates      TaskTemplate[] @relation("TaskTemplateCreator")
+  taskComments       TaskComment[] @relation("TaskCommentAuthor")
+  taskAttachments    TaskAttachment[] @relation("TaskAttachmentUploader")
+  taskStatusChanges  TaskStatusHistory[] @relation("TaskStatusChanger")
 
   @@index([email])
   @@index([role])
@@ -931,7 +934,7 @@ model TaskComment {
   taskId      String
   task        Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
   authorId    String
-  author      User            @relation(fields: [authorId], references: [id])
+  author      User            @relation("TaskCommentAuthor", fields: [authorId], references: [id])
   body        String
   visibility  TaskVisibility  @default(PUBLIC)
   createdAt   DateTime        @default(now())
@@ -945,7 +948,7 @@ model TaskAttachment {
   taskId        String
   task          Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
   uploadedById  String
-  uploadedBy    User            @relation(fields: [uploadedById], references: [id])
+  uploadedBy    User            @relation("TaskAttachmentUploader", fields: [uploadedById], references: [id])
   fileName      String
   originalName  String
   mimeType      String
@@ -980,7 +983,7 @@ model TaskStatusHistory {
   fromStatus    TaskStatus?
   toStatus      TaskStatus
   changedById   String?
-  changedBy     User?        @relation(fields: [changedById], references: [id])
+  changedBy     User?        @relation("TaskStatusChanger", fields: [changedById], references: [id])
   createdAt     DateTime     @default(now())
 
   @@index([taskId])
