@@ -836,7 +836,6 @@ class QuoteService {
       const product = productMap.get(line.productCode);
       const isManualLine = !product || manualCodes.has(line.productCode);
       const productName = product ? product.name : (line.lineDescription || 'Manual line');
-      const unit = product?.unit || match?.unit || 'ADET';
       const priceListNo = line.priceListNo || null;
       const priceSource = priceListNo ? 'PRICE_LIST' : 'MANUAL';
       const vatZeroed = line.vatRate === 0;
@@ -853,6 +852,7 @@ class QuoteService {
         );
       }
 
+      const unit = product?.unit || match?.unit || 'ADET';
       const baseData = {
         productId: product ? product.id : null,
         productCode: line.productCode,
