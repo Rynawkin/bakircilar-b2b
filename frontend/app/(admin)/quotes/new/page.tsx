@@ -113,6 +113,7 @@ const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
 ];
 
 const BASE_COLUMN_WIDTHS: Record<string, number> = {
+  rowNumber: 56,
   product: 320,
   quantity: 90,
   priceSource: 140,
@@ -124,6 +125,7 @@ const BASE_COLUMN_WIDTHS: Record<string, number> = {
 };
 
 const MIN_COLUMN_WIDTHS: Record<string, number> = {
+  rowNumber: 44,
   product: 240,
   quantity: 80,
   priceSource: 110,
@@ -1103,6 +1105,19 @@ export default function AdminQuoteNewPage() {
   const handleRowDragOver = (event: DragEvent<HTMLTableRowElement>) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
+
+    if (draggingItemId) {
+      const threshold = 120;
+      const maxStep = 18;
+      const viewportHeight = window.innerHeight;
+      if (event.clientY < threshold) {
+        const ratio = (threshold - event.clientY) / threshold;
+        window.scrollBy({ top: -Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
+      } else if (event.clientY > viewportHeight - threshold) {
+        const ratio = (event.clientY - (viewportHeight - threshold)) / threshold;
+        window.scrollBy({ top: Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
+      }
+    }
   };
 
   const handleRowDrop = (targetId: string) => (event: DragEvent<HTMLTableRowElement>) => {
@@ -1130,8 +1145,25 @@ export default function AdminQuoteNewPage() {
     setDraggingItemId(null);
   };
 
+  const handleTableDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (!draggingItemId) return;
+
+    const threshold = 120;
+    const maxStep = 18;
+    const viewportHeight = window.innerHeight;
+    if (event.clientY < threshold) {
+      const ratio = (threshold - event.clientY) / threshold;
+      window.scrollBy({ top: -Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
+    } else if (event.clientY > viewportHeight - threshold) {
+      const ratio = (event.clientY - (viewportHeight - threshold)) / threshold;
+      window.scrollBy({ top: Math.ceil(maxStep * ratio), left: 0, behavior: 'auto' });
+    }
+  };
+
   const tableColumnKeys = useMemo(
     () => [
+      'rowNumber',
       'product',
       'quantity',
       'priceSource',
@@ -1652,7 +1684,10 @@ export default function AdminQuoteNewPage() {
           {quoteItems.length === 0 ? (
             <div className="text-sm text-gray-500">Teklife urun eklenmedi.</div>
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white">
+            <div
+              className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white"
+              onDragOver={handleTableDragOver}
+            >
               <table className="w-full min-w-[1100px] table-fixed text-sm">
                 <colgroup>
                   {tableColumnKeys.map((key) => (
@@ -1661,45 +1696,52 @@ export default function AdminQuoteNewPage() {
                 </colgroup>
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-gray-600">
                   <tr>
-                    <th className="relative select-none px-3 py-2 text-left">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
+                      #
+                      {renderResizeHandle('rowNumber')}
+                    </th>
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
                       Urun
                       {renderResizeHandle('product')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
                       Miktar
                       {renderResizeHandle('quantity')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
                       Fiyat Kaynagi
                       {renderResizeHandle('priceSource')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
                       Secim
                       {renderResizeHandle('selection')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-right">
+                    <th className="relative select-none px-3 py-2 text-right bg-slate-50 sticky top-0 z-10">
                       Birim Fiyat
                       {renderResizeHandle('unitPrice')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-right">
+                    <th className="relative select-none px-3 py-2 text-right bg-slate-50 sticky top-0 z-10">
                       Toplam
                       {renderResizeHandle('lineTotal')}
                     </th>
-                    <th className="relative select-none px-3 py-2 text-left">
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50 sticky top-0 z-10">
                       KDV
                       {renderResizeHandle('vat')}
                     </th>
                     {selectedColumns.map((column) => (
-                      <th key={column} className="relative select-none px-3 py-2 text-left whitespace-nowrap">
+                      <th
+                        key={column}
+                        className="relative select-none px-3 py-2 text-left whitespace-nowrap bg-slate-50 sticky top-0 z-10"
+                      >
                         {getColumnDisplayName(column)}
                         {renderResizeHandle(`stock:${column}`)}
                       </th>
                     ))}
-                    <th className="px-3 py-2"></th>
+                    <th className="px-3 py-2 bg-slate-50 sticky top-0 z-10"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {quoteItems.map((item) => {
+                  {quoteItems.map((item, index) => {
                     const marginInfo = getMarginInfo(item);
                     const roundedUnitPrice = roundUp2(item.unitPrice || 0);
                     const lineTotal = roundedUnitPrice * (item.quantity || 0);
@@ -1711,6 +1753,9 @@ export default function AdminQuoteNewPage() {
                           onDragOver={handleRowDragOver}
                           onDrop={handleRowDrop(item.id)}
                         >
+                          <td className="px-3 py-2 text-right text-xs font-semibold text-gray-500">
+                            {index + 1}
+                          </td>
                           <td className="px-3 py-2">
                             <div className="flex items-start gap-2">
                               <button

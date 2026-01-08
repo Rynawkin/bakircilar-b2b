@@ -967,6 +967,13 @@ class MikroService {
       const mikroQuoteNumber = `${evrakSeri}-${evrakSira}`;
 
       const now = new Date();
+      const evrakDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const safeValidityDate = Number.isFinite(validityDate?.getTime?.()) ? validityDate : now;
+      const validityDateOnly = new Date(Date.UTC(
+        safeValidityDate.getUTCFullYear(),
+        safeValidityDate.getUTCMonth(),
+        safeValidityDate.getUTCDate()
+      ));
       const lineNote = (description || '').trim();
       const documentNoValue = (documentNo || '').trim().slice(0, 50);
       const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
@@ -1080,9 +1087,9 @@ class MikroService {
           .input('seri', sql.NVarChar(20), evrakSeri)
           .input('sira', sql.Int, evrakSira)
           .input('satirNo', sql.Int, satirNo)
-          .input('evrakTarihi', sql.DateTime, now)
-          .input('baslangicTarihi', sql.DateTime, now)
-          .input('gecerlilikTarihi', sql.DateTime, validityDate)
+          .input('evrakTarihi', sql.DateTime, evrakDate)
+          .input('baslangicTarihi', sql.DateTime, evrakDate)
+          .input('gecerlilikTarihi', sql.DateTime, validityDateOnly)
           .input('cariKod', sql.NVarChar(25), cariCode)
           .input('stokKod', sql.NVarChar(25), item.productCode)
           .input('miktar', sql.Float, quantity)
@@ -1102,7 +1109,7 @@ class MikroService {
           .input('vergiSiz', sql.Bit, vatRate === 0)
           .input('tevkifatTur', sql.TinyInt, 0)
           .input('tevkifatSifir', sql.Bit, 0)
-          .input('belgeTarih', sql.DateTime, now)
+          .input('belgeTarih', sql.DateTime, evrakDate)
           .input('belgeNo', sql.NVarChar(50), documentNoValue)
           .input('sorumluKod', sql.NVarChar(25), responsibleValue || null)
           .input('iptal', sql.Bit, 0)
