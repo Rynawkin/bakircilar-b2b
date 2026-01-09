@@ -349,6 +349,117 @@ export interface TaskDetail extends Task {
   statusHistory: TaskStatusHistory[];
 }
 
+// ==================== VADE TYPES ====================
+
+export type VadeBalanceSource = 'MIKRO' | 'EXCEL' | 'MANUAL';
+
+export interface VadeBalance {
+  id: string;
+  pastDueBalance: number;
+  pastDueDate?: string | null;
+  notDueBalance: number;
+  notDueDate?: string | null;
+  totalBalance: number;
+  valor: number;
+  paymentTermLabel?: string | null;
+  referenceDate?: string | null;
+  source: VadeBalanceSource;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    name: string;
+    displayName?: string | null;
+    mikroName?: string | null;
+    mikroCariCode?: string | null;
+    sectorCode?: string | null;
+    groupCode?: string | null;
+    city?: string | null;
+    district?: string | null;
+    phone?: string | null;
+    paymentPlanNo?: number | null;
+    paymentPlanCode?: string | null;
+    paymentPlanName?: string | null;
+    balance?: number;
+    isLocked?: boolean;
+  };
+}
+
+export interface VadeNote {
+  id: string;
+  customerId: string;
+  authorId?: string | null;
+  noteContent: string;
+  promiseDate?: string | null;
+  tags: string[];
+  reminderDate?: string | null;
+  reminderNote?: string | null;
+  reminderCompleted: boolean;
+  reminderSentAt?: string | null;
+  balanceAtTime?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  customer?: {
+    id: string;
+    name: string;
+    displayName?: string | null;
+    mikroName?: string | null;
+    mikroCariCode?: string | null;
+    sectorCode?: string | null;
+  };
+  author?: {
+    id: string;
+    name: string;
+    email?: string | null;
+    role?: string | null;
+  };
+}
+
+export interface VadeClassification {
+  id: string;
+  customerId: string;
+  classification: string;
+  customClassification?: string | null;
+  riskScore?: number | null;
+  createdById?: string | null;
+  updatedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VadeAssignment {
+  id: string;
+  staffId: string;
+  customerId: string;
+  assignedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  staff?: {
+    id: string;
+    name: string;
+    email?: string | null;
+    role?: string | null;
+  };
+  customer?: {
+    id: string;
+    name: string;
+    mikroCariCode?: string | null;
+    sectorCode?: string | null;
+  };
+}
+
+export interface VadeSyncLog {
+  id: string;
+  source: VadeBalanceSource;
+  status: 'SUCCESS' | 'FAILED' | 'PARTIAL';
+  recordsTotal: number;
+  recordsUpdated: number;
+  recordsSkipped: number;
+  startedAt: string;
+  completedAt?: string | null;
+  errorMessage?: string | null;
+}
+
 export interface Notification {
   id: string;
   title: string;

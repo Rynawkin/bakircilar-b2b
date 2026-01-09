@@ -15,6 +15,8 @@ import orderTrackingService from './services/order-tracking.service';
 import emailService from './services/email.service';
 import priceSyncService from './services/priceSync.service';
 import quoteService from './services/quote.service';
+import vadeSyncService from './services/vadeSync.service';
+import vadeNotificationService from './services/vadeNotification.service';
 
 // Express app
 const app: Application = express();
@@ -124,6 +126,33 @@ if (config.enableCron) {
       console.log('Quote sync completed:', result);
     } catch (error) {
       console.error('Quote sync error:', error);
+    }
+  }, cronOptions);
+
+  console.log('Vade sync cron schedule:', config.vadeSyncCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.vadeSyncCronSchedule, async () => {
+    console.log('Vade sync started...');
+    try {
+      const result = await vadeSyncService.syncFromMikro('AUTO');
+      if (result.success) {
+        console.log('Vade sync completed:', result);
+      } else {
+        console.error('Vade sync failed:', result.error);
+      }
+    } catch (error) {
+      console.error('Vade sync error:', error);
+    }
+  }, cronOptions);
+
+  console.log('Vade reminder cron schedule:', config.vadeReminderCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.vadeReminderCronSchedule, async () => {
+    try {
+      const result = await vadeNotificationService.processNoteReminders();
+      if (result.notified > 0) {
+        console.log('Vade reminders sent:', result.notified);
+      }
+    } catch (error) {
+      console.error('Vade reminder error:', error);
     }
   }, cronOptions);
 

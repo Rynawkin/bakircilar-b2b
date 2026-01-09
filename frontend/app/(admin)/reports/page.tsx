@@ -103,7 +103,7 @@ const reports: ReportCard[] = [
     title: 'Vade & Alacak Takip Raporu',
     description: 'Vadesi geçmiş alacaklar, aranması gerekenler ve satış durdurma önerileri',
     icon: <AlertTriangle className="h-5 w-5 text-red-500" />,
-    href: '/reports/overdue-payments',
+    href: '/vade',
     category: 'customer',
     badge: 'Önerilen',
   },

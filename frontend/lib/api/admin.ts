@@ -23,6 +23,11 @@ import {
   TaskAttachment,
   TaskLink,
   Notification,
+  VadeBalance,
+  VadeNote,
+  VadeClassification,
+  VadeAssignment,
+  VadeSyncLog,
 } from '@/types';
 
 export const adminApi = {
@@ -402,6 +407,123 @@ export const adminApi = {
 
   markNotificationsReadAll: async (): Promise<{ updated: number }> => {
     const response = await apiClient.post('/admin/notifications/read-all');
+    return response.data;
+  },
+
+  // Vade Tracking
+  getVadeBalances: async (params?: {
+    search?: string;
+    page?: number;
+    limit?: number;
+    overdueOnly?: boolean;
+    upcomingOnly?: boolean;
+  }): Promise<{
+    balances: VadeBalance[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> => {
+    const response = await apiClient.get('/admin/vade/balances', { params });
+    return response.data;
+  },
+
+  getVadeCustomer: async (customerId: string): Promise<{
+    customer: any;
+    notes: VadeNote[];
+    assignments: VadeAssignment[];
+  }> => {
+    const response = await apiClient.get(`/admin/vade/customers/${customerId}`);
+    return response.data;
+  },
+
+  getVadeNotes: async (params?: {
+    customerId?: string;
+    authorId?: string;
+    tag?: string;
+    startDate?: string;
+    endDate?: string;
+    reminderOnly?: boolean;
+    reminderCompleted?: boolean;
+    reminderFrom?: string;
+    reminderTo?: string;
+  }): Promise<{ notes: VadeNote[] }> => {
+    const response = await apiClient.get('/admin/vade/notes', { params });
+    return response.data;
+  },
+
+  createVadeNote: async (data: {
+    customerId: string;
+    noteContent: string;
+    promiseDate?: string | null;
+    tags?: string[];
+    reminderDate?: string | null;
+    reminderNote?: string | null;
+    reminderCompleted?: boolean;
+    balanceAtTime?: number | null;
+  }): Promise<{ note: VadeNote }> => {
+    const response = await apiClient.post('/admin/vade/notes', data);
+    return response.data;
+  },
+
+  updateVadeNote: async (noteId: string, data: {
+    noteContent?: string;
+    promiseDate?: string | null;
+    tags?: string[];
+    reminderDate?: string | null;
+    reminderNote?: string | null;
+    reminderCompleted?: boolean;
+    reminderSentAt?: string | null;
+    balanceAtTime?: number | null;
+  }): Promise<{ note: VadeNote }> => {
+    const response = await apiClient.put(`/admin/vade/notes/${noteId}`, data);
+    return response.data;
+  },
+
+  upsertVadeClassification: async (data: {
+    customerId: string;
+    classification: string;
+    customClassification?: string | null;
+    riskScore?: number | null;
+  }): Promise<{ classification: VadeClassification }> => {
+    const response = await apiClient.post('/admin/vade/classification', data);
+    return response.data;
+  },
+
+  getVadeAssignments: async (params?: { staffId?: string; customerId?: string }): Promise<{ assignments: VadeAssignment[] }> => {
+    const response = await apiClient.get('/admin/vade/assignments', { params });
+    return response.data;
+  },
+
+  assignVadeCustomers: async (data: { staffId: string; customerIds: string[] }): Promise<{ created: number }> => {
+    const response = await apiClient.post('/admin/vade/assignments', data);
+    return response.data;
+  },
+
+  removeVadeAssignment: async (data: { staffId: string; customerId: string }): Promise<{ success: boolean }> => {
+    const response = await apiClient.delete('/admin/vade/assignments', { data });
+    return response.data;
+  },
+
+  importVadeBalances: async (rows: Array<{
+    mikroCariCode: string;
+    pastDueBalance?: number;
+    pastDueDate?: string | null;
+    notDueBalance?: number;
+    notDueDate?: string | null;
+    totalBalance?: number;
+    valor?: number;
+    paymentTermLabel?: string | null;
+    referenceDate?: string | null;
+  }>): Promise<{ imported: number; skipped: number }> => {
+    const response = await apiClient.post('/admin/vade/import', { rows });
+    return response.data;
+  },
+
+  triggerVadeSync: async (): Promise<{ success: boolean; syncLogId: string; error?: string }> => {
+    const response = await apiClient.post('/admin/vade/sync');
+    return response.data;
+  },
+
+  getVadeSyncStatus: async (syncLogId: string): Promise<{ log: VadeSyncLog }> => {
+    const response = await apiClient.get(`/admin/vade/sync/status/${syncLogId}`);
     return response.data;
   },
 

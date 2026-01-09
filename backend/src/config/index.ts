@@ -40,6 +40,8 @@ export const config = {
   syncCronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 18 * * *', // Daily at 18:00
   priceSyncCronSchedule: process.env.PRICE_SYNC_CRON_SCHEDULE || '0 18 * * *',
   quoteSyncCronSchedule: process.env.QUOTE_SYNC_CRON_SCHEDULE || '0 18 * * *', // Her gün 18:00
+  vadeSyncCronSchedule: process.env.VADE_SYNC_CRON_SCHEDULE || '0 * * * *',
+  vadeReminderCronSchedule: process.env.VADE_REMINDER_CRON_SCHEDULE || '0 * * * *',
 
   // App
   isDevelopment: process.env.NODE_ENV === 'development',

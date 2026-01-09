@@ -114,6 +114,18 @@ enum TaskView {
   LIST
 }
 
+enum VadeBalanceSource {
+  MIKRO
+  EXCEL
+  MANUAL
+}
+
+enum VadeSyncStatus {
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
 // ==================== USERS ====================
 
 model User {
@@ -180,6 +192,15 @@ model User {
   taskAttachments    TaskAttachment[] @relation("TaskAttachmentUploader")
   taskStatusChanges  TaskStatusHistory[] @relation("TaskStatusChanger")
   notifications      Notification[]
+  vadeBalance        VadeBalance?
+  vadeNotes          VadeNote[]       @relation("VadeNoteCustomer")
+  vadeNotesAuthored  VadeNote[]       @relation("VadeNoteAuthor")
+  vadeClassification VadeClassification?
+  vadeClassificationsCreated VadeClassification[] @relation("VadeClassificationCreator")
+  vadeClassificationsUpdated VadeClassification[] @relation("VadeClassificationUpdater")
+  vadeAssignments    VadeAssignment[] @relation("VadeAssignmentStaff")
+  vadeAssignmentsAsCustomer VadeAssignment[] @relation("VadeAssignmentCustomer")
+  vadeAssignmentsCreated VadeAssignment[] @relation("VadeAssignmentCreator")
 
   @@index([email])
   @@index([role])
@@ -256,9 +277,105 @@ model Settings {
 
   // Son senkronizasyon
   lastSyncAt                DateTime?
+  lastVadeSyncAt            DateTime?
 
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
+}
+
+// ==================== VADE TRACKING ====================
+
+model VadeBalance {
+  id                String             @id @default(uuid())
+  userId            String             @unique
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pastDueBalance    Float              @default(0)
+  pastDueDate       DateTime?
+  notDueBalance     Float              @default(0)
+  notDueDate        DateTime?
+  totalBalance      Float              @default(0)
+  valor             Int                @default(0)
+  paymentTermLabel  String?
+  referenceDate     DateTime?
+  source            VadeBalanceSource  @default(MIKRO)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([pastDueDate])
+  @@index([notDueDate])
+}
+
+model VadeNote {
+  id                String   @id @default(uuid())
+  customerId        String
+  customer          User     @relation("VadeNoteCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  authorId          String?
+  author            User?    @relation("VadeNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  noteContent       String
+  promiseDate       DateTime?
+  tags              String[] @default([])
+  reminderDate      DateTime?
+  reminderNote      String?
+  reminderCompleted Boolean  @default(false)
+  reminderSentAt    DateTime?
+  balanceAtTime     Float?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([authorId])
+  @@index([reminderDate])
+  @@index([reminderCompleted])
+}
+
+model VadeClassification {
+  id                   String   @id @default(uuid())
+  customerId           String   @unique
+  customer             User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  classification       String
+  customClassification String?
+  riskScore            Int?
+  createdById          String?
+  createdBy            User?    @relation("VadeClassificationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById          String?
+  updatedBy            User?    @relation("VadeClassificationUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([customerId])
+}
+
+model VadeAssignment {
+  id           String   @id @default(uuid())
+  staffId      String
+  staff        User     @relation("VadeAssignmentStaff", fields: [staffId], references: [id], onDelete: Cascade)
+  customerId   String
+  customer     User     @relation("VadeAssignmentCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  assignedById String?
+  assignedBy   User?    @relation("VadeAssignmentCreator", fields: [assignedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([staffId, customerId])
+  @@index([staffId])
+  @@index([customerId])
+}
+
+model VadeSyncLog {
+  id             String          @id @default(uuid())
+  source         VadeBalanceSource
+  status         VadeSyncStatus
+  recordsTotal   Int             @default(0)
+  recordsUpdated Int             @default(0)
+  recordsSkipped Int             @default(0)
+  startedAt      DateTime        @default(now())
+  completedAt    DateTime?
+  errorMessage   String?
+  details        Json?
+
+  @@index([source])
+  @@index([status])
+  @@index([startedAt])
 }
 
 // ==================== CATEGORIES ====================
