@@ -417,12 +417,26 @@ export const adminApi = {
     limit?: number;
     overdueOnly?: boolean;
     upcomingOnly?: boolean;
+    sectorCode?: string;
+    groupCode?: string;
+    minBalance?: number;
+    maxBalance?: number;
+    hasNotes?: boolean;
+    notesKeyword?: string;
+    sortBy?: string;
+    sortDirection?: 'asc' | 'desc';
+    export?: boolean;
   }): Promise<{
     balances: VadeBalance[];
     pagination: { page: number; limit: number; total: number; totalPages: number };
     summary: { overdue: number; upcoming: number; total: number };
   }> => {
     const response = await apiClient.get('/admin/vade/balances', { params });
+    return response.data;
+  },
+
+  getVadeFilters: async (): Promise<{ sectorCodes: string[]; groupCodes: string[] }> => {
+    const response = await apiClient.get('/admin/vade/filters');
     return response.data;
   },
 

@@ -366,6 +366,7 @@ export interface VadeBalance {
   source: VadeBalanceSource;
   createdAt: string;
   updatedAt: string;
+  lastNoteAt?: string | null;
   user: {
     id: string;
     name: string;

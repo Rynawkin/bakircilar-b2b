@@ -45,7 +45,7 @@ class VadeSyncService {
           THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
           ELSE 0
         END) AS pastDueBalance,
-        MIN(CASE WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE) THEN vt.vade_tarihi END) AS pastDueDate,
+        MAX(CASE WHEN vt.vade_tarihi < CAST(GETDATE() AS DATE) THEN vt.vade_tarihi END) AS pastDueDate,
         SUM(CASE
           WHEN vt.vade_tarihi >= CAST(GETDATE() AS DATE)
           THEN CASE WHEN h.cha_tip = 0 THEN h.cha_meblag ELSE -h.cha_meblag END
@@ -97,9 +97,14 @@ class VadeSyncService {
       recordsTotal = rows.length;
 
       const codes = rows.map((row) => row.customerCode).filter(Boolean);
+      const normalizeSectorCode = (value?: string | null) =>
+        (value || '').trim().toLocaleUpperCase('tr-TR');
+      const excludedSectorCodes = new Set(
+        ['DİĞER', 'SORUNLU', 'SORUNLU CARİ'].map(normalizeSectorCode)
+      );
       const users = await prisma.user.findMany({
         where: { mikroCariCode: { in: codes } },
-        select: { id: true, mikroCariCode: true },
+        select: { id: true, mikroCariCode: true, sectorCode: true },
       });
       const userByCode = new Map(users.map((user) => [user.mikroCariCode || '', user]));
 
@@ -112,6 +117,10 @@ class VadeSyncService {
         const customerCode = row.customerCode;
         const user = userByCode.get(customerCode);
         if (!user) {
+          recordsSkipped += 1;
+          continue;
+        }
+        if (excludedSectorCodes.has(normalizeSectorCode(user.sectorCode))) {
           recordsSkipped += 1;
           continue;
         }

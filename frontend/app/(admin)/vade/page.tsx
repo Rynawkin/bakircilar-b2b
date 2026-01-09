@@ -8,9 +8,11 @@ import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { VadeBalance } from '@/types';
+import * as XLSX from 'xlsx';
 
 type Pagination = { page: number; limit: number; total: number; totalPages: number };
 
@@ -21,9 +23,23 @@ export default function VadePage() {
   const [search, setSearch] = useState('');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [upcomingOnly, setUpcomingOnly] = useState(false);
+  const [sectorCode, setSectorCode] = useState('');
+  const [groupCode, setGroupCode] = useState('');
+  const [minBalance, setMinBalance] = useState('');
+  const [maxBalance, setMaxBalance] = useState('');
+  const [hasNotes, setHasNotes] = useState(false);
+  const [notesKeyword, setNotesKeyword] = useState('');
+  const [sortBy, setSortBy] = useState('pastDueBalance');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [summary, setSummary] = useState({ count: 0, overdue: 0, upcoming: 0, total: 0 });
+  const [filterOptions, setFilterOptions] = useState<{ sectorCodes: string[]; groupCodes: string[] }>({
+    sectorCodes: [],
+    groupCodes: [],
+  });
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const fetchBalances = useCallback(async () => {
     setLoading(true);
@@ -34,6 +50,14 @@ export default function VadePage() {
         limit: pagination.limit,
         overdueOnly,
         upcomingOnly,
+        sectorCode: sectorCode || undefined,
+        groupCode: groupCode || undefined,
+        minBalance: minBalance !== '' ? Number(minBalance) : undefined,
+        maxBalance: maxBalance !== '' ? Number(maxBalance) : undefined,
+        hasNotes: hasNotes || undefined,
+        notesKeyword: notesKeyword.trim() || undefined,
+        sortBy,
+        sortDirection,
       });
       setBalances(response.balances || []);
       setPagination(response.pagination);
@@ -49,11 +73,43 @@ export default function VadePage() {
     } finally {
       setLoading(false);
     }
-  }, [search, pagination.page, pagination.limit, overdueOnly, upcomingOnly]);
+  }, [
+    search,
+    pagination.page,
+    pagination.limit,
+    overdueOnly,
+    upcomingOnly,
+    sectorCode,
+    groupCode,
+    minBalance,
+    maxBalance,
+    hasNotes,
+    notesKeyword,
+    sortBy,
+    sortDirection,
+  ]);
 
   useEffect(() => {
     fetchBalances();
   }, [fetchBalances]);
+
+  useEffect(() => {
+    let mounted = true;
+    adminApi.getVadeFilters()
+      .then((data) => {
+        if (!mounted) return;
+        setFilterOptions({
+          sectorCodes: data.sectorCodes || [],
+          groupCodes: data.groupCodes || [],
+        });
+      })
+      .catch((error) => {
+        console.error('Vade filtreleri yuklenemedi:', error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const totals = useMemo(() => summary, [summary]);
 
@@ -74,6 +130,77 @@ export default function VadePage() {
     }
   };
 
+  const handleSort = (key: string) => {
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    if (sortBy === key) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortBy(key);
+    if (['customerName', 'mikroCariCode', 'sectorCode', 'groupCode', 'lastNoteAt'].includes(key)) {
+      setSortDirection('asc');
+    } else {
+      setSortDirection('desc');
+    }
+  };
+
+  const getSortIndicator = (key: string) => {
+    if (sortBy !== key) return '';
+    return sortDirection === 'asc' ? ' ^' : ' v';
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const response = await adminApi.getVadeBalances({
+        search: search.trim() || undefined,
+        overdueOnly,
+        upcomingOnly,
+        sectorCode: sectorCode || undefined,
+        groupCode: groupCode || undefined,
+        minBalance: minBalance !== '' ? Number(minBalance) : undefined,
+        maxBalance: maxBalance !== '' ? Number(maxBalance) : undefined,
+        hasNotes: hasNotes || undefined,
+        notesKeyword: notesKeyword.trim() || undefined,
+        sortBy,
+        sortDirection,
+        export: true,
+      });
+      const rows = response.balances || [];
+      if (rows.length === 0) {
+        toast.error('Indirilecek kayit yok');
+        return;
+      }
+
+      const exportRows = rows.map((balance) => ({
+        'Cari Kodu': balance.user.mikroCariCode || '',
+        'Cari Adi': balance.user.displayName || balance.user.mikroName || balance.user.name || '',
+        Sektor: balance.user.sectorCode || '',
+        Grup: balance.user.groupCode || '',
+        'Vadesi Gecen': balance.pastDueBalance || 0,
+        'Vadesi Gecen Vade': balance.pastDueDate ? formatDateShort(balance.pastDueDate) : '',
+        Valor: balance.valor || 0,
+        'Vadesi Gelmemis': balance.notDueBalance || 0,
+        'Vadesi Gelmemis Vade': balance.notDueDate ? formatDateShort(balance.notDueDate) : '',
+        Toplam: balance.totalBalance || 0,
+        'Odeme Plani': balance.paymentTermLabel || balance.user.paymentPlanName || '',
+        'Son Not Tarihi': balance.lastNoteAt ? formatDateShort(balance.lastNoteAt) : '',
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Vade Takip');
+      const filename = `vade-takip-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(workbook, filename);
+      toast.success('Excel indirildi');
+    } catch (error) {
+      console.error('Vade export error:', error);
+      toast.error('Excel indirilemedi');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <AdminNavigation />
@@ -86,6 +213,9 @@ export default function VadePage() {
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => router.push('/vade/import')}>
               Excel Import
+            </Button>
+            <Button variant="outline" onClick={handleExport} disabled={exporting}>
+              {exporting ? 'Hazirlaniyor...' : 'Excel Indir'}
             </Button>
             <Button variant="outline" onClick={() => router.push('/vade/notes')}>
               Not Raporu
@@ -154,12 +284,37 @@ export default function VadePage() {
                 Vadesi Gelmemis
               </Button>
               <Button
+                variant={hasNotes ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                  setHasNotes((prev) => !prev);
+                }}
+              >
+                Notu Olan
+              </Button>
+              <Button
+                variant={filtersOpen ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setFiltersOpen((prev) => !prev)}
+              >
+                Filtreler
+              </Button>
+              <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
                   setSearch('');
                   setOverdueOnly(false);
                   setUpcomingOnly(false);
+                  setSectorCode('');
+                  setGroupCode('');
+                  setMinBalance('');
+                  setMaxBalance('');
+                  setHasNotes(false);
+                  setNotesKeyword('');
+                  setSortBy('pastDueBalance');
+                  setSortDirection('desc');
                   setPagination((prev) => ({ ...prev, page: 1 }));
                 }}
               >
@@ -168,33 +323,152 @@ export default function VadePage() {
             </div>
           </div>
 
+          {filtersOpen && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Select
+                label="Sektor"
+                value={sectorCode}
+                onChange={(event) => {
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                  setSectorCode(event.target.value);
+                }}
+              >
+                <option value="">Tum sektorler</option>
+                {filterOptions.sectorCodes.map((code) => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </Select>
+              <Select
+                label="Grup"
+                value={groupCode}
+                onChange={(event) => {
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                  setGroupCode(event.target.value);
+                }}
+              >
+                <option value="">Tum gruplar</option>
+                {filterOptions.groupCodes.map((code) => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </Select>
+              <Select
+                label="Siralama"
+                value={sortBy}
+                onChange={(event) => {
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                  setSortBy(event.target.value);
+                }}
+              >
+                <option value="customerName">Cari</option>
+                <option value="mikroCariCode">Cari Kodu</option>
+                <option value="sectorCode">Sektor</option>
+                <option value="groupCode">Grup</option>
+                <option value="pastDueBalance">Vadesi Gecen</option>
+                <option value="pastDueDate">Vade Tarihi (Gecen)</option>
+                <option value="notDueBalance">Vadesi Gelmemis</option>
+                <option value="notDueDate">Vade Tarihi (Gelmemis)</option>
+                <option value="totalBalance">Toplam</option>
+                <option value="valor">Valor</option>
+                <option value="lastNoteAt">Son Not</option>
+                <option value="updatedAt">Guncel</option>
+              </Select>
+              <Select
+                label="Yon"
+                value={sortDirection}
+                onChange={(event) => {
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                  setSortDirection(event.target.value as 'asc' | 'desc');
+                }}
+              >
+                <option value="asc">Artan</option>
+                <option value="desc">Azalan</option>
+              </Select>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Min Bakiye</label>
+                <Input
+                  type="number"
+                  value={minBalance}
+                  onChange={(event) => {
+                    setPagination((prev) => ({ ...prev, page: 1 }));
+                    setMinBalance(event.target.value);
+                  }}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Max Bakiye</label>
+                <Input
+                  type="number"
+                  value={maxBalance}
+                  onChange={(event) => {
+                    setPagination((prev) => ({ ...prev, page: 1 }));
+                    setMaxBalance(event.target.value);
+                  }}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-3">
+                <label className="text-xs text-muted-foreground">Not Icerigi</label>
+                <Input
+                  value={notesKeyword}
+                  onChange={(event) => {
+                    setPagination((prev) => ({ ...prev, page: 1 }));
+                    setNotesKeyword(event.target.value);
+                  }}
+                  placeholder="Not icinde ara..."
+                />
+              </div>
+            </div>
+          )}
+
           <div className="overflow-auto rounded-lg border border-border">
             <table className="min-w-full text-sm">
               <thead className="bg-muted/50 text-xs uppercase">
                 <tr>
-                  <th className="px-3 py-2 text-left">Cari</th>
-                  <th className="px-3 py-2 text-left">Sektor</th>
-                  <th className="px-3 py-2 text-left">Vadesi Gecen</th>
-                  <th className="px-3 py-2 text-left">Vade Tarihi</th>
-                  <th className="px-3 py-2 text-left">Vadesi Gelmemis</th>
-                  <th className="px-3 py-2 text-left">Vade Tarihi</th>
-                  <th className="px-3 py-2 text-left">Toplam</th>
-                  <th className="px-3 py-2 text-left">Valor</th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('customerName')}>
+                    Cari{getSortIndicator('customerName')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('sectorCode')}>
+                    Sektor{getSortIndicator('sectorCode')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('pastDueBalance')}>
+                    Vadesi Gecen{getSortIndicator('pastDueBalance')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('pastDueDate')}>
+                    Vade Tarihi{getSortIndicator('pastDueDate')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('notDueBalance')}>
+                    Vadesi Gelmemis{getSortIndicator('notDueBalance')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('notDueDate')}>
+                    Vade Tarihi{getSortIndicator('notDueDate')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('totalBalance')}>
+                    Toplam{getSortIndicator('totalBalance')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('valor')}>
+                    Valor{getSortIndicator('valor')}
+                  </th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('lastNoteAt')}>
+                    Son Not{getSortIndicator('lastNoteAt')}
+                  </th>
                   <th className="px-3 py-2 text-left">Plan</th>
-                  <th className="px-3 py-2 text-left">Guncel</th>
+                  <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleSort('updatedAt')}>
+                    Guncel{getSortIndicator('updatedAt')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">
+                    <td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">
                       Yukleniyor...
                     </td>
                   </tr>
                 )}
                 {!loading && balances.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">
+                    <td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">
                       Sonuc bulunamadi.
                     </td>
                   </tr>
@@ -232,6 +506,25 @@ export default function VadePage() {
                     <td className="px-3 py-2">{formatCurrency(balance.totalBalance || 0)}</td>
                     <td className="px-3 py-2">
                       {balance.valor > 0 ? <Badge variant="destructive">{balance.valor} gun</Badge> : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground">
+                      {balance.lastNoteAt ? (
+                        <div>
+                          <div>{formatDateShort(balance.lastNoteAt)}</div>
+                          <div>
+                            {Math.max(
+                              0,
+                              Math.floor(
+                                (new Date().getTime() - new Date(balance.lastNoteAt).getTime())
+                                / (24 * 60 * 60 * 1000)
+                              )
+                            )}{' '}
+                            gun once
+                          </div>
+                        </div>
+                      ) : (
+                        '-'
+                      )}
                     </td>
                     <td className="px-3 py-2">{balance.paymentTermLabel || balance.user.paymentPlanName || '-'}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">

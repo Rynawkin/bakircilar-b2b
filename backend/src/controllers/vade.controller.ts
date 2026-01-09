@@ -9,6 +9,12 @@ const parseNumber = (value: any, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const parseOptionalNumber = (value: any) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 const parseBoolean = (value: any) => value === 'true' || value === true;
 
 const parseDateInput = (value?: string | null) => {
@@ -20,18 +26,29 @@ const parseDateInput = (value?: string | null) => {
 const canAccessAllSectors = (role?: string) =>
   role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
 
+const EXCLUDED_SECTOR_CODES = ['DİĞER', 'SORUNLU', 'SORUNLU CARİ'] as const;
+const normalizeSectorCode = (value?: string | null) =>
+  (value || '').trim().toLocaleUpperCase('tr-TR');
+const EXCLUDED_SECTOR_SET = new Set(EXCLUDED_SECTOR_CODES.map(normalizeSectorCode));
+const isExcludedSectorCode = (value?: string | null) =>
+  EXCLUDED_SECTOR_SET.has(normalizeSectorCode(value));
+
 const getAssignedSectorCodes = (req: Request) =>
-  (req.user?.assignedSectorCodes || []).map((code) => String(code).trim()).filter(Boolean);
+  (req.user?.assignedSectorCodes || [])
+    .map((code) => String(code).trim())
+    .filter(Boolean)
+    .filter((code) => !isExcludedSectorCode(code));
 
 const ensureSectorAccess = async (req: Request, customerId: string) => {
-  if (canAccessAllSectors(req.user?.role)) return true;
-  const assignedCodes = getAssignedSectorCodes(req);
-  if (assignedCodes.length === 0) return false;
   const customer = await prisma.user.findUnique({
     where: { id: customerId },
     select: { sectorCode: true },
   });
   if (!customer) return false;
+  if (isExcludedSectorCode(customer.sectorCode)) return false;
+  if (canAccessAllSectors(req.user?.role)) return true;
+  const assignedCodes = getAssignedSectorCodes(req);
+  if (assignedCodes.length === 0) return false;
   return assignedCodes.includes(customer.sectorCode || '');
 };
 
@@ -44,15 +61,49 @@ class VadeController {
       const offset = Math.max(0, (page - 1) * limit);
       const overdueOnly = parseBoolean(req.query.overdueOnly);
       const upcomingOnly = parseBoolean(req.query.upcomingOnly);
+      const sectorCode = (req.query.sectorCode as string) || '';
+      const groupCode = (req.query.groupCode as string) || '';
+      const hasNotes = parseBoolean(req.query.hasNotes);
+      const notesKeyword = ((req.query.notesKeyword as string) || '').trim();
+      const minBalance = parseOptionalNumber(req.query.minBalance);
+      const maxBalance = parseOptionalNumber(req.query.maxBalance);
+      const sortBy = (req.query.sortBy as string) || 'pastDueBalance';
+      const sortDirection = req.query.sortDirection === 'asc' ? 'asc' : 'desc';
+      const exportAll = parseBoolean(req.query.export);
 
       const where: Prisma.VadeBalanceWhereInput = {};
       const userWhere: Prisma.UserWhereInput = {};
+      const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
+
+      if (sectorCode && isExcludedSectorCode(sectorCode)) {
+        res.json({
+          balances: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+          },
+          summary: {
+            overdue: 0,
+            upcoming: 0,
+            total: 0,
+          },
+        });
+        return;
+      }
 
       if (overdueOnly) {
         where.pastDueBalance = { gt: 0 };
       }
       if (upcomingOnly) {
         where.notDueBalance = { gt: 0 };
+      }
+      if (minBalance !== undefined || maxBalance !== undefined) {
+        where.totalBalance = {
+          ...(minBalance !== undefined ? { gte: minBalance } : {}),
+          ...(maxBalance !== undefined ? { lte: maxBalance } : {}),
+        };
       }
 
       if (search) {
@@ -61,7 +112,32 @@ class VadeController {
           { mikroName: { contains: search, mode: 'insensitive' } },
           { displayName: { contains: search, mode: 'insensitive' } },
           { name: { contains: search, mode: 'insensitive' } },
+          { sectorCode: { contains: search, mode: 'insensitive' } },
+          { groupCode: { contains: search, mode: 'insensitive' } },
         ];
+      }
+
+      if (groupCode) {
+        userWhere.groupCode = { equals: groupCode };
+      }
+
+      if (hasNotes || notesKeyword) {
+        userWhere.vadeNotes = {
+          some: notesKeyword
+            ? { noteContent: { contains: notesKeyword, mode: 'insensitive' } }
+            : {},
+        };
+      }
+
+      const sectorFilter: Prisma.StringFilter = {};
+      let hasSectorFilter = false;
+      if (sectorCode) {
+        sectorFilter.equals = sectorCode;
+        hasSectorFilter = true;
+      }
+      if (excludedSectorCodes.length > 0) {
+        sectorFilter.notIn = excludedSectorCodes;
+        hasSectorFilter = true;
       }
 
       if (!canAccessAllSectors(req.user?.role)) {
@@ -83,12 +159,67 @@ class VadeController {
           });
           return;
         }
-        userWhere.sectorCode = { in: assignedCodes };
+        sectorFilter.in = assignedCodes;
+        hasSectorFilter = true;
+      }
+
+      if (hasSectorFilter) {
+        userWhere.sectorCode = sectorFilter;
       }
 
       if (Object.keys(userWhere).length > 0) {
         where.user = userWhere;
       }
+
+      const orderBy: Prisma.VadeBalanceOrderByWithRelationInput[] = [];
+      if (sortBy !== 'lastNoteAt') {
+        switch (sortBy) {
+          case 'customerName':
+            orderBy.push(
+              { user: { displayName: sortDirection } },
+              { user: { mikroName: sortDirection } },
+              { user: { name: sortDirection } },
+            );
+            break;
+          case 'mikroCariCode':
+            orderBy.push({ user: { mikroCariCode: sortDirection } });
+            break;
+          case 'sectorCode':
+            orderBy.push({ user: { sectorCode: sortDirection } });
+            break;
+          case 'groupCode':
+            orderBy.push({ user: { groupCode: sortDirection } });
+            break;
+          case 'pastDueDate':
+            orderBy.push({ pastDueDate: sortDirection });
+            break;
+          case 'notDueDate':
+            orderBy.push({ notDueDate: sortDirection });
+            break;
+          case 'notDueBalance':
+            orderBy.push({ notDueBalance: sortDirection });
+            break;
+          case 'totalBalance':
+            orderBy.push({ totalBalance: sortDirection });
+            break;
+          case 'valor':
+            orderBy.push({ valor: sortDirection });
+            break;
+          case 'updatedAt':
+            orderBy.push({ updatedAt: sortDirection });
+            break;
+          default:
+            orderBy.push({ pastDueBalance: sortDirection });
+            break;
+        }
+        if (orderBy.length === 0) {
+          orderBy.push({ pastDueBalance: 'desc' }, { totalBalance: 'desc' });
+        }
+      }
+
+      const paginationOptions = exportAll || sortBy === 'lastNoteAt'
+        ? {}
+        : { take: limit, skip: offset };
 
       const [balances, total, summary] = await prisma.$transaction([
         prisma.vadeBalance.findMany({
@@ -114,11 +245,12 @@ class VadeController {
               },
             },
           },
-          orderBy: [{ pastDueBalance: 'desc' }, { totalBalance: 'desc' }],
-          take: limit,
-          skip: offset,
+          orderBy: orderBy.length > 0 ? orderBy : undefined,
+          ...paginationOptions,
         }),
-        prisma.vadeBalance.count({ where }),
+        exportAll || sortBy === 'lastNoteAt'
+          ? prisma.vadeBalance.count({ where })
+          : prisma.vadeBalance.count({ where }),
         prisma.vadeBalance.aggregate({
           where,
           _sum: {
@@ -129,8 +261,37 @@ class VadeController {
         }),
       ]);
 
+      const balancesWithNotes = await (async () => {
+        if (balances.length === 0) return balances;
+        const userIds = balances.map((balance) => balance.userId);
+        const lastNotes = await prisma.vadeNote.groupBy({
+          by: ['customerId'],
+          where: { customerId: { in: userIds } },
+          _max: { createdAt: true },
+        });
+        const lastNoteMap = new Map(
+          lastNotes.map((item) => [item.customerId, item._max.createdAt || null])
+        );
+        return balances.map((balance) => ({
+          ...balance,
+          lastNoteAt: lastNoteMap.get(balance.userId) || null,
+        }));
+      })();
+
+      let pagedBalances = balancesWithNotes;
+      if (sortBy === 'lastNoteAt') {
+        pagedBalances = [...balancesWithNotes].sort((a, b) => {
+          const aTime = a.lastNoteAt ? new Date(a.lastNoteAt).getTime() : 0;
+          const bTime = b.lastNoteAt ? new Date(b.lastNoteAt).getTime() : 0;
+          return sortDirection === 'asc' ? aTime - bTime : bTime - aTime;
+        });
+      }
+      if (!exportAll && sortBy === 'lastNoteAt') {
+        pagedBalances = pagedBalances.slice(offset, offset + limit);
+      }
+
       res.json({
-        balances,
+        balances: pagedBalances,
         pagination: {
           page,
           limit,
@@ -143,6 +304,54 @@ class VadeController {
           total: summary._sum.totalBalance ?? 0,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getFilters(req: Request, res: Response, next: NextFunction) {
+    try {
+      const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
+      const sectorFilter: Prisma.StringFilter = {};
+      let hasSectorFilter = false;
+
+      if (excludedSectorCodes.length > 0) {
+        sectorFilter.notIn = excludedSectorCodes;
+        hasSectorFilter = true;
+      }
+
+      if (!canAccessAllSectors(req.user?.role)) {
+        const assignedCodes = getAssignedSectorCodes(req);
+        if (assignedCodes.length === 0) {
+          res.json({ sectorCodes: [], groupCodes: [] });
+          return;
+        }
+        sectorFilter.in = assignedCodes;
+        hasSectorFilter = true;
+      }
+
+      const where: Prisma.UserWhereInput = {
+        role: 'CUSTOMER',
+        vadeBalance: { isNot: null },
+      };
+
+      if (hasSectorFilter) {
+        where.sectorCode = sectorFilter;
+      }
+
+      const users = await prisma.user.findMany({
+        where,
+        select: { sectorCode: true, groupCode: true },
+      });
+
+      const sectorCodes = [...new Set(
+        users.map((user) => user.sectorCode).filter(Boolean)
+      )].sort();
+      const groupCodes = [...new Set(
+        users.map((user) => user.groupCode).filter(Boolean)
+      )].sort();
+
+      res.json({ sectorCodes, groupCodes });
     } catch (error) {
       next(error);
     }
@@ -269,14 +478,27 @@ class VadeController {
         };
       }
 
+      const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
+      const sectorFilter: Prisma.StringFilter = {};
+      let hasSectorFilter = false;
+      if (excludedSectorCodes.length > 0) {
+        sectorFilter.notIn = excludedSectorCodes;
+        hasSectorFilter = true;
+      }
+
       if (!canAccessAllSectors(req.user?.role)) {
         const assignedCodes = getAssignedSectorCodes(req);
         if (assignedCodes.length === 0) {
           res.json({ notes: [] });
           return;
         }
+        sectorFilter.in = assignedCodes;
+        hasSectorFilter = true;
+      }
+
+      if (hasSectorFilter) {
         where.customer = {
-          sectorCode: { in: assignedCodes },
+          sectorCode: sectorFilter,
         };
       }
 
@@ -385,6 +607,7 @@ class VadeController {
           assignedCodes.includes(item.customer?.sectorCode || '')
         );
       }
+      assignments = assignments.filter((item) => !isExcludedSectorCode(item.customer?.sectorCode));
 
       res.json({ assignments });
     } catch (error) {
@@ -428,7 +651,7 @@ class VadeController {
 
       const users = await prisma.user.findMany({
         where: { mikroCariCode: { in: codes } },
-        select: { id: true, mikroCariCode: true },
+        select: { id: true, mikroCariCode: true, sectorCode: true },
       });
       const userByCode = new Map(users.map((user) => [user.mikroCariCode || '', user]));
 
@@ -439,6 +662,10 @@ class VadeController {
         const code = String(row.mikroCariCode || '').trim();
         const user = userByCode.get(code);
         if (!user) {
+          skipped += 1;
+          continue;
+        }
+        if (isExcludedSectorCode(user.sectorCode)) {
           skipped += 1;
           continue;
         }
