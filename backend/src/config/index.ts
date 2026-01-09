@@ -25,6 +25,8 @@ export const config = {
     user: process.env.MIKRO_USER || '',
     password: process.env.MIKRO_PASSWORD || '',
     port: parseInt(process.env.MIKRO_PORT || '1433', 10),
+    requestTimeout: parseInt(process.env.MIKRO_REQUEST_TIMEOUT_MS || '120000', 10),
+    connectionTimeout: parseInt(process.env.MIKRO_CONNECTION_TIMEOUT_MS || '30000', 10),
     options: {
       encrypt: false,
       trustServerCertificate: true,
