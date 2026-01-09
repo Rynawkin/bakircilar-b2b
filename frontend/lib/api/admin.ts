@@ -420,6 +420,7 @@ export const adminApi = {
   }): Promise<{
     balances: VadeBalance[];
     pagination: { page: number; limit: number; total: number; totalPages: number };
+    summary: { overdue: number; upcoming: number; total: number };
   }> => {
     const response = await apiClient.get('/admin/vade/balances', { params });
     return response.data;

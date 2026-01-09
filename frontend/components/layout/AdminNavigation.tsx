@@ -132,7 +132,8 @@ export function AdminNavigation() {
         item.href === '/order-tracking' ||
         item.href === '/quotes' ||
         item.href === '/customers' ||
-        item.href === '/requests'
+        item.href === '/requests' ||
+        item.href === '/vade'
       );
     }
     // ADMIN, MANAGER, HEAD_ADMIN tüm menüleri görsün

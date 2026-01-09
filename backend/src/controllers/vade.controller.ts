@@ -17,15 +17,22 @@ const parseDateInput = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const ensureSalesRepAccess = async (req: Request, customerId: string) => {
-  if (req.user?.role !== 'SALES_REP') return true;
-  if (!req.user.assignedSectorCodes?.length) return false;
+const canAccessAllSectors = (role?: string) =>
+  role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
+
+const getAssignedSectorCodes = (req: Request) =>
+  (req.user?.assignedSectorCodes || []).map((code) => String(code).trim()).filter(Boolean);
+
+const ensureSectorAccess = async (req: Request, customerId: string) => {
+  if (canAccessAllSectors(req.user?.role)) return true;
+  const assignedCodes = getAssignedSectorCodes(req);
+  if (assignedCodes.length === 0) return false;
   const customer = await prisma.user.findUnique({
     where: { id: customerId },
     select: { sectorCode: true },
   });
   if (!customer) return false;
-  return req.user.assignedSectorCodes.includes(customer.sectorCode || '');
+  return assignedCodes.includes(customer.sectorCode || '');
 };
 
 class VadeController {
@@ -57,15 +64,33 @@ class VadeController {
         ];
       }
 
-      if (req.user?.role === 'SALES_REP' && req.user.assignedSectorCodes?.length) {
-        userWhere.sectorCode = { in: req.user.assignedSectorCodes };
+      if (!canAccessAllSectors(req.user?.role)) {
+        const assignedCodes = getAssignedSectorCodes(req);
+        if (assignedCodes.length === 0) {
+          res.json({
+            balances: [],
+            pagination: {
+              page,
+              limit,
+              total: 0,
+              totalPages: 0,
+            },
+            summary: {
+              overdue: 0,
+              upcoming: 0,
+              total: 0,
+            },
+          });
+          return;
+        }
+        userWhere.sectorCode = { in: assignedCodes };
       }
 
       if (Object.keys(userWhere).length > 0) {
         where.user = userWhere;
       }
 
-      const [balances, total] = await prisma.$transaction([
+      const [balances, total, summary] = await prisma.$transaction([
         prisma.vadeBalance.findMany({
           where,
           include: {
@@ -94,6 +119,14 @@ class VadeController {
           skip: offset,
         }),
         prisma.vadeBalance.count({ where }),
+        prisma.vadeBalance.aggregate({
+          where,
+          _sum: {
+            pastDueBalance: true,
+            notDueBalance: true,
+            totalBalance: true,
+          },
+        }),
       ]);
 
       res.json({
@@ -103,6 +136,11 @@ class VadeController {
           limit,
           total,
           totalPages: Math.ceil(total / limit),
+        },
+        summary: {
+          overdue: summary._sum.pastDueBalance ?? 0,
+          upcoming: summary._sum.notDueBalance ?? 0,
+          total: summary._sum.totalBalance ?? 0,
         },
       });
     } catch (error) {
@@ -141,7 +179,7 @@ class VadeController {
         return;
       }
 
-      const hasAccess = await ensureSalesRepAccess(req, customerId);
+      const hasAccess = await ensureSectorAccess(req, customerId);
       if (!hasAccess) {
         res.status(403).json({ error: 'Access denied' });
         return;
@@ -166,7 +204,7 @@ class VadeController {
       const { customerId, noteContent, promiseDate, tags, reminderDate, reminderNote, reminderCompleted, balanceAtTime } =
         req.body;
 
-      const hasAccess = await ensureSalesRepAccess(req, customerId);
+      const hasAccess = await ensureSectorAccess(req, customerId);
       if (!hasAccess) {
         res.status(403).json({ error: 'Access denied' });
         return;
@@ -231,9 +269,14 @@ class VadeController {
         };
       }
 
-      if (req.user?.role === 'SALES_REP' && req.user.assignedSectorCodes?.length) {
+      if (!canAccessAllSectors(req.user?.role)) {
+        const assignedCodes = getAssignedSectorCodes(req);
+        if (assignedCodes.length === 0) {
+          res.json({ notes: [] });
+          return;
+        }
         where.customer = {
-          sectorCode: { in: req.user.assignedSectorCodes },
+          sectorCode: { in: assignedCodes },
         };
       }
 
@@ -264,7 +307,7 @@ class VadeController {
         return;
       }
 
-      const hasAccess = await ensureSalesRepAccess(req, noteRecord.customerId);
+      const hasAccess = await ensureSectorAccess(req, noteRecord.customerId);
       if (!hasAccess) {
         res.status(403).json({ error: 'Access denied' });
         return;
@@ -282,7 +325,7 @@ class VadeController {
       const { customerId, classification, customClassification, riskScore } = req.body;
       const updatedById = req.user?.userId || null;
 
-      const hasAccess = await ensureSalesRepAccess(req, customerId);
+      const hasAccess = await ensureSectorAccess(req, customerId);
       if (!hasAccess) {
         res.status(403).json({ error: 'Access denied' });
         return;
@@ -307,10 +350,22 @@ class VadeController {
     try {
       const staffId = (req.query.staffId as string) || null;
       const customerId = (req.query.customerId as string) || null;
+      const restrictBySector = !canAccessAllSectors(req.user?.role);
+      const assignedCodes = getAssignedSectorCodes(req);
 
       if (customerId) {
+        const hasAccess = await ensureSectorAccess(req, customerId);
+        if (!hasAccess) {
+          res.status(403).json({ error: 'Access denied' });
+          return;
+        }
         const assignments = await vadeService.listAssignmentsForCustomer(customerId);
         res.json({ assignments });
+        return;
+      }
+
+      if (restrictBySector && staffId && staffId !== req.user?.userId) {
+        res.status(403).json({ error: 'Access denied' });
         return;
       }
 
@@ -320,7 +375,17 @@ class VadeController {
         return;
       }
 
-      const assignments = await vadeService.listAssignmentsForStaff(targetStaffId);
+      let assignments = await vadeService.listAssignmentsForStaff(targetStaffId);
+      if (restrictBySector) {
+        if (assignedCodes.length === 0) {
+          res.json({ assignments: [] });
+          return;
+        }
+        assignments = assignments.filter((item) =>
+          assignedCodes.includes(item.customer?.sectorCode || '')
+        );
+      }
+
       res.json({ assignments });
     } catch (error) {
       next(error);
@@ -416,8 +481,10 @@ class VadeController {
 
   async triggerSync(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await vadeSyncService.syncFromMikro('MANUAL');
-      res.json(result);
+      const syncLog = await vadeService.createSyncLog(VadeBalanceSource.MIKRO);
+      vadeSyncService.syncFromMikro('MANUAL', syncLog.id)
+        .catch((error) => console.error('Vade sync background error:', error));
+      res.json({ success: true, started: true, syncLogId: syncLog.id });
     } catch (error) {
       next(error);
     }

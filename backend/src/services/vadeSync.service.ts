@@ -82,8 +82,11 @@ class VadeSyncService {
     }));
   }
 
-  async syncFromMikro(syncType: 'AUTO' | 'MANUAL' = 'AUTO') {
-    const syncLog = await vadeService.createSyncLog(VadeBalanceSource.MIKRO);
+  async syncFromMikro(syncType: 'AUTO' | 'MANUAL' = 'AUTO', existingSyncLogId?: string) {
+    const existingLog = existingSyncLogId
+      ? await prisma.vadeSyncLog.findUnique({ where: { id: existingSyncLogId } })
+      : null;
+    const syncLog = existingLog ?? await vadeService.createSyncLog(VadeBalanceSource.MIKRO);
     const startedAt = new Date();
     let recordsTotal = 0;
     let recordsUpdated = 0;

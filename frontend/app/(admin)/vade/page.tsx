@@ -23,6 +23,7 @@ export default function VadePage() {
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [summary, setSummary] = useState({ count: 0, overdue: 0, upcoming: 0, total: 0 });
 
   const fetchBalances = useCallback(async () => {
     setLoading(true);
@@ -36,6 +37,12 @@ export default function VadePage() {
       });
       setBalances(response.balances || []);
       setPagination(response.pagination);
+      setSummary({
+        count: response.pagination.total || 0,
+        overdue: response.summary?.overdue || 0,
+        upcoming: response.summary?.upcoming || 0,
+        total: response.summary?.total || 0,
+      });
     } catch (error) {
       console.error('Vade balances not loaded:', error);
       toast.error('Vade listesi yuklenemedi');
@@ -48,19 +55,7 @@ export default function VadePage() {
     fetchBalances();
   }, [fetchBalances]);
 
-  const totals = useMemo(() => {
-    const summary = balances.reduce(
-      (acc, balance) => {
-        acc.count += 1;
-        acc.overdue += balance.pastDueBalance || 0;
-        acc.upcoming += balance.notDueBalance || 0;
-        acc.total += balance.totalBalance || 0;
-        return acc;
-      },
-      { count: 0, overdue: 0, upcoming: 0, total: 0 }
-    );
-    return summary;
-  }, [balances]);
+  const totals = useMemo(() => summary, [summary]);
 
   const handleSync = async () => {
     setSyncing(true);
