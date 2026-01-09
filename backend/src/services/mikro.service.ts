@@ -980,6 +980,7 @@ class MikroService {
       const paymentPlanValue = Number.isFinite(paymentPlanNo as number) ? Number(paymentPlanNo) : 0;
       const sorMerkez = process.env.MIKRO_SORMERK || 'HENDEK';
       const mikroUserNo = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+      const fileId = Number(process.env.MIKRO_FILE_ID || 100);
       const zeroGuid = '00000000-0000-0000-0000-000000000000';
 
       for (let i = 0; i < items.length; i++) {
@@ -1028,6 +1029,8 @@ class MikroService {
             TKL_KAPAT_FL,
             tkl_hidden,
             tkl_kilitli,
+            tkl_fileid,
+            tkl_cagrilabilir_fl,
             tkl_create_user,
             tkl_create_date,
             tkl_lastup_user,
@@ -1070,6 +1073,8 @@ class MikroService {
             @kapat,
             @hidden,
             @kilitli,
+            @fileId,
+            @cagrilabilir,
             @createUser,
             @createDate,
             @lastupUser,
@@ -1116,6 +1121,8 @@ class MikroService {
           .input('kapat', sql.Bit, 0)
           .input('hidden', sql.Bit, 0)
           .input('kilitli', sql.Bit, 0)
+          .input('fileId', sql.SmallInt, fileId)
+          .input('cagrilabilir', sql.Bit, 1)
           .input('createUser', sql.SmallInt, mikroUserNo)
           .input('createDate', sql.DateTime, now)
           .input('lastupUser', sql.SmallInt, mikroUserNo)
@@ -1134,6 +1141,8 @@ class MikroService {
           tkl_SpecRECno = ISNULL(tkl_SpecRECno, 0),
           tkl_degisti = ISNULL(tkl_degisti, 0),
           tkl_checksum = ISNULL(tkl_checksum, 0),
+          tkl_fileid = ISNULL(tkl_fileid, @fileId),
+          tkl_cagrilabilir_fl = ISNULL(tkl_cagrilabilir_fl, 1),
           tkl_special1 = ISNULL(tkl_special1, ''),
           tkl_special2 = ISNULL(tkl_special2, ''),
           tkl_special3 = ISNULL(tkl_special3, ''),
@@ -1203,6 +1212,7 @@ class MikroService {
         .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
         .input('onayKulNo', sql.SmallInt, mikroUserNo)
         .input('sorMerkez', sql.NVarChar(25), sorMerkez)
+        .input('fileId', sql.SmallInt, fileId)
         .query(normalizeQuery);
 
       await transaction.commit();
