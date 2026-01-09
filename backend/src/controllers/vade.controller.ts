@@ -217,7 +217,7 @@ class VadeController {
         }
       }
 
-      const paginationOptions = exportAll || sortBy === 'lastNoteAt'
+      const paginationOptions: { take?: number; skip?: number } = exportAll || sortBy === 'lastNoteAt'
         ? {}
         : { take: limit, skip: offset };
 
@@ -261,8 +261,9 @@ class VadeController {
         }),
       ]);
 
-      const balancesWithNotes = await (async () => {
-        if (balances.length === 0) return balances;
+      type BalanceWithNote = (typeof balances)[number] & { lastNoteAt: Date | null };
+      const balancesWithNotes: BalanceWithNote[] = await (async () => {
+        if (balances.length === 0) return balances as BalanceWithNote[];
         const userIds = balances.map((balance) => balance.userId);
         const lastNotes = await prisma.vadeNote.groupBy({
           by: ['customerId'],
@@ -275,7 +276,7 @@ class VadeController {
         return balances.map((balance) => ({
           ...balance,
           lastNoteAt: lastNoteMap.get(balance.userId) || null,
-        }));
+        })) as BalanceWithNote[];
       })();
 
       let pagedBalances = balancesWithNotes;
