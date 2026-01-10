@@ -1361,7 +1361,7 @@ class MikroService {
         efi_evrakno_sira,
         efi_carikod,
         efi_gonderim_tarihi,
-        efi_belge_tarihi,
+        efi_create_date,
         cari_unvan1
       FROM E_FATURA_ISLEMLERI
       LEFT JOIN CARI_HESAPLAR ON cari_kod = efi_carikod
@@ -1382,7 +1382,7 @@ class MikroService {
       evrakSira: Number.isFinite(Number(row.efi_evrakno_sira)) ? Number(row.efi_evrakno_sira) : null,
       cariCode: row.efi_carikod ? String(row.efi_carikod).trim() : null,
       cariName: row.cari_unvan1 ? String(row.cari_unvan1).trim() : null,
-      issueDate: row.efi_belge_tarihi || null,
+      issueDate: row.efi_create_date || null,
       sentAt: row.efi_gonderim_tarihi || null,
       currencyCode: null,
     };
