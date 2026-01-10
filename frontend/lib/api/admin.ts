@@ -163,6 +163,7 @@ export const adminApi = {
     active?: boolean;
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
+    priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
   }): Promise<{ message: string; customer: Customer }> => {
     const response = await apiClient.put(`/admin/customers/${id}`, data);
     return response.data;
@@ -195,6 +196,59 @@ export const adminApi = {
     contactId: string
   ): Promise<{ message: string }> => {
     const response = await apiClient.delete(`/admin/customers/${customerId}/contacts/${contactId}`);
+    return response.data;
+  },
+
+  getCustomerSubUsers: async (customerId: string): Promise<{
+    subUsers: Array<{
+      id: string;
+      name: string;
+      email?: string;
+      active: boolean;
+      createdAt: string;
+    }>;
+  }> => {
+    const response = await apiClient.get(`/admin/customers/${customerId}/sub-users`);
+    return response.data;
+  },
+
+  createCustomerSubUser: async (
+    customerId: string,
+    data: { name: string; email: string; password: string; active?: boolean }
+  ): Promise<{ subUser: { id: string; name: string; email?: string; active: boolean; createdAt: string } }> => {
+    const response = await apiClient.post(`/admin/customers/${customerId}/sub-users`, data);
+    return response.data;
+  },
+
+  updateCustomerSubUser: async (
+    subUserId: string,
+    data: { name?: string; email?: string; password?: string; active?: boolean }
+  ): Promise<{ subUser: { id: string; name: string; email?: string; active: boolean; createdAt: string } }> => {
+    const response = await apiClient.put(`/admin/customers/sub-users/${subUserId}`, data);
+    return response.data;
+  },
+
+  // Agreements
+  getAgreements: async (customerId: string, search?: string): Promise<{ agreements: any[] }> => {
+    const response = await apiClient.get('/admin/agreements', { params: { customerId, search } });
+    return response.data;
+  },
+
+  upsertAgreement: async (data: {
+    customerId: string;
+    productId: string;
+    priceInvoiced: number;
+    priceWhite: number;
+    minQuantity?: number;
+    validFrom?: string;
+    validTo?: string | null;
+  }): Promise<{ agreement: any }> => {
+    const response = await apiClient.post('/admin/agreements', data);
+    return response.data;
+  },
+
+  deleteAgreement: async (agreementId: string): Promise<{ message: string }> => {
+    const response = await apiClient.delete(`/admin/agreements/${agreementId}`);
     return response.data;
   },
 

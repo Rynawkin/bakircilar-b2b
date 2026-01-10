@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 
 interface AdvancedFiltersProps {
   onFilterChange: (filters: FilterState) => void;
   onReset: () => void;
+  allowedPriceTypes?: Array<'invoiced' | 'white'>;
 }
 
 export interface FilterState {
@@ -18,12 +19,24 @@ export interface FilterState {
   priceType: 'invoiced' | 'white';
 }
 
-export function AdvancedFilters({ onFilterChange, onReset }: AdvancedFiltersProps) {
+export function AdvancedFilters({ onFilterChange, onReset, allowedPriceTypes }: AdvancedFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const allowedTypes = allowedPriceTypes && allowedPriceTypes.length > 0 ? allowedPriceTypes : ['invoiced', 'white'];
+  const defaultPriceType = allowedTypes.includes('invoiced') ? 'invoiced' : 'white';
+  const showPriceTypeSelector = allowedTypes.length > 1;
   const [filters, setFilters] = useState<FilterState>({
     sortBy: 'none',
-    priceType: 'invoiced',
+    priceType: defaultPriceType,
   });
+
+  useEffect(() => {
+    if (!allowedTypes.includes(filters.priceType)) {
+      const nextFilters = { ...filters, priceType: defaultPriceType };
+      setFilters(nextFilters);
+      onFilterChange(nextFilters);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedTypes.join('|')]);
 
   const handleFilterChange = (key: keyof FilterState, value: any) => {
     const newFilters = { ...filters, [key]: value };
@@ -34,7 +47,7 @@ export function AdvancedFilters({ onFilterChange, onReset }: AdvancedFiltersProp
   const handleReset = () => {
     const resetFilters: FilterState = {
       sortBy: 'none',
-      priceType: 'invoiced',
+      priceType: defaultPriceType,
     };
     setFilters(resetFilters);
     onReset();
@@ -42,6 +55,7 @@ export function AdvancedFilters({ onFilterChange, onReset }: AdvancedFiltersProp
   };
 
   const hasActiveFilters = filters.minPrice || filters.maxPrice || filters.minStock || filters.maxStock || filters.sortBy !== 'none';
+  const priceTypeLabel = filters.priceType === 'invoiced' ? 'Faturali' : 'Beyaz';
 
   return (
     <div className="bg-white border-2 border-primary-100 rounded-xl shadow-lg p-4">
@@ -83,40 +97,42 @@ export function AdvancedFilters({ onFilterChange, onReset }: AdvancedFiltersProp
           </div>
 
           {/* Price Type for Sorting */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-              <span>💰</span>
-              Fiyat Türü (Sıralama için)
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleFilterChange('priceType', 'invoiced')}
-                className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
-                  filters.priceType === 'invoiced'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                📄 Faturalı
-              </button>
-              <button
-                onClick={() => handleFilterChange('priceType', 'white')}
-                className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
-                  filters.priceType === 'white'
-                    ? 'bg-gray-700 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                ⚪ Beyaz
-              </button>
+          {showPriceTypeSelector && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                <span>$</span>
+                Fiyat Turu (Siralama icin)
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleFilterChange('priceType', 'invoiced')}
+                  className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+                    filters.priceType === 'invoiced'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Faturali
+                </button>
+                <button
+                  onClick={() => handleFilterChange('priceType', 'white')}
+                  className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+                    filters.priceType === 'white'
+                      ? 'bg-gray-700 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Beyaz
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Price Range */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
               <span>💵</span>
-              Fiyat Aralığı ({filters.priceType === 'invoiced' ? 'Faturalı' : 'Beyaz'})
+              Fiyat Araligi ({priceTypeLabel})
             </label>
             <div className="grid grid-cols-2 gap-2">
               <Input

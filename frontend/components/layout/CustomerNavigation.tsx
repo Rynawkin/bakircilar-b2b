@@ -15,6 +15,8 @@ import {
   Clock,
   FileText,
   ListTodo,
+  ClipboardList,
+  Tag,
   User,
   Settings,
   Bell,
@@ -95,9 +97,11 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
   const navItems: NavItem[] = [
     { name: 'Ürünler', href: '/products', icon: ShoppingBag },
+    { name: 'Anlasmali Urunler', href: '/agreements', icon: Tag },
     { name: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: Clock },
     { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
     { name: 'Siparişlerim', href: '/my-orders', icon: Package },
+    { name: 'Siparis Talepleri', href: '/order-requests', icon: ClipboardList },
     { name: 'Tekliflerim', href: '/my-quotes', icon: FileText },
     { name: 'Taleplerim', href: '/my-requests', icon: ListTodo },
   ];

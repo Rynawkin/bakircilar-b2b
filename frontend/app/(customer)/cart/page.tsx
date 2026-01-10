@@ -22,6 +22,7 @@ export default function CartPage() {
   const { cart, fetchCart, removeItem, updateQuantity } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
+  const isSubUser = Boolean(user?.parentCustomerId);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -51,33 +52,44 @@ export default function CartPage() {
 
   const handleCreateOrder = async () => {
     if (!cart || cart.items.length === 0) {
-      toast.error('Sepetiniz boş!');
+      toast.error('Sepetiniz bos!');
       return;
     }
 
     await showConfirmDialog(
       {
-        title: 'Siparişi Onayla',
-        message: `Siparişinizi oluşturmak istediğinizden emin misiniz?\n\nToplam: ${formatCurrency(cart.total)}`,
-        confirmLabel: 'Evet, Oluştur',
-        cancelLabel: 'İptal',
+        title: isSubUser ? 'Talebi Onayla' : 'Siparisi Onayla',
+        message: `${isSubUser ? 'Talebinizi gondermek' : 'Siparisinizi olusturmak'} istediginizden emin misiniz?
+
+Toplam: ${formatCurrency(cart.total)}`,
+        confirmLabel: isSubUser ? 'Evet, Gonder' : 'Evet, Olustur',
+        cancelLabel: 'Iptal',
         type: 'success',
       },
       async () => {
         setIsCreatingOrder(true);
         try {
-          const result = await customerApi.createOrder();
-          toast.success(`Sipariş oluşturuldu! 🎉\nSipariş No: ${result.orderNumber}`, {
-            duration: 4000,
-          });
-          router.push('/my-orders');
+          if (isSubUser) {
+            await customerApi.createOrderRequest();
+            await fetchCart();
+            toast.success('Talep gonderildi.');
+            router.push('/order-requests');
+          } else {
+            const result = await customerApi.createOrder();
+            await fetchCart();
+            toast.success(`Siparis olusturuldu!
+Siparis No: ${result.orderNumber}`, {
+              duration: 4000,
+            });
+            router.push('/my-orders');
+          }
         } catch (error: any) {
-          if (error.response?.data?.error === 'INSUFFICIENT_STOCK') {
-            toast.error('Stok yetersiz!\n' + error.response.data.details.join('\n'), {
+          if (!isSubUser && error.response?.data?.error === 'INSUFFICIENT_STOCK') {
+            toast.error(`Stok yetersiz!\n${error.response.data.details.join('\n')}`, {
               duration: 5000,
             });
           } else {
-            toast.error(error.response?.data?.error || 'Sipariş oluşturulurken hata oluştu');
+            toast.error(error.response?.data?.error || (isSubUser ? 'Talep gonderilemedi' : 'Siparis olusturulurken hata olustu'));
           }
         } finally {
           setIsCreatingOrder(false);
@@ -129,6 +141,20 @@ export default function CartPage() {
               </Button>
               <Button
                 variant="secondary"
+                onClick={() => router.push('/agreements')}
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
+              >
+                Anlasmali Urunler
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => router.push('/order-requests')}
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
+              >
+                Siparis Talepleri
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => router.push('/my-orders')}
                 className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
@@ -154,8 +180,10 @@ export default function CartPage() {
             <MobileMenu
               items={[
                 { label: 'Ürünler', href: '/products', icon: '🛍️' },
+                { label: 'Anlasmali Urunler', href: '/agreements', icon: '??' },
                 { label: 'Sepetim', href: '/cart', icon: '🛒' },
                 { label: 'Siparişlerim', href: '/my-orders', icon: '📦' },
+                { label: 'Siparis Talepleri', href: '/order-requests', icon: '??' },
                 { label: 'Profilim', href: '/profile', icon: '👤' },
                 { label: 'Tercihler', href: '/preferences', icon: '⚙️' },
               ]}
@@ -471,13 +499,17 @@ export default function CartPage() {
                       </div>
                     </div>
 
-                    <Button
+                                        <Button
                       className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 text-lg shadow-xl rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
                       onClick={handleCreateOrder}
                       isLoading={isCreatingOrder}
                       disabled={!cart || cart.items.length === 0 || isCreatingOrder}
                     >
-                      {isCreatingOrder ? '⏳ Oluşturuluyor...' : !cart || cart.items.length === 0 ? '🛒 Sepet Boş' : '✅ Siparişi Oluştur'}
+                      {isCreatingOrder
+                        ? (isSubUser ? 'Gonderiliyor...' : 'Olusturuluyor...')
+                        : !cart || cart.items.length === 0
+                          ? 'Sepet Bos'
+                          : (isSubUser ? 'Talep Gonder' : 'Siparisi Olustur')}
                     </Button>
 
                     <div className="mt-4 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
@@ -486,14 +518,23 @@ export default function CartPage() {
                           <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                         </svg>
                         <div className="text-xs text-blue-800">
-                          <p className="font-semibold mb-1">Sipariş Bilgilendirmesi</p>
-                          <ul className="space-y-1">
-                            <li>• Siparişiniz oluşturulduktan sonra admin onayı bekleyecektir</li>
-                            <li>• Faturalı ve beyaz ürünler ayrı siparişler olarak işlenir</li>
-                            <li>• Onaylanan siparişler en kısa sürede hazırlanacaktır</li>
-                          </ul>
+                          <p className="font-semibold mb-1">{isSubUser ? 'Talep Bilgilendirmesi' : 'Siparis Bilgilendirmesi'}</p>
+                          {isSubUser ? (
+                            <ul className="space-y-1">
+                              <li>? Talebiniz yonetici onayina gonderilir</li>
+                              <li>? Fiyat tipi secimi yonetici tarafindan yapilir</li>
+                              <li>? Onaylanan talepler siparise cevrilir</li>
+                            </ul>
+                          ) : (
+                            <ul className="space-y-1">
+                              <li>? Siparisiniz olusturulduktan sonra admin onayi bekler</li>
+                              <li>? Faturali ve beyaz urunler ayri siparisler olarak islenir</li>
+                              <li>? Onaylanan siparisler en kisa surede hazirlanir</li>
+                            </ul>
+                          )}
                         </div>
                       </div>
+                    </div>
                     </div>
                   </div>
                 </div>

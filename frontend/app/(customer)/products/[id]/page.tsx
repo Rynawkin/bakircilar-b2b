@@ -1,21 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Product } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { useCartStore } from '@/lib/store/cartStore';
+import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
+import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
 export default function ProductDetailPage() {
   const router = useRouter();
   const params = useParams();
   const { addToCart } = useCartStore();
+  const { user, loadUserFromStorage } = useAuthStore();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -23,11 +26,32 @@ export default function ProductDetailPage() {
   const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>('INVOICED');
   const [isAdding, setIsAdding] = useState(false);
 
+  const isSubUser = Boolean(user?.parentCustomerId);
+  const effectiveVisibility = isSubUser
+    ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
+    : user?.priceVisibility;
+  const allowedPriceTypes = useMemo(
+    () => getAllowedPriceTypes(effectiveVisibility),
+    [effectiveVisibility]
+  );
+  const defaultPriceType = getDefaultPriceType(effectiveVisibility);
+  const showPriceTypeSelector = allowedPriceTypes.length > 1;
+
+  useEffect(() => {
+    loadUserFromStorage();
+  }, [loadUserFromStorage]);
+
   useEffect(() => {
     if (params.id) {
       fetchProduct(params.id as string);
     }
   }, [params.id]);
+
+  useEffect(() => {
+    if (!allowedPriceTypes.includes(priceType)) {
+      setPriceType(defaultPriceType);
+    }
+  }, [allowedPriceTypes.join('|'), defaultPriceType]);
 
   const fetchProduct = async (id: string) => {
     setIsLoading(true);
@@ -51,10 +75,11 @@ export default function ProductDetailPage() {
 
     setIsAdding(true);
     try {
+      const safePriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
       await addToCart({
         productId: product.id,
         quantity,
-        priceType,
+        priceType: safePriceType,
         priceMode,
       });
 
@@ -97,10 +122,16 @@ export default function ProductDetailPage() {
     : product.availableStock ?? product.excessStock ?? 0;
   const priceMode = isDiscounted ? 'EXCESS' : 'LIST';
   const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
-
-  const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
+  const selectedPriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
+  const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+  const formatAgreementDate = (value?: string | null) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toISOString().slice(0, 10);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -160,41 +191,61 @@ export default function ProductDetailPage() {
                   )}
 
                   <div className="border-t pt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-3">Fiyat Seçenekleri</p>
+                    <p className="text-sm font-medium text-gray-700 mb-3">
+                      {showPriceTypeSelector ? 'Fiyat Seçenekleri' : 'Fiyat'}
+                    </p>
+                    {product.agreement && (
+                      <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                        <div className="font-semibold">Anlaşmalı fiyat</div>
+                        <div>Min miktar: {product.agreement.minQuantity} {product.unit}</div>
+                        <div>
+                          Geçerlilik: {formatAgreementDate(product.agreement.validFrom)}
+                          {product.agreement.validTo ? ` - ${formatAgreementDate(product.agreement.validTo)}` : ''}
+                        </div>
+                      </div>
+                    )}
                     <div className="space-y-2">
-                      <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                        <input
-                          type="radio"
-                          name="priceType"
-                          value="INVOICED"
-                          checked={priceType === 'INVOICED'}
-                          onChange={() => setPriceType('INVOICED')}
-                          className="mr-3"
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium">Faturalı</p>
-                          <p className="text-lg text-primary-600 font-bold">
-                            {formatCurrency(product.prices.invoiced)}
-                          </p>
-                        </div>
-                      </label>
+                      {allowedPriceTypes.includes('INVOICED') && (
+                        <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                          {showPriceTypeSelector && (
+                            <input
+                              type="radio"
+                              name="priceType"
+                              value="INVOICED"
+                              checked={priceType === 'INVOICED'}
+                              onChange={() => setPriceType('INVOICED')}
+                              className="mr-3"
+                            />
+                          )}
+                          <div className="flex-1">
+                            <p className="font-medium">Faturalı</p>
+                            <p className="text-lg text-primary-600 font-bold">
+                              {formatCurrency(product.prices.invoiced)}
+                            </p>
+                          </div>
+                        </label>
+                      )}
 
-                      <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                        <input
-                          type="radio"
-                          name="priceType"
-                          value="WHITE"
-                          checked={priceType === 'WHITE'}
-                          onChange={() => setPriceType('WHITE')}
-                          className="mr-3"
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium">Beyaz</p>
-                          <p className="text-lg text-gray-700 font-bold">
-                            {formatCurrency(product.prices.white)}
-                          </p>
-                        </div>
-                      </label>
+                      {allowedPriceTypes.includes('WHITE') && (
+                        <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                          {showPriceTypeSelector && (
+                            <input
+                              type="radio"
+                              name="priceType"
+                              value="WHITE"
+                              checked={priceType === 'WHITE'}
+                              onChange={() => setPriceType('WHITE')}
+                              className="mr-3"
+                            />
+                          )}
+                          <div className="flex-1">
+                            <p className="font-medium">Beyaz</p>
+                            <p className="text-lg text-gray-700 font-bold">
+                              {formatCurrency(product.prices.white)}
+                            </p>
+                          </div>
+                        </label>
+                      )}
                     </div>
                   </div>
                 </div>

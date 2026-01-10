@@ -69,6 +69,7 @@ export default function CustomersPage() {
     name: '',
     customerType: 'PERAKENDE',
     mikroCariCode: '',
+    priceVisibility: 'INVOICED_ONLY',
   });
 
   useEffect(() => {
@@ -150,7 +151,14 @@ export default function CustomersPage() {
       await adminApi.createCustomer(formData);
       toast.success('Müşteri başarıyla oluşturuldu! ✅');
       setShowForm(false);
-      setFormData({ email: '', password: '', name: '', customerType: 'PERAKENDE', mikroCariCode: '' });
+      setFormData({
+        email: '',
+        password: '',
+        name: '',
+        customerType: 'PERAKENDE',
+        mikroCariCode: '',
+        priceVisibility: 'INVOICED_ONLY',
+      });
       setSelectedCari(null);
       fetchCustomers();
     } catch (error: any) {
@@ -164,6 +172,7 @@ export default function CustomersPage() {
     active?: boolean;
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
+    priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
   }) => {
     try {
       await adminApi.updateCustomer(customerId, data);
@@ -225,7 +234,14 @@ export default function CustomersPage() {
                   if (showForm) {
                     // Closing form - reset everything
                     setShowForm(false);
-                    setFormData({ email: '', password: '', name: '', customerType: 'PERAKENDE', mikroCariCode: '' });
+                    setFormData({
+                      email: '',
+                      password: '',
+                      name: '',
+                      customerType: 'PERAKENDE',
+                      mikroCariCode: '',
+                      priceVisibility: 'INVOICED_ONLY',
+                    });
                     setSelectedCari(null);
                   } else {
                     // Opening form
@@ -288,6 +304,22 @@ export default function CustomersPage() {
                   </select>
                   <p className="text-xs text-gray-500 mt-1">Fiyatlandırma segmenti</p>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Fiyat Gorunurlugu</label>
+                <select
+                  className="input"
+                  value={formData.priceVisibility || 'INVOICED_ONLY'}
+                  onChange={(e) => setFormData({ ...formData, priceVisibility: e.target.value as any })}
+                >
+                  <option value="INVOICED_ONLY">Sadece faturali</option>
+                  <option value="WHITE_ONLY">Sadece beyaz</option>
+                  <option value="BOTH">Faturali + beyaz</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Musterinin gorebilecegi fiyat tiplerini belirler.
+                </p>
               </div>
 
               <div className="border-t pt-4">

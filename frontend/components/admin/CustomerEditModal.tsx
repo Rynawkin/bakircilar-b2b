@@ -21,8 +21,17 @@ interface CustomerEditModalProps {
     active?: boolean;
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
+    priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
   }) => Promise<void>;
   canEditFields?: boolean;
+}
+
+interface SubUser {
+  id: string;
+  name: string;
+  email?: string;
+  active: boolean;
+  createdAt: string;
 }
 
 const RETAIL_LISTS = [
@@ -54,6 +63,7 @@ export function CustomerEditModal({
     active: true,
     invoicedPriceListNo: '',
     whitePriceListNo: '',
+    priceVisibility: 'INVOICED_ONLY',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [contacts, setContacts] = useState<CustomerContact[]>([]);
@@ -65,6 +75,16 @@ export function CustomerEditModal({
   });
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [contactSaving, setContactSaving] = useState(false);
+  const [subUsers, setSubUsers] = useState<SubUser[]>([]);
+  const [subUsersLoading, setSubUsersLoading] = useState(false);
+  const [subUserForm, setSubUserForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    active: true,
+  });
+  const [editingSubUserId, setEditingSubUserId] = useState<string | null>(null);
+  const [subUserSaving, setSubUserSaving] = useState(false);
 
   useEffect(() => {
     if (customer) {
@@ -74,6 +94,7 @@ export function CustomerEditModal({
         active: customer.active,
         invoicedPriceListNo: customer.invoicedPriceListNo ? String(customer.invoicedPriceListNo) : '',
         whitePriceListNo: customer.whitePriceListNo ? String(customer.whitePriceListNo) : '',
+        priceVisibility: customer.priceVisibility || 'INVOICED_ONLY',
       });
     }
   }, [customer]);
@@ -90,6 +111,8 @@ export function CustomerEditModal({
     if (!isOpen || !customer) return;
     setContactForm({ name: '', phone: '', email: '' });
     setEditingContactId(null);
+    setSubUserForm({ name: '', email: '', password: '', active: true });
+    setEditingSubUserId(null);
     const loadContacts = async () => {
       setContactsLoading(true);
       try {
@@ -105,7 +128,25 @@ export function CustomerEditModal({
     };
 
     loadContacts();
-  }, [isOpen, customer]);
+    if (canEditFields) {
+      const loadSubUsers = async () => {
+        setSubUsersLoading(true);
+        try {
+          const result = await adminApi.getCustomerSubUsers(customer.id);
+          setSubUsers(result.subUsers || []);
+        } catch (error) {
+          console.error('Alt kullanici listesi yuklenemedi:', error);
+          toast.error('Alt kullanici listesi yuklenemedi.');
+          setSubUsers([]);
+        } finally {
+          setSubUsersLoading(false);
+        }
+      };
+      loadSubUsers();
+    } else {
+      setSubUsers([]);
+    }
+  }, [isOpen, customer, canEditFields]);
 
   const resetContactForm = () => {
     setContactForm({ name: '', phone: '', email: '' });
@@ -178,6 +219,72 @@ export function CustomerEditModal({
     }
   };
 
+  const resetSubUserForm = () => {
+    setSubUserForm({ name: '', email: '', password: '', active: true });
+    setEditingSubUserId(null);
+  };
+
+  const handleSubUserSave = async () => {
+    if (!customer) return;
+    if (!canEditFields) return;
+
+    const trimmedName = subUserForm.name.trim();
+    const trimmedEmail = subUserForm.email.trim();
+    const trimmedPassword = subUserForm.password.trim();
+
+    if (!trimmedName) {
+      toast.error('Alt kullanici adi gerekli.');
+      return;
+    }
+    if (!editingSubUserId && !trimmedEmail) {
+      toast.error('Alt kullanici email gerekli.');
+      return;
+    }
+    if (!editingSubUserId && !trimmedPassword) {
+      toast.error('Alt kullanici sifresi gerekli.');
+      return;
+    }
+
+    setSubUserSaving(true);
+    try {
+      if (editingSubUserId) {
+        await adminApi.updateCustomerSubUser(editingSubUserId, {
+          name: trimmedName,
+          email: trimmedEmail || undefined,
+          password: trimmedPassword || undefined,
+          active: subUserForm.active,
+        });
+        toast.success('Alt kullanici guncellendi.');
+      } else {
+        await adminApi.createCustomerSubUser(customer.id, {
+          name: trimmedName,
+          email: trimmedEmail,
+          password: trimmedPassword,
+          active: subUserForm.active,
+        });
+        toast.success('Alt kullanici eklendi.');
+      }
+      const result = await adminApi.getCustomerSubUsers(customer.id);
+      setSubUsers(result.subUsers || []);
+      resetSubUserForm();
+    } catch (error) {
+      console.error('Alt kullanici kaydedilemedi:', error);
+      toast.error('Alt kullanici kaydedilemedi.');
+    } finally {
+      setSubUserSaving(false);
+    }
+  };
+
+  const handleEditSubUser = (subUser: SubUser) => {
+    setEditingSubUserId(subUser.id);
+    setSubUserForm({
+      name: subUser.name || '',
+      email: subUser.email || '',
+      password: '',
+      active: subUser.active,
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customer) return;
@@ -195,6 +302,7 @@ export function CustomerEditModal({
         whitePriceListNo: formData.whitePriceListNo
           ? parseInt(formData.whitePriceListNo, 10)
           : null,
+        priceVisibility: formData.priceVisibility,
       });
       onClose();
     } finally {
@@ -273,6 +381,22 @@ export function CustomerEditModal({
             </div>
             <p className="text-xs text-gray-500 mt-1">
               Bos birakilirsa segment bazli fiyat listesi kullanilir.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Fiyat Gorunurlugu</label>
+            <select
+              className="input"
+              value={formData.priceVisibility}
+              onChange={(e) => setFormData({ ...formData, priceVisibility: e.target.value })}
+            >
+              <option value="INVOICED_ONLY">Sadece faturali</option>
+              <option value="WHITE_ONLY">Sadece beyaz</option>
+              <option value="BOTH">Faturali + beyaz</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Musterinin gorebilecegi fiyat tiplerini belirler.
             </p>
           </div>
 
@@ -403,6 +527,108 @@ export function CustomerEditModal({
             ))}
           </div>
         </div>
+
+        {canEditFields && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700">Alt Kullanicilar</h3>
+              <p className="text-xs text-gray-500">Alt kullanicilar sepette talep olusturur, yonetici onaylar.</p>
+            </div>
+            {subUsersLoading && (
+              <span className="text-xs text-gray-400">Yukleniyor...</span>
+            )}
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Input
+              label="Ad Soyad"
+              type="text"
+              value={subUserForm.name}
+              onChange={(e) => setSubUserForm({ ...subUserForm, name: e.target.value })}
+              placeholder="Orn: Ali Yilmaz"
+            />
+            <Input
+              label="E-posta"
+              type="email"
+              value={subUserForm.email}
+              onChange={(e) => setSubUserForm({ ...subUserForm, email: e.target.value })}
+              placeholder="ornek@email.com"
+            />
+            <Input
+              label="Sifre"
+              type="password"
+              value={subUserForm.password}
+              onChange={(e) => setSubUserForm({ ...subUserForm, password: e.target.value })}
+              placeholder={editingSubUserId ? 'Bos birakilabilir' : 'En az 6 karakter'}
+            />
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Durum</label>
+              <select
+                className="input"
+                value={subUserForm.active ? 'active' : 'inactive'}
+                onChange={(e) => setSubUserForm({ ...subUserForm, active: e.target.value === 'active' })}
+              >
+                <option value="active">Aktif</option>
+                <option value="inactive">Pasif</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              onClick={handleSubUserSave}
+              isLoading={subUserSaving}
+            >
+              {editingSubUserId ? 'Alt Kullanici Guncelle' : 'Alt Kullanici Ekle'}
+            </Button>
+            {editingSubUserId && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={resetSubUserForm}
+                disabled={subUserSaving}
+              >
+                Vazgec
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            {!subUsersLoading && subUsers.length === 0 && (
+              <div className="text-xs text-gray-500">Kayitli alt kullanici yok.</div>
+            )}
+            {subUsers.map((subUser) => (
+              <div
+                key={subUser.id}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{subUser.name}</div>
+                    <div className="text-xs text-gray-500">Mail: {subUser.email || '-'}</div>
+                    <div className="text-xs text-gray-500">Durum: {subUser.active ? 'Aktif' : 'Pasif'}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleEditSubUser(subUser)}
+                    >
+                      Duzenle
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        )}
 
         {/* Read-Only Mikro Fields Section */}
         <div className="bg-gray-50 rounded-lg p-4 border-2 border-gray-200">

@@ -8,6 +8,7 @@ import quoteController from '../controllers/quote.controller';
 import taskController from '../controllers/task.controller';
 import notificationController from '../controllers/notification.controller';
 import eInvoiceController from '../controllers/einvoice.controller';
+import agreementController from '../controllers/agreement.controller';
 import {
   authenticate,
   requireAdmin,
@@ -32,6 +33,7 @@ const createCustomerSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']),
   mikroCariCode: z.string().min(1, 'Mikro cari code is required'),
+  priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
 });
 
 const categoryPriceRuleSchema = z.object({
@@ -168,12 +170,40 @@ const updateCustomerSchema = z.object({
   email: z.string().email().optional(),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']).optional(),
   active: z.boolean().optional(),
+  priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
+});
+
+const subUserCreateSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(6),
+  active: z.boolean().optional(),
+});
+
+const subUserUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
+  active: z.boolean().optional(),
+});
+
+const agreementSchema = z.object({
+  customerId: z.string().uuid(),
+  productId: z.string().uuid(),
+  priceInvoiced: z.number().min(0),
+  priceWhite: z.number().min(0),
+  minQuantity: z.number().int().min(1).optional(),
+  validFrom: z.string().optional(),
+  validTo: z.string().optional().nullable(),
 });
 
 // Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
 router.get('/customers', requireStaff, adminController.getCustomers);
 router.post('/customers', requireStaff, validateBody(createCustomerSchema), adminController.createCustomer);
 router.put('/customers/:id', requireAdminOrManager, validateBody(updateCustomerSchema), adminController.updateCustomer);
+router.get('/customers/:id/sub-users', requireStaff, adminController.getCustomerSubUsers);
+router.post('/customers/:id/sub-users', requireAdminOrManager, validateBody(subUserCreateSchema), adminController.createCustomerSubUser);
+router.put('/customers/sub-users/:id', requireAdminOrManager, validateBody(subUserUpdateSchema), adminController.updateCustomerSubUser);
 router.get('/customers/:id/contacts', requireStaff, adminController.getCustomerContacts);
 router.post('/customers/:id/contacts', requireStaff, adminController.createCustomerContact);
 router.put('/customers/:id/contacts/:contactId', requireStaff, adminController.updateCustomerContact);
@@ -222,6 +252,11 @@ router.post('/notifications/read-all', requireStaff, notificationController.mark
 
 // Exchange rates
 router.get('/exchange/usd', requireStaff, adminController.getUsdSellingRate);
+
+// Customer Agreements
+router.get('/agreements', requireStaff, agreementController.getAgreements);
+router.post('/agreements', requireAdminOrManager, validateBody(agreementSchema), agreementController.upsertAgreement);
+router.delete('/agreements/:id', requireAdminOrManager, agreementController.deleteAgreement);
 
 // Categories & Pricing - ADMIN/MANAGER only
 router.get('/categories', requireAdminOrManager, adminController.getCategories);

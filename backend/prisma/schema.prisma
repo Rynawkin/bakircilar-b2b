@@ -32,6 +32,29 @@ enum PriceType {
   WHITE     // Beyaz
 }
 
+enum PriceVisibility {
+  INVOICED_ONLY
+  WHITE_ONLY
+  BOTH
+}
+
+enum PriceMode {
+  LIST
+  EXCESS
+}
+
+enum CustomerRequestStatus {
+  PENDING
+  CONVERTED
+  REJECTED
+}
+
+enum CustomerRequestItemStatus {
+  PENDING
+  CONVERTED
+  REJECTED
+}
+
 enum OrderStatus {
   PENDING   // Bekliyor (admin onayı bekliyor)
   APPROVED  // Onaylandı ve Mikro'ya yazıldı
@@ -142,6 +165,10 @@ model User {
   mikroName     String?       // Mikro'dan gelen orijinal isim (değişmez)
   displayName   String?       // Kullanıcının gösterilen ismi (düzenlenebilir)
   role          UserRole      @default(CUSTOMER)
+  parentCustomerId String?
+  parentCustomer   User?        @relation("CustomerHierarchy", fields: [parentCustomerId], references: [id])
+  priceVisibility  PriceVisibility @default(INVOICED_ONLY)
+
 
   // Müşteri bilgileri (sadece CUSTOMER role için)
   customerType        CustomerType?
@@ -183,6 +210,12 @@ model User {
   updatedAt     DateTime      @updatedAt
 
   // Relations
+  subUsers          User[]       @relation("CustomerHierarchy")
+  priceAgreements   CustomerPriceAgreement[]
+  createdRequests   CustomerRequest[] @relation("CustomerRequestCreator")
+  receivedRequests  CustomerRequest[] @relation("CustomerRequestParent")
+  convertedRequests CustomerRequest[] @relation("CustomerRequestConverter")
+  requestedOrders   Order[]      @relation("OrderRequestedBy")
   orders        Order[]
   cart          Cart?
   searchPreferences UserSearchPreferences?
@@ -510,6 +543,8 @@ model Product {
   orderItems              OrderItem[]
   quoteItems              QuoteItem[]
   priceOverrides          ProductPriceOverride[]
+  priceAgreements         CustomerPriceAgreement[]
+  customerRequestItems    CustomerRequestItem[]
 
   @@index([mikroCode])
   @@index([excessStock])
@@ -578,6 +613,7 @@ model CartItem {
 
   quantity        Int
   priceType       PriceType   // INVOICED veya WHITE
+  priceMode       PriceMode   @default(LIST)
   unitPrice       Float       // O andaki fiyat (snapshot)
 
   createdAt       DateTime    @default(now())
@@ -595,6 +631,9 @@ model Order {
   userId          String
   user            User          @relation(fields: [userId], references: [id])
 
+  requestedById   String?
+  requestedBy     User?         @relation("OrderRequestedBy", fields: [requestedById], references: [id])
+
   status          OrderStatus   @default(PENDING)
 
   // Sipariş detayları
@@ -604,6 +643,8 @@ model Order {
   // Mikro'ya yazılan sipariş ID'leri
   // [invoiced_siparis_id, white_siparis_id] veya sadece [invoiced] veya [white]
   mikroOrderIds   String[]      @default([])
+
+  customerRequest CustomerRequest? @relation("CustomerRequestOrder")
 
   // Admin notu
   adminNote       String?
@@ -647,6 +688,87 @@ model OrderItem {
 
   @@index([orderId])
   @@index([status])
+}
+
+// ==================== CUSTOMER AGREEMENTS ====================
+
+model CustomerPriceAgreement {
+  id           String   @id @default(uuid())
+
+  customerId   String
+  customer     User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  priceInvoiced Float
+  priceWhite   Float
+  minQuantity  Int      @default(1)
+  validFrom    DateTime
+  validTo      DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([customerId, productId])
+  @@index([customerId])
+  @@index([productId])
+  @@index([validFrom])
+  @@index([validTo])
+}
+
+// ==================== CUSTOMER REQUESTS ====================
+
+model CustomerRequest {
+  id              String                 @id @default(uuid())
+
+  parentCustomerId String
+  parentCustomer  User                   @relation("CustomerRequestParent", fields: [parentCustomerId], references: [id])
+
+  requestedById   String
+  requestedBy     User                   @relation("CustomerRequestCreator", fields: [requestedById], references: [id])
+
+  convertedById   String?
+  convertedBy     User?                  @relation("CustomerRequestConverter", fields: [convertedById], references: [id])
+
+  status          CustomerRequestStatus  @default(PENDING)
+  note            String?
+  orderId         String?                @unique
+  order           Order?                 @relation("CustomerRequestOrder", fields: [orderId], references: [id])
+
+  items           CustomerRequestItem[]
+
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  convertedAt     DateTime?
+
+  @@index([parentCustomerId])
+  @@index([requestedById])
+  @@index([status])
+  @@index([orderId])
+}
+
+model CustomerRequestItem {
+  id                String      @id @default(uuid())
+
+  requestId         String
+  request           CustomerRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  productId         String
+  product           Product     @relation(fields: [productId], references: [id])
+
+  quantity          Int
+  status            CustomerRequestItemStatus @default(PENDING)
+  priceMode         PriceMode   @default(LIST)
+  selectedPriceType PriceType?
+  selectedUnitPrice Float?
+  selectedTotalPrice Float?
+
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([requestId])
+  @@index([productId])
 }
 
 // ==================== QUOTES ====================

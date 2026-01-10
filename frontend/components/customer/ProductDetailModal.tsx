@@ -16,20 +16,29 @@ interface ProductDetailModalProps {
     priceType: 'INVOICED' | 'WHITE',
     priceMode?: 'LIST' | 'EXCESS'
   ) => Promise<void>;
+  allowedPriceTypes?: Array<'INVOICED' | 'WHITE'>;
 }
 
-export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: ProductDetailModalProps) {
+export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allowedPriceTypes }: ProductDetailModalProps) {
   const [quantity, setQuantity] = useState(1);
-  const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>('INVOICED');
+  const resolvedAllowed = allowedPriceTypes && allowedPriceTypes.length > 0 ? allowedPriceTypes : ['INVOICED', 'WHITE'];
+  const defaultPriceType = resolvedAllowed.includes('INVOICED') ? 'INVOICED' : 'WHITE';
+  const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>(defaultPriceType);
   const [isZoomed, setIsZoomed] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
 
   // Reset state when product changes
   useEffect(() => {
     setQuantity(1);
-    setPriceType('INVOICED');
+    setPriceType(defaultPriceType);
     setIsZoomed(false);
   }, [product]);
+
+  useEffect(() => {
+    if (!resolvedAllowed.includes(priceType)) {
+      setPriceType(defaultPriceType);
+    }
+  }, [resolvedAllowed.join('|')]);
 
   // Close on ESC key
   useEffect(() => {
@@ -85,6 +94,16 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
   const listWhite = product.listPrices?.white;
   const excessInvoiced = product.excessPrices?.invoiced;
   const excessWhite = product.excessPrices?.white;
+  const hasAgreement = Boolean(product.agreement);
+  const agreementMinQuantity = product.agreement?.minQuantity ?? 1;
+  const showPriceTypeSelector = resolvedAllowed.length > 1;
+  const priceGridClass = resolvedAllowed.length === 1 ? 'grid-cols-1' : 'grid-cols-2';
+  const formatAgreementDate = (value?: string | Date | null) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toISOString().slice(0, 10);
+  };
 
   const calcDiscount = (listPrice?: number, salePrice?: number) => {
     if (!listPrice || listPrice <= 0 || !salePrice || salePrice >= listPrice) return null;
@@ -95,6 +114,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
   const whiteDiscount = calcDiscount(listWhite, product.prices.white);
   const excessInvoicedDiscount = calcDiscount(product.prices.invoiced, excessInvoiced);
   const excessWhiteDiscount = calcDiscount(product.prices.white, excessWhite);
+  const shouldShowDiscounts = !hasAgreement;
 
   const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
@@ -216,73 +236,91 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart }: Pr
             </div>
 
             {/* Price Type Selection */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-3">Fiyat Turu Secin</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  className={`p-4 rounded-xl border-2 transition-all ${
-                    priceType === 'INVOICED'
-                      ? 'border-primary-600 bg-gradient-to-br from-primary-50 to-primary-100 shadow-lg scale-105'
-                      : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
-                  }`}
-                  onClick={() => setPriceType('INVOICED')}
-                >
-                  <div className="text-xs text-gray-600 mb-1">📄 Faturali</div>
-                  <div className="text-2xl font-bold text-primary-600">
-                    {formatCurrency(product.prices.invoiced)}
+            <div className="space-y-3">
+              {hasAgreement && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                  <div className="font-semibold">Anlasmali fiyat</div>
+                  <div>Min miktar: {agreementMinQuantity} {product.unit}</div>
+                  <div>
+                    Gecerlilik: {formatAgreementDate(product.agreement?.validFrom)}
+                    {product.agreement?.validTo ? ` - ${formatAgreementDate(product.agreement?.validTo)}` : ''}
                   </div>
-                  {isDiscounted && listInvoiced && listInvoiced > 0 && (
-                    <div className="text-xs text-gray-500">
-                      Liste: <span className="line-through">{formatCurrency(listInvoiced)}</span>
+                </div>
+              )}
+              <label className="block text-sm font-semibold text-gray-900">
+                {showPriceTypeSelector ? 'Fiyat turu secin' : 'Fiyat'}
+              </label>
+              <div className={`grid ${priceGridClass} gap-3`}>
+                {resolvedAllowed.includes('INVOICED') && (
+                  <button
+                    className={`p-4 rounded-xl border-2 transition-all ${
+                      priceType === 'INVOICED'
+                        ? 'border-primary-600 bg-gradient-to-br from-primary-50 to-primary-100 shadow-lg scale-105'
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
+                    }`}
+                    onClick={() => showPriceTypeSelector && setPriceType('INVOICED')}
+                    disabled={!showPriceTypeSelector}
+                  >
+                    <div className="text-xs text-gray-600 mb-1">Faturali</div>
+                    <div className="text-2xl font-bold text-primary-600">
+                      {formatCurrency(product.prices.invoiced)}
                     </div>
-                  )}
-                  {isDiscounted && invoicedDiscount && (
-                    <div className="text-xs text-green-700 font-semibold">
-                      <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{invoicedDiscount}</span> indirim
+                    {shouldShowDiscounts && isDiscounted && listInvoiced && listInvoiced > 0 && (
+                      <div className="text-xs text-gray-500">
+                        Liste: <span className="line-through">{formatCurrency(listInvoiced)}</span>
+                      </div>
+                    )}
+                    {shouldShowDiscounts && isDiscounted && invoicedDiscount && (
+                      <div className="text-xs text-green-700 font-semibold">
+                        <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{invoicedDiscount}</span> indirim
+                      </div>
+                    )}
+                    {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && excessInvoiced && (
+                      <div className="text-xs text-green-700 font-semibold">
+                        Fazla Stok: {formatCurrency(excessInvoiced)}
+                        {excessInvoicedDiscount && (
+                          <span> (-%{excessInvoicedDiscount})</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-primary-600 font-semibold">+KDV</span></div>
+                  </button>
+                )}
+                {resolvedAllowed.includes('WHITE') && (
+                  <button
+                    className={`p-4 rounded-xl border-2 transition-all ${
+                      priceType === 'WHITE'
+                        ? 'border-gray-700 bg-gradient-to-br from-gray-100 to-gray-200 shadow-lg scale-105'
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
+                    }`}
+                    onClick={() => showPriceTypeSelector && setPriceType('WHITE')}
+                    disabled={!showPriceTypeSelector}
+                  >
+                    <div className="text-xs text-gray-600 mb-1">Beyaz</div>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {formatCurrency(product.prices.white)}
                     </div>
-                  )}
-                  {!isDiscounted && product.excessStock > 0 && excessInvoiced && (
-                    <div className="text-xs text-green-700 font-semibold">
-                      Fazla Stok: {formatCurrency(excessInvoiced)}
-                      {excessInvoicedDiscount && (
-                        <span> (-%{excessInvoicedDiscount})</span>
-                      )}
-                    </div>
-                  )}
-                  <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-primary-600 font-semibold">+KDV</span></div>
-                </button>
-                <button
-                  className={`p-4 rounded-xl border-2 transition-all ${
-                    priceType === 'WHITE'
-                      ? 'border-gray-700 bg-gradient-to-br from-gray-100 to-gray-200 shadow-lg scale-105'
-                      : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
-                  }`}
-                  onClick={() => setPriceType('WHITE')}
-                >
-                  <div className="text-xs text-gray-600 mb-1">⚪ Beyaz</div>
-                  <div className="text-2xl font-bold text-gray-900">
-                    {formatCurrency(product.prices.white)}
-                  </div>
-                  {isDiscounted && listWhite && listWhite > 0 && (
-                    <div className="text-xs text-gray-500">
-                      Liste: <span className="line-through">{formatCurrency(listWhite)}</span>
-                    </div>
-                  )}
-                  {isDiscounted && whiteDiscount && (
-                    <div className="text-xs text-green-700 font-semibold">
-                      <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{whiteDiscount}</span> indirim
-                    </div>
-                  )}
-                  {!isDiscounted && product.excessStock > 0 && excessWhite && (
-                    <div className="text-xs text-green-700 font-semibold">
-                      Fazla Stok: {formatCurrency(excessWhite)}
-                      {excessWhiteDiscount && (
-                        <span> (-%{excessWhiteDiscount})</span>
-                      )}
-                    </div>
-                  )}
-                  <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-gray-700 font-semibold">Özel Fiyat</span></div>
-                </button>
+                    {shouldShowDiscounts && isDiscounted && listWhite && listWhite > 0 && (
+                      <div className="text-xs text-gray-500">
+                        Liste: <span className="line-through">{formatCurrency(listWhite)}</span>
+                      </div>
+                    )}
+                    {shouldShowDiscounts && isDiscounted && whiteDiscount && (
+                      <div className="text-xs text-green-700 font-semibold">
+                        <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{whiteDiscount}</span> indirim
+                      </div>
+                    )}
+                    {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && excessWhite && (
+                      <div className="text-xs text-green-700 font-semibold">
+                        Fazla Stok: {formatCurrency(excessWhite)}
+                        {excessWhiteDiscount && (
+                          <span> (-%{excessWhiteDiscount})</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-gray-700 font-semibold">Ozel Fiyat</span></div>
+                  </button>
+                )}
               </div>
             </div>
 

@@ -557,7 +557,7 @@ export class AdminController {
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
       // Base where clause
-      const where: any = { role: 'CUSTOMER' };
+      const where: any = { role: 'CUSTOMER', parentCustomerId: null };
 
       // SALES_REP ise sektör filtresi uygula
       if (userRole === 'SALES_REP') {
@@ -574,6 +574,7 @@ export class AdminController {
           mikroCariCode: true,
           invoicedPriceListNo: true,
           whitePriceListNo: true,
+          priceVisibility: true,
           active: true,
           createdAt: true,
           // Mikro ERP fields
@@ -606,7 +607,7 @@ export class AdminController {
    */
   async createCustomer(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, password, name, customerType, mikroCariCode, invoicedPriceListNo, whitePriceListNo } =
+      const { email, password, name, customerType, mikroCariCode, invoicedPriceListNo, whitePriceListNo, priceVisibility } =
         req.body as CreateCustomerRequest;
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
@@ -689,6 +690,7 @@ export class AdminController {
           name,
           role: 'CUSTOMER',
           customerType,
+          priceVisibility: priceVisibility || undefined,
           mikroCariCode,
           invoicedPriceListNo: invoicedPriceListNo ?? undefined,
           whitePriceListNo: whitePriceListNo ?? undefined,
@@ -740,7 +742,7 @@ export class AdminController {
   async updateCustomer(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { email, customerType, active, invoicedPriceListNo, whitePriceListNo } = req.body;
+      const { email, customerType, active, invoicedPriceListNo, whitePriceListNo, priceVisibility } = req.body;
 
       // Validate customer exists
       const existingCustomer = await prisma.user.findUnique({
@@ -773,6 +775,7 @@ export class AdminController {
       if (active !== undefined) updateData.active = active;
       if (invoicedPriceListNo !== undefined) updateData.invoicedPriceListNo = invoicedPriceListNo;
       if (whitePriceListNo !== undefined) updateData.whitePriceListNo = whitePriceListNo;
+      if (priceVisibility !== undefined) updateData.priceVisibility = priceVisibility;
 
       const updatedCustomer = await prisma.user.update({
         where: { id },
@@ -787,6 +790,7 @@ export class AdminController {
           mikroCariCode: true,
           invoicedPriceListNo: true,
           whitePriceListNo: true,
+          priceVisibility: true,
           active: true,
           city: true,
           district: true,
@@ -807,6 +811,144 @@ export class AdminController {
         message: 'Customer updated successfully',
         customer: updatedCustomer,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/customers/:id/sub-users
+   */
+  async getCustomerSubUsers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const subUsers = await prisma.user.findMany({
+        where: { parentCustomerId: id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          active: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      res.json({ subUsers });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/customers/:id/sub-users
+   */
+  async createCustomerSubUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { name, email, password, active } = req.body;
+
+      const parentCustomer = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          role: true,
+          customerType: true,
+          priceVisibility: true,
+        },
+      });
+
+      if (!parentCustomer || parentCustomer.role !== 'CUSTOMER') {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      const existingEmail = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingEmail) {
+        return res.status(400).json({ error: 'Email already exists' });
+      }
+
+      const hashedPassword = await hashPassword(password);
+
+      const subUser = await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name,
+          role: 'CUSTOMER',
+          parentCustomerId: parentCustomer.id,
+          customerType: parentCustomer.customerType,
+          priceVisibility: parentCustomer.priceVisibility,
+          active: active !== undefined ? active : true,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          active: true,
+          createdAt: true,
+        },
+      });
+
+      await prisma.cart.create({
+        data: {
+          userId: subUser.id,
+        },
+      });
+
+      res.status(201).json({ subUser });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/admin/customers/sub-users/:id
+   */
+  async updateCustomerSubUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { name, email, password, active } = req.body;
+
+      const existingUser = await prisma.user.findUnique({
+        where: { id },
+        select: { id: true, parentCustomerId: true, email: true },
+      });
+
+      if (!existingUser || !existingUser.parentCustomerId) {
+        return res.status(404).json({ error: 'Sub user not found' });
+      }
+
+      if (email && email !== existingUser.email) {
+        const emailTaken = await prisma.user.findUnique({ where: { email } });
+        if (emailTaken) {
+          return res.status(400).json({ error: 'Email already in use' });
+        }
+      }
+
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (email !== undefined) updateData.email = email;
+      if (active !== undefined) updateData.active = active;
+      if (password) {
+        updateData.password = await hashPassword(password);
+      }
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          active: true,
+          createdAt: true,
+        },
+      });
+
+      res.json({ subUser: updated });
     } catch (error) {
       next(error);
     }

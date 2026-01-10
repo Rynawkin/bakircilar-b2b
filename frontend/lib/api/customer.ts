@@ -9,6 +9,7 @@ import {
   Cart,
   AddToCartRequest,
   Order,
+  OrderRequest,
   Quote,
   Task,
   TaskDetail,
@@ -24,7 +25,7 @@ export const customerApi = {
     categoryId?: string;
     search?: string;
     warehouse?: string;
-    mode?: 'all' | 'discounted' | 'excess' | 'purchased';
+    mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
   }): Promise<{ products: Product[] }> => {
     const response = await apiClient.get('/products', { params });
     return response.data;
@@ -81,6 +82,25 @@ export const customerApi = {
 
   getOrderById: async (id: string): Promise<Order> => {
     const response = await apiClient.get(`/orders/${id}`);
+    return response.data;
+  },
+
+  // Order Requests
+  getOrderRequests: async (): Promise<{ requests: OrderRequest[] }> => {
+    const response = await apiClient.get('/order-requests');
+    return response.data;
+  },
+
+  createOrderRequest: async (note?: string): Promise<{ request: OrderRequest }> => {
+    const response = await apiClient.post('/order-requests', note ? { note } : undefined);
+    return response.data;
+  },
+
+  convertOrderRequest: async (
+    id: string,
+    data: { items?: Array<{ id: string; priceType: 'INVOICED' | 'WHITE' }>; note?: string }
+  ): Promise<{ orderId: string; orderNumber: string }> => {
+    const response = await apiClient.post(`/order-requests/${id}/convert`, data);
     return response.data;
   },
 

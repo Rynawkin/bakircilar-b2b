@@ -24,30 +24,20 @@ interface PriceChangeRecord {
 }
 
 class PriceSyncService {
-  private async upsertMissingPriceStats(priceListMap: Map<string, number[]>): Promise<void> {
+  private async syncPriceStatsFromMikro(priceListMap: Map<string, number[]>): Promise<void> {
     const codes = Array.from(priceListMap.keys());
     if (codes.length === 0) return;
 
-    const existingRows = await prisma.productPriceStat.findMany({
-      where: { productCode: { in: codes } },
-      select: { productCode: true },
-    });
-    const existingSet = new Set(existingRows.map((row) => row.productCode));
-    const missingCodes = codes.filter((code) => !existingSet.has(code));
-
-    if (missingCodes.length === 0) return;
-
-    const products = await prisma.product.findMany({
-      where: { mikroCode: { in: missingCodes } },
-      select: { mikroCode: true, name: true, currentCost: true },
-    });
-    const productMap = new Map(
-      products.map((product) => [product.mikroCode, product])
-    );
-
     const batchSize = 500;
-    for (let i = 0; i < missingCodes.length; i += batchSize) {
-      const batch = missingCodes.slice(i, i + batchSize);
+    for (let i = 0; i < codes.length; i += batchSize) {
+      const batch = codes.slice(i, i + batchSize);
+      const products = await prisma.product.findMany({
+        where: { mikroCode: { in: batch } },
+        select: { mikroCode: true, name: true, currentCost: true },
+      });
+      const productMap = new Map(
+        products.map((product) => [product.mikroCode, product])
+      );
       const values = batch.map((code) => {
         const priceLists = priceListMap.get(code) || Array(10).fill(0);
         const product = productMap.get(code);
@@ -117,7 +107,7 @@ class PriceSyncService {
         VALUES ${values}
         ON CONFLICT (product_code) DO UPDATE SET
           product_name = EXCLUDED.product_name,
-          current_cost = EXCLUDED.current_cost,
+          current_cost = COALESCE(EXCLUDED.current_cost, product_price_stats.current_cost),
           current_price_list_1 = EXCLUDED.current_price_list_1,
           current_price_list_2 = EXCLUDED.current_price_list_2,
           current_price_list_3 = EXCLUDED.current_price_list_3,
@@ -139,6 +129,17 @@ class PriceSyncService {
           current_margin_list_9 = EXCLUDED.current_margin_list_9,
           current_margin_list_10 = EXCLUDED.current_margin_list_10,
           updated_at = CURRENT_TIMESTAMP
+        WHERE
+          product_price_stats.current_price_list_1 IS DISTINCT FROM EXCLUDED.current_price_list_1
+          OR product_price_stats.current_price_list_2 IS DISTINCT FROM EXCLUDED.current_price_list_2
+          OR product_price_stats.current_price_list_3 IS DISTINCT FROM EXCLUDED.current_price_list_3
+          OR product_price_stats.current_price_list_4 IS DISTINCT FROM EXCLUDED.current_price_list_4
+          OR product_price_stats.current_price_list_5 IS DISTINCT FROM EXCLUDED.current_price_list_5
+          OR product_price_stats.current_price_list_6 IS DISTINCT FROM EXCLUDED.current_price_list_6
+          OR product_price_stats.current_price_list_7 IS DISTINCT FROM EXCLUDED.current_price_list_7
+          OR product_price_stats.current_price_list_8 IS DISTINCT FROM EXCLUDED.current_price_list_8
+          OR product_price_stats.current_price_list_9 IS DISTINCT FROM EXCLUDED.current_price_list_9
+          OR product_price_stats.current_price_list_10 IS DISTINCT FROM EXCLUDED.current_price_list_10
       `);
     }
   }
@@ -207,7 +208,7 @@ class PriceSyncService {
 
       // İstatistikleri güncelle
       await this.updateProductStats();
-      await this.upsertMissingPriceStats(priceListMap);
+      await this.syncPriceStatsFromMikro(priceListMap);
 
       await mikroService.disconnect();
 

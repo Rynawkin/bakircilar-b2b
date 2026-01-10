@@ -76,6 +76,20 @@ export default function OrdersPage() {
               </Button>
               <Button
                 variant="secondary"
+                onClick={() => router.push('/agreements')}
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
+              >
+                Anlasmali Urunler
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => router.push('/order-requests')}
+                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
+              >
+                Siparis Talepleri
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => router.push('/cart')}
                 className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
               >
@@ -101,8 +115,10 @@ export default function OrdersPage() {
             <MobileMenu
               items={[
                 { label: 'Ürünler', href: '/products', icon: '🛍️' },
+                { label: 'Anlasmali Urunler', href: '/agreements', icon: '??' },
                 { label: 'Sepetim', href: '/cart', icon: '🛒' },
                 { label: 'Siparişlerim', href: '/my-orders', icon: '📦' },
+                { label: 'Siparis Talepleri', href: '/order-requests', icon: '??' },
                 { label: 'Profilim', href: '/profile', icon: '👤' },
                 { label: 'Tercihler', href: '/preferences', icon: '⚙️' },
               ]}
@@ -143,6 +159,11 @@ export default function OrdersPage() {
                       </svg>
                       {formatDate(order.createdAt)}
                     </div>
+                    {order.requestedBy && (
+                      <div className="text-xs text-gray-600 mb-2">
+                        Talep eden: {order.requestedBy.name}{order.requestedBy.email ? ` (${order.requestedBy.email})` : ''}
+                      </div>
+                    )}
                     {order.approvedAt && (
                       <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-sm font-semibold inline-block">
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">

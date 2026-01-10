@@ -112,6 +112,13 @@ class OrderService {
     const orders = await prisma.order.findMany({
       where: { userId },
       include: {
+        requestedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
         items: {
           include: {
             product: {
@@ -202,6 +209,13 @@ class OrderService {
             email: true,
             customerType: true,
             mikroCariCode: true,
+          },
+        },
+        requestedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
           },
         },
         items: {

@@ -7,6 +7,8 @@ export interface User {
   role: 'HEAD_ADMIN' | 'ADMIN' | 'MANAGER' | 'CUSTOMER' | 'DIVERSEY' | 'SALES_REP';
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode?: string;
+  priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+  parentCustomerId?: string;
   active?: boolean;
   paymentPlanNo?: number | null;
   paymentPlanCode?: string | null;
@@ -45,6 +47,13 @@ export interface Product {
   prices: {
     invoiced: number;
     white: number;
+  };
+  agreement?: {
+    priceInvoiced: number;
+    priceWhite: number;
+    minQuantity: number;
+    validFrom: string;
+    validTo?: string | null;
   };
   excessPrices?: {
     invoiced: number;
@@ -118,6 +127,50 @@ export interface Order {
   rejectedAt?: string;
   adminNote?: string;
   mikroOrderIds?: string[];
+  requestedBy?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+}
+
+// ==================== ORDER REQUEST TYPES ====================
+
+export interface OrderRequestItem {
+  id: string;
+  product: {
+    id: string;
+    name: string;
+    mikroCode: string;
+    unit?: string;
+    imageUrl?: string;
+  };
+  quantity: number;
+  priceMode: 'LIST' | 'EXCESS';
+  status: 'PENDING' | 'CONVERTED' | 'REJECTED';
+  selectedPriceType?: 'INVOICED' | 'WHITE';
+  selectedUnitPrice?: number;
+  selectedTotalPrice?: number;
+}
+
+export interface OrderRequest {
+  id: string;
+  status: 'PENDING' | 'CONVERTED' | 'REJECTED';
+  note?: string;
+  orderId?: string | null;
+  createdAt: string;
+  convertedAt?: string | null;
+  requestedBy?: {
+    id: string;
+    name: string;
+    email?: string | null;
+  };
+  convertedBy?: {
+    id: string;
+    name: string;
+    email?: string | null;
+  };
+  items: OrderRequestItem[];
 }
 
 export interface PendingOrderForAdmin extends Order {
@@ -541,6 +594,7 @@ export interface Customer {
   mikroCariCode: string;
   invoicedPriceListNo?: number | null;
   whitePriceListNo?: number | null;
+  priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
   active: boolean;
   createdAt: string;
   // Mikro-synced fields
@@ -566,6 +620,7 @@ export interface CreateCustomerRequest {
   mikroCariCode: string;
   invoicedPriceListNo?: number | null;
   whitePriceListNo?: number | null;
+  priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
 }
 
 export interface CustomerContact {

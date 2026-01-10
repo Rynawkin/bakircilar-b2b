@@ -10,61 +10,9 @@ import priceListService from '../services/price-list.service';
 import mikroService from '../services/mikroFactory.service';
 import orderService from '../services/order.service';
 import { splitSearchTokens } from '../utils/search';
-import { CustomerPriceListConfig, PriceListPair, ProductPrices } from '../types';
-
-const DEFAULT_PRICE_LISTS: CustomerPriceListConfig = {
-  BAYI: { invoiced: 6, white: 1 },
-  PERAKENDE: { invoiced: 6, white: 1 },
-  VIP: { invoiced: 6, white: 1 },
-  OZEL: { invoiced: 6, white: 1 },
-};
-
-const resolvePair = (value: any, fallback: PriceListPair): PriceListPair => {
-  const invoiced = Number(value?.invoiced);
-  const white = Number(value?.white);
-  return {
-    invoiced: Number.isFinite(invoiced) ? invoiced : fallback.invoiced,
-    white: Number.isFinite(white) ? white : fallback.white,
-  };
-};
-
-const normalizePriceListConfig = (raw: any): CustomerPriceListConfig => {
-  if (!raw || typeof raw !== 'object') {
-    return DEFAULT_PRICE_LISTS;
-  }
-
-  return {
-    BAYI: resolvePair(raw.BAYI, DEFAULT_PRICE_LISTS.BAYI),
-    PERAKENDE: resolvePair(raw.PERAKENDE, DEFAULT_PRICE_LISTS.PERAKENDE),
-    VIP: resolvePair(raw.VIP, DEFAULT_PRICE_LISTS.VIP),
-    OZEL: resolvePair(raw.OZEL, DEFAULT_PRICE_LISTS.OZEL),
-  };
-};
-
-const resolveListNo = (value: any, fallback: number, min: number, max: number): number => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  if (parsed < min || parsed > max) return fallback;
-  return parsed;
-};
-
-const resolveCustomerPriceLists = (
-  user: {
-    customerType?: string | null;
-    invoicedPriceListNo?: number | null;
-    whitePriceListNo?: number | null;
-  },
-  settings: { customerPriceLists?: any } | null
-): PriceListPair => {
-  const config = normalizePriceListConfig(settings?.customerPriceLists);
-  const customerType = (user.customerType || 'BAYI') as keyof CustomerPriceListConfig;
-  const base = config[customerType] || DEFAULT_PRICE_LISTS.BAYI;
-
-  return {
-    invoiced: resolveListNo(user.invoicedPriceListNo, base.invoiced, 6, 10),
-    white: resolveListNo(user.whitePriceListNo, base.white, 1, 5),
-  };
-};
+import { ProductPrices } from '../types';
+import { resolveCustomerPriceLists } from '../utils/customerPricing';
+import { isAgreementActive, isAgreementApplicable } from '../utils/agreements';
 
 const sumStocks = (warehouseStocks: Record<string, number>, includedWarehouses: string[]): number => {
   if (!warehouseStocks) return 0;
@@ -73,6 +21,13 @@ const sumStocks = (warehouseStocks: Record<string, number>, includedWarehouses: 
   }
   return includedWarehouses.reduce((sum, warehouse) => sum + (Number(warehouseStocks[warehouse]) || 0), 0);
 };
+
+const isPriceTypeAllowed = (visibility: string | null | undefined, priceType: string): boolean => {
+  if (visibility === 'WHITE_ONLY') return priceType === 'WHITE';
+  if (visibility === 'BOTH') return true;
+  return priceType === 'INVOICED';
+};
+
 
 export class CustomerController {
   /**
@@ -83,6 +38,7 @@ export class CustomerController {
       const { categoryId, search, warehouse, mode } = req.query;
       const isDiscounted = mode === 'discounted' || mode === 'excess';
       const isPurchased = mode === 'purchased';
+      const isAgreementMode = mode === 'agreements';
       const searchTokens = splitSearchTokens(search as string | undefined);
 
       // Kullanıcı bilgisini al
@@ -94,20 +50,34 @@ export class CustomerController {
           mikroCariCode: true,
           invoicedPriceListNo: true,
           whitePriceListNo: true,
+          priceVisibility: true,
+          parentCustomerId: true,
+          parentCustomer: {
+            select: {
+              id: true,
+              customerType: true,
+              mikroCariCode: true,
+              invoicedPriceListNo: true,
+              whitePriceListNo: true,
+              priceVisibility: true,
+            },
+          },
         },
       });
 
-      if (!user || !user.customerType) {
+      const customer = user?.parentCustomer || user;
+
+      if (!customer || !customer.customerType) {
         return res.status(400).json({ error: 'User has no customer type' });
       }
 
-      if (isPurchased && !user.mikroCariCode) {
+      if (isPurchased && !customer.mikroCariCode) {
         return res.status(400).json({ error: 'User has no Mikro cari code' });
       }
 
       let purchasedCodes: string[] = [];
       if (isPurchased) {
-        purchasedCodes = await mikroService.getPurchasedProductCodes(user.mikroCariCode as string);
+        purchasedCodes = await mikroService.getPurchasedProductCodes(customer.mikroCariCode as string);
         if (purchasedCodes.length === 0) {
           return res.json({ products: [] });
         }
@@ -120,8 +90,143 @@ export class CustomerController {
         },
       });
 
-      const priceListPair = resolveCustomerPriceLists(user, settings);
+      const priceListPair = resolveCustomerPriceLists(customer, settings);
       const includedWarehouses = settings?.includedWarehouses || [];
+
+      const now = new Date();
+      let agreementRows: Array<{
+        id: string;
+        productId: string;
+        priceInvoiced: number;
+        priceWhite: number;
+        minQuantity: number;
+        validFrom: Date;
+        validTo: Date | null;
+      }> = [];
+
+      if (isAgreementMode) {
+        agreementRows = await prisma.customerPriceAgreement.findMany({
+          where: {
+            customerId: customer.id,
+            validFrom: { lte: now },
+            OR: [{ validTo: null }, { validTo: { gte: now } }],
+          },
+          select: {
+            id: true,
+            productId: true,
+            priceInvoiced: true,
+            priceWhite: true,
+            minQuantity: true,
+            validFrom: true,
+            validTo: true,
+          },
+        });
+
+        const agreementProductIds = agreementRows.map((row) => row.productId);
+        if (agreementProductIds.length === 0) {
+          return res.json({ products: [] });
+        }
+
+        const agreementWhere: any = {
+          active: true,
+          id: { in: agreementProductIds },
+          ...(categoryId ? { categoryId: categoryId as string } : {}),
+        };
+
+        if (searchTokens.length > 0) {
+          agreementWhere.AND = searchTokens.map((token) => ({
+            OR: [
+              { name: { contains: token, mode: 'insensitive' } },
+              { mikroCode: { contains: token, mode: 'insensitive' } },
+            ],
+          }));
+        }
+
+        const products = await prisma.product.findMany({
+          where: agreementWhere,
+          include: {
+            category: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: {
+            name: 'asc',
+          },
+        });
+
+        const priceStatsMap = await priceListService.getPriceStatsMap(
+          products.map((product) => product.mikroCode)
+        );
+
+        const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
+
+        let productsWithPrices = products.map((product) => {
+          const prices = product.prices as unknown as ProductPrices;
+          const customerPrices = pricingService.getPriceForCustomer(
+            prices,
+            customer.customerType as any
+          );
+
+          const priceStats = priceStatsMap.get(product.mikroCode) || null;
+          const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
+          const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
+          const listPrices = {
+            invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
+            white: listWhite > 0 ? listWhite : customerPrices.white,
+          };
+
+          const agreement = agreementMap.get(product.id);
+          const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
+          const agreementPrices = agreementActive
+            ? { invoiced: agreement!.priceInvoiced, white: agreement!.priceWhite }
+            : null;
+
+          const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
+          const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
+          const availableStock = sumStocks(warehouseStocks, includedWarehouses);
+
+          return {
+            id: product.id,
+            name: product.name,
+            mikroCode: product.mikroCode,
+            unit: product.unit,
+            unit2: product.unit2 || null,
+            unit2Factor: product.unit2Factor ?? null,
+            excessStock: product.excessStock,
+            availableStock,
+            maxOrderQuantity: availableStock,
+            imageUrl: product.imageUrl,
+            warehouseStocks,
+            warehouseExcessStocks,
+            category: {
+              id: product.category.id,
+              name: product.category.name,
+            },
+            prices: agreementPrices || listPrices,
+            excessPrices: agreementPrices || customerPrices,
+            listPrices: agreementPrices ? listPrices : undefined,
+            pricingMode: 'LIST',
+            agreement: agreementActive
+              ? {
+                  priceInvoiced: agreement!.priceInvoiced,
+                  priceWhite: agreement!.priceWhite,
+                  minQuantity: agreement!.minQuantity,
+                  validFrom: agreement!.validFrom,
+                  validTo: agreement!.validTo,
+                }
+              : undefined,
+          };
+        });
+
+        if (warehouse) {
+          productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
+        }
+
+        return res.json({ products: productsWithPrices });
+      }
 
       const products = isDiscounted
         ? await stockService.getExcessStockProducts({
@@ -189,11 +294,28 @@ export class CustomerController {
         products.map((product) => product.mikroCode)
       );
 
+      const agreementRows = await prisma.customerPriceAgreement.findMany({
+        where: {
+          customerId: customer.id,
+          productId: { in: products.map((product) => product.id) },
+        },
+        select: {
+          id: true,
+          productId: true,
+          priceInvoiced: true,
+          priceWhite: true,
+          minQuantity: true,
+          validFrom: true,
+          validTo: true,
+        },
+      });
+      const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
+
       let productsWithPrices = products.map((product) => {
         const prices = product.prices as unknown as ProductPrices;
         const customerPrices = pricingService.getPriceForCustomer(
           prices,
-          user.customerType as any
+          customer.customerType as any
         );
 
         const priceStats = priceStatsMap.get(product.mikroCode) || null;
@@ -205,6 +327,12 @@ export class CustomerController {
         };
         const listPricesRaw =
           listInvoiced > 0 || listWhite > 0 ? { invoiced: listInvoiced, white: listWhite } : undefined;
+
+        const agreement = agreementMap.get(product.id);
+        const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
+        const agreementPrices = agreementActive
+          ? { invoiced: agreement!.priceInvoiced, white: agreement!.priceWhite }
+          : null;
 
         const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
         const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
@@ -242,10 +370,19 @@ export class CustomerController {
             id: product.category.id,
             name: product.category.name,
           },
-          prices: isDiscounted ? customerPrices : listPrices,
-          excessPrices: customerPrices,
-          listPrices: isDiscounted ? listPricesRaw : undefined,
+          prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
+          excessPrices: agreementPrices || customerPrices,
+          listPrices: agreementPrices ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
           pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
+          agreement: agreementActive
+            ? {
+                priceInvoiced: agreement!.priceInvoiced,
+                priceWhite: agreement!.priceWhite,
+                minQuantity: agreement!.minQuantity,
+                validFrom: agreement!.validFrom,
+                validTo: agreement!.validTo,
+              }
+            : undefined,
         };
       });
 
@@ -275,10 +412,23 @@ export class CustomerController {
           customerType: true,
           invoicedPriceListNo: true,
           whitePriceListNo: true,
+          priceVisibility: true,
+          parentCustomerId: true,
+          parentCustomer: {
+            select: {
+              id: true,
+              customerType: true,
+              invoicedPriceListNo: true,
+              whitePriceListNo: true,
+              priceVisibility: true,
+            },
+          },
         },
       });
 
-      if (!user || !user.customerType) {
+      const customer = user?.parentCustomer || user;
+
+      if (!customer || !customer.customerType) {
         return res.status(400).json({ error: 'User has no customer type' });
       }
 
@@ -289,7 +439,7 @@ export class CustomerController {
         },
       });
 
-      const priceListPair = resolveCustomerPriceLists(user, settings);
+      const priceListPair = resolveCustomerPriceLists(customer, settings);
       const includedWarehouses = settings?.includedWarehouses || [];
 
       const product = await prisma.product.findUnique({
@@ -315,7 +465,7 @@ export class CustomerController {
       const prices = product.prices as unknown as ProductPrices;
       const customerPrices = pricingService.getPriceForCustomer(
         prices,
-        user.customerType as any
+        customer.customerType as any
       );
 
       const priceStats = await priceListService.getPriceStats(product.mikroCode);
@@ -332,6 +482,25 @@ export class CustomerController {
       const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
       const availableStock = sumStocks(warehouseStocks, includedWarehouses);
 
+      const agreement = await prisma.customerPriceAgreement.findFirst({
+        where: {
+          customerId: customer.id,
+          productId: product.id,
+        },
+        select: {
+          priceInvoiced: true,
+          priceWhite: true,
+          minQuantity: true,
+          validFrom: true,
+          validTo: true,
+        },
+      });
+      const now = new Date();
+      const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
+      const agreementPrices = agreementActive
+        ? { invoiced: agreement!.priceInvoiced, white: agreement!.priceWhite }
+        : null;
+
       res.json({
         id: product.id,
         name: product.name,
@@ -346,10 +515,19 @@ export class CustomerController {
         warehouseExcessStocks,
         imageUrl: product.imageUrl,
         category: product.category,
-        prices: isDiscounted ? customerPrices : listPrices,
-        excessPrices: customerPrices,
-        listPrices: isDiscounted ? listPricesRaw : undefined,
+        prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
+        excessPrices: agreementPrices || customerPrices,
+        listPrices: agreementPrices ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
         pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
+        agreement: agreementActive
+          ? {
+              priceInvoiced: agreement!.priceInvoiced,
+              priceWhite: agreement!.priceWhite,
+              minQuantity: agreement!.minQuantity,
+              validFrom: agreement!.validFrom,
+              validTo: agreement!.validTo,
+            }
+          : undefined,
       });
     } catch (error) {
       next(error);
@@ -508,17 +686,33 @@ export class CustomerController {
           customerType: true,
           invoicedPriceListNo: true,
           whitePriceListNo: true,
+          priceVisibility: true,
+          parentCustomerId: true,
+          parentCustomer: {
+            select: {
+              id: true,
+              customerType: true,
+              invoicedPriceListNo: true,
+              whitePriceListNo: true,
+              priceVisibility: true,
+            },
+          },
         },
       });
 
-      if (!user || !user.customerType) {
-        return res.status(400).json({ error: 'User has no customer type' });
-      }
+        const customer = user?.parentCustomer || user;
 
-      // Ürün kontrolü
-      const product = await prisma.product.findUnique({
-        where: { id: productId },
-      });
+        if (!customer || !customer.customerType) {
+          return res.status(400).json({ error: 'User has no customer type' });
+        }
+        const effectiveVisibility = user?.parentCustomerId
+          ? (customer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
+          : customer.priceVisibility;
+
+        // Ürün kontrolü
+        const product = await prisma.product.findUnique({
+          where: { id: productId },
+        });
 
       if (!product) {
         return res.status(404).json({ error: 'Product not found' });
@@ -539,10 +733,14 @@ export class CustomerController {
         });
       }
 
+      if (!isPriceTypeAllowed(effectiveVisibility, priceType)) {
+        return res.status(400).json({ error: 'Price type not allowed for customer' });
+      }
+
       const prices = product.prices as unknown as ProductPrices;
       const customerPrices = pricingService.getPriceForCustomer(
         prices,
-        user.customerType as any
+        customer.customerType as any
       );
 
       let unitPrice = 0;
@@ -555,7 +753,7 @@ export class CustomerController {
             customerPriceLists: true,
           },
         });
-        const priceListPair = resolveCustomerPriceLists(user, settings);
+        const priceListPair = resolveCustomerPriceLists(customer, settings);
         const priceStats = await priceListService.getPriceStats(product.mikroCode);
         const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
         const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
@@ -566,6 +764,24 @@ export class CustomerController {
         };
 
         unitPrice = priceType === 'INVOICED' ? listPrices.invoiced : listPrices.white;
+      }
+
+      const agreement = await prisma.customerPriceAgreement.findFirst({
+        where: {
+          customerId: customer.id,
+          productId,
+        },
+        select: {
+          priceInvoiced: true,
+          priceWhite: true,
+          minQuantity: true,
+          validFrom: true,
+          validTo: true,
+        },
+      });
+
+      if (agreement && isAgreementApplicable(agreement, new Date(), quantity)) {
+        unitPrice = priceType === 'INVOICED' ? agreement.priceInvoiced : agreement.priceWhite;
       }
 
       // Cart'ı bul veya oluştur
@@ -585,14 +801,20 @@ export class CustomerController {
           cartId: cart.id,
           productId,
           priceType,
+          priceMode: effectivePriceMode,
         },
       });
 
       if (existingItem) {
+        const combinedQuantity = existingItem.quantity + quantity;
+        if (agreement && isAgreementApplicable(agreement, new Date(), combinedQuantity)) {
+          unitPrice = priceType === 'INVOICED' ? agreement.priceInvoiced : agreement.priceWhite;
+        }
         await prisma.cartItem.update({
           where: { id: existingItem.id },
           data: {
-            quantity: existingItem.quantity + quantity,
+            quantity: combinedQuantity,
+            unitPrice,
           },
         });
       } else {
@@ -602,6 +824,7 @@ export class CustomerController {
             productId,
             quantity,
             priceType,
+            priceMode: effectivePriceMode,
             unitPrice,
           },
         });
@@ -625,9 +848,99 @@ export class CustomerController {
         return res.status(400).json({ error: 'Quantity must be greater than 0' });
       }
 
+      const cartItem = await prisma.cartItem.findUnique({
+        where: { id: itemId },
+        include: {
+          product: true,
+          cart: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  customerType: true,
+                  invoicedPriceListNo: true,
+                  whitePriceListNo: true,
+                  priceVisibility: true,
+                  parentCustomerId: true,
+                  parentCustomer: {
+                    select: {
+                      id: true,
+                      customerType: true,
+                      invoicedPriceListNo: true,
+                      whitePriceListNo: true,
+                      priceVisibility: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!cartItem) {
+        return res.status(404).json({ error: 'Cart item not found' });
+      }
+
+      const user = cartItem.cart.user;
+      const customer = user?.parentCustomer || user;
+
+      if (!customer || !customer.customerType) {
+        return res.status(400).json({ error: 'User has no customer type' });
+      }
+
+      const priceType = cartItem.priceType;
+      const prices = cartItem.product.prices as unknown as ProductPrices;
+      const customerPrices = pricingService.getPriceForCustomer(
+        prices,
+        customer.customerType as any
+      );
+
+      let unitPrice = 0;
+      const effectivePriceMode = cartItem.priceMode === 'EXCESS' ? 'EXCESS' : 'LIST';
+
+      if (effectivePriceMode === 'EXCESS') {
+        unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
+      } else {
+        const settings = await prisma.settings.findFirst({
+          select: {
+            customerPriceLists: true,
+          },
+        });
+        const priceListPair = resolveCustomerPriceLists(customer, settings);
+        const priceStats = await priceListService.getPriceStats(cartItem.product.mikroCode);
+        const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
+        const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
+
+        const listPrices = {
+          invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
+          white: listWhite > 0 ? listWhite : customerPrices.white,
+        };
+
+        unitPrice = priceType === 'INVOICED' ? listPrices.invoiced : listPrices.white;
+      }
+
+      const agreement = await prisma.customerPriceAgreement.findFirst({
+        where: {
+          customerId: customer.id,
+          productId: cartItem.productId,
+        },
+        select: {
+          priceInvoiced: true,
+          priceWhite: true,
+          minQuantity: true,
+          validFrom: true,
+          validTo: true,
+        },
+      });
+
+      if (agreement && isAgreementApplicable(agreement, new Date(), quantity)) {
+        unitPrice = priceType === 'INVOICED' ? agreement.priceInvoiced : agreement.priceWhite;
+      }
+
       await prisma.cartItem.update({
         where: { id: itemId },
-        data: { quantity },
+        data: { quantity, unitPrice },
       });
 
       res.json({ message: 'Cart item updated' });
@@ -658,6 +971,15 @@ export class CustomerController {
    */
   async createOrder(req: Request, res: Response, next: NextFunction) {
     try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { parentCustomerId: true },
+      });
+
+      if (user?.parentCustomerId) {
+        return res.status(403).json({ error: 'Sub users cannot create orders' });
+      }
+
       const result = await orderService.createOrderFromCart(req.user!.userId);
 
       res.status(201).json({

@@ -21,6 +21,7 @@ import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
+import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
 export default function PreviouslyPurchasedPage() {
   const router = useRouter();
@@ -28,6 +29,15 @@ export default function PreviouslyPurchasedPage() {
   const { cart, fetchCart, addToCart, removeItem } = useCartStore();
 
   const cartItems = cart?.items || [];
+  const isSubUser = Boolean(user?.parentCustomerId);
+  const effectiveVisibility = isSubUser
+    ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
+    : user?.priceVisibility;
+  const allowedPriceTypes = useMemo(() => getAllowedPriceTypes(effectiveVisibility), [effectiveVisibility]);
+  const defaultPriceType = getDefaultPriceType(effectiveVisibility);
+  const defaultFilterPriceType = defaultPriceType === 'INVOICED' ? 'invoiced' : 'white';
+  const allowedFilterPriceTypes = allowedPriceTypes.map((type) => type === 'INVOICED' ? 'invoiced' : 'white');
+  const showPriceTypeSelector = allowedPriceTypes.length > 1;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -43,10 +53,33 @@ export default function PreviouslyPurchasedPage() {
     priceType: 'invoiced',
   });
 
+  useEffect(() => {
+    setAdvancedFilters((prev) => {
+      if (!allowedFilterPriceTypes.includes(prev.priceType)) {
+        return { ...prev, priceType: defaultFilterPriceType };
+      }
+      return prev;
+    });
+  }, [allowedFilterPriceTypes.join('|'), defaultFilterPriceType]);
+
   // Quick add states
   const [quickAddQuantities, setQuickAddQuantities] = useState<Record<string, number>>({});
   const [quickAddPriceTypes, setQuickAddPriceTypes] = useState<Record<string, 'INVOICED' | 'WHITE'>>({});
   const [addingToCart, setAddingToCart] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setQuickAddPriceTypes((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      Object.entries(next).forEach(([productId, priceType]) => {
+        if (!allowedPriceTypes.includes(priceType)) {
+          next[productId] = defaultPriceType;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [allowedPriceTypes.join('|'), defaultPriceType]);
 
   // Modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -126,7 +159,10 @@ export default function PreviouslyPurchasedPage() {
 
   const handleQuickAdd = async (productId: string) => {
     const quantity = quickAddQuantities[productId] || 1;
-    const priceType = quickAddPriceTypes[productId] || 'INVOICED';
+    const requestedPriceType = quickAddPriceTypes[productId] || defaultPriceType;
+    const priceType = allowedPriceTypes.includes(requestedPriceType)
+      ? requestedPriceType
+      : defaultPriceType;
 
     setAddingToCart({ ...addingToCart, [productId]: true });
 
@@ -160,10 +196,11 @@ export default function PreviouslyPurchasedPage() {
     priceMode: 'LIST' | 'EXCESS' = 'LIST'
   ) => {
     try {
+      const safePriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
       await addToCart({
         productId,
         quantity,
-        priceType,
+        priceType: safePriceType,
         priceMode,
       });
 
@@ -238,6 +275,20 @@ export default function PreviouslyPurchasedPage() {
             </Button>
             <Button
               variant="secondary"
+              onClick={() => router.push('/agreements')}
+              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
+            >
+              Anlasmali Urunler
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => router.push('/order-requests')}
+              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
+            >
+              Siparis Talepleri
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => router.push('/cart')}
               className="relative bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
             >
@@ -283,9 +334,11 @@ export default function PreviouslyPurchasedPage() {
               items={[
                 { label: 'Urunler', href: '/products', icon: '??' },
                 { label: 'Indirimli Urunler', href: '/discounted-products', icon: '???' },
+                { label: 'Anlasmali Urunler', href: '/agreements', icon: '??' },
                 { label: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: '??' },
                 { label: 'Sepetim', href: '/cart', icon: '??' },
                 { label: 'Siparislerim', href: '/my-orders', icon: '??' },
+                { label: 'Siparis Talepleri', href: '/order-requests', icon: '??' },
                 { label: 'Profilim', href: '/profile', icon: '??' },
                 { label: 'Tercihler', href: '/preferences', icon: '??' },
               ]}
@@ -405,9 +458,10 @@ export default function PreviouslyPurchasedPage() {
                 onReset={() => {
                   setAdvancedFilters({
                     sortBy: 'none',
-                    priceType: 'invoiced',
+                    priceType: defaultFilterPriceType,
                   });
                 }}
+                allowedPriceTypes={allowedFilterPriceTypes}
               />
             </div>
 
@@ -450,7 +504,22 @@ export default function PreviouslyPurchasedPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredProducts.map((product) => {
                   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
-                  return (
+                                    const selectedPriceType = allowedPriceTypes.includes(quickAddPriceTypes[product.id])
+                    ? quickAddPriceTypes[product.id]
+                    : defaultPriceType;
+                  const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
+                  const hasAgreement = Boolean(product.agreement);
+                  const showExcessPricing = !hasAgreement && Boolean(product.excessPrices) && product.excessStock > 0;
+                  const selectedExcessPrice = showExcessPricing
+                    ? (selectedPriceType === 'INVOICED' ? product.excessPrices?.invoiced : product.excessPrices?.white)
+                    : undefined;
+                  const selectedExcessDiscount = showExcessPricing && selectedExcessPrice
+                    ? getDiscountPercent(
+                        selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white,
+                        selectedExcessPrice
+                      )
+                    : null;
+return (
                   <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
                     <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
@@ -505,6 +574,11 @@ export default function PreviouslyPurchasedPage() {
                           {unitLabel && (
                             <span className="text-xs text-gray-500">{unitLabel}</span>
                           )}
+                          {hasAgreement && (
+                            <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded inline-block">
+                              Anlasma: min {product.agreement?.minQuantity ?? 1} {product.unit}
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -512,48 +586,70 @@ export default function PreviouslyPurchasedPage() {
                       <div className="flex-1"></div>
 
                       {/* Price Type Selection */}
-                      <div className="px-3 grid grid-cols-2 gap-2">
-                        <button
-                          className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
-                            (quickAddPriceTypes[product.id] || 'INVOICED') === 'INVOICED'
-                              ? 'bg-gradient-to-br from-primary-600 to-primary-700 text-white scale-105 shadow-lg'
-                              : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200 hover:border-primary-300'
-                          }`}
-                          onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
-                        >
-                          <div className="opacity-80 mb-0.5">📄 Faturalı</div>
-                          <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
-                          {product.excessPrices && product.excessStock > 0 && (
-                            <div className="text-[10px] text-green-700 font-semibold">
-                              Fazla: {formatCurrency(product.excessPrices.invoiced)}
-                              {getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced) && (
-                                <span> (-%{getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced)})</span>
+                      {showPriceTypeSelector ? (
+                        <div className="px-3 grid grid-cols-2 gap-2">
+                          {allowedPriceTypes.includes('INVOICED') && (
+                            <button
+                              className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
+                                selectedPriceType === 'INVOICED'
+                                  ? 'bg-gradient-to-br from-primary-600 to-primary-700 text-white scale-105 shadow-lg'
+                                  : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200 hover:border-primary-300'
+                              }`}
+                              onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
+                            >
+                              <div className="opacity-80 mb-0.5">Faturali</div>
+                              <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
+                              {showExcessPricing && (
+                                <div className="text-[10px] text-green-700 font-semibold">
+                                  Fazla: {formatCurrency(product.excessPrices.invoiced)}
+                                  {getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced) && (
+                                    <span> (-%{getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced)})</span>
+                                  )}
+                                </div>
                               )}
-                            </div>
+                              <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
+                            </button>
                           )}
-                          <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
-                        </button>
-                        <button
-                          className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
-                            quickAddPriceTypes[product.id] === 'WHITE'
-                              ? 'bg-gradient-to-br from-gray-700 to-gray-800 text-white scale-105 shadow-lg'
-                              : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200 hover:border-gray-400'
-                          }`}
-                          onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
-                        >
-                          <div className="opacity-80 mb-0.5">⚪ Beyaz</div>
-                          <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
-                          {product.excessPrices && product.excessStock > 0 && (
-                            <div className="text-[10px] text-green-700 font-semibold">
-                              Fazla: {formatCurrency(product.excessPrices.white)}
-                              {getDiscountPercent(product.prices.white, product.excessPrices.white) && (
-                                <span> (-%{getDiscountPercent(product.prices.white, product.excessPrices.white)})</span>
+                          {allowedPriceTypes.includes('WHITE') && (
+                            <button
+                              className={`py-2 px-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
+                                selectedPriceType === 'WHITE'
+                                  ? 'bg-gradient-to-br from-gray-700 to-gray-800 text-white scale-105 shadow-lg'
+                                  : 'bg-white text-gray-700 hover:bg-gray-50 border-2 border-gray-200 hover:border-gray-400'
+                              }`}
+                              onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
+                            >
+                              <div className="opacity-80 mb-0.5">Beyaz</div>
+                              <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
+                              {showExcessPricing && (
+                                <div className="text-[10px] text-green-700 font-semibold">
+                                  Fazla: {formatCurrency(product.excessPrices.white)}
+                                  {getDiscountPercent(product.prices.white, product.excessPrices.white) && (
+                                    <span> (-%{getDiscountPercent(product.prices.white, product.excessPrices.white)})</span>
+                                  )}
+                                </div>
                               )}
-                            </div>
+                              <div className="text-[10px] opacity-70 mt-0.5">Ozel</div>
+                            </button>
                           )}
-                          <div className="text-[10px] opacity-70 mt-0.5">Özel</div>
-                        </button>
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="px-3">
+                          <div className="rounded-lg border-2 border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-700">
+                            <div className="opacity-80 mb-0.5">{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
+                            <div className="font-bold text-sm">{formatCurrency(selectedPrice)}</div>
+                            {showExcessPricing && selectedExcessPrice && (
+                              <div className="text-[10px] text-green-700 font-semibold">
+                                Fazla: {formatCurrency(selectedExcessPrice)}
+                                {selectedExcessDiscount && (
+                                  <span> (-%{selectedExcessDiscount})</span>
+                                )}
+                              </div>
+                            )}
+                            <div className="text-[10px] opacity-70 mt-0.5">{selectedPriceType === 'INVOICED' ? '+KDV' : 'Ozel'}</div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Quantity & Add to Cart */}
                       <div className="px-3 pb-3 flex gap-2 items-center">
@@ -764,6 +860,7 @@ export default function PreviouslyPurchasedPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onAddToCart={handleModalAddToCart}
+        allowedPriceTypes={allowedPriceTypes}
       />
     </div>
   );

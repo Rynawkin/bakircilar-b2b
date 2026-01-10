@@ -25,6 +25,8 @@ export interface UserResponse {
   role: string;
   customerType?: string;
   mikroCariCode?: string;
+  priceVisibility?: string;
+  parentCustomerId?: string;
 }
 
 export interface CreateCustomerRequest {
@@ -35,6 +37,7 @@ export interface CreateCustomerRequest {
   mikroCariCode: string;
   invoicedPriceListNo?: number | null;
   whitePriceListNo?: number | null;
+  priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
 }
 
 export interface PriceListPair {

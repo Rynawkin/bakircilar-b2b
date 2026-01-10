@@ -7,6 +7,7 @@ import customerController from '../controllers/customer.controller';
 import quoteController from '../controllers/quote.controller';
 import taskController from '../controllers/task.controller';
 import notificationController from '../controllers/notification.controller';
+import orderRequestController from '../controllers/order-request.controller';
 import { authenticate, requireCustomer } from '../middleware/auth.middleware';
 import { taskUpload } from '../middleware/upload.middleware';
 import { validateBody } from '../middleware/validation.middleware';
@@ -140,6 +141,11 @@ router.post(
 );
 router.get('/orders', customerController.getOrders);
 router.get('/orders/:id', customerController.getOrderById);
+
+// Order Requests (Sub-users -> Parent)
+router.get('/order-requests', orderRequestController.getOrderRequests);
+router.post('/order-requests', orderRequestController.createOrderRequest);
+router.post('/order-requests/:id/convert', orderRequestController.convertOrderRequest);
 
 // Quotes (customer)
 router.get('/quotes', requireCustomer, quoteController.getCustomerQuotes);
