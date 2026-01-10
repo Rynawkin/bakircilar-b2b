@@ -1410,12 +1410,13 @@ class MikroService {
     const result = await request.query(`
       SELECT TOP 1
         cha_meblag,
-        cha_aratoplam
+        cha_aratoplam,
+        cha_tarihi
       FROM CARI_HESAP_HAREKETLERI
       WHERE cha_evrakno_seri = @seri
         AND cha_evrakno_sira = @sira
         AND cha_evrak_tip = 63
-      ORDER BY cha_tarih DESC
+      ORDER BY cha_tarihi DESC
     `);
 
     if (!result.recordset.length) {
@@ -1428,7 +1429,7 @@ class MikroService {
       subtotal: Number.isFinite(Number(row.cha_aratoplam)) ? Number(row.cha_aratoplam) : null,
       total: Number.isFinite(Number(row.cha_meblag)) ? Number(row.cha_meblag) : null,
       currency: 'TRY',
-      issueDate: null,
+      issueDate: row.cha_tarihi || null,
     };
   }
 
