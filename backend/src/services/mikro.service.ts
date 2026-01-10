@@ -1411,8 +1411,7 @@ class MikroService {
       SELECT TOP 1
         cha_meblag,
         cha_aratoplam,
-        cha_tarih,
-        cha_doviz_cins
+        cha_tarih
       FROM CARI_HESAP_HAREKETLERI
       WHERE cha_evrakno_seri = @seri
         AND cha_evrakno_sira = @sira
@@ -1425,13 +1424,11 @@ class MikroService {
     }
 
     const row: any = result.recordset[0];
-    const currencyCode = Number.isFinite(Number(row.cha_doviz_cins)) ? Number(row.cha_doviz_cins) : 0;
-    const currency = currencyCode === 1 ? 'USD' : currencyCode === 2 ? 'EUR' : 'TRY';
 
     return {
       subtotal: Number.isFinite(Number(row.cha_aratoplam)) ? Number(row.cha_aratoplam) : null,
       total: Number.isFinite(Number(row.cha_meblag)) ? Number(row.cha_meblag) : null,
-      currency,
+      currency: 'TRY',
       issueDate: row.cha_tarih || null,
     };
   }
