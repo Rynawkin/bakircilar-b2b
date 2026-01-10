@@ -265,7 +265,7 @@ export default function CustomersPage() {
                 <p className="text-xs text-gray-500 mt-1">Mikro ERP'den cari seçmek için tıklayın</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   label="Ad Soyad"
                   value={formData.name}
@@ -292,7 +292,7 @@ export default function CustomersPage() {
 
               <div className="border-t pt-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">📋 Mikro ERP Bilgileri (Otomatik Doldurulur)</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input
                     label="Şehir"
                     value={selectedCari?.city || ''}
@@ -369,7 +369,7 @@ export default function CustomersPage() {
 
               <div className="border-t pt-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">🔐 Hesap Bilgileri</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input
                     label="Email"
                     type="email"

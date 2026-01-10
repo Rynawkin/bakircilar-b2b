@@ -125,7 +125,7 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
               {selectedCari.isLocked && <Badge variant="danger">Kilitli</Badge>}
               {selectedCari.hasEInvoice && <Badge variant="success">E-Fatura</Badge>}
             </p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <p><span className="font-medium">Cari Kodu:</span> {selectedCari.code}</p>
               <p><span className="font-medium">İsim:</span> {selectedCari.name}</p>
               <p><span className="font-medium">Şehir:</span> {selectedCari.city || '-'}</p>

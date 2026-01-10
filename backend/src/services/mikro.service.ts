@@ -57,14 +57,35 @@ class MikroService {
    */
   async connect(): Promise<void> {
     if (this.pool) {
-      return;
+      if (this.pool.connected) {
+        return;
+      }
+
+      if (this.pool.connecting) {
+        await this.pool.connect();
+        return;
+      }
+
+      try {
+        await this.pool.close();
+      } catch (error) {
+        console.warn('WARN: Mikro connection could not be closed, retrying:', error);
+      } finally {
+        this.pool = null;
+      }
     }
 
     try {
-      this.pool = await sql.connect(config.mikro);
+      this.pool = new sql.ConnectionPool(config.mikro);
+      this.pool.on('error', (error) => {
+        console.error('WARN: Mikro pool error:', error);
+        this.pool = null;
+      });
+      await this.pool.connect();
       console.log('âœ… Mikro ERP baÄŸlantÄ±sÄ± baÅŸarÄ±lÄ±');
     } catch (error) {
       console.error('âŒ Mikro ERP baÄŸlantÄ± hatasÄ±:', error);
+      this.pool = null;
       throw new Error('Mikro ERP baÄŸlantÄ±sÄ± kurulamadÄ±');
     }
   }
@@ -1330,9 +1351,28 @@ class MikroService {
    * Ham SQL sorgusu Ã§alÄ±ÅŸtÄ±r
    */
   async executeQuery(query: string): Promise<any[]> {
-    await this.connect();
-    const result = await this.pool!.request().query(query);
-    return result.recordset;
+    try {
+      await this.connect();
+      const result = await this.pool!.request().query(query);
+      return result.recordset;
+    } catch (error: any) {
+      if (error?.code === 'ECONNCLOSED' || error?.code === 'ESOCKET' || error?.code === 'ETIMEDOUT') {
+        console.warn('WARN: Mikro connection lost, reconnecting...');
+        try {
+          if (this.pool) {
+            await this.pool.close();
+          }
+        } catch (closeError) {
+          console.warn('WARN: Mikro connection could not be closed:', closeError);
+        } finally {
+          this.pool = null;
+        }
+        await this.connect();
+        const result = await this.pool!.request().query(query);
+        return result.recordset;
+      }
+      throw error;
+    }
   }
 }
 
