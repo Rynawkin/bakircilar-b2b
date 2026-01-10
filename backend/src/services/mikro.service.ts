@@ -1410,8 +1410,7 @@ class MikroService {
     const result = await request.query(`
       SELECT TOP 1
         cha_meblag,
-        cha_aratoplam,
-        cha_tarih
+        cha_aratoplam
       FROM CARI_HESAP_HAREKETLERI
       WHERE cha_evrakno_seri = @seri
         AND cha_evrakno_sira = @sira
@@ -1429,7 +1428,7 @@ class MikroService {
       subtotal: Number.isFinite(Number(row.cha_aratoplam)) ? Number(row.cha_aratoplam) : null,
       total: Number.isFinite(Number(row.cha_meblag)) ? Number(row.cha_meblag) : null,
       currency: 'TRY',
-      issueDate: row.cha_tarih || null,
+      issueDate: null,
     };
   }
 
