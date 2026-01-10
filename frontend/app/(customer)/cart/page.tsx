@@ -535,7 +535,6 @@ Siparis No: ${result.orderNumber}`, {
                         </div>
                       </div>
                     </div>
-                    </div>
                   </div>
                 </div>
               </Card>

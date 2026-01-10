@@ -21,8 +21,10 @@ export interface FilterState {
 
 export function AdvancedFilters({ onFilterChange, onReset, allowedPriceTypes }: AdvancedFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const allowedTypes = allowedPriceTypes && allowedPriceTypes.length > 0 ? allowedPriceTypes : ['invoiced', 'white'];
-  const defaultPriceType = allowedTypes.includes('invoiced') ? 'invoiced' : 'white';
+  const allowedTypes = (allowedPriceTypes && allowedPriceTypes.length > 0
+    ? allowedPriceTypes
+    : ['invoiced', 'white']) as Array<'invoiced' | 'white'>;
+  const defaultPriceType: FilterState['priceType'] = allowedTypes.includes('invoiced') ? 'invoiced' : 'white';
   const showPriceTypeSelector = allowedTypes.length > 1;
   const [filters, setFilters] = useState<FilterState>({
     sortBy: 'none',

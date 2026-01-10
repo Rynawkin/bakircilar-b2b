@@ -302,7 +302,7 @@ export function CustomerEditModal({
         whitePriceListNo: formData.whitePriceListNo
           ? parseInt(formData.whitePriceListNo, 10)
           : null,
-        priceVisibility: formData.priceVisibility,
+        priceVisibility: formData.priceVisibility as 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH',
       });
       onClose();
     } finally {

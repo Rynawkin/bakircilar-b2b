@@ -512,6 +512,8 @@ export default function DiscountedProductsPage() {
                   const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
                   const hasAgreement = Boolean(product.agreement);
                   const showExcessPricing = !hasAgreement && Boolean(product.excessPrices) && product.excessStock > 0;
+                  const excessInvoiced = product.excessPrices?.invoiced;
+                  const excessWhite = product.excessPrices?.white;
                   const selectedExcessPrice = showExcessPricing
                     ? (selectedPriceType === 'INVOICED' ? product.excessPrices?.invoiced : product.excessPrices?.white)
                     : undefined;
@@ -595,11 +597,11 @@ return (
                             >
                               <div className="opacity-80 mb-0.5">Faturali</div>
                               <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
-                              {showExcessPricing && (
+                              {showExcessPricing && excessInvoiced !== undefined && (
                                 <div className="text-[10px] text-green-700 font-semibold">
-                                  Fazla: {formatCurrency(product.excessPrices.invoiced)}
-                                  {getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced) && (
-                                    <span> (-%{getDiscountPercent(product.prices.invoiced, product.excessPrices.invoiced)})</span>
+                                  Fazla: {formatCurrency(excessInvoiced)}
+                                  {getDiscountPercent(product.prices.invoiced, excessInvoiced) && (
+                                    <span> (-%{getDiscountPercent(product.prices.invoiced, excessInvoiced)})</span>
                                   )}
                                 </div>
                               )}
@@ -617,11 +619,11 @@ return (
                             >
                               <div className="opacity-80 mb-0.5">Beyaz</div>
                               <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
-                              {showExcessPricing && (
+                              {showExcessPricing && excessWhite !== undefined && (
                                 <div className="text-[10px] text-green-700 font-semibold">
-                                  Fazla: {formatCurrency(product.excessPrices.white)}
-                                  {getDiscountPercent(product.prices.white, product.excessPrices.white) && (
-                                    <span> (-%{getDiscountPercent(product.prices.white, product.excessPrices.white)})</span>
+                                  Fazla: {formatCurrency(excessWhite)}
+                                  {getDiscountPercent(product.prices.white, excessWhite) && (
+                                    <span> (-%{getDiscountPercent(product.prices.white, excessWhite)})</span>
                                   )}
                                 </div>
                               )}
