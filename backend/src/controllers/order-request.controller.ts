@@ -3,6 +3,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import type { PriceType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
@@ -12,7 +13,10 @@ import { isAgreementApplicable } from '../utils/agreements';
 import { ProductPrices } from '../types';
 import { generateOrderNumber } from '../utils/orderNumber';
 
-const resolvePriceType = (visibility: string | null | undefined, requested?: string) => {
+const resolvePriceType = (
+  visibility: string | null | undefined,
+  requested?: PriceType
+): PriceType | undefined => {
   if (visibility === 'WHITE_ONLY') return 'WHITE';
   if (visibility === 'BOTH') return requested;
   return 'INVOICED';
@@ -189,11 +193,11 @@ export class OrderRequestController {
       }));
 
       const now = new Date();
-      const itemSelections: Record<string, string> = {};
+      const itemSelections: Record<string, PriceType> = {};
       if (Array.isArray(items)) {
         for (const entry of items) {
           if (entry?.id && entry?.priceType) {
-            itemSelections[String(entry.id)] = String(entry.priceType);
+            itemSelections[String(entry.id)] = entry.priceType as PriceType;
           }
         }
       }
@@ -204,7 +208,7 @@ export class OrderRequestController {
         productName: string;
         mikroCode: string;
         quantity: number;
-        priceType: string;
+        priceType: PriceType;
         unitPrice: number;
         totalPrice: number;
       }> = [];

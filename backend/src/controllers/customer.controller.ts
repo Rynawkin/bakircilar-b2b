@@ -294,7 +294,7 @@ export class CustomerController {
         products.map((product) => product.mikroCode)
       );
 
-      const agreementRows = await prisma.customerPriceAgreement.findMany({
+        agreementRows = await prisma.customerPriceAgreement.findMany({
         where: {
           customerId: customer.id,
           productId: { in: products.map((product) => product.id) },
