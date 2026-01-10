@@ -22,6 +22,7 @@ import {
   FileText,
   ListTodo,
   Clock,
+  Download,
   Settings,
   Bell,
   ChevronDown,
@@ -44,6 +45,7 @@ const navItems: NavItem[] = [
   { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler' },
   { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi' },
   { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi' },
+  { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arsivi' },
   { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi' },
   { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Gorev ve talepler' },
   { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları' },
@@ -133,7 +135,8 @@ export function AdminNavigation() {
         item.href === '/quotes' ||
         item.href === '/customers' ||
         item.href === '/requests' ||
-        item.href === '/vade'
+        item.href === '/vade' ||
+        item.href === '/einvoices'
       );
     }
     // ADMIN, MANAGER, HEAD_ADMIN tüm menüleri görsün

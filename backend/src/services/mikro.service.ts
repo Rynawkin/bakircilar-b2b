@@ -1331,6 +1331,112 @@ class MikroService {
   }
 
   /**
+   * E-fatura meta bilgilerini getir (GIB seri+sira)
+   */
+  async getEInvoiceMetadataByGibNo(gibNo: string): Promise<{
+    gibNo: string;
+    uuid: string | null;
+    evrakSeri: string | null;
+    evrakSira: number | null;
+    cariCode: string | null;
+    cariName: string | null;
+    issueDate: Date | null;
+    sentAt: Date | null;
+    currencyCode: number | null;
+  } | null> {
+    if (!gibNo) {
+      return null;
+    }
+
+    await this.connect();
+
+    const request = this.pool!.request();
+    request.input('gibNo', sql.NVarChar(50), gibNo);
+
+    const result = await request.query(`
+      SELECT TOP 1
+        efi_uuid,
+        efi_gib_seri_sira,
+        efi_evrakno_seri,
+        efi_evrakno_sira,
+        efi_carikod,
+        efi_gonderim_tarihi,
+        efi_belge_tarihi,
+        cari_unvan1
+      FROM E_FATURA_ISLEMLERI
+      LEFT JOIN CARI_HESAPLAR ON cari_kod = efi_carikod
+      WHERE efi_gib_seri_sira = @gibNo
+      ORDER BY efi_gonderim_tarihi DESC
+    `);
+
+    if (!result.recordset.length) {
+      return null;
+    }
+
+    const row: any = result.recordset[0];
+
+    return {
+      gibNo: row.efi_gib_seri_sira,
+      uuid: row.efi_uuid || null,
+      evrakSeri: row.efi_evrakno_seri ? String(row.efi_evrakno_seri).trim() : null,
+      evrakSira: Number.isFinite(Number(row.efi_evrakno_sira)) ? Number(row.efi_evrakno_sira) : null,
+      cariCode: row.efi_carikod ? String(row.efi_carikod).trim() : null,
+      cariName: row.cari_unvan1 ? String(row.cari_unvan1).trim() : null,
+      issueDate: row.efi_belge_tarihi || null,
+      sentAt: row.efi_gonderim_tarihi || null,
+      currencyCode: null,
+    };
+  }
+
+  /**
+   * Cari hareketlerden fatura tutarlarini getir
+   */
+  async getInvoiceTotalsByEvrak(evrakSeri: string, evrakSira: number): Promise<{
+    subtotal?: number | null;
+    total?: number | null;
+    currency?: string | null;
+    issueDate?: Date | null;
+  } | null> {
+    if (!evrakSeri || !Number.isFinite(Number(evrakSira))) {
+      return null;
+    }
+
+    await this.connect();
+
+    const request = this.pool!.request();
+    request.input('seri', sql.NVarChar(20), evrakSeri);
+    request.input('sira', sql.Int, evrakSira);
+
+    const result = await request.query(`
+      SELECT TOP 1
+        cha_meblag,
+        cha_aratoplam,
+        cha_tarih,
+        cha_doviz_cins
+      FROM CARI_HESAP_HAREKETLERI
+      WHERE cha_evrakno_seri = @seri
+        AND cha_evrakno_sira = @sira
+        AND cha_evrak_tip = 63
+      ORDER BY cha_tarih DESC
+    `);
+
+    if (!result.recordset.length) {
+      return null;
+    }
+
+    const row: any = result.recordset[0];
+    const currencyCode = Number.isFinite(Number(row.cha_doviz_cins)) ? Number(row.cha_doviz_cins) : 0;
+    const currency = currencyCode === 1 ? 'USD' : currencyCode === 2 ? 'EUR' : 'TRY';
+
+    return {
+      subtotal: Number.isFinite(Number(row.cha_aratoplam)) ? Number(row.cha_aratoplam) : null,
+      total: Number.isFinite(Number(row.cha_meblag)) ? Number(row.cha_meblag) : null,
+      currency,
+      issueDate: row.cha_tarih || null,
+    };
+  }
+
+  /**
    * Mikro teklif satirlarini getir
    */
   /**

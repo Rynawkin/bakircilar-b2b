@@ -7,6 +7,7 @@ import adminController from '../controllers/admin.controller';
 import quoteController from '../controllers/quote.controller';
 import taskController from '../controllers/task.controller';
 import notificationController from '../controllers/notification.controller';
+import eInvoiceController from '../controllers/einvoice.controller';
 import {
   authenticate,
   requireAdmin,
@@ -16,7 +17,7 @@ import {
   requireStaffOrDiversey
 } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
-import { upload, taskUpload } from '../middleware/upload.middleware';
+import { upload, taskUpload, invoiceUpload } from '../middleware/upload.middleware';
 import { z } from 'zod';
 
 const router = Router();
@@ -151,6 +152,11 @@ router.get('/sync/cari/latest', requireAdmin, adminController.getLatestCariSync)
 
 // Cari list from Mikro - Staff (ADMIN, MANAGER, SALES_REP) - filtered by sector in controller
 router.get('/cari-list', requireStaff, adminController.getCariList);
+
+// E-Invoice documents - Staff
+router.get('/einvoices', requireStaff, eInvoiceController.getDocuments);
+router.post('/einvoices/upload', requireStaff, invoiceUpload.array('files', 50), eInvoiceController.uploadDocuments);
+router.get('/einvoices/:id/download', requireStaff, eInvoiceController.downloadDocument);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
 router.get('/products', requireStaffOrDiversey, adminController.getProducts);

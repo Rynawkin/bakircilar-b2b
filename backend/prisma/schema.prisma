@@ -126,6 +126,12 @@ enum VadeSyncStatus {
   PARTIAL
 }
 
+enum EInvoiceMatchStatus {
+  MATCHED
+  PARTIAL
+  NOT_FOUND
+}
+
 // ==================== USERS ====================
 
 model User {
@@ -201,6 +207,8 @@ model User {
   vadeAssignments    VadeAssignment[] @relation("VadeAssignmentStaff")
   vadeAssignmentsAsCustomer VadeAssignment[] @relation("VadeAssignmentCustomer")
   vadeAssignmentsCreated VadeAssignment[] @relation("VadeAssignmentCreator")
+  eInvoiceDocuments  EInvoiceDocument[] @relation("EInvoiceCustomer")
+  eInvoiceUploads    EInvoiceDocument[] @relation("EInvoiceUploader")
 
   @@index([email])
   @@index([role])
@@ -376,6 +384,46 @@ model VadeSyncLog {
   @@index([source])
   @@index([status])
   @@index([startedAt])
+}
+
+// ==================== E-INVOICE DOCUMENTS ====================
+
+model EInvoiceDocument {
+  id            String              @id @default(uuid())
+  invoiceNo     String              @unique
+  evrakSeri     String?
+  evrakSira     Int?
+  eInvoiceUuid  String?
+  customerCode  String?
+  customerName  String?
+  customerId    String?
+  customer      User?               @relation("EInvoiceCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  issueDate     DateTime?
+  sentAt        DateTime?
+  subtotalAmount Float?
+  totalAmount    Float?
+  currency       String             @default("TRY")
+
+  fileName      String
+  originalName  String
+  mimeType      String
+  size          Int
+  storagePath   String
+
+  uploadedById  String
+  uploadedBy    User                @relation("EInvoiceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  matchStatus   EInvoiceMatchStatus @default(MATCHED)
+  matchError    String?
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([customerId])
+  @@index([customerCode])
+  @@index([issueDate])
+  @@index([sentAt])
+  @@index([matchStatus])
 }
 
 // ==================== CATEGORIES ====================

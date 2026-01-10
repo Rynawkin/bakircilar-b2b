@@ -30,6 +30,16 @@ const taskStorage = multer.diskStorage({
   },
 });
 
+const invoiceStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    ensureDir(path.join('private-uploads', 'einvoices'), cb);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'einvoice-' + uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
 // File filter - only images
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
@@ -71,6 +81,19 @@ const taskFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.Fil
   cb(new Error('Dosya turu desteklenmiyor (resim, pdf, doc/docx, xls/xlsx)'));
 };
 
+const invoiceFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const extname = path.extname(file.originalname).toLowerCase();
+  const allowedMimes = ['application/pdf', 'application/octet-stream'];
+  const isAllowedExt = extname === '.pdf';
+  const isAllowedMime = allowedMimes.includes(file.mimetype);
+
+  if (isAllowedExt && isAllowedMime) {
+    return cb(null, true);
+  }
+
+  cb(new Error('Sadece PDF dosyasi yuklenebilir'));
+};
+
 // Upload middleware
 export const upload = multer({
   storage,
@@ -86,4 +109,12 @@ export const taskUpload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
   fileFilter: taskFileFilter,
+});
+
+export const invoiceUpload = multer({
+  storage: invoiceStorage,
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB limit
+  },
+  fileFilter: invoiceFileFilter,
 });

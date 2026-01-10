@@ -529,6 +529,29 @@ export class MikroMockService {
     ];
   }
 
+  async getEInvoiceMetadataByGibNo(_gibNo: string): Promise<{
+    gibNo: string;
+    uuid: string | null;
+    evrakSeri: string | null;
+    evrakSira: number | null;
+    cariCode: string | null;
+    cariName: string | null;
+    issueDate: Date | null;
+    sentAt: Date | null;
+    currencyCode: number | null;
+  } | null> {
+    return null;
+  }
+
+  async getInvoiceTotalsByEvrak(_evrakSeri: string, _evrakSira: number): Promise<{
+    subtotal?: number | null;
+    total?: number | null;
+    currency?: string | null;
+    issueDate?: Date | null;
+  } | null> {
+    return null;
+  }
+
   /**
    * Mock cari personel listesi
    */

@@ -461,6 +461,44 @@ export interface VadeSyncLog {
   errorMessage?: string | null;
 }
 
+// ==================== E-INVOICE TYPES ====================
+
+export type EInvoiceMatchStatus = 'MATCHED' | 'PARTIAL' | 'NOT_FOUND';
+
+export interface EInvoiceDocument {
+  id: string;
+  invoiceNo: string;
+  evrakSeri?: string | null;
+  evrakSira?: number | null;
+  eInvoiceUuid?: string | null;
+  customerCode?: string | null;
+  customerName?: string | null;
+  issueDate?: string | null;
+  sentAt?: string | null;
+  subtotalAmount?: number | null;
+  totalAmount?: number | null;
+  currency: string;
+  fileName: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  matchStatus: EInvoiceMatchStatus;
+  matchError?: string | null;
+  uploadedBy?: {
+    id: string;
+    name: string;
+  };
+  customer?: {
+    id: string;
+    name?: string;
+    displayName?: string;
+    mikroName?: string;
+    mikroCariCode?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Notification {
   id: string;
   title: string;

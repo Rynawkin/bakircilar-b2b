@@ -28,6 +28,7 @@ import {
   VadeClassification,
   VadeAssignment,
   VadeSyncLog,
+  EInvoiceDocument,
 } from '@/types';
 
 export const adminApi = {
@@ -539,6 +540,43 @@ export const adminApi = {
 
   getVadeSyncStatus: async (syncLogId: string): Promise<{ log: VadeSyncLog }> => {
     const response = await apiClient.get(`/admin/vade/sync/status/${syncLogId}`);
+    return response.data;
+  },
+
+  // E-Invoice
+  getEInvoices: async (params?: {
+    search?: string;
+    invoicePrefix?: string;
+    customerId?: string;
+    customerCode?: string;
+    fromDate?: string;
+    toDate?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    documents: EInvoiceDocument[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> => {
+    const response = await apiClient.get('/admin/einvoices', { params });
+    return response.data;
+  },
+
+  uploadEInvoices: async (formData: FormData): Promise<{
+    uploaded: number;
+    updated: number;
+    failed: number;
+    results: Array<{ invoiceNo: string; documentId?: string; status: string; message?: string }>;
+  }> => {
+    const response = await apiClient.post('/admin/einvoices/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  downloadEInvoice: async (id: string): Promise<Blob> => {
+    const response = await apiClient.get(`/admin/einvoices/${id}/download`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 
