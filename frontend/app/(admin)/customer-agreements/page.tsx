@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import { Customer } from '@/types';
@@ -37,6 +38,15 @@ interface ProductResult {
   unit?: string;
 }
 
+interface AgreementImportRow {
+  mikroCode: string;
+  priceInvoiced: number;
+  priceWhite: number;
+  minQuantity?: number;
+  validFrom?: string | null;
+  validTo?: string | null;
+}
+
 export default function AgreementsPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -64,6 +74,57 @@ export default function AgreementsPage() {
   });
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<{
+    imported: number;
+    failed: number;
+    results: Array<{ mikroCode: string; status: string; reason?: string }>;
+  } | null>(null);
+
+  const parseNumber = (value: any) => {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number') return value;
+    let str = String(value).trim();
+    if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(str)) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else if (/^-?\d+,\d+$/.test(str)) {
+      str = str.replace(',', '.');
+    } else if (/^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(str)) {
+      str = str.replace(/,/g, '');
+    }
+    const parsed = Number(str);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const parseDateValue = (value: any) => {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    if (typeof value === 'number') {
+      const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+      return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+    }
+    const raw = String(value).trim();
+    const parts = raw.split('.');
+    if (parts.length === 3) {
+      const [day, month, year] = parts.map((part) => Number(part));
+      if (day && month && year) {
+        const date = new Date(Date.UTC(year, month - 1, day));
+        return date.toISOString().slice(0, 10);
+      }
+    }
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+  };
+
+  const findColumnIndex = (headers: any[], candidates: string[]) => {
+    const normalized = headers.map((header) => String(header || '').toLowerCase().trim());
+    return normalized.findIndex((header) =>
+      candidates.some((candidate) => header.includes(candidate))
+    );
+  };
 
   useEffect(() => {
     loadUserFromStorage();
@@ -210,6 +271,82 @@ export default function AgreementsPage() {
     }
   };
 
+  const handleDownloadTemplate = () => {
+    const rows = [
+      ['Mikro Kod', 'Faturali Fiyat', 'Beyaz Fiyat', 'Min Miktar', 'Baslangic', 'Bitis'],
+      ['B101996', '86,69', '76,61', '1', new Date().toISOString().slice(0, 10), ''],
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Anlasmalar');
+    XLSX.writeFile(workbook, `anlasmali-fiyatlar-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const handleImport = async () => {
+    if (!selectedCustomer) {
+      toast.error('Once musteri secin.');
+      return;
+    }
+    if (!importFile) {
+      toast.error('Dosya secin.');
+      return;
+    }
+
+    setImporting(true);
+    setImportSummary(null);
+    try {
+      const arrayBuffer = await importFile.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[];
+      const headers = data[0] || [];
+
+      const codeIndex = findColumnIndex(headers, ['mikro kod', 'stok kod', 'stok kodu', 'urun kod', 'ürün kod']);
+      const invoicedIndex = findColumnIndex(headers, ['faturali fiyat', 'faturalı fiyat', 'invoiced']);
+      const whiteIndex = findColumnIndex(headers, ['beyaz fiyat', 'white']);
+      const minQtyIndex = findColumnIndex(headers, ['min miktar', 'minimum miktar', 'min qty']);
+      const validFromIndex = findColumnIndex(headers, ['baslangic', 'başlangıç', 'gecerlilik baslangic', 'valid from']);
+      const validToIndex = findColumnIndex(headers, ['bitis', 'bitiş', 'gecerlilik bitis', 'valid to']);
+
+      if (codeIndex === -1 || invoicedIndex === -1 || whiteIndex === -1) {
+        throw new Error('Mikro kod, faturali fiyat ve beyaz fiyat kolonlari zorunludur.');
+      }
+
+      const rows: AgreementImportRow[] = [];
+      for (let i = 1; i < data.length; i += 1) {
+        const row = data[i];
+        const mikroCode = String(row[codeIndex] || '').trim();
+        if (!mikroCode) continue;
+
+        rows.push({
+          mikroCode,
+          priceInvoiced: parseNumber(row[invoicedIndex]),
+          priceWhite: parseNumber(row[whiteIndex]),
+          minQuantity: minQtyIndex !== -1 ? parseNumber(row[minQtyIndex]) : 1,
+          validFrom: validFromIndex !== -1 ? parseDateValue(row[validFromIndex]) : null,
+          validTo: validToIndex !== -1 ? parseDateValue(row[validToIndex]) : null,
+        });
+      }
+
+      if (rows.length === 0) {
+        throw new Error('Islenecek satir bulunamadi.');
+      }
+
+      const result = await adminApi.importAgreements({
+        customerId: selectedCustomer.id,
+        rows,
+      });
+      setImportSummary(result);
+      toast.success('Excel aktarimi tamamlandi.');
+      fetchAgreements();
+    } catch (error: any) {
+      console.error('Agreement import error:', error);
+      toast.error(error?.message || 'Excel aktarimi basarisiz.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -350,6 +487,59 @@ export default function AgreementsPage() {
               </div>
             </div>
           </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900">Excel ile Toplu Aktarim</h2>
+            <Button variant="secondary" onClick={handleDownloadTemplate}>
+              Ornek Excel Indir
+            </Button>
+          </div>
+          <div className="space-y-3 text-sm text-gray-600">
+            <p>Excel kolonlari: Mikro Kod, Faturali Fiyat, Beyaz Fiyat, Min Miktar, Baslangic, Bitis.</p>
+            <p>Aktarim, secili musteri icin uygulanir.</p>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3 items-center">
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+            />
+            <Button
+              className="bg-primary-600 hover:bg-primary-700 text-white"
+              onClick={handleImport}
+              isLoading={importing}
+              disabled={importing || !importFile}
+            >
+              {importing ? 'Aktariliyor...' : 'Excel Aktar'}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setImportFile(null);
+                setImportSummary(null);
+              }}
+              disabled={importing}
+            >
+              Temizle
+            </Button>
+          </div>
+          {importSummary && (
+            <div className="mt-4 text-sm">
+              <div>Aktarilan: {importSummary.imported}</div>
+              <div>Basarisiz: {importSummary.failed}</div>
+              {importSummary.results?.filter((item) => item.status !== 'IMPORTED').length > 0 && (
+                <div className="mt-2 text-xs text-gray-500">
+                  {importSummary.results.filter((item) => item.status !== 'IMPORTED').slice(0, 8).map((item, idx) => (
+                    <div key={`${item.mikroCode}-${idx}`}>
+                      {item.mikroCode || '-'}: {item.reason || 'Hata'}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         <Card>

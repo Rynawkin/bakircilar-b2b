@@ -197,6 +197,20 @@ const agreementSchema = z.object({
   validTo: z.string().optional().nullable(),
 });
 
+const agreementImportSchema = z.object({
+  customerId: z.string().uuid(),
+  rows: z.array(
+    z.object({
+      mikroCode: z.string().min(1),
+      priceInvoiced: z.union([z.number(), z.string()]),
+      priceWhite: z.union([z.number(), z.string()]),
+      minQuantity: z.union([z.number(), z.string()]).optional(),
+      validFrom: z.string().optional().nullable(),
+      validTo: z.string().optional().nullable(),
+    })
+  ).min(1),
+});
+
 // Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
 router.get('/customers', requireStaff, adminController.getCustomers);
 router.post('/customers', requireStaff, validateBody(createCustomerSchema), adminController.createCustomer);
@@ -257,6 +271,7 @@ router.get('/exchange/usd', requireStaff, adminController.getUsdSellingRate);
 router.get('/agreements', requireStaff, agreementController.getAgreements);
 router.post('/agreements', requireAdminOrManager, validateBody(agreementSchema), agreementController.upsertAgreement);
 router.delete('/agreements/:id', requireAdminOrManager, agreementController.deleteAgreement);
+router.post('/agreements/import', requireAdminOrManager, validateBody(agreementImportSchema), agreementController.importAgreements);
 
 // Categories & Pricing - ADMIN/MANAGER only
 router.get('/categories', requireAdminOrManager, adminController.getCategories);

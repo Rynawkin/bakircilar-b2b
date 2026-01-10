@@ -251,6 +251,20 @@ export const adminApi = {
     const response = await apiClient.delete(`/admin/agreements/${agreementId}`);
     return response.data;
   },
+  importAgreements: async (data: {
+    customerId: string;
+    rows: Array<{
+      mikroCode: string;
+      priceInvoiced: number;
+      priceWhite: number;
+      minQuantity?: number;
+      validFrom?: string | null;
+      validTo?: string | null;
+    }>;
+  }): Promise<{ imported: number; failed: number; results: Array<{ mikroCode: string; status: string; reason?: string }> }> => {
+    const response = await apiClient.post('/admin/agreements/import', data);
+    return response.data;
+  },
 
   // Orders
   getAllOrders: async (status?: string): Promise<{ orders: PendingOrderForAdmin[] }> => {
