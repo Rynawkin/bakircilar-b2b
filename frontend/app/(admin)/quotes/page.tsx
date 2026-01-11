@@ -918,6 +918,34 @@ export default function AdminQuotesPage() {
                     </div>
                   </div>
 
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={() => handlePdfExport(quote)}>
+                      PDF İndir
+                    </Button>
+                    <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
+                      WhatsApp Paylaş
+                    </Button>
+                    {quote.mikroNumber && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleSync(quote.id)}
+                        disabled={syncingQuoteId === quote.id}
+                      >
+                        {syncingQuoteId === quote.id ? 'Guncelleniyor...' : 'Mikrodan Guncelle'}
+                      </Button>
+                    )}
+                    {quote.status === 'PENDING_APPROVAL' && isAdmin && (
+                      <>
+                        <Button variant="primary" onClick={() => handleApprove(quote.id)}>
+                          Onayla ve Mikro'ya Gönder
+                        </Button>
+                        <Button variant="danger" onClick={() => handleReject(quote.id)}>
+                          Reddet
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
                   {isExpanded && (
                     <>
                       {quote.adminNote && (
@@ -964,33 +992,7 @@ export default function AdminQuotesPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
-                        <Button variant="secondary" onClick={() => handlePdfExport(quote)}>
-                          PDF İndir
-                        </Button>
-                        <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
-                          WhatsApp Paylaş
-                        </Button>
-                        {quote.mikroNumber && (
-                          <Button
-                            variant="secondary"
-                            onClick={() => handleSync(quote.id)}
-                            disabled={syncingQuoteId === quote.id}
-                          >
-                            {syncingQuoteId === quote.id ? 'Guncelleniyor...' : 'Mikrodan Guncelle'}
-                          </Button>
-                        )}
-                        {quote.status === 'PENDING_APPROVAL' && isAdmin && (
-                          <>
-                            <Button variant="primary" onClick={() => handleApprove(quote.id)}>
-                              Onayla ve Mikro'ya Gönder
-                            </Button>
-                            <Button variant="danger" onClick={() => handleReject(quote.id)}>
-                              Reddet
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                      <div className="pt-4 border-t border-gray-200" />
                     </>
                   )}
                 </Card>
