@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 interface ReportCard {
@@ -146,7 +145,6 @@ export default function ReportsPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="container mx-auto p-6 space-y-6">
         {/* Header */}
         <div className="space-y-2">

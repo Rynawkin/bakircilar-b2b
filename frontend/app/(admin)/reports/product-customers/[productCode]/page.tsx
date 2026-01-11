@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { adminApi } from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 
 interface Customer {
   customerCode: string;
@@ -98,7 +97,6 @@ export default function ProductCustomersPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="container mx-auto p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

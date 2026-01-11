@@ -18,7 +18,6 @@ import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { adminApi } from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 
 interface Exclusion {
   id: string;
@@ -173,7 +172,6 @@ export default function ExclusionsPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="container mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>

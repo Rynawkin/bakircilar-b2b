@@ -1,14 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { LogoLink } from '@/components/ui/Logo';
 import { formatCurrency } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getCustomerTypeName, CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
@@ -28,7 +26,6 @@ interface Product {
 }
 
 export default function AdminProductOverridesPage() {
-  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -182,31 +179,14 @@ export default function AdminProductOverridesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">🏷️ Ürün Bazlı Fiyatlandırma</h1>
-                <p className="text-sm text-primary-100">Özel ürünler için kar marjı belirleyin</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/dashboard')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                ← Dashboard
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Urun Bazli Fiyatlandirma</h1>
+            <p className="text-sm text-gray-600">Ozel urunler icin kar marji belirleyin</p>
+          </div>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Ürün Listesi */}
           <div className="lg:col-span-2">

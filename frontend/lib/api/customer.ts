@@ -98,9 +98,14 @@ export const customerApi = {
 
   convertOrderRequest: async (
     id: string,
-    data: { items?: Array<{ id: string; priceType: 'INVOICED' | 'WHITE' }>; note?: string }
+    data: { items?: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE' }>; note?: string }
   ): Promise<{ orderId: string; orderNumber: string }> => {
     const response = await apiClient.post(`/order-requests/${id}/convert`, data);
+    return response.data;
+  },
+
+  rejectOrderRequest: async (id: string, note?: string): Promise<{ status: string }> => {
+    const response = await apiClient.post(`/order-requests/${id}/reject`, note ? { note } : undefined);
     return response.data;
   },
 

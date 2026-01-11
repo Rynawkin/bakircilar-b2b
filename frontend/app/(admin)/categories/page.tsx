@@ -1,19 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { CategoryWithPriceRules } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { LogoLink } from '@/components/ui/Logo';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 export default function CategoriesPage() {
-  const router = useRouter();
   const [categories, setCategories] = useState<CategoryWithPriceRules[]>([]);
   const [filteredCategories, setFilteredCategories] = useState<CategoryWithPriceRules[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -271,45 +268,27 @@ export default function CategoriesPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-2xl border-b-4 border-primary-800">
-        <div className="container-custom py-6">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h1 className="text-2xl font-bold text-white">📊 Kategori Fiyatlandırma</h1>
-                  <span className="bg-white/20 text-white text-xs font-bold px-3 py-1 rounded-full">
-                    {categories.length} Kategori
-                  </span>
-                </div>
-                <p className="text-sm text-primary-100">
-                  Her kategori için müşteri tipine göre kar marjı belirleyin (%)
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => setShowBulkUpdate(!showBulkUpdate)}
-                className="bg-white text-primary-700 hover:bg-primary-50 font-medium shadow-lg hover:shadow-xl transition-all"
-              >
-                {showBulkUpdate ? '✕ İptal' : '⚡ Toplu Güncelleme'}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/dashboard')}
-                className="bg-white text-primary-700 hover:bg-primary-50 font-medium shadow-lg hover:shadow-xl transition-all"
-              >
-                ← Dashboard
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold text-gray-900">Kategori Fiyatlandirma</h1>
+              <span className="bg-gray-100 text-gray-700 text-xs font-semibold px-2 py-1 rounded-full">
+                {categories.length} Kategori
+              </span>
+            </div>
+            <p className="text-sm text-gray-600">
+              Her kategori icin musteri tipine gore kar marji belirleyin (%)
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => setShowBulkUpdate(!showBulkUpdate)}
+          >
+            {showBulkUpdate ? 'Iptal' : 'Toplu Guncelleme'}
+          </Button>
+        </div>
         {/* Toplu Güncelleme Kartı */}
         {showBulkUpdate && (
           <Card className="mb-6 shadow-lg hover:shadow-xl transition-shadow border-2 border-primary-200 bg-gradient-to-br from-white to-primary-50">

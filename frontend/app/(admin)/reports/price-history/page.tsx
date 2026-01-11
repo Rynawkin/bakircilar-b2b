@@ -29,7 +29,6 @@ import {
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
@@ -174,7 +173,6 @@ export default function PriceHistoryPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AdminNavigation />
 
       <div className="container mx-auto p-6 space-y-6">
         {/* Header */}

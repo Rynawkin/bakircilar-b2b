@@ -18,6 +18,7 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
   TASK_TYPE_LABELS,
+  normalizeTaskStatus,
 } from '@/lib/utils/tasks';
 import {
   Task,
@@ -81,7 +82,11 @@ export default function CustomerRequestsPage() {
     try {
       const params: any = {};
       if (debouncedSearch) params.search = debouncedSearch;
-      if (statusFilter !== 'ALL') params.status = statusFilter;
+      if (statusFilter !== 'ALL') {
+        params.status = statusFilter === 'IN_PROGRESS'
+          ? 'IN_PROGRESS,WAITING'
+          : statusFilter;
+      }
       const { tasks } = await customerApi.getTasks(params);
       setTasks(tasks);
     } catch (error) {
@@ -196,7 +201,7 @@ export default function CustomerRequestsPage() {
     const map = new Map<TaskStatus, Task[]>();
     TASK_STATUS_ORDER.forEach((status) => map.set(status, []));
     tasks.forEach((task) => {
-      map.get(task.status)?.push(task);
+      map.get(normalizeTaskStatus(task.status))?.push(task);
     });
     return map;
   }, [tasks]);
@@ -357,9 +362,9 @@ export default function CustomerRequestsPage() {
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
           </div>
         ) : view === 'KANBAN' ? (
-          <div className="flex gap-4 overflow-x-auto pb-4">
+          <div className="flex gap-3 overflow-x-auto pb-4">
             {visibleStatuses.map((status) => (
-              <div key={status} className="min-w-[260px] max-w-[280px] flex-1">
+              <div key={status} className="min-w-[220px] max-w-[240px] flex-1">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Badge variant={TASK_STATUS_BADGE[status] as any}>
@@ -370,10 +375,10 @@ export default function CustomerRequestsPage() {
                     </span>
                   </div>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {(groupedTasks.get(status) || []).map(renderTaskCard)}
                   {(groupedTasks.get(status) || []).length === 0 && (
-                    <div className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-3 text-center">
+                    <div className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-2 text-center">
                       Bu kolonda talep yok.
                     </div>
                   )}
@@ -403,8 +408,8 @@ export default function CustomerRequestsPage() {
                   >
                     <td className="py-3 pr-4 font-medium text-gray-900">{task.title}</td>
                     <td className="py-3 pr-4">
-                      <Badge variant={TASK_STATUS_BADGE[task.status] as any}>
-                        {TASK_STATUS_LABELS[task.status]}
+                      <Badge variant={TASK_STATUS_BADGE[normalizeTaskStatus(task.status)] as any}>
+                        {TASK_STATUS_LABELS[normalizeTaskStatus(task.status)]}
                       </Badge>
                     </td>
                     <td className="py-3 pr-4">{TASK_TYPE_LABELS[task.type]}</td>
@@ -450,8 +455,8 @@ export default function CustomerRequestsPage() {
               <div className="text-lg font-semibold text-gray-900">{detailTask.title}</div>
               <div className="text-sm text-gray-600">{detailTask.description || '-'}</div>
               <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                <Badge variant={TASK_STATUS_BADGE[detailTask.status] as any}>
-                  {TASK_STATUS_LABELS[detailTask.status]}
+                <Badge variant={TASK_STATUS_BADGE[normalizeTaskStatus(detailTask.status)] as any}>
+                  {TASK_STATUS_LABELS[normalizeTaskStatus(detailTask.status)]}
                 </Badge>
                 <Badge variant={TASK_PRIORITY_BADGE[detailTask.priority] as any}>
                   {TASK_PRIORITY_LABELS[detailTask.priority]}

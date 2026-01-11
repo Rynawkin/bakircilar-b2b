@@ -8,7 +8,6 @@ import { Quote, QuoteStatus } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { LogoLink } from '@/components/ui/Logo';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { useAuthStore } from '@/lib/store/authStore';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
@@ -723,35 +722,17 @@ export default function AdminQuotesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">📄 Teklifler</h1>
-                <p className="text-sm text-primary-100">Müşteri teklif yönetimi</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/quotes/new')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                + Yeni Teklif
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/dashboard')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                ← Dashboard
-              </Button>
-            </div>
+      <div className="container-custom py-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Teklifler</h1>
+            <p className="text-sm text-gray-600">Musteri teklif yonetimi</p>
           </div>
+          <Button variant="secondary" onClick={() => router.push('/quotes/new')}>
+            + Yeni Teklif
+          </Button>
         </div>
-      </header>
+      </div>
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200 shadow-sm">

@@ -153,6 +153,10 @@ export interface OrderRequestItem {
   selectedPriceType?: 'INVOICED' | 'WHITE';
   selectedUnitPrice?: number;
   selectedTotalPrice?: number;
+  previewUnitPriceInvoiced?: number;
+  previewUnitPriceWhite?: number;
+  previewTotalPriceInvoiced?: number;
+  previewTotalPriceWhite?: number;
 }
 
 export interface OrderRequest {

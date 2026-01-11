@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
-import { LogoLink } from '@/components/ui/Logo';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { Modal } from '@/components/ui/Modal';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
@@ -1508,30 +1507,17 @@ export default function AdminQuoteNewPage() {
         <div className="absolute -top-32 right-[-140px] h-72 w-72 rounded-full bg-primary-200/40 blur-3xl" />
         <div className="absolute top-1/3 -left-24 h-80 w-80 rounded-full bg-slate-200/70 blur-3xl" />
       </div>
-      <header className="relative z-10 bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">Teklif Olustur</h1>
-                <p className="text-sm text-primary-100">Mikro teklif fisine aktarilir</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/quotes')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                Teklifler
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       <div className="relative z-10 container-custom max-w-[1600px] py-8 2xl:px-10">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Teklif Olustur</h1>
+            <p className="text-sm text-gray-600">Mikro teklif fisine aktarilir</p>
+          </div>
+          <Button variant="secondary" onClick={() => router.push('/quotes')}>
+            Teklifler
+          </Button>
+        </div>
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           {showLeftPanel && (
           <div className="xl:col-span-5 space-y-6">

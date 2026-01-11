@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import adminApi from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 
 export default function CustomerSearchPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -135,7 +134,6 @@ export default function CustomerSearchPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="min-h-screen bg-gray-50 p-4 md:p-6">
         <div className="max-w-7xl mx-auto">
         {/* Header */}

@@ -9,7 +9,6 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { LogoLink } from '@/components/ui/Logo';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
@@ -208,63 +207,44 @@ export default function CustomersPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">👥 Müşteri Yönetimi</h1>
-                <p className="text-sm text-primary-100">Müşteri hesapları ve bilgileri</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              {canBulkCreate && (
-                <Button
-                  variant="secondary"
-                  onClick={() => setShowBulkCreateModal(true)}
-                  className="bg-green-600 text-white hover:bg-green-700"
-                >
-                  👥 Toplu Kullanıcı Oluştur
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  if (showForm) {
-                    // Closing form - reset everything
-                    setShowForm(false);
-                    setFormData({
-                      email: '',
-                      password: '',
-                      name: '',
-                      customerType: 'PERAKENDE',
-                      mikroCariCode: '',
-                      priceVisibility: 'INVOICED_ONLY',
-                    });
-                    setSelectedCari(null);
-                  } else {
-                    // Opening form
-                    setShowForm(true);
-                  }
-                }}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                {showForm ? 'İptal' : '+ Yeni Müşteri'}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/dashboard')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                ← Dashboard
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Musteri Yonetimi</h1>
+            <p className="text-sm text-gray-600">Musteri hesaplari ve bilgileri</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {canBulkCreate && (
+              <Button variant="secondary" onClick={() => setShowBulkCreateModal(true)}>
+                Toplu Kullanici Olustur
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (showForm) {
+                  // Closing form - reset everything
+                  setShowForm(false);
+                  setFormData({
+                    email: '',
+                    password: '',
+                    name: '',
+                    customerType: 'PERAKENDE',
+                    mikroCariCode: '',
+                    priceVisibility: 'INVOICED_ONLY',
+                  });
+                  setSelectedCari(null);
+                } else {
+                  // Opening form
+                  setShowForm(true);
+                }
+              }}
+            >
+              {showForm ? 'Iptal' : '+ Yeni Musteri'}
+            </Button>
+          </div>
+        </div>
         {showForm && (
           <Card title="Yeni Müşteri Ekle" className="mb-6">
             <form onSubmit={handleSubmit} className="space-y-4">

@@ -8,8 +8,6 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { LogoLink } from '@/components/ui/Logo';
-import { MobileMenu } from '@/components/ui/MobileMenu';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 
 const getStatusBadge = (status: string) => {
@@ -31,7 +29,7 @@ const getStatusBadge = (status: string) => {
 
 export default function MyQuotesPage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { user, loadUserFromStorage } = useAuthStore();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -54,65 +52,7 @@ export default function MyQuotesPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50 to-gray-100">
-      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-xl border-b-4 border-primary-800">
-        <div className="container-custom py-5">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/products" variant="light" />
-              <div>
-                <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-                  <span className="text-3xl">📄</span>
-                  Tekliflerim
-                </h1>
-                <p className="text-sm text-primary-100 font-medium">
-                  {isLoading ? 'Yukleniyor...' : quotes.length > 0 ? `${quotes.length} teklif` : 'Henuz teklif yok'}
-                </p>
-              </div>
-            </div>
-            <div className="hidden lg:flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/products')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                Urunler
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/cart')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                Sepet
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/profile')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                Profil
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => { logout(); router.push('/login'); }}
-                className="text-white hover:bg-primary-800 border border-white/30"
-              >
-                Cikis
-              </Button>
-            </div>
-            <MobileMenu
-              items={[
-                { label: 'Urunler', href: '/products', icon: '🛍️' },
-                { label: 'Sepetim', href: '/cart', icon: '🛒' },
-                { label: 'Tekliflerim', href: '/my-quotes', icon: '📄' },
-                { label: 'Profilim', href: '/profile', icon: '👤' },
-                { label: 'Tercihler', href: '/preferences', icon: '⚙️' },
-              ]}
-              user={user}
-              onLogout={() => { logout(); router.push('/login'); }}
-            />
-          </div>
-        </div>
-      </header>
+
 
       <div className="container-custom py-8">
         {isLoading ? (

@@ -1,14 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Settings } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { LogoLink } from '@/components/ui/Logo';
 import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
 
 const RETAIL_LISTS = [
@@ -44,7 +42,6 @@ const normalizePriceLists = (
 });
 
 export default function SettingsPage() {
-  const router = useRouter();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -86,30 +83,12 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">⚙️ Sistem Ayarları</h1>
-                <p className="text-sm text-primary-100">Genel sistem yapılandırması</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/dashboard')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                ← Dashboard
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8 max-w-3xl">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Sistem Ayarlari</h1>
+          <p className="text-sm text-gray-600">Genel sistem yapilandirmasi</p>
+        </div>
         <form onSubmit={handleSave} className="space-y-6">
           <Card title="Fazla Stok Hesaplama">
             <div className="space-y-4">

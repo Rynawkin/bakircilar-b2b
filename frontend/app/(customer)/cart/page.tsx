@@ -9,9 +9,7 @@ import customerApi from '@/lib/api/customer';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { LogoLink } from '@/components/ui/Logo';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { MobileMenu } from '@/components/ui/MobileMenu';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { formatCurrency } from '@/lib/utils/format';
@@ -19,7 +17,7 @@ import { getDisplayPrice, getVatLabel, getVatStatusLabel } from '@/lib/utils/vat
 
 export default function CartPage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { user, loadUserFromStorage } = useAuthStore();
   const { cart, fetchCart, removeItem, updateQuantity } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
@@ -102,99 +100,7 @@ Siparis No: ${result.orderNumber}`, {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
-      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-xl border-b-4 border-primary-800">
-        <div className="container-custom py-5">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/products" variant="light" />
-              <div>
-                <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-                  <span className="text-3xl">🛒</span>
-                  Sepetim
-                </h1>
-                <p className="text-sm text-primary-100 font-medium">
-                  {cart && cart.items.length > 0 ? (
-                    <>
-                      {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && (
-                        <span>📄 {cart.items.filter(i => i.priceType === 'INVOICED').length} Faturalı</span>
-                      )}
-                      {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && cart.items.filter(i => i.priceType === 'WHITE').length > 0 && (
-                        <span> • </span>
-                      )}
-                      {cart.items.filter(i => i.priceType === 'WHITE').length > 0 && (
-                        <span>⚪ {cart.items.filter(i => i.priceType === 'WHITE').length} Beyaz</span>
-                      )}
-                      <span> • {formatCurrency(cart.total)}</span>
-                    </>
-                  ) : (
-                    'Sepetiniz boş'
-                  )}
-                </p>
-              </div>
-            </div>
-            {/* Desktop Navigation */}
-            <div className="hidden lg:flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/products')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                🛍️ Alışverişe Devam
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/agreements')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                Anlasmali Urunler
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/order-requests')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                Siparis Talepleri
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/my-orders')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                📦 Siparişlerim
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/profile')}
-                className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md font-semibold"
-              >
-                👤 Profil
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => { logout(); router.push('/login'); }}
-                className="text-white hover:bg-primary-800 border border-white/30"
-              >
-                Çıkış
-              </Button>
-            </div>
 
-            {/* Mobile Navigation */}
-            <MobileMenu
-              items={[
-                { label: 'Ürünler', href: '/products', icon: '🛍️' },
-                { label: 'Anlasmali Urunler', href: '/agreements', icon: '??' },
-                { label: 'Sepetim', href: '/cart', icon: '🛒' },
-                { label: 'Siparişlerim', href: '/my-orders', icon: '📦' },
-                { label: 'Siparis Talepleri', href: '/order-requests', icon: '??' },
-                { label: 'Profilim', href: '/profile', icon: '👤' },
-                { label: 'Tercihler', href: '/preferences', icon: '⚙️' },
-              ]}
-              user={user}
-              onLogout={() => { logout(); router.push('/login'); }}
-            />
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8">
         <div className="max-w-4xl mx-auto">

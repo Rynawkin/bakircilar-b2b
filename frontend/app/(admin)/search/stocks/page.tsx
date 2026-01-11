@@ -1,13 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import adminApi from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 
 export default function StockSearchPage() {
-  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [stocks, setStocks] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -142,7 +139,6 @@ export default function StockSearchPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="min-h-screen bg-gray-50 p-4 md:p-6">
         <div className="max-w-7xl mx-auto">
         {/* Header */}

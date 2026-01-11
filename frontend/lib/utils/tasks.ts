@@ -4,7 +4,6 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
   'NEW',
   'TRIAGE',
   'IN_PROGRESS',
-  'WAITING',
   'REVIEW',
   'DONE',
   'CANCELLED',
@@ -14,7 +13,7 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   NEW: 'Yeni',
   TRIAGE: 'Triage',
   IN_PROGRESS: 'Devam',
-  WAITING: 'Beklemede',
+  WAITING: 'Devam',
   REVIEW: 'Inceleme',
   DONE: 'Tamam',
   CANCELLED: 'Iptal',
@@ -53,8 +52,11 @@ export const TASK_STATUS_BADGE: Record<TaskStatus, string> = {
   NEW: 'info',
   TRIAGE: 'warning',
   IN_PROGRESS: 'info',
-  WAITING: 'default',
+  WAITING: 'info',
   REVIEW: 'warning',
   DONE: 'success',
   CANCELLED: 'danger',
 };
+
+export const normalizeTaskStatus = (status: TaskStatus): TaskStatus =>
+  status === 'WAITING' ? 'IN_PROGRESS' : status;

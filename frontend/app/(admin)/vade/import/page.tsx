@@ -4,7 +4,6 @@ import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
@@ -132,7 +131,6 @@ export default function VadeImportPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="container mx-auto p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-semibold">Vade Excel Import</h1>

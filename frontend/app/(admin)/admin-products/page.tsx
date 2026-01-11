@@ -9,7 +9,6 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
-import { LogoLink } from '@/components/ui/Logo';
 import { ProductDetailModal } from '@/components/admin/ProductDetailModal';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 
@@ -64,7 +63,7 @@ interface Stats {
 
 export default function AdminProductsPage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { user, loadUserFromStorage } = useAuthStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -244,38 +243,14 @@ export default function AdminProductsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">📦 Ürün Yönetimi</h1>
-                <p className="text-sm text-primary-100">Tüm ürünleri görüntüle ve yönet</p>
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/dashboard')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                ← Dashboard
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => { logout(); router.push('/login'); }}
-                className="text-white hover:bg-primary-800"
-              >
-                Çıkış
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Urun Yonetimi</h1>
+            <p className="text-sm text-gray-600">Tum urunleri goruntule ve yonet</p>
+          </div>
+        </div>
         {/* Filters */}
         <Card className="mb-6 shadow-lg">
           <div className="space-y-4">

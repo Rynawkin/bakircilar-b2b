@@ -2,6 +2,7 @@
 
 import { useState, Fragment, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 import { Menu, Transition } from '@headlessui/react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { LogoLink } from '@/components/ui/Logo';
@@ -161,11 +162,13 @@ export function AdminNavigation() {
 
   const visibleNavItems = getVisibleNavItems();
   const visibleSettingsItems = getVisibleSettingsItems();
+  const primaryNavItems = visibleNavItems.slice(0, 6);
+  const overflowNavItems = visibleNavItems.slice(6);
 
   return (
     <nav className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg sticky top-0 z-50">
       <div className="container-custom">
-        <div className="flex justify-between items-center h-16">
+        <div className="flex justify-between items-center h-14">
           {/* Logo & Brand */}
           <div className="flex items-center gap-4">
             <LogoLink href="/dashboard" variant="light" />
@@ -177,11 +180,11 @@ export function AdminNavigation() {
 
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center gap-1">
-            {visibleNavItems.map((item) => (
-              <button
+            {primaryNavItems.map((item) => (
+              <Link
                 key={item.href}
-                onClick={() => router.push(item.href)}
-                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all ${
+                href={item.href}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   isActive(item.href)
                     ? 'bg-white text-primary-700 shadow-md'
                     : 'text-white hover:bg-primary-800/50'
@@ -190,17 +193,62 @@ export function AdminNavigation() {
               >
                 <item.icon className="w-4 h-4" />
                 <span className="hidden xl:inline">{item.name}</span>
-              </button>
+              </Link>
             ))}
+
+            {overflowNavItems.length > 0 && (
+              <Menu as="div" className="relative">
+                <Menu.Button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white hover:bg-primary-800/50 transition-all">
+                  <MenuIcon className="w-4 h-4" />
+                  <span className="hidden xl:inline">Digerleri</span>
+                  <ChevronDown className="w-3 h-3" />
+                </Menu.Button>
+
+                <Transition
+                  as={Fragment}
+                  enter="transition ease-out duration-100"
+                  enterFrom="transform opacity-0 scale-95"
+                  enterTo="transform opacity-100 scale-100"
+                  leave="transition ease-in duration-75"
+                  leaveFrom="transform opacity-100 scale-100"
+                  leaveTo="transform opacity-0 scale-95"
+                >
+                  <Menu.Items className="absolute right-0 mt-2 w-56 origin-top-right bg-white rounded-lg shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none">
+                    <div className="p-2">
+                      {overflowNavItems.map((item) => (
+                        <Menu.Item key={item.href}>
+                          {({ active }) => (
+                            <Link
+                              href={item.href}
+                              className={`flex items-start gap-3 w-full px-3 py-2 rounded-md text-sm ${
+                                active ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
+                              } ${isActive(item.href) ? 'bg-primary-100 font-semibold' : ''}`}
+                            >
+                              <item.icon className="w-4 h-4" />
+                              <div className="text-left">
+                                <div className="font-medium">{item.name}</div>
+                                {item.description && (
+                                  <div className="text-xs text-gray-500">{item.description}</div>
+                                )}
+                              </div>
+                            </Link>
+                          )}
+                        </Menu.Item>
+                      ))}
+                    </div>
+                  </Menu.Items>
+                </Transition>
+              </Menu>
+            )}
 
             {/* Settings Dropdown - Sadece ayarlar varsa göster */}
             {visibleSettingsItems.length > 0 && (
               <Menu as="div" className="relative">
-                <Menu.Button className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-medium text-white hover:bg-primary-800/50 transition-all">
-                  <Settings className="w-4 h-4" />
-                  <span className="hidden xl:inline">Ayarlar</span>
-                  <ChevronDown className="w-3 h-3" />
-                </Menu.Button>
+              <Menu.Button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white hover:bg-primary-800/50 transition-all">
+                <Settings className="w-4 h-4" />
+                <span className="hidden xl:inline">Ayarlar</span>
+                <ChevronDown className="w-3 h-3" />
+              </Menu.Button>
 
                 <Transition
                   as={Fragment}
@@ -214,23 +262,23 @@ export function AdminNavigation() {
                   <Menu.Items className="absolute right-0 mt-2 w-64 origin-top-right bg-white rounded-lg shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none">
                     <div className="p-2">
                       {visibleSettingsItems.map((item) => (
-                      <Menu.Item key={item.href}>
-                        {({ active }) => (
-                          <button
-                            onClick={() => router.push(item.href)}
-                            className={`flex items-start gap-3 w-full px-3 py-2 rounded-md text-sm ${
-                              active ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
-                            } ${isActive(item.href) ? 'bg-primary-100 font-semibold' : ''}`}
-                          >
-                            <item.icon className="w-4 h-4" />
-                            <div className="text-left">
-                              <div className="font-medium">{item.name}</div>
-                              {item.description && (
-                                <div className="text-xs text-gray-500">{item.description}</div>
-                              )}
-                            </div>
-                          </button>
-                        )}
+                        <Menu.Item key={item.href}>
+                          {({ active }) => (
+                            <Link
+                              href={item.href}
+                              className={`flex items-start gap-3 w-full px-3 py-2 rounded-md text-sm ${
+                                active ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
+                              } ${isActive(item.href) ? 'bg-primary-100 font-semibold' : ''}`}
+                            >
+                              <item.icon className="w-4 h-4" />
+                              <div className="text-left">
+                                <div className="font-medium">{item.name}</div>
+                                {item.description && (
+                                  <div className="text-xs text-gray-500">{item.description}</div>
+                                )}
+                              </div>
+                            </Link>
+                          )}
                         </Menu.Item>
                       ))}
                     </div>
@@ -308,7 +356,7 @@ export function AdminNavigation() {
 
             {/* User Menu */}
             <Menu as="div" className="relative ml-1">
-              <Menu.Button className="flex items-center gap-1 px-2 py-2 rounded-lg text-xs font-medium bg-primary-800/50 text-white hover:bg-primary-800 transition-all">
+              <Menu.Button className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-primary-800/50 text-white hover:bg-primary-800 transition-all">
                 <div className="w-7 h-7 rounded-full bg-white text-primary-700 flex items-center justify-center font-bold text-xs">
                   {user?.name?.charAt(0).toUpperCase()}
                 </div>
@@ -367,12 +415,10 @@ export function AdminNavigation() {
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-primary-500 py-4 space-y-2">
             {visibleNavItems.map((item) => (
-              <button
+              <Link
                 key={item.href}
-                onClick={() => {
-                  router.push(item.href);
-                  setMobileMenuOpen(false);
-                }}
+                href={item.href}
+                onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${
                   isActive(item.href)
                     ? 'bg-white text-primary-700'
@@ -386,33 +432,31 @@ export function AdminNavigation() {
                     <div className="text-xs opacity-75">{item.description}</div>
                   )}
                 </div>
-              </button>
+              </Link>
             ))}
 
             {visibleSettingsItems.length > 0 && (
               <div className="border-t border-primary-500 pt-2 mt-2">
                 <p className="px-4 py-2 text-xs font-semibold text-primary-200">Ayarlar</p>
                 {visibleSettingsItems.map((item) => (
-                <button
-                  key={item.href}
-                  onClick={() => {
-                    router.push(item.href);
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${
-                    isActive(item.href)
-                      ? 'bg-white text-primary-700'
-                      : 'text-white hover:bg-primary-800/50'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  <div className="text-left">
-                    <div>{item.name}</div>
-                    {item.description && (
-                      <div className="text-xs opacity-75">{item.description}</div>
-                    )}
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+                      isActive(item.href)
+                        ? 'bg-white text-primary-700'
+                        : 'text-white hover:bg-primary-800/50'
+                    }`}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    <div className="text-left">
+                      <div>{item.name}</div>
+                      {item.description && (
+                        <div className="text-xs opacity-75">{item.description}</div>
+                      )}
                     </div>
-                  </button>
+                  </Link>
                 ))}
               </div>
             )}

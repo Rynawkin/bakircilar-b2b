@@ -10,14 +10,11 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { MobileMenu } from '@/components/ui/MobileMenu';
 import { formatCurrency } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
-import { LogoLink } from '@/components/ui/Logo';
-import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
@@ -26,7 +23,7 @@ import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisi
 
 export default function DiscountedProductsPage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { user, loadUserFromStorage } = useAuthStore();
   const { cart, fetchCart, addToCart, removeItem } = useCartStore();
 
   const cartItems = cart?.items || [];
@@ -237,113 +234,7 @@ export default function DiscountedProductsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-primary-700 via-primary-600 to-primary-700 shadow-xl sticky top-0 z-10 border-b-4 border-primary-800">
-        <div className="container-custom py-4 flex justify-between items-center">
-          <div className="flex items-center gap-6">
-            <LogoLink href="/discounted-products" variant="light" />
-            <div className="hidden sm:block">
-              <h1 className="text-xl font-bold text-white flex items-center gap-2">
-                <span className="text-2xl">🛍️</span>
-                Indirimli Urunler
-              </h1>
-              <p className="text-sm text-primary-100">
-                {user.name} • {getCustomerTypeName(user.customerType || '')}
-              </p>
-            </div>
-          </div>
 
-          {/* Desktop Navigation */}
-          <div className="hidden lg:flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => router.push('/products')}
-              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
-            >
-              Ürünler
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => router.push('/agreements')}
-              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
-            >
-              Anlasmali Urunler
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => router.push('/previously-purchased')}
-              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
-            >
-              Daha Once Aldiklarim
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => router.push('/order-requests')}
-              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
-            >
-              Siparis Talepleri
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => router.push('/cart')}
-              className="relative bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
-            >
-              🛒 Sepetim
-              {totalItems > 0 && (
-                <span className="absolute -top-2 -right-2 bg-gradient-to-br from-red-500 to-red-600 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center shadow-lg animate-pulse">
-                  {totalItems}
-                </span>
-              )}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => router.push('/profile')}
-              className="bg-white text-primary-700 hover:bg-primary-50 border-0 shadow-md"
-            >
-              👤 Profil
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => { logout(); router.push('/login'); }}
-              className="text-white hover:bg-primary-800 border border-white/30"
-            >
-              Çıkış
-            </Button>
-          </div>
-
-          {/* Mobile Menu */}
-          <div className="flex items-center gap-2 lg:hidden">
-            {totalItems > 0 && (
-              <button
-                onClick={() => router.push('/cart')}
-                className="relative p-2 text-gray-700 hover:bg-gray-100 rounded-lg"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                </svg>
-                <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
-                  {totalItems}
-                </span>
-              </button>
-            )}
-            <MobileMenu
-              items={[
-                { label: 'Urunler', href: '/products', icon: '??' },
-                { label: 'Indirimli Urunler', href: '/discounted-products', icon: '???' },
-                { label: 'Anlasmali Urunler', href: '/agreements', icon: '??' },
-                { label: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: '??' },
-                { label: 'Sepetim', href: '/cart', icon: '??' },
-                { label: 'Siparislerim', href: '/my-orders', icon: '??' },
-                { label: 'Siparis Talepleri', href: '/order-requests', icon: '??' },
-                { label: 'Profilim', href: '/profile', icon: '??' },
-                { label: 'Tercihler', href: '/preferences', icon: '??' },
-              ]}
-              user={user}
-              onLogout={() => { logout(); router.push('/login'); }}
-            />
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

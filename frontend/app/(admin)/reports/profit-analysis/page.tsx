@@ -28,7 +28,6 @@ import {
 import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -210,7 +209,6 @@ export default function MarginAnalysisPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AdminNavigation />
 
       <div className="container mx-auto px-4 py-8">
         {/* Header */}

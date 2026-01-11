@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -20,6 +19,7 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
   TASK_TYPE_LABELS,
+  normalizeTaskStatus,
 } from '@/lib/utils/tasks';
 import {
   Task,
@@ -316,7 +316,11 @@ export default function AdminRequestsPage() {
     try {
       const params: any = {};
       if (debouncedSearch) params.search = debouncedSearch;
-      if (statusFilter !== 'ALL') params.status = statusFilter;
+      if (statusFilter !== 'ALL') {
+        params.status = statusFilter === 'IN_PROGRESS'
+          ? 'IN_PROGRESS,WAITING'
+          : statusFilter;
+      }
       if (typeFilter !== 'ALL') params.type = typeFilter;
       if (priorityFilter !== 'ALL') params.priority = priorityFilter;
       if (assigneeFilter !== 'ALL') params.assignedToId = assigneeFilter;
@@ -417,7 +421,7 @@ export default function AdminRequestsPage() {
         description: task.description || '',
         type: task.type,
         priority: task.priority,
-        status: task.status,
+        status: normalizeTaskStatus(task.status),
         dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '',
         assignedToId: task.assignedTo?.id || '',
         customerId: task.customer?.id || '',
@@ -580,7 +584,7 @@ export default function AdminRequestsPage() {
     const map = new Map<TaskStatus, Task[]>();
     TASK_STATUS_ORDER.forEach((status) => map.set(status, []));
     tasks.forEach((task) => {
-      map.get(task.status)?.push(task);
+      map.get(normalizeTaskStatus(task.status))?.push(task);
     });
     return map;
   }, [tasks]);
@@ -655,7 +659,6 @@ export default function AdminRequestsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AdminNavigation />
       <div className="container-custom py-6 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -780,9 +783,9 @@ export default function AdminRequestsPage() {
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
           </div>
         ) : view === 'KANBAN' ? (
-          <div className="flex gap-4 overflow-x-auto pb-4">
+          <div className="flex gap-3 overflow-x-auto pb-4">
             {visibleStatuses.map((status) => (
-              <div key={status} className="min-w-[260px] max-w-[280px] flex-1">
+              <div key={status} className="min-w-[220px] max-w-[240px] flex-1">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Badge variant={TASK_STATUS_BADGE[status] as any}>
@@ -793,10 +796,10 @@ export default function AdminRequestsPage() {
                     </span>
                   </div>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {(groupedTasks.get(status) || []).map(renderTaskCard)}
                   {(groupedTasks.get(status) || []).length === 0 && (
-                    <div className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-3 text-center">
+                    <div className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-2 text-center">
                       Bu kolonda talep yok.
                     </div>
                   )}
@@ -822,6 +825,7 @@ export default function AdminRequestsPage() {
               <tbody>
                 {tasks.map((task) => {
                   const rowColor = getTaskColor(task);
+                  const normalizedStatus = normalizeTaskStatus(task.status);
                   return (
                     <tr
                       key={task.id}
@@ -830,8 +834,8 @@ export default function AdminRequestsPage() {
                     >
                       <td className="py-3 pr-4 font-medium text-gray-900">{task.title}</td>
                       <td className="py-3 pr-4">
-                        <Badge variant={TASK_STATUS_BADGE[task.status] as any}>
-                          {TASK_STATUS_LABELS[task.status]}
+                        <Badge variant={TASK_STATUS_BADGE[normalizedStatus] as any}>
+                          {TASK_STATUS_LABELS[normalizedStatus]}
                         </Badge>
                       </td>
                       <td className="py-3 pr-4">{TASK_TYPE_LABELS[task.type]}</td>
@@ -1430,9 +1434,11 @@ export default function AdminRequestsPage() {
                   {detailTask.statusHistory.map((history) => (
                     <div key={history.id} className="flex items-center justify-between">
                       <span>
-                        {history.fromStatus ? TASK_STATUS_LABELS[history.fromStatus as TaskStatus] : 'Baslangic'}
+                        {history.fromStatus
+                          ? TASK_STATUS_LABELS[normalizeTaskStatus(history.fromStatus as TaskStatus)]
+                          : 'Baslangic'}
                         {' -> '}
-                        {TASK_STATUS_LABELS[history.toStatus]}
+                        {TASK_STATUS_LABELS[normalizeTaskStatus(history.toStatus as TaskStatus)]}
                       </span>
                       <span>{formatDateShort(history.createdAt)}</span>
                     </div>

@@ -33,6 +33,19 @@ export class OrderRequestController {
         select: {
           id: true,
           parentCustomerId: true,
+          customerType: true,
+          priceVisibility: true,
+          invoicedPriceListNo: true,
+          whitePriceListNo: true,
+          parentCustomer: {
+            select: {
+              id: true,
+              customerType: true,
+              priceVisibility: true,
+              invoicedPriceListNo: true,
+              whitePriceListNo: true,
+            },
+          },
         },
       });
 
@@ -56,6 +69,7 @@ export class OrderRequestController {
                   mikroCode: true,
                   unit: true,
                   imageUrl: true,
+                  prices: true,
                 },
               },
             },
@@ -66,7 +80,85 @@ export class OrderRequestController {
         orderBy: { createdAt: 'desc' },
       });
 
-      res.json({ requests });
+      const pricingCustomer = user.parentCustomerId ? user.parentCustomer : user;
+      if (!pricingCustomer || !pricingCustomer.customerType) {
+        return res.json({ requests });
+      }
+
+      const settings = await prisma.settings.findFirst({
+        select: { customerPriceLists: true },
+      });
+      const priceListPair = resolveCustomerPriceLists(pricingCustomer, settings);
+      const now = new Date();
+
+      const productIds = Array.from(
+        new Set(
+          requests.flatMap((request) => request.items.map((item) => item.productId))
+        )
+      );
+      const productCodes = Array.from(
+        new Set(
+          requests.flatMap((request) => request.items.map((item) => item.product.mikroCode))
+        )
+      );
+
+      const agreementRows = await prisma.customerPriceAgreement.findMany({
+        where: {
+          customerId: pricingCustomer.id,
+          productId: { in: productIds },
+        },
+        select: {
+          productId: true,
+          priceInvoiced: true,
+          priceWhite: true,
+          minQuantity: true,
+          validFrom: true,
+          validTo: true,
+        },
+      });
+      const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
+      const priceStatsMap = await priceListService.getPriceStatsMap(productCodes);
+
+      const requestsWithPreview = requests.map((request) => ({
+        ...request,
+        items: request.items.map((item) => {
+          const prices = item.product.prices as unknown as ProductPrices;
+          const customerPrices = pricingService.getPriceForCustomer(
+            prices,
+            pricingCustomer.customerType as any
+          );
+
+          let unitInvoiced = 0;
+          let unitWhite = 0;
+
+          if (item.priceMode === 'EXCESS') {
+            unitInvoiced = customerPrices.invoiced;
+            unitWhite = customerPrices.white;
+          } else {
+            const priceStats = priceStatsMap.get(item.product.mikroCode) || null;
+            const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
+            const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
+            unitInvoiced = listInvoiced > 0 ? listInvoiced : customerPrices.invoiced;
+            unitWhite = listWhite > 0 ? listWhite : customerPrices.white;
+          }
+
+          const agreement = agreementMap.get(item.productId);
+          if (agreement && isAgreementApplicable(agreement, now, item.quantity)) {
+            unitInvoiced = agreement.priceInvoiced;
+            unitWhite = agreement.priceWhite;
+          }
+
+          return {
+            ...item,
+            previewUnitPriceInvoiced: unitInvoiced,
+            previewUnitPriceWhite: unitWhite,
+            previewTotalPriceInvoiced: unitInvoiced * item.quantity,
+            previewTotalPriceWhite: unitWhite * item.quantity,
+          };
+        }),
+      }));
+
+      res.json({ requests: requestsWithPreview });
     } catch (error) {
       next(error);
     }
@@ -194,12 +286,24 @@ export class OrderRequestController {
 
       const now = new Date();
       const itemSelections: Record<string, PriceType> = {};
+      const selectedItemIds: string[] = [];
       if (Array.isArray(items)) {
         for (const entry of items) {
+          if (entry?.id) {
+            selectedItemIds.push(String(entry.id));
+          }
           if (entry?.id && entry?.priceType) {
             itemSelections[String(entry.id)] = entry.priceType as PriceType;
           }
         }
+      }
+      const selectedItemSet = selectedItemIds.length > 0 ? new Set(selectedItemIds) : null;
+      const itemsToConvert = selectedItemSet
+        ? request.items.filter((item) => selectedItemSet.has(item.id))
+        : request.items;
+
+      if (itemsToConvert.length === 0) {
+        return res.status(400).json({ error: 'No items selected for conversion' });
       }
 
       const orderItems: Array<{
@@ -212,7 +316,7 @@ export class OrderRequestController {
         unitPrice: number;
         totalPrice: number;
       }> = [];
-      for (const item of request.items) {
+      for (const item of itemsToConvert) {
         const priceType = resolvePriceType(user.priceVisibility, itemSelections[item.id]);
         if (!priceType || (user.priceVisibility === 'BOTH' && !itemSelections[item.id])) {
           return res.status(400).json({ error: 'Price type selection required' });
@@ -316,7 +420,10 @@ export class OrderRequestController {
       });
 
       await prisma.customerRequestItem.updateMany({
-        where: { requestId: request.id },
+        where: {
+          requestId: request.id,
+          id: { in: itemsToConvert.map((item) => item.id) },
+        },
         data: { status: 'CONVERTED' },
       });
 
@@ -331,6 +438,18 @@ export class OrderRequestController {
         });
       }
 
+      if (selectedItemSet) {
+        const rejectedIds = request.items
+          .filter((item) => !selectedItemSet.has(item.id))
+          .map((item) => item.id);
+        if (rejectedIds.length > 0) {
+          await prisma.customerRequestItem.updateMany({
+            where: { id: { in: rejectedIds } },
+            data: { status: 'REJECTED' },
+          });
+        }
+      }
+
       await prisma.customerRequest.update({
         where: { id: request.id },
         data: {
@@ -343,6 +462,65 @@ export class OrderRequestController {
       });
 
       res.json({ orderId: order.id, orderNumber: order.orderNumber });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/order-requests/:id/reject
+   * Reject request (parent customer)
+   */
+  async rejectOrderRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { note } = req.body || {};
+
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: {
+          id: true,
+          parentCustomerId: true,
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      if (user.parentCustomerId) {
+        return res.status(403).json({ error: 'Sub users cannot reject requests' });
+      }
+
+      const request = await prisma.customerRequest.findUnique({
+        where: { id },
+        select: { id: true, parentCustomerId: true, status: true },
+      });
+
+      if (!request || request.parentCustomerId !== user.id) {
+        return res.status(404).json({ error: 'Request not found' });
+      }
+
+      if (request.status !== 'PENDING') {
+        return res.status(400).json({ error: 'Request is already processed' });
+      }
+
+      await prisma.customerRequestItem.updateMany({
+        where: { requestId: request.id },
+        data: { status: 'REJECTED' },
+      });
+
+      await prisma.customerRequest.update({
+        where: { id: request.id },
+        data: {
+          status: 'REJECTED',
+          convertedById: user.id,
+          convertedAt: new Date(),
+          note: note ? String(note).trim() : undefined,
+        },
+      });
+
+      res.json({ status: 'REJECTED' });
     } catch (error) {
       next(error);
     }

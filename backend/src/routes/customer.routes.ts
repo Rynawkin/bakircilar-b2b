@@ -146,6 +146,7 @@ router.get('/orders/:id', customerController.getOrderById);
 router.get('/order-requests', orderRequestController.getOrderRequests);
 router.post('/order-requests', orderRequestController.createOrderRequest);
 router.post('/order-requests/:id/convert', orderRequestController.convertOrderRequest);
+router.post('/order-requests/:id/reject', orderRequestController.rejectOrderRequest);
 
 // Quotes (customer)
 router.get('/quotes', requireCustomer, quoteController.getCustomerQuotes);

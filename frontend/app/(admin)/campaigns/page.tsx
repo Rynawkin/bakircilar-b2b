@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -9,12 +8,10 @@ import { Campaign, CreateCampaignRequest } from '@/types';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
 import { Fragment } from 'react';
-import { LogoLink } from '@/components/ui/Logo';
 import { useAuthStore } from '@/lib/store/authStore';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export default function CampaignsPage() {
-  const router = useRouter();
   const token = useAuthStore((state) => state.token);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
@@ -201,39 +198,18 @@ export default function CampaignsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/dashboard" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">🎯 Kampanya Yönetimi</h1>
-                <p className="text-sm text-primary-100">Dinamik indirim ve kampanya sistemi</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => setIsModalOpen(true)}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                + Yeni Kampanya
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/dashboard')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                ← Dashboard
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       {/* Main Content */}
       <div className="container-custom py-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Kampanya Yonetimi</h1>
+            <p className="text-sm text-gray-600">Dinamik indirim ve kampanya sistemi</p>
+          </div>
+          <Button variant="secondary" onClick={() => setIsModalOpen(true)}>
+            + Yeni Kampanya
+          </Button>
+        </div>
         <div className="space-y-6">
 
       {campaigns.length === 0 ? (

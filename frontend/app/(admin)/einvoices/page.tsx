@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -157,7 +156,6 @@ export default function EInvoicesPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="container-custom space-y-6 py-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Faturalar</h1>

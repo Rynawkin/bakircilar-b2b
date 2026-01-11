@@ -10,13 +10,12 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { EkstreModal } from '@/components/admin/EkstreModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { user, loadUserFromStorage } = useAuthStore();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -421,7 +420,6 @@ export default function AdminDashboardPage() {
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50">
         {/* Navigation */}
-        <AdminNavigation />
 
       {/* Main Content */}
       <div className="container-custom py-8">

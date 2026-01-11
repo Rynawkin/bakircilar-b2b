@@ -8,14 +8,12 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { LogoLink } from '@/components/ui/Logo';
-import { MobileMenu } from '@/components/ui/MobileMenu';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { user, loadUserFromStorage } = useAuthStore();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -65,63 +63,7 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg">
-        <div className="container-custom py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-6">
-              <LogoLink href="/products" variant="light" />
-              <div>
-                <h1 className="text-xl font-bold text-white">👤 Profilim</h1>
-                <p className="text-sm text-primary-100">Hesap bilgileriniz ve siparişleriniz</p>
-              </div>
-            </div>
-            {/* Desktop Navigation */}
-            <div className="hidden lg:flex gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/products')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                🛍️ Ürünler
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/cart')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                🛒 Sepet
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push('/preferences')}
-                className="bg-white text-primary-700 hover:bg-primary-50"
-              >
-                ⚙️ Tercihler
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => { logout(); router.push('/login'); }}
-                className="text-white hover:bg-primary-800"
-              >
-                Çıkış
-              </Button>
-            </div>
 
-            {/* Mobile Navigation */}
-            <MobileMenu
-              items={[
-                { label: 'Ürünler', href: '/products', icon: '🛍️' },
-                { label: 'Sepetim', href: '/cart', icon: '🛒' },
-                { label: 'Siparişlerim', href: '/my-orders', icon: '📦' },
-                { label: 'Profilim', href: '/profile', icon: '👤' },
-                { label: 'Tercihler', href: '/preferences', icon: '⚙️' },
-              ]}
-              user={user}
-              onLogout={() => { logout(); router.push('/login'); }}
-            />
-          </div>
-        </div>
-      </header>
 
       <div className="container-custom py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

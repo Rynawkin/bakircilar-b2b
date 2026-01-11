@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/lib/store/authStore';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -369,7 +368,6 @@ export default function OrderTrackingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AdminNavigation />
 
       <div className="container-custom py-8">
         <div className="mb-8">

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
-import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -136,7 +135,6 @@ export default function VadeAssignmentsPage() {
 
   return (
     <>
-      <AdminNavigation />
       <div className="container mx-auto p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-semibold">Vade Atamalari</h1>
