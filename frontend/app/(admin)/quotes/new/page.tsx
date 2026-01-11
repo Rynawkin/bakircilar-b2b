@@ -279,6 +279,10 @@ const getMikroListPrice = (
   return typeof byString === 'number' ? byString : 0;
 };
 
+const getPoolPriceLabel = (listNo: number) => {
+  return PRICE_LIST_LABELS[listNo] || `Liste ${listNo}`;
+};
+
 const getMatchingPriceListLabel = (
   mikroPriceLists: QuoteItemForm['mikroPriceLists'],
   unitPrice?: number | null
@@ -329,6 +333,7 @@ export default function AdminQuoteNewPage() {
   const [showProductPoolModal, setShowProductPoolModal] = useState(false);
   const [purchasedProducts, setPurchasedProducts] = useState<QuoteProduct[]>([]);
   const [selectedPurchasedCodes, setSelectedPurchasedCodes] = useState<Set<string>>(new Set());
+  const [selectedSearchCodes, setSelectedSearchCodes] = useState<Set<string>>(new Set());
   const [purchasedSearch, setPurchasedSearch] = useState('');
   const [productTab, setProductTab] = useState<'purchased' | 'search'>('purchased');
   const [searchTerm, setSearchTerm] = useState('');
@@ -362,6 +367,7 @@ export default function AdminQuoteNewPage() {
   const [stockDataMap, setStockDataMap] = useState<Record<string, any>>({});
   const [bulkPriceListNo, setBulkPriceListNo] = useState<number | ''>('');
   const [poolSort, setPoolSort] = useState<PoolSortOption>('default');
+  const [poolPriceListNo, setPoolPriceListNo] = useState<number | ''>('');
   const [showPoolColorOptions, setShowPoolColorOptions] = useState(false);
   const [poolColorRules, setPoolColorRules] = useState<PoolColorRule[]>(() => [createPoolColorRule()]);
   const [savingPoolPreferences, setSavingPoolPreferences] = useState(false);
@@ -421,6 +427,14 @@ export default function AdminQuoteNewPage() {
 
     return () => clearTimeout(timer);
   }, [searchTerm, productTab]);
+
+  useEffect(() => {
+    if (productTab !== 'search') {
+      setSelectedSearchCodes(new Set());
+      return;
+    }
+    setSelectedSearchCodes(new Set());
+  }, [searchTerm, productTab, searchResults]);
 
   useEffect(() => {
     if (selectedColumns.length === 0) return;
@@ -527,6 +541,12 @@ export default function AdminQuoteNewPage() {
       const savedPoolSort = quotePrefsResult.value.preferences.poolSort;
       if (POOL_SORT_OPTIONS.some((option) => option.value === savedPoolSort)) {
         setPoolSort(savedPoolSort as PoolSortOption);
+      }
+      const savedPoolPriceListNo = Number(quotePrefsResult.value.preferences.poolPriceListNo);
+      if (Number.isFinite(savedPoolPriceListNo) && savedPoolPriceListNo >= 1 && savedPoolPriceListNo <= 10) {
+        setPoolPriceListNo(savedPoolPriceListNo);
+      } else {
+        setPoolPriceListNo('');
       }
       const savedRules = quotePrefsResult.value.preferences.poolColorRules;
       if (Array.isArray(savedRules) && savedRules.length > 0) {
@@ -753,6 +773,7 @@ export default function AdminQuoteNewPage() {
   };
 
   const selectedPurchasedCount = selectedPurchasedCodes.size;
+  const selectedSearchCount = selectedSearchCodes.size;
 
   const togglePurchasedSelection = (code: string) => {
     setSelectedPurchasedCodes((prev) => {
@@ -785,6 +806,39 @@ export default function AdminQuoteNewPage() {
     );
     addProductsToQuote(selectedProducts);
     setSelectedPurchasedCodes(new Set());
+  };
+
+  const toggleSearchSelection = (code: string) => {
+    setSelectedSearchCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  };
+
+  const selectAllSearch = () => {
+    const codes = sortedSearchResults.map((product) => product.mikroCode);
+    setSelectedSearchCodes(new Set(codes));
+  };
+
+  const clearSearchSelection = () => {
+    setSelectedSearchCodes(new Set());
+  };
+
+  const addSelectedSearchToQuote = () => {
+    if (selectedSearchCount === 0) {
+      toast.error('Secili urun yok.');
+      return;
+    }
+    const selectedProducts = searchResults.filter((product) =>
+      selectedSearchCodes.has(product.mikroCode)
+    );
+    addProductsToQuote(selectedProducts);
+    setSelectedSearchCodes(new Set());
   };
 
   const buildQuoteItem = (product: QuoteProduct): QuoteItemForm => {
@@ -1050,6 +1104,7 @@ export default function AdminQuoteNewPage() {
     try {
       await adminApi.updateQuotePreferences({
         poolSort,
+        poolPriceListNo: poolPriceListNo === '' ? null : Number(poolPriceListNo),
         poolColorRules,
       });
       toast.success('Urun havuzu gorunumu kaydedildi.');
@@ -2237,6 +2292,21 @@ export default function AdminQuoteNewPage() {
                   </option>
                 ))}
               </select>
+              <select
+                value={poolPriceListNo}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setPoolPriceListNo(value ? Number(value) : '');
+                }}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600"
+              >
+                <option value="">Liste fiyati secin</option>
+                {Object.entries(PRICE_LIST_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
               <Button
                 variant={showPoolColorOptions ? 'primary' : 'secondary'}
                 size="sm"
@@ -2377,6 +2447,15 @@ export default function AdminQuoteNewPage() {
                     const isSelected = selectedPurchasedCodes.has(product.mikroCode);
                     const colorClass = getPoolColorClass(product);
                     const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                    const poolPriceListValue = poolPriceListNo
+                      ? getMikroListPrice(product.mikroPriceLists, Number(poolPriceListNo))
+                      : 0;
+                    const poolPriceLabel = poolPriceListNo ? getPoolPriceLabel(Number(poolPriceListNo)) : null;
+                    const poolPriceDisplay = poolPriceLabel
+                      ? poolPriceListValue > 0
+                        ? formatCurrency(poolPriceListValue)
+                        : '-'
+                      : null;
                     return (
                       <div
                         key={product.mikroCode}
@@ -2421,6 +2500,12 @@ export default function AdminQuoteNewPage() {
                               </div>
                               {unitLabel && (
                                 <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
+                              )}
+                              {poolPriceLabel && (
+                                <div className="mt-1 text-xs text-slate-500">
+                                  <span className="font-medium text-slate-600">{poolPriceLabel}</span>{' '}
+                                  {poolPriceDisplay}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -2470,11 +2555,34 @@ export default function AdminQuoteNewPage() {
 
           {productTab === 'search' && (
             <div className="space-y-3">
-              <Input
-                placeholder="Urun adi veya kodu"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <Input
+                  placeholder="Urun adi veya kodu"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="lg:max-w-xs"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-gray-500">
+                    {selectedSearchCount} secili / {sortedSearchResults.length} urun
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={clearSearchSelection}>
+                    Secimi Temizle
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={selectAllSearch} className="rounded-full">
+                    Tumunu Sec
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={addSelectedSearchToQuote}
+                    disabled={selectedSearchCount === 0}
+                    className="rounded-full"
+                  >
+                    Secilileri Ekle
+                  </Button>
+                </div>
+              </div>
               {searchLoading ? (
                 <div className="text-sm text-gray-500">Araniyor...</div>
               ) : sortedSearchResults.length === 0 ? (
@@ -2484,27 +2592,76 @@ export default function AdminQuoteNewPage() {
                   {sortedSearchResults.map((product) => {
                     const colorClass = getPoolColorClass(product);
                     const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                    const isSelected = selectedSearchCodes.has(product.mikroCode);
+                    const poolPriceListValue = poolPriceListNo
+                      ? getMikroListPrice(product.mikroPriceLists, Number(poolPriceListNo))
+                      : 0;
+                    const poolPriceLabel = poolPriceListNo ? getPoolPriceLabel(Number(poolPriceListNo)) : null;
+                    const poolPriceDisplay = poolPriceLabel
+                      ? poolPriceListValue > 0
+                        ? formatCurrency(poolPriceListValue)
+                        : '-'
+                      : null;
                     return (
                     <div
                       key={product.mikroCode}
-                      className={`rounded-xl border p-4 ${colorClass || 'border-gray-200 bg-white/90'}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleSearchSelection(product.mikroCode)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          toggleSearchSelection(product.mikroCode);
+                        }
+                      }}
+                      className={`rounded-xl border p-4 transition ${
+                        isSelected
+                          ? 'border-primary-200 bg-primary-50/70'
+                          : colorClass
+                            ? `${colorClass} hover:border-primary-200`
+                            : 'border-gray-200 bg-white/90 hover:border-primary-200'
+                      } cursor-pointer`}
                     >
                       <div className="flex justify-between items-start gap-3">
                         <div>
-                          <p className="font-semibold text-gray-900">{product.name}</p>
-                          <p className="text-xs text-gray-500">{product.mikroCode}</p>
-                          <div className="mt-1 text-xs text-slate-500">
-                            <span className="font-medium text-slate-600">Merkez</span>{' '}
-                            {formatStockValue(product.warehouseStocks?.['1'])}
-                            <span className="mx-2 text-slate-300">|</span>
-                            <span className="font-medium text-slate-600">Topca</span>{' '}
-                            {formatStockValue(product.warehouseStocks?.['6'])}
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSearchSelection(product.mikroCode)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="mt-1 h-4 w-4 accent-primary-600"
+                            />
+                            <div>
+                              <p className="font-semibold text-gray-900">{product.name}</p>
+                              <p className="text-xs text-gray-500">{product.mikroCode}</p>
+                              <div className="mt-1 text-xs text-slate-500">
+                                <span className="font-medium text-slate-600">Merkez</span>{' '}
+                                {formatStockValue(product.warehouseStocks?.['1'])}
+                                <span className="mx-2 text-slate-300">|</span>
+                                <span className="font-medium text-slate-600">Topca</span>{' '}
+                                {formatStockValue(product.warehouseStocks?.['6'])}
+                              </div>
+                              {unitLabel && (
+                                <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
+                              )}
+                              {poolPriceLabel && (
+                                <div className="mt-1 text-xs text-slate-500">
+                                  <span className="font-medium text-slate-600">{poolPriceLabel}</span>{' '}
+                                  {poolPriceDisplay}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          {unitLabel && (
-                            <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
-                          )}
                         </div>
-                        <Button variant="secondary" size="sm" onClick={() => addProductToQuote(product)}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            addProductToQuote(product);
+                          }}
+                        >
                           Teklife Ekle
                         </Button>
                       </div>

@@ -299,6 +299,7 @@ export const adminApi = {
       responsibleCode?: string | null;
       columnWidths?: Record<string, number> | null;
       poolSort?: string | null;
+      poolPriceListNo?: number | null;
       poolColorRules?: any[] | null;
     };
   }> => {
@@ -312,6 +313,7 @@ export const adminApi = {
     responsibleCode?: string | null;
     columnWidths?: Record<string, number>;
     poolSort?: string | null;
+    poolPriceListNo?: number | null;
     poolColorRules?: any[] | null;
   }): Promise<{
     preferences: {
@@ -320,6 +322,7 @@ export const adminApi = {
       responsibleCode?: string | null;
       columnWidths?: Record<string, number> | null;
       poolSort?: string | null;
+      poolPriceListNo?: number | null;
       poolColorRules?: any[] | null;
     };
   }> => {

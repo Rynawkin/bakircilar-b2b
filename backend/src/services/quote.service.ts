@@ -132,6 +132,7 @@ class QuoteService {
         quoteResponsibleCode: true,
         quoteColumnWidths: true,
         quotePoolSort: true,
+        quotePoolPriceListNo: true,
         quotePoolColorRules: true,
       },
     });
@@ -142,6 +143,10 @@ class QuoteService {
       responsibleCode: user?.quoteResponsibleCode || null,
       columnWidths: (user?.quoteColumnWidths as Record<string, number> | null) || null,
       poolSort: user?.quotePoolSort || 'default',
+      poolPriceListNo:
+        Number.isFinite(user?.quotePoolPriceListNo as number)
+          ? Number(user?.quotePoolPriceListNo)
+          : null,
       poolColorRules: this.sanitizePoolColorRules(user?.quotePoolColorRules) || null,
     };
   }
@@ -154,6 +159,7 @@ class QuoteService {
       responsibleCode?: string | null;
       columnWidths?: Record<string, unknown> | null;
       poolSort?: string | null;
+      poolPriceListNo?: number | null;
       poolColorRules?: unknown[] | null;
     }
   ) {
@@ -174,6 +180,11 @@ class QuoteService {
       updateData.quotePoolSort =
         data.poolSort && VALID_POOL_SORTS.has(data.poolSort) ? data.poolSort : 'default';
     }
+    if (data.poolPriceListNo !== undefined) {
+      const listNo = Number(data.poolPriceListNo);
+      updateData.quotePoolPriceListNo =
+        Number.isFinite(listNo) && listNo >= 1 && listNo <= 10 ? listNo : null;
+    }
     if (data.poolColorRules !== undefined) {
       updateData.quotePoolColorRules = this.sanitizePoolColorRules(data.poolColorRules);
     }
@@ -187,6 +198,7 @@ class QuoteService {
         quoteResponsibleCode: true,
         quoteColumnWidths: true,
         quotePoolSort: true,
+        quotePoolPriceListNo: true,
         quotePoolColorRules: true,
       },
     });
@@ -197,6 +209,10 @@ class QuoteService {
       responsibleCode: user.quoteResponsibleCode || null,
       columnWidths: (user.quoteColumnWidths as Record<string, number> | null) || null,
       poolSort: user.quotePoolSort || 'default',
+      poolPriceListNo:
+        Number.isFinite(user.quotePoolPriceListNo as number)
+          ? Number(user.quotePoolPriceListNo)
+          : null,
       poolColorRules: this.sanitizePoolColorRules(user.quotePoolColorRules) || null,
     };
   }
