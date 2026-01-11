@@ -29,6 +29,43 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
     return String(value);
   };
 
+  const formatAmount = (value: any) => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return '0,00';
+    return amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const resolveMovementDirection = (row: any) => {
+    const tipCode = Number(row['Tip Kodu']);
+    if (Number.isFinite(tipCode)) {
+      if (tipCode === 0) return 'BORC';
+      if (tipCode === 1) return 'ALACAK';
+    }
+
+    const tipText = String(row['Hareket Tipi'] || '').toLowerCase();
+    if (tipText.includes('bor')) return 'BORC';
+    if (tipText.includes('alac')) return 'ALACAK';
+    return null;
+  };
+
+  const calculateTotals = (rows: any[]) => {
+    const totals = rows.reduce(
+      (acc, row) => {
+        const amount = Number(row['Tutar']) || 0;
+        const direction = resolveMovementDirection(row);
+        if (direction === 'BORC') acc.borc += amount;
+        else if (direction === 'ALACAK') acc.alacak += amount;
+        return acc;
+      },
+      { borc: 0, alacak: 0 }
+    );
+
+    return {
+      ...totals,
+      bakiye: totals.borc - totals.alacak,
+    };
+  };
+
   const handleSearch = async () => {
     if (!searchTerm || searchTerm.trim().length === 0) {
       return;
@@ -75,8 +112,42 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         return;
       }
 
+      const headers = [
+        'Seri',
+        'Sıra',
+        'Tarih',
+        'Belge No',
+        'Evrak Tipi',
+        'Odeme Tipi',
+        'Hareket Tipi',
+        'Tutar'
+      ];
+
+      const exportRows = hareketler.map((row: any) => ({
+        'Seri': row['Seri'] ?? '-',
+        'Sıra': row['Sıra'] ?? '-',
+        'Tarih': row['Tarih'] ? new Date(row['Tarih']).toLocaleDateString('tr-TR') : '-',
+        'Belge No': row['Belge No'] ?? '-',
+        'Evrak Tipi': row['Evrak Tipi'] ?? '-',
+        'Odeme Tipi': row['Odeme Tipi'] ?? '-',
+        'Hareket Tipi': row['Hareket Tipi'] ?? '-',
+        'Tutar': Number(row['Tutar']) || 0
+      }));
+
+      const totals = calculateTotals(hareketler);
+
       // Excel dosyası oluştur
-      const worksheet = XLSX.utils.json_to_sheet(hareketler);
+      const worksheet = XLSX.utils.json_to_sheet(exportRows, { header: headers });
+      XLSX.utils.sheet_add_json(
+        worksheet,
+        [
+          {},
+          { 'Seri': 'TOPLAM BORC', 'Tutar': totals.borc },
+          { 'Seri': 'TOPLAM ALACAK', 'Tutar': totals.alacak },
+          { 'Seri': 'BAKIYE', 'Tutar': totals.bakiye }
+        ],
+        { header: headers, skipHeader: true, origin: -1 }
+      );
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Cari Ekstre');
 
@@ -120,16 +191,20 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         return;
       }
 
-      // PDF oluştur (portrait - dikey, daha az kolon olduğu için)
+      const totals = calculateTotals(hareketler);
+
+      // PDF oluştur (landscape - daha fazla kolon için)
       const doc = new jsPDF({
-        orientation: 'portrait',
+        orientation: 'landscape',
         unit: 'mm',
         format: 'a4'
       });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
 
       // Başlık
       doc.setFontSize(16);
-      doc.text('CARI HESAP EKSTRESI', 105, 15, { align: 'center' });
+      doc.text('CARI HESAP EKSTRESI', pageWidth / 2, 15, { align: 'center' });
 
       // Cari Bilgileri - Türkçe karakterleri temizle
       const cleanText = (text: string) => {
@@ -153,13 +228,16 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       doc.text(`Cari Adi: ${cleanText(selectedCari['Cari Adı'] || '')}`, 14, 30);
       doc.text(`Donem: ${startDate} - ${endDate}`, 14, 35);
 
-      // Tablo verilerini hazırla - sadece 5 kolon, Türkçe karakterleri temizle
+      // Tablo verilerini hazırla
       const tableData = hareketler.map((row: any) => [
         cleanText(String(row['Seri'] || '-')),
         cleanText(String(row['Sıra'] || '-')),
         row['Tarih'] ? new Date(row['Tarih']).toLocaleDateString('tr-TR') : '-',
         cleanText(String(row['Belge No'] || '-')),
-        formatValue(row['Tutar'])
+        cleanText(String(row['Evrak Tipi'] || '-')),
+        cleanText(String(row['Odeme Tipi'] || '-')),
+        cleanText(String(row['Hareket Tipi'] || '-')),
+        formatAmount(row['Tutar'])
       ]);
 
       // AutoTable ile tablo oluştur
@@ -170,6 +248,9 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
           'Sira',
           'Tarih',
           'Belge No',
+          'Evrak Tipi',
+          'Odeme Tipi',
+          'Hareket Tipi',
           'Tutar'
         ]],
         body: tableData,
@@ -188,17 +269,34 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
           fontSize: 10
         },
         columnStyles: {
-          0: { cellWidth: 30 },  // Seri
-          1: { cellWidth: 30 },  // Sira
-          2: { cellWidth: 35 },  // Tarih
-          3: { cellWidth: 45 },  // Belge No
-          4: { cellWidth: 42, halign: 'right' }  // Tutar
+          0: { cellWidth: 20 },  // Seri
+          1: { cellWidth: 18 },  // Sira
+          2: { cellWidth: 22 },  // Tarih
+          3: { cellWidth: 34 },  // Belge No
+          4: { cellWidth: 40 },  // Evrak Tipi
+          5: { cellWidth: 40 },  // Odeme Tipi
+          6: { cellWidth: 28 },  // Hareket Tipi
+          7: { cellWidth: 26, halign: 'right' }  // Tutar
         },
         alternateRowStyles: {
           fillColor: [245, 245, 245]
         },
         margin: { top: 42, left: 14, right: 14 }
       });
+
+      const finalY = (doc as any).lastAutoTable?.finalY || 42;
+      const summaryStartY = finalY + 6;
+
+      let summaryY = summaryStartY;
+      if (summaryY + 18 > pageHeight - 12) {
+        doc.addPage();
+        summaryY = 18;
+      }
+
+      doc.setFontSize(10);
+      doc.text(`Toplam Borc: ${formatAmount(totals.borc)} TL`, 14, summaryY);
+      doc.text(`Toplam Alacak: ${formatAmount(totals.alacak)} TL`, 14, summaryY + 6);
+      doc.text(`Bakiye: ${formatAmount(totals.bakiye)} TL`, 14, summaryY + 12);
 
       // Footer - sayfa numaraları
       const pageCount = (doc as any).internal.getNumberOfPages();
@@ -207,7 +305,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         doc.setFontSize(8);
         doc.text(
           `Sayfa ${i} / ${pageCount}`,
-          doc.internal.pageSize.getWidth() / 2,
+          pageWidth / 2,
           doc.internal.pageSize.getHeight() - 10,
           { align: 'center' }
         );

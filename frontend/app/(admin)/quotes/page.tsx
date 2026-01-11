@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -88,6 +88,8 @@ export default function AdminQuotesPage() {
   const [syncingQuoteId, setSyncingQuoteId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<QuoteStatusFilter>('PENDING_APPROVAL');
   const [whatsappTemplate, setWhatsappTemplate] = useState(DEFAULT_WHATSAPP_TEMPLATE);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchQuotes();
@@ -702,6 +704,18 @@ export default function AdminQuotesPage() {
     }
   };
 
+  const toggleExpanded = (quoteId: string) => {
+    setExpandedQuotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(quoteId)) {
+        next.delete(quoteId);
+      } else {
+        next.add(quoteId);
+      }
+      return next;
+    });
+  };
+
   const counts = {
     pending: allQuotes.filter((q) => q.status === 'PENDING_APPROVAL').length,
     sent: allQuotes.filter((q) => q.status === 'SENT_TO_MIKRO').length,
@@ -709,6 +723,33 @@ export default function AdminQuotesPage() {
     accepted: allQuotes.filter((q) => q.status === 'CUSTOMER_ACCEPTED').length,
     all: allQuotes.length,
   };
+
+  const filteredQuotes = useMemo(() => {
+    const term = searchTerm.trim();
+    if (!term) return quotes;
+    const normalizedTerm = normalizeTurkishText(term).toLowerCase();
+
+    return quotes.filter((quote) => {
+      const customerName =
+        quote.customer?.displayName ||
+        quote.customer?.mikroName ||
+        quote.customer?.name ||
+        '';
+
+      const haystack = [
+        quote.quoteNumber,
+        quote.documentNo,
+        quote.mikroNumber,
+        quote.customer?.mikroCariCode,
+        customerName,
+        quote.createdBy?.name,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      return normalizeTurkishText(haystack).toLowerCase().includes(normalizedTerm);
+    });
+  }, [quotes, searchTerm]);
 
   if (loading) {
     return (
@@ -807,110 +848,154 @@ export default function AdminQuotesPage() {
         </div>
       </div>
 
-      <div className="container-custom py-8">
-        {quotes.length === 0 ? (
+      <div className="container-custom py-6 space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex-1">
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Cari adı, teklif no, belge no veya müşteri kodu ara..."
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
+            />
+          </div>
+          {searchTerm && (
+            <Button variant="secondary" onClick={() => setSearchTerm('')}>
+              Temizle
+            </Button>
+          )}
+        </div>
+
+        {filteredQuotes.length === 0 ? (
           <Card>
             <p className="text-center text-gray-600 py-8">
               Seçili filtrede teklif bulunamadı.
             </p>
           </Card>
         ) : (
-          <div className="space-y-6">
-            {quotes.map((quote) => (
-              <Card key={quote.id} className="overflow-hidden">
-                <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-200">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-bold text-xl text-gray-900">#{quote.quoteNumber}</h3>
-                      {getStatusBadge(quote.status)}
+          <div className="space-y-3">
+            {filteredQuotes.map((quote) => {
+              const isExpanded = expandedQuotes.has(quote.id);
+              const customerName =
+                quote.customer?.displayName ||
+                quote.customer?.mikroName ||
+                quote.customer?.name ||
+                '-';
+              const customerCode = quote.customer?.mikroCariCode || '-';
+
+              return (
+                <Card key={quote.id} className="overflow-hidden">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-xs text-gray-500">Cari</div>
+                      <div className="font-semibold text-gray-900">{customerName}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Kod: {customerCode} · Teklif #{quote.quoteNumber} · {formatDateShort(quote.createdAt)}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Geçerlilik: {formatDateShort(quote.validityDate)}
+                      </div>
+                      {quote.mikroNumber && (
+                        <div className="mt-2 inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-2 py-1">
+                          <span className="text-xs font-medium text-blue-700">Mikro No:</span>
+                          <span className="text-xs font-mono font-bold text-blue-900">{quote.mikroNumber}</span>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">Oluşturma: {formatDate(quote.createdAt)}</p>
-                    <p className="text-sm text-gray-500">Geçerlilik: {formatDate(quote.validityDate)}</p>
-                    {quote.mikroNumber && (
-                      <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded px-2 py-1">
-                        <span className="text-xs font-medium text-blue-700">Mikro No:</span>
-                        <span className="text-xs font-mono font-bold text-blue-900">{quote.mikroNumber}</span>
+                    <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                      {getStatusBadge(quote.status)}
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500">Toplam</div>
+                        <div className="text-lg font-bold text-primary-600">{formatCurrency(quote.grandTotal)}</div>
                       </div>
-                    )}
-                    {quote.adminNote && (
-                      <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-                        <p className="text-xs font-medium text-gray-600">Admin Notu:</p>
-                        <p className="text-sm text-gray-800 mt-1">{quote.adminNote}</p>
-                      </div>
-                    )}
-                    {quote.createdBy && (
-                      <div className="mt-2 text-xs text-gray-500">
-                        Oluşturan: {quote.createdBy.name}
-                      </div>
-                    )}
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
+                        onClick={() => toggleExpanded(quote.id)}
+                      >
+                        {isExpanded ? 'Detayı Gizle' : 'Detayı Göster'}
+                        <span className={`inline-block transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500 mb-1">Toplam</p>
-                    <p className="text-2xl font-bold text-primary-600">{formatCurrency(quote.grandTotal)}</p>
-                  </div>
-                </div>
 
-                {quote.customer && (
-                  <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Müşteri Bilgileri</h4>
-                    <CustomerInfoCard customer={quote.customer} />
-                  </div>
-                )}
-
-                <div className="border-t pt-4 mb-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Teklif Kalemleri ({quote.items.length} ürün)</p>
-                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    {quote.items.map((item) => (
-                      <div key={item.id} className="flex justify-between items-center text-sm py-2 px-3 bg-white rounded border border-gray-100">
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">{item.productName}</p>
-                          <div className="flex gap-2 mt-1 flex-wrap">
-                            <span className="text-xs text-gray-500">{item.productCode}</span>
-                            <Badge variant="default" className="text-xs">
-                              {item.priceSource === 'PRICE_LIST' ? `Liste ${item.priceListNo}` :
-                               item.priceSource === 'LAST_SALE' ? 'Son Satış' : 'Manuel'}
-                            </Badge>
-                            {item.isBlocked && <Badge variant="warning" className="text-xs">Blok</Badge>}
-                          </div>
-                        </div>
-                        <div className="text-right ml-4">
-                          <p className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</p>
-                          <p className="font-semibold text-gray-900">{formatCurrency(item.totalPrice)}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
-                  <Button variant="secondary" onClick={() => handlePdfExport(quote)}>
-                    PDF İndir
-                  </Button>
-                  <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
-                    WhatsApp Paylaş
-                  </Button>
-                  {quote.mikroNumber && (
-                    <Button
-                      variant="secondary"
-                      onClick={() => handleSync(quote.id)}
-                      disabled={syncingQuoteId === quote.id}
-                    >
-                      {syncingQuoteId === quote.id ? 'Guncelleniyor...' : 'Mikrodan Guncelle'}
-                    </Button>
-                  )}
-                  {quote.status === 'PENDING_APPROVAL' && isAdmin && (
+                  {isExpanded && (
                     <>
-                      <Button variant="primary" onClick={() => handleApprove(quote.id)}>
-                        Onayla ve Mikro'ya Gönder
-                      </Button>
-                      <Button variant="danger" onClick={() => handleReject(quote.id)}>
-                        Reddet
-                      </Button>
+                      {quote.adminNote && (
+                        <div className="mt-4 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+                          <p className="text-xs font-medium text-gray-600">Admin Notu:</p>
+                          <p className="text-sm text-gray-800 mt-1">{quote.adminNote}</p>
+                        </div>
+                      )}
+                      {quote.createdBy && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          Oluşturan: {quote.createdBy.name}
+                        </div>
+                      )}
+
+                      {quote.customer && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-3">Müşteri Bilgileri</h4>
+                          <CustomerInfoCard customer={quote.customer} />
+                        </div>
+                      )}
+
+                      <div className="border-t pt-4 mt-4">
+                        <p className="text-sm font-semibold text-gray-700 mb-3">Teklif Kalemleri ({quote.items.length} ürün)</p>
+                        <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                          {quote.items.map((item) => (
+                            <div key={item.id} className="flex justify-between items-center text-sm py-2 px-3 bg-white rounded border border-gray-100">
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-900">{item.productName}</p>
+                                <div className="flex gap-2 mt-1 flex-wrap">
+                                  <span className="text-xs text-gray-500">{item.productCode}</span>
+                                  <Badge variant="default" className="text-xs">
+                                    {item.priceSource === 'PRICE_LIST' ? `Liste ${item.priceListNo}` :
+                                     item.priceSource === 'LAST_SALE' ? 'Son Satış' : 'Manuel'}
+                                  </Badge>
+                                  {item.isBlocked && <Badge variant="warning" className="text-xs">Blok</Badge>}
+                                </div>
+                              </div>
+                              <div className="text-right ml-4">
+                                <p className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</p>
+                                <p className="font-semibold text-gray-900">{formatCurrency(item.totalPrice)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
+                        <Button variant="secondary" onClick={() => handlePdfExport(quote)}>
+                          PDF İndir
+                        </Button>
+                        <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
+                          WhatsApp Paylaş
+                        </Button>
+                        {quote.mikroNumber && (
+                          <Button
+                            variant="secondary"
+                            onClick={() => handleSync(quote.id)}
+                            disabled={syncingQuoteId === quote.id}
+                          >
+                            {syncingQuoteId === quote.id ? 'Guncelleniyor...' : 'Mikrodan Guncelle'}
+                          </Button>
+                        )}
+                        {quote.status === 'PENDING_APPROVAL' && isAdmin && (
+                          <>
+                            <Button variant="primary" onClick={() => handleApprove(quote.id)}>
+                              Onayla ve Mikro'ya Gönder
+                            </Button>
+                            <Button variant="danger" onClick={() => handleReject(quote.id)}>
+                              Reddet
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </>
                   )}
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

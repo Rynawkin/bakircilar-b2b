@@ -55,7 +55,7 @@ export default function OrderRequestsPage() {
       requests.forEach((request) => {
         const requestSelection = { ...(next[request.id] || {}) };
         request.items.forEach((item) => {
-          if (requestSelection[item.id] === undefined) {
+          if (requestSelection[item.id] === undefined || item.status !== 'PENDING') {
             requestSelection[item.id] = false;
           }
         });
@@ -87,7 +87,13 @@ export default function OrderRequestsPage() {
 
   const handleConvert = async (request: OrderRequest, selectedIds?: string[]) => {
     if (convertingId) return;
-    if (request.status !== 'PENDING') return;
+    if (request.status === 'REJECTED') return;
+
+    const pendingItems = request.items.filter((item) => item.status === 'PENDING');
+    if (pendingItems.length === 0) {
+      toast.error('Onaylanabilecek satir kalmadi.');
+      return;
+    }
 
     const selectionSet = selectedIds && selectedIds.length > 0 ? new Set(selectedIds) : null;
     if (selectedIds && selectedIds.length === 0) {
@@ -97,8 +103,8 @@ export default function OrderRequestsPage() {
 
     let items: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE' }> | undefined;
     const sourceItems = selectionSet
-      ? request.items.filter((item) => selectionSet.has(item.id))
-      : request.items;
+      ? pendingItems.filter((item) => selectionSet.has(item.id))
+      : pendingItems;
 
     if (selectionSet || canSelectPriceType) {
       items = sourceItems.map((item) => ({
@@ -170,7 +176,10 @@ export default function OrderRequestsPage() {
         <div className="space-y-4">
           {requests.map((request) => {
             const selectionMap = selectedItemsByRequest[request.id] || {};
-            const selectedIds = Object.keys(selectionMap).filter((id) => selectionMap[id]);
+            const selectedIds = Object.keys(selectionMap).filter((id) => {
+              if (!selectionMap[id]) return false;
+              return request.items.some((item) => item.id === id && item.status === 'PENDING');
+            });
             const selectedCount = selectedIds.length;
 
             return (
@@ -204,7 +213,8 @@ export default function OrderRequestsPage() {
                   const displayType = item.selectedPriceType || resolvedPriceType;
                   const selectionMap = selectedItemsByRequest[request.id] || {};
                   const isSelected = Boolean(selectionMap[item.id]);
-                  const canSelectRows = !isSubUser && request.status === 'PENDING';
+                  const canSelectRows = !isSubUser && request.status !== 'REJECTED';
+                  const canSelectItem = canSelectRows && item.status === 'PENDING';
 
                   return (
                     <div key={item.id} className="rounded-lg border border-gray-200 p-3">
@@ -216,6 +226,13 @@ export default function OrderRequestsPage() {
                           <div className="text-xs text-gray-500 mt-1">
                             Tip: {item.priceMode === 'EXCESS' ? 'Fazla Stok' : 'Liste'}
                           </div>
+                          {item.status !== 'PENDING' && (
+                            <div className="mt-2">
+                              <Badge variant={item.status === 'CONVERTED' ? 'success' : 'danger'}>
+                                {item.status === 'CONVERTED' ? 'Siparise Cevrildi' : 'Reddedildi'}
+                              </Badge>
+                            </div>
+                          )}
                         </div>
                         <div className="text-right text-xs text-gray-600 space-y-2">
                           {displayTotal !== undefined ? (
@@ -228,7 +245,7 @@ export default function OrderRequestsPage() {
                           ) : (
                             <div className="text-xs text-gray-400">Fiyat bulunamadi</div>
                           )}
-                          {canSelectRows && (
+                          {canSelectItem && (
                             <label className="inline-flex items-center gap-2 text-xs text-gray-600">
                               <input
                                 type="checkbox"
@@ -250,7 +267,7 @@ export default function OrderRequestsPage() {
                         </div>
                       </div>
 
-                      {canSelectPriceType && request.status === 'PENDING' && (
+                      {canSelectPriceType && request.status !== 'REJECTED' && item.status === 'PENDING' && (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {allowedPriceTypes.includes('INVOICED') && (
                             <button
@@ -316,7 +333,7 @@ export default function OrderRequestsPage() {
                           const next = { ...prev };
                           const requestSelection = { ...(next[request.id] || {}) };
                           request.items.forEach((item) => {
-                            requestSelection[item.id] = true;
+                            requestSelection[item.id] = item.status === 'PENDING';
                           });
                           next[request.id] = requestSelection;
                           return next;

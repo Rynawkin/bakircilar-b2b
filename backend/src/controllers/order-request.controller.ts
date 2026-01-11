@@ -276,10 +276,6 @@ export class OrderRequestController {
         return res.status(404).json({ error: 'Request not found' });
       }
 
-      if (request.status !== 'PENDING') {
-        return res.status(400).json({ error: 'Request is already processed' });
-      }
-
       const priceListPair = resolveCustomerPriceLists(user, await prisma.settings.findFirst({
         select: { customerPriceLists: true },
       }));
@@ -298,12 +294,18 @@ export class OrderRequestController {
         }
       }
       const selectedItemSet = selectedItemIds.length > 0 ? new Set(selectedItemIds) : null;
+      const pendingItems = request.items.filter((item) => item.status === 'PENDING');
+
+      if (pendingItems.length === 0 || request.status === 'REJECTED') {
+        return res.status(400).json({ error: 'Request is already processed' });
+      }
+
       const itemsToConvert = selectedItemSet
-        ? request.items.filter((item) => selectedItemSet.has(item.id))
-        : request.items;
+        ? pendingItems.filter((item) => selectedItemSet.has(item.id))
+        : pendingItems;
 
       if (itemsToConvert.length === 0) {
-        return res.status(400).json({ error: 'No items selected for conversion' });
+        return res.status(400).json({ error: 'No pending items selected for conversion' });
       }
 
       const orderItems: Array<{
@@ -391,33 +393,71 @@ export class OrderRequestController {
         });
       }
 
-      const lastOrder = await prisma.order.findFirst({
-        orderBy: { createdAt: 'desc' },
-        select: { orderNumber: true },
-      });
-      const orderNumber = generateOrderNumber(lastOrder?.orderNumber);
-      const totalAmount = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      let order = request.orderId
+        ? await prisma.order.findUnique({
+            where: { id: request.orderId },
+            select: { id: true, orderNumber: true, totalAmount: true },
+          })
+        : null;
 
-      const order = await prisma.order.create({
-        data: {
-          orderNumber,
-          userId: user.id,
-          requestedById: request.requestedById,
-          status: 'PENDING',
-          totalAmount,
-          items: {
-            create: orderItems.map((item) => ({
-              productId: item.productId,
-              productName: item.productName,
-              mikroCode: item.mikroCode,
-              quantity: item.quantity,
-              priceType: item.priceType,
-              unitPrice: item.unitPrice,
-              totalPrice: item.totalPrice,
-            })),
+      const orderItemsTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+      if (!order) {
+        const lastOrder = await prisma.order.findFirst({
+          orderBy: { createdAt: 'desc' },
+          select: { orderNumber: true },
+        });
+        const orderNumber = generateOrderNumber(lastOrder?.orderNumber);
+
+        order = await prisma.order.create({
+          data: {
+            orderNumber,
+            userId: user.id,
+            requestedById: request.requestedById,
+            status: 'PENDING',
+            totalAmount: orderItemsTotal,
+            items: {
+              create: orderItems.map((item) => ({
+                productId: item.productId,
+                productName: item.productName,
+                mikroCode: item.mikroCode,
+                quantity: item.quantity,
+                priceType: item.priceType,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+              })),
+            },
           },
-        },
-      });
+          select: { id: true, orderNumber: true, totalAmount: true },
+        });
+
+        await prisma.customerRequest.update({
+          where: { id: request.id },
+          data: { orderId: order.id },
+        });
+      } else {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: {
+            totalAmount: (order.totalAmount || 0) + orderItemsTotal,
+            items: {
+              create: orderItems.map((item) => ({
+                productId: item.productId,
+                productName: item.productName,
+                mikroCode: item.mikroCode,
+                quantity: item.quantity,
+                priceType: item.priceType,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+              })),
+            },
+          },
+        });
+      }
+
+      if (!order) {
+        return res.status(500).json({ error: 'Order could not be created' });
+      }
 
       await prisma.customerRequestItem.updateMany({
         where: {
@@ -438,28 +478,30 @@ export class OrderRequestController {
         });
       }
 
-      if (selectedItemSet) {
-        const rejectedIds = request.items
-          .filter((item) => !selectedItemSet.has(item.id))
-          .map((item) => item.id);
-        if (rejectedIds.length > 0) {
-          await prisma.customerRequestItem.updateMany({
-            where: { id: { in: rejectedIds } },
-            data: { status: 'REJECTED' },
-          });
-        }
-      }
-
-      await prisma.customerRequest.update({
-        where: { id: request.id },
-        data: {
-          status: 'CONVERTED',
-          orderId: order.id,
-          convertedById: user.id,
-          convertedAt: new Date(),
-          note: note ? String(note).trim() : request.note,
-        },
+      const remainingPending = await prisma.customerRequestItem.count({
+        where: { requestId: request.id, status: 'PENDING' },
       });
+
+      if (remainingPending === 0) {
+        const convertedCount = await prisma.customerRequestItem.count({
+          where: { requestId: request.id, status: 'CONVERTED' },
+        });
+
+        await prisma.customerRequest.update({
+          where: { id: request.id },
+          data: {
+            status: convertedCount > 0 ? 'CONVERTED' : 'REJECTED',
+            convertedById: user.id,
+            convertedAt: new Date(),
+            note: note ? String(note).trim() : request.note,
+          },
+        });
+      } else if (note && note.trim()) {
+        await prisma.customerRequest.update({
+          where: { id: request.id },
+          data: { note: String(note).trim() },
+        });
+      }
 
       res.json({ orderId: order.id, orderNumber: order.orderNumber });
     } catch (error) {
@@ -494,33 +536,50 @@ export class OrderRequestController {
 
       const request = await prisma.customerRequest.findUnique({
         where: { id },
-        select: { id: true, parentCustomerId: true, status: true },
+        select: {
+          id: true,
+          parentCustomerId: true,
+          status: true,
+          orderId: true,
+          items: { select: { id: true, status: true } },
+        },
       });
 
       if (!request || request.parentCustomerId !== user.id) {
         return res.status(404).json({ error: 'Request not found' });
       }
 
-      if (request.status !== 'PENDING') {
+      if (request.status === 'REJECTED') {
+        return res.status(400).json({ error: 'Request is already processed' });
+      }
+
+      const pendingIds = request.items
+        .filter((item) => item.status === 'PENDING')
+        .map((item) => item.id);
+
+      if (pendingIds.length === 0) {
         return res.status(400).json({ error: 'Request is already processed' });
       }
 
       await prisma.customerRequestItem.updateMany({
-        where: { requestId: request.id },
+        where: { id: { in: pendingIds } },
         data: { status: 'REJECTED' },
       });
+
+      const hasConverted = request.items.some((item) => item.status === 'CONVERTED');
+      const nextStatus = hasConverted ? 'CONVERTED' : 'REJECTED';
 
       await prisma.customerRequest.update({
         where: { id: request.id },
         data: {
-          status: 'REJECTED',
+          status: nextStatus,
           convertedById: user.id,
           convertedAt: new Date(),
           note: note ? String(note).trim() : undefined,
         },
       });
 
-      res.json({ status: 'REJECTED' });
+      res.json({ status: nextStatus });
     } catch (error) {
       next(error);
     }

@@ -42,8 +42,15 @@ class CariHareketService {
         cha_evrakno_sira AS [Sıra],
         cha_tarihi AS [Tarih],
         cha_belge_no AS [Belge No],
+        COALESCE(evrak.CHEvrUzunIsim, evrak.CHEvrKisaIsim) AS [Evrak Tipi],
+        cins.CHCinsIsim AS [Odeme Tipi],
+        tip.CHTipIsim AS [Hareket Tipi],
+        cha_tip AS [Tip Kodu],
         cha_meblag AS [Tutar]
       FROM dbo.CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+      LEFT JOIN dbo.vw_Cari_Hareket_Evrak_Isimleri evrak ON evrak.CHEvrNo = cha_evrak_tip
+      LEFT JOIN dbo.vw_Cari_Hareket_Cins_Isimleri cins ON cins.CHCinsNo = cha_cinsi
+      LEFT JOIN dbo.vw_Cari_Hareket_Tip_Isimleri tip ON tip.CHTipNo = cha_tip
       WHERE cha_kod = '${escapedCariKod}'
         AND cha_create_date >= '${defaultStartDate}'
         AND cha_create_date < DATEADD(day, 1, '${defaultEndDate}')
