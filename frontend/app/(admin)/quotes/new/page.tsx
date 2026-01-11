@@ -429,12 +429,9 @@ export default function AdminQuoteNewPage() {
   }, [searchTerm, productTab]);
 
   useEffect(() => {
-    if (productTab !== 'search') {
-      setSelectedSearchCodes(new Set());
-      return;
-    }
+    if (!selectedCustomer) return;
     setSelectedSearchCodes(new Set());
-  }, [searchTerm, productTab, searchResults]);
+  }, [selectedCustomer]);
 
   useEffect(() => {
     if (selectedColumns.length === 0) return;
@@ -2501,24 +2498,26 @@ export default function AdminQuoteNewPage() {
                               {unitLabel && (
                                 <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
                               )}
-                              {poolPriceLabel && (
-                                <div className="mt-1 text-xs text-slate-500">
-                                  <span className="font-medium text-slate-600">{poolPriceLabel}</span>{' '}
-                                  {poolPriceDisplay}
-                                </div>
-                              )}
                             </div>
                           </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              addProductToQuote(product);
-                            }}
-                          >
-                            Teklife Ekle
-                          </Button>
+                          <div className="flex flex-col items-start sm:items-end">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                addProductToQuote(product);
+                              }}
+                            >
+                              Teklife Ekle
+                            </Button>
+                            {poolPriceLabel && (
+                              <div className="mt-2 text-[11px] font-semibold text-slate-700">
+                                {poolPriceLabel}:{' '}
+                                <span className="font-bold text-slate-900">{poolPriceDisplay}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         {product.lastSales?.length ? (
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -2645,25 +2644,27 @@ export default function AdminQuoteNewPage() {
                               {unitLabel && (
                                 <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
                               )}
-                              {poolPriceLabel && (
-                                <div className="mt-1 text-xs text-slate-500">
-                                  <span className="font-medium text-slate-600">{poolPriceLabel}</span>{' '}
-                                  {poolPriceDisplay}
-                                </div>
-                              )}
                             </div>
                           </div>
                         </div>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            addProductToQuote(product);
-                          }}
-                        >
-                          Teklife Ekle
-                        </Button>
+                        <div className="flex flex-col items-start sm:items-end">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              addProductToQuote(product);
+                            }}
+                          >
+                            Teklife Ekle
+                          </Button>
+                          {poolPriceLabel && (
+                            <div className="mt-2 text-[11px] font-semibold text-slate-700">
+                              {poolPriceLabel}:{' '}
+                              <span className="font-bold text-slate-900">{poolPriceDisplay}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
