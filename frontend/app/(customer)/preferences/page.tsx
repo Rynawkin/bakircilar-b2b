@@ -11,7 +11,7 @@ import apiClient from '@/lib/api/client';
 
 export default function PreferencesPage() {
   const router = useRouter();
-  const { user, loadUserFromStorage, logout } = useAuthStore();
+  const { user, loadUserFromStorage, logout, refreshUser } = useAuthStore();
   const [vatDisplayPreference, setVatDisplayPreference] = useState<'WITH_VAT' | 'WITHOUT_VAT'>('WITH_VAT');
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -22,7 +22,6 @@ export default function PreferencesPage() {
 
   useEffect(() => {
     if (user) {
-      // @ts-ignore
       setVatDisplayPreference(user.vatDisplayPreference || 'WITH_VAT');
     }
   }, [user]);
@@ -39,7 +38,7 @@ export default function PreferencesPage() {
       setMessage({ type: 'success', text: 'Ayarlar başarıyla kaydedildi!' });
 
       // Refresh user data
-      loadUserFromStorage();
+      await refreshUser();
     } catch (error: any) {
       setMessage({ type: 'error', text: error.response?.data?.error || 'Ayarlar kaydedilemedi' });
     } finally {

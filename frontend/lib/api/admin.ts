@@ -214,8 +214,11 @@ export const adminApi = {
 
   createCustomerSubUser: async (
     customerId: string,
-    data: { name: string; email: string; password: string; active?: boolean }
-  ): Promise<{ subUser: { id: string; name: string; email?: string; active: boolean; createdAt: string } }> => {
+    data: { name: string; email?: string; password?: string; active?: boolean; autoCredentials?: boolean }
+  ): Promise<{
+    subUser: { id: string; name: string; email?: string; active: boolean; createdAt: string };
+    credentials?: { username: string; password: string } | null;
+  }> => {
     const response = await apiClient.post(`/admin/customers/${customerId}/sub-users`, data);
     return response.data;
   },

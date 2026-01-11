@@ -21,6 +21,7 @@ interface AuthState {
   loadUserFromStorage: () => void;
   clearError: () => void;
   updateActivity: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 // Helper functions for localStorage
@@ -125,6 +126,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const newState = { ...state, lastActivity: Date.now() };
     set(newState);
     saveToStorage(newState);
+  },
+
+  refreshUser: async () => {
+    const state = get();
+    if (!state.token) return;
+    try {
+      const freshUser = await authApi.getMe();
+      const newState = { ...state, user: freshUser };
+      set(newState);
+      saveToStorage(newState);
+    } catch (error) {
+      console.error('Failed to refresh user:', error);
+    }
   },
 
   clearError: () => set({ error: null }),

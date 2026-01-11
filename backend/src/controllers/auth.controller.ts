@@ -26,6 +26,7 @@ export class AuthController {
               mikroCariCode: true,
               customerType: true,
               priceVisibility: true,
+              vatDisplayPreference: true,
             },
           },
         },
@@ -42,6 +43,7 @@ export class AuthController {
                 mikroCariCode: true,
                 customerType: true,
                 priceVisibility: true,
+                vatDisplayPreference: true,
               },
             },
           },
@@ -77,6 +79,8 @@ export class AuthController {
       const effectiveMikroCode = user.mikroCariCode || user.parentCustomer?.mikroCariCode || undefined;
       const effectiveCustomerType = user.customerType || user.parentCustomer?.customerType || undefined;
       const effectivePriceVisibility = user.parentCustomer?.priceVisibility || user.priceVisibility;
+      const effectiveVatDisplayPreference =
+        user.parentCustomer?.vatDisplayPreference || user.vatDisplayPreference;
 
       const userResponse: UserResponse = {
         id: user.id,
@@ -86,6 +90,7 @@ export class AuthController {
         customerType: effectiveCustomerType,
         mikroCariCode: effectiveMikroCode,
         priceVisibility: effectivePriceVisibility,
+        vatDisplayPreference: effectiveVatDisplayPreference,
         parentCustomerId: user.parentCustomerId || undefined,
       };
 
@@ -119,12 +124,14 @@ export class AuthController {
           customerType: true,
           mikroCariCode: true,
           priceVisibility: true,
+          vatDisplayPreference: true,
           parentCustomerId: true,
           parentCustomer: {
             select: {
               mikroCariCode: true,
               customerType: true,
               priceVisibility: true,
+              vatDisplayPreference: true,
             },
           },
         },
@@ -138,6 +145,8 @@ export class AuthController {
       const effectiveMikroCode = user.mikroCariCode || user.parentCustomer?.mikroCariCode || undefined;
       const effectiveCustomerType = user.customerType || user.parentCustomer?.customerType || undefined;
       const effectivePriceVisibility = user.parentCustomer?.priceVisibility || user.priceVisibility;
+      const effectiveVatDisplayPreference =
+        user.parentCustomer?.vatDisplayPreference || user.vatDisplayPreference;
 
       res.json({
         id: user.id,
@@ -147,6 +156,7 @@ export class AuthController {
         customerType: effectiveCustomerType,
         mikroCariCode: effectiveMikroCode,
         priceVisibility: effectivePriceVisibility,
+        vatDisplayPreference: effectiveVatDisplayPreference,
         parentCustomerId: user.parentCustomerId || undefined,
       });
     } catch (error) {

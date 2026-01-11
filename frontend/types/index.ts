@@ -8,6 +8,7 @@ export interface User {
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   mikroCariCode?: string;
   priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+  vatDisplayPreference?: 'WITH_VAT' | 'WITHOUT_VAT';
   parentCustomerId?: string;
   active?: boolean;
   paymentPlanNo?: number | null;

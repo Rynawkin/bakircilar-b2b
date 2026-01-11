@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
+import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { Button } from '@/components/ui/Button';
 
@@ -17,9 +18,10 @@ interface ProductDetailModalProps {
     priceMode?: 'LIST' | 'EXCESS'
   ) => Promise<void>;
   allowedPriceTypes?: Array<'INVOICED' | 'WHITE'>;
+  vatDisplayPreference?: 'WITH_VAT' | 'WITHOUT_VAT';
 }
 
-export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allowedPriceTypes }: ProductDetailModalProps) {
+export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allowedPriceTypes, vatDisplayPreference }: ProductDetailModalProps) {
   const [quantity, setQuantity] = useState(1);
   const resolvedAllowed = allowedPriceTypes && allowedPriceTypes.length > 0 ? allowedPriceTypes : ['INVOICED', 'WHITE'];
   const defaultPriceType = resolvedAllowed.includes('INVOICED') ? 'INVOICED' : 'WHITE';
@@ -118,6 +120,18 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
 
   const selectedPrice = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
+  const displaySelectedPrice = getDisplayPrice(selectedPrice, product.vatRate, priceType, vatDisplayPreference);
+  const displayTotalPrice = getDisplayPrice(totalPrice, product.vatRate, priceType, vatDisplayPreference);
+  const displayInvoicedPrice = getDisplayPrice(product.prices.invoiced, product.vatRate, 'INVOICED', vatDisplayPreference);
+  const displayWhitePrice = getDisplayPrice(product.prices.white, product.vatRate, 'WHITE', vatDisplayPreference);
+  const displayListInvoiced = listInvoiced ? getDisplayPrice(listInvoiced, product.vatRate, 'INVOICED', vatDisplayPreference) : 0;
+  const displayListWhite = listWhite ? getDisplayPrice(listWhite, product.vatRate, 'WHITE', vatDisplayPreference) : 0;
+  const displayExcessInvoiced = excessInvoiced !== undefined
+    ? getDisplayPrice(excessInvoiced, product.vatRate, 'INVOICED', vatDisplayPreference)
+    : undefined;
+  const displayExcessWhite = excessWhite !== undefined
+    ? getDisplayPrice(excessWhite, product.vatRate, 'WHITE', vatDisplayPreference)
+    : undefined;
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
 
   return (
@@ -263,11 +277,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                   >
                     <div className="text-xs text-gray-600 mb-1">Faturali</div>
                     <div className="text-2xl font-bold text-primary-600">
-                      {formatCurrency(product.prices.invoiced)}
+                        {formatCurrency(displayInvoicedPrice)}
                     </div>
                     {shouldShowDiscounts && isDiscounted && listInvoiced && listInvoiced > 0 && (
                       <div className="text-xs text-gray-500">
-                        Liste: <span className="line-through">{formatCurrency(listInvoiced)}</span>
+                        Liste: <span className="line-through">{formatCurrency(displayListInvoiced)}</span>
                       </div>
                     )}
                     {shouldShowDiscounts && isDiscounted && invoicedDiscount && (
@@ -275,15 +289,17 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                         <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{invoicedDiscount}</span> indirim
                       </div>
                     )}
-                    {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && excessInvoiced && (
-                      <div className="text-xs text-green-700 font-semibold">
-                        Fazla Stok: {formatCurrency(excessInvoiced)}
-                        {excessInvoicedDiscount && (
-                          <span> (-%{excessInvoicedDiscount})</span>
-                        )}
+                      {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessInvoiced !== undefined && (
+                        <div className="text-xs text-green-700 font-semibold">
+                          Fazla Stok: {formatCurrency(displayExcessInvoiced)}
+                          {excessInvoicedDiscount && (
+                            <span> (-%{excessInvoicedDiscount})</span>
+                          )}
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-500 mt-1">
+                        /{product.unit} <span className="text-primary-600 font-semibold">{getVatLabel('INVOICED', vatDisplayPreference)}</span>
                       </div>
-                    )}
-                    <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-primary-600 font-semibold">+KDV</span></div>
                   </button>
                 )}
                 {resolvedAllowed.includes('WHITE') && (
@@ -298,26 +314,26 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                   >
                     <div className="text-xs text-gray-600 mb-1">Beyaz</div>
                     <div className="text-2xl font-bold text-gray-900">
-                      {formatCurrency(product.prices.white)}
+                        {formatCurrency(displayWhitePrice)}
                     </div>
-                    {shouldShowDiscounts && isDiscounted && listWhite && listWhite > 0 && (
-                      <div className="text-xs text-gray-500">
-                        Liste: <span className="line-through">{formatCurrency(listWhite)}</span>
-                      </div>
-                    )}
+                      {shouldShowDiscounts && isDiscounted && displayListWhite > 0 && (
+                        <div className="text-xs text-gray-500">
+                          Liste: <span className="line-through">{formatCurrency(displayListWhite)}</span>
+                        </div>
+                      )}
                     {shouldShowDiscounts && isDiscounted && whiteDiscount && (
                       <div className="text-xs text-green-700 font-semibold">
                         <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{whiteDiscount}</span> indirim
                       </div>
                     )}
-                    {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && excessWhite && (
-                      <div className="text-xs text-green-700 font-semibold">
-                        Fazla Stok: {formatCurrency(excessWhite)}
-                        {excessWhiteDiscount && (
-                          <span> (-%{excessWhiteDiscount})</span>
-                        )}
-                      </div>
-                    )}
+                      {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessWhite !== undefined && (
+                        <div className="text-xs text-green-700 font-semibold">
+                          Fazla Stok: {formatCurrency(displayExcessWhite)}
+                          {excessWhiteDiscount && (
+                            <span> (-%{excessWhiteDiscount})</span>
+                          )}
+                        </div>
+                      )}
                     <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-gray-700 font-semibold">Ozel Fiyat</span></div>
                   </button>
                 )}
@@ -374,11 +390,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
               <div className="flex justify-between items-center">
                 <div>
                   <div className="text-sm text-gray-700 mb-1">Toplam Fiyat</div>
-                  <div className="text-3xl font-bold text-primary-700">{formatCurrency(totalPrice)}</div>
+                  <div className="text-3xl font-bold text-primary-700">{formatCurrency(displayTotalPrice)}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-xs text-gray-600">
-                    {quantity} {product.unit} x {formatCurrency(selectedPrice)}
+                    {quantity} {product.unit} x {formatCurrency(displaySelectedPrice)}
                   </div>
                   <div className="text-xs font-semibold text-primary-600 mt-1">
                     {priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}

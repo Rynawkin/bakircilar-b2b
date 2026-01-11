@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency } from '@/lib/utils/format';
+import { getDisplayPrice } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
@@ -30,6 +31,7 @@ export default function ProductDetailPage() {
   const effectiveVisibility = isSubUser
     ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
     : user?.priceVisibility;
+  const vatDisplayPreference = user?.vatDisplayPreference || 'WITH_VAT';
   const allowedPriceTypes = useMemo(
     () => getAllowedPriceTypes(effectiveVisibility),
     [effectiveVisibility]
@@ -125,6 +127,30 @@ export default function ProductDetailPage() {
   const selectedPriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
   const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
+  const displaySelectedPrice = getDisplayPrice(
+    selectedPrice,
+    product.vatRate,
+    selectedPriceType,
+    vatDisplayPreference
+  );
+  const displayTotalPrice = getDisplayPrice(
+    totalPrice,
+    product.vatRate,
+    selectedPriceType,
+    vatDisplayPreference
+  );
+  const displayInvoicedPrice = getDisplayPrice(
+    product.prices.invoiced,
+    product.vatRate,
+    'INVOICED',
+    vatDisplayPreference
+  );
+  const displayWhitePrice = getDisplayPrice(
+    product.prices.white,
+    product.vatRate,
+    'WHITE',
+    vatDisplayPreference
+  );
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
   const formatAgreementDate = (value?: string | null) => {
     if (!value) return '-';
@@ -220,7 +246,7 @@ export default function ProductDetailPage() {
                           <div className="flex-1">
                             <p className="font-medium">Faturalı</p>
                             <p className="text-lg text-primary-600 font-bold">
-                              {formatCurrency(product.prices.invoiced)}
+                              {formatCurrency(displayInvoicedPrice)}
                             </p>
                           </div>
                         </label>
@@ -241,7 +267,7 @@ export default function ProductDetailPage() {
                           <div className="flex-1">
                             <p className="font-medium">Beyaz</p>
                             <p className="text-lg text-gray-700 font-bold">
-                              {formatCurrency(product.prices.white)}
+                              {formatCurrency(displayWhitePrice)}
                             </p>
                           </div>
                         </label>
@@ -275,7 +301,7 @@ export default function ProductDetailPage() {
                   <div className="border-t pt-4">
                     <div className="flex justify-between mb-2">
                       <span className="text-gray-600">Birim Fiyat:</span>
-                      <span className="font-medium">{formatCurrency(selectedPrice)}</span>
+                        <span className="font-medium">{formatCurrency(displaySelectedPrice)}</span>
                     </div>
                     <div className="flex justify-between mb-2">
                       <span className="text-gray-600">Miktar:</span>
@@ -283,7 +309,7 @@ export default function ProductDetailPage() {
                     </div>
                     <div className="flex justify-between text-lg font-bold border-t pt-2">
                       <span>Toplam:</span>
-                      <span className="text-primary-600">{formatCurrency(totalPrice)}</span>
+                        <span className="text-primary-600">{formatCurrency(displayTotalPrice)}</span>
                     </div>
                   </div>
 

@@ -28,7 +28,7 @@ router.use(authenticate);
 
 // Validation schemas
 const createCustomerSchema = z.object({
-  email: z.string().email('Invalid email'),
+  email: z.string().min(1, 'Email is required'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   name: z.string().min(1, 'Name is required'),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']),
@@ -167,7 +167,7 @@ router.post('/products/:id/image', requireAdminOrManager, upload.single('image')
 router.delete('/products/:id/image', requireAdminOrManager, adminController.deleteProductImage);
 
 const updateCustomerSchema = z.object({
-  email: z.string().email().optional(),
+  email: z.string().optional(),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']).optional(),
   active: z.boolean().optional(),
   priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
@@ -175,14 +175,15 @@ const updateCustomerSchema = z.object({
 
 const subUserCreateSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(6),
+  email: z.string().optional(),
+  password: z.string().min(6).optional(),
+  autoCredentials: z.boolean().optional(),
   active: z.boolean().optional(),
 });
 
 const subUserUpdateSchema = z.object({
   name: z.string().min(1).optional(),
-  email: z.string().email().optional(),
+  email: z.string().optional(),
   password: z.string().min(6).optional(),
   active: z.boolean().optional(),
 });

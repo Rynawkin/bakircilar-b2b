@@ -14,6 +14,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { formatCurrency } from '@/lib/utils/format';
+import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
@@ -46,6 +47,7 @@ export default function AgreementProductsPage() {
   const effectiveVisibility = isSubUser
     ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
     : user?.priceVisibility;
+  const vatDisplayPreference = user?.vatDisplayPreference || 'WITH_VAT';
   const allowedPriceTypes = useMemo(() => getAllowedPriceTypes(effectiveVisibility), [effectiveVisibility]);
   const defaultPriceType = getDefaultPriceType(effectiveVisibility);
   const defaultFilterPriceType = defaultPriceType === 'INVOICED' ? 'invoiced' : 'white';
@@ -278,13 +280,36 @@ export default function AgreementProductsPage() {
               const selectedExcessPrice = showExcessPricing
                 ? (selectedPriceType === 'INVOICED' ? product.excessPrices?.invoiced : product.excessPrices?.white)
                 : undefined;
-              const selectedExcessDiscount = showExcessPricing && selectedExcessPrice
-                ? getDiscountPercent(
-                    selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white,
-                    selectedExcessPrice
-                  )
-                : null;
-return (
+                  const selectedExcessDiscount = showExcessPricing && selectedExcessPrice
+                    ? getDiscountPercent(
+                        selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white,
+                        selectedExcessPrice
+                      )
+                    : null;
+                  const displaySelectedPrice = getDisplayPrice(
+                    selectedPrice,
+                    product.vatRate,
+                    selectedPriceType,
+                    vatDisplayPreference
+                  );
+                  const displaySelectedExcessPrice = selectedExcessPrice !== undefined
+                    ? getDisplayPrice(selectedExcessPrice, product.vatRate, selectedPriceType, vatDisplayPreference)
+                    : undefined;
+                  const displayInvoicedPrice = getDisplayPrice(
+                    product.prices.invoiced,
+                    product.vatRate,
+                    'INVOICED',
+                    vatDisplayPreference
+                  );
+                  const displayWhitePrice = getDisplayPrice(
+                    product.prices.white,
+                    product.vatRate,
+                    'WHITE',
+                    vatDisplayPreference
+                  );
+                  const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
+                  const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
+  return (
                 <Card key={product.id} className="p-4 flex flex-col gap-4">
                   <div className="flex gap-4">
                     <div className="w-20 h-20 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
@@ -322,8 +347,8 @@ return (
                           onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
                         >
                           <div>Faturali</div>
-                          <div className="font-bold">{formatCurrency(product.prices.invoiced)}</div>
-                          <div className="text-[10px] opacity-70 mt-1">+KDV</div>
+                          <div className="font-bold">{formatCurrency(displayInvoicedPrice)}</div>
+                          <div className="text-[10px] opacity-70 mt-1">{invoicedVatLabel}</div>
                         </button>
                       )}
                       {allowedPriceTypes.includes('WHITE') && (
@@ -334,22 +359,22 @@ return (
                           onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
                         >
                           <div>Beyaz</div>
-                          <div className="font-bold">{formatCurrency(product.prices.white)}</div>
-                          <div className="text-[10px] opacity-70 mt-1">Ozel</div>
+                          <div className="font-bold">{formatCurrency(displayWhitePrice)}</div>
+                          <div className="text-[10px] opacity-70 mt-1">{getVatLabel('WHITE', vatDisplayPreference)}</div>
                         </button>
                       )}
                     </div>
                   ) : (
                     <div className="rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
                       <div>{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
-                      <div className="font-bold">{formatCurrency(selectedPrice)}</div>
-                      {showExcessPricing && selectedExcessPrice && (
+                      <div className="font-bold">{formatCurrency(displaySelectedPrice)}</div>
+                      {showExcessPricing && displaySelectedExcessPrice !== undefined && (
                         <div className="text-[10px] text-green-700 font-semibold">
-                          Fazla: {formatCurrency(selectedExcessPrice)}
+                          Fazla: {formatCurrency(displaySelectedExcessPrice)}
                           {selectedExcessDiscount && <span> (-%{selectedExcessDiscount})</span>}
                         </div>
                       )}
-                      <div className="text-[10px] opacity-70 mt-1">{selectedPriceType === 'INVOICED' ? '+KDV' : 'Ozel'}</div>
+                      <div className="text-[10px] opacity-70 mt-1">{selectedVatLabel}</div>
                     </div>
                   )}
 
@@ -397,6 +422,7 @@ return (
         onClose={() => setIsModalOpen(false)}
         onAddToCart={handleModalAddToCart}
         allowedPriceTypes={allowedPriceTypes}
+        vatDisplayPreference={vatDisplayPreference}
       />
     </div>
   );

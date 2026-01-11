@@ -26,11 +26,12 @@ export interface UserResponse {
   customerType?: string;
   mikroCariCode?: string;
   priceVisibility?: string;
+  vatDisplayPreference?: string;
   parentCustomerId?: string;
 }
 
 export interface CreateCustomerRequest {
-  email: string;
+  email?: string;
   password: string;
   name: string;
   customerType: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';

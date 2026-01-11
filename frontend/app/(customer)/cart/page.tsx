@@ -15,6 +15,7 @@ import { MobileMenu } from '@/components/ui/MobileMenu';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { formatCurrency } from '@/lib/utils/format';
+import { getDisplayPrice, getVatLabel, getVatStatusLabel } from '@/lib/utils/vatDisplay';
 
 export default function CartPage() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function CartPage() {
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
+  const vatDisplayPreference = user?.vatDisplayPreference || 'WITH_VAT';
 
   useEffect(() => {
     loadUserFromStorage();
@@ -297,12 +299,13 @@ Siparis No: ${result.orderNumber}`, {
                               {/* Price */}
                               <div className="flex justify-between sm:block sm:text-right sm:min-w-[120px]">
                                 <p className="text-sm text-gray-600">
-                                  {formatCurrency(item.unitPrice)} / adet<span className="text-xs ml-1">(+KDV)</span>
+                                  {formatCurrency(getDisplayPrice(item.unitPrice, item.vatRate, 'INVOICED', vatDisplayPreference))} / adet
+                                  <span className="text-xs ml-1">({getVatLabel('INVOICED', vatDisplayPreference)})</span>
                                 </p>
                                 <p className="text-xl sm:text-2xl font-bold text-blue-600">
-                                  {formatCurrency(item.totalPrice)}
+                                  {formatCurrency(getDisplayPrice(item.totalPrice, item.vatRate, 'INVOICED', vatDisplayPreference))}
                                 </p>
-                                <p className="text-xs text-gray-500">KDV Hariç</p>
+                                <p className="text-xs text-gray-500">{getVatStatusLabel(vatDisplayPreference)}</p>
                               </div>
 
                               {/* Delete Button - Desktop */}

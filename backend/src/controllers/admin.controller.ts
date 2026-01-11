@@ -28,6 +28,13 @@ const DEFAULT_CUSTOMER_PRICE_LISTS = {
   OZEL: { invoiced: 6, white: 1 },
 };
 
+const buildSubUserBase = (mikroCariCode: string | null | undefined, fallbackId: string): string => {
+  const trimmed = typeof mikroCariCode === 'string' ? mikroCariCode.trim() : '';
+  if (trimmed) return trimmed;
+  return `SUB-${fallbackId.slice(0, 6)}`;
+};
+
+
 const TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
 const USD_RATE_TTL_MS = 60 * 60 * 1000;
 let usdRateCache: { rate: number; fetchedAt: number } | null = null;
@@ -609,6 +616,8 @@ export class AdminController {
     try {
       const { email, password, name, customerType, mikroCariCode, invoicedPriceListNo, whitePriceListNo, priceVisibility } =
         req.body as CreateCustomerRequest;
+      const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+      const emailValue = normalizedEmail || null;
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
       const isSalesRep = userRole === 'SALES_REP';
@@ -622,12 +631,14 @@ export class AdminController {
       }
 
       // Email kontrolü
-      const existingUser = await prisma.user.findUnique({
-        where: { email },
-      });
+      if (emailValue) {
+        const existingUser = await prisma.user.findUnique({
+          where: { email: emailValue },
+        });
 
-      if (existingUser) {
-        return res.status(400).json({ error: 'Email already exists' });
+        if (existingUser) {
+          return res.status(400).json({ error: 'Email already exists' });
+        }
       }
 
       // Mikro cari kodu kontrolü
@@ -685,7 +696,7 @@ export class AdminController {
       // Kullanıcı oluştur
       const user = await prisma.user.create({
         data: {
-          email,
+          email: emailValue,
           password: hashedPassword,
           name,
           role: 'CUSTOMER',
@@ -743,6 +754,8 @@ export class AdminController {
     try {
       const { id } = req.params;
       const { email, customerType, active, invoicedPriceListNo, whitePriceListNo, priceVisibility } = req.body;
+      const normalizedEmail = typeof email === 'string' ? email.trim() : email;
+      const emailValue = normalizedEmail === '' ? null : normalizedEmail;
 
       // Validate customer exists
       const existingCustomer = await prisma.user.findUnique({
@@ -758,9 +771,9 @@ export class AdminController {
       }
 
       // Email değişiyorsa başka kullanıcıda var mı kontrol et
-      if (email && email !== existingCustomer.email) {
+      if (emailValue && emailValue !== existingCustomer.email) {
         const emailTaken = await prisma.user.findUnique({
-          where: { email },
+          where: { email: emailValue as string },
         });
 
         if (emailTaken) {
@@ -846,7 +859,10 @@ export class AdminController {
   async createCustomerSubUser(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { name, email, password, active } = req.body;
+      const { name, email, password, active, autoCredentials } = req.body;
+      const trimmedName = typeof name === 'string' ? name.trim() : '';
+      const trimmedEmail = typeof email === 'string' ? email.trim() : '';
+      const trimmedPassword = typeof password === 'string' ? password.trim() : '';
 
       const parentCustomer = await prisma.user.findUnique({
         where: { id },
@@ -855,6 +871,7 @@ export class AdminController {
           role: true,
           customerType: true,
           priceVisibility: true,
+          mikroCariCode: true,
         },
       });
 
@@ -862,21 +879,60 @@ export class AdminController {
         return res.status(404).json({ error: 'Customer not found' });
       }
 
+      if (!trimmedName) {
+        return res.status(400).json({ error: 'Name is required' });
+      }
+
+      let finalEmail = trimmedEmail;
+      let plainPassword = trimmedPassword;
+      let generatedCredentials: { username: string; password: string } | null = null;
+
+      if (autoCredentials || !finalEmail) {
+        const base = buildSubUserBase(parentCustomer.mikroCariCode, parentCustomer.id);
+        let index = 1;
+        while (true) {
+          const candidate = `${base}-${index}`;
+          const existingUser = await prisma.user.findFirst({
+            where: {
+              OR: [{ email: candidate }, { mikroCariCode: candidate }],
+            },
+            select: { id: true },
+          });
+          if (!existingUser) {
+            finalEmail = candidate;
+            break;
+          }
+          index += 1;
+        }
+        if (!plainPassword) {
+          plainPassword = `${finalEmail}123`;
+        }
+        generatedCredentials = { username: finalEmail, password: plainPassword };
+      }
+
+      if (!finalEmail) {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      if (!plainPassword) {
+        return res.status(400).json({ error: 'Password is required' });
+      }
+
       const existingEmail = await prisma.user.findUnique({
-        where: { email },
+        where: { email: finalEmail },
       });
 
       if (existingEmail) {
         return res.status(400).json({ error: 'Email already exists' });
       }
 
-      const hashedPassword = await hashPassword(password);
+      const hashedPassword = await hashPassword(plainPassword);
 
       const subUser = await prisma.user.create({
         data: {
-          email,
+          email: finalEmail,
           password: hashedPassword,
-          name,
+          name: trimmedName,
           role: 'CUSTOMER',
           parentCustomerId: parentCustomer.id,
           customerType: parentCustomer.customerType,
@@ -898,7 +954,7 @@ export class AdminController {
         },
       });
 
-      res.status(201).json({ subUser });
+      res.status(201).json({ subUser, credentials: generatedCredentials });
     } catch (error) {
       next(error);
     }
@@ -911,6 +967,7 @@ export class AdminController {
     try {
       const { id } = req.params;
       const { name, email, password, active } = req.body;
+      const trimmedEmail = typeof email === 'string' ? email.trim() : email;
 
       const existingUser = await prisma.user.findUnique({
         where: { id },
@@ -921,8 +978,8 @@ export class AdminController {
         return res.status(404).json({ error: 'Sub user not found' });
       }
 
-      if (email && email !== existingUser.email) {
-        const emailTaken = await prisma.user.findUnique({ where: { email } });
+      if (trimmedEmail && trimmedEmail !== existingUser.email) {
+        const emailTaken = await prisma.user.findUnique({ where: { email: trimmedEmail } });
         if (emailTaken) {
           return res.status(400).json({ error: 'Email already in use' });
         }
@@ -930,7 +987,7 @@ export class AdminController {
 
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
-      if (email !== undefined) updateData.email = email;
+      if (email !== undefined) updateData.email = trimmedEmail === '' ? null : trimmedEmail;
       if (active !== undefined) updateData.active = active;
       if (password) {
         updateData.password = await hashPassword(password);

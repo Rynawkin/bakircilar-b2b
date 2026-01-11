@@ -145,10 +145,10 @@ export default function CustomersPage() {
     return filtered;
   }, [customers, searchTerm, filterActive]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await adminApi.createCustomer(formData);
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      try {
+        await adminApi.createCustomer({ ...formData, email: formData.email.trim() });
       toast.success('Müşteri başarıyla oluşturuldu! ✅');
       setShowForm(false);
       setFormData({
@@ -402,14 +402,14 @@ export default function CustomersPage() {
               <div className="border-t pt-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">🔐 Hesap Bilgileri</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    required
-                    placeholder="ornek@email.com"
-                  />
+                    <Input
+                      label="Kullanici Adi / E-posta"
+                      type="text"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      required
+                      placeholder="ornek@firma.com veya 120.01.0001"
+                    />
                   <Input
                     label="Şifre"
                     type="password"
@@ -440,11 +440,11 @@ export default function CustomersPage() {
           <div className="space-y-4 mb-4">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex-1">
-                <Input
-                  placeholder="Ad, email, cari kodu, şehir, ilçe veya telefon ile ara..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+                  <Input
+                    placeholder="Ad, kullanici adi, cari kodu, sehir, ilce veya telefon ile ara..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
               </div>
               <div className="flex gap-2">
                 <Button
@@ -477,7 +477,7 @@ export default function CustomersPage() {
               <thead className="bg-gray-50 border-b">
                 <tr className="text-left text-sm text-gray-600">
                   <th className="px-4 py-3 font-medium">Ad</th>
-                  <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Kullanici</th>
                   <th className="px-4 py-3 font-medium">Tip</th>
                   <th className="px-4 py-3 font-medium">Mikro Cari</th>
                   <th className="px-4 py-3 font-medium">Şehir</th>

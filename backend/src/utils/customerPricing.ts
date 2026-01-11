@@ -45,8 +45,7 @@ export const resolveCustomerPriceLists = (
   settings: { customerPriceLists?: any } | null
 ): PriceListPair => {
   const config = normalizePriceListConfig(settings?.customerPriceLists);
-  const customerType = (user.customerType || 'BAYI') as keyof CustomerPriceListConfig;
-  const base = config[customerType] || DEFAULT_PRICE_LISTS.BAYI;
+  const base = config.BAYI || DEFAULT_PRICE_LISTS.BAYI;
 
   return {
     invoiced: resolveListNo(user.invoicedPriceListNo, base.invoiced, 6, 10),

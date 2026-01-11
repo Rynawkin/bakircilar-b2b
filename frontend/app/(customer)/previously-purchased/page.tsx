@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { MobileMenu } from '@/components/ui/MobileMenu';
 import { formatCurrency } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
+import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { LogoLink } from '@/components/ui/Logo';
@@ -33,6 +34,7 @@ export default function PreviouslyPurchasedPage() {
   const effectiveVisibility = isSubUser
     ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
     : user?.priceVisibility;
+  const vatDisplayPreference = user?.vatDisplayPreference || 'WITH_VAT';
   const allowedPriceTypes = useMemo(() => getAllowedPriceTypes(effectiveVisibility), [effectiveVisibility]);
   const defaultPriceType = getDefaultPriceType(effectiveVisibility);
   const defaultFilterPriceType = defaultPriceType === 'INVOICED' ? 'invoiced' : 'white';
@@ -521,7 +523,36 @@ export default function PreviouslyPurchasedPage() {
                         selectedExcessPrice
                       )
                     : null;
-return (
+                  const displaySelectedPrice = getDisplayPrice(
+                    selectedPrice,
+                    product.vatRate,
+                    selectedPriceType,
+                    vatDisplayPreference
+                  );
+                  const displaySelectedExcessPrice = selectedExcessPrice !== undefined
+                    ? getDisplayPrice(selectedExcessPrice, product.vatRate, selectedPriceType, vatDisplayPreference)
+                    : undefined;
+                  const displayInvoicedPrice = getDisplayPrice(
+                    product.prices.invoiced,
+                    product.vatRate,
+                    'INVOICED',
+                    vatDisplayPreference
+                  );
+                  const displayWhitePrice = getDisplayPrice(
+                    product.prices.white,
+                    product.vatRate,
+                    'WHITE',
+                    vatDisplayPreference
+                  );
+                  const displayExcessInvoiced = excessInvoiced !== undefined
+                    ? getDisplayPrice(excessInvoiced, product.vatRate, 'INVOICED', vatDisplayPreference)
+                    : undefined;
+                  const displayExcessWhite = excessWhite !== undefined
+                    ? getDisplayPrice(excessWhite, product.vatRate, 'WHITE', vatDisplayPreference)
+                    : undefined;
+                  const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
+                  const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
+  return (
                   <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
                     <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
@@ -600,16 +631,16 @@ return (
                               onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
                             >
                               <div className="opacity-80 mb-0.5">Faturali</div>
-                              <div className="font-bold text-sm">{formatCurrency(product.prices.invoiced)}</div>
-                              {showExcessPricing && excessInvoiced !== undefined && (
-                                <div className="text-[10px] text-green-700 font-semibold">
-                                  Fazla: {formatCurrency(excessInvoiced)}
-                                  {getDiscountPercent(product.prices.invoiced, excessInvoiced) && (
-                                    <span> (-%{getDiscountPercent(product.prices.invoiced, excessInvoiced)})</span>
-                                  )}
-                                </div>
-                              )}
-                              <div className="text-[10px] opacity-70 mt-0.5">+KDV</div>
+                                <div className="font-bold text-sm">{formatCurrency(displayInvoicedPrice)}</div>
+                                {showExcessPricing && displayExcessInvoiced !== undefined && (
+                                  <div className="text-[10px] text-green-700 font-semibold">
+                                    Fazla: {formatCurrency(displayExcessInvoiced)}
+                                    {getDiscountPercent(product.prices.invoiced, excessInvoiced) && (
+                                      <span> (-%{getDiscountPercent(product.prices.invoiced, excessInvoiced)})</span>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="text-[10px] opacity-70 mt-0.5">{invoicedVatLabel}</div>
                             </button>
                           )}
                           {allowedPriceTypes.includes('WHITE') && (
@@ -622,16 +653,16 @@ return (
                               onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
                             >
                               <div className="opacity-80 mb-0.5">Beyaz</div>
-                              <div className="font-bold text-sm">{formatCurrency(product.prices.white)}</div>
-                              {showExcessPricing && excessWhite !== undefined && (
-                                <div className="text-[10px] text-green-700 font-semibold">
-                                  Fazla: {formatCurrency(excessWhite)}
-                                  {getDiscountPercent(product.prices.white, excessWhite) && (
-                                    <span> (-%{getDiscountPercent(product.prices.white, excessWhite)})</span>
-                                  )}
-                                </div>
-                              )}
-                              <div className="text-[10px] opacity-70 mt-0.5">Ozel</div>
+                                <div className="font-bold text-sm">{formatCurrency(displayWhitePrice)}</div>
+                                {showExcessPricing && displayExcessWhite !== undefined && (
+                                  <div className="text-[10px] text-green-700 font-semibold">
+                                    Fazla: {formatCurrency(displayExcessWhite)}
+                                    {getDiscountPercent(product.prices.white, excessWhite) && (
+                                      <span> (-%{getDiscountPercent(product.prices.white, excessWhite)})</span>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="text-[10px] opacity-70 mt-0.5">{getVatLabel('WHITE', vatDisplayPreference)}</div>
                             </button>
                           )}
                         </div>
@@ -639,16 +670,16 @@ return (
                         <div className="px-3">
                           <div className="rounded-lg border-2 border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-700">
                             <div className="opacity-80 mb-0.5">{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
-                            <div className="font-bold text-sm">{formatCurrency(selectedPrice)}</div>
-                            {showExcessPricing && selectedExcessPrice && (
+                            <div className="font-bold text-sm">{formatCurrency(displaySelectedPrice)}</div>
+                            {showExcessPricing && displaySelectedExcessPrice !== undefined && (
                               <div className="text-[10px] text-green-700 font-semibold">
-                                Fazla: {formatCurrency(selectedExcessPrice)}
+                                Fazla: {formatCurrency(displaySelectedExcessPrice)}
                                 {selectedExcessDiscount && (
                                   <span> (-%{selectedExcessDiscount})</span>
                                 )}
                               </div>
                             )}
-                            <div className="text-[10px] opacity-70 mt-0.5">{selectedPriceType === 'INVOICED' ? '+KDV' : 'Ozel'}</div>
+                            <div className="text-[10px] opacity-70 mt-0.5">{selectedVatLabel}</div>
                           </div>
                         </div>
                       )}
@@ -863,6 +894,7 @@ return (
         onClose={() => setIsModalOpen(false)}
         onAddToCart={handleModalAddToCart}
         allowedPriceTypes={allowedPriceTypes}
+        vatDisplayPreference={vatDisplayPreference}
       />
     </div>
   );

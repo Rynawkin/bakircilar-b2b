@@ -83,15 +83,17 @@ export function CustomerEditModal({
     password: '',
     active: true,
   });
+  const [autoCredentials, setAutoCredentials] = useState(false);
+  const [generatedCredentials, setGeneratedCredentials] = useState<{ username: string; password: string } | null>(null);
   const [editingSubUserId, setEditingSubUserId] = useState<string | null>(null);
   const [subUserSaving, setSubUserSaving] = useState(false);
 
   useEffect(() => {
-    if (customer) {
-      setFormData({
-        email: customer.email,
-        customerType: customer.customerType || 'PERAKENDE',
-        active: customer.active,
+      if (customer) {
+        setFormData({
+          email: customer.email || '',
+          customerType: customer.customerType || 'PERAKENDE',
+          active: customer.active,
         invoicedPriceListNo: customer.invoicedPriceListNo ? String(customer.invoicedPriceListNo) : '',
         whitePriceListNo: customer.whitePriceListNo ? String(customer.whitePriceListNo) : '',
         priceVisibility: customer.priceVisibility || 'INVOICED_ONLY',
@@ -113,6 +115,8 @@ export function CustomerEditModal({
     setEditingContactId(null);
     setSubUserForm({ name: '', email: '', password: '', active: true });
     setEditingSubUserId(null);
+    setAutoCredentials(false);
+    setGeneratedCredentials(null);
     const loadContacts = async () => {
       setContactsLoading(true);
       try {
@@ -219,34 +223,42 @@ export function CustomerEditModal({
     }
   };
 
-  const resetSubUserForm = () => {
+  const resetSubUserForm = (keepCredentials = false) => {
     setSubUserForm({ name: '', email: '', password: '', active: true });
     setEditingSubUserId(null);
+    setAutoCredentials(false);
+    if (!keepCredentials) {
+      setGeneratedCredentials(null);
+    }
   };
 
   const handleSubUserSave = async () => {
     if (!customer) return;
     if (!canEditFields) return;
 
+    setGeneratedCredentials(null);
+
     const trimmedName = subUserForm.name.trim();
     const trimmedEmail = subUserForm.email.trim();
     const trimmedPassword = subUserForm.password.trim();
+    const shouldAutoGenerate = !editingSubUserId && autoCredentials;
 
     if (!trimmedName) {
       toast.error('Alt kullanici adi gerekli.');
       return;
     }
-    if (!editingSubUserId && !trimmedEmail) {
-      toast.error('Alt kullanici email gerekli.');
+    if (!editingSubUserId && !shouldAutoGenerate && !trimmedEmail) {
+      toast.error('Alt kullanici kullanici adi gerekli.');
       return;
     }
-    if (!editingSubUserId && !trimmedPassword) {
+    if (!editingSubUserId && !shouldAutoGenerate && !trimmedPassword) {
       toast.error('Alt kullanici sifresi gerekli.');
       return;
     }
 
     setSubUserSaving(true);
     try {
+      let keepCredentials = false;
       if (editingSubUserId) {
         await adminApi.updateCustomerSubUser(editingSubUserId, {
           name: trimmedName,
@@ -256,17 +268,20 @@ export function CustomerEditModal({
         });
         toast.success('Alt kullanici guncellendi.');
       } else {
-        await adminApi.createCustomerSubUser(customer.id, {
+        const createResult = await adminApi.createCustomerSubUser(customer.id, {
           name: trimmedName,
-          email: trimmedEmail,
-          password: trimmedPassword,
+          email: trimmedEmail || undefined,
+          password: trimmedPassword || undefined,
           active: subUserForm.active,
+          autoCredentials: shouldAutoGenerate,
         });
+        setGeneratedCredentials(createResult.credentials || null);
+        keepCredentials = Boolean(createResult.credentials);
         toast.success('Alt kullanici eklendi.');
       }
-      const result = await adminApi.getCustomerSubUsers(customer.id);
-      setSubUsers(result.subUsers || []);
-      resetSubUserForm();
+      const listResult = await adminApi.getCustomerSubUsers(customer.id);
+      setSubUsers(listResult.subUsers || []);
+      resetSubUserForm(keepCredentials);
     } catch (error) {
       console.error('Alt kullanici kaydedilemedi:', error);
       toast.error('Alt kullanici kaydedilemedi.');
@@ -283,6 +298,8 @@ export function CustomerEditModal({
       password: '',
       active: subUser.active,
     });
+    setAutoCredentials(false);
+    setGeneratedCredentials(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -293,7 +310,7 @@ export function CustomerEditModal({
     setIsSaving(true);
     try {
       await onSave(customer.id, {
-        email: formData.email,
+        email: formData.email.trim() || undefined,
         customerType: formData.customerType,
         active: formData.active,
         invoicedPriceListNo: formData.invoicedPriceListNo
@@ -320,14 +337,13 @@ export function CustomerEditModal({
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-gray-700 border-b pb-2">✏️ Düzenlenebilir Alanlar</h3>
 
-          <Input
-            label="Email"
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            required
-            placeholder="ornek@email.com"
-          />
+            <Input
+              label="Kullanici Adi / E-posta"
+              type="text"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="ornek@firma.com veya 120.01.0001"
+            />
 
           <div>
             <label className="block text-sm font-medium mb-1">Müşteri Segmenti *</label>
@@ -354,7 +370,7 @@ export function CustomerEditModal({
                   value={formData.invoicedPriceListNo}
                   onChange={(e) => setFormData({ ...formData, invoicedPriceListNo: e.target.value })}
                 >
-                  <option value="">Varsayilan (segment ayari)</option>
+                  <option value="">Varsayilan (genel ayar)</option>
                   {WHOLESALE_LISTS.map((list) => (
                     <option key={list.value} value={list.value}>
                       {list.label}
@@ -370,7 +386,7 @@ export function CustomerEditModal({
                   value={formData.whitePriceListNo}
                   onChange={(e) => setFormData({ ...formData, whitePriceListNo: e.target.value })}
                 >
-                  <option value="">Varsayilan (segment ayari)</option>
+                  <option value="">Varsayilan (genel ayar)</option>
                   {RETAIL_LISTS.map((list) => (
                     <option key={list.value} value={list.value}>
                       {list.label}
@@ -380,7 +396,7 @@ export function CustomerEditModal({
               </div>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Bos birakilirsa segment bazli fiyat listesi kullanilir.
+              Bos birakilirsa genel fiyat listesi kullanilir.
             </p>
           </div>
 
@@ -540,40 +556,66 @@ export function CustomerEditModal({
             )}
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-            <Input
-              label="Ad Soyad"
-              type="text"
-              value={subUserForm.name}
-              onChange={(e) => setSubUserForm({ ...subUserForm, name: e.target.value })}
-              placeholder="Orn: Ali Yilmaz"
-            />
-            <Input
-              label="E-posta"
-              type="email"
-              value={subUserForm.email}
-              onChange={(e) => setSubUserForm({ ...subUserForm, email: e.target.value })}
-              placeholder="ornek@email.com"
-            />
-            <Input
-              label="Sifre"
-              type="password"
-              value={subUserForm.password}
-              onChange={(e) => setSubUserForm({ ...subUserForm, password: e.target.value })}
-              placeholder={editingSubUserId ? 'Bos birakilabilir' : 'En az 6 karakter'}
-            />
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">Durum</label>
-              <select
-                className="input"
-                value={subUserForm.active ? 'active' : 'inactive'}
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+              <Input
+                label="Ad Soyad"
+                type="text"
+                value={subUserForm.name}
+                onChange={(e) => setSubUserForm({ ...subUserForm, name: e.target.value })}
+                placeholder="Orn: Ali Yilmaz"
+              />
+              <Input
+                label="Kullanici Adi / E-posta"
+                type="text"
+                value={subUserForm.email}
+                onChange={(e) => setSubUserForm({ ...subUserForm, email: e.target.value })}
+                placeholder={autoCredentials && !editingSubUserId ? 'Otomatik olusturulacak' : 'ornek@firma.com veya 120.01.0001'}
+                disabled={autoCredentials && !editingSubUserId}
+              />
+              <Input
+                label="Sifre"
+                type="password"
+                value={subUserForm.password}
+                onChange={(e) => setSubUserForm({ ...subUserForm, password: e.target.value })}
+                placeholder={
+                  autoCredentials && !editingSubUserId
+                    ? 'Otomatik olusturulacak'
+                    : (editingSubUserId ? 'Bos birakilabilir' : 'En az 6 karakter')
+                }
+                disabled={autoCredentials && !editingSubUserId}
+              />
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Durum</label>
+                <select
+                  className="input"
+                  value={subUserForm.active ? 'active' : 'inactive'}
                 onChange={(e) => setSubUserForm({ ...subUserForm, active: e.target.value === 'active' })}
               >
                 <option value="active">Aktif</option>
                 <option value="inactive">Pasif</option>
-              </select>
+                </select>
+              </div>
             </div>
-          </div>
+            {!editingSubUserId && (
+              <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={autoCredentials}
+                  onChange={(e) => setAutoCredentials(e.target.checked)}
+                />
+                Otomatik kullanici adi ve sifre ata
+              </label>
+            )}
+            {generatedCredentials && (
+              <div className="mt-2 rounded-lg border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+                <div>
+                  Kullanici Adi: <span className="font-mono">{generatedCredentials.username}</span>
+                </div>
+                <div>
+                  Sifre: <span className="font-mono">{generatedCredentials.password}</span>
+                </div>
+              </div>
+            )}
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -610,7 +652,7 @@ export function CustomerEditModal({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-gray-900">{subUser.name}</div>
-                    <div className="text-xs text-gray-500">Mail: {subUser.email || '-'}</div>
+                      <div className="text-xs text-gray-500">Kullanici: {subUser.email || '-'}</div>
                     <div className="text-xs text-gray-500">Durum: {subUser.active ? 'Aktif' : 'Pasif'}</div>
                   </div>
                   <div className="flex gap-2">
