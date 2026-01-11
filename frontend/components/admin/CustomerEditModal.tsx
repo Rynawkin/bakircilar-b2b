@@ -632,7 +632,7 @@ export function CustomerEditModal({
                 type="button"
                 size="sm"
                 variant="secondary"
-                onClick={resetSubUserForm}
+                onClick={() => resetSubUserForm()}
                 disabled={subUserSaving}
               >
                 Vazgec
