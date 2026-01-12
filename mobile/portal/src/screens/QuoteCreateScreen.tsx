@@ -14,7 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
-import { Customer, Product } from '../types';
+import { Customer, Product, LastSale } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
 const buildDefaultValidityDate = () => {
@@ -25,16 +25,24 @@ const buildDefaultValidityDate = () => {
 
 type QuoteItemForm = {
   id: string;
-  productId: string;
+  productId?: string;
   productName: string;
   productCode: string;
   unit?: string | null;
   quantity: number;
-  priceSource: 'PRICE_LIST' | 'MANUAL';
+  priceSource: 'PRICE_LIST' | 'MANUAL' | 'LAST_SALE';
   priceListNo?: number;
   unitPrice: number;
   priceType: 'INVOICED' | 'WHITE';
   mikroPriceLists?: Record<string, number>;
+  lastSales?: LastSale[];
+  selectedSaleIndex?: number;
+  lastSale?: LastSale;
+  vatZeroed?: boolean;
+  manualVatRate?: number;
+  isManualLine?: boolean;
+  lineDescription?: string;
+  manualPriceInput?: string;
 };
 
 type PoolSortOption = 'default' | 'stock1_desc' | 'stock6_desc' | 'price_asc' | 'price_desc';
@@ -140,6 +148,28 @@ const formatDateShort = (value?: string | null) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+};
+
+const parseDecimalInput = (input: string) => {
+  const raw = input.replace(/\s+/g, '');
+  if (!raw) return { value: undefined };
+  const lastComma = raw.lastIndexOf(',');
+  const lastDot = raw.lastIndexOf('.');
+  let normalized = raw;
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    const decimalSeparator = lastComma > lastDot ? ',' : '.';
+    const thousandsSeparator = decimalSeparator === ',' ? '.' : ',';
+    normalized = raw.replace(new RegExp(`\\${thousandsSeparator}`, 'g'), '');
+    normalized = normalized.replace(decimalSeparator, '.');
+  } else if (lastComma !== -1) {
+    normalized = raw.replace(/\./g, '').replace(',', '.');
+  } else {
+    normalized = raw.replace(/,/g, '');
+  }
+
+  const parsed = Number(normalized);
+  return { value: Number.isFinite(parsed) ? parsed : undefined };
 };
 
 export function QuoteCreateScreen() {
@@ -441,6 +471,10 @@ export function QuoteCreateScreen() {
       unitPrice: listPrice || 0,
       priceType: 'INVOICED',
       mikroPriceLists: product.mikroPriceLists || {},
+      lastSales: product.lastSales || [],
+      selectedSaleIndex: undefined,
+      vatZeroed: false,
+      lineDescription: '',
     };
   };
 
@@ -455,6 +489,29 @@ export function QuoteCreateScreen() {
 
   const addProduct = (product: Product) => {
     addProductsToQuote([product]);
+  };
+
+  const addManualLine = () => {
+    const entry: QuoteItemForm = {
+      id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      productId: '',
+      productName: '',
+      productCode: 'B101071',
+      unit: 'ADET',
+      quantity: 1,
+      priceSource: 'MANUAL',
+      unitPrice: 0,
+      priceType: 'INVOICED',
+      mikroPriceLists: {},
+      lastSales: [],
+      selectedSaleIndex: undefined,
+      vatZeroed: false,
+      manualVatRate: 0.2,
+      isManualLine: true,
+      lineDescription: '',
+      manualPriceInput: '',
+    };
+    setQuoteItems((prev) => [...prev, entry]);
   };
 
   const savePoolView = async () => {
@@ -487,6 +544,71 @@ export function QuoteCreateScreen() {
     );
   };
 
+  const handlePriceSourceChange = (item: QuoteItemForm, value: QuoteItemForm['priceSource']) => {
+    if (!value) return;
+    if (value === 'PRICE_LIST') {
+      const listNo = item.priceListNo || poolPriceListNo || 1;
+      const price = getMikroListPrice(item.mikroPriceLists, listNo);
+      updateItem(item.id, {
+        priceSource: value,
+        priceListNo: listNo,
+        unitPrice: price || 0,
+        selectedSaleIndex: undefined,
+        lastSale: undefined,
+      });
+      return;
+    }
+    if (value === 'LAST_SALE') {
+      updateItem(item.id, {
+        priceSource: value,
+        priceListNo: undefined,
+        unitPrice: 0,
+        selectedSaleIndex: undefined,
+        lastSale: undefined,
+      });
+      return;
+    }
+    updateItem(item.id, {
+      priceSource: value,
+      priceListNo: undefined,
+      unitPrice: item.unitPrice || 0,
+      selectedSaleIndex: undefined,
+      lastSale: undefined,
+    });
+  };
+
+  const handlePriceListChange = (item: QuoteItemForm, value: number) => {
+    const listPrice = getMikroListPrice(item.mikroPriceLists, value);
+    updateItem(item.id, {
+      priceListNo: value,
+      unitPrice: listPrice || 0,
+    });
+  };
+
+  const handleLastSaleChange = (item: QuoteItemForm, index: number) => {
+    const sale = item.lastSales?.[index];
+    updateItem(item.id, {
+      selectedSaleIndex: index,
+      unitPrice: sale?.unitPrice || 0,
+      lastSale: sale,
+      vatZeroed: sale?.vatZeroed || false,
+    });
+  };
+
+  const handleManualPriceChange = (item: QuoteItemForm, value: string) => {
+    const trimmed = value.trim();
+    const parsed = trimmed.length > 0 ? parseDecimalInput(trimmed).value : undefined;
+    const nextPrice = trimmed.length === 0 ? 0 : parsed || 0;
+    updateItem(item.id, {
+      unitPrice: nextPrice,
+      manualPriceInput: value,
+    });
+  };
+
+  const handleManualVatChange = (item: QuoteItemForm, value: number) => {
+    updateItem(item.id, { manualVatRate: value });
+  };
+
   const removeItem = (id: string) => {
     setQuoteItems((prev) => prev.filter((item) => item.id !== id));
   };
@@ -515,13 +637,44 @@ export function QuoteCreateScreen() {
       return;
     }
 
+    const invalidManual = quoteItems.some(
+      (item) =>
+        item.isManualLine &&
+        (!item.productName.trim() || !item.unit || !item.unit.trim())
+    );
+    if (invalidManual) {
+      Alert.alert('Eksik Bilgi', 'Manuel satir adi ve birim girin.');
+      return;
+    }
+
+    const missingPrice = quoteItems.some((item) => {
+      if (item.priceSource === 'PRICE_LIST' && !item.priceListNo) return true;
+      if (item.priceSource === 'LAST_SALE' && item.selectedSaleIndex === undefined) return true;
+      return item.unitPrice <= 0;
+    });
+    if (missingPrice) {
+      Alert.alert('Eksik Bilgi', 'Fiyat secimi eksik kalem var.');
+      return;
+    }
+
     const items = quoteItems.map((item) => ({
-      productId: item.productId,
+      productId: item.productId || undefined,
+      productCode: item.isManualLine ? item.productCode : undefined,
+      productName: item.isManualLine ? item.productName : undefined,
+      unit: item.unit,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       priceSource: item.priceSource,
       priceListNo: item.priceSource === 'PRICE_LIST' ? item.priceListNo : undefined,
       priceType: item.priceType,
+      manualLine: item.isManualLine || false,
+      manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
+      vatZeroed: item.vatZeroed,
+      lineDescription: item.lineDescription,
+      lastSale:
+        item.priceSource === 'LAST_SALE' && item.selectedSaleIndex !== undefined
+          ? item.lastSales?.[item.selectedSaleIndex]
+          : undefined,
     }));
 
     setSaving(true);
@@ -937,16 +1090,44 @@ export function QuoteCreateScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Teklif Kalemleri ({quoteItems.length})</Text>
+          <View style={styles.itemsHeader}>
+            <Text style={styles.cardTitle}>Teklif Kalemleri ({quoteItems.length})</Text>
+            <TouchableOpacity style={styles.secondaryButton} onPress={addManualLine}>
+              <Text style={styles.secondaryButtonText}>Manuel Satir Ekle</Text>
+            </TouchableOpacity>
+          </View>
           {quoteItems.map((item) => (
             <View key={item.id} style={styles.itemCard}>
               <View style={styles.itemHeader}>
-                <Text style={styles.itemTitle}>{item.productName}</Text>
+                <Text style={styles.itemTitle}>
+                  {item.isManualLine ? 'Manuel Satir' : item.productName}
+                </Text>
                 <TouchableOpacity onPress={() => removeItem(item.id)}>
                   <Text style={styles.removeText}>Sil</Text>
                 </TouchableOpacity>
               </View>
-              <Text style={styles.itemMeta}>Kod: {item.productCode}</Text>
+              {item.isManualLine ? (
+                <View style={styles.manualRow}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Urun adi"
+                    placeholderTextColor={colors.textMuted}
+                    value={item.productName}
+                    onChangeText={(value) => updateItem(item.id, { productName: value })}
+                  />
+                  <Text style={styles.itemMeta}>Kod: {item.productCode}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Birim"
+                    placeholderTextColor={colors.textMuted}
+                    value={item.unit || ''}
+                    onChangeText={(value) => updateItem(item.id, { unit: value })}
+                  />
+                </View>
+              ) : (
+                <Text style={styles.itemMeta}>Kod: {item.productCode}</Text>
+              )}
+
               <View style={styles.row}>
                 <TextInput
                   style={[styles.input, styles.smallInput]}
@@ -960,97 +1141,267 @@ export function QuoteCreateScreen() {
                 />
                 <TextInput
                   style={[styles.input, styles.smallInput]}
-                  placeholder="Fiyat"
+                  placeholder="Birim fiyat"
                   placeholderTextColor={colors.textMuted}
                   keyboardType="numeric"
-                  value={String(item.unitPrice)}
+                  value={
+                    item.priceSource === 'MANUAL'
+                      ? item.manualPriceInput ?? String(item.unitPrice || '')
+                      : String(item.unitPrice || '')
+                  }
                   editable={item.priceSource === 'MANUAL'}
-                  onChangeText={(value) =>
-                    updateItem(item.id, { unitPrice: Number(value) || 0 })
-                  }
-                />
-                <TextInput
-                  style={[styles.input, styles.smallInput]}
-                  placeholder="Liste"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="numeric"
-                  value={String(item.priceListNo || '')}
-                  editable={item.priceSource === 'PRICE_LIST'}
-                  onChangeText={(value) =>
-                    updateItem(item.id, { priceListNo: Number(value) || 1 })
-                  }
+                  onChangeText={(value) => handleManualPriceChange(item, value)}
                 />
               </View>
-              <View style={styles.row}>
+              {item.isManualLine ? (
+                <>
+                  <Text style={styles.helper}>Fiyat kaynagi: Manuel</Text>
+                  <View style={styles.row}>
+                    <TouchableOpacity
+                      style={[
+                        styles.segmentButton,
+                        item.priceType === 'INVOICED' && styles.segmentButtonActive,
+                      ]}
+                      onPress={() => updateItem(item.id, { priceType: 'INVOICED' })}
+                    >
+                      <Text
+                        style={
+                          item.priceType === 'INVOICED'
+                            ? styles.segmentTextActive
+                            : styles.segmentText
+                        }
+                      >
+                        Faturali
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.segmentButton,
+                        item.priceType === 'WHITE' && styles.segmentButtonActive,
+                      ]}
+                      onPress={() => updateItem(item.id, { priceType: 'WHITE' })}
+                    >
+                      <Text
+                        style={
+                          item.priceType === 'WHITE'
+                            ? styles.segmentTextActive
+                            : styles.segmentText
+                        }
+                      >
+                        Beyaz
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <View style={styles.row}>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      item.priceSource === 'LAST_SALE' && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => handlePriceSourceChange(item, 'LAST_SALE')}
+                  >
+                    <Text
+                      style={
+                        item.priceSource === 'LAST_SALE'
+                          ? styles.segmentTextActive
+                          : styles.segmentText
+                      }
+                    >
+                      Son Satis
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      item.priceSource === 'PRICE_LIST' && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => handlePriceSourceChange(item, 'PRICE_LIST')}
+                  >
+                    <Text
+                      style={
+                        item.priceSource === 'PRICE_LIST'
+                          ? styles.segmentTextActive
+                          : styles.segmentText
+                      }
+                    >
+                      Liste
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      item.priceSource === 'MANUAL' && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => handlePriceSourceChange(item, 'MANUAL')}
+                  >
+                    <Text
+                      style={
+                        item.priceSource === 'MANUAL'
+                          ? styles.segmentTextActive
+                          : styles.segmentText
+                      }
+                    >
+                      Manuel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      item.priceType === 'INVOICED' && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => updateItem(item.id, { priceType: 'INVOICED' })}
+                  >
+                    <Text
+                      style={
+                        item.priceType === 'INVOICED'
+                          ? styles.segmentTextActive
+                          : styles.segmentText
+                      }
+                    >
+                      Faturali
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      item.priceType === 'WHITE' && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => updateItem(item.id, { priceType: 'WHITE' })}
+                  >
+                    <Text
+                      style={
+                        item.priceType === 'WHITE'
+                          ? styles.segmentTextActive
+                          : styles.segmentText
+                      }
+                    >
+                      Beyaz
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {item.priceSource === 'PRICE_LIST' && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.optionRow}
+                >
+                  {priceListOptions.map((option) => {
+                    const listPrice = getMikroListPrice(item.mikroPriceLists, option);
+                    const isActive = item.priceListNo === option;
+                    return (
+                      <TouchableOpacity
+                        key={`${item.id}-list-${option}`}
+                        style={[
+                          styles.listOption,
+                          isActive && styles.listOptionActive,
+                        ]}
+                        onPress={() => handlePriceListChange(item, option)}
+                      >
+                        <Text style={isActive ? styles.listOptionTextActive : styles.listOptionText}>
+                          L{option}
+                        </Text>
+                        <Text
+                          style={
+                            isActive ? styles.listOptionPriceActive : styles.listOptionPrice
+                          }
+                        >
+                          {listPrice ? formatCurrency(listPrice) : '-'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              {item.priceSource === 'LAST_SALE' && (
+                <View style={styles.salesBlock}>
+                  {item.lastSales && item.lastSales.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.optionRow}
+                    >
+                      {item.lastSales.map((sale, idx) => {
+                        const isActive = item.selectedSaleIndex === idx;
+                        return (
+                          <TouchableOpacity
+                            key={`${item.id}-sale-${idx}`}
+                            style={[
+                              styles.saleOption,
+                              isActive && styles.saleOptionActive,
+                            ]}
+                            onPress={() => handleLastSaleChange(item, idx)}
+                          >
+                            <Text style={isActive ? styles.saleTextActive : styles.saleText}>
+                              {formatDateShort(sale.saleDate)}
+                            </Text>
+                            <Text style={isActive ? styles.saleTextActive : styles.saleText}>
+                              {sale.quantity} adet
+                            </Text>
+                            <Text style={isActive ? styles.saleTextActive : styles.saleText}>
+                              {formatCurrency(sale.unitPrice)}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  ) : (
+                    <Text style={styles.helper}>Satis yok.</Text>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.inlineRow}>
+                <Text style={styles.helper}>KDV 0</Text>
                 <TouchableOpacity
                   style={[
-                    styles.segmentButton,
-                    item.priceSource === 'PRICE_LIST' && styles.segmentButtonActive,
+                    styles.toggleButton,
+                    item.vatZeroed && styles.toggleButtonActive,
                   ]}
-                  onPress={() => updateItem(item.id, { priceSource: 'PRICE_LIST' })}
+                  onPress={() => updateItem(item.id, { vatZeroed: !item.vatZeroed })}
                 >
-                  <Text
-                    style={
-                      item.priceSource === 'PRICE_LIST'
-                        ? styles.segmentTextActive
-                        : styles.segmentText
-                    }
-                  >
-                    Liste
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.segmentButton,
-                    item.priceSource === 'MANUAL' && styles.segmentButtonActive,
-                  ]}
-                  onPress={() => updateItem(item.id, { priceSource: 'MANUAL' })}
-                >
-                  <Text
-                    style={
-                      item.priceSource === 'MANUAL'
-                        ? styles.segmentTextActive
-                        : styles.segmentText
-                    }
-                  >
-                    Manuel
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.segmentButton,
-                    item.priceType === 'INVOICED' && styles.segmentButtonActive,
-                  ]}
-                  onPress={() => updateItem(item.id, { priceType: 'INVOICED' })}
-                >
-                  <Text
-                    style={
-                      item.priceType === 'INVOICED'
-                        ? styles.segmentTextActive
-                        : styles.segmentText
-                    }
-                  >
-                    Faturali
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.segmentButton,
-                    item.priceType === 'WHITE' && styles.segmentButtonActive,
-                  ]}
-                  onPress={() => updateItem(item.id, { priceType: 'WHITE' })}
-                >
-                  <Text
-                    style={
-                      item.priceType === 'WHITE'
-                        ? styles.segmentTextActive
-                        : styles.segmentText
-                    }
-                  >
-                    Beyaz
+                  <Text style={item.vatZeroed ? styles.toggleTextActive : styles.toggleText}>
+                    {item.vatZeroed ? 'Acik' : 'Kapali'}
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              {item.isManualLine && (
+                <View style={styles.manualVatRow}>
+                  {[0.01, 0.1, 0.2].map((rate) => (
+                    <TouchableOpacity
+                      key={`${item.id}-vat-${rate}`}
+                      style={[
+                        styles.segmentButton,
+                        item.manualVatRate === rate && styles.segmentButtonActive,
+                      ]}
+                      onPress={() => handleManualVatChange(item, rate)}
+                    >
+                      <Text
+                        style={
+                          item.manualVatRate === rate
+                            ? styles.segmentTextActive
+                            : styles.segmentText
+                        }
+                      >
+                        %{Math.round(rate * 100)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <TextInput
+                style={styles.input}
+                placeholder="Satir aciklama"
+                placeholderTextColor={colors.textMuted}
+                value={item.lineDescription || ''}
+                onChangeText={(value) => updateItem(item.id, { lineDescription: value })}
+              />
             </View>
           ))}
           {quoteItems.length === 0 && (
@@ -1100,6 +1451,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: fontSizes.md,
     color: colors.text,
+  },
+  itemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   poolTabs: {
     flexDirection: 'row',
@@ -1368,6 +1725,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  manualRow: {
+    gap: spacing.xs,
+  },
   itemTitle: {
     fontFamily: fonts.semibold,
     color: colors.text,
@@ -1384,6 +1744,11 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  manualVatRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
   },
   segmentRow: {
     flexDirection: 'row',
@@ -1434,6 +1799,66 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     fontFamily: fonts.semibold,
+    color: '#FFFFFF',
+  },
+  listOption: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    minWidth: 72,
+  },
+  listOptionActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  listOptionText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  listOptionTextActive: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#FFFFFF',
+  },
+  listOptionPrice: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  listOptionPriceActive: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: '#FFFFFF',
+  },
+  salesBlock: {
+    gap: spacing.xs,
+  },
+  saleOption: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    gap: spacing.xs,
+    minWidth: 110,
+  },
+  saleOptionActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  saleText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  saleTextActive: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
     color: '#FFFFFF',
   },
 });
