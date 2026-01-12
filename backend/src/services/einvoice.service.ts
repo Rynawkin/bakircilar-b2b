@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import { splitSearchTokens } from '../utils/search';
 import { EInvoiceMatchStatus, UserRole } from '@prisma/client';
+import { ErrorFactory } from '../types/errors';
 
 const STAFF_ROLES: UserRole[] = ['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP'];
 
@@ -26,6 +27,11 @@ const toRelativePath = (absolutePath: string) =>
 const resolveStoragePath = (storagePath: string) =>
   path.resolve(process.cwd(), storagePath);
 
+const resolveDocumentFileName = (document: { fileName?: string; storagePath: string }) => {
+  if (document.fileName) return document.fileName;
+  return path.basename(document.storagePath);
+};
+
 const buildSearchClauses = (search?: string) => {
   const tokens = splitSearchTokens(search);
   if (tokens.length === 0) return [];
@@ -45,6 +51,44 @@ const currencyFromCode = (code?: number | null) => {
 };
 
 class EInvoiceService {
+  private async resolveExistingDocumentPath(document: {
+    id: string;
+    storagePath: string;
+    fileName?: string;
+  }) {
+    const candidates = new Set<string>();
+    if (document.storagePath) {
+      candidates.add(document.storagePath);
+    }
+
+    const fileName = resolveDocumentFileName(document);
+    if (fileName) {
+      candidates.add(path.join('private-uploads', 'einvoices', fileName));
+      candidates.add(path.join('uploads', 'einvoices', fileName));
+      candidates.add(path.join('uploads', fileName));
+    }
+
+    for (const candidate of candidates) {
+      const absolutePath = resolveStoragePath(candidate);
+      if (fs.existsSync(absolutePath)) {
+        const relativePath = toRelativePath(absolutePath);
+        if (relativePath !== document.storagePath) {
+          try {
+            await prisma.eInvoiceDocument.update({
+              where: { id: document.id },
+              data: { storagePath: relativePath },
+            });
+          } catch (error) {
+            console.warn('Failed to update e-invoice storage path', { id: document.id, error });
+          }
+        }
+        return { absolutePath, storagePath: relativePath };
+      }
+    }
+
+    return null;
+  }
+
   async uploadDocuments(files: Express.Multer.File[], userId: string) {
     if (!files || files.length === 0) {
       return { uploaded: 0, updated: 0, failed: 0, results: [] as any[] };
@@ -273,14 +317,18 @@ class EInvoiceService {
       }
     }
 
-    const absolutePath = resolveStoragePath(document.storagePath);
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error('File not found');
+    const resolved = await this.resolveExistingDocumentPath({
+      id: document.id,
+      storagePath: document.storagePath,
+      fileName: document.fileName,
+    });
+    if (!resolved) {
+      throw ErrorFactory.notFound('PDF dosyasi');
     }
 
     return {
       document,
-      absolutePath,
+      absolutePath: resolved.absolutePath,
     };
   }
 
@@ -330,16 +378,20 @@ class EInvoiceService {
       }
     }
 
-    const resolved = documents
-      .map((document) => {
-        const absolutePath = resolveStoragePath(document.storagePath);
-        if (!fs.existsSync(absolutePath)) {
-          missing.push({ id: document.id, invoiceNo: document.invoiceNo });
-          return null;
-        }
-        return { document, absolutePath };
-      })
-      .filter(Boolean) as Array<{ document: (typeof documents)[number]; absolutePath: string }>;
+    const resolved: Array<{ document: (typeof documents)[number]; absolutePath: string }> = [];
+
+    for (const document of documents) {
+      const found = await this.resolveExistingDocumentPath({
+        id: document.id,
+        storagePath: document.storagePath,
+        fileName: document.fileName,
+      });
+      if (!found) {
+        missing.push({ id: document.id, invoiceNo: document.invoiceNo });
+        continue;
+      }
+      resolved.push({ document, absolutePath: found.absolutePath });
+    }
 
     return { documents: resolved, missing };
   }
