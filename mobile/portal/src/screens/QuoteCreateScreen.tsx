@@ -143,6 +143,12 @@ const getPoolPriceLabel = (listNo: number) => {
   return PRICE_LIST_LABELS[listNo] || `Liste ${listNo}`;
 };
 
+const getPriceListShortCode = (listNo: number) => {
+  if (listNo >= 1 && listNo <= 5) return `P${listNo}`;
+  if (listNo >= 6 && listNo <= 10) return `F${listNo - 5}`;
+  return `L${listNo}`;
+};
+
 const formatDateShort = (value?: string | null) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -180,6 +186,7 @@ export function QuoteCreateScreen() {
   const [poolPriceListNo, setPoolPriceListNo] = useState(1);
   const [poolSort, setPoolSort] = useState<PoolSortOption>('default');
   const [lastSalesCount, setLastSalesCount] = useState(1);
+  const [poolSettingsOpen, setPoolSettingsOpen] = useState(true);
   const [savingPool, setSavingPool] = useState(false);
 
   const [productTab, setProductTab] = useState<'purchased' | 'search'>('purchased');
@@ -606,7 +613,8 @@ export function QuoteCreateScreen() {
   };
 
   const handleManualVatChange = (item: QuoteItemForm, value: number) => {
-    updateItem(item.id, { manualVatRate: value });
+    const code = value === 0.01 ? 'B110365' : value === 0.1 ? 'B101070' : 'B101071';
+    updateItem(item.id, { manualVatRate: value, productCode: code });
   };
 
   const removeItem = (id: string) => {
@@ -806,79 +814,90 @@ export function QuoteCreateScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.poolHeader}>
-            <Text style={styles.poolLabel}>Fiyat Listesi</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.optionRow}
-            >
-              {priceListOptions.map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  style={[
-                    styles.segmentButton,
-                    styles.optionButton,
-                    poolPriceListNo === option && styles.segmentButtonActive,
-                  ]}
-                  onPress={() => setPoolPriceListNo(option)}
-                >
-                  <Text
-                    style={
-                      poolPriceListNo === option ? styles.segmentTextActive : styles.segmentText
-                    }
-                  >
-                    {option}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <Text style={styles.poolHint}>{poolPriceLabel}</Text>
-            <Text style={styles.poolLabel}>Siralama</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.optionRow}
-            >
-              {POOL_SORT_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
-                  style={[
-                    styles.segmentButton,
-                    styles.optionButton,
-                    poolSort === option.value && styles.segmentButtonActive,
-                  ]}
-                  onPress={() => setPoolSort(option.value)}
-                >
-                  <Text
-                    style={poolSort === option.value ? styles.segmentTextActive : styles.segmentText}
-                  >
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <View style={styles.inlineRow}>
-              <Text style={styles.poolLabel}>Son Satis</Text>
-              <TextInput
-                style={[styles.input, styles.inlineInput]}
-                placeholder="Adet"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="numeric"
-                value={String(lastSalesCount)}
-                onChangeText={handleLastSalesCountChange}
-              />
-            </View>
+          <View style={styles.poolSettingsHeader}>
+            <Text style={styles.poolLabel}>Havuz Ayarlari</Text>
             <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={savePoolView}
-              disabled={savingPool}
+              style={styles.poolToggleButton}
+              onPress={() => setPoolSettingsOpen((prev) => !prev)}
             >
-              <Text style={styles.secondaryButtonText}>
-                {savingPool ? 'Kaydediliyor...' : 'Gorunusu Kaydet'}
-              </Text>
+              <Text style={styles.poolToggleText}>{poolSettingsOpen ? 'v' : '>'}</Text>
             </TouchableOpacity>
           </View>
+          {poolSettingsOpen && (
+            <View style={styles.poolHeader}>
+              <Text style={styles.poolLabel}>Fiyat Listesi</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.optionRow}
+              >
+                {priceListOptions.map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    style={[
+                      styles.segmentButton,
+                      styles.optionButton,
+                      poolPriceListNo === option && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => setPoolPriceListNo(option)}
+                  >
+                    <Text
+                      style={
+                        poolPriceListNo === option ? styles.segmentTextActive : styles.segmentText
+                      }
+                    >
+                      {option}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <Text style={styles.poolHint}>{poolPriceLabel}</Text>
+              <Text style={styles.poolLabel}>Siralama</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.optionRow}
+              >
+                {POOL_SORT_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.segmentButton,
+                      styles.optionButton,
+                      poolSort === option.value && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => setPoolSort(option.value)}
+                  >
+                    <Text
+                      style={poolSort === option.value ? styles.segmentTextActive : styles.segmentText}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <View style={styles.inlineRow}>
+                <Text style={styles.poolLabel}>Son Satis</Text>
+                <TextInput
+                  style={[styles.input, styles.inlineInput]}
+                  placeholder="Adet"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="numeric"
+                  value={String(lastSalesCount)}
+                  onChangeText={handleLastSalesCountChange}
+                />
+              </View>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={savePoolView}
+                disabled={savingPool}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  {savingPool ? 'Kaydediliyor...' : 'Gorunusu Kaydet'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {productTab === 'purchased' ? (
             <>
@@ -1292,6 +1311,8 @@ export function QuoteCreateScreen() {
                   {priceListOptions.map((option) => {
                     const listPrice = getMikroListPrice(item.mikroPriceLists, option);
                     const isActive = item.priceListNo === option;
+                    const shortCode = getPriceListShortCode(option);
+                    const fullLabel = PRICE_LIST_LABELS[option] || `Liste ${option}`;
                     return (
                       <TouchableOpacity
                         key={`${item.id}-list-${option}`}
@@ -1302,7 +1323,12 @@ export function QuoteCreateScreen() {
                         onPress={() => handlePriceListChange(item, option)}
                       >
                         <Text style={isActive ? styles.listOptionTextActive : styles.listOptionText}>
-                          L{option}
+                          {shortCode}
+                        </Text>
+                        <Text
+                          style={isActive ? styles.listOptionLabelActive : styles.listOptionLabel}
+                        >
+                          {fullLabel}
                         </Text>
                         <Text
                           style={
@@ -1368,6 +1394,9 @@ export function QuoteCreateScreen() {
                     {item.vatZeroed ? 'Acik' : 'Kapali'}
                   </Text>
                 </TouchableOpacity>
+                <Text style={styles.itemTotal}>
+                  Toplam: {formatCurrency((item.unitPrice || 0) * (item.quantity || 0))} TL
+                </Text>
               </View>
 
               {item.isManualLine && (
@@ -1466,6 +1495,20 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.xs,
     gap: spacing.xs,
+  },
+  poolSettingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  poolToggleButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  poolToggleText: {
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    fontSize: fontSizes.sm,
   },
   poolTabButton: {
     flex: 1,
@@ -1714,6 +1757,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: '#FFFFFF',
   },
+  itemTotal: {
+    fontFamily: fonts.semibold,
+    color: colors.text,
+    fontSize: fontSizes.sm,
+  },
   itemCard: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
@@ -1821,6 +1869,16 @@ const styles = StyleSheet.create({
   },
   listOptionTextActive: {
     fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: '#FFFFFF',
+  },
+  listOptionLabel: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  listOptionLabelActive: {
+    fontFamily: fonts.regular,
     fontSize: fontSizes.xs,
     color: '#FFFFFF',
   },
