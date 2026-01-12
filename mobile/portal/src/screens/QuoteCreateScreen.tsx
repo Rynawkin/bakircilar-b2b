@@ -43,6 +43,10 @@ type QuoteItemForm = {
   isManualLine?: boolean;
   lineDescription?: string;
   manualPriceInput?: string;
+  manualMarginEntry?: number;
+  manualMarginCost?: number;
+  lastEntryPrice?: number | null;
+  currentCost?: number | null;
 };
 
 type PoolSortOption = 'default' | 'stock1_desc' | 'stock6_desc' | 'price_asc' | 'price_desc';
@@ -176,6 +180,21 @@ const parseDecimalInput = (input: string) => {
 
   const parsed = Number(normalized);
   return { value: Number.isFinite(parsed) ? parsed : undefined };
+};
+
+const formatPercent = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-';
+  const rounded = Math.round(value * 10) / 10;
+  const sign = rounded > 0 ? '+' : '';
+  return `${sign}${rounded.toFixed(1)}%`;
+};
+
+const getMarginPercent = (unitPrice?: number | null, cost?: number | null) => {
+  if (!Number.isFinite(unitPrice as number) || !Number.isFinite(cost as number)) return null;
+  const price = Number(unitPrice);
+  const base = Number(cost);
+  if (base <= 0) return null;
+  return ((price / base) - 1) * 100;
 };
 
 export function QuoteCreateScreen() {
@@ -482,6 +501,10 @@ export function QuoteCreateScreen() {
       selectedSaleIndex: undefined,
       vatZeroed: false,
       lineDescription: '',
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
+      lastEntryPrice: product.lastEntryPrice ?? null,
+      currentCost: product.currentCost ?? null,
     };
   };
 
@@ -517,6 +540,10 @@ export function QuoteCreateScreen() {
       isManualLine: true,
       lineDescription: '',
       manualPriceInput: '',
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
+      lastEntryPrice: null,
+      currentCost: null,
     };
     setQuoteItems((prev) => [...prev, entry]);
   };
@@ -562,6 +589,9 @@ export function QuoteCreateScreen() {
         unitPrice: price || 0,
         selectedSaleIndex: undefined,
         lastSale: undefined,
+        manualPriceInput: undefined,
+        manualMarginEntry: undefined,
+        manualMarginCost: undefined,
       });
       return;
     }
@@ -572,6 +602,9 @@ export function QuoteCreateScreen() {
         unitPrice: 0,
         selectedSaleIndex: undefined,
         lastSale: undefined,
+        manualPriceInput: undefined,
+        manualMarginEntry: undefined,
+        manualMarginCost: undefined,
       });
       return;
     }
@@ -581,6 +614,8 @@ export function QuoteCreateScreen() {
       unitPrice: item.unitPrice || 0,
       selectedSaleIndex: undefined,
       lastSale: undefined,
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
     });
   };
 
@@ -599,6 +634,9 @@ export function QuoteCreateScreen() {
       unitPrice: sale?.unitPrice || 0,
       lastSale: sale,
       vatZeroed: sale?.vatZeroed || false,
+      manualPriceInput: undefined,
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
     });
   };
 
@@ -609,12 +647,28 @@ export function QuoteCreateScreen() {
     updateItem(item.id, {
       unitPrice: nextPrice,
       manualPriceInput: value,
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
     });
   };
 
   const handleManualVatChange = (item: QuoteItemForm, value: number) => {
     const code = value === 0.01 ? 'B110365' : value === 0.1 ? 'B101070' : 'B101071';
     updateItem(item.id, { manualVatRate: value, productCode: code });
+  };
+
+  const handleManualMarginChange = (item: QuoteItemForm, source: 'entry' | 'cost', value: string) => {
+    const parsed = value.trim().length > 0 ? parseDecimalInput(value).value : undefined;
+    const margin = Number.isFinite(parsed as number) ? (parsed as number) : undefined;
+    const base = source === 'entry' ? Number(item.lastEntryPrice || 0) : Number(item.currentCost || 0);
+    const nextPrice = base > 0 && margin !== undefined ? base * (1 + margin / 100) : undefined;
+
+    updateItem(item.id, {
+      unitPrice: nextPrice ?? item.unitPrice,
+      manualPriceInput: undefined,
+      manualMarginEntry: source === 'entry' ? margin : undefined,
+      manualMarginCost: source === 'cost' ? margin : undefined,
+    });
   };
 
   const removeItem = (id: string) => {
@@ -1312,7 +1366,6 @@ export function QuoteCreateScreen() {
                     const listPrice = getMikroListPrice(item.mikroPriceLists, option);
                     const isActive = item.priceListNo === option;
                     const shortCode = getPriceListShortCode(option);
-                    const fullLabel = PRICE_LIST_LABELS[option] || `Liste ${option}`;
                     return (
                       <TouchableOpacity
                         key={`${item.id}-list-${option}`}
@@ -1326,11 +1379,6 @@ export function QuoteCreateScreen() {
                           {shortCode}
                         </Text>
                         <Text
-                          style={isActive ? styles.listOptionLabelActive : styles.listOptionLabel}
-                        >
-                          {fullLabel}
-                        </Text>
-                        <Text
                           style={
                             isActive ? styles.listOptionPriceActive : styles.listOptionPrice
                           }
@@ -1341,6 +1389,66 @@ export function QuoteCreateScreen() {
                     );
                   })}
                 </ScrollView>
+              )}
+
+              {item.priceSource === 'MANUAL' && !item.isManualLine && (
+                <View style={styles.marginBlock}>
+                  <Text style={styles.marginTitle}>Kar Yuzdesi</Text>
+                  <View style={styles.marginRow}>
+                    <View style={styles.marginColumn}>
+                      <Text style={styles.marginLabel}>Son giris</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="%"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="numeric"
+                        value={item.manualMarginEntry === undefined ? '' : String(item.manualMarginEntry)}
+                        onChangeText={(value) => handleManualMarginChange(item, 'entry', value)}
+                      />
+                    </View>
+                    <View style={styles.marginColumn}>
+                      <Text style={styles.marginLabel}>Guncel maliyet</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="%"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="numeric"
+                        value={item.manualMarginCost === undefined ? '' : String(item.manualMarginCost)}
+                        onChangeText={(value) => handleManualMarginChange(item, 'cost', value)}
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.marginInfoRow}>
+                    <Text style={styles.marginInfoText}>
+                      Son giris: {formatCurrency(item.lastEntryPrice ?? null)} TL
+                    </Text>
+                    <Text
+                      style={[
+                        styles.marginInfoText,
+                        (getMarginPercent(item.unitPrice, item.lastEntryPrice) ?? 0) < 0
+                          ? styles.marginNegative
+                          : styles.marginPositive,
+                      ]}
+                    >
+                      Kar {formatPercent(getMarginPercent(item.unitPrice, item.lastEntryPrice))}
+                    </Text>
+                  </View>
+                  <View style={styles.marginInfoRow}>
+                    <Text style={styles.marginInfoText}>
+                      Guncel maliyet: {formatCurrency(item.currentCost ?? null)} TL
+                    </Text>
+                    <Text
+                      style={[
+                        styles.marginInfoText,
+                        (getMarginPercent(item.unitPrice, item.currentCost) ?? 0) < 0
+                          ? styles.marginNegative
+                          : styles.marginPositive,
+                      ]}
+                    >
+                      Kar {formatPercent(getMarginPercent(item.unitPrice, item.currentCost))}
+                    </Text>
+                  </View>
+                </View>
               )}
 
               {item.priceSource === 'LAST_SALE' && (
@@ -1872,16 +1980,6 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.xs,
     color: '#FFFFFF',
   },
-  listOptionLabel: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.xs,
-    color: colors.textMuted,
-  },
-  listOptionLabelActive: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.xs,
-    color: '#FFFFFF',
-  },
   listOptionPrice: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.xs,
@@ -1918,5 +2016,45 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSizes.xs,
     color: '#FFFFFF',
+  },
+  marginBlock: {
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  marginTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  marginRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  marginColumn: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  marginLabel: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  marginInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  marginInfoText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  marginPositive: {
+    color: colors.primary,
+    fontFamily: fonts.semibold,
+  },
+  marginNegative: {
+    color: colors.danger,
+    fontFamily: fonts.semibold,
   },
 });
