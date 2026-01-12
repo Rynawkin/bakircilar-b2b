@@ -881,6 +881,7 @@ export default function AdminQuotesPage() {
                 quote.customer?.name ||
                 '-';
               const customerCode = quote.customer?.mikroCariCode || '-';
+              const canEdit = quote.status === 'PENDING_APPROVAL' || quote.status === 'SENT_TO_MIKRO';
 
               return (
                 <Card key={quote.id} className="overflow-hidden">
@@ -925,6 +926,11 @@ export default function AdminQuotesPage() {
                     <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
                       WhatsApp Paylaş
                     </Button>
+                    {canEdit && (
+                      <Button variant="secondary" onClick={() => router.push(`/quotes/new?edit=${quote.id}`)}>
+                        Duzenle
+                      </Button>
+                    )}
                     {quote.mikroNumber && (
                       <Button
                         variant="secondary"

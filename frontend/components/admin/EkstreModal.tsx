@@ -66,6 +66,16 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
     };
   };
 
+  const normalizeOpening = (opening?: { borc?: number; alacak?: number; bakiye?: number } | null) => {
+    const borc = Number(opening?.borc) || 0;
+    const alacak = Number(opening?.alacak) || 0;
+    return {
+      borc,
+      alacak,
+      bakiye: Number.isFinite(opening?.bakiye) ? Number(opening?.bakiye) : borc - alacak,
+    };
+  };
+
   const handleSearch = async () => {
     if (!searchTerm || searchTerm.trim().length === 0) {
       return;
@@ -106,8 +116,9 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       });
 
       const hareketler = response.data;
+      const openingTotals = normalizeOpening(response.opening);
 
-      if (hareketler.length === 0) {
+      if (hareketler.length === 0 && openingTotals.borc === 0 && openingTotals.alacak === 0) {
         toast.error('Bu cari için hareket bulunamadı');
         return;
       }
@@ -134,7 +145,12 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         'Tutar': Number(row['Tutar']) || 0
       }));
 
-      const totals = calculateTotals(hareketler);
+      const periodTotals = calculateTotals(hareketler);
+      const totals = {
+        borc: periodTotals.borc + openingTotals.borc,
+        alacak: periodTotals.alacak + openingTotals.alacak,
+        bakiye: (openingTotals.borc - openingTotals.alacak) + (periodTotals.borc - periodTotals.alacak),
+      };
 
       // Excel dosyası oluştur
       const worksheet = XLSX.utils.json_to_sheet(exportRows, { header: headers });
@@ -142,9 +158,17 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         worksheet,
         [
           {},
+          { 'Seri': 'DEVIR BORC', 'Tutar': openingTotals.borc },
+          { 'Seri': 'DEVIR ALACAK', 'Tutar': openingTotals.alacak },
+          { 'Seri': 'DEVIR BAKIYE', 'Tutar': openingTotals.bakiye },
+          {},
+          { 'Seri': 'DONEM BORC', 'Tutar': periodTotals.borc },
+          { 'Seri': 'DONEM ALACAK', 'Tutar': periodTotals.alacak },
+          { 'Seri': 'DONEM BAKIYE', 'Tutar': periodTotals.bakiye },
+          {},
           { 'Seri': 'TOPLAM BORC', 'Tutar': totals.borc },
           { 'Seri': 'TOPLAM ALACAK', 'Tutar': totals.alacak },
-          { 'Seri': 'BAKIYE', 'Tutar': totals.bakiye }
+          { 'Seri': 'GENEL BAKIYE', 'Tutar': totals.bakiye }
         ],
         { header: headers, skipHeader: true, origin: -1 }
       );
@@ -185,13 +209,19 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       });
 
       const hareketler = response.data;
+      const openingTotals = normalizeOpening(response.opening);
 
-      if (hareketler.length === 0) {
+      if (hareketler.length === 0 && openingTotals.borc === 0 && openingTotals.alacak === 0) {
         toast.error('Bu cari için hareket bulunamadı');
         return;
       }
 
-      const totals = calculateTotals(hareketler);
+      const periodTotals = calculateTotals(hareketler);
+      const totals = {
+        borc: periodTotals.borc + openingTotals.borc,
+        alacak: periodTotals.alacak + openingTotals.alacak,
+        bakiye: (openingTotals.borc - openingTotals.alacak) + (periodTotals.borc - periodTotals.alacak),
+      };
 
       // PDF oluştur (landscape - daha fazla kolon için)
       const doc = new jsPDF({
@@ -229,7 +259,8 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       doc.text(`Donem: ${startDate} - ${endDate}`, 14, 35);
 
       // Tablo verilerini hazırla
-      const tableData = hareketler.map((row: any) => [
+      const tableData = hareketler.length > 0
+        ? hareketler.map((row: any) => [
         cleanText(String(row['Seri'] || '-')),
         cleanText(String(row['Sıra'] || '-')),
         row['Tarih'] ? new Date(row['Tarih']).toLocaleDateString('tr-TR') : '-',
@@ -238,7 +269,17 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         cleanText(String(row['Odeme Tipi'] || '-')),
         cleanText(String(row['Hareket Tipi'] || '-')),
         formatAmount(row['Tutar'])
-      ]);
+      ])
+        : [[
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+          formatAmount(0)
+        ]];
 
       // AutoTable ile tablo oluştur
       autoTable(doc, {
@@ -288,15 +329,25 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const summaryStartY = finalY + 6;
 
       let summaryY = summaryStartY;
-      if (summaryY + 18 > pageHeight - 12) {
+      if (summaryY + 56 > pageHeight - 12) {
         doc.addPage();
         summaryY = 18;
       }
 
       doc.setFontSize(10);
-      doc.text(`Toplam Borc: ${formatAmount(totals.borc)} TL`, 14, summaryY);
-      doc.text(`Toplam Alacak: ${formatAmount(totals.alacak)} TL`, 14, summaryY + 6);
-      doc.text(`Bakiye: ${formatAmount(totals.bakiye)} TL`, 14, summaryY + 12);
+      doc.text(`Devir Borc: ${formatAmount(openingTotals.borc)} TL`, 14, summaryY);
+      doc.text(`Devir Alacak: ${formatAmount(openingTotals.alacak)} TL`, 14, summaryY + 6);
+      doc.text(`Devir Bakiye: ${formatAmount(openingTotals.bakiye)} TL`, 14, summaryY + 12);
+
+      const totalsY = summaryY + 20;
+      doc.text(`Donem Borc: ${formatAmount(periodTotals.borc)} TL`, 14, totalsY);
+      doc.text(`Donem Alacak: ${formatAmount(periodTotals.alacak)} TL`, 14, totalsY + 6);
+      doc.text(`Donem Bakiye: ${formatAmount(periodTotals.bakiye)} TL`, 14, totalsY + 12);
+
+      const grandY = totalsY + 20;
+      doc.text(`Toplam Borc: ${formatAmount(totals.borc)} TL`, 14, grandY);
+      doc.text(`Toplam Alacak: ${formatAmount(totals.alacak)} TL`, 14, grandY + 6);
+      doc.text(`Genel Bakiye: ${formatAmount(totals.bakiye)} TL`, 14, grandY + 12);
 
       // Footer - sayfa numaraları
       const pageCount = (doc as any).internal.getNumberOfPages();

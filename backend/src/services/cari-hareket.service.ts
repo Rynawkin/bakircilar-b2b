@@ -35,6 +35,19 @@ class CariHareketService {
     // SQL injection'dan korunmak için parametreleri escape et
     const escapedCariKod = cariKod.replace(/'/g, "''");
 
+    const openingQuery = `
+      SELECT
+        SUM(CASE WHEN cha_tip = 0 THEN cha_meblag ELSE 0 END) AS borc,
+        SUM(CASE WHEN cha_tip = 1 THEN cha_meblag ELSE 0 END) AS alacak
+      FROM dbo.CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+      WHERE cha_kod = '${escapedCariKod}'
+        AND cha_create_date < '${defaultStartDate}'
+    `;
+
+    const openingResult = await mikroFactory.executeQuery(openingQuery);
+    const openingBorc = Number(openingResult?.[0]?.borc) || 0;
+    const openingAlacak = Number(openingResult?.[0]?.alacak) || 0;
+
     // Sadece gerekli kolonları Türkçe başlıklarla getir
     const query = `
       SELECT
@@ -58,7 +71,14 @@ class CariHareketService {
     `;
 
     const result = await mikroFactory.executeQuery(query);
-    return result;
+    return {
+      rows: result,
+      opening: {
+        borc: openingBorc,
+        alacak: openingAlacak,
+        bakiye: openingBorc - openingAlacak,
+      },
+    };
   }
 
   /**

@@ -18,7 +18,7 @@ export const getCariHareketFoyu = async (req: Request, res: Response) => {
       endDate: endDate as string | undefined
     });
 
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: result.rows, opening: result.opening });
   } catch (error: any) {
     console.error('Cari hareket föyü alınırken hata:', error);
     res.status(500).json({ message: 'Cari hareket föyü alınamadı', error: error.message });

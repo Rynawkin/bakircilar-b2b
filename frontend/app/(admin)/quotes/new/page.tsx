@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Badge } from '@/components/ui/Badge';
@@ -15,7 +15,7 @@ import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
-import type { CustomerContact } from '@/types';
+import type { CustomerContact, Quote, QuoteItem } from '@/types';
 
 interface LastSale {
   saleDate: string;
@@ -323,6 +323,12 @@ const getPercentTone = (value?: number | null) => {
 
 export default function AdminQuoteNewPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editQuoteId = searchParams.get('edit');
+  const isEditMode = Boolean(editQuoteId);
+  const editInitializedRef = useRef(false);
+  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
+  const [loadingQuote, setLoadingQuote] = useState(false);
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [customerContacts, setCustomerContacts] = useState<CustomerContact[]>([]);
@@ -380,6 +386,12 @@ export default function AdminQuoteNewPage() {
   }, []);
 
   useEffect(() => {
+    if (!editQuoteId || editInitializedRef.current) return;
+    editInitializedRef.current = true;
+    loadQuoteForEdit(editQuoteId);
+  }, [editQuoteId]);
+
+  useEffect(() => {
     if (!isQuoteTableFullscreen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -432,6 +444,14 @@ export default function AdminQuoteNewPage() {
     if (!selectedCustomer) return;
     setSelectedSearchCodes(new Set());
   }, [selectedCustomer]);
+
+  useEffect(() => {
+    if (!editingQuote || customers.length === 0) return;
+    const matched = customers.find((item) => item.id === editingQuote.customer?.id);
+    if (matched && matched.id !== selectedCustomer?.id) {
+      setSelectedCustomer(matched);
+    }
+  }, [customers, editingQuote, selectedCustomer?.id]);
 
   useEffect(() => {
     if (selectedColumns.length === 0) return;
@@ -805,6 +825,30 @@ export default function AdminQuoteNewPage() {
     setSelectedPurchasedCodes(new Set());
   };
 
+  const loadQuoteForEdit = async (quoteId: string) => {
+    setLoadingQuote(true);
+    try {
+      const { quote } = await adminApi.getQuoteById(quoteId);
+      setEditingQuote(quote);
+
+      const matchedCustomer = customers.find((item) => item.id === quote.customer?.id);
+      setSelectedCustomer(matchedCustomer || quote.customer || null);
+      setSelectedContactId(quote.contactId || '');
+      setValidityDate(quote.validityDate ? quote.validityDate.slice(0, 10) : '');
+      setNote(quote.note || quote.documentNo || '');
+      setVatZeroed(Boolean(quote.vatZeroed));
+      setSelectedResponsibleCode(quote.responsibleCode || '');
+
+      const mappedItems = (quote.items || []).map(buildQuoteItemFromExisting);
+      setQuoteItems(mappedItems);
+    } catch (error) {
+      console.error('Teklif yuklenemedi:', error);
+      toast.error('Teklif yuklenemedi');
+    } finally {
+      setLoadingQuote(false);
+    }
+  };
+
   const toggleSearchSelection = (code: string) => {
     setSelectedSearchCodes((prev) => {
       const next = new Set(prev);
@@ -860,6 +904,51 @@ export default function AdminQuoteNewPage() {
       lastEntryPrice: sourceProduct.lastEntryPrice ?? null,
       currentCost: sourceProduct.currentCost ?? null,
       mikroPriceLists: sourceProduct.mikroPriceLists,
+    };
+  };
+
+  const buildQuoteItemFromExisting = (item: QuoteItem): QuoteItemForm => {
+    const isManualLine = item.isManualLine;
+    const lastSale =
+      item.priceSource === 'LAST_SALE'
+        ? {
+            saleDate: item.sourceSaleDate || new Date().toISOString(),
+            unitPrice: item.sourceSalePrice ?? item.unitPrice,
+            quantity: item.sourceSaleQuantity ?? item.quantity,
+            vatZeroed: item.sourceSaleVatZeroed ?? item.vatZeroed,
+          }
+        : undefined;
+
+    const lastSales = lastSale ? [lastSale] : [];
+    const selectedSaleIndex = lastSale ? 0 : undefined;
+    const priceListNo = item.priceListNo ?? undefined;
+    const mikroPriceLists = priceListNo
+      ? { [priceListNo]: item.unitPrice }
+      : undefined;
+
+    return {
+      id: item.id,
+      productId: (item as any).productId,
+      productCode: item.productCode,
+      productName: item.productName,
+      unit: item.unit || item.product?.unit || 'ADET',
+      unit2: null,
+      unit2Factor: null,
+      quantity: item.quantity,
+      priceSource: item.priceSource,
+      priceListNo,
+      unitPrice: item.unitPrice,
+      manualPriceInput: isManualLine ? formatManualPriceInput(item.unitPrice) : undefined,
+      vatRate: item.vatRate,
+      vatZeroed: item.vatZeroed,
+      isManualLine,
+      manualVatRate: isManualLine ? item.vatRate : undefined,
+      lineDescription: item.lineDescription || '',
+      lastSales,
+      selectedSaleIndex,
+      lastEntryPrice: null,
+      currentCost: null,
+      mikroPriceLists,
     };
   };
 
@@ -1532,8 +1621,13 @@ export default function AdminQuoteNewPage() {
         }),
       };
 
-      await adminApi.createQuote(payload);
-      toast.success('Teklif olusturuldu.');
+      if (isEditMode && editQuoteId) {
+        await adminApi.updateQuote(editQuoteId, payload);
+        toast.success('Teklif guncellendi.');
+      } else {
+        await adminApi.createQuote(payload);
+        toast.success('Teklif olusturuldu.');
+      }
       router.push('/quotes');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Teklif olusturulamadi.');
@@ -1553,6 +1647,17 @@ export default function AdminQuoteNewPage() {
     ? 'sticky bottom-0 z-20 bg-white/90 backdrop-blur'
     : '';
 
+  if (isEditMode && loadingQuote) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3 text-sm text-gray-600">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+          Teklif yukleniyor...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 relative overflow-x-hidden overflow-y-visible">
       <div className="pointer-events-none absolute inset-0">
@@ -1563,8 +1668,12 @@ export default function AdminQuoteNewPage() {
       <div className="relative z-10 container-custom max-w-[1600px] py-8 2xl:px-10">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Teklif Olustur</h1>
-            <p className="text-sm text-gray-600">Mikro teklif fisine aktarilir</p>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isEditMode ? 'Teklif Duzenle' : 'Teklif Olustur'}
+            </h1>
+            <p className="text-sm text-gray-600">
+              {isEditMode ? 'Mikro teklif guncellenir' : 'Mikro teklif fisine aktarilir'}
+            </p>
           </div>
           <Button variant="secondary" onClick={() => router.push('/quotes')}>
             Teklifler
@@ -1593,8 +1702,8 @@ export default function AdminQuoteNewPage() {
               <h2 className="text-lg font-semibold">Musteri</h2>
               <p className="text-xs text-gray-500">Teklif icin cari secin.</p>
             </div>
-            <Button variant="secondary" onClick={() => setShowCariModal(true)}>
-              Musteri Sec
+            <Button variant="secondary" onClick={() => setShowCariModal(true)} disabled={isEditMode}>
+              {isEditMode ? 'Musteri Kilitli' : 'Musteri Sec'}
             </Button>
           </div>
           {selectedCustomer ? (
@@ -2227,7 +2336,7 @@ export default function AdminQuoteNewPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-xs text-gray-500">{quoteItems.length} kalem secili</p>
               <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Gonderiliyor...' : 'Teklif Olustur'}
+                {submitting ? 'Gonderiliyor...' : isEditMode ? 'Teklifi Guncelle' : 'Teklif Olustur'}
               </Button>
             </div>
           </div>

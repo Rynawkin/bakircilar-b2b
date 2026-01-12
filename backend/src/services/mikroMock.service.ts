@@ -647,6 +647,32 @@ export class MikroMockService {
     };
   }
 
+  async updateQuote(quoteData: {
+    evrakSeri: string;
+    evrakSira: number;
+    cariCode: string;
+    validityDate: Date;
+    description: string;
+    documentNo?: string;
+    responsibleCode?: string;
+    paymentPlanNo?: number | null;
+    items: Array<{
+      productCode: string;
+      quantity: number;
+      unitPrice: number;
+      vatRate: number;
+      lineDescription?: string;
+      priceListNo?: number;
+    }>;
+  }): Promise<{ quoteNumber: string }> {
+    console.log('[MOCK] Teklif guncelleme:', {
+      ...quoteData,
+    });
+    return {
+      quoteNumber: `${quoteData.evrakSeri}-${quoteData.evrakSira}`,
+    };
+  }
+
   async getQuoteLines(params: { evrakSeri: string; evrakSira: number }): Promise<any[]> {
     console.log('[MOCK] Teklif satirlari isteniyor:', params);
     return [];

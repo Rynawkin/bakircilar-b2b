@@ -1251,6 +1251,313 @@ class MikroService {
     }
   }
 
+  async updateQuote(quoteData: {
+    evrakSeri: string;
+    evrakSira: number;
+    cariCode: string;
+    validityDate: Date;
+    description: string;
+    documentNo?: string;
+    responsibleCode?: string;
+    paymentPlanNo?: number | null;
+    items: Array<{
+      productCode: string;
+      quantity: number;
+      unitPrice: number;
+      vatRate: number;
+      lineDescription?: string;
+      priceListNo?: number;
+    }>;
+  }): Promise<{ quoteNumber: string }> {
+    await this.connect();
+
+    const {
+      evrakSeri,
+      evrakSira,
+      cariCode,
+      validityDate,
+      description,
+      documentNo,
+      responsibleCode,
+      paymentPlanNo,
+      items,
+    } = quoteData;
+
+    const transaction = this.pool!.transaction();
+
+    try {
+      await transaction.begin();
+
+      await transaction
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri)
+        .input('sira', sql.Int, evrakSira)
+        .query(`
+          DELETE FROM VERILEN_TEKLIFLER
+          WHERE tkl_evrakno_seri = @seri AND tkl_evrakno_sira = @sira
+        `);
+
+      const now = new Date();
+      const evrakDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const safeValidityDate = Number.isFinite(validityDate?.getTime?.()) ? validityDate : now;
+      const validityDateOnly = new Date(Date.UTC(
+        safeValidityDate.getUTCFullYear(),
+        safeValidityDate.getUTCMonth(),
+        safeValidityDate.getUTCDate()
+      ));
+      const lineNote = (description || '').trim();
+      const documentNoValue = (documentNo || '').trim().slice(0, 50);
+      const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
+      const paymentPlanValue = Number.isFinite(paymentPlanNo as number) ? Number(paymentPlanNo) : 0;
+      const sorMerkez = process.env.MIKRO_SORMERK || 'HENDEK';
+      const mikroUserNo = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+      const fileId = Number(process.env.MIKRO_FILE_ID || 100);
+      const zeroGuid = '00000000-0000-0000-0000-000000000000';
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const satirNo = i;
+        const quantity = item.quantity;
+        const unitPrice = item.unitPrice;
+        const brutFiyat = unitPrice * quantity;
+        const vatRate = item.vatRate || 0;
+        const vatAmount = vatRate > 0 ? brutFiyat * vatRate : 0;
+        const vatCode = this.convertVatRateToCode(vatRate);
+        const priceListNo = item.priceListNo ?? 0;
+        const descriptionLine = (item.lineDescription || lineNote || '').slice(0, 40);
+
+        const insertQuery = `
+          INSERT INTO VERILEN_TEKLIFLER (
+            tkl_evrakno_seri,
+            tkl_evrakno_sira,
+            tkl_satirno,
+            tkl_evrak_tarihi,
+            tkl_baslangic_tarihi,
+            tkl_Gecerlilik_Sures,
+            tkl_cari_kod,
+            tkl_stok_kod,
+            tkl_miktar,
+            tkl_Birimfiyati,
+            tkl_Brut_fiyat,
+            tkl_vergi,
+            tkl_vergi_pntr,
+            tkl_Aciklama,
+            tkl_doviz_cins,
+            tkl_doviz_kur,
+            tkl_alt_doviz_kur,
+            tkl_birim_pntr,
+            tkl_cari_tipi,
+            tkl_fiyat_liste_no,
+            tkl_teslim_miktar,
+            tkl_teslimat_suresi,
+            TKL_VERGISIZ_FL,
+            tkl_Tevkifat_turu,
+            tkl_tevkifat_sifirlandi_fl,
+            tkl_belge_tarih,
+            tkl_belge_no,
+            tkl_Sorumlu_Kod,
+            tkl_iptal,
+            TKL_KAPAT_FL,
+            tkl_hidden,
+            tkl_kilitli,
+            tkl_fileid,
+            tkl_cagrilabilir_fl,
+            tkl_create_user,
+            tkl_create_date,
+            tkl_lastup_user,
+            tkl_lastup_date,
+            tkl_firmano,
+            tkl_subeno,
+            tkl_Odeme_Plani,
+            tkl_durumu,
+            tkl_harekettipi
+          ) VALUES (
+            @seri,
+            @sira,
+            @satirNo,
+            @evrakTarihi,
+            @baslangicTarihi,
+            @gecerlilikTarihi,
+            @cariKod,
+            @stokKod,
+            @miktar,
+            @birimFiyat,
+            @brutFiyat,
+            @vergi,
+            @vergiPntr,
+            @aciklama,
+            @dovizCins,
+            @dovizKur,
+            @altDovizKur,
+            @birimPntr,
+            @cariTipi,
+            @fiyatListeNo,
+            @teslimMiktar,
+            @teslimatSuresi,
+            @vergiSiz,
+            @tevkifatTur,
+            @tevkifatSifir,
+            @belgeTarih,
+            @belgeNo,
+            @sorumluKod,
+            @iptal,
+            @kapat,
+            @hidden,
+            @kilitli,
+            @fileId,
+            @cagrilabilir,
+            @createUser,
+            @createDate,
+            @lastupUser,
+            @lastupDate,
+            @firmano,
+            @subeno,
+            @odemePlan,
+            @durum,
+            @hareketTipi
+          )
+        `;
+
+        await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .input('sira', sql.Int, evrakSira)
+          .input('satirNo', sql.Int, satirNo)
+          .input('evrakTarihi', sql.DateTime, evrakDate)
+          .input('baslangicTarihi', sql.DateTime, evrakDate)
+          .input('gecerlilikTarihi', sql.DateTime, validityDateOnly)
+          .input('cariKod', sql.NVarChar(25), cariCode)
+          .input('stokKod', sql.NVarChar(25), item.productCode)
+          .input('miktar', sql.Float, quantity)
+          .input('birimFiyat', sql.Float, unitPrice)
+          .input('brutFiyat', sql.Float, brutFiyat)
+          .input('vergi', sql.Float, vatAmount)
+          .input('vergiPntr', sql.TinyInt, vatCode)
+          .input('aciklama', sql.NVarChar(40), descriptionLine)
+          .input('dovizCins', sql.TinyInt, 0)
+          .input('dovizKur', sql.Float, 1)
+          .input('altDovizKur', sql.Float, 1)
+          .input('birimPntr', sql.TinyInt, 1)
+          .input('cariTipi', sql.TinyInt, 0)
+          .input('fiyatListeNo', sql.Int, priceListNo)
+          .input('teslimMiktar', sql.Float, 0)
+          .input('teslimatSuresi', sql.SmallInt, 0)
+          .input('vergiSiz', sql.Bit, vatRate === 0)
+          .input('tevkifatTur', sql.TinyInt, 0)
+          .input('tevkifatSifir', sql.Bit, 0)
+          .input('belgeTarih', sql.DateTime, evrakDate)
+          .input('belgeNo', sql.NVarChar(50), documentNoValue)
+          .input('sorumluKod', sql.NVarChar(25), responsibleValue || null)
+          .input('iptal', sql.Bit, 0)
+          .input('kapat', sql.Bit, 0)
+          .input('hidden', sql.Bit, 0)
+          .input('kilitli', sql.Bit, 0)
+          .input('fileId', sql.SmallInt, fileId)
+          .input('cagrilabilir', sql.Bit, 1)
+          .input('createUser', sql.SmallInt, mikroUserNo)
+          .input('createDate', sql.DateTime, now)
+          .input('lastupUser', sql.SmallInt, mikroUserNo)
+          .input('lastupDate', sql.DateTime, now)
+          .input('firmano', sql.Int, 0)
+          .input('subeno', sql.Int, 0)
+          .input('odemePlan', sql.Int, paymentPlanValue)
+          .input('durum', sql.TinyInt, 0)
+          .input('hareketTipi', sql.TinyInt, 0)
+          .query(insertQuery);
+      }
+
+      const normalizeQuery = `
+        UPDATE VERILEN_TEKLIFLER
+        SET
+          tkl_SpecRECno = ISNULL(tkl_SpecRECno, 0),
+          tkl_degisti = ISNULL(tkl_degisti, 0),
+          tkl_checksum = ISNULL(tkl_checksum, 0),
+          tkl_fileid = ISNULL(tkl_fileid, @fileId),
+          tkl_cagrilabilir_fl = ISNULL(tkl_cagrilabilir_fl, 1),
+          tkl_special1 = ISNULL(tkl_special1, ''),
+          tkl_special2 = ISNULL(tkl_special2, ''),
+          tkl_special3 = ISNULL(tkl_special3, ''),
+          tkl_asgari_miktar = ISNULL(tkl_asgari_miktar, 0),
+          tkl_Alisfiyati = ISNULL(tkl_Alisfiyati, 0),
+          tkl_karorani = ISNULL(tkl_karorani, 0),
+          tkl_iskonto1 = ISNULL(tkl_iskonto1, 0),
+          tkl_iskonto2 = ISNULL(tkl_iskonto2, 0),
+          tkl_iskonto3 = ISNULL(tkl_iskonto3, 0),
+          tkl_iskonto4 = ISNULL(tkl_iskonto4, 0),
+          tkl_iskonto5 = ISNULL(tkl_iskonto5, 0),
+          tkl_iskonto6 = ISNULL(tkl_iskonto6, 0),
+          tkl_masraf1 = ISNULL(tkl_masraf1, 0),
+          tkl_masraf2 = ISNULL(tkl_masraf2, 0),
+          tkl_masraf3 = ISNULL(tkl_masraf3, 0),
+          tkl_masraf4 = ISNULL(tkl_masraf4, 0),
+          tkl_masraf_vergi_pnt = ISNULL(tkl_masraf_vergi_pnt, 0),
+          tkl_masraf_vergi = ISNULL(tkl_masraf_vergi, 0),
+          tkl_isk_mas1 = ISNULL(tkl_isk_mas1, 0),
+          TKL_ISK_MAS2 = ISNULL(TKL_ISK_MAS2, 1),
+          TKL_ISK_MAS3 = ISNULL(TKL_ISK_MAS3, 1),
+          TKL_ISK_MAS4 = ISNULL(TKL_ISK_MAS4, 1),
+          TKL_ISK_MAS5 = ISNULL(TKL_ISK_MAS5, 1),
+          TKL_ISK_MAS6 = ISNULL(TKL_ISK_MAS6, 1),
+          TKL_ISK_MAS7 = ISNULL(TKL_ISK_MAS7, 1),
+          TKL_ISK_MAS8 = ISNULL(TKL_ISK_MAS8, 1),
+          TKL_ISK_MAS9 = ISNULL(TKL_ISK_MAS9, 1),
+          TKL_ISK_MAS10 = ISNULL(TKL_ISK_MAS10, 1),
+          TKL_SAT_ISKMAS1 = ISNULL(TKL_SAT_ISKMAS1, 0),
+          TKL_SAT_ISKMAS2 = ISNULL(TKL_SAT_ISKMAS2, 0),
+          TKL_SAT_ISKMAS3 = ISNULL(TKL_SAT_ISKMAS3, 0),
+          TKL_SAT_ISKMAS4 = ISNULL(TKL_SAT_ISKMAS4, 0),
+          TKL_SAT_ISKMAS5 = ISNULL(TKL_SAT_ISKMAS5, 0),
+          TKL_SAT_ISKMAS6 = ISNULL(TKL_SAT_ISKMAS6, 0),
+          TKL_SAT_ISKMAS7 = ISNULL(TKL_SAT_ISKMAS7, 0),
+          TKL_SAT_ISKMAS8 = ISNULL(TKL_SAT_ISKMAS8, 0),
+          TKL_SAT_ISKMAS9 = ISNULL(TKL_SAT_ISKMAS9, 0),
+          TKL_SAT_ISKMAS10 = ISNULL(TKL_SAT_ISKMAS10, 0),
+          TKL_TESLIMTURU = ISNULL(TKL_TESLIMTURU, ''),
+          tkl_adres_no = ISNULL(tkl_adres_no, 1),
+          tkl_yetkili_uid = ISNULL(tkl_yetkili_uid, @zeroGuid),
+          tkl_TedarikEdilecekCari = ISNULL(tkl_TedarikEdilecekCari, ''),
+          tkl_paket_kod = ISNULL(tkl_paket_kod, ''),
+          tkl_OnaylayanKulNo = ISNULL(tkl_OnaylayanKulNo, @onayKulNo),
+          tkl_cari_sormerk = ISNULL(tkl_cari_sormerk, @sorMerkez),
+          tkl_stok_sormerk = ISNULL(tkl_stok_sormerk, @sorMerkez),
+          tkl_ProjeKodu = ISNULL(tkl_ProjeKodu, 'R'),
+          tkl_kapatmanedenkod = ISNULL(tkl_kapatmanedenkod, ''),
+          tkl_servisisemrikodu = ISNULL(tkl_servisisemrikodu, ''),
+          tkl_HareketGrupKodu1 = ISNULL(tkl_HareketGrupKodu1, ''),
+          tkl_HareketGrupKodu2 = ISNULL(tkl_HareketGrupKodu2, ''),
+          tkl_HareketGrupKodu3 = ISNULL(tkl_HareketGrupKodu3, ''),
+          tkl_Olcu1 = ISNULL(tkl_Olcu1, 0),
+          tkl_Olcu2 = ISNULL(tkl_Olcu2, 0),
+          tkl_Olcu3 = ISNULL(tkl_Olcu3, 0),
+          tkl_Olcu4 = ISNULL(tkl_Olcu4, 0),
+          tkl_Olcu5 = ISNULL(tkl_Olcu5, 0),
+          tkl_FormulMiktarNo = ISNULL(tkl_FormulMiktarNo, 0),
+          tkl_FormulMiktar = ISNULL(tkl_FormulMiktar, 0)
+        WHERE tkl_evrakno_seri = @seri AND tkl_evrakno_sira = @sira
+      `;
+
+      await transaction
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri)
+        .input('sira', sql.Int, evrakSira)
+        .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
+        .input('onayKulNo', sql.SmallInt, mikroUserNo)
+        .input('sorMerkez', sql.NVarChar(25), sorMerkez)
+        .input('fileId', sql.SmallInt, fileId)
+        .query(normalizeQuery);
+
+      await transaction.commit();
+
+      return {
+        quoteNumber: `${evrakSeri}-${evrakSira}`,
+      };
+    } catch (error) {
+      await transaction.rollback();
+      console.error('❌ Teklif guncelleme hatasi:', error);
+      throw new Error(`Teklif Mikro'da guncellenemedi: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
+    }
+  }
+
   async ensureCariExists(cariData: {
     cariCode: string;
     unvan: string;

@@ -355,6 +355,11 @@ export const adminApi = {
     return response.data;
   },
 
+  updateQuote: async (id: string, data: any): Promise<{ quote: Quote }> => {
+    const response = await apiClient.put(`/admin/quotes/${id}`, data);
+    return response.data;
+  },
+
   getQuotes: async (status?: string): Promise<{ quotes: Quote[] }> => {
     const response = await apiClient.get('/admin/quotes', { params: status ? { status } : undefined });
     return response.data;
@@ -649,6 +654,13 @@ export const adminApi = {
 
   downloadEInvoice: async (id: string): Promise<Blob> => {
     const response = await apiClient.get(`/admin/einvoices/${id}/download`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  downloadEInvoices: async (ids: string[]): Promise<Blob> => {
+    const response = await apiClient.post('/admin/einvoices/bulk-download', { ids }, {
       responseType: 'blob',
     });
     return response.data;
@@ -1250,6 +1262,7 @@ export const adminApi = {
   }): Promise<{
     success: boolean;
     data: any[];
+    opening?: { borc: number; alacak: number; bakiye: number };
   }> => {
     const response = await apiClient.get('/cari-hareket/foyu', { params });
     return response.data;

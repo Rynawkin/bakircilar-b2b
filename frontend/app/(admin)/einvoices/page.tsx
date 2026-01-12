@@ -60,6 +60,8 @@ export default function EInvoicesPage() {
   const [documents, setDocuments] = useState<EInvoiceDocument[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 25, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [cariList, setCariList] = useState<MikroCari[]>([]);
   const [cariModalOpen, setCariModalOpen] = useState(false);
@@ -102,6 +104,7 @@ export default function EInvoicesPage() {
       });
       setDocuments(response.documents || []);
       setPagination(response.pagination || { page, limit: pagination.limit, total: 0, totalPages: 1 });
+      setSelectedIds(new Set());
     } catch (error) {
       console.error('Invoice list not loaded', error);
       toast.error('Fatura listesi alinamadi');
@@ -151,6 +154,72 @@ export default function EInvoicesPage() {
     } catch (error) {
       console.error('Download failed', error);
       toast.error('PDF indirilemedi');
+    }
+  };
+
+  const selectableIds = documents.filter((doc) => doc.fileName).map((doc) => doc.id);
+  const selectedCount = selectedIds.size;
+  const allSelectedOnPage =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+
+  const toggleSelectAll = () => {
+    if (allSelectedOnPage) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        selectableIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        selectableIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDownload = async () => {
+    if (selectedIds.size === 0) {
+      toast.error('Once fatura secin');
+      return;
+    }
+
+    const missingFiles = documents.filter((doc) => selectedIds.has(doc.id) && !doc.fileName);
+    if (missingFiles.length > 0) {
+      toast.error('PDF bulunamayan faturalar secildi');
+      return;
+    }
+
+    setBulkDownloading(true);
+    try {
+      const blob = await adminApi.downloadEInvoices(Array.from(selectedIds));
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+      link.href = url;
+      link.download = `faturalar_${stamp}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Toplu indirme basladi');
+    } catch (error) {
+      console.error('Bulk download failed', error);
+      toast.error('Toplu indirme basarisiz');
+    } finally {
+      setBulkDownloading(false);
     }
   };
 
@@ -283,10 +352,41 @@ export default function EInvoicesPage() {
             </div>
           </div>
 
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+            <span>
+              {selectedCount > 0 ? `${selectedCount} fatura secili` : 'Fatura secimi yok'}
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={selectedCount === 0 || bulkDownloading}
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Secimi Temizle
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleBulkDownload}
+                disabled={selectedCount === 0 || bulkDownloading}
+              >
+                {bulkDownloading ? 'Indiriliyor...' : 'Secilileri Indir'}
+              </Button>
+            </div>
+          </div>
+
           <div className="mt-6">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allSelectedOnPage}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 accent-primary-600"
+                    />
+                  </TableHead>
                   <TableHead>Fatura No</TableHead>
                   <TableHead>Cari</TableHead>
                   <TableHead>Tarih</TableHead>
@@ -299,13 +399,22 @@ export default function EInvoicesPage() {
               <TableBody>
                 {documents.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-6 text-center text-sm text-gray-500">
+                    <TableCell colSpan={8} className="py-6 text-center text-sm text-gray-500">
                       Kayit bulunamadi.
                     </TableCell>
                   </TableRow>
                 )}
                 {documents.map((doc) => (
                   <TableRow key={doc.id}>
+                    <TableCell className="text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(doc.id)}
+                        onChange={() => toggleSelection(doc.id)}
+                        disabled={!doc.fileName}
+                        className="h-4 w-4 accent-primary-600"
+                      />
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{doc.invoiceNo}</TableCell>
                     <TableCell>
                       <div className="text-sm font-medium text-gray-900">{doc.customerName || '-'}</div>
@@ -335,7 +444,7 @@ export default function EInvoicesPage() {
                 ))}
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-6 text-center text-sm text-gray-500">
+                    <TableCell colSpan={8} className="py-6 text-center text-sm text-gray-500">
                       Yukleniyor...
                     </TableCell>
                   </TableRow>

@@ -158,6 +158,7 @@ router.get('/cari-list', requireStaff, adminController.getCariList);
 // E-Invoice documents - Staff
 router.get('/einvoices', requireStaff, eInvoiceController.getDocuments);
 router.post('/einvoices/upload', requireStaff, invoiceUpload.array('files', 50), eInvoiceController.uploadDocuments);
+router.post('/einvoices/bulk-download', requireStaff, eInvoiceController.bulkDownloadDocuments);
 router.get('/einvoices/:id/download', requireStaff, eInvoiceController.downloadDocument);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
@@ -238,6 +239,7 @@ router.put('/quotes/preferences', requireStaff, quoteController.updatePreference
 router.get('/quotes/responsibles', requireStaff, quoteController.getResponsibles);
 router.get('/quotes/customer/:customerId/purchased-products', requireStaff, quoteController.getCustomerPurchasedProducts);
 router.post('/quotes', requireStaff, quoteController.createQuote);
+router.put('/quotes/:id', requireStaff, quoteController.updateQuote);
 router.get('/quotes', requireStaff, quoteController.getQuotes);
 router.get('/quotes/:id', requireStaff, quoteController.getQuoteById);
 router.post('/quotes/:id/sync', requireStaff, quoteController.syncQuoteFromMikro);

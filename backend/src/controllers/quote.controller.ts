@@ -90,6 +90,19 @@ export class QuoteController {
   }
 
   /**
+   * PUT /api/admin/quotes/:id
+   */
+  async updateQuote(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const quote = await quoteService.updateQuote(id, req.body, req.user!.userId);
+      res.json({ quote });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/quotes
    */
   async getQuotes(req: Request, res: Response, next: NextFunction) {

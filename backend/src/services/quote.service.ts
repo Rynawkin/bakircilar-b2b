@@ -578,6 +578,288 @@ class QuoteService {
     return quote;
   }
 
+  async updateQuote(quoteId: string, input: CreateQuoteInput, updatedById: string) {
+    const {
+      customerId,
+      validityDate,
+      note,
+      documentNo,
+      responsibleCode,
+      contactId,
+      vatZeroed = false,
+      items,
+    } = input;
+
+    if (!validityDate || !Array.isArray(items) || items.length === 0) {
+      throw new Error('Missing required fields');
+    }
+
+    const existing = await prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        items: true,
+        customer: { select: { id: true, mikroCariCode: true, paymentPlanNo: true } },
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Quote not found');
+    }
+
+    if (customerId && customerId !== existing.customerId) {
+      throw new Error('Customer cannot be changed for this quote');
+    }
+
+    if (!['PENDING_APPROVAL', 'SENT_TO_MIKRO'].includes(existing.status)) {
+      throw new Error('Quote cannot be edited');
+    }
+
+    const customer = await prisma.user.findUnique({
+      where: { id: existing.customerId },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        mikroCariCode: true,
+        paymentPlanNo: true,
+      },
+    });
+
+    if (!customer || !customer.mikroCariCode) {
+      throw new Error('Customer not found or missing Mikro cari code');
+    }
+
+    let contact: { id: string; name: string; phone: string | null; email: string | null } | null = null;
+    if (contactId) {
+      const contactRow = await prisma.customerContact.findUnique({
+        where: { id: contactId },
+        select: { id: true, customerId: true, name: true, phone: true, email: true },
+      });
+      if (!contactRow || contactRow.customerId !== customer.id) {
+        throw new Error('Contact not found for customer');
+      }
+      contact = {
+        id: contactRow.id,
+        name: contactRow.name,
+        phone: contactRow.phone,
+        email: contactRow.email,
+      };
+    }
+
+    const productIds = items
+      .filter((item) => !item.manualLine && item.productId)
+      .map((item) => item.productId as string);
+    const productCodes = items
+      .filter((item) => !item.manualLine && !item.productId && item.productCode)
+      .map((item) => item.productCode as string);
+
+    const products = await prisma.product.findMany({
+      where: {
+        OR: [
+          ...(productIds.length > 0 ? [{ id: { in: productIds } }] : []),
+          ...(productCodes.length > 0 ? [{ mikroCode: { in: productCodes } }] : []),
+        ],
+      },
+    });
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const productByCode = new Map(products.map((product) => [product.mikroCode, product]));
+    const priceStatsMap = await priceListService.getPriceStatsMap(
+      products.map((product) => product.mikroCode)
+    );
+
+    let totalAmount = 0;
+    let totalVat = 0;
+    let hasBlockedItem = false;
+
+    const preparedItems = items.map((item, index) => {
+      const quantity = Math.max(1, Math.floor(safeNumber(item.quantity, 1)));
+      const priceSource = item.priceSource;
+      const isManualLine = Boolean(item.manualLine);
+      const priceType = normalizePriceType(item.priceType);
+      const vatZeroedLine = vatZeroed || Boolean(item.vatZeroed);
+
+      if (!priceSource || !['LAST_SALE', 'PRICE_LIST', 'MANUAL'].includes(priceSource)) {
+        throw new Error(`Price source missing for item ${index + 1}`);
+      }
+
+      let product = null;
+      if (!isManualLine) {
+        product =
+          (item.productId ? productById.get(item.productId) : null) ||
+          (item.productCode ? productByCode.get(item.productCode) : null) ||
+          null;
+        if (!product) {
+          throw new Error(`Product not found for item ${index + 1}`);
+        }
+      }
+
+      const productCode = isManualLine
+        ? (item.productCode || '')
+        : (product as any).mikroCode;
+      const productName = isManualLine
+        ? (item.productName || '')
+        : (product as any).name;
+      const resolvedUnit = isManualLine
+        ? (item.unit || '')
+        : ((product as any).unit || '');
+      const unit = resolvedUnit.trim() || 'ADET';
+
+      if (!productCode || !productName) {
+        throw new Error(`Product information missing for item ${index + 1}`);
+      }
+
+      if (isManualLine) {
+        const allowedCodes = ['B101070', 'B101071', 'B110365'];
+        if (!allowedCodes.includes(productCode)) {
+          throw new Error(`Manual line product code must be one of: ${allowedCodes.join(', ')}`);
+        }
+      }
+
+      const vatRate = isManualLine
+        ? safeNumber(item.manualVatRate, 0)
+        : safeNumber((product as any).vatRate, 0);
+
+      if (isManualLine && vatRate !== 0.01 && vatRate !== 0.1 && vatRate !== 0.2) {
+        throw new Error(`Manual line VAT rate must be 0.01, 0.1 or 0.2`);
+      }
+
+      let unitPrice = safeNumber(item.unitPrice, 0);
+      let priceListNo: number | undefined = item.priceListNo;
+
+      if (priceSource === 'PRICE_LIST') {
+        const listNo = safeNumber(item.priceListNo, 0);
+        if (!listNo) {
+          throw new Error(`Price list not selected for item ${index + 1}`);
+        }
+        const priceStats = priceStatsMap.get(productCode) || null;
+        const listPrice = priceListService.getListPrice(priceStats, listNo);
+        if (!listPrice) {
+          throw new Error(`Selected price list has no price for ${productCode}`);
+        }
+        unitPrice = listPrice;
+        priceListNo = listNo;
+      }
+
+      unitPrice = roundUp2(unitPrice);
+      if (unitPrice <= 0) {
+        throw new Error(`Unit price missing for item ${index + 1}`);
+      }
+
+      const totalPrice = unitPrice * quantity;
+      const vatAmount = vatZeroedLine ? 0 : totalPrice * vatRate;
+
+      totalAmount += totalPrice;
+      totalVat += vatAmount;
+
+      let isBlocked = false;
+      let blockedReason: string | undefined;
+      if (priceSource === 'MANUAL' && !isManualLine) {
+        const lastEntryPrice = safeNumber((product as any).lastEntryPrice, 0);
+        if (lastEntryPrice > 0 && unitPrice < lastEntryPrice * 1.05) {
+          isBlocked = true;
+          blockedReason = 'Son giris maliyetine gore %5 alti fiyat';
+          hasBlockedItem = true;
+        }
+      }
+
+      return {
+        productId: isManualLine ? null : (product as any).id,
+        productCode,
+        productName,
+        unit,
+        quantity,
+        unitPrice,
+        totalPrice,
+        priceSource,
+        priceListNo,
+        priceType,
+        vatRate,
+        vatZeroed: vatZeroedLine,
+        isManualLine,
+        isBlocked,
+        blockedReason,
+        sourceSaleDate: item.lastSale?.saleDate ? new Date(item.lastSale.saleDate) : null,
+        sourceSalePrice: item.lastSale?.unitPrice ?? null,
+        sourceSaleQuantity: item.lastSale?.quantity ?? null,
+        sourceSaleVatZeroed: item.lastSale?.vatZeroed ?? null,
+        lineDescription: item.lineDescription?.trim() || null,
+      };
+    });
+
+    const grandTotal = totalAmount + totalVat;
+
+    const resolvedDocumentNo = (documentNo || note || existing.documentNo || '').trim();
+    const resolvedResponsibleCode = (responsibleCode || existing.responsibleCode || '').trim();
+
+    let mikroUpdated = false;
+    if (existing.mikroNumber && !hasBlockedItem) {
+      const parsed = this.parseMikroNumber(existing.mikroNumber);
+      if (!parsed) {
+        throw new Error('Invalid Mikro number format');
+      }
+
+      await mikroService.updateQuote({
+        evrakSeri: parsed.evrakSeri,
+        evrakSira: parsed.evrakSira,
+        cariCode: customer.mikroCariCode,
+        validityDate: new Date(validityDate),
+        description: note?.trim() || '',
+        documentNo: resolvedDocumentNo,
+        responsibleCode: resolvedResponsibleCode,
+        paymentPlanNo: customer.paymentPlanNo ?? 0,
+        items: preparedItems.map((item) => ({
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: item.vatZeroed ? 0 : item.vatRate,
+          lineDescription: item.lineDescription || item.productName,
+          priceListNo: item.priceListNo ?? 0,
+        })),
+      });
+      mikroUpdated = true;
+    }
+
+    const nextStatus = hasBlockedItem
+      ? 'PENDING_APPROVAL'
+      : mikroUpdated
+        ? 'SENT_TO_MIKRO'
+        : existing.status;
+
+    const updatedQuote = await prisma.$transaction(async (tx) => {
+      await tx.quoteItem.deleteMany({ where: { quoteId } });
+      await tx.quoteItem.createMany({
+        data: preparedItems.map((item) => ({
+          quoteId,
+          ...item,
+        })),
+      });
+
+      return tx.quote.update({
+        where: { id: quoteId },
+        data: {
+          status: nextStatus,
+          note: note?.trim() || null,
+          documentNo: resolvedDocumentNo || null,
+          responsibleCode: resolvedResponsibleCode || null,
+          contactId: contact?.id ?? null,
+          contactName: contact?.name ?? null,
+          contactPhone: contact?.phone ?? null,
+          contactEmail: contact?.email ?? null,
+          validityDate: new Date(validityDate),
+          vatZeroed,
+          totalAmount,
+          totalVat,
+          grandTotal,
+          mikroUpdatedAt: mikroUpdated ? new Date() : existing.mikroUpdatedAt,
+        },
+        include: { items: true },
+      });
+    });
+
+    return updatedQuote;
+  }
+
   async getQuotesForStaff(userId: string, role: string, status?: string) {
     const where: any = {};
     if (status && status !== 'ALL') {

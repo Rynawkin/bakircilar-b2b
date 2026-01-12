@@ -283,6 +283,59 @@ class EInvoiceService {
       absolutePath,
     };
   }
+
+  async getDocumentsForBulkDownload(
+    documentIds: string[],
+    userId: string,
+    role: UserRole
+  ) {
+    if (!STAFF_ROLES.includes(role)) {
+      throw new Error('Unauthorized');
+    }
+
+    const uniqueIds = Array.from(new Set(documentIds.filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      throw new Error('No documents selected');
+    }
+
+    const documents = await prisma.eInvoiceDocument.findMany({
+      where: { id: { in: uniqueIds } },
+      include: {
+        customer: { select: { sectorCode: true } },
+      },
+    });
+
+    if (documents.length !== uniqueIds.length) {
+      throw new Error('Document not found');
+    }
+
+    if (role === 'SALES_REP') {
+      const staff = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { assignedSectorCodes: true },
+      });
+      const sectorCodes = staff?.assignedSectorCodes || [];
+      if (sectorCodes.length === 0) {
+        throw new Error('Unauthorized');
+      }
+
+      for (const doc of documents) {
+        if (!doc.customer?.sectorCode || !sectorCodes.includes(doc.customer.sectorCode)) {
+          throw new Error('Unauthorized');
+        }
+      }
+    }
+
+    const resolved = documents.map((document) => {
+      const absolutePath = resolveStoragePath(document.storagePath);
+      if (!fs.existsSync(absolutePath)) {
+        throw new Error('File not found');
+      }
+      return { document, absolutePath };
+    });
+
+    return resolved;
+  }
 }
 
 export default new EInvoiceService();
