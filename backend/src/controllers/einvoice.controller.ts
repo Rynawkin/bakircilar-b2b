@@ -62,11 +62,18 @@ class EInvoiceController {
         return res.status(400).json({ error: 'Document ids required' });
       }
 
-      const documents = await eInvoiceService.getDocumentsForBulkDownload(
+      const { documents, missing } = await eInvoiceService.getDocumentsForBulkDownload(
         ids,
         req.user!.userId,
         req.user!.role as UserRole
       );
+
+      if (documents.length === 0) {
+        return res.status(404).json({
+          error: 'No documents available for download',
+          missing: missing?.map((item) => item.invoiceNo) || [],
+        });
+      }
 
       const timestamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
       const fileName = `faturalar_${timestamp}.zip`;
@@ -86,6 +93,16 @@ class EInvoiceController {
       for (const entry of documents) {
         const safeName = `${entry.document.invoiceNo}.pdf`;
         archive.file(entry.absolutePath, { name: safeName });
+      }
+
+      if (missing && missing.length > 0) {
+        const missingLines = [
+          'Asagidaki faturalar bulunamadi:',
+          ...missing.map((item) => `- ${item.invoiceNo}`),
+          '',
+          `Toplam eksik: ${missing.length}`,
+        ].join('\n');
+        archive.append(missingLines, { name: 'eksik_faturalar.txt' });
       }
 
       await archive.finalize();

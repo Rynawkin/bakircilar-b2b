@@ -305,8 +305,12 @@ class EInvoiceService {
       },
     });
 
-    if (documents.length !== uniqueIds.length) {
-      throw new Error('Document not found');
+    const documentById = new Map(documents.map((doc) => [doc.id, doc]));
+    const missing: Array<{ id: string; invoiceNo: string }> = [];
+    for (const id of uniqueIds) {
+      if (!documentById.has(id)) {
+        missing.push({ id, invoiceNo: id });
+      }
     }
 
     if (role === 'SALES_REP') {
@@ -326,15 +330,18 @@ class EInvoiceService {
       }
     }
 
-    const resolved = documents.map((document) => {
-      const absolutePath = resolveStoragePath(document.storagePath);
-      if (!fs.existsSync(absolutePath)) {
-        throw new Error('File not found');
-      }
-      return { document, absolutePath };
-    });
+    const resolved = documents
+      .map((document) => {
+        const absolutePath = resolveStoragePath(document.storagePath);
+        if (!fs.existsSync(absolutePath)) {
+          missing.push({ id: document.id, invoiceNo: document.invoiceNo });
+          return null;
+        }
+        return { document, absolutePath };
+      })
+      .filter(Boolean) as Array<{ document: (typeof documents)[number]; absolutePath: string }>;
 
-    return resolved;
+    return { documents: resolved, missing };
   }
 }
 
