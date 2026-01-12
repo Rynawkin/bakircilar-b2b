@@ -18,8 +18,8 @@
     "expo-document-picker": "~13.0.3",
     "expo-font": "~14.0.10",
     "expo-print": "~15.0.1",
-    "expo-sharing": "~12.0.1",
     "expo-secure-store": "~15.0.8",
+    "expo-sharing": "~12.0.1",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
@@ -31,6 +31,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "babel-preset-expo": "^54.0.9",
     "typescript": "~5.9.2"
   },
   "private": true
