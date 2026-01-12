@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -321,7 +321,7 @@ const getPercentTone = (value?: number | null) => {
   return value >= 0 ? 'text-emerald-700' : 'text-red-600';
 };
 
-export default function AdminQuoteNewPage() {
+function AdminQuoteNewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editQuoteId = searchParams.get('edit');
@@ -2868,5 +2868,13 @@ export default function AdminQuoteNewPage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+export default function AdminQuoteNewPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-gray-500">Yukleniyor...</div>}>
+      <AdminQuoteNewPageContent />
+    </Suspense>
   );
 }
