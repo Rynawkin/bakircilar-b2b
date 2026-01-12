@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -18,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { resolveImageUrl } from '../utils/image';
 import { getDisplayPrice } from '../utils/vat';
 
 type PriceType = 'INVOICED' | 'WHITE';
@@ -174,53 +176,77 @@ export function ProductsScreen() {
           data={products}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={listHeader}
+          ListHeaderComponentStyle={styles.listHeader}
           contentContainerStyle={styles.listContent}
+          numColumns={2}
+          columnWrapperStyle={styles.columnRow}
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              activeOpacity={0.9}
-              onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
-            >
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{item.name}</Text>
-                {item.agreement && <Text style={styles.badge}>Anlasmali</Text>}
-              </View>
-              <Text style={styles.code}>Kod: {item.mikroCode}</Text>
-              {typeof item.availableStock === 'number' && (
-                <Text style={styles.code}>Stok: {item.availableStock}</Text>
-              )}
-              {renderPrices(item)}
-              <View style={styles.cartRow}>
-                <TouchableOpacity
-                  style={styles.counterButton}
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    updateQuantity(item.id, -1);
-                  }}
-                >
-                  <Text style={styles.counterText}>-</Text>
-                </TouchableOpacity>
-                <Text style={styles.counterValue}>{quantities[item.id] || 1}</Text>
-                <TouchableOpacity
-                  style={styles.counterButton}
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    updateQuantity(item.id, 1);
-                  }}
-                >
-                  <Text style={styles.counterText}>+</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.cartButton}
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    addToCart(item);
-                  }}
-                >
-                  <Text style={styles.cartButtonText}>Sepete Ekle</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
+            <View style={styles.columnItem}>
+              <TouchableOpacity
+                style={styles.card}
+                activeOpacity={0.9}
+                onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
+              >
+                <View style={styles.imageWrap}>
+                  {resolveImageUrl(item.imageUrl) ? (
+                    <Image
+                      source={{ uri: resolveImageUrl(item.imageUrl) as string }}
+                      style={styles.image}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.imagePlaceholder}>
+                      <Text style={styles.imagePlaceholderText}>
+                        {item.name?.trim()?.charAt(0)?.toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  {item.agreement && <Text style={styles.badge}>Anlasmali</Text>}
+                </View>
+                <Text style={styles.code}>Kod: {item.mikroCode}</Text>
+                {typeof item.availableStock === 'number' && (
+                  <Text style={styles.code}>Stok: {item.availableStock}</Text>
+                )}
+                {renderPrices(item)}
+                <View style={styles.cartRow}>
+                  <View style={styles.counterRow}>
+                    <TouchableOpacity
+                      style={styles.counterButton}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        updateQuantity(item.id, -1);
+                      }}
+                    >
+                      <Text style={styles.counterText}>-</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.counterValue}>{quantities[item.id] || 1}</Text>
+                    <TouchableOpacity
+                      style={styles.counterButton}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        updateQuantity(item.id, 1);
+                      }}
+                    >
+                      <Text style={styles.counterText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.cartButton}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      addToCart(item);
+                    }}
+                  >
+                    <Text style={styles.cartButtonText}>Sepete Ekle</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            </View>
           )}
         />
       )}
@@ -239,8 +265,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   listContent: {
-    padding: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  listHeader: {
+    marginBottom: spacing.md,
+  },
+  columnRow: {
     gap: spacing.md,
+  },
+  columnItem: {
+    flex: 1,
   },
   header: {
     gap: spacing.sm,
@@ -298,9 +333,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    padding: spacing.lg,
+    padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
+    marginBottom: spacing.md,
+    flex: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -310,7 +347,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontFamily: fonts.semibold,
-    fontSize: fontSizes.lg,
+    fontSize: fontSizes.md,
     color: colors.text,
     flex: 1,
   },
@@ -344,10 +381,13 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   cartRow: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  counterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.md,
   },
   counterButton: {
     width: 32,
@@ -369,7 +409,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   cartButton: {
-    marginLeft: 'auto',
+    alignSelf: 'stretch',
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
@@ -379,5 +419,27 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     color: '#FFFFFF',
     fontSize: fontSizes.sm,
+  },
+  imageWrap: {
+    height: 120,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceAlt,
+    marginBottom: spacing.sm,
+  },
+  image: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+  },
+  imagePlaceholderText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.xl,
+    color: colors.textMuted,
   },
 });

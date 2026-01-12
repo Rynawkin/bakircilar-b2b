@@ -129,6 +129,12 @@ export function QuoteCreateScreen() {
     });
   }, [customerSearch, customers]);
 
+  const displayedCustomers = useMemo(() => {
+    const term = customerSearch.trim();
+    const limit = term ? 60 : 20;
+    return filteredCustomers.slice(0, limit);
+  }, [customerSearch, filteredCustomers]);
+
   const addProduct = (product: Product) => {
     const listNo = poolPriceListNo || 1;
     const listPrice = product.mikroPriceLists?.[String(listNo)] ?? 0;
@@ -238,21 +244,30 @@ export function QuoteCreateScreen() {
             placeholderTextColor={colors.textMuted}
             value={customerSearch}
             onChangeText={setCustomerSearch}
+            returnKeyType="search"
           />
           <View style={styles.listBlock}>
-            {filteredCustomers.map((customer) => (
-              <TouchableOpacity
-                key={customer.id}
-                style={[
-                  styles.listItem,
-                  selectedCustomer?.id === customer.id && styles.listItemActive,
-                ]}
-                onPress={() => setSelectedCustomer(customer)}
-              >
-                <Text style={styles.listItemTitle}>{customer.name}</Text>
-                <Text style={styles.listItemMeta}>{customer.mikroCariCode || '-'}</Text>
-              </TouchableOpacity>
-            ))}
+            <ScrollView style={styles.listScroll} nestedScrollEnabled>
+              {displayedCustomers.map((customer) => (
+                <TouchableOpacity
+                  key={customer.id}
+                  style={[
+                    styles.listItem,
+                    selectedCustomer?.id === customer.id && styles.listItemActive,
+                  ]}
+                  onPress={() => setSelectedCustomer(customer)}
+                >
+                  <Text style={styles.listItemTitle}>{customer.name}</Text>
+                  <Text style={styles.listItemMeta}>{customer.mikroCariCode || '-'}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            {customerSearch.trim().length === 0 && customers.length > displayedCustomers.length && (
+              <Text style={styles.helper}>Daha fazla cari icin arama yapin.</Text>
+            )}
+            {customerSearch.trim().length > 0 && filteredCustomers.length === 0 && (
+              <Text style={styles.helper}>Cari bulunamadi.</Text>
+            )}
           </View>
         </View>
 
@@ -335,24 +350,30 @@ export function QuoteCreateScreen() {
             placeholderTextColor={colors.textMuted}
             value={productSearch}
             onChangeText={setProductSearch}
+            returnKeyType="search"
           />
-          {searchingProducts && <Text style={styles.helper}>Araniyor...</Text>}
           <View style={styles.listBlock}>
-            {products.map((product) => {
-              const listPrice = product.mikroPriceLists?.[String(poolPriceListNo)] ?? 0;
-              return (
-                <View key={product.id} style={styles.listItem}>
-                  <Text style={styles.listItemTitle}>{product.name}</Text>
-                  <Text style={styles.listItemMeta}>Kod: {product.mikroCode}</Text>
-                  <Text style={styles.poolPrice}>
-                    Liste {poolPriceListNo}: {Number(listPrice).toFixed(2)} TL
-                  </Text>
-                  <TouchableOpacity style={styles.addButton} onPress={() => addProduct(product)}>
-                    <Text style={styles.addButtonText}>Teklife Ekle</Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
+            <ScrollView style={styles.listScroll} nestedScrollEnabled>
+              {products.map((product) => {
+                const listPrice = product.mikroPriceLists?.[String(poolPriceListNo)] ?? 0;
+                return (
+                  <View key={product.id} style={styles.listItem}>
+                    <Text style={styles.listItemTitle}>{product.name}</Text>
+                    <Text style={styles.listItemMeta}>Kod: {product.mikroCode}</Text>
+                    <Text style={styles.poolPrice}>
+                      Liste {poolPriceListNo}: {Number(listPrice).toFixed(2)} TL
+                    </Text>
+                    <TouchableOpacity style={styles.addButton} onPress={() => addProduct(product)}>
+                      <Text style={styles.addButtonText}>Teklife Ekle</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            {searchingProducts && <Text style={styles.helper}>Araniyor...</Text>}
+            {productSearch.trim().length === 0 && (
+              <Text style={styles.helper}>Urun aramak icin yazin.</Text>
+            )}
             {productSearch.trim().length > 0 && products.length === 0 && !searchingProducts && (
               <Text style={styles.helper}>Urun bulunamadi.</Text>
             )}
@@ -548,6 +569,9 @@ const styles = StyleSheet.create({
   },
   listBlock: {
     gap: spacing.sm,
+  },
+  listScroll: {
+    maxHeight: 240,
   },
   listItem: {
     backgroundColor: colors.surfaceAlt,
