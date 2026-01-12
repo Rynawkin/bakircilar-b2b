@@ -37,16 +37,130 @@ type QuoteItemForm = {
   mikroPriceLists?: Record<string, number>;
 };
 
+type PoolSortOption = 'default' | 'stock1_desc' | 'stock6_desc' | 'price_asc' | 'price_desc';
+
+const PRICE_LIST_LABELS: Record<number, string> = {
+  1: 'Perakende Satis 1',
+  2: 'Perakende Satis 2',
+  3: 'Perakende Satis 3',
+  4: 'Perakende Satis 4',
+  5: 'Perakende Satis 5',
+  6: 'Toptan Satis 1',
+  7: 'Toptan Satis 2',
+  8: 'Toptan Satis 3',
+  9: 'Toptan Satis 4',
+  10: 'Toptan Satis 5',
+};
+
+const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
+  { value: 'default', label: 'Varsayilan' },
+  { value: 'stock1_desc', label: 'Merkez Stok' },
+  { value: 'stock6_desc', label: 'Topca Stok' },
+  { value: 'price_asc', label: 'Fiyat Dusuk' },
+  { value: 'price_desc', label: 'Fiyat Yuksek' },
+];
+
+const formatCurrency = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-';
+  return value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatStockValue = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-';
+  return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+};
+
+const normalizeUnit = (value?: string | null) => {
+  if (!value) return '';
+  return value.trim().toUpperCase();
+};
+
+const getUnitConversionLabel = (
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+) => {
+  if (!unit || !unit2) return null;
+  const factor = Number(unit2Factor);
+  if (!Number.isFinite(factor) || factor === 0) return null;
+  const absFactor = Math.abs(factor);
+  if (absFactor === 0) return null;
+
+  const normalizedUnit = normalizeUnit(unit);
+  const normalizedUnit2 = normalizeUnit(unit2);
+  const isKoli = normalizedUnit.includes('KOLI') || normalizedUnit2.includes('KOLI');
+  const primaryUnit = factor > 0 ? unit : unit2;
+  const secondaryUnit = factor > 0 ? unit2 : unit;
+
+  if (isKoli) {
+    const targetUnit = normalizedUnit.includes('KOLI') ? unit2 : unit;
+    return `Koli ici: ${absFactor.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${targetUnit}`;
+  }
+
+  return `Birim orani: 1 ${primaryUnit} = ${absFactor.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${secondaryUnit}`;
+};
+
+const getStockNumber = (product: Product, warehouse: '1' | '6') => {
+  const value = product.warehouseStocks?.[warehouse];
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getProductSortPrice = (product: Product) => {
+  const lastSalePrice = product.lastSales?.[0]?.unitPrice;
+  if (Number.isFinite(lastSalePrice)) return Number(lastSalePrice);
+  const listValues = product.mikroPriceLists
+    ? Object.values(product.mikroPriceLists)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  if (listValues.length > 0) {
+    return Math.min(...listValues);
+  }
+  return 0;
+};
+
+const getMikroListPrice = (
+  mikroPriceLists: QuoteItemForm['mikroPriceLists'],
+  listNo: number
+) => {
+  if (!mikroPriceLists) return 0;
+  const byNumber = (mikroPriceLists as Record<number, number>)[listNo];
+  if (typeof byNumber === 'number') return byNumber;
+  const byString = (mikroPriceLists as Record<string, number>)[String(listNo)];
+  return typeof byString === 'number' ? byString : 0;
+};
+
+const getPoolPriceLabel = (listNo: number) => {
+  return PRICE_LIST_LABELS[listNo] || `Liste ${listNo}`;
+};
+
+const formatDateShort = (value?: string | null) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+};
+
 export function QuoteCreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [poolPriceListNo, setPoolPriceListNo] = useState(1);
+  const [poolSort, setPoolSort] = useState<PoolSortOption>('default');
+  const [lastSalesCount, setLastSalesCount] = useState(1);
   const [savingPool, setSavingPool] = useState(false);
 
+  const [productTab, setProductTab] = useState<'purchased' | 'search'>('purchased');
+  const [purchasedProducts, setPurchasedProducts] = useState<Product[]>([]);
+  const [purchasedSearch, setPurchasedSearch] = useState('');
+  const [loadingPurchased, setLoadingPurchased] = useState(false);
+  const [selectedPurchasedCodes, setSelectedPurchasedCodes] = useState<Set<string>>(new Set());
+  const [selectedSearchCodes, setSelectedSearchCodes] = useState<Set<string>>(new Set());
+
   const [productSearch, setProductSearch] = useState('');
-  const [products, setProducts] = useState<Product[]>([]);
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
   const [searchingProducts, setSearchingProducts] = useState(false);
 
   const [quoteItems, setQuoteItems] = useState<QuoteItemForm[]>([]);
@@ -57,7 +171,7 @@ export function QuoteCreateScreen() {
   const [vatZeroed, setVatZeroed] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const priceListOptions = [1, 2, 3, 4, 5];
+  const priceListOptions = Array.from({ length: 10 }, (_, index) => index + 1);
 
   useEffect(() => {
     const loadCustomers = async () => {
@@ -78,6 +192,15 @@ export function QuoteCreateScreen() {
         if (response.preferences.poolPriceListNo) {
           setPoolPriceListNo(response.preferences.poolPriceListNo);
         }
+        if (response.preferences.poolSort) {
+          setPoolSort(response.preferences.poolSort as PoolSortOption);
+        }
+        if (response.preferences.lastSalesCount) {
+          const parsed = Number(response.preferences.lastSalesCount);
+          if (Number.isFinite(parsed)) {
+            setLastSalesCount(Math.min(10, Math.max(1, Math.round(parsed))));
+          }
+        }
         if (response.preferences.responsibleCode) {
           setResponsibleCode(response.preferences.responsibleCode);
         }
@@ -89,23 +212,72 @@ export function QuoteCreateScreen() {
   }, []);
 
   useEffect(() => {
+    setSelectedPurchasedCodes(new Set());
+    setSelectedSearchCodes(new Set());
+    setPurchasedSearch('');
+    if (selectedCustomer) {
+      setProductTab('purchased');
+    }
+  }, [selectedCustomer?.id]);
+
+  useEffect(() => {
     let active = true;
 
     const run = async () => {
+      if (!selectedCustomer) {
+        setPurchasedProducts([]);
+        setLoadingPurchased(false);
+        return;
+      }
+      setLoadingPurchased(true);
+      try {
+        const response = await adminApi.getCustomerPurchasedProducts(
+          selectedCustomer.id,
+          lastSalesCount
+        );
+        if (active) {
+          setPurchasedProducts(response.products || []);
+        }
+      } catch (err) {
+        if (active) {
+          setPurchasedProducts([]);
+        }
+      } finally {
+        if (active) {
+          setLoadingPurchased(false);
+        }
+      }
+    };
+
+    run();
+    return () => {
+      active = false;
+    };
+  }, [selectedCustomer?.id, lastSalesCount]);
+
+  useEffect(() => {
+    let active = true;
+
+    const run = async () => {
+      if (productTab !== 'search') {
+        setSearchingProducts(false);
+        return;
+      }
       const term = productSearch.trim();
       if (!term) {
-        setProducts([]);
+        setSearchResults([]);
+        setSearchingProducts(false);
         return;
       }
       setSearchingProducts(true);
       try {
         const response = await adminApi.getProducts({ search: term, page: 1, limit: 20 });
         if (active) {
-          setProducts(response.products || []);
+          setSearchResults(response.products || []);
         }
       } catch (err) {
         if (active) {
-          setProducts([]);
+          setSearchResults([]);
         }
       } finally {
         if (active) {
@@ -118,7 +290,7 @@ export function QuoteCreateScreen() {
     return () => {
       active = false;
     };
-  }, [productSearch]);
+  }, [productSearch, productTab]);
 
   const filteredCustomers = useMemo(() => {
     const term = customerSearch.trim().toLowerCase();
@@ -135,11 +307,130 @@ export function QuoteCreateScreen() {
     return filteredCustomers.slice(0, limit);
   }, [customerSearch, filteredCustomers]);
 
-  const addProduct = (product: Product) => {
+  const filteredPurchasedProducts = useMemo(() => {
+    const term = purchasedSearch.trim().toLowerCase();
+    if (!term) return purchasedProducts;
+    return purchasedProducts.filter((product) => {
+      const haystack = `${product.mikroCode || ''} ${product.name || ''}`.toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [purchasedProducts, purchasedSearch]);
+
+  const filteredSearchResults = useMemo(() => {
+    const term = productSearch.trim().toLowerCase();
+    if (!term) return searchResults;
+    return searchResults.filter((product) => {
+      const haystack = `${product.mikroCode || ''} ${product.name || ''}`.toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [searchResults, productSearch]);
+
+  const sortPoolProducts = (items: Product[]) => {
+    if (poolSort === 'default') return items;
+    const sorted = [...items];
+    switch (poolSort) {
+      case 'stock1_desc':
+        sorted.sort((a, b) => getStockNumber(b, '1') - getStockNumber(a, '1'));
+        break;
+      case 'stock6_desc':
+        sorted.sort((a, b) => getStockNumber(b, '6') - getStockNumber(a, '6'));
+        break;
+      case 'price_asc':
+        sorted.sort((a, b) => getProductSortPrice(a) - getProductSortPrice(b));
+        break;
+      case 'price_desc':
+        sorted.sort((a, b) => getProductSortPrice(b) - getProductSortPrice(a));
+        break;
+      default:
+        break;
+    }
+    return sorted;
+  };
+
+  const sortedPurchasedProducts = useMemo(
+    () => sortPoolProducts(filteredPurchasedProducts),
+    [filteredPurchasedProducts, poolSort]
+  );
+
+  const sortedSearchResults = useMemo(
+    () => sortPoolProducts(filteredSearchResults),
+    [filteredSearchResults, poolSort]
+  );
+
+  const selectedPurchasedCount = selectedPurchasedCodes.size;
+  const selectedSearchCount = selectedSearchCodes.size;
+
+  const togglePurchasedSelection = (code: string) => {
+    setSelectedPurchasedCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  };
+
+  const selectAllPurchased = () => {
+    const codes = filteredPurchasedProducts.map((product) => product.mikroCode);
+    setSelectedPurchasedCodes(new Set(codes));
+  };
+
+  const clearPurchasedSelection = () => {
+    setSelectedPurchasedCodes(new Set());
+  };
+
+  const addSelectedPurchasedToQuote = () => {
+    if (selectedPurchasedCount === 0) {
+      Alert.alert('Bilgi', 'Secili urun yok.');
+      return;
+    }
+    const selected = purchasedProducts.filter((product) =>
+      selectedPurchasedCodes.has(product.mikroCode)
+    );
+    addProductsToQuote(selected);
+    setSelectedPurchasedCodes(new Set());
+  };
+
+  const toggleSearchSelection = (code: string) => {
+    setSelectedSearchCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  };
+
+  const selectAllSearch = () => {
+    const codes = sortedSearchResults.map((product) => product.mikroCode);
+    setSelectedSearchCodes(new Set(codes));
+  };
+
+  const clearSearchSelection = () => {
+    setSelectedSearchCodes(new Set());
+  };
+
+  const addSelectedSearchToQuote = () => {
+    if (selectedSearchCount === 0) {
+      Alert.alert('Bilgi', 'Secili urun yok.');
+      return;
+    }
+    const selected = searchResults.filter((product) =>
+      selectedSearchCodes.has(product.mikroCode)
+    );
+    addProductsToQuote(selected);
+    setSelectedSearchCodes(new Set());
+  };
+
+  const buildQuoteItem = (product: Product): QuoteItemForm => {
     const listNo = poolPriceListNo || 1;
-    const listPrice = product.mikroPriceLists?.[String(listNo)] ?? 0;
-    const entry: QuoteItemForm = {
-      id: `${product.id}-${Date.now()}`,
+    const listPrice = getMikroListPrice(product.mikroPriceLists || {}, listNo);
+    return {
+      id: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       productId: product.id,
       productName: product.name,
       productCode: product.mikroCode,
@@ -147,17 +438,33 @@ export function QuoteCreateScreen() {
       quantity: 1,
       priceSource: 'PRICE_LIST',
       priceListNo: listNo,
-      unitPrice: listPrice,
+      unitPrice: listPrice || 0,
       priceType: 'INVOICED',
       mikroPriceLists: product.mikroPriceLists || {},
     };
-    setQuoteItems((prev) => [...prev, entry]);
+  };
+
+  const addProductsToQuote = (productsToAdd: Product[]) => {
+    const validProducts = productsToAdd.filter((product) => product?.mikroCode);
+    if (validProducts.length === 0) {
+      Alert.alert('Bilgi', 'Urun bulunamadi.');
+      return;
+    }
+    setQuoteItems((prev) => [...prev, ...validProducts.map(buildQuoteItem)]);
+  };
+
+  const addProduct = (product: Product) => {
+    addProductsToQuote([product]);
   };
 
   const savePoolView = async () => {
     setSavingPool(true);
     try {
-      await adminApi.updateQuotePreferences({ poolPriceListNo });
+      await adminApi.updateQuotePreferences({
+        poolPriceListNo,
+        poolSort,
+        lastSalesCount,
+      });
       Alert.alert('Basarili', 'Gorunus kaydedildi.');
     } catch (err: any) {
       Alert.alert('Hata', err?.response?.data?.error || 'Gorunus kaydedilemedi.');
@@ -172,7 +479,7 @@ export function QuoteCreateScreen() {
         if (item.id !== id) return item;
         const next = { ...item, ...updates };
         if (updates.priceListNo && next.priceSource === 'PRICE_LIST') {
-          const price = next.mikroPriceLists?.[String(updates.priceListNo)] ?? next.unitPrice;
+          const price = getMikroListPrice(next.mikroPriceLists, updates.priceListNo);
           next.unitPrice = price || 0;
         }
         return next;
@@ -182,6 +489,16 @@ export function QuoteCreateScreen() {
 
   const removeItem = (id: string) => {
     setQuoteItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleLastSalesCountChange = (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      setLastSalesCount(1);
+      return;
+    }
+    const next = Math.min(10, Math.max(1, Math.round(parsed)));
+    setLastSalesCount(next);
   };
 
   const handleCreate = async () => {
@@ -226,6 +543,8 @@ export function QuoteCreateScreen() {
       setSaving(false);
     }
   };
+
+  const poolPriceLabel = getPoolPriceLabel(poolPriceListNo);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -316,14 +635,37 @@ export function QuoteCreateScreen() {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Urun Havuzu</Text>
+          <View style={styles.poolTabs}>
+            <TouchableOpacity
+              style={[styles.poolTabButton, productTab === 'purchased' && styles.poolTabButtonActive]}
+              onPress={() => setProductTab('purchased')}
+            >
+              <Text style={productTab === 'purchased' ? styles.poolTabTextActive : styles.poolTabText}>
+                Daha Once Alinanlar
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.poolTabButton, productTab === 'search' && styles.poolTabButtonActive]}
+              onPress={() => setProductTab('search')}
+            >
+              <Text style={productTab === 'search' ? styles.poolTabTextActive : styles.poolTabText}>
+                Tum Urunler
+              </Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.poolHeader}>
             <Text style={styles.poolLabel}>Fiyat Listesi</Text>
-            <View style={styles.segmentRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.optionRow}
+            >
               {priceListOptions.map((option) => (
                 <TouchableOpacity
                   key={option}
                   style={[
                     styles.segmentButton,
+                    styles.optionButton,
                     poolPriceListNo === option && styles.segmentButtonActive,
                   ]}
                   onPress={() => setPoolPriceListNo(option)}
@@ -337,47 +679,261 @@ export function QuoteCreateScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
+            </ScrollView>
+            <Text style={styles.poolHint}>{poolPriceLabel}</Text>
+            <Text style={styles.poolLabel}>Siralama</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.optionRow}
+            >
+              {POOL_SORT_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.segmentButton,
+                    styles.optionButton,
+                    poolSort === option.value && styles.segmentButtonActive,
+                  ]}
+                  onPress={() => setPoolSort(option.value)}
+                >
+                  <Text
+                    style={poolSort === option.value ? styles.segmentTextActive : styles.segmentText}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={styles.inlineRow}>
+              <Text style={styles.poolLabel}>Son Satis</Text>
+              <TextInput
+                style={[styles.input, styles.inlineInput]}
+                placeholder="Adet"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                value={String(lastSalesCount)}
+                onChangeText={handleLastSalesCountChange}
+              />
             </View>
-            <TouchableOpacity style={styles.secondaryButton} onPress={savePoolView} disabled={savingPool}>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={savePoolView}
+              disabled={savingPool}
+            >
               <Text style={styles.secondaryButtonText}>
                 {savingPool ? 'Kaydediliyor...' : 'Gorunusu Kaydet'}
               </Text>
             </TouchableOpacity>
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Urun ara"
-            placeholderTextColor={colors.textMuted}
-            value={productSearch}
-            onChangeText={setProductSearch}
-            returnKeyType="search"
-          />
-          <View style={styles.listBlock}>
-            <ScrollView style={styles.listScroll} nestedScrollEnabled>
-              {products.map((product) => {
-                const listPrice = product.mikroPriceLists?.[String(poolPriceListNo)] ?? 0;
-                return (
-                  <View key={product.id} style={styles.listItem}>
-                    <Text style={styles.listItemTitle}>{product.name}</Text>
-                    <Text style={styles.listItemMeta}>Kod: {product.mikroCode}</Text>
-                    <Text style={styles.poolPrice}>
-                      Liste {poolPriceListNo}: {Number(listPrice).toFixed(2)} TL
+
+          {productTab === 'purchased' ? (
+            <>
+              {!selectedCustomer ? (
+                <Text style={styles.helper}>Once cari secin.</Text>
+              ) : (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Urun ara"
+                    placeholderTextColor={colors.textMuted}
+                    value={purchasedSearch}
+                    onChangeText={setPurchasedSearch}
+                    returnKeyType="search"
+                  />
+                  <View style={styles.poolActions}>
+                    <Text style={styles.helper}>
+                      {selectedPurchasedCount} secili / {sortedPurchasedProducts.length} urun
                     </Text>
-                    <TouchableOpacity style={styles.addButton} onPress={() => addProduct(product)}>
-                      <Text style={styles.addButtonText}>Teklife Ekle</Text>
-                    </TouchableOpacity>
+                    <View style={styles.actionRow}>
+                      <TouchableOpacity style={styles.ghostButton} onPress={clearPurchasedSelection}>
+                        <Text style={styles.ghostButtonText}>Secimi Temizle</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.secondaryAction} onPress={selectAllPurchased}>
+                        <Text style={styles.secondaryActionText}>Tumunu Sec</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.primaryAction,
+                          selectedPurchasedCount === 0 && styles.primaryActionDisabled,
+                        ]}
+                        onPress={addSelectedPurchasedToQuote}
+                        disabled={selectedPurchasedCount === 0}
+                      >
+                        <Text style={styles.primaryActionText}>Secilileri Ekle</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                );
-              })}
-            </ScrollView>
-            {searchingProducts && <Text style={styles.helper}>Araniyor...</Text>}
-            {productSearch.trim().length === 0 && (
-              <Text style={styles.helper}>Urun aramak icin yazin.</Text>
-            )}
-            {productSearch.trim().length > 0 && products.length === 0 && !searchingProducts && (
-              <Text style={styles.helper}>Urun bulunamadi.</Text>
-            )}
-          </View>
+                  <View style={styles.listBlock}>
+                    <ScrollView style={styles.poolListScroll} nestedScrollEnabled>
+                      {sortedPurchasedProducts.map((product) => {
+                        const isSelected = selectedPurchasedCodes.has(product.mikroCode);
+                        const listPrice = getMikroListPrice(
+                          product.mikroPriceLists || {},
+                          poolPriceListNo
+                        );
+                        const unitLabel = getUnitConversionLabel(
+                          product.unit,
+                          product.unit2,
+                          product.unit2Factor
+                        );
+                        const sales = product.lastSales?.slice(
+                          0,
+                          Math.min(lastSalesCount, 3)
+                        );
+                        return (
+                          <View
+                            key={product.id}
+                            style={[
+                              styles.poolItem,
+                              isSelected && styles.poolItemSelected,
+                            ]}
+                          >
+                            <View style={styles.poolItemHeader}>
+                              <TouchableOpacity
+                                style={[
+                                  styles.checkbox,
+                                  isSelected && styles.checkboxChecked,
+                                ]}
+                                onPress={() => togglePurchasedSelection(product.mikroCode)}
+                              >
+                                {isSelected && <Text style={styles.checkboxText}>X</Text>}
+                              </TouchableOpacity>
+                              <View style={styles.poolItemBody}>
+                                <Text style={styles.listItemTitle}>{product.name}</Text>
+                                <Text style={styles.listItemMeta}>Kod: {product.mikroCode}</Text>
+                                <Text style={styles.poolStock}>
+                                  Merkez: {formatStockValue(product.warehouseStocks?.['1'])} | Topca:{' '}
+                                  {formatStockValue(product.warehouseStocks?.['6'])}
+                                </Text>
+                                {unitLabel && <Text style={styles.poolMeta}>{unitLabel}</Text>}
+                              </View>
+                              <TouchableOpacity style={styles.addButton} onPress={() => addProduct(product)}>
+                                <Text style={styles.addButtonText}>Teklife Ekle</Text>
+                              </TouchableOpacity>
+                            </View>
+                            <Text style={styles.poolPrice}>
+                              {poolPriceLabel}: {listPrice ? `${formatCurrency(listPrice)} TL` : '-'}
+                            </Text>
+                            {sales && sales.length > 0 ? (
+                              <View style={styles.poolSales}>
+                                {sales.map((sale, index) => (
+                                  <Text key={`${product.id}-sale-${index}`} style={styles.poolSaleText}>
+                                    {formatDateShort(sale.saleDate)} - {sale.quantity} adet -{' '}
+                                    {formatCurrency(sale.unitPrice)} TL
+                                  </Text>
+                                ))}
+                                {product.lastSales && product.lastSales.length > sales.length && (
+                                  <Text style={styles.poolSaleMore}>
+                                    +{product.lastSales.length - sales.length} daha
+                                  </Text>
+                                )}
+                              </View>
+                            ) : (
+                              <Text style={styles.poolSaleEmpty}>Satis yok</Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                    {loadingPurchased && <Text style={styles.helper}>Yukleniyor...</Text>}
+                    {!loadingPurchased && sortedPurchasedProducts.length === 0 && (
+                      <Text style={styles.helper}>Urun bulunamadi.</Text>
+                    )}
+                  </View>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="Urun ara"
+                placeholderTextColor={colors.textMuted}
+                value={productSearch}
+                onChangeText={setProductSearch}
+                returnKeyType="search"
+              />
+              <View style={styles.poolActions}>
+                <Text style={styles.helper}>
+                  {selectedSearchCount} secili / {sortedSearchResults.length} urun
+                </Text>
+                <View style={styles.actionRow}>
+                  <TouchableOpacity style={styles.ghostButton} onPress={clearSearchSelection}>
+                    <Text style={styles.ghostButtonText}>Secimi Temizle</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryAction} onPress={selectAllSearch}>
+                    <Text style={styles.secondaryActionText}>Tumunu Sec</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.primaryAction,
+                      selectedSearchCount === 0 && styles.primaryActionDisabled,
+                    ]}
+                    onPress={addSelectedSearchToQuote}
+                    disabled={selectedSearchCount === 0}
+                  >
+                    <Text style={styles.primaryActionText}>Secilileri Ekle</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={styles.listBlock}>
+                <ScrollView style={styles.poolListScroll} nestedScrollEnabled>
+                  {sortedSearchResults.map((product) => {
+                    const isSelected = selectedSearchCodes.has(product.mikroCode);
+                    const listPrice = getMikroListPrice(
+                      product.mikroPriceLists || {},
+                      poolPriceListNo
+                    );
+                    const unitLabel = getUnitConversionLabel(
+                      product.unit,
+                      product.unit2,
+                      product.unit2Factor
+                    );
+                    return (
+                      <View
+                        key={product.id}
+                        style={[styles.poolItem, isSelected && styles.poolItemSelected]}
+                      >
+                        <View style={styles.poolItemHeader}>
+                          <TouchableOpacity
+                            style={[styles.checkbox, isSelected && styles.checkboxChecked]}
+                            onPress={() => toggleSearchSelection(product.mikroCode)}
+                          >
+                            {isSelected && <Text style={styles.checkboxText}>X</Text>}
+                          </TouchableOpacity>
+                          <View style={styles.poolItemBody}>
+                            <Text style={styles.listItemTitle}>{product.name}</Text>
+                            <Text style={styles.listItemMeta}>Kod: {product.mikroCode}</Text>
+                            <Text style={styles.poolStock}>
+                              Merkez: {formatStockValue(product.warehouseStocks?.['1'])} | Topca:{' '}
+                              {formatStockValue(product.warehouseStocks?.['6'])}
+                            </Text>
+                            {unitLabel && <Text style={styles.poolMeta}>{unitLabel}</Text>}
+                          </View>
+                          <TouchableOpacity style={styles.addButton} onPress={() => addProduct(product)}>
+                            <Text style={styles.addButtonText}>Teklife Ekle</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.poolPrice}>
+                          {poolPriceLabel}: {listPrice ? `${formatCurrency(listPrice)} TL` : '-'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+                {searchingProducts && <Text style={styles.helper}>Araniyor...</Text>}
+                {productSearch.trim().length === 0 && (
+                  <Text style={styles.helper}>Urun aramak icin yazin.</Text>
+                )}
+                {productSearch.trim().length > 0 &&
+                  sortedSearchResults.length === 0 &&
+                  !searchingProducts && (
+                    <Text style={styles.helper}>Urun bulunamadi.</Text>
+                  )}
+              </View>
+            </>
+          )}
         </View>
 
         <View style={styles.card}>
@@ -545,12 +1101,62 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.md,
     color: colors.text,
   },
+  poolTabs: {
+    flexDirection: 'row',
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.xs,
+    gap: spacing.xs,
+  },
+  poolTabButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+  },
+  poolTabButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  poolTabText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+  },
+  poolTabTextActive: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: '#FFFFFF',
+  },
   poolHeader: {
     gap: spacing.sm,
   },
   poolLabel: {
     fontFamily: fonts.semibold,
     color: colors.text,
+  },
+  poolHint: {
+    fontFamily: fonts.regular,
+    color: colors.textMuted,
+    fontSize: fontSizes.xs,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  optionButton: {
+    flex: 0,
+    paddingHorizontal: spacing.sm,
+  },
+  inlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  inlineInput: {
+    flex: 1,
   },
   input: {
     backgroundColor: colors.surfaceAlt,
@@ -572,6 +1178,9 @@ const styles = StyleSheet.create({
   },
   listScroll: {
     maxHeight: 240,
+  },
+  poolListScroll: {
+    maxHeight: 420,
   },
   listItem: {
     backgroundColor: colors.surfaceAlt,
@@ -598,6 +1207,116 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: fontSizes.sm,
     color: colors.text,
+  },
+  poolActions: {
+    gap: spacing.xs,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  ghostButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  ghostButtonText: {
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    fontSize: fontSizes.xs,
+  },
+  secondaryAction: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  secondaryActionText: {
+    fontFamily: fonts.semibold,
+    color: colors.text,
+    fontSize: fontSizes.xs,
+  },
+  primaryAction: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  primaryActionDisabled: {
+    opacity: 0.5,
+  },
+  primaryActionText: {
+    fontFamily: fonts.semibold,
+    color: '#FFFFFF',
+    fontSize: fontSizes.xs,
+  },
+  poolItem: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  poolItemSelected: {
+    borderColor: colors.primary,
+    backgroundColor: '#EEF4FF',
+  },
+  poolItemHeader: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+  },
+  poolItemBody: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  checkboxText: {
+    fontFamily: fonts.semibold,
+    color: '#FFFFFF',
+    fontSize: fontSizes.xs,
+  },
+  poolStock: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  poolMeta: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  poolSales: {
+    gap: spacing.xs,
+  },
+  poolSaleText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.text,
+  },
+  poolSaleMore: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  poolSaleEmpty: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
   },
   addButton: {
     marginTop: spacing.xs,

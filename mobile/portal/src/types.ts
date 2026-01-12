@@ -70,6 +70,14 @@ export interface QuoteItem {
   lineDescription?: string | null;
 }
 
+export interface LastSale {
+  saleDate: string;
+  quantity: number;
+  unitPrice: number;
+  vatRate?: number | null;
+  vatZeroed?: boolean | null;
+}
+
 export interface Quote {
   id: string;
   quoteNumber: string;
@@ -325,6 +333,7 @@ export interface Product {
   imageSyncErrorMessage?: string | null;
   imageSyncUpdatedAt?: string | null;
   warehouseStocks?: Record<string, number>;
+  lastSales?: LastSale[];
 }
 
 export interface CostUpdateAlert {
