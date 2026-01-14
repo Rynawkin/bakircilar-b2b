@@ -792,6 +792,28 @@ class MikroService {
 
     // Evrak serisi belirle
     const evrakSeri = evrakSeriValue || (applyVAT ? 'B2BF' : 'B2BB');
+    let sipFileId: number | null = null;
+
+    try {
+      const fileResult = await this.pool!
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri)
+        .query(`
+          SELECT TOP 1 sip_fileid
+          FROM SIPARISLER
+          WHERE sip_evrakno_seri = @seri
+            AND sip_fileid IS NOT NULL
+          ORDER BY sip_create_date DESC
+        `);
+      const foundFileId = Number(fileResult.recordset?.[0]?.sip_fileid);
+      sipFileId = Number.isFinite(foundFileId) && foundFileId > 0 ? foundFileId : null;
+    } catch (error) {
+      console.warn('WARN: SIPARISLER sip_fileid okunamadi, varsayilan kullaniliyor:', error);
+    }
+
+    if (!sipFileId) {
+      sipFileId = 21;
+    }
 
     console.log(`ğŸ”§ SipariÅŸ parametreleri:`, {
       cariCode,
@@ -876,6 +898,7 @@ class MikroService {
           'sip_depono',
           'sip_doviz_cinsi',
           'sip_doviz_kuru',
+          'sip_fileid',
           'sip_aciklama',
           ...(belgeNoColumn ? [belgeNoColumn] : []),
           ...(includeBelgeTarih ? ['sip_belge_tarih'] : []),
@@ -919,6 +942,7 @@ class MikroService {
           '1',
           '0',
           '1',
+          '@sipFileId',
           '@aciklama',
           ...(belgeNoColumn ? ['@belgeNo'] : []),
           ...(includeBelgeTarih ? ['@belgeTarih'] : []),
@@ -962,6 +986,7 @@ class MikroService {
           .input('tutar', sql.Float, tutar)
           .input('vergiTutari', sql.Float, vergiTutari)
           .input('vergiYuzdesi', sql.Float, vergiYuzdesi)
+          .input('sipFileId', sql.SmallInt, sipFileId)
           .input('aciklama', sql.NVarChar(50), lineDescriptionValue);
 
         if (includeBelgeNo) {
@@ -986,30 +1011,32 @@ class MikroService {
         } | null = null;
 
         try {
-          const defaultsResult = await transaction.request().query(`
-            SELECT TOP 1
-              egk_fileid,
-              egk_dosyano,
-              egk_create_user,
-              egk_lastup_user
-            FROM EVRAK_ACIKLAMALARI
-            WHERE egk_hareket_tip = 0
-              AND egk_evr_tip = 0
-              AND egk_fileid IS NOT NULL
-              AND egk_dosyano IS NOT NULL
-            ORDER BY egk_create_date DESC
-          `);
+          const defaultsResult = await transaction
+            .request()
+            .input('dosyaNo', sql.SmallInt, sipFileId)
+            .query(`
+              SELECT TOP 1
+                egk_fileid,
+                egk_create_user,
+                egk_lastup_user
+              FROM EVRAK_ACIKLAMALARI
+              WHERE egk_dosyano = @dosyaNo
+                AND egk_fileid IS NOT NULL
+              ORDER BY egk_create_date DESC
+            `);
           const defaultsRow = defaultsResult.recordset?.[0];
-          if (defaultsRow) {
-            evrakDefaults = {
-              fileId: defaultsRow.egk_fileid ?? null,
-              dosyaNo: defaultsRow.egk_dosyano ?? null,
-              createUser: defaultsRow.egk_create_user ?? null,
-              lastupUser: defaultsRow.egk_lastup_user ?? null,
-            };
-          }
+          evrakDefaults = {
+            fileId: defaultsRow?.egk_fileid ?? 66,
+            dosyaNo: sipFileId,
+            createUser: defaultsRow?.egk_create_user ?? null,
+            lastupUser: defaultsRow?.egk_lastup_user ?? null,
+          };
         } catch (error) {
           console.warn('WARN: Evrak aciklama varsayilanlari okunamadi:', error);
+          evrakDefaults = {
+            fileId: 66,
+            dosyaNo: sipFileId,
+          };
         }
 
         const updateParts = [
@@ -1017,16 +1044,16 @@ class MikroService {
           'egk_lastup_date = GETDATE()',
         ];
         if (evrakDefaults?.fileId !== null && evrakDefaults?.fileId !== undefined) {
-          updateParts.push('egk_fileid = COALESCE(egk_fileid, @fileId)');
+          updateParts.push('egk_fileid = @fileId');
         }
         if (evrakDefaults?.dosyaNo !== null && evrakDefaults?.dosyaNo !== undefined) {
-          updateParts.push('egk_dosyano = COALESCE(egk_dosyano, @dosyaNo)');
+          updateParts.push('egk_dosyano = @dosyaNo');
         }
         if (evrakDefaults?.createUser !== null && evrakDefaults?.createUser !== undefined) {
-          updateParts.push('egk_create_user = COALESCE(egk_create_user, @createUser)');
+          updateParts.push('egk_create_user = @createUser');
         }
         if (evrakDefaults?.lastupUser !== null && evrakDefaults?.lastupUser !== undefined) {
-          updateParts.push('egk_lastup_user = COALESCE(egk_lastup_user, @lastupUser)');
+          updateParts.push('egk_lastup_user = @lastupUser');
         }
 
         const insertColumns = [
