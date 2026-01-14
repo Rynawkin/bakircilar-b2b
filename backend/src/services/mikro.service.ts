@@ -940,7 +940,6 @@ class MikroService {
           '0',
           '0',
           '0',
-          '0',
         ];
 
         const insertQuery = `

@@ -140,6 +140,16 @@ export class CustomerController {
             OR: [
               { name: { contains: token, mode: 'insensitive' } },
               { mikroCode: { contains: token, mode: 'insensitive' } },
+              {
+                priceAgreements: {
+                  some: {
+                    customerId: customer.id,
+                    customerProductCode: { contains: token, mode: 'insensitive' },
+                    validFrom: { lte: now },
+                    OR: [{ validTo: null }, { validTo: { gte: now } }],
+                  },
+                },
+              },
             ],
           }));
         }
