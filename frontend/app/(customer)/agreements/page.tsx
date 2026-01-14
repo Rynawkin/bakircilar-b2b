@@ -325,7 +325,7 @@ export default function AgreementProductsPage() {
   return (
                 <Card key={product.id} className="p-4 flex flex-col gap-4">
                   <div className="flex gap-4">
-                    <div className="w-20 h-20 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
+                    <div className="w-20 h-20 rounded-lg bg-white border border-gray-200 overflow-hidden flex-shrink-0">
                       {product.imageUrl ? (
                         <img src={product.imageUrl} alt={product.name} className="w-full h-full object-contain" />
                       ) : (

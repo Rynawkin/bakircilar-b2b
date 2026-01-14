@@ -185,7 +185,7 @@ Siparis No: ${result.orderNumber}`, {
                           <div className="flex flex-col sm:flex-row gap-4">
                             {/* Product Image */}
                             {item.product.imageUrl && (
-                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-white border border-gray-200 flex-shrink-0">
                                 <img
                                   src={item.product.imageUrl}
                                   alt={item.product.name}
@@ -305,7 +305,7 @@ Siparis No: ${result.orderNumber}`, {
                           <div className="flex flex-col sm:flex-row gap-4">
                             {/* Product Image */}
                             {item.product.imageUrl && (
-                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-white border border-gray-200 flex-shrink-0">
                                 <img
                                   src={item.product.imageUrl}
                                   alt={item.product.name}

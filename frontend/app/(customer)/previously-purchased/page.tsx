@@ -449,7 +449,7 @@ export default function PreviouslyPurchasedPage() {
                     <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
                       <div
-                        className="w-full h-40 bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 overflow-hidden relative cursor-pointer"
+                        className="w-full aspect-square bg-white overflow-hidden relative cursor-pointer"
                         onClick={() => openProductModal(product)}
                       >
                         {product.imageUrl ? (

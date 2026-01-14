@@ -301,11 +301,11 @@ export default function AdminProductOverridesPage() {
                   <h4 className="text-sm font-bold text-gray-900 mb-3">📷 Ürün Fotoğrafı</h4>
                   {selectedProduct.imageUrl ? (
                     <div className="space-y-3">
-                      <div className="relative group">
+                      <div className="relative group bg-white rounded-lg border-2 border-gray-300 overflow-hidden aspect-square">
                         <img
                           src={`http://localhost:5000${selectedProduct.imageUrl}`}
                           alt={selectedProduct.name}
-                          className="w-full h-40 object-contain rounded-lg border-2 border-gray-300"
+                          className="w-full h-full object-contain"
                         />
                         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all rounded-lg flex items-center justify-center">
                           <button
@@ -329,7 +329,7 @@ export default function AdminProductOverridesPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="w-full h-40 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-300">
+                      <div className="w-full aspect-square bg-white rounded-lg flex items-center justify-center border-2 border-dashed border-gray-300">
                         <div className="text-center text-gray-400">
                           <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />

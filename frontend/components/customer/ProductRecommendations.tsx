@@ -37,7 +37,7 @@ export function ProductRecommendations({
           >
             <div className="space-y-2">
               {/* Product Image */}
-              <div className="w-full h-24 bg-gradient-to-br from-gray-100 to-gray-200 overflow-hidden relative">
+              <div className="w-full aspect-square bg-white overflow-hidden relative">
                 {product.imageUrl ? (
                   <img
                     src={product.imageUrl}

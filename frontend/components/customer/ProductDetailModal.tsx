@@ -165,7 +165,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
           {/* Left: Image */}
           <div className="space-y-4">
             <div
-              className={`relative bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl overflow-hidden ${
+              className={`relative bg-white border border-gray-200 rounded-xl overflow-hidden aspect-square ${
                 isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
               }`}
               onClick={() => setIsZoomed(!isZoomed)}
@@ -174,7 +174,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                 <img
                   src={product.imageUrl}
                   alt={product.name}
-                  className={`w-full transition-transform duration-300 ${
+                  className={`w-full h-full object-contain transition-transform duration-300 ${
                     isZoomed ? 'scale-150' : 'scale-100'
                   }`}
                   style={{

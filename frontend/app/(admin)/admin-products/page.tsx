@@ -616,7 +616,7 @@ export default function AdminProductsPage() {
                       </td>
                       <td className="px-4 py-3">
                         {product.imageUrl ? (
-                          <div className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden shadow-sm">
+                          <div className="relative w-16 h-16 bg-white rounded-lg overflow-hidden shadow-sm border border-gray-200">
                             <img
                               src={product.imageUrl}
                               alt={product.name}
