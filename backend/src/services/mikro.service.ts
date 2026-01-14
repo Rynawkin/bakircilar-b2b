@@ -978,12 +978,102 @@ class MikroService {
 
       // Transaction commit
       if (documentDescriptionValue) {
-        await transaction
+        let evrakDefaults: {
+          fileId?: number | null;
+          dosyaNo?: number | null;
+          createUser?: number | null;
+          lastupUser?: number | null;
+        } | null = null;
+
+        try {
+          const defaultsResult = await transaction.request().query(`
+            SELECT TOP 1
+              egk_fileid,
+              egk_dosyano,
+              egk_create_user,
+              egk_lastup_user
+            FROM EVRAK_ACIKLAMALARI
+            WHERE egk_hareket_tip = 0
+              AND egk_evr_tip = 0
+              AND egk_fileid IS NOT NULL
+              AND egk_dosyano IS NOT NULL
+            ORDER BY egk_create_date DESC
+          `);
+          const defaultsRow = defaultsResult.recordset?.[0];
+          if (defaultsRow) {
+            evrakDefaults = {
+              fileId: defaultsRow.egk_fileid ?? null,
+              dosyaNo: defaultsRow.egk_dosyano ?? null,
+              createUser: defaultsRow.egk_create_user ?? null,
+              lastupUser: defaultsRow.egk_lastup_user ?? null,
+            };
+          }
+        } catch (error) {
+          console.warn('WARN: Evrak aciklama varsayilanlari okunamadi:', error);
+        }
+
+        const updateParts = [
+          'egk_evracik1 = @acik1',
+          'egk_lastup_date = GETDATE()',
+        ];
+        if (evrakDefaults?.fileId !== null && evrakDefaults?.fileId !== undefined) {
+          updateParts.push('egk_fileid = COALESCE(egk_fileid, @fileId)');
+        }
+        if (evrakDefaults?.dosyaNo !== null && evrakDefaults?.dosyaNo !== undefined) {
+          updateParts.push('egk_dosyano = COALESCE(egk_dosyano, @dosyaNo)');
+        }
+        if (evrakDefaults?.createUser !== null && evrakDefaults?.createUser !== undefined) {
+          updateParts.push('egk_create_user = COALESCE(egk_create_user, @createUser)');
+        }
+        if (evrakDefaults?.lastupUser !== null && evrakDefaults?.lastupUser !== undefined) {
+          updateParts.push('egk_lastup_user = COALESCE(egk_lastup_user, @lastupUser)');
+        }
+
+        const insertColumns = [
+          'egk_evr_seri',
+          'egk_evr_sira',
+          'egk_hareket_tip',
+          'egk_evr_tip',
+          'egk_evracik1',
+        ];
+        const insertValues = ['@seri', '@sira', '0', '0', '@acik1'];
+        if (evrakDefaults?.fileId !== null && evrakDefaults?.fileId !== undefined) {
+          insertColumns.push('egk_fileid');
+          insertValues.push('@fileId');
+        }
+        if (evrakDefaults?.dosyaNo !== null && evrakDefaults?.dosyaNo !== undefined) {
+          insertColumns.push('egk_dosyano');
+          insertValues.push('@dosyaNo');
+        }
+        if (evrakDefaults?.createUser !== null && evrakDefaults?.createUser !== undefined) {
+          insertColumns.push('egk_create_user');
+          insertValues.push('@createUser');
+        }
+        if (evrakDefaults?.lastupUser !== null && evrakDefaults?.lastupUser !== undefined) {
+          insertColumns.push('egk_lastup_user');
+          insertValues.push('@lastupUser');
+        }
+
+        const evrakRequest = transaction
           .request()
           .input('seri', sql.NVarChar(20), evrakSeri)
           .input('sira', sql.Int, evrakSira)
-          .input('acik1', sql.NVarChar(127), documentDescriptionValue)
-          .query(`
+          .input('acik1', sql.NVarChar(127), documentDescriptionValue);
+
+        if (evrakDefaults?.fileId !== null && evrakDefaults?.fileId !== undefined) {
+          evrakRequest.input('fileId', sql.SmallInt, evrakDefaults.fileId);
+        }
+        if (evrakDefaults?.dosyaNo !== null && evrakDefaults?.dosyaNo !== undefined) {
+          evrakRequest.input('dosyaNo', sql.SmallInt, evrakDefaults.dosyaNo);
+        }
+        if (evrakDefaults?.createUser !== null && evrakDefaults?.createUser !== undefined) {
+          evrakRequest.input('createUser', sql.SmallInt, evrakDefaults.createUser);
+        }
+        if (evrakDefaults?.lastupUser !== null && evrakDefaults?.lastupUser !== undefined) {
+          evrakRequest.input('lastupUser', sql.SmallInt, evrakDefaults.lastupUser);
+        }
+
+        await evrakRequest.query(`
             IF EXISTS (
               SELECT 1
               FROM EVRAK_ACIKLAMALARI
@@ -993,21 +1083,16 @@ class MikroService {
                 AND egk_evr_tip = 0
             )
               UPDATE EVRAK_ACIKLAMALARI
-              SET egk_evracik1 = @acik1,
-                  egk_lastup_date = GETDATE()
+              SET ${updateParts.join(', ')}
               WHERE egk_evr_seri = @seri
                 AND egk_evr_sira = @sira
                 AND egk_hareket_tip = 0
                 AND egk_evr_tip = 0
             ELSE
               INSERT INTO EVRAK_ACIKLAMALARI (
-                egk_evr_seri,
-                egk_evr_sira,
-                egk_hareket_tip,
-                egk_evr_tip,
-                egk_evracik1
+                ${insertColumns.join(', ')}
               )
-              VALUES (@seri, @sira, 0, 0, @acik1)
+              VALUES (${insertValues.join(', ')})
           `);
       }
 
