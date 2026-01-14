@@ -17,7 +17,10 @@ class OrderService {
   /**
    * Sepetten sipariş oluştur
    */
-  async createOrderFromCart(userId: string): Promise<{
+  async createOrderFromCart(
+    userId: string,
+    details?: { customerOrderNumber?: string; deliveryLocation?: string }
+  ): Promise<{
     orderId: string;
     orderNumber: string;
   }> {
@@ -67,6 +70,13 @@ class OrderService {
 
     const orderNumber = generateOrderNumber(lastOrder?.orderNumber);
 
+    const normalizedCustomerOrderNumber = details?.customerOrderNumber
+      ? String(details.customerOrderNumber).trim()
+      : '';
+    const normalizedDeliveryLocation = details?.deliveryLocation
+      ? String(details.deliveryLocation).trim()
+      : '';
+
     // 4. Toplam tutarı hesapla
     const totalAmount = cart.items.reduce(
       (sum, item) => sum + item.quantity * item.unitPrice,
@@ -80,6 +90,8 @@ class OrderService {
         userId,
         status: 'PENDING',
         totalAmount,
+        customerOrderNumber: normalizedCustomerOrderNumber || undefined,
+        deliveryLocation: normalizedDeliveryLocation || undefined,
         items: {
           create: cart.items.map((item) => ({
             productId: item.productId,
@@ -89,6 +101,7 @@ class OrderService {
             priceType: item.priceType,
             unitPrice: item.unitPrice,
             totalPrice: item.quantity * item.unitPrice,
+            lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
           })),
         },
       },
@@ -117,6 +130,13 @@ class OrderService {
             id: true,
             name: true,
             email: true,
+          },
+        },
+        customerRequest: {
+          select: {
+            id: true,
+            createdAt: true,
+            requestedBy: { select: { id: true, name: true, email: true } },
           },
         },
         items: {
@@ -177,6 +197,16 @@ class OrderService {
             isLocked: true,
           },
         },
+        requestedBy: {
+          select: { id: true, name: true, email: true },
+        },
+        customerRequest: {
+          select: {
+            id: true,
+            createdAt: true,
+            requestedBy: { select: { id: true, name: true, email: true } },
+          },
+        },
         items: {
           include: {
             product: {
@@ -216,6 +246,13 @@ class OrderService {
             id: true,
             name: true,
             email: true,
+          },
+        },
+        customerRequest: {
+          select: {
+            id: true,
+            createdAt: true,
+            requestedBy: { select: { id: true, name: true, email: true } },
           },
         },
         items: {
@@ -288,15 +325,16 @@ class OrderService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: item.product?.vatRate || 0.18,
+            lineDescription: item.lineNote || undefined,
           })),
+          documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı${adminNote ? ` | ${adminNote}` : ''}`,
         });
 
         mikroOrderIds.push(invoicedOrderId);
       }
-
-      // 2. Beyaz sipariş (varsa)
+      // 2. Beyaz sipari? (varsa)
       if (whiteItems.length > 0) {
         const whiteOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
@@ -304,10 +342,12 @@ class OrderService {
             productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            vatRate: 0, // Beyaz için KDV=0
+            vatRate: 0, // Beyaz i?in KDV=0
+            lineDescription: item.lineNote || undefined,
           })),
+          documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
-          description: `B2B Sipariş ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
+          description: `B2B Sipari? ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
         });
 
         mikroOrderIds.push(whiteOrderId);
@@ -392,7 +432,9 @@ class OrderService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: item.product?.vatRate || 0.18,
+            lineDescription: item.lineNote || undefined,
           })),
+          documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
         });
@@ -420,7 +462,9 @@ class OrderService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             vatRate: 0,
+            lineDescription: item.lineNote || undefined,
           })),
+          documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
           description: `B2B Sipariş ${order.orderNumber} - Beyaz (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
         });

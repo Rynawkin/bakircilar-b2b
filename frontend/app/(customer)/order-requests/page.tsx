@@ -8,6 +8,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
@@ -17,6 +18,8 @@ export default function OrderRequestsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [noteByRequestId, setNoteByRequestId] = useState<Record<string, string>>({});
+  const [customerOrderNumberByRequestId, setCustomerOrderNumberByRequestId] = useState<Record<string, string>>({});
+  const [deliveryLocationByRequestId, setDeliveryLocationByRequestId] = useState<Record<string, string>>({});
   const [selectedPriceTypes, setSelectedPriceTypes] = useState<Record<string, 'INVOICED' | 'WHITE'>>({});
   const [selectedItemsByRequest, setSelectedItemsByRequest] = useState<Record<string, Record<string, boolean>>>({});
 
@@ -124,7 +127,14 @@ export default function OrderRequestsPage() {
     setConvertingId(request.id);
     try {
       const note = noteByRequestId[request.id]?.trim();
-      await customerApi.convertOrderRequest(request.id, { items, note: note || undefined });
+      const customerOrderNumber = customerOrderNumberByRequestId[request.id]?.trim();
+      const deliveryLocation = deliveryLocationByRequestId[request.id]?.trim();
+      await customerApi.convertOrderRequest(request.id, {
+        items,
+        note: note || undefined,
+        customerOrderNumber: customerOrderNumber || undefined,
+        deliveryLocation: deliveryLocation || undefined,
+      });
       toast.success('Talep siparise cevrildi.');
       fetchRequests();
     } catch (error: any) {
@@ -223,6 +233,9 @@ export default function OrderRequestsPage() {
                           <div className="font-semibold text-gray-900">{item.product.name}</div>
                           <div className="text-xs text-gray-500 font-mono">Kod: {item.product.mikroCode}</div>
                           <div className="text-xs text-gray-500 mt-1">Miktar: {item.quantity} {item.product.unit || ''}</div>
+                          {item.lineNote && (
+                            <div className="text-xs text-gray-500 mt-1">Not: {item.lineNote}</div>
+                          )}
                           <div className="text-xs text-gray-500 mt-1">
                             Tip: {item.priceMode === 'EXCESS' ? 'Fazla Stok' : 'Liste'}
                           </div>
@@ -360,6 +373,24 @@ export default function OrderRequestsPage() {
                       Secimi Temizle
                     </button>
                     <span className="text-gray-400">Secili: {selectedCount}</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input
+                      label="Teslimat Birimi / Bolge (opsiyonel)"
+                      value={deliveryLocationByRequestId[request.id] || ''}
+                      onChange={(e) => setDeliveryLocationByRequestId({
+                        ...deliveryLocationByRequestId,
+                        [request.id]: e.target.value,
+                      })}
+                    />
+                    <Input
+                      label="Musteri Siparis No (opsiyonel)"
+                      value={customerOrderNumberByRequestId[request.id] || ''}
+                      onChange={(e) => setCustomerOrderNumberByRequestId({
+                        ...customerOrderNumberByRequestId,
+                        [request.id]: e.target.value,
+                      })}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1">Not (opsiyonel)</label>

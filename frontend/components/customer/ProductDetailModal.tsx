@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
+import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { Button } from '@/components/ui/Button';
 
 interface ProductDetailModalProps {
@@ -72,6 +74,10 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
 
     setIsAdding(true);
     try {
+      if (maxQuantity <= 0) {
+        toast.error('Bu urun stokta yok.');
+        return;
+      }
       const priceMode = product.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST';
       await onAddToCart(product.id, quantity, priceType, priceMode);
       onClose();
@@ -85,12 +91,10 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
   if (!isOpen || !product) return null;
 
   const isDiscounted = product.pricingMode === 'EXCESS';
-  const maxQuantity =
-    product.maxOrderQuantity ??
-    (isDiscounted ? product.excessStock : product.availableStock ?? product.excessStock ?? 0);
+  const maxQuantity = getMaxOrderQuantity(product, isDiscounted ? 'EXCESS' : 'LIST');
   const displayStock = isDiscounted
-    ? product.excessStock
-    : product.availableStock ?? product.excessStock ?? 0;
+    ? product.excessStock ?? 0
+    : getDisplayStock(product);
   const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
   const listInvoiced = product.listPrices?.invoiced;
   const listWhite = product.listPrices?.white;
@@ -255,6 +259,9 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
                   <div className="font-semibold">Anlasmali fiyat</div>
                   <div>Min miktar: {agreementMinQuantity} {product.unit}</div>
+                  {product.agreement?.customerProductCode && (
+                    <div>Ozel urun kodu: {product.agreement.customerProductCode}</div>
+                  )}
                   <div>
                     Gecerlilik: {formatAgreementDate(product.agreement?.validFrom)}
                     {product.agreement?.validTo ? ` - ${formatAgreementDate(product.agreement?.validTo)}` : ''}
@@ -361,7 +368,11 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                     if (value === '' || parseInt(value) === 0) {
                       return; // Allow empty during typing
                     }
-                    const numValue = Math.max(1, Math.min(maxQuantity, parseInt(value)));
+                    const numericValue = parseInt(value);
+                    const numValue = Math.max(1, Math.min(maxQuantity, numericValue));
+                    if (numericValue > maxQuantity) {
+                      toast.error(`Maksimum ${maxQuantity} adet siparis verebilirsiniz.`);
+                    }
                     setQuantity(numValue);
                   }}
                   onBlur={(e) => {
@@ -373,7 +384,13 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                   className="text-center font-bold text-xl h-12 w-24 border-2 border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg px-3"
                 />
                 <button
-                  onClick={() => setQuantity(Math.min(maxQuantity, quantity + 1))}
+                  onClick={() => {
+                    if (quantity >= maxQuantity) {
+                      toast.error(`Maksimum ${maxQuantity} adet siparis verebilirsiniz.`);
+                      return;
+                    }
+                    setQuantity(Math.min(maxQuantity, quantity + 1));
+                  }}
                   className="bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl w-12 h-12 flex items-center justify-center font-bold text-xl transition-colors"
                 >
                   +

@@ -52,7 +52,8 @@ export interface Product {
   };
   agreement?: {
     priceInvoiced: number;
-    priceWhite: number;
+    priceWhite?: number | null;
+    customerProductCode?: string | null;
     minQuantity: number;
     validFrom: string;
     validTo?: string | null;
@@ -89,6 +90,7 @@ export interface CartItem {
   unitPrice: number;
   totalPrice: number;
   vatRate: number;
+  lineNote?: string | null;
 }
 
 export interface Cart {
@@ -116,6 +118,7 @@ export interface OrderItem {
   priceType: 'INVOICED' | 'WHITE';
   unitPrice: number;
   totalPrice: number;
+  lineNote?: string | null;
 }
 
 export interface Order {
@@ -129,6 +132,17 @@ export interface Order {
   rejectedAt?: string;
   adminNote?: string;
   mikroOrderIds?: string[];
+  customerOrderNumber?: string | null;
+  deliveryLocation?: string | null;
+  customerRequest?: {
+    id: string;
+    createdAt: string;
+    requestedBy?: {
+      id: string;
+      name: string;
+      email?: string | null;
+    };
+  } | null;
   requestedBy?: {
     id: string;
     name: string;
@@ -150,6 +164,7 @@ export interface OrderRequestItem {
   quantity: number;
   priceMode: 'LIST' | 'EXCESS';
   status: 'PENDING' | 'CONVERTED' | 'REJECTED';
+  lineNote?: string | null;
   selectedPriceType?: 'INVOICED' | 'WHITE';
   selectedUnitPrice?: number;
   selectedTotalPrice?: number;
@@ -235,6 +250,8 @@ export interface QuoteItem {
   product?: {
     imageUrl?: string | null;
     unit?: string | null;
+    lastEntryPrice?: number | null;
+    currentCost?: number | null;
   };
 }
 

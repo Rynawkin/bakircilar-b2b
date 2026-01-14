@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { formatCurrency } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
+import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
@@ -84,12 +85,6 @@ export default function DiscountedProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const getMaxQuantity = (product: Product) =>
-    product.maxOrderQuantity ?? product.availableStock ?? product.excessStock ?? 0;
-
-  const getDisplayStock = (product: Product) =>
-    product.excessStock ?? product.maxOrderQuantity ?? 0;
-
   const getDiscountPercent = (listPrice?: number, salePrice?: number) => {
     if (!listPrice || listPrice <= 0 || !salePrice) return null;
     const discount = Math.round(((listPrice - salePrice) / listPrice) * 100);
@@ -150,7 +145,8 @@ export default function DiscountedProductsPage() {
     }
   }, [selectedCategory, debouncedSearch, selectedWarehouse, categories, warehouses, fetchProducts]);
 
-  const handleQuickAdd = async (productId: string) => {
+  const handleQuickAdd = async (product: Product) => {
+    const productId = product.id;
     const quantity = quickAddQuantities[productId] || 1;
     const requestedPriceType = quickAddPriceTypes[productId] || defaultPriceType;
     const priceType = allowedPriceTypes.includes(requestedPriceType)
@@ -160,6 +156,16 @@ export default function DiscountedProductsPage() {
     setAddingToCart({ ...addingToCart, [productId]: true });
 
     try {
+      const maxQty = getMaxOrderQuantity(product, 'EXCESS');
+      if (maxQty <= 0) {
+        toast.error('Bu urun stokta yok.');
+        return;
+      }
+      if (quantity > maxQty) {
+        setQuickAddQuantities({ ...quickAddQuantities, [productId]: maxQty });
+        toast.error(`Maksimum ${maxQty} adet siparis verebilirsiniz.`);
+        return;
+      }
       await addToCart({
         productId,
         quantity,
@@ -444,6 +450,8 @@ export default function DiscountedProductsPage() {
                     ? getDisplayPrice(excessWhite, product.vatRate, 'WHITE', vatDisplayPreference)
                     : undefined;
                   const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
+                  const maxQuantity = getMaxOrderQuantity(product, 'EXCESS');
+                  const excessStock = product.excessStock ?? getDisplayStock(product);
                   const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
   return (
                     <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
@@ -469,7 +477,7 @@ export default function DiscountedProductsPage() {
                         {/* Stock badge */}
                         <div className="absolute top-2 right-2 bg-gradient-to-br from-green-500 to-green-600 text-white text-xs font-bold px-2 py-1 rounded-lg shadow-lg">
                           <div className="text-[10px] uppercase tracking-wide opacity-80">Fazla Stok</div>
-                          <div>{getDisplayStock(product)} {product.unit}</div>
+                          <div>{excessStock} {product.unit}</div>
                         </div>
                         {/* Overlay on hover */}
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
@@ -584,7 +592,11 @@ export default function DiscountedProductsPage() {
                             if (value === '' || parseInt(value) === 0) {
                               return; // Allow empty during typing
                             }
-                            const numValue = Math.max(1, Math.min(getMaxQuantity(product), parseInt(value)));
+                            const numericValue = parseInt(value);
+                            const numValue = Math.max(1, Math.min(maxQuantity, numericValue));
+                            if (numericValue > maxQuantity) {
+                              toast.error(`Maksimum ${maxQuantity} adet siparis verebilirsiniz.`);
+                            }
                             setQuickAddQuantities({
                               ...quickAddQuantities,
                               [product.id]: numValue
@@ -605,7 +617,7 @@ export default function DiscountedProductsPage() {
                         <Button
                           size="sm"
                           className="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold text-xs h-10 px-3 rounded-lg shadow-md hover:shadow-lg transition-all"
-                          onClick={() => handleQuickAdd(product.id)}
+                          onClick={() => handleQuickAdd(product)}
                           isLoading={addingToCart[product.id]}
                         >
                           🛒 Ekle

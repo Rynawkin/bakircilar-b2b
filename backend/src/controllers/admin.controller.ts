@@ -1254,6 +1254,16 @@ export class AdminController {
               sectorCode: true,
             },
           },
+          requestedBy: {
+            select: { id: true, name: true, email: true },
+          },
+          customerRequest: {
+            select: {
+              id: true,
+              createdAt: true,
+              requestedBy: { select: { id: true, name: true, email: true } },
+            },
+          },
           items: {
             include: {
               product: {

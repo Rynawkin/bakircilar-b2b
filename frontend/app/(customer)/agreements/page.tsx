@@ -15,6 +15,7 @@ import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
+import { getMaxOrderQuantity } from '@/lib/utils/stock';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
@@ -133,7 +134,8 @@ export default function AgreementProductsPage() {
     return discount > 0 ? discount : null;
   };
 
-  const handleQuickAdd = async (productId: string) => {
+  const handleQuickAdd = async (product: Product) => {
+    const productId = product.id;
     const quantity = quickAddQuantities[productId] || 1;
     const requestedPriceType = quickAddPriceTypes[productId] || defaultPriceType;
     const priceType = allowedPriceTypes.includes(requestedPriceType)
@@ -142,6 +144,16 @@ export default function AgreementProductsPage() {
 
     setAddingToCart({ ...addingToCart, [productId]: true });
     try {
+      const maxQty = getMaxOrderQuantity(product, 'LIST');
+      if (maxQty <= 0) {
+        toast.error('Bu urun stokta yok.');
+        return;
+      }
+      if (quantity > maxQty) {
+        setQuickAddQuantities({ ...quickAddQuantities, [productId]: maxQty });
+        toast.error(`Maksimum ${maxQty} adet siparis verebilirsiniz.`);
+        return;
+      }
       await addToCart({
         productId,
         quantity,
@@ -309,6 +321,7 @@ export default function AgreementProductsPage() {
                   );
                   const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
                   const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
+                  const maxQuantity = getMaxOrderQuantity(product, 'LIST');
   return (
                 <Card key={product.id} className="p-4 flex flex-col gap-4">
                   <div className="flex gap-4">
@@ -332,6 +345,11 @@ export default function AgreementProductsPage() {
                       {product.agreement && (
                         <div className="mt-2 text-[11px] bg-blue-50 text-blue-800 inline-flex px-2 py-1 rounded">
                           Anlasma: min {product.agreement.minQuantity} {product.unit}
+                        </div>
+                      )}
+                      {product.agreement?.customerProductCode && (
+                        <div className="mt-1 text-[11px] text-blue-700">
+                          Ozel urun kodu: {product.agreement.customerProductCode}
                         </div>
                       )}
                     </div>
@@ -388,8 +406,11 @@ export default function AgreementProductsPage() {
                       onChange={(e) => {
                         const value = e.target.value.replace(/[^0-9]/g, '');
                         if (value === '' || parseInt(value) === 0) return;
-                        const maxQty = product.maxOrderQuantity ?? product.availableStock ?? product.excessStock ?? 0;
-                        const numValue = Math.max(1, Math.min(maxQty, parseInt(value)));
+                        const numericValue = parseInt(value);
+                        const numValue = Math.max(1, Math.min(maxQuantity, numericValue));
+                        if (numericValue > maxQuantity) {
+                          toast.error(`Maksimum ${maxQuantity} adet siparis verebilirsiniz.`);
+                        }
                         setQuickAddQuantities({ ...quickAddQuantities, [product.id]: numValue });
                       }}
                       onBlur={(e) => {
@@ -403,7 +424,7 @@ export default function AgreementProductsPage() {
                     <Button
                       size="sm"
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold text-xs h-10"
-                      onClick={() => handleQuickAdd(product.id)}
+                      onClick={() => handleQuickAdd(product)}
                       isLoading={addingToCart[product.id]}
                     >
                       Sepete Ekle

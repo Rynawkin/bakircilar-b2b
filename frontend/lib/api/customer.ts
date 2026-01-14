@@ -59,8 +59,11 @@ export const customerApi = {
     return response.data;
   },
 
-  updateCartItem: async (itemId: string, quantity: number): Promise<{ message: string }> => {
-    const response = await apiClient.put(`/cart/${itemId}`, { quantity });
+  updateCartItem: async (
+    itemId: string,
+    data: { quantity?: number; lineNote?: string | null }
+  ): Promise<{ message: string }> => {
+    const response = await apiClient.put(`/cart/${itemId}`, data);
     return response.data;
   },
 
@@ -70,8 +73,11 @@ export const customerApi = {
   },
 
   // Orders
-  createOrder: async (): Promise<{ orderId: string; orderNumber: string; message: string }> => {
-    const response = await apiClient.post('/orders');
+  createOrder: async (data?: {
+    customerOrderNumber?: string;
+    deliveryLocation?: string;
+  }): Promise<{ orderId: string; orderNumber: string; message: string }> => {
+    const response = await apiClient.post('/orders', data);
     return response.data;
   },
 
@@ -98,7 +104,12 @@ export const customerApi = {
 
   convertOrderRequest: async (
     id: string,
-    data: { items?: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE' }>; note?: string }
+    data: {
+      items?: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE' }>;
+      note?: string;
+      customerOrderNumber?: string;
+      deliveryLocation?: string;
+    }
   ): Promise<{ orderId: string; orderNumber: string }> => {
     const response = await apiClient.post(`/order-requests/${id}/convert`, data);
     return response.data;

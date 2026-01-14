@@ -98,6 +98,7 @@ export class AgreementController {
         productId,
         priceInvoiced,
         priceWhite,
+        customerProductCode,
         minQuantity,
         validFrom,
         validTo,
@@ -108,11 +109,14 @@ export class AgreementController {
       }
 
       const priceInvoicedNumber = Number(priceInvoiced);
-      const priceWhiteNumber = Number(priceWhite);
+      const priceWhiteNumber =
+        priceWhite === null || priceWhite === undefined || priceWhite === ''
+          ? null
+          : Number(priceWhite);
       if (!Number.isFinite(priceInvoicedNumber) || priceInvoicedNumber <= 0) {
         return res.status(400).json({ error: 'priceInvoiced must be greater than 0' });
       }
-      if (!Number.isFinite(priceWhiteNumber) || priceWhiteNumber <= 0) {
+      if (priceWhiteNumber !== null && (!Number.isFinite(priceWhiteNumber) || priceWhiteNumber <= 0)) {
         return res.status(400).json({ error: 'priceWhite must be greater than 0' });
       }
 
@@ -139,6 +143,7 @@ export class AgreementController {
         productId,
         priceInvoiced: priceInvoicedNumber,
         priceWhite: priceWhiteNumber,
+        customerProductCode: customerProductCode ? String(customerProductCode).trim() : null,
         minQuantity: minQuantityNumber,
         validFrom: validFromDate,
         validTo: validToDate,
@@ -228,10 +233,11 @@ export class AgreementController {
         }
 
         const priceInvoiced = parseNumber(row?.priceInvoiced);
-        const priceWhite = parseNumber(row?.priceWhite);
-        if (!priceInvoiced || priceInvoiced <= 0 || !priceWhite || priceWhite <= 0) {
+        const priceWhiteRaw = parseNumber(row?.priceWhite);
+        const priceWhite = priceWhiteRaw && priceWhiteRaw > 0 ? priceWhiteRaw : null;
+        if (!priceInvoiced || priceInvoiced <= 0) {
           failed += 1;
-          results.push({ mikroCode, status: 'SKIPPED', reason: 'Invalid prices' });
+          results.push({ mikroCode, status: 'SKIPPED', reason: 'Invalid invoiced price' });
           continue;
         }
 
@@ -247,11 +253,14 @@ export class AgreementController {
           continue;
         }
 
+        const customerProductCode = row?.customerProductCode ? String(row.customerProductCode).trim() : null;
+
         const data = {
           customerId,
           productId: product.id,
           priceInvoiced,
           priceWhite,
+          customerProductCode: customerProductCode || null,
           minQuantity,
           validFrom: validFromDate,
           validTo: validToDate,

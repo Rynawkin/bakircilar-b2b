@@ -18,7 +18,8 @@ interface AgreementRow {
   id: string;
   productId: string;
   priceInvoiced: number;
-  priceWhite: number;
+  priceWhite?: number | null;
+  customerProductCode?: string | null;
   minQuantity: number;
   validFrom: string;
   validTo?: string | null;
@@ -40,7 +41,8 @@ interface ProductResult {
 interface AgreementImportRow {
   mikroCode: string;
   priceInvoiced: number;
-  priceWhite: number;
+  priceWhite?: number | null;
+  customerProductCode?: string | null;
   minQuantity?: number;
   validFrom?: string | null;
   validTo?: string | null;
@@ -67,6 +69,7 @@ export default function AgreementsPage() {
   const [formData, setFormData] = useState({
     priceInvoiced: '',
     priceWhite: '',
+    customerProductCode: '',
     minQuantity: '1',
     validFrom: new Date().toISOString().slice(0, 10),
     validTo: '',
@@ -204,6 +207,7 @@ export default function AgreementsPage() {
     setFormData({
       priceInvoiced: '',
       priceWhite: '',
+      customerProductCode: '',
       minQuantity: '1',
       validFrom: new Date().toISOString().slice(0, 10),
       validTo: '',
@@ -219,7 +223,10 @@ export default function AgreementsPage() {
     });
     setFormData({
       priceInvoiced: String(agreement.priceInvoiced),
-      priceWhite: String(agreement.priceWhite),
+      priceWhite: agreement.priceWhite !== null && agreement.priceWhite !== undefined
+        ? String(agreement.priceWhite)
+        : '',
+      customerProductCode: agreement.customerProductCode || '',
       minQuantity: String(agreement.minQuantity),
       validFrom: agreement.validFrom ? agreement.validFrom.slice(0, 10) : new Date().toISOString().slice(0, 10),
       validTo: agreement.validTo ? agreement.validTo.slice(0, 10) : '',
@@ -231,8 +238,8 @@ export default function AgreementsPage() {
       toast.error('Musteri ve urun seciniz.');
       return;
     }
-    if (!formData.priceInvoiced || !formData.priceWhite) {
-      toast.error('Faturali ve beyaz fiyatlari giriniz.');
+    if (!formData.priceInvoiced) {
+      toast.error('Faturali fiyat giriniz.');
       return;
     }
     setSaving(true);
@@ -241,7 +248,8 @@ export default function AgreementsPage() {
         customerId: selectedCustomer.id,
         productId: selectedProduct.id,
         priceInvoiced: Number(formData.priceInvoiced),
-        priceWhite: Number(formData.priceWhite),
+        priceWhite: formData.priceWhite ? Number(formData.priceWhite) : null,
+        customerProductCode: formData.customerProductCode?.trim() || null,
         minQuantity: Number(formData.minQuantity) || 1,
         validFrom: formData.validFrom,
         validTo: formData.validTo || null,
@@ -272,8 +280,8 @@ export default function AgreementsPage() {
 
   const handleDownloadTemplate = () => {
     const rows = [
-      ['Mikro Kod', 'Faturali Fiyat', 'Beyaz Fiyat', 'Min Miktar', 'Baslangic', 'Bitis'],
-      ['B101996', '86,69', '76,61', '1', new Date().toISOString().slice(0, 10), ''],
+      ['Mikro Kod', 'Faturali Fiyat', 'Beyaz Fiyat', 'Musteri Urun Kodu', 'Min Miktar', 'Baslangic', 'Bitis'],
+      ['B101996', '86,69', '76,61', 'CUS-001', '1', new Date().toISOString().slice(0, 10), ''],
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -303,12 +311,13 @@ export default function AgreementsPage() {
       const codeIndex = findColumnIndex(headers, ['mikro kod', 'stok kod', 'stok kodu', 'urun kod', 'ürün kod']);
       const invoicedIndex = findColumnIndex(headers, ['faturali fiyat', 'faturalı fiyat', 'invoiced']);
       const whiteIndex = findColumnIndex(headers, ['beyaz fiyat', 'white']);
+      const customerCodeIndex = findColumnIndex(headers, ['musteri urun kod', 'ozel urun kod', 'musteri kod', 'musteri urun']);
       const minQtyIndex = findColumnIndex(headers, ['min miktar', 'minimum miktar', 'min qty']);
       const validFromIndex = findColumnIndex(headers, ['baslangic', 'başlangıç', 'gecerlilik baslangic', 'valid from']);
       const validToIndex = findColumnIndex(headers, ['bitis', 'bitiş', 'gecerlilik bitis', 'valid to']);
 
-      if (codeIndex === -1 || invoicedIndex === -1 || whiteIndex === -1) {
-        throw new Error('Mikro kod, faturali fiyat ve beyaz fiyat kolonlari zorunludur.');
+      if (codeIndex === -1 || invoicedIndex === -1) {
+        throw new Error('Mikro kod ve faturali fiyat kolonlari zorunludur.');
       }
 
       const rows: AgreementImportRow[] = [];
@@ -317,10 +326,15 @@ export default function AgreementsPage() {
         const mikroCode = String(row[codeIndex] || '').trim();
         if (!mikroCode) continue;
 
+        const rawCustomerCode = customerCodeIndex !== -1
+          ? String(row[customerCodeIndex] || '').trim()
+          : '';
+
         rows.push({
           mikroCode,
           priceInvoiced: parseNumber(row[invoicedIndex]),
-          priceWhite: parseNumber(row[whiteIndex]),
+          priceWhite: whiteIndex !== -1 ? parseNumber(row[whiteIndex]) : null,
+          customerProductCode: rawCustomerCode || undefined,
           minQuantity: minQtyIndex !== -1 ? parseNumber(row[minQtyIndex]) : 1,
           validFrom: validFromIndex !== -1 ? parseDateValue(row[validFromIndex]) : null,
           validTo: validToIndex !== -1 ? parseDateValue(row[validToIndex]) : null,
@@ -433,10 +447,15 @@ export default function AgreementsPage() {
                 onChange={(e) => setFormData({ ...formData, priceInvoiced: e.target.value })}
               />
               <Input
-                label="Beyaz Fiyat"
+                label="Beyaz Fiyat (opsiyonel)"
                 type="number"
                 value={formData.priceWhite}
                 onChange={(e) => setFormData({ ...formData, priceWhite: e.target.value })}
+              />
+              <Input
+                label="Musteri Urun Kodu (opsiyonel)"
+                value={formData.customerProductCode}
+                onChange={(e) => setFormData({ ...formData, customerProductCode: e.target.value })}
               />
               <Input
                 label="Min Miktar"
@@ -485,7 +504,7 @@ export default function AgreementsPage() {
             </Button>
           </div>
           <div className="space-y-3 text-sm text-gray-600">
-            <p>Excel kolonlari: Mikro Kod, Faturali Fiyat, Beyaz Fiyat, Min Miktar, Baslangic, Bitis.</p>
+            <p>Excel kolonlari: Mikro Kod, Faturali Fiyat, Beyaz Fiyat (opsiyonel), Musteri Urun Kodu (opsiyonel), Min Miktar, Baslangic, Bitis.</p>
             <p>Aktarim, secili musteri icin uygulanir.</p>
           </div>
           <div className="mt-4 flex flex-wrap gap-3 items-center">
@@ -555,10 +574,15 @@ export default function AgreementsPage() {
                     <div className="text-xs text-gray-500 mt-1">
                       Min: {agreement.minQuantity} {agreement.product.unit || ''}
                     </div>
+                    {agreement.customerProductCode && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Ozel urun kodu: {agreement.customerProductCode}
+                      </div>
+                    )}
                   </div>
                   <div className="text-sm text-gray-700 min-w-[160px]">
                     <div>Faturali: {formatCurrency(agreement.priceInvoiced)}</div>
-                    <div>Beyaz: {formatCurrency(agreement.priceWhite)}</div>
+                    <div>Beyaz: {agreement.priceWhite !== null && agreement.priceWhite !== undefined ? formatCurrency(agreement.priceWhite) : '-'}</div>
                   </div>
                   <div className="text-xs text-gray-500 min-w-[160px]">
                     <div>Baslangic: {formatDateShort(agreement.validFrom)}</div>

@@ -241,7 +241,8 @@ export const adminApi = {
     customerId: string;
     productId: string;
     priceInvoiced: number;
-    priceWhite: number;
+    priceWhite?: number | null;
+    customerProductCode?: string | null;
     minQuantity?: number;
     validFrom?: string;
     validTo?: string | null;
@@ -259,7 +260,8 @@ export const adminApi = {
     rows: Array<{
       mikroCode: string;
       priceInvoiced: number;
-      priceWhite: number;
+      priceWhite?: number | null;
+      customerProductCode?: string | null;
       minQuantity?: number;
       validFrom?: string | null;
       validTo?: string | null;

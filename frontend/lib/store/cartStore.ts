@@ -15,6 +15,7 @@ interface CartState {
   fetchCart: () => Promise<void>;
   addToCart: (data: AddToCartRequest) => Promise<void>;
   updateQuantity: (itemId: string, quantity: number) => Promise<void>;
+  updateItemNote: (itemId: string, lineNote?: string | null) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
   clearCart: () => void;
 }
@@ -52,10 +53,21 @@ export const useCartStore = create<CartState>((set, get) => ({
   updateQuantity: async (itemId: string, quantity: number) => {
     set({ error: null });
     try {
-      await customerApi.updateCartItem(itemId, quantity);
+      await customerApi.updateCartItem(itemId, { quantity });
       await get().fetchCart();
     } catch (error: any) {
       set({ error: error.response?.data?.error || 'Failed to update quantity' });
+      throw error;
+    }
+  },
+
+  updateItemNote: async (itemId: string, lineNote?: string | null) => {
+    set({ error: null });
+    try {
+      await customerApi.updateCartItem(itemId, { lineNote });
+      await get().fetchCart();
+    } catch (error: any) {
+      set({ error: error.response?.data?.error || 'Failed to update note' });
       throw error;
     }
   },

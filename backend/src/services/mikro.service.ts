@@ -727,13 +727,18 @@ class MikroService {
       quantity: number;
       unitPrice: number;
       vatRate: number;
+      lineDescription?: string;
     }>;
     applyVAT: boolean;
     description: string;
+    documentNo?: string;
   }): Promise<string> {
     await this.connect();
 
-    const { cariCode, items, applyVAT, description } = orderData;
+    const { cariCode, items, applyVAT, description, documentNo } = orderData;
+    const descriptionValue = String(description || '').trim();
+    const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : null;
+    const belgeTarih = documentNoValue ? new Date() : null;
 
     // Evrak serisi belirle
     const evrakSeri = applyVAT ? 'B2BF' : 'B2BB';
@@ -781,6 +786,12 @@ class MikroService {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const satirNo = i;
+        const itemLineNote = item.lineDescription ? String(item.lineDescription).trim() : '';
+        const lineDescriptionValue = (
+          itemLineNote
+            ? itemLineNote + (descriptionValue ? ' | ' + descriptionValue : '')
+            : descriptionValue
+        ).slice(0, 50);
 
         // Hesaplamalar
         const tutar = item.quantity * item.unitPrice;
@@ -821,6 +832,8 @@ class MikroService {
             sip_doviz_cinsi,
             sip_doviz_kuru,
             sip_aciklama,
+            sip_belge_no,
+            sip_belge_tarih,
             sip_create_date,
             sip_DBCno,
             sip_firmano,
@@ -860,6 +873,8 @@ class MikroService {
             0,
             1,
             @aciklama,
+            @belgeNo,
+            @belgeTarih,
             GETDATE(),
             0,
             0,
@@ -893,7 +908,9 @@ class MikroService {
           .input('tutar', sql.Float, tutar)
           .input('vergiTutari', sql.Float, vergiTutari) // KDV tutarÄ± (50.58)
           .input('vergiYuzdesi', sql.Float, vergiYuzdesi) // KDV yÃ¼zdesi (18)
-          .input('aciklama', sql.NVarChar(50), description)
+          .input('aciklama', sql.NVarChar(50), lineDescriptionValue)
+          .input('belgeNo', sql.NVarChar(50), documentNoValue)
+          .input('belgeTarih', sql.DateTime, belgeTarih)
           .query(insertQuery);
 
         console.log(`  âœ“ SatÄ±r ${satirNo}: ${item.productCode} Ã— ${item.quantity}`);
@@ -995,7 +1012,7 @@ class MikroService {
         safeValidityDate.getUTCMonth(),
         safeValidityDate.getUTCDate()
       ));
-      const lineNote = (description || '').trim();
+      const descriptionValue = (description || '').trim();
       const documentNoValue = (documentNo || '').trim().slice(0, 50);
       const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
       const paymentPlanValue = Number.isFinite(paymentPlanNo as number) ? Number(paymentPlanNo) : 0;
@@ -1007,6 +1024,12 @@ class MikroService {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const satirNo = i;
+        const itemLineNote = item.lineDescription ? String(item.lineDescription).trim() : '';
+        const lineDescriptionValue = (
+          itemLineNote
+            ? itemLineNote + (descriptionValue ? ' | ' + descriptionValue : '')
+            : descriptionValue
+        ).slice(0, 50);
         const quantity = item.quantity;
         const unitPrice = item.unitPrice;
         const brutFiyat = unitPrice * quantity;
@@ -1014,7 +1037,7 @@ class MikroService {
         const vatAmount = vatRate > 0 ? brutFiyat * vatRate : 0;
         const vatCode = this.convertVatRateToCode(vatRate);
         const priceListNo = item.priceListNo ?? 0;
-        const descriptionLine = (item.lineDescription || lineNote || '').slice(0, 40);
+        const descriptionLine = (itemLineNote || descriptionValue || '').slice(0, 40);
 
         const insertQuery = `
           INSERT INTO VERILEN_TEKLIFLER (
@@ -1305,7 +1328,7 @@ class MikroService {
         safeValidityDate.getUTCMonth(),
         safeValidityDate.getUTCDate()
       ));
-      const lineNote = (description || '').trim();
+      const descriptionValue = (description || '').trim();
       const documentNoValue = (documentNo || '').trim().slice(0, 50);
       const responsibleValue = (responsibleCode || '').trim().slice(0, 25);
       const paymentPlanValue = Number.isFinite(paymentPlanNo as number) ? Number(paymentPlanNo) : 0;
@@ -1317,6 +1340,12 @@ class MikroService {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const satirNo = i;
+        const itemLineNote = item.lineDescription ? String(item.lineDescription).trim() : '';
+        const lineDescriptionValue = (
+          itemLineNote
+            ? itemLineNote + (descriptionValue ? ' | ' + descriptionValue : '')
+            : descriptionValue
+        ).slice(0, 50);
         const quantity = item.quantity;
         const unitPrice = item.unitPrice;
         const brutFiyat = unitPrice * quantity;
@@ -1324,7 +1353,7 @@ class MikroService {
         const vatAmount = vatRate > 0 ? brutFiyat * vatRate : 0;
         const vatCode = this.convertVatRateToCode(vatRate);
         const priceListNo = item.priceListNo ?? 0;
-        const descriptionLine = (item.lineDescription || lineNote || '').slice(0, 40);
+        const descriptionLine = (itemLineNote || descriptionValue || '').slice(0, 40);
 
         const insertQuery = `
           INSERT INTO VERILEN_TEKLIFLER (

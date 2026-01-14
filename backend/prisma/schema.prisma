@@ -616,6 +616,7 @@ model CartItem {
   priceType       PriceType   // INVOICED veya WHITE
   priceMode       PriceMode   @default(LIST)
   unitPrice       Float       // O andaki fiyat (snapshot)
+  lineNote        String?
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -647,6 +648,9 @@ model Order {
 
   customerRequest CustomerRequest? @relation("CustomerRequestOrder")
 
+  customerOrderNumber String?
+  deliveryLocation String?
+
   // Admin notu
   adminNote       String?
 
@@ -676,6 +680,7 @@ model OrderItem {
   priceType       PriceType
   unitPrice       Float
   totalPrice      Float
+  lineNote        String?
 
   // Item-level approval (kısmi onay için)
   status          OrderItemStatus   @default(PENDING)
@@ -703,7 +708,8 @@ model CustomerPriceAgreement {
   product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   priceInvoiced Float
-  priceWhite   Float
+  priceWhite   Float?
+  customerProductCode String?
   minQuantity  Int      @default(1)
   validFrom    DateTime
   validTo      DateTime?
@@ -761,6 +767,7 @@ model CustomerRequestItem {
   quantity          Int
   status            CustomerRequestItemStatus @default(PENDING)
   priceMode         PriceMode   @default(LIST)
+  lineNote          String?
   selectedPriceType PriceType?
   selectedUnitPrice Float?
   selectedTotalPrice Float?

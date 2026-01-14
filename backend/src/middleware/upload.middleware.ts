@@ -30,9 +30,11 @@ const taskStorage = multer.diskStorage({
   },
 });
 
+const invoiceUploadDir = process.env.EINVOICE_UPLOAD_DIR || path.join('private-uploads', 'einvoices');
+
 const invoiceStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    ensureDir(path.join('private-uploads', 'einvoices'), cb);
+    ensureDir(invoiceUploadDir, cb);
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);

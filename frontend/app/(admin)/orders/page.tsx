@@ -303,10 +303,38 @@ export default function AdminOrdersPage() {
                     {/* Admin Note */}
                     {order.adminNote && (
                       <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-                        <p className="text-xs font-medium text-gray-600">📝 Admin Notu:</p>
+                        <p className="text-xs font-medium text-gray-600">?? Admin Notu:</p>
                         <p className="text-sm text-gray-800 mt-1">{order.adminNote}</p>
                       </div>
                     )}
+
+                    
+
+                    {(order.customerOrderNumber || order.deliveryLocation) && (
+                      <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+                        <p className="text-xs font-medium text-gray-600">Siparis Ek Bilgileri:</p>
+                        {order.customerOrderNumber && (
+                          <p className="text-xs text-gray-700 mt-1">Belge No: {order.customerOrderNumber}</p>
+                        )}
+                        {order.deliveryLocation && (
+                          <p className="text-xs text-gray-700 mt-1">Teslimat: {order.deliveryLocation}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {order.customerRequest && (
+                      <div className="mt-2 bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
+                        <p className="text-xs font-medium text-indigo-700">Talep Kaynagi</p>
+                        <p className="text-xs text-indigo-700 mt-1">Talep ID: {order.customerRequest.id.slice(0, 8)}</p>
+                        {order.customerRequest.requestedBy && (
+                          <p className="text-xs text-indigo-700 mt-1">
+                            Talep eden: {order.customerRequest.requestedBy.name}
+                            {order.customerRequest.requestedBy.email ? ` (${order.customerRequest.requestedBy.email})` : ''}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500 mb-1">Toplam Tutar</p>
@@ -334,6 +362,9 @@ export default function AdminOrdersPage() {
                               {item.priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
                             </Badge>
                           </div>
+                          {item.lineNote && (
+                            <p className="text-xs text-gray-500 mt-1">Not: {item.lineNote}</p>
+                          )}
                         </div>
                         <div className="text-right ml-4">
                           <p className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</p>

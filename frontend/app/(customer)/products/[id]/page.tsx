@@ -14,6 +14,7 @@ import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
+import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -74,6 +75,10 @@ export default function ProductDetailPage() {
       toast.error(`Maksimum ${maxQuantity} adet sipariş verebilirsiniz.`);
       return;
     }
+    if (maxQuantity <= 0) {
+      toast.error('Bu urun stokta yok.');
+      return;
+    }
 
     setIsAdding(true);
     try {
@@ -116,12 +121,10 @@ export default function ProductDetailPage() {
   }
 
   const isDiscounted = product.pricingMode === 'EXCESS';
-  const maxQuantity =
-    product.maxOrderQuantity ??
-    (isDiscounted ? product.excessStock : product.availableStock ?? product.excessStock ?? 0);
+  const maxQuantity = getMaxOrderQuantity(product, isDiscounted ? 'EXCESS' : 'LIST');
   const displayStock = isDiscounted
-    ? product.excessStock
-    : product.availableStock ?? product.excessStock ?? 0;
+    ? product.excessStock ?? 0
+    : getDisplayStock(product);
   const priceMode = isDiscounted ? 'EXCESS' : 'LIST';
   const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
   const selectedPriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
@@ -291,7 +294,14 @@ export default function ProductDetailPage() {
                       min={1}
                       max={maxQuantity}
                       value={quantity}
-                      onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                      onChange={(e) => {
+                        const numericValue = parseInt(e.target.value) || 1;
+                        const nextValue = Math.max(1, Math.min(maxQuantity, numericValue));
+                        if (numericValue > maxQuantity) {
+                          toast.error(`Maksimum ${maxQuantity} adet sipariş verebilirsiniz.`);
+                        }
+                        setQuantity(nextValue);
+                      }}
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       Maksimum: {maxQuantity} {product.unit}

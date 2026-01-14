@@ -9,6 +9,7 @@ import customerApi from '@/lib/api/customer';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
@@ -18,8 +19,11 @@ import { getDisplayPrice, getVatLabel, getVatStatusLabel } from '@/lib/utils/vat
 export default function CartPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
-  const { cart, fetchCart, removeItem, updateQuantity } = useCartStore();
+  const { cart, fetchCart, removeItem, updateQuantity, updateItemNote } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
+  const [customerOrderNumber, setCustomerOrderNumber] = useState('');
+  const [deliveryLocation, setDeliveryLocation] = useState('');
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
   const vatDisplayPreference = user?.vatDisplayPreference || 'WITH_VAT';
@@ -28,6 +32,15 @@ export default function CartPage() {
     loadUserFromStorage();
     fetchCart();
   }, [loadUserFromStorage, fetchCart]);
+
+  useEffect(() => {
+    if (!cart?.items) return;
+    const nextNotes: Record<string, string> = {};
+    cart.items.forEach((item) => {
+      nextNotes[item.id] = item.lineNote || '';
+    });
+    setLineNotes(nextNotes);
+  }, [cart?.items]);
 
   const handleRemove = async (itemId: string) => {
     await showConfirmDialog(
@@ -48,6 +61,22 @@ export default function CartPage() {
   const handleQuantityChange = async (itemId: string, newQuantity: number) => {
     if (newQuantity < 1) return;
     await updateQuantity(itemId, newQuantity);
+  };
+
+  const handleLineNoteChange = (itemId: string, value: string) => {
+    setLineNotes((prev) => ({ ...prev, [itemId]: value }));
+  };
+
+  const handleLineNoteBlur = async (itemId: string, currentNote?: string | null) => {
+    const rawNote = lineNotes[itemId] ?? '';
+    const trimmed = rawNote.trim();
+    const previous = (currentNote || '').trim();
+    if (trimmed === previous) return;
+    try {
+      await updateItemNote(itemId, trimmed ? trimmed : null);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Not guncellenemedi');
+    }
   };
 
   const handleCreateOrder = async () => {
@@ -75,8 +104,13 @@ Toplam: ${formatCurrency(cart.total)}`,
             toast.success('Talep gonderildi.');
             router.push('/order-requests');
           } else {
-            const result = await customerApi.createOrder();
+            const result = await customerApi.createOrder({
+              customerOrderNumber: customerOrderNumber.trim() || undefined,
+              deliveryLocation: deliveryLocation.trim() || undefined,
+            });
             await fetchCart();
+            setCustomerOrderNumber('');
+            setDeliveryLocation('');
             toast.success(`Siparis olusturuldu!
 Siparis No: ${result.orderNumber}`, {
               duration: 4000,
@@ -226,6 +260,18 @@ Siparis No: ${result.orderNumber}`, {
                                 </svg>
                               </Button>
                             </div>
+                            <div className="mt-3">
+                              <label className="block text-xs text-gray-500 mb-1">Satir notu (opsiyonel)</label>
+                              <textarea
+                                value={lineNotes[item.id] ?? ''}
+                                onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
+                                onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
+                                className="w-full rounded-lg border border-gray-200 p-2 text-xs"
+                                rows={2}
+                                placeholder="Marka, renk, teslimat notu..."
+                              />
+                            </div>
+
                           </div>
                         </div>
                       ))}
@@ -333,6 +379,18 @@ Siparis No: ${result.orderNumber}`, {
                                 </svg>
                               </Button>
                             </div>
+                            <div className="mt-3">
+                              <label className="block text-xs text-gray-500 mb-1">Satir notu (opsiyonel)</label>
+                              <textarea
+                                value={lineNotes[item.id] ?? ''}
+                                onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
+                                onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
+                                className="w-full rounded-lg border border-gray-200 p-2 text-xs"
+                                rows={2}
+                                placeholder="Marka, renk, teslimat notu..."
+                              />
+                            </div>
+
                           </div>
                         </div>
                       ))}
@@ -407,6 +465,21 @@ Siparis No: ${result.orderNumber}`, {
                         <span className="text-3xl font-bold">{formatCurrency(cart.total)}</span>
                       </div>
                     </div>
+
+                    {!isSubUser && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <Input
+                          label="Teslimat Birimi / Bolge (opsiyonel)"
+                          value={deliveryLocation}
+                          onChange={(e) => setDeliveryLocation(e.target.value)}
+                        />
+                        <Input
+                          label="Musteri Siparis No (opsiyonel)"
+                          value={customerOrderNumber}
+                          onChange={(e) => setCustomerOrderNumber(e.target.value)}
+                        />
+                      </div>
+                    )}
 
                                         <Button
                       className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 text-lg shadow-xl rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"

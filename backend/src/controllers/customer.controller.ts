@@ -12,7 +12,7 @@ import orderService from '../services/order.service';
 import { splitSearchTokens } from '../utils/search';
 import { ProductPrices } from '../types';
 import { resolveCustomerPriceLists } from '../utils/customerPricing';
-import { isAgreementActive, isAgreementApplicable } from '../utils/agreements';
+import { applyAgreementPrices, isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 
 const sumStocks = (warehouseStocks: Record<string, number>, includedWarehouses: string[]): number => {
   if (!warehouseStocks) return 0;
@@ -98,7 +98,8 @@ export class CustomerController {
         id: string;
         productId: string;
         priceInvoiced: number;
-        priceWhite: number;
+        priceWhite: number | null;
+        customerProductCode?: string | null;
         minQuantity: number;
         validFrom: Date;
         validTo: Date | null;
@@ -116,6 +117,7 @@ export class CustomerController {
             productId: true,
             priceInvoiced: true,
             priceWhite: true,
+            customerProductCode: true,
             minQuantity: true,
             validFrom: true,
             validTo: true,
@@ -180,9 +182,8 @@ export class CustomerController {
 
           const agreement = agreementMap.get(product.id);
           const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
-          const agreementPrices = agreementActive
-            ? { invoiced: agreement!.priceInvoiced, white: agreement!.priceWhite }
-            : null;
+          const agreementPrices = agreementActive ? applyAgreementPrices(listPrices, agreement) : null;
+          const agreementExcessPrices = agreementActive ? applyAgreementPrices(customerPrices, agreement) : null;
 
           const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
           const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
@@ -207,13 +208,14 @@ export class CustomerController {
               name: product.category.name,
             },
             prices: agreementPrices || listPrices,
-            excessPrices: agreementPrices || customerPrices,
-            listPrices: agreementPrices ? listPrices : undefined,
+            excessPrices: agreementExcessPrices || customerPrices,
+            listPrices: agreementActive ? listPrices : undefined,
             pricingMode: 'LIST',
             agreement: agreementActive
               ? {
                   priceInvoiced: agreement!.priceInvoiced,
                   priceWhite: agreement!.priceWhite,
+                  customerProductCode: agreement!.customerProductCode || null,
                   minQuantity: agreement!.minQuantity,
                   validFrom: agreement!.validFrom,
                   validTo: agreement!.validTo,
@@ -305,6 +307,7 @@ export class CustomerController {
           productId: true,
           priceInvoiced: true,
           priceWhite: true,
+          customerProductCode: true,
           minQuantity: true,
           validFrom: true,
           validTo: true,
@@ -331,9 +334,9 @@ export class CustomerController {
 
         const agreement = agreementMap.get(product.id);
         const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
-        const agreementPrices = agreementActive
-          ? { invoiced: agreement!.priceInvoiced, white: agreement!.priceWhite }
-          : null;
+        const agreementBasePrices = isDiscounted ? customerPrices : listPrices;
+        const agreementPrices = agreementActive ? applyAgreementPrices(agreementBasePrices, agreement) : null;
+        const agreementExcessPrices = agreementActive ? applyAgreementPrices(customerPrices, agreement) : null;
 
         const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
         const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
@@ -373,13 +376,14 @@ export class CustomerController {
             name: product.category.name,
           },
           prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
-          excessPrices: agreementPrices || customerPrices,
-          listPrices: agreementPrices ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
+          excessPrices: agreementExcessPrices || customerPrices,
+          listPrices: agreementActive ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
           pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
           agreement: agreementActive
             ? {
                 priceInvoiced: agreement!.priceInvoiced,
                 priceWhite: agreement!.priceWhite,
+                customerProductCode: agreement!.customerProductCode || null,
                 minQuantity: agreement!.minQuantity,
                 validFrom: agreement!.validFrom,
                 validTo: agreement!.validTo,
@@ -492,6 +496,7 @@ export class CustomerController {
         select: {
           priceInvoiced: true,
           priceWhite: true,
+          customerProductCode: true,
           minQuantity: true,
           validFrom: true,
           validTo: true,
@@ -499,9 +504,9 @@ export class CustomerController {
       });
       const now = new Date();
       const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
-      const agreementPrices = agreementActive
-        ? { invoiced: agreement!.priceInvoiced, white: agreement!.priceWhite }
-        : null;
+      const agreementBasePrices = isDiscounted ? customerPrices : listPrices;
+      const agreementPrices = agreementActive ? applyAgreementPrices(agreementBasePrices, agreement) : null;
+      const agreementExcessPrices = agreementActive ? applyAgreementPrices(customerPrices, agreement) : null;
 
       res.json({
         id: product.id,
@@ -519,13 +524,14 @@ export class CustomerController {
         imageUrl: product.imageUrl,
         category: product.category,
         prices: agreementPrices || (isDiscounted ? customerPrices : listPrices),
-        excessPrices: agreementPrices || customerPrices,
-        listPrices: agreementPrices ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
+        excessPrices: agreementExcessPrices || customerPrices,
+        listPrices: agreementActive ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
         pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
         agreement: agreementActive
           ? {
               priceInvoiced: agreement!.priceInvoiced,
               priceWhite: agreement!.priceWhite,
+              customerProductCode: agreement!.customerProductCode || null,
               minQuantity: agreement!.minQuantity,
               validFrom: agreement!.validFrom,
               validTo: agreement!.validTo,
@@ -645,6 +651,7 @@ export class CustomerController {
             priceType: item.priceType,
             unitPrice: item.unitPrice,
             totalPrice: item.quantity * item.unitPrice,
+            lineNote: item.lineNote || null,
             vatRate: product?.vatRate || 0,
           };
         })
@@ -777,6 +784,7 @@ export class CustomerController {
         select: {
           priceInvoiced: true,
           priceWhite: true,
+          customerProductCode: true,
           minQuantity: true,
           validFrom: true,
           validTo: true,
@@ -784,7 +792,7 @@ export class CustomerController {
       });
 
       if (agreement && isAgreementApplicable(agreement, new Date(), quantity)) {
-        unitPrice = priceType === 'INVOICED' ? agreement.priceInvoiced : agreement.priceWhite;
+        unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
       }
 
       // Cart'ı bul veya oluştur
@@ -811,7 +819,7 @@ export class CustomerController {
       if (existingItem) {
         const combinedQuantity = existingItem.quantity + quantity;
         if (agreement && isAgreementApplicable(agreement, new Date(), combinedQuantity)) {
-          unitPrice = priceType === 'INVOICED' ? agreement.priceInvoiced : agreement.priceWhite;
+          unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
         }
         await prisma.cartItem.update({
           where: { id: existingItem.id },
@@ -845,9 +853,12 @@ export class CustomerController {
   async updateCartItem(req: Request, res: Response, next: NextFunction) {
     try {
       const { itemId } = req.params;
-      const { quantity } = req.body;
+      const { quantity, lineNote } = req.body || {};
 
-      if (quantity <= 0) {
+      const hasQuantity = quantity !== undefined && quantity !== null;
+      const parsedQuantity = Number(quantity);
+
+      if (hasQuantity && (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0)) {
         return res.status(400).json({ error: 'Quantity must be greater than 0' });
       }
 
@@ -884,6 +895,8 @@ export class CustomerController {
       if (!cartItem) {
         return res.status(404).json({ error: 'Cart item not found' });
       }
+
+      const nextQuantity = hasQuantity ? parsedQuantity : cartItem.quantity;
 
       const user = cartItem.cart.user;
       const customer = user?.parentCustomer || user;
@@ -931,19 +944,33 @@ export class CustomerController {
         select: {
           priceInvoiced: true,
           priceWhite: true,
+          customerProductCode: true,
           minQuantity: true,
           validFrom: true,
           validTo: true,
         },
       });
 
-      if (agreement && isAgreementApplicable(agreement, new Date(), quantity)) {
-        unitPrice = priceType === 'INVOICED' ? agreement.priceInvoiced : agreement.priceWhite;
+      if (agreement && isAgreementApplicable(agreement, new Date(), nextQuantity)) {
+        unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
+      }
+
+      const updateData: { quantity?: number; unitPrice?: number; lineNote?: string | null } = {
+        unitPrice,
+      };
+
+      if (hasQuantity) {
+        updateData.quantity = nextQuantity;
+      }
+
+      if (lineNote !== undefined) {
+        const normalizedNote = String(lineNote).trim();
+        updateData.lineNote = normalizedNote ? normalizedNote : null;
       }
 
       await prisma.cartItem.update({
         where: { id: itemId },
-        data: { quantity, unitPrice },
+        data: updateData,
       });
 
       res.json({ message: 'Cart item updated' });
@@ -983,7 +1010,11 @@ export class CustomerController {
         return res.status(403).json({ error: 'Sub users cannot create orders' });
       }
 
-      const result = await orderService.createOrderFromCart(req.user!.userId);
+      const { customerOrderNumber, deliveryLocation } = req.body || {};
+      const result = await orderService.createOrderFromCart(req.user!.userId, {
+        customerOrderNumber,
+        deliveryLocation,
+      });
 
       res.status(201).json({
         message: 'Order created successfully',

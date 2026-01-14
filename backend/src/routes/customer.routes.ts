@@ -28,7 +28,8 @@ const addToCartSchema = z.object({
 });
 
 const updateCartItemSchema = z.object({
-  quantity: z.number().int().min(1, 'Quantity must be at least 1'),
+  quantity: z.number().int().min(1, 'Quantity must be at least 1').optional(),
+  lineNote: z.string().optional().nullable(),
 });
 
 const taskTypeSchema = z.enum([

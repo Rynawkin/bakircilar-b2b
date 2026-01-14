@@ -9,7 +9,7 @@ import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
 import stockService from '../services/stock.service';
 import { resolveCustomerPriceLists } from '../utils/customerPricing';
-import { isAgreementApplicable } from '../utils/agreements';
+import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { ProductPrices } from '../types';
 import { generateOrderNumber } from '../utils/orderNumber';
 
@@ -144,8 +144,8 @@ export class OrderRequestController {
 
           const agreement = agreementMap.get(item.productId);
           if (agreement && isAgreementApplicable(agreement, now, item.quantity)) {
-            unitInvoiced = agreement.priceInvoiced;
-            unitWhite = agreement.priceWhite;
+            unitInvoiced = resolveAgreementPrice(agreement, 'INVOICED', unitInvoiced);
+            unitWhite = resolveAgreementPrice(agreement, 'WHITE', unitWhite);
           }
 
           return {
@@ -208,6 +208,7 @@ export class OrderRequestController {
               productId: item.productId,
               quantity: item.quantity,
               priceMode: item.priceMode,
+              lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
             })),
           },
         },
@@ -233,7 +234,7 @@ export class OrderRequestController {
   async convertOrderRequest(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { items, note } = req.body || {};
+      const { items, note, customerOrderNumber, deliveryLocation } = req.body || {};
 
       const user = await prisma.user.findUnique({
         where: { id: req.user!.userId },
@@ -317,6 +318,7 @@ export class OrderRequestController {
         priceType: PriceType;
         unitPrice: number;
         totalPrice: number;
+        lineNote?: string | null;
       }> = [];
       for (const item of itemsToConvert) {
         const priceType = resolvePriceType(user.priceVisibility, itemSelections[item.id]);
@@ -359,7 +361,7 @@ export class OrderRequestController {
         });
 
         if (agreement && isAgreementApplicable(agreement, now, item.quantity)) {
-          unitPrice = priceType === 'INVOICED' ? agreement.priceInvoiced : agreement.priceWhite;
+          unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
         }
 
         orderItems.push({
@@ -371,6 +373,7 @@ export class OrderRequestController {
           priceType,
           unitPrice,
           totalPrice: unitPrice * item.quantity,
+          lineNote: item.lineNote ? String(item.lineNote).trim() : null,
         });
       }
 
@@ -396,11 +399,20 @@ export class OrderRequestController {
       let order = request.orderId
         ? await prisma.order.findUnique({
             where: { id: request.orderId },
-            select: { id: true, orderNumber: true, totalAmount: true },
+            select: { id: true, orderNumber: true, totalAmount: true, customerOrderNumber: true, deliveryLocation: true },
           })
         : null;
 
       const orderItemsTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      const normalizedCustomerOrderNumber = customerOrderNumber ? String(customerOrderNumber).trim() : '';
+      const normalizedDeliveryLocation = deliveryLocation ? String(deliveryLocation).trim() : '';
+      const orderExtras: { customerOrderNumber?: string; deliveryLocation?: string } = {};
+      if (normalizedCustomerOrderNumber) {
+        orderExtras.customerOrderNumber = normalizedCustomerOrderNumber;
+      }
+      if (normalizedDeliveryLocation) {
+        orderExtras.deliveryLocation = normalizedDeliveryLocation;
+      }
 
       if (!order) {
         const lastOrder = await prisma.order.findFirst({
@@ -416,6 +428,7 @@ export class OrderRequestController {
             requestedById: request.requestedById,
             status: 'PENDING',
             totalAmount: orderItemsTotal,
+            ...orderExtras,
             items: {
               create: orderItems.map((item) => ({
                 productId: item.productId,
@@ -425,10 +438,11 @@ export class OrderRequestController {
                 priceType: item.priceType,
                 unitPrice: item.unitPrice,
                 totalPrice: item.totalPrice,
+                lineNote: item.lineNote || undefined,
               })),
             },
           },
-          select: { id: true, orderNumber: true, totalAmount: true },
+          select: { id: true, orderNumber: true, totalAmount: true, customerOrderNumber: true, deliveryLocation: true },
         });
 
         await prisma.customerRequest.update({
@@ -440,6 +454,7 @@ export class OrderRequestController {
           where: { id: order.id },
           data: {
             totalAmount: (order.totalAmount || 0) + orderItemsTotal,
+            ...orderExtras,
             items: {
               create: orderItems.map((item) => ({
                 productId: item.productId,
@@ -449,6 +464,7 @@ export class OrderRequestController {
                 priceType: item.priceType,
                 unitPrice: item.unitPrice,
                 totalPrice: item.totalPrice,
+                lineNote: item.lineNote || undefined,
               })),
             },
           },

@@ -8,6 +8,53 @@ import { ErrorFactory } from '../types/errors';
 
 const STAFF_ROLES: UserRole[] = ['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP'];
 
+const normalizePath = (value: string) => value.split(path.sep).join('/');
+
+const resolveStorageRoot = () => {
+  const envRoot = process.env.STORAGE_ROOT;
+  if (envRoot) {
+    return path.resolve(envRoot);
+  }
+
+  let current = __dirname;
+  for (let i = 0; i < 6; i += 1) {
+    const candidate = path.resolve(current, '..');
+    const pkgPath = path.join(candidate, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg?.name === 'mikro-b2b-backend') {
+          return candidate;
+        }
+      } catch {
+        // ignore malformed package.json
+      }
+    }
+    current = candidate;
+  }
+
+  return process.cwd();
+};
+
+const STORAGE_ROOT = resolveStorageRoot();
+const EINVOICE_UPLOAD_DIR = process.env.EINVOICE_UPLOAD_DIR
+  ? path.resolve(process.env.EINVOICE_UPLOAD_DIR)
+  : null;
+const STORAGE_ROOTS = Array.from(new Set([
+  STORAGE_ROOT,
+  process.cwd(),
+  ...(EINVOICE_UPLOAD_DIR ? [EINVOICE_UPLOAD_DIR] : []),
+]));
+
+const isPathInside = (base: string, target: string) => {
+  const relative = path.relative(base, target);
+  if (!relative) return true;
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
+};
+
+const findRootForPath = (absolutePath: string) =>
+  STORAGE_ROOTS.find((root) => isPathInside(root, absolutePath)) || null;
+
 const normalizeInvoiceNo = (value: string) =>
   value
     .trim()
@@ -21,11 +68,23 @@ const extractInvoiceNo = (originalName: string) => {
   return normalized || normalizeInvoiceNo(baseName);
 };
 
-const toRelativePath = (absolutePath: string) =>
-  path.relative(process.cwd(), absolutePath).split(path.sep).join('/');
+const toRelativePath = (absolutePath: string, root?: string) => {
+  const base = root || findRootForPath(absolutePath) || STORAGE_ROOT;
+  return normalizePath(path.relative(base, absolutePath));
+};
 
-const resolveStoragePath = (storagePath: string) =>
-  path.resolve(process.cwd(), storagePath);
+const resolveStorageCandidates = (storagePath: string) => {
+  if (path.isAbsolute(storagePath)) return [storagePath];
+  return STORAGE_ROOTS.map((root) => path.resolve(root, storagePath));
+};
+
+const resolveStoragePath = (storagePath: string) => {
+  const candidates = resolveStorageCandidates(storagePath);
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[0] || storagePath;
+};
 
 const resolveDocumentFileName = (document: { fileName?: string; storagePath: string }) => {
   if (document.fileName) return document.fileName;
@@ -66,13 +125,17 @@ class EInvoiceService {
       candidates.add(path.join('private-uploads', 'einvoices', fileName));
       candidates.add(path.join('uploads', 'einvoices', fileName));
       candidates.add(path.join('uploads', fileName));
+      if (EINVOICE_UPLOAD_DIR) {
+        candidates.add(path.join(EINVOICE_UPLOAD_DIR, fileName));
+      }
     }
 
     for (const candidate of candidates) {
-      const absolutePath = resolveStoragePath(candidate);
-      if (fs.existsSync(absolutePath)) {
-        const relativePath = toRelativePath(absolutePath);
-        if (relativePath !== document.storagePath) {
+      for (const absolutePath of resolveStorageCandidates(candidate)) {
+        if (!fs.existsSync(absolutePath)) continue;
+        const root = findRootForPath(absolutePath);
+        const relativePath = root ? toRelativePath(absolutePath, root) : document.storagePath;
+        if (root && relativePath !== document.storagePath) {
           try {
             await prisma.eInvoiceDocument.update({
               where: { id: document.id },
@@ -107,7 +170,11 @@ class EInvoiceService {
 
     for (const file of files) {
       const invoiceNo = extractInvoiceNo(file.originalname);
-      const storagePath = toRelativePath(file.path);
+      const absolutePath = path.isAbsolute(file.path)
+        ? file.path
+        : path.resolve(process.cwd(), file.path);
+      const root = findRootForPath(absolutePath) || process.cwd();
+      const storagePath = toRelativePath(absolutePath, root);
 
       try {
         const existing = await prisma.eInvoiceDocument.findUnique({

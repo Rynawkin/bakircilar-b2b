@@ -482,9 +482,13 @@ class QuoteService {
       let blockedReason: string | undefined;
       if (priceSource === 'MANUAL' && !isManualLine) {
         const lastEntryPrice = safeNumber((product as any).lastEntryPrice, 0);
-        if (lastEntryPrice > 0 && unitPrice < lastEntryPrice * 1.05) {
+        const currentCost = safeNumber((product as any).currentCost, 0);
+        const baseCost = lastEntryPrice > 0 ? lastEntryPrice : currentCost;
+        if (baseCost > 0 && unitPrice < baseCost * 1.05) {
           isBlocked = true;
-          blockedReason = 'Son giriÅŸ maliyetine gÃ¶re %5 altÄ± fiyat';
+          blockedReason = lastEntryPrice > 0
+            ? 'Son giris maliyetine gore %5 alti fiyat'
+            : 'Guncel maliyete gore %5 alti fiyat';
           hasBlockedItem = true;
         }
       }
@@ -756,9 +760,13 @@ class QuoteService {
       let blockedReason: string | undefined;
       if (priceSource === 'MANUAL' && !isManualLine) {
         const lastEntryPrice = safeNumber((product as any).lastEntryPrice, 0);
-        if (lastEntryPrice > 0 && unitPrice < lastEntryPrice * 1.05) {
+        const currentCost = safeNumber((product as any).currentCost, 0);
+        const baseCost = lastEntryPrice > 0 ? lastEntryPrice : currentCost;
+        if (baseCost > 0 && unitPrice < baseCost * 1.05) {
           isBlocked = true;
-          blockedReason = 'Son giris maliyetine gore %5 alti fiyat';
+          blockedReason = lastEntryPrice > 0
+            ? 'Son giris maliyetine gore %5 alti fiyat'
+            : 'Guncel maliyete gore %5 alti fiyat';
           hasBlockedItem = true;
         }
       }
@@ -879,6 +887,8 @@ class QuoteService {
               select: {
                 imageUrl: true,
                 unit: true,
+                lastEntryPrice: true,
+                currentCost: true,
               },
             },
           },
@@ -935,6 +945,8 @@ class QuoteService {
               select: {
                 imageUrl: true,
                 unit: true,
+                lastEntryPrice: true,
+                currentCost: true,
               },
             },
           },

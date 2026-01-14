@@ -946,8 +946,8 @@ function AdminQuoteNewPageContent() {
       lineDescription: item.lineDescription || '',
       lastSales,
       selectedSaleIndex,
-      lastEntryPrice: null,
-      currentCost: null,
+      lastEntryPrice: item.product?.lastEntryPrice ?? null,
+      currentCost: item.product?.currentCost ?? null,
       mikroPriceLists,
     };
   };
@@ -1478,7 +1478,8 @@ function AdminQuoteNewPageContent() {
     const currentCostDiff = currentCost > 0
       ? ((unitPrice - currentCost) / currentCost) * 100
       : null;
-    const blocked = item.priceSource === 'MANUAL' && lastEntry > 0 && unitPrice < lastEntry * 1.05;
+    const baseCost = lastEntry > 0 ? lastEntry : currentCost;
+    const blocked = item.priceSource === 'MANUAL' && baseCost > 0 && unitPrice < baseCost * 1.05;
     const vatRate = item.vatRate || 0;
     const lastEntryWithVat = lastEntry > 0 ? lastEntry * (1 + vatRate) : null;
     const openPurchase = lastEntry > 0 && lastEntryWithVat !== null && Math.abs(lastEntryWithVat - lastEntry) < 0.01;

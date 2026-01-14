@@ -85,6 +85,16 @@ export default function OrdersPage() {
                         Talep eden: {order.requestedBy.name}{order.requestedBy.email ? ` (${order.requestedBy.email})` : ''}
                       </div>
                     )}
+                    {order.customerOrderNumber && (
+                      <div className="text-xs text-gray-600 mb-2">
+                        Musteri Siparis No: {order.customerOrderNumber}
+                      </div>
+                    )}
+                    {order.deliveryLocation && (
+                      <div className="text-xs text-gray-600 mb-2">
+                        Teslimat: {order.deliveryLocation}
+                      </div>
+                    )}
                     {order.approvedAt && (
                       <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-sm font-semibold inline-block">
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -127,7 +137,7 @@ export default function OrdersPage() {
                         <div className="flex justify-between items-start gap-4">
                           <div className="flex-1">
                             <p className="font-bold text-gray-900 text-lg mb-1">
-                              {item.productName || (item as any).product?.name || 'Ürün'}
+                              {item.productName || (item as any).product?.name || '?r?n'}
                             </p>
                             <div className="flex flex-wrap gap-2 items-center">
                               <span className="text-sm text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">
@@ -137,9 +147,12 @@ export default function OrdersPage() {
                                 variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
                                 className="text-xs font-semibold"
                               >
-                                {item.priceType === 'INVOICED' ? '📄 Faturalı' : '⚪ Beyaz'}
+                                {item.priceType === 'INVOICED' ? '?? Fatural?' : '? Beyaz'}
                               </Badge>
                             </div>
+                            {item.lineNote && (
+                              <p className="text-xs text-gray-500 mt-2">Not: {item.lineNote}</p>
+                            )}
                           </div>
                           <div className="text-right">
                             <p className="text-sm text-gray-600 mb-1">
