@@ -453,26 +453,30 @@ export default function AdminQuotesPage() {
 
       const tableStartY = infoY + boxHeight + 10;
       const items = Array.isArray(quote.items) ? quote.items : [];
-      const imageCache = new Map<string, string | null>();
+      const imageCache = new Map<string, { dataUrl: string | null; dimensions: { width: number; height: number } | null }>();
       const imageDataByIndex = await Promise.all(
         items.map(async (item) => {
           const imageUrl = resolveImageUrl(item.product?.imageUrl || null);
           if (!imageUrl) return null;
-          if (imageCache.has(imageUrl)) {
-            return imageCache.get(imageUrl) || null;
+          const cached = imageCache.get(imageUrl);
+          if (cached) {
+            return cached;
           }
           const dataUrl = await loadImageData(imageUrl);
-          imageCache.set(imageUrl, dataUrl);
-          return dataUrl;
+          const dimensions = dataUrl ? await getImageDimensions(dataUrl) : null;
+          const entry = { dataUrl, dimensions };
+          imageCache.set(imageUrl, entry);
+          return entry;
         })
       );
-      const imageMap = new Map<string, string>();
+      const imageMap = new Map<string, { dataUrl: string; dimensions: { width: number; height: number } | null }>();
 
       const tableData = items.length > 0
         ? items.map((item, index) => {
-          const imageKey = imageDataByIndex[index] ? `img_${index}` : '';
-          if (imageKey && imageDataByIndex[index]) {
-            imageMap.set(imageKey, imageDataByIndex[index] as string);
+          const imageEntry = imageDataByIndex[index];
+          const imageKey = imageEntry?.dataUrl ? `img_${index}` : '';
+          if (imageKey && imageEntry?.dataUrl) {
+            imageMap.set(imageKey, { dataUrl: imageEntry.dataUrl, dimensions: imageEntry.dimensions });
           }
           return [
             cleanPdfText(item.productName),
@@ -538,13 +542,16 @@ export default function AdminQuotesPage() {
           const raw = data.cell.raw as { imageKey?: string };
           const imageKey = raw?.imageKey;
           if (!imageKey) return;
-          const imageData = imageMap.get(imageKey);
-          if (!imageData) return;
-          const format = getImageFormat(imageData);
-          const size = Math.min(data.cell.width - 2, data.cell.height - 2);
-          const x = data.cell.x + (data.cell.width - size) / 2;
-          const y = data.cell.y + (data.cell.height - size) / 2;
-          doc.addImage(imageData, format, x, y, size, size);
+          const imageEntry = imageMap.get(imageKey);
+          if (!imageEntry?.dataUrl) return;
+          const format = getImageFormat(imageEntry.dataUrl);
+          const maxSize = Math.min(data.cell.width - 2, data.cell.height - 2);
+          const fitted = imageEntry.dimensions
+            ? fitWithin(imageEntry.dimensions.width, imageEntry.dimensions.height, maxSize, maxSize)
+            : { width: maxSize, height: maxSize };
+          const x = data.cell.x + (data.cell.width - fitted.width) / 2;
+          const y = data.cell.y + (data.cell.height - fitted.height) / 2;
+          doc.addImage(imageEntry.dataUrl, format, x, y, fitted.width, fitted.height);
         },
       });
 

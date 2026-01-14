@@ -305,7 +305,7 @@ export default function AdminProductOverridesPage() {
                         <img
                           src={`http://localhost:5000${selectedProduct.imageUrl}`}
                           alt={selectedProduct.name}
-                          className="w-full h-40 object-cover rounded-lg border-2 border-gray-300"
+                          className="w-full h-40 object-contain rounded-lg border-2 border-gray-300"
                         />
                         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all rounded-lg flex items-center justify-center">
                           <button

@@ -327,7 +327,7 @@ export default function AgreementProductsPage() {
                   <div className="flex gap-4">
                     <div className="w-20 h-20 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
                       {product.imageUrl ? (
-                        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-contain" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">Gorsel yok</div>
                       )}
