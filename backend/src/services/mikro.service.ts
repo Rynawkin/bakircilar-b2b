@@ -21,7 +21,7 @@ import {
 
 class MikroService {
   public pool: sql.ConnectionPool | null = null;
-  public sipBelgeColumns: { no: boolean; tarih: boolean } | null = null;
+  public sipBelgeColumns: { no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean } | null = null;
 
   /**
    * Mikro KDV kod â†’ yÃ¼zde dÃ¶nÃ¼ÅŸÃ¼mÃ¼
@@ -91,13 +91,13 @@ class MikroService {
     }
   }
 
-  public async resolveSipBelgeColumns(): Promise<{ no: boolean; tarih: boolean }> {
+  public async resolveSipBelgeColumns(): Promise<{ no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean }> {
     if (this.sipBelgeColumns) {
       return this.sipBelgeColumns;
     }
 
     if (!this.pool) {
-      this.sipBelgeColumns = { no: false, tarih: false };
+      this.sipBelgeColumns = { no: null, tarih: false };
       return this.sipBelgeColumns;
     }
 
@@ -108,20 +108,22 @@ class MikroService {
           SELECT COLUMN_NAME
           FROM INFORMATION_SCHEMA.COLUMNS
           WHERE TABLE_NAME = 'SIPARISLER'
-            AND COLUMN_NAME IN ('sip_belge_no', 'sip_belge_tarih')
+            AND COLUMN_NAME IN ('sip_belge_no', 'sip_belgeno', 'sip_belge_tarih')
         `);
       const columns = new Set(
         result.recordset.map((row: { COLUMN_NAME?: string }) =>
           String(row.COLUMN_NAME || '').toLowerCase()
         )
       );
+      const hasBelgeNo = columns.has('sip_belge_no');
+      const hasBelgeNoAlt = columns.has('sip_belgeno');
       this.sipBelgeColumns = {
-        no: columns.has('sip_belge_no'),
+        no: hasBelgeNo ? 'sip_belge_no' : hasBelgeNoAlt ? 'sip_belgeno' : null,
         tarih: columns.has('sip_belge_tarih'),
       };
     } catch (error) {
       console.warn('WARN: SIPARISLER belge kolonlari kontrol edilemedi:', error);
-      this.sipBelgeColumns = { no: false, tarih: false };
+      this.sipBelgeColumns = { no: null, tarih: false };
     }
 
     return this.sipBelgeColumns;
@@ -777,11 +779,12 @@ class MikroService {
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : null;
     const belgeTarih = documentNoValue ? new Date() : null;
     const sipBelgeColumns = await this.resolveSipBelgeColumns();
-    const includeBelgeNo = sipBelgeColumns.no;
+    const belgeNoColumn = sipBelgeColumns.no;
+    const includeBelgeNo = Boolean(belgeNoColumn);
     const includeBelgeTarih = sipBelgeColumns.tarih;
 
     if (documentNoValue && !includeBelgeNo) {
-      console.warn('WARN: SIPARISLER sip_belge_no kolonunu bulamadik, belge no yazilmadi.');
+      console.warn('WARN: SIPARISLER sip_belge_no/sip_belgeno kolonunu bulamadik, belge no yazilmadi.');
     }
 
     // Evrak serisi belirle
@@ -875,7 +878,7 @@ class MikroService {
           'sip_doviz_cinsi',
           'sip_doviz_kuru',
           'sip_aciklama',
-          ...(includeBelgeNo ? ['sip_belge_no'] : []),
+          ...(belgeNoColumn ? [belgeNoColumn] : []),
           ...(includeBelgeTarih ? ['sip_belge_tarih'] : []),
           'sip_create_date',
           'sip_DBCno',
@@ -918,7 +921,7 @@ class MikroService {
           '0',
           '1',
           '@aciklama',
-          ...(includeBelgeNo ? ['@belgeNo'] : []),
+          ...(belgeNoColumn ? ['@belgeNo'] : []),
           ...(includeBelgeTarih ? ['@belgeTarih'] : []),
           'GETDATE()',
           '0',
