@@ -21,6 +21,7 @@ import {
 
 class MikroService {
   public pool: sql.ConnectionPool | null = null;
+  private sipBelgeColumns: { no: boolean; tarih: boolean } | null = null;
 
   /**
    * Mikro KDV kod â†’ yÃ¼zde dÃ¶nÃ¼ÅŸÃ¼mÃ¼
@@ -88,6 +89,42 @@ class MikroService {
       this.pool = null;
       throw new Error('Mikro ERP baÄŸlantÄ±sÄ± kurulamadÄ±');
     }
+  }
+
+  private async resolveSipBelgeColumns(): Promise<{ no: boolean; tarih: boolean }> {
+    if (this.sipBelgeColumns) {
+      return this.sipBelgeColumns;
+    }
+
+    if (!this.pool) {
+      this.sipBelgeColumns = { no: false, tarih: false };
+      return this.sipBelgeColumns;
+    }
+
+    try {
+      const result = await this.pool
+        .request()
+        .query(`
+          SELECT COLUMN_NAME
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_NAME = 'SIPARISLER'
+            AND COLUMN_NAME IN ('sip_belge_no', 'sip_belge_tarih')
+        `);
+      const columns = new Set(
+        result.recordset.map((row: { COLUMN_NAME?: string }) =>
+          String(row.COLUMN_NAME || '').toLowerCase()
+        )
+      );
+      this.sipBelgeColumns = {
+        no: columns.has('sip_belge_no'),
+        tarih: columns.has('sip_belge_tarih'),
+      };
+    } catch (error) {
+      console.warn('WARN: SIPARISLER belge kolonlari kontrol edilemedi:', error);
+      this.sipBelgeColumns = { no: false, tarih: false };
+    }
+
+    return this.sipBelgeColumns;
   }
 
   /**
@@ -739,6 +776,13 @@ class MikroService {
     const descriptionValue = String(description || '').trim();
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : null;
     const belgeTarih = documentNoValue ? new Date() : null;
+    const sipBelgeColumns = await this.resolveSipBelgeColumns();
+    const includeBelgeNo = sipBelgeColumns.no;
+    const includeBelgeTarih = sipBelgeColumns.tarih;
+
+    if (documentNoValue && !includeBelgeNo) {
+      console.warn('WARN: SIPARISLER sip_belge_no kolonunu bulamadik, belge no yazilmadi.');
+    }
 
     // Evrak serisi belirle
     const evrakSeri = applyVAT ? 'B2BF' : 'B2BB';
@@ -809,94 +853,103 @@ class MikroService {
         });
 
         // INSERT query - Trigger devre dÄ±ÅŸÄ± olduÄŸu iÃ§in hatasÄ±z Ã§alÄ±ÅŸacak
+        const columnNames = [
+          'sip_evrakno_seri',
+          'sip_evrakno_sira',
+          'sip_satirno',
+          'sip_tarih',
+          'sip_teslim_tarih',
+          'sip_tip',
+          'sip_cins',
+          'sip_musteri_kod',
+          'sip_stok_kod',
+          'sip_miktar',
+          'sip_teslim_miktar',
+          'sip_b_fiyat',
+          'sip_tutar',
+          'sip_vergi',
+          'sip_vergi_pntr',
+          'sip_iptal',
+          'sip_kapat_fl',
+          'sip_depono',
+          'sip_doviz_cinsi',
+          'sip_doviz_kuru',
+          'sip_aciklama',
+          ...(includeBelgeNo ? ['sip_belge_no'] : []),
+          ...(includeBelgeTarih ? ['sip_belge_tarih'] : []),
+          'sip_create_date',
+          'sip_DBCno',
+          'sip_firmano',
+          'sip_subeno',
+          'sip_iskonto_1',
+          'sip_iskonto_2',
+          'sip_iskonto_3',
+          'sip_iskonto_4',
+          'sip_iskonto_5',
+          'sip_iskonto_6',
+          'sip_masraf_1',
+          'sip_masraf_2',
+          'sip_masraf_3',
+          'sip_masraf_4',
+          'sip_masvergi',
+          'sip_Otv_Vergi',
+          'sip_otvtutari',
+        ];
+
+        const valueNames = [
+          '@seri',
+          '@sira',
+          '@satirNo',
+          'GETDATE()',
+          'DATEADD(day, 7, GETDATE())',
+          '0',
+          '0',
+          '@cariKod',
+          '@stokKod',
+          '@miktar',
+          '0',
+          '@fiyat',
+          '@tutar',
+          '@vergiTutari',
+          '@vergiYuzdesi',
+          '0',
+          '0',
+          '1',
+          '0',
+          '1',
+          '@aciklama',
+          ...(includeBelgeNo ? ['@belgeNo'] : []),
+          ...(includeBelgeTarih ? ['@belgeTarih'] : []),
+          'GETDATE()',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+          '0',
+        ];
+
         const insertQuery = `
           INSERT INTO SIPARISLER (
-            sip_evrakno_seri,
-            sip_evrakno_sira,
-            sip_satirno,
-            sip_tarih,
-            sip_teslim_tarih,
-            sip_tip,
-            sip_cins,
-            sip_musteri_kod,
-            sip_stok_kod,
-            sip_miktar,
-            sip_teslim_miktar,
-            sip_b_fiyat,
-            sip_tutar,
-            sip_vergi,
-            sip_vergi_pntr,
-            sip_iptal,
-            sip_kapat_fl,
-            sip_depono,
-            sip_doviz_cinsi,
-            sip_doviz_kuru,
-            sip_aciklama,
-            sip_belge_no,
-            sip_belge_tarih,
-            sip_create_date,
-            sip_DBCno,
-            sip_firmano,
-            sip_subeno,
-            sip_iskonto_1,
-            sip_iskonto_2,
-            sip_iskonto_3,
-            sip_iskonto_4,
-            sip_iskonto_5,
-            sip_iskonto_6,
-            sip_masraf_1,
-            sip_masraf_2,
-            sip_masraf_3,
-            sip_masraf_4,
-            sip_masvergi,
-            sip_Otv_Vergi,
-            sip_otvtutari
+            ${columnNames.join(',\n            ')}
           ) VALUES (
-            @seri,
-            @sira,
-            @satirNo,
-            GETDATE(),
-            DATEADD(day, 7, GETDATE()),
-            0,
-            0,
-            @cariKod,
-            @stokKod,
-            @miktar,
-            0,
-            @fiyat,
-            @tutar,
-            @vergiTutari,
-            @vergiYuzdesi,
-            0,
-            0,
-            1,
-            0,
-            1,
-            @aciklama,
-            @belgeNo,
-            @belgeTarih,
-            GETDATE(),
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
+            ${valueNames.join(',\n            ')}
           )
         `;
 
-        console.log(`ğŸ”§ INSERT query Ã§alÄ±ÅŸtÄ±rÄ±lÄ±yor...`);
-        await transaction
+        console.log(`???? INSERT query ?al??t?r?l?yor...`);
+        const request = transaction
           .request()
           .input('seri', sql.NVarChar(20), evrakSeri)
           .input('sira', sql.Int, evrakSira)
@@ -906,12 +959,18 @@ class MikroService {
           .input('miktar', sql.Float, item.quantity)
           .input('fiyat', sql.Float, item.unitPrice)
           .input('tutar', sql.Float, tutar)
-          .input('vergiTutari', sql.Float, vergiTutari) // KDV tutarÄ± (50.58)
-          .input('vergiYuzdesi', sql.Float, vergiYuzdesi) // KDV yÃ¼zdesi (18)
-          .input('aciklama', sql.NVarChar(50), lineDescriptionValue)
-          .input('belgeNo', sql.NVarChar(50), documentNoValue)
-          .input('belgeTarih', sql.DateTime, belgeTarih)
-          .query(insertQuery);
+          .input('vergiTutari', sql.Float, vergiTutari)
+          .input('vergiYuzdesi', sql.Float, vergiYuzdesi)
+          .input('aciklama', sql.NVarChar(50), lineDescriptionValue);
+
+        if (includeBelgeNo) {
+          request.input('belgeNo', sql.NVarChar(50), documentNoValue);
+        }
+        if (includeBelgeTarih) {
+          request.input('belgeTarih', sql.DateTime, belgeTarih);
+        }
+
+        await request.query(insertQuery);
 
         console.log(`  âœ“ SatÄ±r ${satirNo}: ${item.productCode} Ã— ${item.quantity}`);
       }
