@@ -186,7 +186,7 @@ class ImageService {
       const command = `convert "${inputPath}" ` +
         `-limit memory 256MB -limit thread 1 ` +
         `-strip ` +
-        `-resize ${width}x${height}\\> ` +
+        `-resize ${width}x${height} ` +
         `-background white -alpha remove -alpha off ` +
         `-gravity center -extent ${width}x${height} ` +
         `-quality ${this.QUALITY} ` +
