@@ -283,8 +283,15 @@ export const adminApi = {
     return response.data;
   },
 
-  approveOrder: async (id: string, adminNote?: string): Promise<{ message: string; mikroOrderIds: string[] }> => {
-    const response = await apiClient.post(`/admin/orders/${id}/approve`, { adminNote });
+  approveOrder: async (
+    id: string,
+    options?: { adminNote?: string; invoicedSeries?: string; whiteSeries?: string }
+  ): Promise<{ message: string; mikroOrderIds: string[] }> => {
+    const response = await apiClient.post(`/admin/orders/${id}/approve`, {
+      adminNote: options?.adminNote,
+      invoicedSeries: options?.invoicedSeries,
+      whiteSeries: options?.whiteSeries,
+    });
     return response.data;
   },
 

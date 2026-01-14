@@ -599,6 +599,7 @@ export class MikroMockService {
     applyVAT: boolean;
     description: string;
     documentNo?: string;
+    evrakSeri?: string;
   }): Promise<string> {
     // Mock sipariş ID üret
     const mockOrderId = `MKR-${Date.now()}-${Math.random().toString(36).substring(7)}`;

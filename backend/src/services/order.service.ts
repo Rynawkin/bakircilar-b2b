@@ -283,7 +283,8 @@ class OrderService {
    */
   async approveOrderAndWriteToMikro(
     orderId: string,
-    adminNote?: string
+    adminNote?: string,
+    series?: { invoiced?: string; white?: string }
   ): Promise<{
     success: boolean;
     mikroOrderIds: string[];
@@ -303,6 +304,10 @@ class OrderService {
     const whiteItems = order.items.filter((item: any) => item.priceType === 'WHITE');
 
     const mikroOrderIds: string[] = [];
+    const normalizeSeries = (value: string | undefined, fallback: string) => {
+      const trimmed = String(value || '').trim();
+      return trimmed ? trimmed.slice(0, 20) : fallback;
+    };
 
     try {
       // 0. Cari hesap kontrolü ve oluşturma
@@ -318,6 +323,7 @@ class OrderService {
 
       // 1. Faturalı sipariş (varsa)
       if (invoicedItems.length > 0) {
+        const invoicedSeries = normalizeSeries(series?.invoiced, 'B2BF');
         const invoicedOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: invoicedItems.map((item: any) => ({
@@ -330,12 +336,14 @@ class OrderService {
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı${adminNote ? ` | ${adminNote}` : ''}`,
+          evrakSeri: invoicedSeries,
         });
 
         mikroOrderIds.push(invoicedOrderId);
       }
       // 2. Beyaz sipari? (varsa)
       if (whiteItems.length > 0) {
+        const whiteSeries = normalizeSeries(series?.white, 'B2BB');
         const whiteOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: whiteItems.map((item: any) => ({
@@ -348,6 +356,7 @@ class OrderService {
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
           description: `B2B Sipari? ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
+          evrakSeri: whiteSeries,
         });
 
         mikroOrderIds.push(whiteOrderId);
@@ -380,7 +389,8 @@ class OrderService {
   async approveOrderItemsAndWriteToMikro(
     orderId: string,
     itemIds: string[],
-    adminNote?: string
+    adminNote?: string,
+    series?: { invoiced?: string; white?: string }
   ): Promise<{
     success: boolean;
     mikroOrderIds: string[];
@@ -410,6 +420,10 @@ class OrderService {
     const whiteItems = itemsToApprove.filter((item: any) => item.priceType === 'WHITE');
 
     const mikroOrderIds: string[] = [];
+    const normalizeSeries = (value: string | undefined, fallback: string) => {
+      const trimmed = String(value || '').trim();
+      return trimmed ? trimmed.slice(0, 20) : fallback;
+    };
 
     try {
       // 0. Cari hesap kontrolü ve oluşturma
@@ -425,6 +439,7 @@ class OrderService {
 
       // 1. Faturalı sipariş (varsa)
       if (invoicedItems.length > 0) {
+        const invoicedSeries = normalizeSeries(series?.invoiced, 'B2BF');
         const invoicedOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: invoicedItems.map((item: any) => ({
@@ -437,6 +452,7 @@ class OrderService {
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
+          evrakSeri: invoicedSeries,
         });
 
         mikroOrderIds.push(invoicedOrderId);
@@ -455,6 +471,7 @@ class OrderService {
 
       // 2. Beyaz sipariş (varsa)
       if (whiteItems.length > 0) {
+        const whiteSeries = normalizeSeries(series?.white, 'B2BB');
         const whiteOrderId = await mikroService.writeOrder({
           cariCode: order.user.mikroCariCode,
           items: whiteItems.map((item: any) => ({
@@ -467,6 +484,7 @@ class OrderService {
           documentNo: order.customerOrderNumber || undefined,
           applyVAT: false,
           description: `B2B Sipariş ${order.orderNumber} - Beyaz (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
+          evrakSeri: whiteSeries,
         });
 
         mikroOrderIds.push(whiteOrderId);

@@ -771,24 +771,27 @@ class MikroService {
     applyVAT: boolean;
     description: string;
     documentNo?: string;
+    evrakSeri?: string;
   }): Promise<string> {
     await this.connect();
 
-    const { cariCode, items, applyVAT, description, documentNo } = orderData;
+    const { cariCode, items, applyVAT, description, documentNo, evrakSeri: evrakSeriInput } = orderData;
     const descriptionValue = String(description || '').trim();
+    const documentDescriptionValue = descriptionValue ? descriptionValue.slice(0, 127) : null;
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : null;
     const belgeTarih = documentNoValue ? new Date() : null;
     const sipBelgeColumns = await this.resolveSipBelgeColumns();
     const belgeNoColumn = sipBelgeColumns.no;
     const includeBelgeNo = Boolean(belgeNoColumn);
     const includeBelgeTarih = sipBelgeColumns.tarih;
+    const evrakSeriValue = evrakSeriInput ? String(evrakSeriInput).trim().slice(0, 20) : '';
 
     if (documentNoValue && !includeBelgeNo) {
       console.warn('WARN: SIPARISLER sip_belge_no/sip_belgeno kolonunu bulamadik, belge no yazilmadi.');
     }
 
     // Evrak serisi belirle
-    const evrakSeri = applyVAT ? 'B2BF' : 'B2BB';
+    const evrakSeri = evrakSeriValue || (applyVAT ? 'B2BF' : 'B2BB');
 
     console.log(`ğŸ”§ SipariÅŸ parametreleri:`, {
       cariCode,
@@ -834,11 +837,7 @@ class MikroService {
         const item = items[i];
         const satirNo = i;
         const itemLineNote = item.lineDescription ? String(item.lineDescription).trim() : '';
-        const lineDescriptionValue = (
-          itemLineNote
-            ? itemLineNote + (descriptionValue ? ' | ' + descriptionValue : '')
-            : descriptionValue
-        ).slice(0, 50);
+        const lineDescriptionValue = itemLineNote.slice(0, 50);
 
         // Hesaplamalar
         const tutar = item.quantity * item.unitPrice;
@@ -978,6 +977,40 @@ class MikroService {
       }
 
       // Transaction commit
+      if (documentDescriptionValue) {
+        await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .input('sira', sql.Int, evrakSira)
+          .input('acik1', sql.NVarChar(127), documentDescriptionValue)
+          .query(`
+            IF EXISTS (
+              SELECT 1
+              FROM EVRAK_ACIKLAMALARI
+              WHERE egk_evr_seri = @seri
+                AND egk_evr_sira = @sira
+                AND egk_hareket_tip = 0
+                AND egk_evr_tip = 0
+            )
+              UPDATE EVRAK_ACIKLAMALARI
+              SET egk_evracik1 = @acik1,
+                  egk_lastup_date = GETDATE()
+              WHERE egk_evr_seri = @seri
+                AND egk_evr_sira = @sira
+                AND egk_hareket_tip = 0
+                AND egk_evr_tip = 0
+            ELSE
+              INSERT INTO EVRAK_ACIKLAMALARI (
+                egk_evr_seri,
+                egk_evr_sira,
+                egk_hareket_tip,
+                egk_evr_tip,
+                egk_evracik1
+              )
+              VALUES (@seri, @sira, 0, 0, @acik1)
+          `);
+      }
+
       await transaction.commit();
 
       console.log(`âœ… SipariÅŸ baÅŸarÄ±yla oluÅŸturuldu: ${orderNumber}`);

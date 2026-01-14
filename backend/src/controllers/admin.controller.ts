@@ -1317,7 +1317,7 @@ export class AdminController {
   async approveOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { adminNote } = req.body;
+      const { adminNote, invoicedSeries, whiteSeries } = req.body || {};
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
@@ -1344,7 +1344,10 @@ export class AdminController {
         }
       }
 
-      const result = await orderService.approveOrderAndWriteToMikro(id, adminNote);
+      const result = await orderService.approveOrderAndWriteToMikro(id, adminNote, {
+        invoiced: invoicedSeries,
+        white: whiteSeries,
+      });
 
       res.json({
         message: 'Order approved and sent to Mikro successfully',
@@ -1413,7 +1416,7 @@ export class AdminController {
   async approveOrderItems(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { itemIds, adminNote } = req.body;
+      const { itemIds, adminNote, invoicedSeries, whiteSeries } = req.body || {};
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
@@ -1444,7 +1447,10 @@ export class AdminController {
         }
       }
 
-      const result = await orderService.approveOrderItemsAndWriteToMikro(id, itemIds, adminNote);
+      const result = await orderService.approveOrderItemsAndWriteToMikro(id, itemIds, adminNote, {
+        invoiced: invoicedSeries,
+        white: whiteSeries,
+      });
 
       res.json({
         message: `${result.approvedCount} items approved successfully`,

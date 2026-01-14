@@ -44,23 +44,64 @@ export default function AdminOrdersPage() {
   };
 
   const handleApprove = async (orderId: string) => {
-    const note = await new Promise<string>((resolve) => {
-      let inputValue = '';
+    const order = allOrders.find((item) => item.id === orderId);
+    if (!order) {
+      toast.error('Sipariş bulunamadı');
+      return;
+    }
+
+    const hasInvoiced = order.items.some((item) => item.priceType === 'INVOICED');
+    const hasWhite = order.items.some((item) => item.priceType === 'WHITE');
+
+    const result = await new Promise<{
+      note: string;
+      invoicedSeries?: string;
+      whiteSeries?: string;
+    } | null>((resolve) => {
+      let noteValue = '';
+      let invoicedSeries = 'B2BF';
+      let whiteSeries = 'B2BB';
+
       toast((t) => (
-        <div className="flex flex-col gap-3 min-w-[300px]">
+        <div className="flex flex-col gap-3 min-w-[320px]">
           <p className="font-medium">Onay notu (opsiyonel):</p>
           <input
             type="text"
             className="border rounded px-3 py-2 text-sm"
             placeholder="Not ekleyin..."
-            onChange={(e) => inputValue = e.target.value}
+            onChange={(e) => noteValue = e.target.value}
           />
-          <div className="flex gap-2 justify-end">
+
+          {hasInvoiced && (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">Faturalı evrak seri:</p>
+              <input
+                type="text"
+                className="border rounded px-3 py-2 text-sm"
+                defaultValue={invoicedSeries}
+                onChange={(e) => invoicedSeries = e.target.value}
+              />
+            </div>
+          )}
+
+          {hasWhite && (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">Beyaz evrak seri:</p>
+              <input
+                type="text"
+                className="border rounded px-3 py-2 text-sm"
+                defaultValue={whiteSeries}
+                onChange={(e) => whiteSeries = e.target.value}
+              />
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-end pt-1">
             <button
               className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
               onClick={() => {
                 toast.dismiss(t.id);
-                resolve('__CANCEL__');
+                resolve(null);
               }}
             >
               İptal
@@ -68,8 +109,24 @@ export default function AdminOrdersPage() {
             <button
               className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
               onClick={() => {
+                const trimmedInvoiced = invoicedSeries.trim();
+                const trimmedWhite = whiteSeries.trim();
+
+                if (hasInvoiced && !trimmedInvoiced) {
+                  toast.error('Faturalı evrak serisi gerekli');
+                  return;
+                }
+                if (hasWhite && !trimmedWhite) {
+                  toast.error('Beyaz evrak serisi gerekli');
+                  return;
+                }
+
                 toast.dismiss(t.id);
-                resolve(inputValue);
+                resolve({
+                  note: noteValue,
+                  invoicedSeries: hasInvoiced ? trimmedInvoiced.slice(0, 20) : undefined,
+                  whiteSeries: hasWhite ? trimmedWhite.slice(0, 20) : undefined,
+                });
               }}
             >
               Onayla
@@ -81,10 +138,14 @@ export default function AdminOrdersPage() {
       });
     });
 
-    if (note === '__CANCEL__') return;
+    if (!result) return;
 
     try {
-      await adminApi.approveOrder(orderId, note || undefined);
+      await adminApi.approveOrder(orderId, {
+        adminNote: result.note.trim() || undefined,
+        invoicedSeries: result.invoicedSeries,
+        whiteSeries: result.whiteSeries,
+      });
       toast.success('Sipariş onaylandı ve Mikro\'ya gönderildi! ✅');
       fetchOrders();
     } catch (error: any) {
