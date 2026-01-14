@@ -21,7 +21,7 @@ import {
 
 class MikroService {
   public pool: sql.ConnectionPool | null = null;
-  private sipBelgeColumns: { no: boolean; tarih: boolean } | null = null;
+  public sipBelgeColumns: { no: boolean; tarih: boolean } | null = null;
 
   /**
    * Mikro KDV kod â†’ yÃ¼zde dÃ¶nÃ¼ÅŸÃ¼mÃ¼
@@ -91,7 +91,7 @@ class MikroService {
     }
   }
 
-  private async resolveSipBelgeColumns(): Promise<{ no: boolean; tarih: boolean }> {
+  public async resolveSipBelgeColumns(): Promise<{ no: boolean; tarih: boolean }> {
     if (this.sipBelgeColumns) {
       return this.sipBelgeColumns;
     }
