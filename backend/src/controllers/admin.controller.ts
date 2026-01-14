@@ -1906,6 +1906,8 @@ export class AdminController {
    * Upload product image
    */
   async uploadProductImage(req: Request, res: Response, next: NextFunction) {
+    let processedImage: { imageUrl: string; filePath: string; checksum: string; buffer: Buffer } | null = null;
+
     try {
       const { id } = req.params;
 
@@ -1913,23 +1915,36 @@ export class AdminController {
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
-      // Dosya bilgileri
-      const imageUrl = `/uploads/${req.file.filename}`;
-      const filePath = path.join(process.cwd(), 'uploads', req.file.filename);
-      let checksum: string | null = null;
+      const product = await prisma.product.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          mikroCode: true,
+        },
+      });
 
-      try {
-        checksum = await imageService.getChecksumForFile(filePath);
-      } catch (error: any) {
-        console.error('Image checksum hesaplanamadi:', error.message);
+      if (!product) {
+        return res.status(404).json({ error: 'Product not found' });
       }
 
-      // Ürünü güncelle
-      const product = await prisma.product.update({
+      const tempPath = (req.file as any).path || path.join(process.cwd(), 'uploads', req.file.filename);
+      processedImage = await imageService.processUploadedProductImage(tempPath, product.mikroCode);
+
+      const guidRows = await mikroService.getProductGuidsByCodes([product.mikroCode]);
+      const productGuid = guidRows.find((row) => row.code === product.mikroCode)?.guid || guidRows[0]?.guid;
+
+      if (!productGuid) {
+        await imageService.removeLocalFile(processedImage.filePath);
+        return res.status(500).json({ error: 'Mikro GUID bulunamadi' });
+      }
+
+      await imageService.uploadImageToMikro(productGuid, processedImage.buffer);
+
+      const updatedProduct = await prisma.product.update({
         where: { id },
         data: {
-          imageUrl,
-          imageChecksum: checksum,
+          imageUrl: processedImage.imageUrl,
+          imageChecksum: processedImage.checksum,
           imageSyncStatus: 'SUCCESS',
           imageSyncErrorType: null,
           imageSyncErrorMessage: null,
@@ -1939,10 +1954,15 @@ export class AdminController {
 
       res.json({
         success: true,
-        imageUrl: product.imageUrl,
-        message: 'Fotoğraf başarıyla yüklendi'
+        imageUrl: updatedProduct.imageUrl,
+        imageChecksum: updatedProduct.imageChecksum,
+        imageSyncUpdatedAt: updatedProduct.imageSyncUpdatedAt,
+        message: 'Foto?raf ba?ar?yla y?klendi'
       });
     } catch (error) {
+      if (processedImage?.filePath) {
+        await imageService.removeLocalFile(processedImage.filePath);
+      }
       next(error);
     }
   }

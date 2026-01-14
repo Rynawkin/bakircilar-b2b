@@ -61,6 +61,113 @@ class ImageService {
     return crypto.createHash('sha256').update(buffer).digest('hex');
   }
 
+
+  async processUploadedProductImage(
+    inputPath: string,
+    productCode: string
+  ): Promise<{ imageUrl: string; filePath: string; checksum: string; buffer: Buffer }> {
+    await this.ensureUploadDir();
+
+    const filename = `${productCode}.jpg`;
+    const outputPath = path.join(this.UPLOAD_DIR, filename);
+    const sizes = [
+      { width: this.RESIZE_WIDTH, height: this.RESIZE_HEIGHT },
+      { width: 800, height: 800 },
+      { width: 600, height: 600 },
+    ];
+
+    let converted = false;
+    let lastError: Error | null = null;
+
+    for (const size of sizes) {
+      try {
+        await this.convertWithImageMagick(inputPath, outputPath, size.width, size.height);
+        converted = true;
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error as Error;
+      }
+    }
+
+    try {
+      await fs.unlink(inputPath);
+    } catch {}
+
+    if (!converted) {
+      throw lastError || new Error('Image processing failed');
+    }
+
+    const checksum = await this.getChecksumForFile(outputPath);
+    const buffer = await fs.readFile(outputPath);
+
+    return {
+      imageUrl: `/uploads/products/${filename}`,
+      filePath: outputPath,
+      checksum,
+      buffer,
+    };
+  }
+
+  async uploadImageToMikro(productGuid: string, imageBuffer: Buffer): Promise<void> {
+    if (config.useMockMikro) {
+      return;
+    }
+
+    const realMikroService = mikroService as any;
+    if (!realMikroService.pool || !realMikroService.connect) {
+      throw new Error('Mikro service not available');
+    }
+
+    await realMikroService.connect();
+
+    const tableId = 13;
+    const checkRequest = realMikroService.pool!.request();
+    checkRequest.input('guid', mssql.UniqueIdentifier, productGuid);
+    checkRequest.input('tableId', mssql.Int, tableId);
+
+    const existing = await checkRequest.query(`
+      SELECT COUNT(*) as count
+      FROM mye_ImageData
+      WHERE Record_uid = @guid
+        AND TableID = @tableId
+    `);
+
+    const hasImage = Number(existing.recordset?.[0]?.count || 0) > 0;
+
+    if (hasImage) {
+      const updateRequest = realMikroService.pool!.request();
+      updateRequest.input('guid', mssql.UniqueIdentifier, productGuid);
+      updateRequest.input('tableId', mssql.Int, tableId);
+      updateRequest.input('data', mssql.VarBinary(mssql.MAX), imageBuffer);
+
+      await updateRequest.query(`
+        UPDATE mye_ImageData
+        SET Data = @data
+        WHERE Record_uid = @guid
+          AND TableID = @tableId
+      `);
+      return;
+    }
+
+    const insertRequest = realMikroService.pool!.request();
+    insertRequest.input('guid', mssql.UniqueIdentifier, productGuid);
+    insertRequest.input('tableId', mssql.Int, tableId);
+    insertRequest.input('imageId', mssql.Int, 0);
+    insertRequest.input('data', mssql.VarBinary(mssql.MAX), imageBuffer);
+
+    await insertRequest.query(`
+      INSERT INTO mye_ImageData (TableID, Record_uid, ImageID, Data)
+      VALUES (@tableId, @guid, @imageId, @data)
+    `);
+  }
+
+  async removeLocalFile(filePath: string): Promise<void> {
+    try {
+      await fs.unlink(filePath);
+    } catch {}
+  }
+
   /**
    * ImageMagick ile resmi dönüştür (fallback) - güvenli ve optimize
    */

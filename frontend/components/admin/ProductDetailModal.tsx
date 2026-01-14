@@ -1,5 +1,7 @@
 'use client';
 
+import type { ChangeEvent } from 'react';
+import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
@@ -9,9 +11,21 @@ interface ProductDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   product: any;
+  onUploadImage?: (productId: string, file: File) => void;
+  onDeleteImage?: (productId: string) => void;
+  imageUploading?: boolean;
+  imageDeleting?: boolean;
 }
 
-export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailModalProps) {
+export function ProductDetailModal({
+  isOpen,
+  onClose,
+  product,
+  onUploadImage,
+  onDeleteImage,
+  imageUploading,
+  imageDeleting,
+}: ProductDetailModalProps) {
   if (!product) return null;
 
   const customerTypes = ['BAYI', 'PERAKENDE', 'VIP', 'OZEL'];
@@ -20,6 +34,16 @@ export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailMo
     return typeof value === 'number' ? value : Number(value) || 0;
   };
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !onUploadImage) {
+      return;
+    }
+
+    onUploadImage(product.id, file);
+    event.target.value = '';
+  };
 
   return (
     <Modal
@@ -72,6 +96,30 @@ export function ProductDetailModal({ isOpen, onClose, product }: ProductDetailMo
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-600">
+          <label className="font-semibold text-gray-700">Urun resmi:</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            disabled={imageUploading}
+            className="block w-full max-w-xs text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+          />
+          {product.imageUrl && onDeleteImage && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onDeleteImage(product.id)}
+              disabled={imageDeleting}
+            >
+              {imageDeleting ? 'Siliniyor...' : 'Sil'}
+            </Button>
+          )}
+          {imageUploading && (
+            <span className="text-xs text-gray-500">Yukleniyor...</span>
+          )}
         </div>
 
         {/* Stock Info */}

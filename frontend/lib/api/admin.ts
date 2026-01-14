@@ -765,7 +765,7 @@ export const adminApi = {
   },
 
   // Product Images
-  uploadProductImage: async (productId: string, formData: FormData): Promise<{ success: boolean; imageUrl: string; message: string }> => {
+  uploadProductImage: async (productId: string, formData: FormData): Promise<{ success: boolean; imageUrl: string; imageChecksum?: string | null; imageSyncUpdatedAt?: string | null; message: string }> => {
     const response = await apiClient.post(`/admin/products/${productId}/image`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',

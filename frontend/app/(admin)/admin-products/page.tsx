@@ -91,6 +91,8 @@ export default function AdminProductsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [isBulkSyncing, setIsBulkSyncing] = useState(false);
+  const [isImageUploading, setIsImageUploading] = useState(false);
+  const [isImageDeleting, setIsImageDeleting] = useState(false);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -211,6 +213,75 @@ export default function AdminProductsPage() {
       toast.error('Resim senkronu baslatilamadi');
     } finally {
       setIsBulkSyncing(false);
+    }
+  };
+
+  const updateProductState = useCallback((productId: string, updates: Partial<Product>) => {
+    setProducts((prev) =>
+      prev.map((product) => (product.id === productId ? { ...product, ...updates } : product))
+    );
+    setSelectedProduct((prev) => (prev && prev.id === productId ? { ...prev, ...updates } : prev));
+  }, []);
+
+  const handleImageUpload = async (productId: string, file: File) => {
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Lutfen sadece resim dosyasi yukleyin');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Dosya boyutu 5MB altinda olmali');
+      return;
+    }
+
+    setIsImageUploading(true);
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const response = await adminApi.uploadProductImage(productId, formData);
+      updateProductState(productId, {
+        imageUrl: response.imageUrl,
+        imageChecksum: response.imageChecksum ?? null,
+        imageSyncStatus: 'SUCCESS',
+        imageSyncErrorType: null,
+        imageSyncErrorMessage: null,
+        imageSyncUpdatedAt: response.imageSyncUpdatedAt ?? new Date().toISOString(),
+      });
+      toast.success('Fotograf yuklendi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Fotograf yuklenemedi');
+    } finally {
+      setIsImageUploading(false);
+    }
+  };
+
+  const handleImageDelete = async (productId: string) => {
+    const confirmed = window.confirm('Urun fotografini silmek istiyor musunuz?');
+    if (!confirmed) {
+      return;
+    }
+
+    setIsImageDeleting(true);
+    try {
+      await adminApi.deleteProductImage(productId);
+      updateProductState(productId, {
+        imageUrl: null,
+        imageChecksum: null,
+        imageSyncStatus: null,
+        imageSyncErrorType: null,
+        imageSyncErrorMessage: null,
+        imageSyncUpdatedAt: new Date().toISOString(),
+      });
+      toast.success('Fotograf silindi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Fotograf silinemedi');
+    } finally {
+      setIsImageDeleting(false);
     }
   };
 
@@ -706,6 +777,10 @@ export default function AdminProductsPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         product={selectedProduct}
+        onUploadImage={handleImageUpload}
+        onDeleteImage={handleImageDelete}
+        imageUploading={isImageUploading}
+        imageDeleting={isImageDeleting}
       />
     </div>
   );
