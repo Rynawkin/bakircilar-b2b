@@ -26,12 +26,21 @@ const parseDateInput = (value?: string | null) => {
 const canAccessAllSectors = (role?: string) =>
   role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
 
-const EXCLUDED_SECTOR_CODES = ['DİĞER', 'SORUNLU', 'SORUNLU CARİ'] as const;
+const EXCLUDED_SECTOR_CODES = ['DİĞER', 'DIGER', 'FATURA', 'SATICI', 'SORUNLU', 'SORUNLU CARİ', 'SORUNLU CARI'] as const;
 const normalizeSectorCode = (value?: string | null) =>
   (value || '').trim().toLocaleUpperCase('tr-TR');
-const EXCLUDED_SECTOR_SET = new Set(EXCLUDED_SECTOR_CODES.map(normalizeSectorCode));
-const isExcludedSectorCode = (value?: string | null) =>
-  EXCLUDED_SECTOR_SET.has(normalizeSectorCode(value));
+const EXCLUDED_SECTOR_PREFIXES = EXCLUDED_SECTOR_CODES.map(normalizeSectorCode);
+const isExcludedSectorCode = (value?: string | null) => {
+  const normalized = normalizeSectorCode(value);
+  if (!normalized) return false;
+  return EXCLUDED_SECTOR_PREFIXES.some((code) =>
+    normalized === code || normalized.startsWith(code)
+  );
+};
+const buildExcludedSectorFilters = () =>
+  EXCLUDED_SECTOR_CODES.map((code) => ({
+    sectorCode: { startsWith: code, mode: 'insensitive' as const },
+  }));
 
 const getAssignedSectorCodes = (req: Request) =>
   (req.user?.assignedSectorCodes || [])
@@ -74,6 +83,11 @@ class VadeController {
       const where: Prisma.VadeBalanceWhereInput = {};
       const userWhere: Prisma.UserWhereInput = {};
       const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
+      const excludedSectorFilters = buildExcludedSectorFilters();
+
+      if (excludedSectorFilters.length > 0) {
+        userWhere.NOT = { OR: excludedSectorFilters };
+      }
 
       if (sectorCode && isExcludedSectorCode(sectorCode)) {
         res.json({
@@ -313,6 +327,7 @@ class VadeController {
   async getFilters(req: Request, res: Response, next: NextFunction) {
     try {
       const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
+      const excludedSectorFilters = buildExcludedSectorFilters();
       const sectorFilter: Prisma.StringFilter = {};
       let hasSectorFilter = false;
 
@@ -335,6 +350,11 @@ class VadeController {
         role: 'CUSTOMER',
         vadeBalance: { isNot: null },
       };
+
+      if (excludedSectorFilters.length > 0) {
+        where.NOT = { OR: excludedSectorFilters };
+      }
+
 
       if (hasSectorFilter) {
         where.sectorCode = sectorFilter;
@@ -480,6 +500,7 @@ class VadeController {
       }
 
       const excludedSectorCodes = [...EXCLUDED_SECTOR_CODES];
+      const excludedSectorFilters = buildExcludedSectorFilters();
       const sectorFilter: Prisma.StringFilter = {};
       let hasSectorFilter = false;
       if (excludedSectorCodes.length > 0) {
@@ -500,7 +521,12 @@ class VadeController {
       if (hasSectorFilter) {
         where.customer = {
           sectorCode: sectorFilter,
+          ...(excludedSectorFilters.length > 0
+            ? { NOT: { OR: excludedSectorFilters } }
+            : {}),
         };
+      } else if (excludedSectorFilters.length > 0) {
+        where.customer = { NOT: { OR: excludedSectorFilters } };
       }
 
       const notes = await prisma.vadeNote.findMany({
