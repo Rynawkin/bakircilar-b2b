@@ -132,7 +132,7 @@ export const adminApi = {
     imageSyncErrorType?: string;
     categoryId?: string;
     priceListStatus?: 'all' | 'missing' | 'available';
-    sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt';
+    sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt';
     sortOrder?: 'asc' | 'desc';
     page?: number;
     limit?: number;

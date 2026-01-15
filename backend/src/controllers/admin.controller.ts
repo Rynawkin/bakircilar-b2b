@@ -352,6 +352,7 @@ export class AdminController {
         page = '1',
         limit = '10000', // Increased for Diversey users to see all products
         hasStock,
+        brand,
       } = req.query;
 
       const where: any = { active: true };
@@ -415,8 +416,36 @@ export class AdminController {
         }
       }
 
-      // Sıralama ayarları
+      // Marka filtresi
+      const brandValue = typeof brand === 'string' ? brand.trim() : '';
+      if (brandValue) {
+        const brandRows = await prisma.$queryRaw<{ product_code: string }[]>`
+          SELECT DISTINCT product_code
+          FROM product_price_stats
+          WHERE brand ILIKE ${`%${brandValue}%`}
+        `;
+        const brandCodes = brandRows.map((row) => row.product_code);
+
+        if (brandCodes.length === 0) {
+          where.mikroCode = { in: ['__none__'] };
+        } else if (where.mikroCode) {
+          const existing = where.mikroCode as { in?: string[]; notIn?: string[] };
+          if (existing.in) {
+            const brandSet = new Set(brandCodes);
+            const filtered = existing.in.filter((code) => brandSet.has(code));
+            existing.in = filtered.length > 0 ? filtered : ['__none__'];
+          } else {
+            existing.in = brandCodes;
+          }
+          where.mikroCode = existing;
+        } else {
+          where.mikroCode = { in: brandCodes };
+        }
+      }
+      // Siralama ayarlari
       const orderBy: any = {};
+      const sortByValue = String(sortBy || '');
+      const sortByTotalStock = sortByValue === 'totalStock';
       const validSortFields = [
         'name',
         'mikroCode',
@@ -426,17 +455,19 @@ export class AdminController {
         'imageSyncErrorType',
         'imageSyncUpdatedAt',
       ];
-      if (validSortFields.includes(sortBy as string)) {
-        orderBy[sortBy as string] = sortOrder === 'desc' ? 'desc' : 'asc';
-      } else {
+      if (validSortFields.includes(sortByValue)) {
+        orderBy[sortByValue] = sortOrder === 'desc' ? 'desc' : 'asc';
+      } else if (!sortByTotalStock) {
         orderBy.name = 'asc'; // default
       }
 
+      const orderByClause = Object.keys(orderBy).length ? orderBy : undefined;
       // Pagination
       const pageNum = parseInt(page as string, 10);
       const limitNum = parseInt(limit as string, 10);
       const skip = (pageNum - 1) * limitNum;
       const filterByStock = hasStock === 'true' || hasStock === 'false';
+      const paginateInMemory = filterByStock || sortByTotalStock;
 
       const products = await prisma.product.findMany({
         where,
@@ -470,8 +501,8 @@ export class AdminController {
             },
           },
         },
-        orderBy,
-        ...(filterByStock ? {} : { skip, take: limitNum }),
+        ...(orderByClause ? { orderBy: orderByClause } : {}),
+        ...(paginateInMemory ? {} : { skip, take: limitNum }),
       });
 
       // Settings'den aktif depolar?? al
@@ -501,6 +532,18 @@ export class AdminController {
           const inStock = (product.totalStock || 0) > 0;
           return hasStock === 'true' ? inStock : !inStock;
         });
+      }
+
+      if (sortByTotalStock) {
+        const direction = sortOrder === 'desc' ? -1 : 1;
+        filteredProducts.sort((a, b) => {
+          const diff = (a.totalStock - b.totalStock) * direction;
+          if (diff !== 0) return diff;
+          return a.name.localeCompare(b.name, 'tr');
+        });
+      }
+
+      if (paginateInMemory) {
         totalCount = filteredProducts.length;
         withImageCount = filteredProducts.filter((product) => product.imageUrl).length;
         withoutImageCount = totalCount - withImageCount;
@@ -512,7 +555,7 @@ export class AdminController {
         ]);
       }
 
-      const pagedProducts = filterByStock
+      const pagedProducts = paginateInMemory
         ? filteredProducts.slice(skip, skip + limitNum)
         : productsWithTotalStock;
 

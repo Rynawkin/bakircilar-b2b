@@ -74,12 +74,14 @@ export default function AdminProductsPage() {
   // Filters
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
+  const [brand, setBrand] = useState('');
+  const debouncedBrand = useDebounce(brand, 300);
   const [hasImage, setHasImage] = useState<'all' | 'true' | 'false'>('all');
   const [hasStock, setHasStock] = useState<'all' | 'true' | 'false'>('all');
   const [imageSyncErrorType, setImageSyncErrorType] = useState<'all' | 'NO_IMAGE' | 'NO_GUID' | 'IMAGE_TOO_LARGE' | 'IMAGE_DOWNLOAD_ERROR' | 'IMAGE_PROCESS_ERROR' | 'NO_SERVICE'>('all');
   const [categoryId, setCategoryId] = useState<string>('');
   const [priceListStatus, setPriceListStatus] = useState<'all' | 'missing' | 'available'>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Pagination
@@ -108,7 +110,7 @@ export default function AdminProductsPage() {
     }
   }, []);
 
-  const fetchProducts = useCallback(async (page: number = currentPage) => {
+  const fetchProducts = useCallback(async (page: number = 1) => {
     setIsSearching(true);
     try {
       const params: any = {
@@ -116,6 +118,7 @@ export default function AdminProductsPage() {
         limit: itemsPerPage,
       };
       if (debouncedSearch) params.search = debouncedSearch;
+      if (debouncedBrand) params.brand = debouncedBrand;
       if (hasImage !== 'all') params.hasImage = hasImage;
       if (hasStock !== 'all') params.hasStock = hasStock;
       if (imageSyncErrorType !== 'all') params.imageSyncErrorType = imageSyncErrorType;
@@ -132,6 +135,9 @@ export default function AdminProductsPage() {
       setProducts(data.products);
       if (data.pagination) {
         setPagination(data.pagination);
+        setCurrentPage(data.pagination.page ?? page);
+      } else {
+        setCurrentPage(page);
       }
       if (data.stats) {
         setStats(data.stats);
@@ -143,7 +149,7 @@ export default function AdminProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  }, [currentPage, debouncedSearch, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder]);
+  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder]);
 
   const fetchData = useCallback(async () => {
     await Promise.all([fetchProducts(1), fetchCategories()]);
@@ -164,7 +170,7 @@ export default function AdminProductsPage() {
       setCurrentPage(1); // Reset page when filters change
       fetchProducts(1);
     }
-  }, [debouncedSearch, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder, user, fetchProducts]);
+  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder, user, fetchProducts]);
 
   const handleSort = (field: typeof sortBy) => {
     if (sortBy === field) {
@@ -352,7 +358,7 @@ export default function AdminProductsPage() {
             </div>
 
             {/* Filters Row */}
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
               {/* Image Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -408,6 +414,20 @@ export default function AdminProductsPage() {
                 </select>
               </div>
 
+              {/* Brand Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Marka
+                </label>
+                <input
+                  type="text"
+                  value={brand}
+                  onChange={(e) => setBrand(e.target.value)}
+                  placeholder="Marka kodu veya adi..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+
               {/* Stock Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -454,6 +474,7 @@ export default function AdminProductsPage() {
                     <option value="name">İsim</option>
                     <option value="mikroCode">Mikro Kod</option>
                     <option value="excessStock">Fazla Stok</option>
+                    <option value="totalStock">Toplam Stok</option>
                     <option value="lastEntryDate">Son Giriş Tarihi</option>
                     <option value="currentCost">Güncel Maliyet</option>
                     <option value="imageSyncErrorType">Resim Hata</option>
@@ -744,7 +765,7 @@ export default function AdminProductsPage() {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    const newPage = Math.max(1, currentPage - 1);
+                    const newPage = Math.max(1, pagination.page - 1);
                     setCurrentPage(newPage);
                     fetchProducts(newPage);
                   }}
@@ -756,7 +777,7 @@ export default function AdminProductsPage() {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    const newPage = Math.min(pagination.totalPages, currentPage + 1);
+                    const newPage = Math.min(pagination.totalPages, pagination.page + 1);
                     setCurrentPage(newPage);
                     fetchProducts(newPage);
                   }}
