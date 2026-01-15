@@ -23,6 +23,33 @@ const parseDateInput = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+const normalizeBalanceBuckets = (balance: {
+  pastDueBalance?: number | null;
+  notDueBalance?: number | null;
+  totalBalance?: number | null;
+}) => {
+  let pastDueBalance = Number(balance.pastDueBalance ?? 0);
+  let notDueBalance = Number(balance.notDueBalance ?? 0);
+  const totalBalance = Number(balance.totalBalance ?? pastDueBalance + notDueBalance);
+
+  if (totalBalance >= 0) {
+    if (pastDueBalance < 0) {
+      notDueBalance = notDueBalance + pastDueBalance;
+      pastDueBalance = 0;
+    } else if (notDueBalance < 0) {
+      pastDueBalance = pastDueBalance + notDueBalance;
+      notDueBalance = 0;
+    }
+  }
+
+  return {
+    pastDueBalance: round2(pastDueBalance),
+    notDueBalance: round2(notDueBalance),
+  };
+};
+
 const canAccessAllSectors = (role?: string) =>
   role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
 
@@ -113,12 +140,14 @@ class VadeController {
       if (upcomingOnly) {
         where.notDueBalance = { gt: 0 };
       }
-      if (minBalance !== undefined || maxBalance !== undefined) {
-        where.totalBalance = {
-          ...(minBalance !== undefined ? { gte: minBalance } : {}),
-          ...(maxBalance !== undefined ? { lte: maxBalance } : {}),
-        };
+      const totalBalanceFilter: Prisma.FloatFilter = { gte: 0 };
+      if (minBalance !== undefined) {
+        totalBalanceFilter.gte = Math.max(0, minBalance);
       }
+      if (maxBalance !== undefined) {
+        totalBalanceFilter.lte = maxBalance;
+      }
+      where.totalBalance = totalBalanceFilter;
 
       if (search) {
         userWhere.OR = [
@@ -235,7 +264,7 @@ class VadeController {
         ? {}
         : { take: limit, skip: offset };
 
-      const [balances, total, summary] = await prisma.$transaction([
+      const [balances, total, summaryRows] = await prisma.$transaction([
         prisma.vadeBalance.findMany({
           where,
           include: {
@@ -265,15 +294,26 @@ class VadeController {
         exportAll || sortBy === 'lastNoteAt'
           ? prisma.vadeBalance.count({ where })
           : prisma.vadeBalance.count({ where }),
-        prisma.vadeBalance.aggregate({
+        prisma.vadeBalance.findMany({
           where,
-          _sum: {
+          select: {
             pastDueBalance: true,
             notDueBalance: true,
             totalBalance: true,
           },
         }),
       ]);
+
+      const summary = summaryRows.reduce(
+        (acc, row) => {
+          const normalized = normalizeBalanceBuckets(row);
+          acc.overdue += normalized.pastDueBalance;
+          acc.upcoming += normalized.notDueBalance;
+          acc.total += row.totalBalance ?? 0;
+          return acc;
+        },
+        { overdue: 0, upcoming: 0, total: 0 },
+      );
 
       type BalanceWithNote = (typeof balances)[number] & { lastNoteAt: Date | null };
       const balancesWithNotes: BalanceWithNote[] = await (async () => {
@@ -293,9 +333,14 @@ class VadeController {
         })) as BalanceWithNote[];
       })();
 
-      let pagedBalances = balancesWithNotes;
+      const normalizedBalances = balancesWithNotes.map((balance) => ({
+        ...balance,
+        ...normalizeBalanceBuckets(balance),
+      }));
+
+      let pagedBalances = normalizedBalances;
       if (sortBy === 'lastNoteAt') {
-        pagedBalances = [...balancesWithNotes].sort((a, b) => {
+        pagedBalances = [...normalizedBalances].sort((a, b) => {
           const aTime = a.lastNoteAt ? new Date(a.lastNoteAt).getTime() : 0;
           const bTime = b.lastNoteAt ? new Date(b.lastNoteAt).getTime() : 0;
           return sortDirection === 'asc' ? aTime - bTime : bTime - aTime;
@@ -314,9 +359,9 @@ class VadeController {
           totalPages: Math.ceil(total / limit),
         },
         summary: {
-          overdue: summary._sum.pastDueBalance ?? 0,
-          upcoming: summary._sum.notDueBalance ?? 0,
-          total: summary._sum.totalBalance ?? 0,
+          overdue: round2(summary.overdue),
+          upcoming: round2(summary.upcoming),
+          total: round2(summary.total),
         },
       });
     } catch (error) {
@@ -348,7 +393,7 @@ class VadeController {
 
       const where: Prisma.UserWhereInput = {
         role: 'CUSTOMER',
-        vadeBalance: { isNot: null },
+        vadeBalance: { is: { totalBalance: { gte: 0 } } },
       };
 
       if (excludedSectorFilters.length > 0) {
@@ -418,8 +463,18 @@ class VadeController {
       const notes = await vadeService.listNotes(customerId);
       const assignments = await vadeService.listAssignmentsForCustomer(customerId);
 
+      const resolvedCustomer = customer?.vadeBalance
+        ? {
+            ...customer,
+            vadeBalance: {
+              ...customer.vadeBalance,
+              ...normalizeBalanceBuckets(customer.vadeBalance),
+            },
+          }
+        : customer;
+
       res.json({
-        customer,
+        customer: resolvedCustomer,
         notes,
         assignments,
       });

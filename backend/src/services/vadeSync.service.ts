@@ -35,6 +35,40 @@ const calculateValor = (pastDueDate?: Date | null) => {
   return diffMs > 0 ? Math.floor(diffMs / (24 * 60 * 60 * 1000)) : 0;
 };
 
+const EXCLUDED_SECTOR_CODES = ['DİĞER', 'DIGER', 'FATURA', 'SATICI', 'SORUNLU', 'SORUNLU CARİ', 'SORUNLU CARI'] as const;
+const normalizeSectorCode = (value?: string | null) =>
+  (value || '').trim().toLocaleUpperCase('tr-TR');
+const EXCLUDED_SECTOR_PREFIXES = EXCLUDED_SECTOR_CODES.map(normalizeSectorCode);
+const isExcludedSectorCode = (value?: string | null) => {
+  const normalized = normalizeSectorCode(value);
+  if (!normalized) return false;
+  return EXCLUDED_SECTOR_PREFIXES.some((code) =>
+    normalized === code || normalized.startsWith(code)
+  );
+};
+
+const normalizeBalanceBuckets = (pastDueBalance: number, notDueBalance: number) => {
+  const rawTotalBalance = round2(pastDueBalance + notDueBalance);
+  let resolvedPastDue = pastDueBalance;
+  let resolvedNotDue = notDueBalance;
+
+  if (rawTotalBalance >= 0) {
+    if (resolvedPastDue < 0) {
+      resolvedNotDue = resolvedNotDue + resolvedPastDue;
+      resolvedPastDue = 0;
+    } else if (resolvedNotDue < 0) {
+      resolvedPastDue = resolvedPastDue + resolvedNotDue;
+      resolvedNotDue = 0;
+    }
+  }
+
+  return {
+    pastDueBalance: round2(resolvedPastDue),
+    notDueBalance: round2(resolvedNotDue),
+    totalBalance: round2(resolvedPastDue + resolvedNotDue),
+  };
+};
+
 class VadeSyncService {
   private async fetchMikroBalances(): Promise<MikroVadeRow[]> {
     const query = `
@@ -97,11 +131,6 @@ class VadeSyncService {
       recordsTotal = rows.length;
 
       const codes = rows.map((row) => row.customerCode).filter(Boolean);
-      const normalizeSectorCode = (value?: string | null) =>
-        (value || '').trim().toLocaleUpperCase('tr-TR');
-      const excludedSectorCodes = new Set(
-        ['DİĞER', 'SORUNLU', 'SORUNLU CARİ'].map(normalizeSectorCode)
-      );
       const users = await prisma.user.findMany({
         where: { mikroCariCode: { in: codes } },
         select: { id: true, mikroCariCode: true, sectorCode: true },
@@ -120,14 +149,17 @@ class VadeSyncService {
           recordsSkipped += 1;
           continue;
         }
-        if (excludedSectorCodes.has(normalizeSectorCode(user.sectorCode))) {
+        if (isExcludedSectorCode(user.sectorCode)) {
           recordsSkipped += 1;
           continue;
         }
 
-        const pastDueBalance = normalizeAmount(row.pastDueBalance);
-        const notDueBalance = normalizeAmount(row.notDueBalance);
-        const totalBalance = round2(pastDueBalance + notDueBalance);
+        const rawPastDueBalance = normalizeAmount(row.pastDueBalance);
+        const rawNotDueBalance = normalizeAmount(row.notDueBalance);
+        const { pastDueBalance, notDueBalance, totalBalance } = normalizeBalanceBuckets(
+          rawPastDueBalance,
+          rawNotDueBalance,
+        );
         const pastDueDate = normalizeDate(row.pastDueDate);
         const notDueDate = normalizeDate(row.notDueDate);
         const valor = calculateValor(pastDueDate);
