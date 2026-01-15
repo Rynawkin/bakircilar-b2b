@@ -261,7 +261,9 @@ export interface QuoteItem {
     imageUrl?: string | null;
     unit?: string | null;
     lastEntryPrice?: number | null;
+    lastEntryDate?: string | null;
     currentCost?: number | null;
+    currentCostDate?: string | null;
   };
 }
 

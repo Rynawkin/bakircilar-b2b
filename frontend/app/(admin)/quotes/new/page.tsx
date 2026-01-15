@@ -34,7 +34,9 @@ interface QuoteProduct {
   unit2Factor?: number | null;
   vatRate: number;
   lastEntryPrice?: number | null;
+  lastEntryDate?: string | null;
   currentCost?: number | null;
+  currentCostDate?: string | null;
   warehouseStocks?: Record<string, number>;
   category?: { id: string; name: string } | null;
   mikroPriceLists?: Record<number, number> | Record<string, number>;
@@ -64,7 +66,9 @@ interface QuoteItemForm {
   lastSales?: LastSale[];
   selectedSaleIndex?: number;
   lastEntryPrice?: number | null;
+  lastEntryDate?: string | null;
   currentCost?: number | null;
+  currentCostDate?: string | null;
   mikroPriceLists?: Record<number, number> | Record<string, number>;
 }
 
@@ -902,7 +906,9 @@ function AdminQuoteNewPageContent() {
       isManualLine: false,
       lastSales: sourceProduct.lastSales || [],
       lastEntryPrice: sourceProduct.lastEntryPrice ?? null,
+      lastEntryDate: sourceProduct.lastEntryDate ?? null,
       currentCost: sourceProduct.currentCost ?? null,
+      currentCostDate: sourceProduct.currentCostDate ?? null,
       mikroPriceLists: sourceProduct.mikroPriceLists,
     };
   };
@@ -975,7 +981,9 @@ function AdminQuoteNewPageContent() {
       lastSales,
       selectedSaleIndex,
       lastEntryPrice: item.product?.lastEntryPrice ?? null,
+      lastEntryDate: item.product?.lastEntryDate ?? null,
       currentCost: item.product?.currentCost ?? null,
+      currentCostDate: item.product?.currentCostDate ?? null,
       mikroPriceLists,
     };
   };
@@ -2302,12 +2310,18 @@ function AdminQuoteNewPageContent() {
                                 </span>
                                 <span className="rounded-full border border-yellow-200 bg-white px-2 py-1 text-gray-700">
                                   Son giris (KDV haric): <span className="font-semibold text-gray-900">{formatCurrency(marginInfo.lastEntry)}</span>
+                                  {item.lastEntryDate && (
+                                    <span className="ml-1 text-[11px] text-gray-500">({formatDateShort(item.lastEntryDate)})</span>
+                                  )}
                                   <span className={`ml-1 font-semibold ${getPercentTone(marginInfo.lastEntryDiff)}`}>
                                     Kar {formatPercent(marginInfo.lastEntryDiff)}
                                   </span>
                                 </span>
                                 <span className="rounded-full border border-yellow-200 bg-white px-2 py-1 text-gray-700">
                                   Guncel maliyet (KDV haric): <span className="font-semibold text-gray-900">{formatCurrency(marginInfo.currentCost)}</span>
+                                  {item.currentCostDate && (
+                                    <span className="ml-1 text-[11px] text-gray-500">({formatDateShort(item.currentCostDate)})</span>
+                                  )}
                                   <span className={`ml-1 font-semibold ${getPercentTone(marginInfo.currentCostDiff)}`}>
                                     Kar {formatPercent(marginInfo.currentCostDiff)}
                                   </span>
