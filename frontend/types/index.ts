@@ -247,6 +247,16 @@ export interface QuoteItem {
   sourceSaleQuantity?: number;
   sourceSaleVatZeroed?: boolean;
   lineDescription?: string;
+  lastSales?: Array<{
+    saleDate: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal?: number;
+    vatAmount?: number;
+    vatRate?: number;
+    vatZeroed?: boolean;
+  }>;
+  mikroPriceLists?: Record<number, number> | Record<string, number>;
   product?: {
     imageUrl?: string | null;
     unit?: string | null;

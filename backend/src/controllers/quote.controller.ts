@@ -125,7 +125,9 @@ export class QuoteController {
   async getQuoteById(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const quote = await quoteService.getQuoteByIdForStaff(id);
+      const preferences = await quoteService.getPreferences(req.user!.userId);
+      const lastSalesCount = Math.max(1, Number(preferences.lastSalesCount) || 1);
+      const quote = await quoteService.getQuoteByIdForStaff(id, { lastSalesCount });
       res.json({ quote });
     } catch (error) {
       next(error);

@@ -909,7 +909,7 @@ function AdminQuoteNewPageContent() {
 
   const buildQuoteItemFromExisting = (item: QuoteItem): QuoteItemForm => {
     const isManualLine = item.isManualLine;
-    const lastSale =
+    const fallbackSale =
       item.priceSource === 'LAST_SALE'
         ? {
             saleDate: item.sourceSaleDate || new Date().toISOString(),
@@ -919,12 +919,40 @@ function AdminQuoteNewPageContent() {
           }
         : undefined;
 
-    const lastSales = lastSale ? [lastSale] : [];
-    const selectedSaleIndex = lastSale ? 0 : undefined;
+    const normalizePrice = (value?: number) =>
+      Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+    const normalizeDateKey = (value?: string) => {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+      return date.toISOString().slice(0, 10);
+    };
+
+    let lastSales = !isManualLine && Array.isArray(item.lastSales) ? [...item.lastSales] : [];
+    let selectedSaleIndex: number | undefined;
+
+    if (fallbackSale) {
+      const fallbackDateKey = normalizeDateKey(fallbackSale.saleDate);
+      const fallbackPrice = normalizePrice(fallbackSale.unitPrice);
+      const matchIndex = lastSales.findIndex((sale) => (
+        normalizeDateKey(sale.saleDate) === fallbackDateKey
+        && normalizePrice(sale.unitPrice) === fallbackPrice
+      ));
+
+      if (matchIndex >= 0) {
+        selectedSaleIndex = matchIndex;
+      } else {
+        lastSales = [fallbackSale, ...lastSales];
+        selectedSaleIndex = 0;
+      }
+    }
+
     const priceListNo = item.priceListNo ?? undefined;
-    const mikroPriceLists = priceListNo
-      ? { [priceListNo]: item.unitPrice }
-      : undefined;
+    const mikroPriceLists = !isManualLine && item.mikroPriceLists
+      ? item.mikroPriceLists
+      : priceListNo
+        ? { [priceListNo]: item.unitPrice }
+        : undefined;
 
     return {
       id: item.id,

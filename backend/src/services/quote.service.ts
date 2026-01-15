@@ -935,7 +935,7 @@ class QuoteService {
     return quotes;
   }
 
-  async getQuoteByIdForStaff(quoteId: string) {
+  async getQuoteByIdForStaff(quoteId: string, options?: { lastSalesCount?: number }) {
     const quote = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
@@ -974,7 +974,57 @@ class QuoteService {
       throw new Error('Quote not found');
     }
 
-    return quote;
+    const productCodes = quote.items
+      .filter((item) => !item.isManualLine && item.productCode)
+      .map((item) => item.productCode);
+    const uniqueCodes = [...new Set(productCodes)];
+    const priceStatsMap = await priceListService.getPriceStatsMap(uniqueCodes);
+
+    let salesMovements: MikroCustomerSaleMovement[] = [];
+    const customerCode = quote.customer?.mikroCariCode || '';
+    const lastSalesLimit = Math.max(1, options?.lastSalesCount ?? 1);
+    if (customerCode && uniqueCodes.length > 0) {
+      try {
+        salesMovements = await mikroService.getCustomerSalesMovements(
+          customerCode,
+          uniqueCodes,
+          lastSalesLimit
+        );
+      } catch (error) {
+        console.error('Quote sales movements failed', { quoteId, error });
+      }
+    }
+
+    const salesMap = new Map<string, MikroCustomerSaleMovement[]>();
+    for (const movement of salesMovements) {
+      const list = salesMap.get(movement.productCode) || [];
+      list.push(movement);
+      salesMap.set(movement.productCode, list);
+    }
+
+    const items = quote.items.map((item) => {
+      if (item.isManualLine || !item.productCode) {
+        return {
+          ...item,
+          lastSales: [],
+          mikroPriceLists: undefined,
+        };
+      }
+
+      const priceStats = priceStatsMap.get(item.productCode) || null;
+      const mikroPriceLists: Record<string, number> = {};
+      for (let listNo = 1; listNo <= 10; listNo += 1) {
+        mikroPriceLists[listNo] = priceListService.getListPrice(priceStats, listNo);
+      }
+
+      return {
+        ...item,
+        lastSales: salesMap.get(item.productCode) || [],
+        mikroPriceLists,
+      };
+    });
+
+    return { ...quote, items };
   }
 
   async getQuotesForCustomer(customerId: string) {
