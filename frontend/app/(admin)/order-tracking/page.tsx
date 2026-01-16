@@ -52,6 +52,17 @@ interface CustomerSummary {
   orders: OrderDetail[];
 }
 
+
+interface SupplierPdfItem {
+  productCode: string;
+  productName: string;
+  unit: string;
+  totalQty: number;
+  totalAmount: number;
+  unitPrice: number;
+  orderNumbers: string[];
+}
+
 interface Settings {
   syncEnabled: boolean;
   syncSchedule: string;
@@ -81,6 +92,7 @@ export default function OrderTrackingPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
+  const [downloadingSupplier, setDownloadingSupplier] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [emailOverrides, setEmailOverrides] = useState<Record<string, string>>({});
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -343,6 +355,224 @@ export default function OrderTrackingPage() {
     return new Intl.DateTimeFormat('tr-TR').format(new Date(date));
   };
 
+  const formatNumber = (value: number) => {
+    return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 }).format(value);
+  };
+
+  const cleanPdfText = (value: string) => {
+    return value
+      .replace(/\u0131/g, 'i')
+      .replace(/\u0130/g, 'I')
+      .replace(/\u011f/g, 'g')
+      .replace(/\u011e/g, 'G')
+      .replace(/\u015f/g, 's')
+      .replace(/\u015e/g, 'S')
+      .replace(/\u00fc/g, 'u')
+      .replace(/\u00dc/g, 'U')
+      .replace(/\u00f6/g, 'o')
+      .replace(/\u00d6/g, 'O')
+      .replace(/\u00e7/g, 'c')
+      .replace(/\u00c7/g, 'C');
+  };
+
+  const buildSupplierPdfItems = (supplier: CustomerSummary): SupplierPdfItem[] => {
+    const itemMap = new Map<string, SupplierPdfItem>();
+
+    supplier.orders.forEach((order) => {
+      order.items.forEach((item) => {
+        if (item.remainingQty <= 0) return;
+        const key = `${item.productCode}||${item.unit}`;
+        const lineTotal = Number.isFinite(item.lineTotal)
+          ? item.lineTotal
+          : item.remainingQty * item.unitPrice;
+        const existing = itemMap.get(key);
+        if (existing) {
+          existing.totalQty += item.remainingQty;
+          existing.totalAmount += lineTotal;
+          existing.unitPrice = existing.totalQty > 0 ? existing.totalAmount / existing.totalQty : existing.unitPrice;
+          if (!existing.orderNumbers.includes(order.mikroOrderNumber)) {
+            existing.orderNumbers.push(order.mikroOrderNumber);
+          }
+          return;
+        }
+
+        const unitPrice = item.remainingQty > 0 ? lineTotal / item.remainingQty : item.unitPrice;
+        itemMap.set(key, {
+          productCode: item.productCode,
+          productName: item.productName,
+          unit: item.unit,
+          totalQty: item.remainingQty,
+          totalAmount: lineTotal,
+          unitPrice,
+          orderNumbers: [order.mikroOrderNumber],
+        });
+      });
+    });
+
+    return Array.from(itemMap.values()).sort((a, b) => {
+      const nameCompare = a.productName.localeCompare(b.productName, 'tr');
+      if (nameCompare !== 0) return nameCompare;
+      return a.productCode.localeCompare(b.productCode, 'tr');
+    });
+  };
+
+  const handleDownloadSupplierPdf = async (supplier: CustomerSummary) => {
+    if (downloadingSupplier) return;
+    setDownloadingSupplier(supplier.customerCode);
+
+    try {
+      const items = buildSupplierPdfItems(supplier);
+      if (items.length === 0) {
+        toast.error('Bekleyen urun yok.');
+        return;
+      }
+
+      const { default: jsPDF } = await import('jspdf');
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
+      if (typeof autoTable !== 'function') {
+        throw new Error('autoTable is not available');
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const marginX = 14;
+      const headerHeight = 26;
+      const colors = {
+        primary: [234, 88, 12] as const,
+        dark: [15, 23, 42] as const,
+        muted: [71, 85, 105] as const,
+        light: [255, 247, 237] as const,
+        border: [254, 215, 170] as const,
+      };
+
+      doc.setFillColor(...colors.light);
+      doc.rect(0, 0, pageWidth, headerHeight, 'F');
+
+      doc.setFontSize(16);
+      doc.setTextColor(...colors.primary);
+      doc.text('TEDARIKCI BEKLEYEN KALEMLER', marginX, 17);
+
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.muted);
+      doc.text(`Olusturma: ${formatDate(new Date().toISOString())}`, pageWidth - marginX, 17, { align: 'right' });
+
+      const infoTop = headerHeight + 6;
+      const boxGap = 6;
+      const boxWidth = (pageWidth - marginX * 2 - boxGap) / 2;
+      const boxHeight = 24;
+      const rightBoxX = marginX + boxWidth + boxGap;
+
+      const writeLines = (lines: string[], x: number, startY: number, width: number) => {
+        const lineGap = 4;
+        let currentY = startY;
+        lines.forEach((line) => {
+          const wrapped = doc.splitTextToSize(cleanPdfText(line), width) as string[];
+          wrapped.forEach((chunk) => {
+            doc.text(chunk, x, currentY);
+            currentY += lineGap;
+          });
+        });
+      };
+
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...colors.border);
+      doc.roundedRect(marginX, infoTop, boxWidth, boxHeight, 2, 2, 'F');
+      doc.roundedRect(rightBoxX, infoTop, boxWidth, boxHeight, 2, 2, 'F');
+
+      doc.setFontSize(8);
+      doc.setTextColor(...colors.muted);
+      doc.text('TEDARIKCI', marginX + 4, infoTop + 6);
+
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.dark);
+      writeLines(
+        [
+          `Tedarikci: ${supplier.customerName}`,
+          `Kod: ${supplier.customerCode}`,
+          `Email: ${supplier.customerEmail || '-'}`,
+        ],
+        marginX + 4,
+        infoTop + 11,
+        boxWidth - 8
+      );
+
+      const totalAmount = items.reduce((sum, item) => sum + item.totalAmount, 0);
+      const totalQty = items.reduce((sum, item) => sum + item.totalQty, 0);
+
+      doc.setFontSize(8);
+      doc.setTextColor(...colors.muted);
+      doc.text('OZET', rightBoxX + 4, infoTop + 6);
+
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.dark);
+      writeLines(
+        [
+          `Siparis: ${supplier.orders.length}`,
+          `Urun: ${items.length}`,
+          `Kalan miktar: ${formatNumber(totalQty)}`,
+          `Kalan tutar: ${formatCurrency(totalAmount)}`,
+        ],
+        rightBoxX + 4,
+        infoTop + 11,
+        boxWidth - 8
+      );
+
+      const tableStartY = infoTop + boxHeight + 8;
+      const rows = items.map((item) => {
+        const ordersText = item.orderNumbers.length ? `Siparis: ${item.orderNumbers.join(', ')}` : '';
+        const productText = [item.productName, item.productCode, ordersText]
+          .filter(Boolean)
+          .map((value) => cleanPdfText(String(value)))
+          .join('\n');
+        return [
+          productText,
+          formatNumber(item.totalQty),
+          item.unit,
+          formatCurrency(item.unitPrice),
+          formatCurrency(item.totalAmount),
+        ];
+      });
+
+      autoTable(doc, {
+        startY: tableStartY,
+        head: [['Urun / Siparisler', 'Kalan Miktar', 'Birim', 'Birim Fiyat', 'Kalan Tutar']],
+        body: rows,
+        styles: {
+          fontSize: 8,
+          textColor: colors.dark,
+          cellPadding: 2,
+          valign: 'middle',
+        },
+        headStyles: {
+          fillColor: colors.primary,
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: {
+          fillColor: [255, 251, 235],
+        },
+        columnStyles: {
+          0: { cellWidth: 72 },
+          1: { halign: 'right', cellWidth: 22 },
+          2: { halign: 'center', cellWidth: 16 },
+          3: { halign: 'right', cellWidth: 36 },
+          4: { halign: 'right', cellWidth: 36 },
+        },
+      });
+
+      const safeCode = supplier.customerCode.replace(/[^a-zA-Z0-9-_]/g, '_');
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      doc.save(`supplier_${safeCode}_pending_${dateStamp}.pdf`);
+    } catch (error) {
+      console.error('Supplier PDF indirilemedi:', error);
+      toast.error('PDF indirilemedi.');
+    } finally {
+      setDownloadingSupplier(null);
+    }
+  };
+
+
   // Cron schedule'ı kullanıcı dostu formatta göster
   const formatSchedule = (cronString: string) => {
     const { hour, days } = parseCronSchedule(cronString);
@@ -363,8 +593,9 @@ export default function OrderTrackingPage() {
   const supplierAmount = supplierSummary.reduce((sum, s) => sum + s.totalAmount, 0);
   const totalAmount = customerAmount + supplierAmount;
 
-  const currentSummary = activeTab === 'customers' ? customerSummary : supplierSummary;
-  const currentAmount = activeTab === 'customers' ? customerAmount : supplierAmount;
+  const isSupplierTab = activeTab === 'suppliers';
+  const currentSummary = isSupplierTab ? supplierSummary : customerSummary;
+  const currentAmount = isSupplierTab ? supplierAmount : customerAmount;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -786,6 +1017,9 @@ export default function OrderTrackingPage() {
               <div className="space-y-4">
                 {currentSummary.map((customer) => {
                   const isExpanded = expandedCustomers.has(customer.customerCode);
+                  const hasPendingItems = customer.orders.some((order) =>
+                    order.items.some((item) => item.remainingQty > 0)
+                  );
                   return (
                     <div key={customer.customerCode} className="border rounded-lg overflow-hidden">
                       {/* Customer Header */}
@@ -815,6 +1049,16 @@ export default function OrderTrackingPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            {isSupplierTab && (
+                              <Button
+                                onClick={() => handleDownloadSupplierPdf(customer)}
+                                isLoading={downloadingSupplier === customer.customerCode}
+                                disabled={!hasPendingItems || downloadingSupplier === customer.customerCode}
+                                className="bg-white text-orange-700 border border-orange-200 hover:bg-orange-50 text-sm py-1 px-3"
+                              >
+                                PDF Indir
+                              </Button>
+                            )}
                             {customer.emailSent ? (
                               <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                 ✅ Gönderildi
