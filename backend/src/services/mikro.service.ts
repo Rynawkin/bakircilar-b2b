@@ -449,25 +449,31 @@ class MikroService {
 
       const query = `
         SELECT DISTINCT
-          LTRIM(RTRIM(sth_stok_kod)) as productCode
+          sth_stok_kod as productCode
         FROM STOK_HAREKETLERI
-      WHERE
-        sth_tip = 1
-        AND sth_cari_kodu = @cariCode
-        AND (
-          (sth_evraktip = 4)
-          OR
-          (sth_evraktip = 1 AND sth_fat_uid != '00000000-0000-0000-0000-000000000000')
-          OR
-          (sth_fat_uid = '00000000-0000-0000-0000-000000000000')
-        )
-        AND sth_stok_kod IS NOT NULL
-    `;
+        WHERE
+          sth_tip = 1
+          AND sth_cari_kodu = @cariCode
+          AND (
+            (sth_evraktip = 4)
+            OR
+            (sth_evraktip = 1 AND sth_fat_uid != '00000000-0000-0000-0000-000000000000')
+            OR
+            (sth_fat_uid = '00000000-0000-0000-0000-000000000000')
+          )
+          AND sth_stok_kod IS NOT NULL
+      `;
 
       const result = await request.query(query);
-      return result.recordset
-        .map((row: any) => (row.productCode || '').trim())
-        .filter((code: string) => !!code);
+      const codes = new Set<string>();
+      for (const row of result.recordset || []) {
+        const raw = String(row.productCode || '');
+        const trimmed = raw.trim();
+        if (!trimmed) continue;
+        codes.add(raw);
+        codes.add(trimmed);
+      }
+      return Array.from(codes);
   }
 
   /**
