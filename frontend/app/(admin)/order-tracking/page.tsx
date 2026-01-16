@@ -359,6 +359,11 @@ export default function OrderTrackingPage() {
     return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 }).format(value);
   };
 
+  const formatCurrencyPdf = (value: number) => {
+    const safeValue = Number.isFinite(value) ? value : 0;
+    return `${formatNumber(safeValue)} TL`;
+  };
+
   const cleanPdfText = (value: string) => {
     return value
       .replace(/\u0131/g, 'i')
@@ -451,17 +456,15 @@ export default function OrderTrackingPage() {
 
       doc.setFontSize(16);
       doc.setTextColor(...colors.primary);
-      doc.text('TEDARIKCI BEKLEYEN KALEMLER', marginX, 17);
+      doc.text('BEKLEYEN SIPARISLER', marginX, 17);
 
       doc.setFontSize(9);
       doc.setTextColor(...colors.muted);
       doc.text(`Olusturma: ${formatDate(new Date().toISOString())}`, pageWidth - marginX, 17, { align: 'right' });
 
       const infoTop = headerHeight + 6;
-      const boxGap = 6;
-      const boxWidth = (pageWidth - marginX * 2 - boxGap) / 2;
-      const boxHeight = 24;
-      const rightBoxX = marginX + boxWidth + boxGap;
+      const boxWidth = pageWidth - marginX * 2;
+      const boxHeight = 22;
 
       const writeLines = (lines: string[], x: number, startY: number, width: number) => {
         const lineGap = 4;
@@ -478,7 +481,6 @@ export default function OrderTrackingPage() {
       doc.setFillColor(255, 255, 255);
       doc.setDrawColor(...colors.border);
       doc.roundedRect(marginX, infoTop, boxWidth, boxHeight, 2, 2, 'F');
-      doc.roundedRect(rightBoxX, infoTop, boxWidth, boxHeight, 2, 2, 'F');
 
       doc.setFontSize(8);
       doc.setTextColor(...colors.muted);
@@ -497,28 +499,7 @@ export default function OrderTrackingPage() {
         boxWidth - 8
       );
 
-      const totalAmount = items.reduce((sum, item) => sum + item.totalAmount, 0);
-      const totalQty = items.reduce((sum, item) => sum + item.totalQty, 0);
-
-      doc.setFontSize(8);
-      doc.setTextColor(...colors.muted);
-      doc.text('OZET', rightBoxX + 4, infoTop + 6);
-
-      doc.setFontSize(9);
-      doc.setTextColor(...colors.dark);
-      writeLines(
-        [
-          `Siparis: ${supplier.orders.length}`,
-          `Urun: ${items.length}`,
-          `Kalan miktar: ${formatNumber(totalQty)}`,
-          `Kalan tutar: ${formatCurrency(totalAmount)}`,
-        ],
-        rightBoxX + 4,
-        infoTop + 11,
-        boxWidth - 8
-      );
-
-      const tableStartY = infoTop + boxHeight + 8;
+      const tableStartY = infoTop + boxHeight + 10;
       const rows = items.map((item) => {
         const ordersText = item.orderNumbers.length ? `Siparis: ${item.orderNumbers.join(', ')}` : '';
         const productText = [item.productName, item.productCode, ordersText]
@@ -529,8 +510,8 @@ export default function OrderTrackingPage() {
           productText,
           formatNumber(item.totalQty),
           item.unit,
-          formatCurrency(item.unitPrice),
-          formatCurrency(item.totalAmount),
+          formatCurrencyPdf(item.unitPrice),
+          formatCurrencyPdf(item.totalAmount),
         ];
       });
 
@@ -553,11 +534,11 @@ export default function OrderTrackingPage() {
           fillColor: [255, 251, 235],
         },
         columnStyles: {
-          0: { cellWidth: 72 },
+          0: { cellWidth: 64, overflow: 'linebreak' },
           1: { halign: 'right', cellWidth: 22 },
           2: { halign: 'center', cellWidth: 16 },
-          3: { halign: 'right', cellWidth: 36 },
-          4: { halign: 'right', cellWidth: 36 },
+          3: { halign: 'right', cellWidth: 40 },
+          4: { halign: 'right', cellWidth: 40 },
         },
       });
 
