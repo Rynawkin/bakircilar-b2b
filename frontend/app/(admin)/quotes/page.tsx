@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -111,7 +111,7 @@ const resolveTabParam = (value: QuoteStatusFilter): string => {
   }
 };
 
-export default function AdminQuotesPage() {
+function AdminQuotesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
@@ -1119,5 +1119,19 @@ export default function AdminQuotesPage() {
       />
 
     </div>
+  );
+}
+
+export default function AdminQuotesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        </div>
+      }
+    >
+      <AdminQuotesPageContent />
+    </Suspense>
   );
 }
