@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Quote, QuoteStatus } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { ConfirmModal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -79,8 +80,40 @@ const cleanPdfText = (text: string | number | null | undefined) => {
     .replace(/ç/g, 'c');
 };
 
+const TAB_PARAM_MAP: Record<string, QuoteStatusFilter> = {
+  pending: 'PENDING_APPROVAL',
+  sent: 'SENT_TO_MIKRO',
+  rejected: 'REJECTED',
+  accepted: 'CUSTOMER_ACCEPTED',
+  all: 'ALL',
+};
+
+const resolveTabFilter = (value: string | null): QuoteStatusFilter | null => {
+  if (!value) return null;
+  const key = value.toLowerCase();
+  return TAB_PARAM_MAP[key] || null;
+};
+
+const resolveTabParam = (value: QuoteStatusFilter): string => {
+  switch (value) {
+    case 'PENDING_APPROVAL':
+      return 'pending';
+    case 'SENT_TO_MIKRO':
+      return 'sent';
+    case 'REJECTED':
+      return 'rejected';
+    case 'CUSTOMER_ACCEPTED':
+      return 'accepted';
+    case 'ALL':
+      return 'all';
+    default:
+      return 'pending';
+  }
+};
+
 export default function AdminQuotesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [allQuotes, setAllQuotes] = useState<Quote[]>([]);
@@ -91,10 +124,37 @@ export default function AdminQuotesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
 
+  const [pendingDownloadId, setPendingDownloadId] = useState<string | null>(null);
+  const [downloadPromptQuote, setDownloadPromptQuote] = useState<Quote | null>(null);
+  const [downloadPromptOpen, setDownloadPromptOpen] = useState(false);
+  const [downloadPromptLoading, setDownloadPromptLoading] = useState(false);
+  const handledDownloadRef = useRef<string | null>(null);
+
   useEffect(() => {
     fetchQuotes();
     fetchPreferences();
   }, []);
+
+  useEffect(() => {
+    const tabParam = resolveTabFilter(searchParams.get('tab'));
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+    const downloadId = searchParams.get('download');
+    if (downloadId !== pendingDownloadId) {
+      setPendingDownloadId(downloadId);
+    }
+  }, [searchParams, activeTab, pendingDownloadId]);
+
+  useEffect(() => {
+    if (!pendingDownloadId) return;
+    if (handledDownloadRef.current === pendingDownloadId) return;
+    const targetQuote = allQuotes.find((quote) => quote.id === pendingDownloadId);
+    if (!targetQuote) return;
+    handledDownloadRef.current = pendingDownloadId;
+    setDownloadPromptQuote(targetQuote);
+    setDownloadPromptOpen(true);
+  }, [pendingDownloadId, allQuotes]);
 
   useEffect(() => {
     if (activeTab === 'ALL') {
@@ -694,6 +754,34 @@ export default function AdminQuotesPage() {
     }
   };
 
+  const clearDownloadParam = () => {
+    const resolvedTab = resolveTabFilter(searchParams.get('tab')) || activeTab;
+    const query = `?tab=${resolveTabParam(resolvedTab)}`;
+    router.replace(`/quotes${query}`);
+    setPendingDownloadId(null);
+  };
+
+  const handleDownloadPromptClose = () => {
+    setDownloadPromptOpen(false);
+    setDownloadPromptQuote(null);
+    clearDownloadParam();
+  };
+
+  const handleDownloadPromptConfirm = async () => {
+    if (!downloadPromptQuote) {
+      handleDownloadPromptClose();
+      return;
+    }
+    setDownloadPromptLoading(true);
+    try {
+      await handlePdfExport(downloadPromptQuote);
+    } finally {
+      setDownloadPromptLoading(false);
+      handleDownloadPromptClose();
+    }
+  };
+
+
   const handleSync = async (quoteId: string) => {
     setSyncingQuoteId(quoteId);
     try {
@@ -1014,6 +1102,22 @@ export default function AdminQuotesPage() {
           </div>
         )}
       </div>
+      <ConfirmModal
+        isOpen={downloadPromptOpen}
+        onClose={handleDownloadPromptClose}
+        onConfirm={handleDownloadPromptConfirm}
+        title={`PDF İndir`}
+        message={
+          downloadPromptQuote
+            ? `${downloadPromptQuote.quoteNumber} numaralı teklifin PDF'ini indirmek ister misiniz?`
+            : "Teklifin PDF'ini indirmek ister misiniz?"
+        }
+        confirmLabel={`İndir`}
+        cancelLabel={`Hayır`}
+        variant="info"
+        isLoading={downloadPromptLoading}
+      />
+
     </div>
   );
 }

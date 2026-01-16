@@ -1658,14 +1658,18 @@ function AdminQuoteNewPageContent() {
         }),
       };
 
+      let savedQuote: Quote | null = null;
       if (isEditMode && editQuoteId) {
-        await adminApi.updateQuote(editQuoteId, payload);
+        const result = await adminApi.updateQuote(editQuoteId, payload);
+        savedQuote = result.quote;
         toast.success('Teklif guncellendi.');
       } else {
-        await adminApi.createQuote(payload);
+        const result = await adminApi.createQuote(payload);
+        savedQuote = result.quote;
         toast.success('Teklif olusturuldu.');
       }
-      router.push('/quotes');
+      const downloadParam = savedQuote?.id ? `&download=${savedQuote.id}` : '';
+      router.push(`/quotes?tab=sent${downloadParam}`);
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Teklif olusturulamadi.');
     } finally {
