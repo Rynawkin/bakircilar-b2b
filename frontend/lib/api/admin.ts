@@ -231,6 +231,16 @@ export const adminApi = {
     return response.data;
   },
 
+  deleteCustomerSubUser: async (subUserId: string): Promise<{ message: string }> => {
+    const response = await apiClient.delete(`/admin/customers/sub-users/${subUserId}`);
+    return response.data;
+  },
+
+  resetCustomerSubUserPassword: async (subUserId: string): Promise<{ credentials: { username: string; password: string } }> => {
+    const response = await apiClient.post(`/admin/customers/sub-users/${subUserId}/reset-password`);
+    return response.data;
+  },
+
   // Agreements
   getAgreements: async (customerId: string, search?: string): Promise<{ agreements: any[] }> => {
     const response = await apiClient.get('/admin/agreements', { params: { customerId, search } });

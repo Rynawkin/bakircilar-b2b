@@ -116,10 +116,10 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           {/* Logo & Brand */}
           <div className="flex items-center gap-4">
             <LogoLink href="/products" variant="light" />
-            <div className="hidden md:block border-l border-primary-500 pl-4">
-              <p className="text-sm font-semibold text-white">{user?.name}</p>
+            <div className="hidden md:block border-l border-primary-500 pl-4 min-w-0">
+              <p className="text-sm font-semibold text-white truncate max-w-[220px]" title={user?.name}>{user?.name}</p>
               {user?.mikroCariCode && (
-                <p className="text-xs text-primary-100">Kod: {user.mikroCariCode}</p>
+                <p className="text-xs text-primary-100 truncate max-w-[220px]">Kod: {user.mikroCariCode}</p>
               )}
             </div>
           </div>

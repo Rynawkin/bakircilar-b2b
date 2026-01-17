@@ -87,6 +87,9 @@ export function CustomerEditModal({
   const [generatedCredentials, setGeneratedCredentials] = useState<{ username: string; password: string } | null>(null);
   const [editingSubUserId, setEditingSubUserId] = useState<string | null>(null);
   const [subUserSaving, setSubUserSaving] = useState(false);
+  const [resetCredentials, setResetCredentials] = useState<Record<string, { username: string; password: string }>>({});
+  const [resettingSubUserId, setResettingSubUserId] = useState<string | null>(null);
+  const [deletingSubUserId, setDeletingSubUserId] = useState<string | null>(null);
 
   useEffect(() => {
       if (customer) {
@@ -117,6 +120,9 @@ export function CustomerEditModal({
     setEditingSubUserId(null);
     setAutoCredentials(false);
     setGeneratedCredentials(null);
+    setResetCredentials({});
+    setResettingSubUserId(null);
+    setDeletingSubUserId(null);
     const loadContacts = async () => {
       setContactsLoading(true);
       try {
@@ -300,6 +306,47 @@ export function CustomerEditModal({
     });
     setAutoCredentials(false);
     setGeneratedCredentials(null);
+  };
+
+  const handleResetSubUserPassword = async (subUser: SubUser) => {
+    if (!customer) return;
+    if (!confirm('Alt kullanici sifresini sifirlamak istediginize emin misiniz?')) return;
+
+    setResettingSubUserId(subUser.id);
+    try {
+      const result = await adminApi.resetCustomerSubUserPassword(subUser.id);
+      if (result.credentials) {
+        setResetCredentials((prev) => ({ ...prev, [subUser.id]: result.credentials }));
+      }
+      toast.success('Alt kullanici sifresi yenilendi.');
+    } catch (error) {
+      console.error('Alt kullanici sifresi yenilenemedi:', error);
+      toast.error('Alt kullanici sifresi yenilenemedi.');
+    } finally {
+      setResettingSubUserId(null);
+    }
+  };
+
+  const handleDeleteSubUser = async (subUser: SubUser) => {
+    if (!customer) return;
+    if (!confirm('Alt kullaniciyi silmek istediginize emin misiniz?')) return;
+
+    setDeletingSubUserId(subUser.id);
+    try {
+      await adminApi.deleteCustomerSubUser(subUser.id);
+      toast.success('Alt kullanici silindi.');
+      setSubUsers((prev) => prev.filter((item) => item.id !== subUser.id));
+      setResetCredentials((prev) => {
+        const next = { ...prev };
+        delete next[subUser.id];
+        return next;
+      });
+    } catch (error) {
+      console.error('Alt kullanici silinemedi:', error);
+      toast.error('Alt kullanici silinemedi.');
+    } finally {
+      setDeletingSubUserId(null);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -538,8 +585,7 @@ export function CustomerEditModal({
                       Sil
                     </Button>
                   </div>
-                </div>
-              </div>
+                </div>              </div>
             ))}
           </div>
         </div>
@@ -655,7 +701,7 @@ export function CustomerEditModal({
                       <div className="text-xs text-gray-500">Kullanici: {subUser.email || '-'}</div>
                     <div className="text-xs text-gray-500">Durum: {subUser.active ? 'Aktif' : 'Pasif'}</div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       size="sm"
@@ -664,8 +710,38 @@ export function CustomerEditModal({
                     >
                       Duzenle
                     </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleResetSubUserPassword(subUser)}
+                      isLoading={resettingSubUserId === subUser.id}
+                      disabled={resettingSubUserId === subUser.id}
+                    >
+                      Sifreyi Yenile
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="danger"
+                      onClick={() => handleDeleteSubUser(subUser)}
+                      isLoading={deletingSubUserId === subUser.id}
+                      disabled={deletingSubUserId === subUser.id}
+                    >
+                      Sil
+                    </Button>
                   </div>
                 </div>
+                {resetCredentials[subUser.id] && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                    <div>
+                      Kullanici: <span className="font-mono">{resetCredentials[subUser.id].username}</span>
+                    </div>
+                    <div>
+                      Yeni Sifre: <span className="font-mono">{resetCredentials[subUser.id].password}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

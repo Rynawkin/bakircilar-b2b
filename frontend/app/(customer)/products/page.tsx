@@ -41,13 +41,11 @@ export default function ProductsPage() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [warehouses, setWarehouses] = useState<string[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
     sortBy: 'none',
     priceType: 'invoiced',
@@ -96,7 +94,7 @@ export default function ProductsPage() {
     return applyProductFilters(products, advancedFilters);
   }, [products, advancedFilters]);
 
-  // Load static data (categories & warehouses) only once on mount
+  // Load static data (categories) only once on mount
   useEffect(() => {
     loadUserFromStorage();
     fetchCart();
@@ -106,13 +104,8 @@ export default function ProductsPage() {
 
   const loadStaticData = useCallback(async () => {
     try {
-      const [categoriesData, warehousesData] = await Promise.all([
-        customerApi.getCategories(),
-        customerApi.getWarehouses(),
-      ]);
-
+      const categoriesData = await customerApi.getCategories();
       setCategories(categoriesData.categories);
-      setWarehouses(warehousesData.warehouses);
     } catch (error) {
       console.error('Statik veri yükleme hatası:', error);
     }
@@ -124,7 +117,6 @@ export default function ProductsPage() {
       const searchParams = {
         categoryId: selectedCategory || undefined,
         search: debouncedSearch || undefined,
-        warehouse: selectedWarehouse || undefined,
         mode: 'all' as const,
       };
 
@@ -136,14 +128,14 @@ export default function ProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  }, [selectedCategory, debouncedSearch, selectedWarehouse]);
+  }, [selectedCategory, debouncedSearch]);
 
   // Load products whenever filters change
   useEffect(() => {
-    if (categories.length > 0 && warehouses.length > 0) {
+    if (categories.length > 0) {
       fetchProducts();
     }
-  }, [selectedCategory, debouncedSearch, selectedWarehouse, categories, warehouses, fetchProducts]);
+  }, [selectedCategory, debouncedSearch, categories, fetchProducts]);
 
   const handleQuickAdd = async (product: Product) => {
     const productId = product.id;
@@ -271,24 +263,7 @@ export default function ProductsPage() {
                   />
                 </div>
 
-                <div className="min-w-[150px]">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <span>🏢</span>
-                    Depo
-                  </label>
-                  <select
-                    value={selectedWarehouse}
-                    onChange={(e) => setSelectedWarehouse(e.target.value)}
-                    className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
-                  >
-                    <option value="">Tüm Depolar</option>
-                    {warehouses.map((warehouse) => (
-                      <option key={warehouse} value={warehouse}>
-                        {warehouse}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                
 
                 <div className="min-w-[180px]">
                   <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
@@ -310,17 +285,12 @@ export default function ProductsPage() {
                 </div>
               </div>
 
-              {(search || selectedWarehouse || selectedCategory) && (
+              {(search || selectedCategory) && (
                 <div className="mt-4 pt-4 border-t-2 border-gray-100 flex flex-wrap items-center gap-2">
                   <span className="text-sm font-semibold text-gray-700">Aktif filtreler:</span>
                   {search && (
                     <span className="bg-gradient-to-r from-primary-100 to-primary-200 text-primary-800 px-3 py-1.5 rounded-lg font-medium text-sm shadow-sm">
                       🔍 "{search}"
-                    </span>
-                  )}
-                  {selectedWarehouse && (
-                    <span className="bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 px-3 py-1.5 rounded-lg font-medium text-sm shadow-sm">
-                      🏢 {selectedWarehouse}
                     </span>
                   )}
                   {selectedCategory && (
@@ -331,7 +301,6 @@ export default function ProductsPage() {
                   <button
                     onClick={() => {
                       setSearch('');
-                      setSelectedWarehouse('');
                       setSelectedCategory('');
                     }}
                     className="ml-auto bg-gradient-to-r from-red-500 to-red-600 text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:from-red-600 hover:to-red-700 transition-all shadow-md hover:shadow-lg"
@@ -366,18 +335,17 @@ export default function ProductsPage() {
             ) : filteredProducts.length === 0 ? (
               <Card>
                 <EmptyState
-                  icon={search || selectedCategory || selectedWarehouse ? 'search' : 'products'}
-                  title={search || selectedCategory || selectedWarehouse ? 'Ürün Bulunamadı' : 'Henüz Ürün Yok'}
+                  icon={search || selectedCategory ? 'search' : 'products'}
+                  title={search || selectedCategory ? 'Ürün Bulunamadı' : 'Henüz Ürün Yok'}
                   description={
-                    search || selectedCategory || selectedWarehouse
+                    search || selectedCategory
                       ? 'Arama kriterlerinize uygun ürün bulunamadı. Filtreleri değiştirerek tekrar deneyin.'
                       : 'Ürünler senkronize edildiğinde burada görüntülenecektir.'
                   }
-                  actionLabel={search || selectedCategory || selectedWarehouse ? 'Filtreleri Temizle' : undefined}
-                  onAction={search || selectedCategory || selectedWarehouse ? () => {
+                  actionLabel={search || selectedCategory ? 'Filtreleri Temizle' : undefined}
+                  onAction={search || selectedCategory ? () => {
                     setSearch('');
                     setSelectedCategory('');
-                    setSelectedWarehouse('');
                   } : undefined}
                 />
               </Card>
@@ -484,7 +452,7 @@ export default function ProductsPage() {
 
                       <div className="px-3 min-h-[60px]">
                         <h3
-                          className="font-bold text-gray-900 text-sm line-clamp-2 leading-tight cursor-pointer hover:text-primary-600 transition-colors mb-2"
+                          className="font-bold text-gray-900 text-sm leading-snug break-words cursor-pointer hover:text-primary-600 transition-colors mb-2"
                           onClick={() => openProductModal(product)}
                         >
                           {product.name}
@@ -521,16 +489,22 @@ export default function ProductsPage() {
                               onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
                             >
                               <div className="opacity-80 mb-0.5">Faturali</div>
-                                <div className="font-bold text-sm">{formatCurrency(displayInvoicedPrice)}</div>
-                                {showExcessPricing && displayExcessInvoiced !== undefined && (
-                                  <div className="text-[10px] text-green-700 font-semibold">
-                                    Fazla: {formatCurrency(displayExcessInvoiced)}
+                              {showExcessPricing && displayExcessInvoiced !== undefined ? (
+                                <>
+                                  <div className="font-bold text-sm text-green-700">
+                                    Indirimli: {formatCurrency(displayExcessInvoiced)}
                                     {getDiscountPercent(product.prices.invoiced, excessInvoiced) && (
                                       <span> (-%{getDiscountPercent(product.prices.invoiced, excessInvoiced)})</span>
                                     )}
                                   </div>
-                                )}
-                                <div className="text-[10px] opacity-70 mt-0.5">{invoicedVatLabel}</div>
+                                  <div className="text-[10px] text-gray-500 line-through">
+                                    Normal: {formatCurrency(displayInvoicedPrice)}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="font-bold text-sm">{formatCurrency(displayInvoicedPrice)}</div>
+                              )}
+                              <div className="text-[10px] opacity-70 mt-0.5">{invoicedVatLabel}</div>
                             </button>
                           )}
                           {allowedPriceTypes.includes('WHITE') && (
@@ -543,16 +517,22 @@ export default function ProductsPage() {
                               onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
                             >
                               <div className="opacity-80 mb-0.5">Beyaz</div>
-                                <div className="font-bold text-sm">{formatCurrency(displayWhitePrice)}</div>
-                                {showExcessPricing && displayExcessWhite !== undefined && (
-                                  <div className="text-[10px] text-green-700 font-semibold">
-                                    Fazla: {formatCurrency(displayExcessWhite)}
+                              {showExcessPricing && displayExcessWhite !== undefined ? (
+                                <>
+                                  <div className="font-bold text-sm text-green-700">
+                                    Indirimli: {formatCurrency(displayExcessWhite)}
                                     {getDiscountPercent(product.prices.white, excessWhite) && (
                                       <span> (-%{getDiscountPercent(product.prices.white, excessWhite)})</span>
                                     )}
                                   </div>
-                                )}
-                                <div className="text-[10px] opacity-70 mt-0.5">{getVatLabel('WHITE', vatDisplayPreference)}</div>
+                                  <div className="text-[10px] text-gray-500 line-through">
+                                    Normal: {formatCurrency(displayWhitePrice)}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="font-bold text-sm">{formatCurrency(displayWhitePrice)}</div>
+                              )}
+                              <div className="text-[10px] opacity-70 mt-0.5">{getVatLabel('WHITE', vatDisplayPreference)}</div>
                             </button>
                           )}
                         </div>
@@ -560,14 +540,20 @@ export default function ProductsPage() {
                         <div className="px-3">
                           <div className="rounded-lg border-2 border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-700">
                             <div className="opacity-80 mb-0.5">{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
-                            <div className="font-bold text-sm">{formatCurrency(displaySelectedPrice)}</div>
-                            {showExcessPricing && displaySelectedExcessPrice !== undefined && (
-                              <div className="text-[10px] text-green-700 font-semibold">
-                                Fazla: {formatCurrency(displaySelectedExcessPrice)}
-                                {selectedExcessDiscount && (
-                                  <span> (-%{selectedExcessDiscount})</span>
-                                )}
-                              </div>
+                            {showExcessPricing && displaySelectedExcessPrice !== undefined ? (
+                              <>
+                                <div className="font-bold text-sm text-green-700">
+                                  Indirimli: {formatCurrency(displaySelectedExcessPrice)}
+                                  {selectedExcessDiscount && (
+                                    <span> (-%{selectedExcessDiscount})</span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-gray-500 line-through">
+                                  Normal: {formatCurrency(displaySelectedPrice)}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="font-bold text-sm">{formatCurrency(displaySelectedPrice)}</div>
                             )}
                             <div className="text-[10px] opacity-70 mt-0.5">{selectedVatLabel}</div>
                           </div>

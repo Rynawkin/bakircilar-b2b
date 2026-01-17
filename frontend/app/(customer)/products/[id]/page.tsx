@@ -127,6 +127,14 @@ export default function ProductDetailPage() {
     : getDisplayStock(product);
   const priceMode = isDiscounted ? 'EXCESS' : 'LIST';
   const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
+  const warehouseLabels: Record<string, string> = { '1': 'Merkez Depo', '6': 'Topça Depo' };
+  const warehouseEntries = Object.entries(warehouseBreakdown || {})
+    .map(([warehouse, stock]) => {
+      const match = String(warehouse).match(/\d+/);
+      const key = match ? match[0] : warehouse;
+      return { key, stock: Number(stock) || 0 };
+    })
+    .filter(({ key, stock }) => (key === '1' || key === '6') && stock > 0);
   const selectedPriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
   const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
   const totalPrice = selectedPrice * quantity;
@@ -196,24 +204,22 @@ export default function ProductDetailPage() {
                   </div>
 
                   {/* Warehouse Stock Details */}
-                  {warehouseBreakdown && typeof warehouseBreakdown === 'object' && Object.keys(warehouseBreakdown).length > 0 && (
+                  {warehouseEntries.length > 0 && (
                     <div className="border-t pt-4">
                       <p className="text-sm font-medium text-gray-700 mb-2">
-                        {isDiscounted ? 'Depo Bazlı Fazla Stoklar' : 'Depo Bazlı Stoklar'}
+                        {isDiscounted ? 'Depo Bazl?? Fazla Stoklar' : 'Depo Bazl?? Stoklar'}
                       </p>
                       <div className="grid grid-cols-2 gap-2">
-                        {Object.entries(warehouseBreakdown as Record<string, number>)
-                          .filter(([_, stock]) => stock > 0)
-                          .map(([warehouse, stock]) => (
-                            <div key={warehouse} className="flex justify-between text-sm bg-green-50 p-2 rounded border border-green-200">
-                              <span className="text-gray-600">{warehouse}:</span>
-                              <span className="font-semibold text-green-700">{stock} {product.unit}</span>
-                            </div>
-                          ))}
+                        {warehouseEntries.map(({ key, stock }) => (
+                          <div key={key} className="flex justify-between text-sm bg-green-50 p-2 rounded border border-green-200">
+                            <span className="text-gray-600">{warehouseLabels[key] || key}:</span>
+                            <span className="font-semibold text-green-700">{stock} {product.unit}</span>
+                          </div>
+                        ))}
                       </div>
                       {isDiscounted && (
                         <p className="text-xs text-gray-500 mt-2">
-                          * Sadece fazla stoklu depolar gösteriliyor
+                          * Sadece fazla stoklu depolar g??steriliyor
                         </p>
                       )}
                     </div>

@@ -96,6 +96,14 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
     ? product.excessStock ?? 0
     : getDisplayStock(product);
   const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
+  const warehouseLabels: Record<string, string> = { '1': 'Merkez Depo', '6': 'Topça Depo' };
+  const warehouseEntries = Object.entries(warehouseBreakdown || {})
+    .map(([warehouse, stock]) => {
+      const match = String(warehouse).match(/\d+/);
+      const key = match ? match[0] : warehouse;
+      return { key, stock: Number(stock) || 0 };
+    })
+    .filter(({ key, stock }) => (key === '1' || key === '6') && stock > 0);
   const listInvoiced = product.listPrices?.invoiced;
   const listWhite = product.listPrices?.white;
   const excessInvoiced = product.excessPrices?.invoiced;
@@ -210,7 +218,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
             )}
 
             {/* Warehouse Stock Breakdown */}
-            {warehouseBreakdown && Object.keys(warehouseBreakdown).length > 0 && (
+            {warehouseEntries.length > 0 && (
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
                 <h4 className="font-semibold text-sm text-gray-900 mb-3 flex items-center gap-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -219,9 +227,9 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                   {isDiscounted ? 'Depo Dagilimi (Fazla Stok)' : 'Depo Dagilimi'}
                 </h4>
                 <div className="space-y-2">
-                  {Object.entries(warehouseBreakdown).map(([warehouse, stock]) => (
-                    <div key={warehouse} className="flex justify-between items-center text-sm">
-                      <span className="text-gray-700 font-medium">{warehouse}</span>
+                  {warehouseEntries.map(({ key, stock }) => (
+                    <div key={key} className="flex justify-between items-center text-sm">
+                      <span className="text-gray-700 font-medium">{warehouseLabels[key] || key}</span>
                       <span className="bg-white px-3 py-1 rounded-lg border border-gray-200 font-semibold text-gray-900">
                         {stock} {product.unit}
                       </span>

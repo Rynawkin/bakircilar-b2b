@@ -4,6 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import https from 'https';
+import crypto from 'crypto';
 import { prisma } from '../utils/prisma';
 import path from 'path';
 import { hashPassword } from '../utils/password';
@@ -32,6 +33,14 @@ const buildSubUserBase = (mikroCariCode: string | null | undefined, fallbackId: 
   const trimmed = typeof mikroCariCode === 'string' ? mikroCariCode.trim() : '';
   if (trimmed) return trimmed;
   return `SUB-${fallbackId.slice(0, 6)}`;
+};
+
+const buildSubUserPassword = (length = 10): string => {
+  const safeLength = Math.max(6, length);
+  const raw = crypto.randomBytes(safeLength * 2).toString('base64');
+  const cleaned = raw.replace(/[^a-zA-Z0-9]/g, '').slice(0, safeLength);
+  if (cleaned.length >= 6) return cleaned;
+  return `${Date.now().toString(36)}Abc123`;
 };
 
 
@@ -879,7 +888,7 @@ export class AdminController {
     try {
       const { id } = req.params;
       const subUsers = await prisma.user.findMany({
-        where: { parentCustomerId: id },
+        where: { parentCustomerId: id, active: true },
         select: {
           id: true,
           name: true,
@@ -1053,6 +1062,69 @@ export class AdminController {
       next(error);
     }
   }
+
+  /**
+   * DELETE /api/admin/customers/sub-users/:id
+   */
+  async deleteCustomerSubUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const existingUser = await prisma.user.findUnique({
+        where: { id },
+        select: { id: true, parentCustomerId: true, active: true },
+      });
+
+      if (!existingUser || !existingUser.parentCustomerId) {
+        return res.status(404).json({ error: 'Sub user not found' });
+      }
+
+      if (existingUser.active) {
+        await prisma.user.update({
+          where: { id },
+          data: { active: false },
+        });
+      }
+
+      res.json({ message: 'Sub user deactivated' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/customers/sub-users/:id/reset-password
+   */
+  async resetCustomerSubUserPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const existingUser = await prisma.user.findUnique({
+        where: { id },
+        select: { id: true, parentCustomerId: true, email: true },
+      });
+
+      if (!existingUser || !existingUser.parentCustomerId) {
+        return res.status(404).json({ error: 'Sub user not found' });
+      }
+
+      const newPassword = buildSubUserPassword(10);
+      const hashedPassword = await hashPassword(newPassword);
+
+      await prisma.user.update({
+        where: { id },
+        data: { password: hashedPassword },
+      });
+
+      res.json({
+        credentials: {
+          username: existingUser.email || existingUser.id,
+          password: newPassword,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
   /**
    * GET /api/admin/customers/:id/contacts

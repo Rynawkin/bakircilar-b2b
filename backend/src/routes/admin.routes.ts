@@ -222,6 +222,8 @@ router.put('/customers/:id', requireAdminOrManager, validateBody(updateCustomerS
 router.get('/customers/:id/sub-users', requireStaff, adminController.getCustomerSubUsers);
 router.post('/customers/:id/sub-users', requireAdminOrManager, validateBody(subUserCreateSchema), adminController.createCustomerSubUser);
 router.put('/customers/sub-users/:id', requireAdminOrManager, validateBody(subUserUpdateSchema), adminController.updateCustomerSubUser);
+router.delete('/customers/sub-users/:id', requireAdminOrManager, adminController.deleteCustomerSubUser);
+router.post('/customers/sub-users/:id/reset-password', requireAdminOrManager, adminController.resetCustomerSubUserPassword);
 router.get('/customers/:id/contacts', requireStaff, adminController.getCustomerContacts);
 router.post('/customers/:id/contacts', requireStaff, adminController.createCustomerContact);
 router.put('/customers/:id/contacts/:contactId', requireStaff, adminController.updateCustomerContact);
