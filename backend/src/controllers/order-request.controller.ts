@@ -7,7 +7,6 @@ import type { PriceType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
-import stockService from '../services/stock.service';
 import { resolveCustomerPriceLists } from '../utils/customerPricing';
 import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { ProductPrices } from '../types';
@@ -374,25 +373,6 @@ export class OrderRequestController {
           unitPrice,
           totalPrice: unitPrice * item.quantity,
           lineNote: item.lineNote ? String(item.lineNote).trim() : null,
-        });
-      }
-
-      // Stock check
-      const stockCheck = await stockService.checkRealtimeStockBatch(
-        orderItems.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity,
-        }))
-      );
-
-      if (!stockCheck.allAvailable) {
-        const insufficientItems = stockCheck.details.filter((d) => !d.sufficient);
-        const errorDetails = insufficientItems.map(
-          (item) => `${item.productName}: requested ${item.requested}, available ${item.available}`
-        );
-        return res.status(400).json({
-          error: 'INSUFFICIENT_STOCK',
-          details: errorDetails,
         });
       }
 

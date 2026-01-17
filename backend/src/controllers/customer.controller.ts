@@ -742,17 +742,6 @@ export class CustomerController {
         return res.status(400).json({ error: 'Product is not discounted' });
       }
 
-      // Real-time stock check from Mikro ERP
-      const stockCheck = await stockService.checkRealtimeStock(productId, quantity);
-
-      if (!stockCheck.available) {
-        return res.status(400).json({
-          error: 'Yetersiz stok',
-          message: `Stok yetersiz. Mevcut: ${stockCheck.currentStock} ${product.unit}`,
-          available: stockCheck.currentStock,
-        });
-      }
-
       if (!isPriceTypeAllowed(effectiveVisibility, priceType)) {
         return res.status(400).json({ error: 'Price type not allowed for customer' });
       }

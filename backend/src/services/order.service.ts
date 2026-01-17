@@ -10,7 +10,6 @@
 
 import { prisma } from '../utils/prisma';
 import { generateOrderNumber } from '../utils/orderNumber';
-import stockService from './stock.service';
 import mikroService from './mikroFactory.service';
 
 class OrderService {
@@ -38,28 +37,6 @@ class OrderService {
 
     if (!cart || cart.items.length === 0) {
       throw new Error('Cart is empty');
-    }
-
-    // 2. Anlık stok kontrolü
-    const stockCheck = await stockService.checkRealtimeStockBatch(
-      cart.items.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-      }))
-    );
-
-    if (!stockCheck.allAvailable) {
-      const insufficientItems = stockCheck.details.filter((d) => !d.sufficient);
-      const errorDetails = insufficientItems.map(
-        (item) => `${item.productName}: requested ${item.requested}, available ${item.available}`
-      );
-
-      throw new Error(
-        JSON.stringify({
-          error: 'INSUFFICIENT_STOCK',
-          details: errorDetails,
-        })
-      );
     }
 
     // 3. Sipariş numarası üret
@@ -107,7 +84,7 @@ class OrderService {
       },
     });
 
-    // 6. Sepeti temizle
+    // 5. Sepeti temizle
     await prisma.cartItem.deleteMany({
       where: { cartId: cart.id },
     });

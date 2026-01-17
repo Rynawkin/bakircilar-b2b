@@ -14,6 +14,7 @@ import { formatCurrency } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
+import { confirmBackorder } from '@/lib/utils/confirm';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
@@ -157,14 +158,15 @@ export default function DiscountedProductsPage() {
 
     try {
       const maxQty = getMaxOrderQuantity(product, 'EXCESS');
-      if (maxQty <= 0) {
-        toast.error('Bu urun stokta yok.');
-        return;
-      }
       if (quantity > maxQty) {
-        setQuickAddQuantities({ ...quickAddQuantities, [productId]: maxQty });
-        toast.error(`Maksimum ${maxQty} adet siparis verebilirsiniz.`);
-        return;
+        const confirmed = await confirmBackorder({
+          requestedQty: quantity,
+          availableQty: maxQty,
+          unit: product.unit,
+        });
+        if (!confirmed) {
+          return;
+        }
       }
       await addToCart({
         productId,
@@ -450,7 +452,6 @@ export default function DiscountedProductsPage() {
                     ? getDisplayPrice(excessWhite, product.vatRate, 'WHITE', vatDisplayPreference)
                     : undefined;
                   const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
-                  const maxQuantity = getMaxOrderQuantity(product, 'EXCESS');
                   const excessStock = product.excessStock ?? getDisplayStock(product);
                   const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
   return (
@@ -593,10 +594,7 @@ export default function DiscountedProductsPage() {
                               return; // Allow empty during typing
                             }
                             const numericValue = parseInt(value);
-                            const numValue = Math.max(1, Math.min(maxQuantity, numericValue));
-                            if (numericValue > maxQuantity) {
-                              toast.error(`Maksimum ${maxQuantity} adet siparis verebilirsiniz.`);
-                            }
+                            const numValue = Math.max(1, numericValue);
                             setQuickAddQuantities({
                               ...quickAddQuantities,
                               [product.id]: numValue

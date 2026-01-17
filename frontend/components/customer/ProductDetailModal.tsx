@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
+import { confirmBackorder } from '@/lib/utils/confirm';
 import { Button } from '@/components/ui/Button';
 
 interface ProductDetailModalProps {
@@ -74,9 +75,15 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
 
     setIsAdding(true);
     try {
-      if (maxQuantity <= 0) {
-        toast.error('Bu urun stokta yok.');
-        return;
+      if (quantity > maxQuantity) {
+        const confirmed = await confirmBackorder({
+          requestedQty: quantity,
+          availableQty: maxQuantity,
+          unit: product.unit,
+        });
+        if (!confirmed) {
+          return;
+        }
       }
       const priceMode = product.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST';
       await onAddToCart(product.id, quantity, priceType, priceMode);
@@ -377,10 +384,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                       return; // Allow empty during typing
                     }
                     const numericValue = parseInt(value);
-                    const numValue = Math.max(1, Math.min(maxQuantity, numericValue));
-                    if (numericValue > maxQuantity) {
-                      toast.error(`Maksimum ${maxQuantity} adet siparis verebilirsiniz.`);
-                    }
+                    const numValue = Math.max(1, numericValue);
                     setQuantity(numValue);
                   }}
                   onBlur={(e) => {
@@ -393,11 +397,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                 />
                 <button
                   onClick={() => {
-                    if (quantity >= maxQuantity) {
-                      toast.error(`Maksimum ${maxQuantity} adet siparis verebilirsiniz.`);
-                      return;
-                    }
-                    setQuantity(Math.min(maxQuantity, quantity + 1));
+                    setQuantity(quantity + 1);
                   }}
                   className="bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl w-12 h-12 flex items-center justify-center font-bold text-xl transition-colors"
                 >
@@ -406,7 +406,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                 <span className="text-gray-600 font-semibold">{product.unit}</span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Maksimum: {maxQuantity} {product.unit}
+                Mevcut stok: {maxQuantity} {product.unit}
               </p>
             </div>
 

@@ -15,6 +15,7 @@ import { getDisplayPrice } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
+import { confirmBackorder } from '@/lib/utils/confirm';
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -70,14 +71,15 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = async () => {
     if (!product) return;
-
     if (quantity > maxQuantity) {
-      toast.error(`Maksimum ${maxQuantity} adet sipariş verebilirsiniz.`);
-      return;
-    }
-    if (maxQuantity <= 0) {
-      toast.error('Bu urun stokta yok.');
-      return;
+      const confirmed = await confirmBackorder({
+        requestedQty: quantity,
+        availableQty: maxQuantity,
+        unit: product.unit,
+      });
+      if (!confirmed) {
+        return;
+      }
     }
 
     setIsAdding(true);
@@ -298,19 +300,15 @@ export default function ProductDetailPage() {
                     <Input
                       type="number"
                       min={1}
-                      max={maxQuantity}
                       value={quantity}
                       onChange={(e) => {
                         const numericValue = parseInt(e.target.value) || 1;
-                        const nextValue = Math.max(1, Math.min(maxQuantity, numericValue));
-                        if (numericValue > maxQuantity) {
-                          toast.error(`Maksimum ${maxQuantity} adet sipariş verebilirsiniz.`);
-                        }
+                        const nextValue = Math.max(1, numericValue);
                         setQuantity(nextValue);
                       }}
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Maksimum: {maxQuantity} {product.unit}
+                      Mevcut stok: {maxQuantity} {product.unit}
                     </p>
                   </div>
 
