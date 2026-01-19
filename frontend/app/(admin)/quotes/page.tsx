@@ -538,21 +538,14 @@ function AdminQuotesPageContent() {
           if (imageKey && imageEntry?.dataUrl) {
             imageMap.set(imageKey, { dataUrl: imageEntry.dataUrl, dimensions: imageEntry.dimensions });
           }
-          const rawProductName = (item.productName || '').trim();
-          const rawLineDescription = (item.lineDescription || '').trim();
-          const displayProductName = rawProductName || '-';
-          const showLineDescription = rawLineDescription
-            && rawLineDescription.toLowerCase() !== displayProductName.toLowerCase();
-          const productLabel = showLineDescription
-            ? `${displayProductName}\n${rawLineDescription}`
-            : displayProductName;
           return [
-            cleanPdfText(productLabel),
+            cleanPdfText(item.productName || '-'),
             { content: '', imageKey },
             String(item.quantity ?? 0),
             cleanPdfText(item.unit || item.product?.unit || '-'),
             cleanPdfText(safeCurrency(item.unitPrice)),
             cleanPdfText(safeCurrency(item.totalPrice)),
+            cleanPdfText(item.lineDescription || ''),
           ];
         })
         : [[
@@ -562,6 +555,7 @@ function AdminQuotesPageContent() {
           '-',
           '-',
           '-',
+          '',
         ]];
 
       autoTable(doc, {
@@ -573,6 +567,7 @@ function AdminQuotesPageContent() {
           'Birim',
           'Birim Fiyat',
           'Toplam',
+          'Aciklama',
         ]],
         body: tableData,
         styles: {
@@ -600,11 +595,12 @@ function AdminQuotesPageContent() {
           3: { cellWidth: 16, halign: 'center' },
           4: { cellWidth: 28, halign: 'right' },
           5: { cellWidth: 28, halign: 'right' },
+          6: { cellWidth: 22 },
         },
         alternateRowStyles: {
           fillColor: [245, 247, 250],
         },
-        margin: { left: marginX, right: marginX },
+        margin: { left: 8, right: 8 },
         didDrawCell: (data: any) => {
           if (data.section !== 'body' || data.column.index !== 1) return;
           const raw = data.cell.raw as { imageKey?: string };
