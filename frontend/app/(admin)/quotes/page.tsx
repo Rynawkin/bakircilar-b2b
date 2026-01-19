@@ -538,8 +538,16 @@ function AdminQuotesPageContent() {
           if (imageKey && imageEntry?.dataUrl) {
             imageMap.set(imageKey, { dataUrl: imageEntry.dataUrl, dimensions: imageEntry.dimensions });
           }
+          const rawProductName = (item.productName || '').trim();
+          const rawLineDescription = (item.lineDescription || '').trim();
+          const displayProductName = rawProductName || '-';
+          const showLineDescription = rawLineDescription
+            && rawLineDescription.toLowerCase() !== displayProductName.toLowerCase();
+          const productLabel = showLineDescription
+            ? `${displayProductName}\n${rawLineDescription}`
+            : displayProductName;
           return [
-            cleanPdfText(item.productName),
+            cleanPdfText(productLabel),
             { content: '', imageKey },
             String(item.quantity ?? 0),
             cleanPdfText(item.unit || item.product?.unit || '-'),

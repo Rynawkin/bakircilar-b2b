@@ -541,7 +541,9 @@ class QuoteService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           vatRate: item.vatZeroed ? 0 : item.vatRate,
-          lineDescription: item.lineDescription || item.productName,
+          lineDescription: item.isManualLine
+            ? (item.lineDescription || item.productName)
+            : (item.lineDescription || ''),
           priceListNo: item.priceListNo ?? 0,
         })),
       });
@@ -825,7 +827,9 @@ class QuoteService {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           vatRate: item.vatZeroed ? 0 : item.vatRate,
-          lineDescription: item.lineDescription || item.productName,
+          lineDescription: item.isManualLine
+            ? (item.lineDescription || item.productName)
+            : (item.lineDescription || ''),
           priceListNo: item.priceListNo ?? 0,
         })),
       });
@@ -1093,7 +1097,9 @@ class QuoteService {
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         vatRate: item.vatZeroed ? 0 : item.vatRate,
-        lineDescription: item.lineDescription || item.productName,
+        lineDescription: item.isManualLine
+          ? (item.lineDescription || item.productName)
+          : (item.lineDescription || ''),
         priceListNo: item.priceListNo ?? 0,
       })),
     });
