@@ -612,8 +612,10 @@ class QuoteService {
       throw new Error('Quote not found');
     }
 
-    if (customerId && customerId !== existing.customerId) {
-      throw new Error('Customer cannot be changed for this quote');
+    const targetCustomerId = customerId || existing.customerId;
+
+    if (!targetCustomerId) {
+      throw new Error('Customer not found');
     }
 
     if (!['PENDING_APPROVAL', 'SENT_TO_MIKRO'].includes(existing.status)) {
@@ -621,7 +623,7 @@ class QuoteService {
     }
 
     const customer = await prisma.user.findUnique({
-      where: { id: existing.customerId },
+      where: { id: targetCustomerId },
       select: {
         id: true,
         name: true,
@@ -641,7 +643,7 @@ class QuoteService {
         where: { id: contactId },
         select: { id: true, customerId: true, name: true, phone: true, email: true },
       });
-      if (!contactRow || contactRow.customerId !== customer.id) {
+      if (!contactRow || contactRow.customerId !== targetCustomerId) {
         throw new Error('Contact not found for customer');
       }
       contact = {
@@ -849,6 +851,7 @@ class QuoteService {
         where: { id: quoteId },
         data: {
           status: nextStatus,
+          customerId: customer.id,
           note: note?.trim() || null,
           documentNo: resolvedDocumentNo || null,
           responsibleCode: resolvedResponsibleCode || null,

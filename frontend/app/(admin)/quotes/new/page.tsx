@@ -335,6 +335,7 @@ function AdminQuoteNewPageContent() {
   const [loadingQuote, setLoadingQuote] = useState(false);
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
+  const [hasManualCustomerChange, setHasManualCustomerChange] = useState(false);
   const [customerContacts, setCustomerContacts] = useState<CustomerContact[]>([]);
   const [selectedContactId, setSelectedContactId] = useState('');
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -450,12 +451,12 @@ function AdminQuoteNewPageContent() {
   }, [selectedCustomer]);
 
   useEffect(() => {
-    if (!editingQuote || customers.length === 0) return;
+    if (!editingQuote || customers.length === 0 || hasManualCustomerChange) return;
     const matched = customers.find((item) => item.id === editingQuote.customer?.id);
     if (matched && matched.id !== selectedCustomer?.id) {
       setSelectedCustomer(matched);
     }
-  }, [customers, editingQuote, selectedCustomer?.id]);
+  }, [customers, editingQuote, hasManualCustomerChange, selectedCustomer?.id]);
 
   useEffect(() => {
     if (selectedColumns.length === 0) return;
@@ -837,6 +838,7 @@ function AdminQuoteNewPageContent() {
 
       const matchedCustomer = customers.find((item) => item.id === quote.customer?.id);
       setSelectedCustomer(matchedCustomer || quote.customer || null);
+      setHasManualCustomerChange(false);
       setSelectedContactId(quote.contactId || '');
       setValidityDate(quote.validityDate ? quote.validityDate.slice(0, 10) : '');
       setNote(quote.note || quote.documentNo || '');
@@ -1743,8 +1745,8 @@ function AdminQuoteNewPageContent() {
               <h2 className="text-lg font-semibold">Musteri</h2>
               <p className="text-xs text-gray-500">Teklif icin cari secin.</p>
             </div>
-            <Button variant="secondary" onClick={() => setShowCariModal(true)} disabled={isEditMode}>
-              {isEditMode ? 'Musteri Kilitli' : 'Musteri Sec'}
+            <Button variant="secondary" onClick={() => setShowCariModal(true)}>
+              {isEditMode ? 'Musteri Degistir' : 'Musteri Sec'}
             </Button>
           </div>
           {selectedCustomer ? (
@@ -2400,6 +2402,7 @@ function AdminQuoteNewPageContent() {
           const match = customers.find((customer) => customer.id === cari.userId);
           if (match) {
             setSelectedCustomer(match);
+            setHasManualCustomerChange(true);
           }
         }}
       />
