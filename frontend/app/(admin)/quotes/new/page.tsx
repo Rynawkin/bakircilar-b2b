@@ -124,6 +124,7 @@ const BASE_COLUMN_WIDTHS: Record<string, number> = {
   unitPrice: 110,
   lineTotal: 110,
   vat: 90,
+  lineDescription: 200,
   actions: 44,
 };
 
@@ -136,6 +137,7 @@ const MIN_COLUMN_WIDTHS: Record<string, number> = {
   unitPrice: 90,
   lineTotal: 90,
   vat: 80,
+  lineDescription: 140,
   actions: 40,
   stock: 120,
 };
@@ -1442,6 +1444,7 @@ function AdminQuoteNewPageContent() {
       'lineTotal',
       'vat',
       ...selectedColumns.map((column) => `stock:${column}`),
+      'lineDescription',
       'actions',
     ],
     [selectedColumns]
@@ -2050,6 +2053,10 @@ function AdminQuoteNewPageContent() {
                         {renderResizeHandle(`stock:${column}`)}
                       </th>
                     ))}
+                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
+                      Aciklama
+                      {renderResizeHandle('lineDescription')}
+                    </th>
                     <th className="px-3 py-2 bg-slate-50"></th>
                   </tr>
                 </thead>
@@ -2297,6 +2304,19 @@ function AdminQuoteNewPageContent() {
                               {item.isManualLine ? '-' : getStockColumnValue(column, stockDataMap[item.productCode])}
                             </td>
                           ))}
+                          <td className="px-3 py-2">
+                            {item.isManualLine ? (
+                              <span className="text-xs text-gray-400">-</span>
+                            ) : (
+                              <Input
+                                placeholder="Satir aciklama"
+                                value={item.lineDescription || ''}
+                                onChange={(e) => updateItem(item.id, { lineDescription: e.target.value })}
+                                maxLength={40}
+                                className="w-full"
+                              />
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-right">
                             <Button variant="danger" size="sm" onClick={() => removeItem(item.id)}>
                               Sil
