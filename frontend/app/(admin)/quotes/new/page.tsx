@@ -1650,7 +1650,7 @@ function AdminQuoteNewPageContent() {
             vatZeroed: vatZeroed || item.vatZeroed,
             manualLine: item.isManualLine,
             manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
-            lineDescription: item.lineDescription || (item.isManualLine ? item.productName : undefined),
+            lineDescription: item.lineDescription || undefined,
             lastSale: sale
               ? {
                   saleDate: sale.saleDate,
@@ -2305,17 +2305,13 @@ function AdminQuoteNewPageContent() {
                             </td>
                           ))}
                           <td className="px-3 py-2">
-                            {item.isManualLine ? (
-                              <span className="text-xs text-gray-400">-</span>
-                            ) : (
-                              <Input
-                                placeholder="Satir aciklama"
-                                value={item.lineDescription || ''}
-                                onChange={(e) => updateItem(item.id, { lineDescription: e.target.value })}
-                                maxLength={40}
-                                className="w-full"
-                              />
-                            )}
+                            <Input
+                              placeholder="Satir aciklama"
+                              value={item.lineDescription || ''}
+                              onChange={(e) => updateItem(item.id, { lineDescription: e.target.value })}
+                              maxLength={40}
+                              className="w-full"
+                            />
                           </td>
                           <td className="px-3 py-2 text-right">
                             <Button variant="danger" size="sm" onClick={() => removeItem(item.id)}>

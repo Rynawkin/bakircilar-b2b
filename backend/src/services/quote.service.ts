@@ -542,7 +542,7 @@ class QuoteService {
           unitPrice: item.unitPrice,
           vatRate: item.vatZeroed ? 0 : item.vatRate,
           lineDescription: item.isManualLine
-            ? (item.lineDescription || item.productName)
+            ? item.productName
             : (item.lineDescription || ''),
           priceListNo: item.priceListNo ?? 0,
         })),
@@ -828,7 +828,7 @@ class QuoteService {
           unitPrice: item.unitPrice,
           vatRate: item.vatZeroed ? 0 : item.vatRate,
           lineDescription: item.isManualLine
-            ? (item.lineDescription || item.productName)
+            ? item.productName
             : (item.lineDescription || ''),
           priceListNo: item.priceListNo ?? 0,
         })),
@@ -1098,7 +1098,7 @@ class QuoteService {
         unitPrice: item.unitPrice,
         vatRate: item.vatZeroed ? 0 : item.vatRate,
         lineDescription: item.isManualLine
-          ? (item.lineDescription || item.productName)
+          ? item.productName
           : (item.lineDescription || ''),
         priceListNo: item.priceListNo ?? 0,
       })),
