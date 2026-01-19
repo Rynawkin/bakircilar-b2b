@@ -2,14 +2,14 @@
 
 import toast from 'react-hot-toast';
 
-export const confirmBackorder = (params|: {
-  requestedQty|: number;
-  availableQty|: number;
-  unit|: string;
+export const confirmBackorder = (params: {
+  requestedQty: number;
+  availableQty: number;
+  unit: string;
 }): Promise<boolean> => {
-  const requestedQty = params|.requestedQty;
-  const availableQty = params|.availableQty;
-  const unit = params|.unit;
+  const requestedQty = params.requestedQty;
+  const availableQty = params.availableQty;
+  const unit = params.unit;
 
   return new Promise((resolve) => {
     toast((t) => (
