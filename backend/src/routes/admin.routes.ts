@@ -12,6 +12,7 @@ import agreementController from '../controllers/agreement.controller';
 import {
   authenticate,
   requireAdmin,
+  requireAdminOrSalesRep,
   requireAdminOrManager,
   requireStaff,
   requireOrderApprover,
@@ -147,10 +148,10 @@ router.post('/sync', requireAdmin, adminController.triggerSync);
 router.post('/sync/images', requireAdmin, adminController.triggerImageSync);
 router.get('/sync/status/:id', requireAdmin, adminController.getSyncStatus);
 
-// Cari Sync - ADMIN only
-router.post('/sync/cari', requireAdmin, adminController.triggerCariSync);
-router.get('/sync/cari/status/:id', requireAdmin, adminController.getCariSyncStatus);
-router.get('/sync/cari/latest', requireAdmin, adminController.getLatestCariSync);
+// Cari Sync - ADMIN/SALES_REP
+router.post('/sync/cari', requireAdminOrSalesRep, adminController.triggerCariSync);
+router.get('/sync/cari/status/:id', requireAdminOrSalesRep, adminController.getCariSyncStatus);
+router.get('/sync/cari/latest', requireAdminOrSalesRep, adminController.getLatestCariSync);
 
 // Cari list from Mikro - Staff (ADMIN, MANAGER, SALES_REP) - filtered by sector in controller
 router.get('/cari-list', requireStaff, adminController.getCariList);

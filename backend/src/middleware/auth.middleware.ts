@@ -67,6 +67,24 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction): v
 };
 
 /**
+ * ADMIN veya SALES_REP erisimi
+ * HEAD_ADMIN her zaman erisebilir
+ */
+export const requireAdminOrSalesRep = (req: Request, res: Response, next: NextFunction): void => {
+  if (!req.user) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  if (req.user.role !== 'HEAD_ADMIN' && req.user.role !== 'ADMIN' && req.user.role !== 'SALES_REP') {
+    res.status(403).json({ error: 'Admin or Sales Rep access required' });
+    return;
+  }
+
+  next();
+};
+
+/**
  * Sadece müşterilerin erişebileceği endpoint'ler için
  */
 export const requireCustomer = (req: Request, res: Response, next: NextFunction): void => {

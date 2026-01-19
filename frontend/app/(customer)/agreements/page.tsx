@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Product, Category } from '@/types';
 import customerApi from '@/lib/api/customer';
@@ -15,14 +16,17 @@ import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
-import { getMaxOrderQuantity } from '@/lib/utils/stock';
+import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
 export default function AgreementProductsPage() {
+  const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
-  const { fetchCart, addToCart } = useCartStore();
+  const { cart, fetchCart, addToCart, removeItem } = useCartStore();
+
+  const cartItems = cart?.items || [];
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -199,6 +203,16 @@ export default function AgreementProductsPage() {
     setIsModalOpen(true);
   };
 
+  const invoicedTotal = (cartItems || [])
+    .filter((item) => item.priceType === 'INVOICED')
+    .reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+
+  const whiteTotal = (cartItems || [])
+    .filter((item) => item.priceType === 'WHITE')
+    .reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+
+  const totalItems = (cartItems || []).reduce((sum, item) => sum + item.quantity, 0);
+
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -208,7 +222,10 @@ export default function AgreementProductsPage() {
   }
 
   return (
-    <div className="container-custom py-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
+      <div className="container-custom py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="lg:col-span-3">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Anlasmali Urunler</h1>
         <p className="text-sm text-gray-600">Sadece anlasma kapsamindaki urunleri goruntulersiniz.</p>
@@ -343,6 +360,9 @@ export default function AgreementProductsPage() {
                       <div className="text-xs text-gray-500 font-mono mt-1">Kod: {product.mikroCode}</div>
                       <div className="text-xs text-gray-500 mt-1">Kategori: {product.category.name}</div>
                       {unitLabel && <div className="text-xs text-gray-400 mt-1">{unitLabel}</div>}
+                      <div className="text-xs text-gray-500 mt-1">
+                        Stok: {getDisplayStock(product)} {product.unit}
+                      </div>
                       {product.agreement && (
                         <div className="mt-2 text-[11px] bg-blue-50 text-blue-800 inline-flex px-2 py-1 rounded">
                           Anlasma: min {product.agreement.minQuantity} {product.unit}
@@ -434,6 +454,156 @@ export default function AgreementProductsPage() {
           </div>
         </div>
       )}
+          </div>
+
+          <div className="lg:col-span-1">
+            <Card className="sticky top-24 shadow-2xl bg-gradient-to-br from-white via-gray-50 to-white border-2 border-primary-100">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-gray-100">
+                <h3 className="font-bold text-xl text-gray-900">Sepet Ozeti</h3>
+                {totalItems > 0 && (
+                  <span className="bg-gradient-to-br from-primary-600 to-primary-700 text-white text-sm font-bold px-3 py-1.5 rounded-full shadow-md animate-pulse">
+                    {totalItems} Urun
+                  </span>
+                )}
+              </div>
+
+              {!cartItems || cartItems.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-300 mb-3">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-gray-500 font-medium">Sepetiniz bos</p>
+                  <p className="text-xs text-gray-400 mt-1">Urun ekleyerek baslayin</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <button
+                    onClick={async () => {
+                      const confirmed = await new Promise((resolve) => {
+                        toast((t) => (
+                          <div className="flex flex-col gap-3">
+                            <p className="font-medium">Tum urunleri sepetten cikarmak istediginizden emin misiniz?</p>
+                            <div className="flex gap-2 justify-end">
+                              <button
+                                className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+                                onClick={() => { toast.dismiss(t.id); resolve(false); }}
+                              >
+                                Iptal
+                              </button>
+                              <button
+                                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                                onClick={() => { toast.dismiss(t.id); resolve(true); }}
+                              >
+                                Sepeti Temizle
+                              </button>
+                            </div>
+                          </div>
+                        ), { duration: Infinity });
+                      });
+
+                      if (confirmed) {
+                        for (const item of cartItems) {
+                          await removeItem(item.id);
+                        }
+                        toast.success('Sepet temizlendi');
+                      }
+                    }}
+                    className="w-full text-xs text-red-600 hover:text-red-700 hover:bg-red-50 py-2 rounded transition-colors"
+                  >
+                    Sepeti Temizle
+                  </button>
+
+                  <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
+                    {(cartItems || []).map((item) => (
+                      <div key={item.id} className="text-sm bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="font-semibold text-gray-900 flex-1">{item.product.name}</div>
+                          <button
+                            onClick={async () => {
+                              const confirmed = await new Promise((resolve) => {
+                                toast((t) => (
+                                  <div className="flex flex-col gap-3">
+                                    <p className="font-medium">Bu urunu sepetten cikarmak istediginizden emin misiniz?</p>
+                                    <div className="flex gap-2 justify-end">
+                                      <button
+                                        className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+                                        onClick={() => { toast.dismiss(t.id); resolve(false); }}
+                                      >
+                                        Iptal
+                                      </button>
+                                      <button
+                                        className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                                        onClick={() => { toast.dismiss(t.id); resolve(true); }}
+                                      >
+                                        Sil
+                                      </button>
+                                    </div>
+                                  </div>
+                                ), { duration: Infinity });
+                              });
+
+                              if (confirmed) {
+                                await removeItem(item.id);
+                                toast.success('Urun sepetten cikarildi');
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700 ml-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</span>
+                          <span className={`px-2 py-1 rounded font-medium ${
+                            item.priceType === 'INVOICED'
+                              ? 'bg-primary-100 text-primary-700'
+                              : 'bg-gray-200 text-gray-800'
+                          }`}>
+                            {item.priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
+                          </span>
+                        </div>
+                        <div className="text-right mt-1 font-bold text-primary-700">
+                          {formatCurrency(item.quantity * item.unitPrice)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="border-t-2 border-gray-200 pt-4 space-y-3">
+                    {invoicedTotal > 0 && (
+                      <div className="flex justify-between text-sm bg-primary-50 px-3 py-2 rounded-lg">
+                        <span className="text-primary-800 font-medium">Faturali Toplam:</span>
+                        <span className="font-bold text-primary-700">{formatCurrency(invoicedTotal)}</span>
+                      </div>
+                    )}
+                    {whiteTotal > 0 && (
+                      <div className="flex justify-between text-sm bg-gray-100 px-3 py-2 rounded-lg">
+                        <span className="text-gray-800 font-medium">Beyaz Toplam:</span>
+                        <span className="font-bold text-gray-900">{formatCurrency(whiteTotal)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-lg font-bold bg-gradient-to-r from-primary-600 to-primary-700 text-white px-4 py-3 rounded-lg shadow-lg">
+                      <span>Genel Toplam:</span>
+                      <span>{formatCurrency(invoicedTotal + whiteTotal)}</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-3 shadow-lg"
+                    onClick={() => router.push('/cart')}
+                  >
+                    Sepete Git ({totalItems} Urun)
+                  </Button>
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      </div>
 
       <ProductDetailModal
         product={selectedProduct}
