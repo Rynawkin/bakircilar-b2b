@@ -1543,7 +1543,7 @@ function AdminQuoteNewPageContent() {
       ? ((unitPrice - currentCost) / currentCost) * 100
       : null;
     const baseCost = lastEntry > 0 ? lastEntry : currentCost;
-    const blocked = item.priceSource === 'MANUAL' && baseCost > 0 && unitPrice < baseCost * 1.05;
+    const blocked = baseCost > 0 && unitPrice < baseCost * 1.05;
     const vatRate = item.vatRate || 0;
     const lastEntryWithVat = lastEntry > 0 ? lastEntry * (1 + vatRate) : null;
     const openPurchase = lastEntry > 0 && lastEntryWithVat !== null && Math.abs(lastEntryWithVat - lastEntry) < 0.01;
@@ -2014,7 +2014,7 @@ function AdminQuoteNewPageContent() {
 
           {hasBlockedPreview && (
             <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-              Manuel fiyatli satirlardan bazilari %5 kar altinda. Bu teklif admin onayina gidecek.
+              Bazi satirlarda giris maliyetine gore kar %5 altinda. Bu teklif admin onayina gidecek.
             </div>
           )}
 

@@ -482,7 +482,7 @@ class QuoteService {
 
       let isBlocked = false;
       let blockedReason: string | undefined;
-      if (priceSource === 'MANUAL' && !isManualLine) {
+      if (!isManualLine) {
         const lastEntryPrice = safeNumber((product as any).lastEntryPrice, 0);
         const currentCost = safeNumber((product as any).currentCost, 0);
         const baseCost = lastEntryPrice > 0 ? lastEntryPrice : currentCost;
@@ -764,7 +764,7 @@ class QuoteService {
 
       let isBlocked = false;
       let blockedReason: string | undefined;
-      if (priceSource === 'MANUAL' && !isManualLine) {
+      if (!isManualLine) {
         const lastEntryPrice = safeNumber((product as any).lastEntryPrice, 0);
         const currentCost = safeNumber((product as any).currentCost, 0);
         const baseCost = lastEntryPrice > 0 ? lastEntryPrice : currentCost;
