@@ -115,6 +115,8 @@ const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
   { value: 'price_desc', label: 'Fiyat (Yuksekten)' },
 ];
 
+const LINE_DESCRIPTION_KEY = '__line_description__';
+
 const BASE_COLUMN_WIDTHS: Record<string, number> = {
   rowNumber: 56,
   product: 320,
@@ -362,6 +364,7 @@ function AdminQuoteNewPageContent() {
   const [selectedResponsibleCode, setSelectedResponsibleCode] = useState('');
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [lineDescriptionIndex, setLineDescriptionIndex] = useState<number | null>(null);
   const [stockUnits, setStockUnits] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() =>
     buildColumnWidthMap(undefined, [])
@@ -1307,17 +1310,18 @@ function AdminQuoteNewPageContent() {
       setDraggingColumn(null);
       return;
     }
-
-    setSelectedColumns((prev) => {
-      const next = prev.filter((column) => column !== sourceColumn);
-      const targetIndex = next.indexOf(targetColumn);
-      if (targetIndex === -1) {
-        next.push(sourceColumn);
-      } else {
-        next.splice(targetIndex, 0, sourceColumn);
-      }
-      return next;
-    });
+    const currentOrder = reorderableColumns;
+    const sourceIndex = currentOrder.indexOf(sourceColumn);
+    const targetIndex = currentOrder.indexOf(targetColumn);
+    if (sourceIndex === -1 || targetIndex === -1) {
+      setDraggingColumn(null);
+      return;
+    }
+    const nextOrder = [...currentOrder];
+    const [moved] = nextOrder.splice(sourceIndex, 1);
+    nextOrder.splice(targetIndex, 0, moved);
+    setSelectedColumns(nextOrder.filter((column) => column !== LINE_DESCRIPTION_KEY));
+    setLineDescriptionIndex(nextOrder.indexOf(LINE_DESCRIPTION_KEY));
 
     setDraggingColumn(null);
   };
@@ -1433,6 +1437,26 @@ function AdminQuoteNewPageContent() {
     }
   };
 
+  const resolvedLineDescriptionIndex = useMemo(() => {
+    const maxIndex = selectedColumns.length;
+    if (lineDescriptionIndex === null || !Number.isFinite(lineDescriptionIndex)) {
+      return maxIndex;
+    }
+    return Math.min(Math.max(lineDescriptionIndex, 0), maxIndex);
+  }, [lineDescriptionIndex, selectedColumns.length]);
+
+  const trailingColumnKeys = useMemo(() => {
+    const keys = selectedColumns.map((column) => `stock:${column}`);
+    keys.splice(resolvedLineDescriptionIndex, 0, 'lineDescription');
+    return keys;
+  }, [selectedColumns, resolvedLineDescriptionIndex]);
+
+  const reorderableColumns = useMemo(() => {
+    const keys = [...selectedColumns];
+    keys.splice(resolvedLineDescriptionIndex, 0, LINE_DESCRIPTION_KEY);
+    return keys;
+  }, [selectedColumns, resolvedLineDescriptionIndex]);
+
   const tableColumnKeys = useMemo(
     () => [
       'rowNumber',
@@ -1443,11 +1467,10 @@ function AdminQuoteNewPageContent() {
       'unitPrice',
       'lineTotal',
       'vat',
-      ...selectedColumns.map((column) => `stock:${column}`),
-      'lineDescription',
+      ...trailingColumnKeys,
       'actions',
     ],
-    [selectedColumns]
+    [trailingColumnKeys]
   );
 
   const getColumnWidth = (key: string) => {
@@ -2044,19 +2067,26 @@ function AdminQuoteNewPageContent() {
                       KDV
                       {renderResizeHandle('vat')}
                     </th>
-                    {selectedColumns.map((column) => (
-                      <th
-                        key={column}
-                        className="relative select-none px-3 py-2 text-left whitespace-nowrap bg-slate-50"
-                      >
-                        {getColumnDisplayName(column)}
-                        {renderResizeHandle(`stock:${column}`)}
-                      </th>
-                    ))}
-                    <th className="relative select-none px-3 py-2 text-left bg-slate-50">
-                      Aciklama
-                      {renderResizeHandle('lineDescription')}
-                    </th>
+                    {trailingColumnKeys.map((columnKey) => {
+                      if (columnKey === 'lineDescription') {
+                        return (
+                          <th key={columnKey} className="relative select-none px-3 py-2 text-left bg-slate-50">
+                            Aciklama
+                            {renderResizeHandle('lineDescription')}
+                          </th>
+                        );
+                      }
+                      const column = columnKey.replace('stock:', '');
+                      return (
+                        <th
+                          key={columnKey}
+                          className="relative select-none px-3 py-2 text-left whitespace-nowrap bg-slate-50"
+                        >
+                          {getColumnDisplayName(column)}
+                          {renderResizeHandle(columnKey)}
+                        </th>
+                      );
+                    })}
                     <th className="px-3 py-2 bg-slate-50"></th>
                   </tr>
                 </thead>
@@ -2299,20 +2329,27 @@ function AdminQuoteNewPageContent() {
                               {vatZeroed && <span className="text-xs text-green-600">KDV 0</span>}
                             </div>
                           </td>
-                          {selectedColumns.map((column) => (
-                            <td key={column} className="px-3 py-2 whitespace-nowrap">
-                              {item.isManualLine ? '-' : getStockColumnValue(column, stockDataMap[item.productCode])}
-                            </td>
-                          ))}
-                          <td className="px-3 py-2">
-                            <Input
-                              placeholder="Satir aciklama"
-                              value={item.lineDescription || ''}
-                              onChange={(e) => updateItem(item.id, { lineDescription: e.target.value })}
-                              maxLength={40}
-                              className="w-full"
-                            />
-                          </td>
+                          {trailingColumnKeys.map((columnKey) => {
+                            if (columnKey === 'lineDescription') {
+                              return (
+                                <td key={columnKey} className="px-3 py-2">
+                                  <Input
+                                    placeholder="Satir aciklama"
+                                    value={item.lineDescription || ''}
+                                    onChange={(e) => updateItem(item.id, { lineDescription: e.target.value })}
+                                    maxLength={40}
+                                    className="w-full"
+                                  />
+                                </td>
+                              );
+                            }
+                            const column = columnKey.replace('stock:', '');
+                            return (
+                              <td key={columnKey} className="px-3 py-2 whitespace-nowrap">
+                                {item.isManualLine ? '-' : getStockColumnValue(column, stockDataMap[item.productCode])}
+                              </td>
+                            );
+                          })}
                           <td className="px-3 py-2 text-right">
                             <Button variant="danger" size="sm" onClick={() => removeItem(item.id)}>
                               Sil
@@ -2883,11 +2920,11 @@ function AdminQuoteNewPageContent() {
 
             <div>
               <div className="text-sm font-semibold text-gray-700 mb-2">Secili Kolonlar (surukle birak)</div>
-              {selectedColumns.length === 0 ? (
-                <div className="text-xs text-gray-400">Secili kolon yok.</div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {selectedColumns.map((column) => (
+              <div className="flex flex-wrap gap-2">
+                {reorderableColumns.map((column) => {
+                  const isLineDescription = column === LINE_DESCRIPTION_KEY;
+                  const label = isLineDescription ? 'Aciklama' : getColumnDisplayName(column);
+                  return (
                     <div
                       key={column}
                       role="button"
@@ -2905,11 +2942,11 @@ function AdminQuoteNewPageContent() {
                       title="Surukleyerek sirala"
                     >
                       <span className="text-gray-400">::</span>
-                      {getColumnDisplayName(column)}
+                      {label}
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                })}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
