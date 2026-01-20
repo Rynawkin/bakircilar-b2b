@@ -21,6 +21,9 @@ import {
 } from '../types';
 
 class MikroService {
+  private purchasedCodesCache = new Map<string, { expiresAt: number; codes: string[] }>();
+  private purchasedCodesTtlMs = 10 * 60 * 1000;
+
   public pool: sql.ConnectionPool | null = null;
   public sipBelgeColumns: { no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean } | null = null;
 
@@ -443,6 +446,12 @@ class MikroService {
       return [];
     }
 
+    const cacheKey = cariCode.trim();
+    const cached = this.purchasedCodesCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.codes;
+    }
+
     await this.connect();
 
     const request = this.pool!.request();
@@ -474,7 +483,12 @@ class MikroService {
         codes.add(raw);
         codes.add(trimmed);
       }
-      return Array.from(codes);
+      const resultCodes = Array.from(codes);
+      this.purchasedCodesCache.set(cacheKey, {
+        expiresAt: Date.now() + this.purchasedCodesTtlMs,
+        codes: resultCodes,
+      });
+      return resultCodes;
   }
 
   /**
