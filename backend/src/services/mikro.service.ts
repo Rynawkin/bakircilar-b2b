@@ -8,6 +8,7 @@
 import * as sql from 'mssql';
 import { config } from '../config';
 import MIKRO_TABLES from '../config/mikro-tables';
+import { cacheService } from './cache.service';
 import {
   MikroCategory,
   MikroProduct,
@@ -452,6 +453,15 @@ class MikroService {
       return cached.codes;
     }
 
+    const redisCached = await cacheService.get<string[]>('mikro-purchased', cacheKey);
+    if (redisCached) {
+      this.purchasedCodesCache.set(cacheKey, {
+        expiresAt: Date.now() + this.purchasedCodesTtlMs,
+        codes: redisCached,
+      });
+      return redisCached;
+    }
+
     await this.connect();
 
     const request = this.pool!.request();
@@ -488,6 +498,11 @@ class MikroService {
         expiresAt: Date.now() + this.purchasedCodesTtlMs,
         codes: resultCodes,
       });
+      cacheService
+        .set('mikro-purchased', cacheKey, resultCodes, Math.floor(this.purchasedCodesTtlMs / 1000))
+        .catch((error) => {
+          console.error('Purchased codes redis cache set failed:', error);
+        });
       return resultCodes;
   }
 
