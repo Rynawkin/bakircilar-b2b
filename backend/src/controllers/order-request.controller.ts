@@ -145,7 +145,7 @@ export class OrderRequestController {
 
           const agreement = agreementMap.get(item.productId);
           const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
-          const customerProductCode = agreementActive ? (agreement.customerProductCode || null) : null;
+          const customerProductCode = agreement && agreementActive ? (agreement.customerProductCode || null) : null;
           if (agreement && isAgreementApplicable(agreement, now, item.quantity)) {
             unitInvoiced = resolveAgreementPrice(agreement, 'INVOICED', unitInvoiced);
             unitWhite = resolveAgreementPrice(agreement, 'WHITE', unitWhite);
