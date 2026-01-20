@@ -22,8 +22,8 @@ import {
 } from '../types';
 
 class MikroService {
-  private purchasedCodesCache = new Map<string, { expiresAt: number; codes: string[] }>();
-  private purchasedCodesTtlMs = 10 * 60 * 1000;
+  public purchasedCodesCache = new Map<string, { expiresAt: number; codes: string[] }>();
+  public purchasedCodesTtlMs = 10 * 60 * 1000;
 
   public pool: sql.ConnectionPool | null = null;
   public sipBelgeColumns: { no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean } | null = null;
