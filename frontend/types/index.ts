@@ -162,6 +162,8 @@ export interface OrderRequestItem {
     imageUrl?: string;
   };
   quantity: number;
+  approvedQuantity?: number | null;
+  customerProductCode?: string | null;
   priceMode: 'LIST' | 'EXCESS';
   status: 'PENDING' | 'CONVERTED' | 'REJECTED';
   lineNote?: string | null;
@@ -802,3 +804,4 @@ export interface CalculateDiscountResponse {
     type: CampaignType;
   };
 }
+

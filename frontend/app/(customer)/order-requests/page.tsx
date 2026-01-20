@@ -22,6 +22,7 @@ export default function OrderRequestsPage() {
   const [deliveryLocationByRequestId, setDeliveryLocationByRequestId] = useState<Record<string, string>>({});
   const [selectedPriceTypes, setSelectedPriceTypes] = useState<Record<string, 'INVOICED' | 'WHITE'>>({});
   const [selectedItemsByRequest, setSelectedItemsByRequest] = useState<Record<string, Record<string, boolean>>>({});
+  const [adjustedQuantities, setAdjustedQuantities] = useState<Record<string, number>>({});
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -68,6 +69,20 @@ export default function OrderRequestsPage() {
     });
   }, [requests]);
 
+  useEffect(() => {
+    setAdjustedQuantities((prev) => {
+      const next = { ...prev };
+      requests.forEach((request) => {
+        request.items.forEach((item) => {
+          if (next[item.id] === undefined) {
+            next[item.id] = item.approvedQuantity ?? item.quantity;
+          }
+        });
+      });
+      return next;
+    });
+  }, [requests]);
+
   const fetchRequests = async () => {
     setIsLoading(true);
     try {
@@ -104,26 +119,42 @@ export default function OrderRequestsPage() {
       return;
     }
 
-    let items: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE' }> | undefined;
+    let items: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE'; quantity?: number }> | undefined;
     const sourceItems = selectionSet
       ? pendingItems.filter((item) => selectionSet.has(item.id))
       : pendingItems;
 
-    if (selectionSet || canSelectPriceType) {
+    const resolveQuantity = (item: OrderRequest['items'][number]) => {
+      const raw = adjustedQuantities[item.id];
+      if (raw === undefined || raw === null) return item.quantity;
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) return null;
+      return parsed;
+    };
+
+    if (!isSubUser || selectionSet || canSelectPriceType) {
       items = sourceItems.map((item) => ({
         id: item.id,
         priceType: canSelectPriceType ? (selectedPriceTypes[item.id] || defaultPriceType) : undefined,
+        quantity: !isSubUser ? resolveQuantity(item) || undefined : undefined,
       }));
 
+      if (!isSubUser) {
+        const invalidQuantity = items.some((entry) => !entry.quantity);
+        if (invalidQuantity) {
+          toast.error('Miktar gecerli olmali.');
+          return;
+        }
+      }
+
       if (canSelectPriceType) {
-        const missing = items.some((item) => !item.priceType);
+        const missing = items.some((entry) => !entry.priceType);
         if (missing) {
           toast.error('Fiyat tipi secimi gerekli.');
           return;
         }
       }
     }
-
     setConvertingId(request.id);
     try {
       const note = noteByRequestId[request.id]?.trim();
@@ -216,9 +247,23 @@ export default function OrderRequestsPage() {
                 {request.items.map((item) => {
                   const resolvedPriceType = item.selectedPriceType
                     || (canSelectPriceType ? selectedPriceTypes[item.id] || defaultPriceType : defaultPriceType);
+                  const rawAdjustedQuantity = adjustedQuantities[item.id];
+                  const parsedAdjustedQuantity = Number(rawAdjustedQuantity);
+                  const normalizedAdjustedQuantity = Number.isFinite(parsedAdjustedQuantity) && parsedAdjustedQuantity > 0
+                    ? Math.round(parsedAdjustedQuantity)
+                    : item.quantity;
+                  const approvedQuantity = item.approvedQuantity ?? null;
+                  const effectiveQuantity = !isSubUser && item.status === 'PENDING'
+                    ? normalizedAdjustedQuantity
+                    : (approvedQuantity ?? item.quantity);
+                  const quantityDiff = approvedQuantity !== null ? approvedQuantity - item.quantity : 0;
+                  const showQuantityDiff = isSubUser && item.status === 'CONVERTED'
+                    && approvedQuantity !== null && approvedQuantity !== item.quantity;
+                  const customerProductCode = item.customerProductCode ? item.customerProductCode.trim() : '';
+                  const unitLabel = item.product.unit || '';
                   const previewTotal = resolvedPriceType === 'WHITE'
-                    ? item.previewTotalPriceWhite
-                    : item.previewTotalPriceInvoiced;
+                    ? (item.previewUnitPriceWhite ?? 0) * effectiveQuantity
+                    : (item.previewUnitPriceInvoiced ?? 0) * effectiveQuantity;
                   const displayTotal = item.selectedTotalPrice ?? previewTotal;
                   const displayType = item.selectedPriceType || resolvedPriceType;
                   const selectionMap = selectedItemsByRequest[request.id] || {};
@@ -232,7 +277,44 @@ export default function OrderRequestsPage() {
                         <div>
                           <div className="font-semibold text-gray-900">{item.product.name}</div>
                           <div className="text-xs text-gray-500 font-mono">Kod: {item.product.mikroCode}</div>
-                          <div className="text-xs text-gray-500 mt-1">Miktar: {item.quantity} {item.product.unit || ''}</div>
+                          {!isSubUser && customerProductCode && (
+                            <div className="mt-1 inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                              Musteri Kodu: {customerProductCode}
+                            </div>
+                          )}
+                          {!isSubUser && item.status === 'PENDING' ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                              <span>Talep: {item.quantity} {unitLabel}</span>
+                              <label className="inline-flex items-center gap-2">
+                                <span className="text-gray-500">Onay:</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  className="w-20 rounded-md border border-gray-200 px-2 py-1 text-xs"
+                                  value={adjustedQuantities[item.id] ?? item.quantity}
+                                  onChange={(e) => {
+                                    const value = Number(e.target.value);
+                                    const normalized = Number.isFinite(value)
+                                      ? Math.max(1, Math.round(value))
+                                      : item.quantity;
+                                    setAdjustedQuantities((prev) => ({
+                                      ...prev,
+                                      [item.id]: normalized,
+                                    }));
+                                  }}
+                                />
+                              </label>
+                            </div>
+                          ) : showQuantityDiff ? (
+                            <>
+                              <div className="text-xs text-gray-500 mt-1">Talep: {item.quantity} {unitLabel}</div>
+                              <div className="text-xs text-amber-600 mt-1">
+                                Onaylanan: {approvedQuantity} {unitLabel} (Fark: {quantityDiff > 0 ? `+${quantityDiff}` : quantityDiff})
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-xs text-gray-500 mt-1">Miktar: {effectiveQuantity} {unitLabel}</div>
+                          )}
                           {item.lineNote && (
                             <div className="text-xs text-gray-500 mt-1">Not: {item.lineNote}</div>
                           )}
@@ -437,3 +519,5 @@ export default function OrderRequestsPage() {
     </div>
   );
 }
+
+

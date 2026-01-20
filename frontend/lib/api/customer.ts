@@ -92,6 +92,10 @@ export const customerApi = {
   },
 
   // Order Requests
+  getOrderRequestPendingCount: async (): Promise<{ count: number }> => {
+    const response = await apiClient.get('/order-requests/pending-count');
+    return response.data;
+  },
   getOrderRequests: async (): Promise<{ requests: OrderRequest[] }> => {
     const response = await apiClient.get('/order-requests');
     return response.data;
@@ -105,7 +109,7 @@ export const customerApi = {
   convertOrderRequest: async (
     id: string,
     data: {
-      items?: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE' }>;
+      items?: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE'; quantity?: number }>;
       note?: string;
       customerOrderNumber?: string;
       deliveryLocation?: string;
@@ -207,3 +211,5 @@ export const customerApi = {
 };
 
 export default customerApi;
+
+

@@ -144,6 +144,7 @@ router.get('/orders', customerController.getOrders);
 router.get('/orders/:id', customerController.getOrderById);
 
 // Order Requests (Sub-users -> Parent)
+router.get('/order-requests/pending-count', orderRequestController.getPendingCount);
 router.get('/order-requests', orderRequestController.getOrderRequests);
 router.post('/order-requests', orderRequestController.createOrderRequest);
 router.post('/order-requests/:id/convert', orderRequestController.convertOrderRequest);
@@ -170,3 +171,4 @@ router.post('/notifications/read', requireCustomer, validateBody(notificationRea
 router.post('/notifications/read-all', requireCustomer, notificationController.markAllRead);
 
 export default router;
+

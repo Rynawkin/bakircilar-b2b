@@ -7,8 +7,9 @@ import type { PriceType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
+import notificationService from '../services/notification.service';
 import { resolveCustomerPriceLists } from '../utils/customerPricing';
-import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
+import { isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { ProductPrices } from '../types';
 import { generateOrderNumber } from '../utils/orderNumber';
 
@@ -110,6 +111,7 @@ export class OrderRequestController {
           productId: true,
           priceInvoiced: true,
           priceWhite: true,
+          customerProductCode: true,
           minQuantity: true,
           validFrom: true,
           validTo: true,
@@ -142,6 +144,8 @@ export class OrderRequestController {
           }
 
           const agreement = agreementMap.get(item.productId);
+          const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
+          const customerProductCode = agreementActive ? (agreement.customerProductCode || null) : null;
           if (agreement && isAgreementApplicable(agreement, now, item.quantity)) {
             unitInvoiced = resolveAgreementPrice(agreement, 'INVOICED', unitInvoiced);
             unitWhite = resolveAgreementPrice(agreement, 'WHITE', unitWhite);
@@ -149,6 +153,8 @@ export class OrderRequestController {
 
           return {
             ...item,
+            approvedQuantity: item.approvedQuantity ?? null,
+            customerProductCode,
             previewUnitPriceInvoiced: unitInvoiced,
             previewUnitPriceWhite: unitWhite,
             previewTotalPriceInvoiced: unitInvoiced * item.quantity,
@@ -164,6 +170,36 @@ export class OrderRequestController {
   }
 
   /**
+   * GET /api/order-requests/pending-count
+   */
+  async getPendingCount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: {
+          id: true,
+          parentCustomerId: true,
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      if (user.parentCustomerId) {
+        return res.json({ count: 0 });
+      }
+
+      const count = await prisma.customerRequest.count({
+        where: { parentCustomerId: user.id, status: 'PENDING' },
+      });
+
+      res.json({ count });
+    } catch (error) {
+      next(error);
+    }
+  }
+  /**
    * POST /api/order-requests
    * Create request from sub-user cart
    */
@@ -174,6 +210,7 @@ export class OrderRequestController {
         where: { id: req.user!.userId },
         select: {
           id: true,
+          name: true,
           parentCustomerId: true,
         },
       });
@@ -218,6 +255,13 @@ export class OrderRequestController {
 
       await prisma.cartItem.deleteMany({
         where: { cartId: cart.id },
+      });
+
+      const requesterName = user.name ? String(user.name).trim() : 'Alt kullanici';
+      await notificationService.createForUsers([user.parentCustomerId], {
+        title: 'Yeni siparis talebi',
+        body: `${requesterName} yeni bir talep gonderdi.`,
+        linkUrl: '/order-requests',
       });
 
       res.status(201).json({ request });
@@ -282,14 +326,20 @@ export class OrderRequestController {
 
       const now = new Date();
       const itemSelections: Record<string, PriceType> = {};
+      const itemQuantities: Record<string, number> = {};
       const selectedItemIds: string[] = [];
       if (Array.isArray(items)) {
         for (const entry of items) {
-          if (entry?.id) {
-            selectedItemIds.push(String(entry.id));
+          if (!entry?.id) {
+            continue;
           }
-          if (entry?.id && entry?.priceType) {
-            itemSelections[String(entry.id)] = entry.priceType as PriceType;
+          const itemId = String(entry.id);
+          selectedItemIds.push(itemId);
+          if (entry?.priceType) {
+            itemSelections[itemId] = entry.priceType as PriceType;
+          }
+          if (entry?.quantity !== undefined) {
+            itemQuantities[itemId] = Number(entry.quantity);
           }
         }
       }
@@ -323,6 +373,13 @@ export class OrderRequestController {
         const priceType = resolvePriceType(user.priceVisibility, itemSelections[item.id]);
         if (!priceType || (user.priceVisibility === 'BOTH' && !itemSelections[item.id])) {
           return res.status(400).json({ error: 'Price type selection required' });
+        }
+
+        const hasCustomQuantity = Object.prototype.hasOwnProperty.call(itemQuantities, item.id);
+        const quantityValue = hasCustomQuantity ? itemQuantities[item.id] : item.quantity;
+        const quantity = Number(quantityValue);
+        if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity <= 0) {
+          return res.status(400).json({ error: 'Gecersiz miktar.' });
         }
 
         const prices = item.product.prices as unknown as ProductPrices;
@@ -359,7 +416,7 @@ export class OrderRequestController {
           },
         });
 
-        if (agreement && isAgreementApplicable(agreement, now, item.quantity)) {
+        if (agreement && isAgreementApplicable(agreement, now, quantity)) {
           unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
         }
 
@@ -368,10 +425,10 @@ export class OrderRequestController {
           productId: item.productId,
           productName: item.product.name,
           mikroCode: item.product.mikroCode,
-          quantity: item.quantity,
+          quantity: quantity,
           priceType,
           unitPrice,
-          totalPrice: unitPrice * item.quantity,
+          totalPrice: unitPrice * quantity,
           lineNote: item.lineNote ? String(item.lineNote).trim() : null,
         });
       }
@@ -470,6 +527,7 @@ export class OrderRequestController {
             selectedPriceType: item.priceType as any,
             selectedUnitPrice: item.unitPrice,
             selectedTotalPrice: item.totalPrice,
+            approvedQuantity: item.quantity,
           },
         });
       }
@@ -518,6 +576,7 @@ export class OrderRequestController {
         where: { id: req.user!.userId },
         select: {
           id: true,
+          name: true,
           parentCustomerId: true,
         },
       });
@@ -583,3 +642,21 @@ export class OrderRequestController {
 }
 
 export default new OrderRequestController();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -617,7 +617,8 @@ model CartItem {
   priceType       PriceType   // INVOICED veya WHITE
   priceMode       PriceMode   @default(LIST)
   unitPrice       Float       // O andaki fiyat (snapshot)
-  lineNote        String?
+  lineNote          String?
+  approvedQuantity  Int?
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -681,7 +682,8 @@ model OrderItem {
   priceType       PriceType
   unitPrice       Float
   totalPrice      Float
-  lineNote        String?
+  lineNote          String?
+  approvedQuantity  Int?
 
   // Item-level approval (kısmi onay için)
   status          OrderItemStatus   @default(PENDING)
@@ -769,6 +771,7 @@ model CustomerRequestItem {
   status            CustomerRequestItemStatus @default(PENDING)
   priceMode         PriceMode   @default(LIST)
   lineNote          String?
+  approvedQuantity  Int?
   selectedPriceType PriceType?
   selectedUnitPrice Float?
   selectedTotalPrice Float?
@@ -1319,3 +1322,4 @@ model Notification {
   @@index([userId, isRead])
   @@index([createdAt])
 }
+

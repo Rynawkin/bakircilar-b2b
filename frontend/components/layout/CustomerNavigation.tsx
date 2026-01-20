@@ -41,6 +41,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [notificationLoading, setNotificationLoading] = useState(false);
 
   const fetchNotifications = async () => {
@@ -54,6 +55,19 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
       console.error('Notifications not loaded:', error);
     } finally {
       setNotificationLoading(false);
+    }
+  };
+
+  const fetchPendingRequestCount = async () => {
+    if (!user || user.parentCustomerId) {
+      setPendingRequestCount(0);
+      return;
+    }
+    try {
+      const { count } = await customerApi.getOrderRequestPendingCount();
+      setPendingRequestCount(count || 0);
+    } catch (error) {
+      console.error('Pending request count not loaded:', error);
     }
   };
 
@@ -87,9 +101,13 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   useEffect(() => {
     if (!user) return;
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000);
+    fetchPendingRequestCount();
+    const interval = setInterval(() => {
+      fetchNotifications();
+      fetchPendingRequestCount();
+    }, 60000);
     return () => clearInterval(interval);
-  }, [user?.id]);
+  }, [user?.id, user?.parentCustomerId]);
 
   const handleLogout = () => {
     logout();
@@ -102,7 +120,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     { name: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: Clock },
     { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
     { name: 'Siparişlerim', href: '/my-orders', icon: Package },
-    { name: 'Siparis Talepleri', href: '/order-requests', icon: ClipboardList },
+    { name: 'Siparis Talepleri', href: '/order-requests', icon: ClipboardList, badge: user?.parentCustomerId ? undefined : pendingRequestCount },
     { name: 'Tekliflerim', href: '/my-quotes', icon: FileText },
     { name: 'Taleplerim', href: '/my-requests', icon: ListTodo },
   ];
@@ -365,3 +383,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     </nav>
   );
 }
+
+
+
