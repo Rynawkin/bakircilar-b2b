@@ -40,7 +40,7 @@ export type PortalStackParamList = {
   Products: undefined;
   OrderDetail: { orderId: string };
   QuoteDetail: { quoteId: string };
-  QuoteCreate: undefined;
+  QuoteCreate: { quoteId?: string } | undefined;
   OrderTracking: undefined;
   TaskDetail: { taskId: string };
   TaskCreate: undefined;

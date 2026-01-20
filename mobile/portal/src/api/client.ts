@@ -3,7 +3,7 @@ import axios from 'axios';
 import { getAuthToken, clearAuth } from '../storage/auth';
 
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://104.248.38.69:5000/api';
+  process.env.EXPO_PUBLIC_API_BASE_URL || 'https://www.bakircilarkampanya.com/api';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

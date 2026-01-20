@@ -25,6 +25,7 @@ export function EkstreScreen() {
   const [foyuLoading, setFoyuLoading] = useState(false);
   const [foyuData, setFoyuData] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [openingTotals, setOpeningTotals] = useState({ borc: 0, alacak: 0, bakiye: 0 });
 
   const onSearch = async () => {
     if (!searchTerm.trim()) return;
@@ -51,6 +52,11 @@ export function EkstreScreen() {
         endDate: endDate || undefined,
       });
       setFoyuData(response.data || []);
+      const opening = response.opening || {};
+      const borc = Number(opening?.borc) || 0;
+      const alacak = Number(opening?.alacak) || 0;
+      const bakiye = Number.isFinite(opening?.bakiye) ? Number(opening?.bakiye) : borc - alacak;
+      setOpeningTotals({ borc, alacak, bakiye });
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Cari hareket foyi yuklenemedi.');
     } finally {
@@ -58,12 +64,39 @@ export function EkstreScreen() {
     }
   };
 
-  const totalAmount = useMemo(() => {
-    return (foyuData || []).reduce((sum, row) => {
-      const value = Number(row?.Tutar ?? row?.['Tutar'] ?? 0);
-      return sum + (Number.isFinite(value) ? value : 0);
-    }, 0);
+  const resolveDirection = (row: any) => {
+    const tipCode = Number(row?.['Tip Kodu'] ?? row?.TipKodu ?? row?.Tip ?? row?.tip);
+    if (Number.isFinite(tipCode)) {
+      if (tipCode === 0) return 'BORC';
+      if (tipCode === 1) return 'ALACAK';
+    }
+    const tipText = String(row?.['Hareket Tipi'] || '').toLowerCase();
+    if (tipText.includes('bor')) return 'BORC';
+    if (tipText.includes('alac')) return 'ALACAK';
+    return null;
+  };
+
+  const periodTotals = useMemo(() => {
+    const totals = (foyuData || []).reduce(
+      (acc, row) => {
+        const amount = Number(row?.Tutar ?? row?.['Tutar'] ?? 0) || 0;
+        const direction = resolveDirection(row);
+        if (direction === 'BORC') acc.borc += amount;
+        else if (direction === 'ALACAK') acc.alacak += amount;
+        return acc;
+      },
+      { borc: 0, alacak: 0 }
+    );
+    return { ...totals, bakiye: totals.borc - totals.alacak };
   }, [foyuData]);
+
+  const grandTotals = useMemo(() => {
+    return {
+      borc: openingTotals.borc + periodTotals.borc,
+      alacak: openingTotals.alacak + periodTotals.alacak,
+      bakiye: openingTotals.bakiye + periodTotals.bakiye,
+    };
+  }, [openingTotals, periodTotals]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -177,9 +210,12 @@ export function EkstreScreen() {
             {error && <Text style={styles.error}>{error}</Text>}
 
             {foyuData.length > 0 && (
-              <View style={styles.summaryRow}>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>Ozet</Text>
                 <Text style={styles.summaryText}>Kayit: {foyuData.length}</Text>
-                <Text style={styles.summaryText}>Toplam: {totalAmount.toFixed(2)} TL</Text>
+                <Text style={styles.summaryText}>Devir: {openingTotals.bakiye.toFixed(2)} TL</Text>
+                <Text style={styles.summaryText}>Donem: {periodTotals.bakiye.toFixed(2)} TL</Text>
+                <Text style={styles.summaryText}>Genel: {grandTotals.bakiye.toFixed(2)} TL</Text>
               </View>
             )}
           </View>
@@ -331,9 +367,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.danger,
   },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  summaryCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  summaryTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.md,
+    color: colors.text,
   },
   summaryText: {
     fontFamily: fonts.medium,

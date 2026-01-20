@@ -23,6 +23,8 @@ import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
+const PAGE_SIZE = 60;
+
 export default function PreviouslyPurchasedPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -51,6 +53,9 @@ export default function PreviouslyPurchasedPage() {
     sortBy: 'none',
     priceType: 'invoiced',
   });
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     setAdvancedFilters((prev) => {
@@ -112,29 +117,47 @@ export default function PreviouslyPurchasedPage() {
     }
   }, []);
 
-  const fetchProducts = useCallback(async () => {
-    setIsSearching(true);
+  const fetchProducts = useCallback(async (options?: { reset?: boolean; offset?: number }) => {
+    const reset = options?.reset ?? false;
+    const nextOffset = options?.offset ?? 0;
+
+    if (reset) {
+      setIsSearching(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     try {
       const searchParams = {
         categoryId: selectedCategory || undefined,
         search: debouncedSearch || undefined,
         mode: 'purchased' as const,
+        limit: PAGE_SIZE,
+        offset: nextOffset,
       };
 
       const productsData = await customerApi.getProducts(searchParams);
-      setProducts(productsData.products);
+      const nextProducts = productsData.products;
+      setProducts((prev) => (reset ? nextProducts : [...prev, ...nextProducts]));
+      setOffset(nextOffset + nextProducts.length);
+      setHasMore(nextProducts.length === PAGE_SIZE);
     } catch (error) {
-      console.error('Ürün yükleme hatası:', error);
+      console.error('??r??n y??kleme hatas??:', error);
     } finally {
-      setIsSearching(false);
-      setIsInitialLoad(false);
+      if (reset) {
+        setIsSearching(false);
+        setIsInitialLoad(false);
+      } else {
+        setIsLoadingMore(false);
+      }
     }
   }, [selectedCategory, debouncedSearch]);
 
   // Load products whenever filters change
   useEffect(() => {
     if (categories.length > 0) {
-      fetchProducts();
+      setOffset(0);
+      setHasMore(true);
+      fetchProducts({ reset: true, offset: 0 });
     }
   }, [selectedCategory, debouncedSearch, categories, fetchProducts]);
 
@@ -211,6 +234,11 @@ export default function PreviouslyPurchasedPage() {
   const openProductModal = (product: Product) => {
     setSelectedProduct(product);
     setIsModalOpen(true);
+  };
+
+  const handleLoadMore = () => {
+    if (isSearching || isLoadingMore || !hasMore) return;
+    fetchProducts({ offset, reset: false });
   };
 
   // Calculate cart totals
@@ -609,6 +637,17 @@ export default function PreviouslyPurchasedPage() {
                 );
                 })}
               </div>
+              {hasMore && (
+                <div className="mt-6 flex justify-center">
+                  <Button
+                    className="px-6"
+                    onClick={handleLoadMore}
+                    isLoading={isLoadingMore}
+                  >
+                    Daha fazla yukle
+                  </Button>
+                </div>
+              )}
               </div>
             )}
           </div>

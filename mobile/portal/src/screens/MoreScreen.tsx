@@ -1,6 +1,7 @@
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
@@ -27,10 +28,14 @@ const links: Array<{ label: string; route: keyof PortalStackParamList; descripti
 
 export function MoreScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
+  const insets = useSafeAreaInsets();
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: spacing.xl + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.title}>Daha Fazla</Text>
         <Text style={styles.subtitle}>Ek moduller ve operasyon araclari.</Text>
 
@@ -46,7 +51,7 @@ export function MoreScreen() {
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -57,7 +62,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   container: {
-    flex: 1,
     padding: spacing.xl,
     gap: spacing.md,
   },

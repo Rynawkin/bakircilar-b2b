@@ -100,6 +100,8 @@ export function QuoteDetailScreen() {
     }
   };
 
+  const canEdit = quote && ['PENDING_APPROVAL', 'SENT_TO_MIKRO'].includes(quote.status);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -184,6 +186,14 @@ export function QuoteDetailScreen() {
                 <Text style={styles.secondaryButtonText}>
                   {syncing ? 'Guncelleniyor...' : 'Mikrodan Guncelle'}
                 </Text>
+              </TouchableOpacity>
+            )}
+            {canEdit && (
+              <TouchableOpacity
+                style={styles.secondaryWideButton}
+                onPress={() => navigation.navigate('QuoteCreate', { quoteId: quote.id })}
+              >
+                <Text style={styles.secondaryButtonText}>Duzenle</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.secondaryWideButton} onPress={handlePdf} disabled={pdfLoading}>

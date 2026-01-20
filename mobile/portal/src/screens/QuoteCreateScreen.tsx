@@ -9,12 +9,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { adminApi } from '../api/admin';
 import { PortalStackParamList } from '../navigation/AppNavigator';
-import { Customer, Product, LastSale } from '../types';
+import { Customer, Product, LastSale, Quote, QuoteItem } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
 const buildDefaultValidityDate = () => {
@@ -199,6 +199,11 @@ const getMarginPercent = (unitPrice?: number | null, cost?: number | null) => {
 
 export function QuoteCreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
+  const route = useRoute() as { params?: { quoteId?: string } };
+  const editQuoteId = route.params?.quoteId;
+  const isEditMode = Boolean(editQuoteId);
+  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -240,6 +245,50 @@ export function QuoteCreateScreen() {
     };
     loadCustomers();
   }, []);
+
+  useEffect(() => {
+    if (!editQuoteId) return;
+    let active = true;
+    setLoadingEdit(true);
+    const loadQuote = async () => {
+      try {
+        const response = await adminApi.getQuoteById(editQuoteId);
+        if (!active) return;
+        const quote = response.quote;
+        setEditingQuote(quote);
+        if (quote.validityDate) {
+          setValidityDate(quote.validityDate.slice(0, 10));
+        }
+        setNote(quote.note || '');
+        setDocumentNo(quote.documentNo || '');
+        setResponsibleCode(quote.responsibleCode || '');
+        setVatZeroed(Boolean(quote.vatZeroed));
+        if (quote.items && quote.items.length > 0) {
+          setQuoteItems(quote.items.map(buildQuoteItemFromExisting));
+        }
+      } catch (err) {
+        if (active) {
+          Alert.alert('Hata', 'Teklif yuklenemedi.');
+        }
+      } finally {
+        if (active) {
+          setLoadingEdit(false);
+        }
+      }
+    };
+    loadQuote();
+    return () => {
+      active = false;
+    };
+  }, [editQuoteId]);
+
+  useEffect(() => {
+    if (!editingQuote?.customer?.id || customers.length === 0) return;
+    const matched = customers.find((customer) => customer.id === editingQuote.customer?.id);
+    if (matched && matched.id !== selectedCustomer?.id) {
+      setSelectedCustomer(matched);
+    }
+  }, [customers, editingQuote?.customer?.id, selectedCustomer?.id]);
 
   useEffect(() => {
     const loadPreferences = async () => {
@@ -508,6 +557,35 @@ export function QuoteCreateScreen() {
     };
   };
 
+  const buildQuoteItemFromExisting = (item: QuoteItem, index: number): QuoteItemForm => {
+    const priceSource = item.priceSource || (item.priceListNo ? 'PRICE_LIST' : 'MANUAL');
+    const listNo = item.priceListNo ?? poolPriceListNo ?? 1;
+    return {
+      id: item.id || `edit-${index}-${Date.now()}`,
+      productId: item.productId || '',
+      productName: item.productName,
+      productCode: item.productCode || '',
+      unit: item.unit || 'ADET',
+      quantity: item.quantity || 1,
+      priceSource,
+      priceListNo: priceSource === 'PRICE_LIST' ? listNo : undefined,
+      unitPrice: item.unitPrice || 0,
+      priceType: item.priceType || 'INVOICED',
+      mikroPriceLists: item.mikroPriceLists || {},
+      lastSales: item.lastSales || [],
+      selectedSaleIndex: priceSource === 'LAST_SALE' ? 0 : undefined,
+      vatZeroed: item.vatZeroed || false,
+      manualVatRate: item.manualVatRate ?? undefined,
+      isManualLine: item.isManualLine || false,
+      lineDescription: item.lineDescription || '',
+      manualPriceInput: item.unitPrice ? item.unitPrice.toFixed(2) : '',
+      manualMarginEntry: undefined,
+      manualMarginCost: undefined,
+      lastEntryPrice: item.lastEntryPrice ?? null,
+      currentCost: item.currentCost ?? null,
+    };
+  };
+
   const addProductsToQuote = (productsToAdd: Product[]) => {
     const validProducts = productsToAdd.filter((product) => product?.mikroCode);
     if (validProducts.length === 0) {
@@ -719,38 +797,62 @@ export function QuoteCreateScreen() {
       return;
     }
 
-    const items = quoteItems.map((item) => ({
-      productId: item.productId || undefined,
-      productCode: item.isManualLine ? item.productCode : undefined,
-      productName: item.isManualLine ? item.productName : undefined,
-      unit: item.unit,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      priceSource: item.priceSource,
-      priceListNo: item.priceSource === 'PRICE_LIST' ? item.priceListNo : undefined,
-      priceType: item.priceType,
-      manualLine: item.isManualLine || false,
-      manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
-      vatZeroed: item.vatZeroed,
-      lineDescription: item.lineDescription,
-      lastSale:
+    const items = quoteItems.map((item) => {
+      const sale =
         item.priceSource === 'LAST_SALE' && item.selectedSaleIndex !== undefined
           ? item.lastSales?.[item.selectedSaleIndex]
+          : undefined;
+
+      return {
+        productId: item.isManualLine ? undefined : item.productId,
+        productCode: item.productCode,
+        productName: item.productName,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        priceSource: item.priceSource,
+        priceListNo: item.priceSource === 'PRICE_LIST' ? item.priceListNo : undefined,
+        priceType: item.priceType,
+        vatZeroed: vatZeroed || item.vatZeroed,
+        manualLine: item.isManualLine || false,
+        manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
+        lineDescription: item.lineDescription || (item.isManualLine ? item.productName : undefined),
+        lastSale: sale
+          ? {
+              saleDate: sale.saleDate,
+              unitPrice: sale.unitPrice,
+              quantity: sale.quantity,
+              vatZeroed: sale.vatZeroed,
+            }
           : undefined,
-    }));
+      };
+    });
 
     setSaving(true);
     try {
-      await adminApi.createQuote({
-        customerId: selectedCustomer.id,
-        validityDate,
-        note: note || undefined,
-        documentNo: documentNo || undefined,
-        responsibleCode: responsibleCode || undefined,
-        vatZeroed,
-        items,
-      });
-      Alert.alert('Basarili', 'Teklif olusturuldu.');
+      if (isEditMode && editQuoteId) {
+        await adminApi.updateQuote(editQuoteId, {
+          customerId: selectedCustomer.id,
+          validityDate,
+          note: note || undefined,
+          documentNo: documentNo || undefined,
+          responsibleCode: responsibleCode || undefined,
+          vatZeroed,
+          items,
+        });
+        Alert.alert('Basarili', 'Teklif guncellendi.');
+      } else {
+        await adminApi.createQuote({
+          customerId: selectedCustomer.id,
+          validityDate,
+          note: note || undefined,
+          documentNo: documentNo || undefined,
+          responsibleCode: responsibleCode || undefined,
+          vatZeroed,
+          items,
+        });
+        Alert.alert('Basarili', 'Teklif olusturuldu.');
+      }
       navigation.goBack();
     } catch (err: any) {
       Alert.alert('Hata', err?.response?.data?.error || 'Teklif olusturulamadi.');
@@ -760,6 +862,7 @@ export function QuoteCreateScreen() {
   };
 
   const poolPriceLabel = getPoolPriceLabel(poolPriceListNo);
+  const customerLocked = isEditMode;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -768,10 +871,14 @@ export function QuoteCreateScreen() {
           <Text style={styles.backText}>Geri</Text>
         </TouchableOpacity>
 
-        <Text style={styles.title}>Yeni Teklif</Text>
+        <Text style={styles.title}>{isEditMode ? 'Teklif Duzenle' : 'Yeni Teklif'}</Text>
+        {loadingEdit && <Text style={styles.helper}>Teklif yukleniyor...</Text>}
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Cari Secimi</Text>
+          {customerLocked && (
+            <Text style={styles.helper}>Cari degistirilemez (duzenleme modu).</Text>
+          )}
           <TextInput
             style={styles.input}
             placeholder="Cari ara"
@@ -779,6 +886,7 @@ export function QuoteCreateScreen() {
             value={customerSearch}
             onChangeText={setCustomerSearch}
             returnKeyType="search"
+            editable={!customerLocked}
           />
           <View style={styles.listBlock}>
             <ScrollView style={styles.listScroll} nestedScrollEnabled>
@@ -789,7 +897,11 @@ export function QuoteCreateScreen() {
                     styles.listItem,
                     selectedCustomer?.id === customer.id && styles.listItemActive,
                   ]}
-                  onPress={() => setSelectedCustomer(customer)}
+                  onPress={() => {
+                    if (!customerLocked) {
+                      setSelectedCustomer(customer);
+                    }
+                  }}
                 >
                   <Text style={styles.listItemTitle}>{customer.name}</Text>
                   <Text style={styles.listItemMeta}>{customer.mikroCariCode || '-'}</Text>
@@ -1546,8 +1658,14 @@ export function QuoteCreateScreen() {
           )}
         </View>
 
-        <TouchableOpacity style={styles.primaryButton} onPress={handleCreate} disabled={saving}>
-          <Text style={styles.primaryButtonText}>{saving ? 'Kaydediliyor...' : 'Teklif Olustur'}</Text>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={handleCreate}
+          disabled={saving || loadingEdit || !selectedCustomer}
+        >
+          <Text style={styles.primaryButtonText}>
+            {saving ? 'Kaydediliyor...' : isEditMode ? 'Teklif Guncelle' : 'Teklif Olustur'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

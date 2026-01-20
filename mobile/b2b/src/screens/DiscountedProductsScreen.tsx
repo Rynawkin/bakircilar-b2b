@@ -4,7 +4,10 @@ import {
   Alert,
   FlatList,
   Image,
+  Modal,
+  Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,7 +20,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { customerApi } from '../api/customer';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { Product } from '../types';
+import { Category, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { resolveImageUrl } from '../utils/image';
 import { getDisplayPrice } from '../utils/vat';
@@ -28,11 +31,17 @@ export function DiscountedProductsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [warehouses, setWarehouses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [priceType, setPriceType] = useState<PriceType>('INVOICED');
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'price-asc' | 'price-desc' | 'stock-desc' | 'stock-asc'>('name-asc');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const visibility = user?.priceVisibility ?? 'INVOICED_ONLY';
 
@@ -46,7 +55,12 @@ export function DiscountedProductsScreen() {
     setLoading(true);
     setError(null);
     try {
-      const response = await customerApi.getProducts({ search, mode: 'discounted' });
+      const response = await customerApi.getProducts({
+        search: search || undefined,
+        categoryId: selectedCategory || undefined,
+        warehouse: selectedWarehouse || undefined,
+        mode: 'discounted',
+      });
       setProducts(response.products || []);
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Indirimli urunler yuklenemedi.');
@@ -55,21 +69,102 @@ export function DiscountedProductsScreen() {
     }
   };
 
+  const loadFilters = async () => {
+    try {
+      const [categoriesResponse, warehousesResponse] = await Promise.all([
+        customerApi.getCategories(),
+        customerApi.getWarehouses(),
+      ]);
+      setCategories(categoriesResponse.categories || []);
+      setWarehouses(warehousesResponse.warehouses || []);
+    } catch (err) {
+      console.warn('Filtre verileri yuklenemedi.');
+    }
+  };
+
   useEffect(() => {
-    fetchProducts();
+    loadFilters();
   }, []);
 
-  const updateQuantity = (productId: string, delta: number) => {
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      fetchProducts();
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search, selectedCategory, selectedWarehouse]);
+
+  const getWarehouseTotal = (product: Product) => {
+    const warehouseStocks = product.warehouseStocks || {};
+    const keyTotal = (key: string) => {
+      const value = warehouseStocks[key];
+      return typeof value === 'number' ? value : Number(value) || 0;
+    };
+    const hasPrimaryKeys = Object.prototype.hasOwnProperty.call(warehouseStocks, '1')
+      || Object.prototype.hasOwnProperty.call(warehouseStocks, '6');
+    const totals = hasPrimaryKeys
+      ? keyTotal('1') + keyTotal('6')
+      : Object.values(warehouseStocks).reduce((sum, value) => {
+          const numeric = typeof value === 'number' ? value : Number(value) || 0;
+          return sum + numeric;
+        }, 0);
+    const baseStock = typeof product.availableStock === 'number' ? product.availableStock : 0;
+    const excessStock = product.excessStock ?? 0;
+    return Math.max(totals, baseStock, excessStock);
+  };
+
+  const getMaxQuantity = (product: Product) => {
+    const totalStock = getWarehouseTotal(product);
+    const baseStock =
+      product.pricingMode === 'EXCESS' ? product.excessStock ?? totalStock : totalStock;
+    return product.maxOrderQuantity ?? baseStock;
+  };
+
+  const getSortPrice = (product: Product) => {
+    const agreed = product.agreement;
+    const base = agreed
+      ? { invoiced: agreed.priceInvoiced, white: agreed.priceWhite }
+      : product.prices;
+    return priceType === 'INVOICED' ? base.invoiced : base.white;
+  };
+
+  const sortedProducts = useMemo(() => {
+    const list = [...products];
+    switch (sortBy) {
+      case 'name-desc':
+        return list.sort((a, b) => b.name.localeCompare(a.name));
+      case 'price-asc':
+        return list.sort((a, b) => getSortPrice(a) - getSortPrice(b));
+      case 'price-desc':
+        return list.sort((a, b) => getSortPrice(b) - getSortPrice(a));
+      case 'stock-asc':
+        return list.sort((a, b) => getWarehouseTotal(a) - getWarehouseTotal(b));
+      case 'stock-desc':
+        return list.sort((a, b) => getWarehouseTotal(b) - getWarehouseTotal(a));
+      default:
+        return list.sort((a, b) => a.name.localeCompare(b.name));
+    }
+  }, [products, sortBy, priceType]);
+
+  const updateQuantity = (product: Product, delta: number) => {
     setQuantities((prev) => {
-      const current = prev[productId] || 1;
-      const next = Math.max(1, current + delta);
-      return { ...prev, [productId]: next };
+      const current = prev[product.id] || 1;
+      const maxQty = getMaxQuantity(product);
+      const next = Math.max(1, Math.min(maxQty, current + delta));
+      if (delta > 0 && current >= maxQty) {
+        Alert.alert('Stok Yetersiz', `Maksimum ${maxQty} adet siparis verebilirsiniz.`);
+      }
+      return { ...prev, [product.id]: next };
     });
   };
 
   const addToCart = async (product: Product) => {
     const quantity = quantities[product.id] || 1;
     try {
+      const maxQty = getMaxQuantity(product);
+      if (maxQty <= 0) {
+        Alert.alert('Stok Yetersiz', 'Bu urun stokta yok.');
+        return;
+      }
       await customerApi.addToCart({
         productId: product.id,
         quantity,
@@ -119,6 +214,23 @@ export function DiscountedProductsScreen() {
     );
   };
 
+  const sortOptions: Array<{ id: typeof sortBy; label: string }> = useMemo(
+    () => [
+      { id: 'name-asc', label: 'Isim (A-Z)' },
+      { id: 'name-desc', label: 'Isim (Z-A)' },
+      { id: 'price-asc', label: 'Fiyat (Dusuk-Yuksek)' },
+      { id: 'price-desc', label: 'Fiyat (Yuksek-Dusuk)' },
+      { id: 'stock-desc', label: 'Stok (Yuksek-Dusuk)' },
+      { id: 'stock-asc', label: 'Stok (Dusuk-Yuksek)' },
+    ],
+    []
+  );
+
+  const selectedCategoryLabel = useMemo(() => {
+    if (!selectedCategory) return 'Tum Kategoriler';
+    return categories.find((cat) => cat.id === selectedCategory)?.name || 'Tum Kategoriler';
+  }, [categories, selectedCategory]);
+
   const listHeader = useMemo(() => {
     return (
       <View style={styles.header}>
@@ -133,6 +245,33 @@ export function DiscountedProductsScreen() {
           onSubmitEditing={fetchProducts}
           returnKeyType="search"
         />
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setFiltersOpen(true)}
+          >
+            <Text style={styles.filterButtonText}>Filtreler</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.clearButton}
+            onPress={() => {
+              setSelectedCategory('');
+              setSelectedWarehouse('');
+              setSortBy('name-asc');
+            }}
+          >
+            <Text style={styles.clearButtonText}>Temizle</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.filterSummary}>
+          <Text style={styles.filterChip}>{selectedCategoryLabel}</Text>
+          <Text style={styles.filterChip}>
+            {selectedWarehouse ? `Depo: ${selectedWarehouse}` : 'Tum Depolar'}
+          </Text>
+          <Text style={styles.filterChip}>
+            {sortOptions.find((option) => option.id === sortBy)?.label}
+          </Text>
+        </View>
         {visibility === 'BOTH' && (
           <View style={styles.segment}>
             <TouchableOpacity
@@ -168,17 +307,130 @@ export function DiscountedProductsScreen() {
         {error && <Text style={styles.error}>{error}</Text>}
       </View>
     );
-  }, [search, error, visibility, priceType]);
+  }, [search, error, visibility, priceType, selectedCategoryLabel, selectedWarehouse, sortBy]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <Modal visible={filtersOpen} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setFiltersOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+            <Text style={styles.modalTitle}>Filtreler</Text>
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <View style={styles.modalSection}>
+                <Text style={styles.modalLabel}>Kategori</Text>
+                <View style={styles.optionList}>
+                  <TouchableOpacity
+                    style={[
+                      styles.optionItem,
+                      selectedCategory === '' && styles.optionItemActive,
+                    ]}
+                    onPress={() => setSelectedCategory('')}
+                  >
+                    <Text
+                      style={
+                        selectedCategory === '' ? styles.optionTextActive : styles.optionText
+                      }
+                    >
+                      Tum Kategoriler
+                    </Text>
+                  </TouchableOpacity>
+                  {categories.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={[
+                        styles.optionItem,
+                        selectedCategory === category.id && styles.optionItemActive,
+                      ]}
+                      onPress={() => setSelectedCategory(category.id)}
+                    >
+                      <Text
+                        style={
+                          selectedCategory === category.id
+                            ? styles.optionTextActive
+                            : styles.optionText
+                        }
+                      >
+                        {category.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.modalSection}>
+                <Text style={styles.modalLabel}>Depo</Text>
+                <View style={styles.optionList}>
+                  <TouchableOpacity
+                    style={[
+                      styles.optionItem,
+                      selectedWarehouse === '' && styles.optionItemActive,
+                    ]}
+                    onPress={() => setSelectedWarehouse('')}
+                  >
+                    <Text
+                      style={
+                        selectedWarehouse === '' ? styles.optionTextActive : styles.optionText
+                      }
+                    >
+                      Tum Depolar
+                    </Text>
+                  </TouchableOpacity>
+                  {warehouses.map((warehouse) => (
+                    <TouchableOpacity
+                      key={warehouse}
+                      style={[
+                        styles.optionItem,
+                        selectedWarehouse === warehouse && styles.optionItemActive,
+                      ]}
+                      onPress={() => setSelectedWarehouse(warehouse)}
+                    >
+                      <Text
+                        style={
+                          selectedWarehouse === warehouse
+                            ? styles.optionTextActive
+                            : styles.optionText
+                        }
+                      >
+                        {warehouse}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.modalSection}>
+                <Text style={styles.modalLabel}>Siralama</Text>
+                <View style={styles.optionList}>
+                  {sortOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[
+                        styles.optionItem,
+                        sortBy === option.id && styles.optionItemActive,
+                      ]}
+                      onPress={() => setSortBy(option.id)}
+                    >
+                      <Text style={sortBy === option.id ? styles.optionTextActive : styles.optionText}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setFiltersOpen(false)}>
+              <Text style={styles.modalCloseText}>Tamam</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
         <FlatList
-          data={products}
+          data={sortedProducts}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={listHeader}
           ListHeaderComponentStyle={styles.listHeader}
@@ -214,9 +466,9 @@ export function DiscountedProductsScreen() {
                   {item.agreement && <Text style={styles.badge}>Anlasmali</Text>}
                 </View>
                 <Text style={styles.code}>Kod: {item.mikroCode}</Text>
-                {typeof item.availableStock === 'number' && (
-                  <Text style={styles.code}>Stok: {item.availableStock}</Text>
-                )}
+                <Text style={styles.code}>
+                  Fazla Stok: {item.excessStock ?? getWarehouseTotal(item)}
+                </Text>
                 {renderPrices(item)}
                 <View style={styles.cartRow}>
                   <View style={styles.counterRow}>
@@ -224,7 +476,7 @@ export function DiscountedProductsScreen() {
                       style={styles.counterButton}
                       onPress={(event) => {
                         event.stopPropagation();
-                        updateQuantity(item.id, -1);
+                        updateQuantity(item, -1);
                       }}
                     >
                       <Text style={styles.counterText}>-</Text>
@@ -234,7 +486,7 @@ export function DiscountedProductsScreen() {
                       style={styles.counterButton}
                       onPress={(event) => {
                         event.stopPropagation();
-                        updateQuantity(item.id, 1);
+                        updateQuantity(item, 1);
                       }}
                     >
                       <Text style={styles.counterText}>+</Text>
@@ -307,6 +559,52 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.md,
     color: colors.text,
   },
+  filterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'center',
+  },
+  filterButton: {
+    flex: 1,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterButtonText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  clearButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  clearButtonText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+  },
+  filterSummary: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  filterChip: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+  },
   segment: {
     flexDirection: 'row',
     backgroundColor: colors.surface,
@@ -315,6 +613,73 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.xs,
     gap: spacing.xs,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    padding: spacing.lg,
+    maxHeight: '85%',
+  },
+  modalTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  modalContent: {
+    gap: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  modalSection: {
+    gap: spacing.sm,
+  },
+  modalLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  optionList: {
+    gap: spacing.xs,
+  },
+  optionItem: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  optionItemActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  optionText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  optionTextActive: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.primary,
+  },
+  modalCloseButton: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    fontFamily: fonts.semibold,
+    color: '#FFFFFF',
+    fontSize: fontSizes.md,
   },
   segmentButton: {
     flex: 1,

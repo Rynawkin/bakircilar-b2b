@@ -26,6 +26,8 @@ export const customerApi = {
     search?: string;
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
+    limit?: number;
+    offset?: number;
   }): Promise<{ products: Product[] }> => {
     const response = await apiClient.get('/products', { params });
     return response.data;

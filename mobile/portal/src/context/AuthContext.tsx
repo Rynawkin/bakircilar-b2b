@@ -7,6 +7,7 @@ import { User } from '../types';
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
+  bootstrapping: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -16,7 +17,8 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(true);
 
   const bootstrap = async () => {
     const token = await getAuthToken();
@@ -33,7 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
       }
     }
-    setLoading(false);
+    setBootstrapping(false);
   };
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const data = await loginApi({ email, password });
       setUser(data.user);
+      return;
     } finally {
       setLoading(false);
     }
@@ -71,8 +74,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const value = useMemo(
-    () => ({ user, loading, signIn, signOut, refresh }),
-    [user, loading]
+    () => ({ user, loading, bootstrapping, signIn, signOut, refresh }),
+    [user, loading, bootstrapping]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

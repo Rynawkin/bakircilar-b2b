@@ -61,6 +61,11 @@ export interface Product {
   };
 }
 
+export interface Category {
+  id: string;
+  name: string;
+}
+
 export interface Order {
   id: string;
   orderNumber: string;

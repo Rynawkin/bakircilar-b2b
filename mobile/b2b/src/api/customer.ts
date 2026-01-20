@@ -1,4 +1,5 @@
 import {
+  Category,
   Cart,
   Notification,
   Order,
@@ -9,8 +10,21 @@ import {
 import { apiClient } from './client';
 
 export const customerApi = {
-  getProducts: async (params?: { search?: string; mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements' }) => {
+  getProducts: async (params?: {
+    categoryId?: string;
+    search?: string;
+    warehouse?: string;
+    mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
+  }) => {
     const response = await apiClient.get<{ products: Product[] }>('/products', { params });
+    return response.data;
+  },
+  getCategories: async () => {
+    const response = await apiClient.get<{ categories: Category[] }>('/categories');
+    return response.data;
+  },
+  getWarehouses: async () => {
+    const response = await apiClient.get<{ warehouses: string[] }>('/warehouses');
     return response.data;
   },
   getProductById: async (id: string, params?: { mode?: 'discounted' | 'excess' }) => {

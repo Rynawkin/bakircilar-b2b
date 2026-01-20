@@ -53,6 +53,10 @@ export class CustomerController {
       const isPurchased = mode === 'purchased';
       const isAgreementMode = mode === 'agreements';
       const searchTokens = splitSearchTokens(search as string | undefined);
+      const rawLimit = Number(req.query.limit);
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : undefined;
+      const rawOffset = Number(req.query.offset);
+      const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
 
       // Kullanıcı bilgisini al
       const user = await prisma.user.findUnique({
@@ -177,6 +181,7 @@ export class CustomerController {
           orderBy: {
             product: { name: 'asc' },
           },
+          ...(limit ? { skip: offset, take: limit } : {}),
         });
 
         if (agreementRows.length == 0) {
@@ -260,6 +265,8 @@ export class CustomerController {
         ? await stockService.getExcessStockProducts({
             categoryId: categoryId as string,
             search: search as string,
+            limit,
+            offset,
           })
         : isPurchased
           ? await prisma.product.findMany({
@@ -322,6 +329,7 @@ export class CustomerController {
               orderBy: {
                 name: 'asc',
               },
+              ...(limit ? { skip: offset, take: limit } : {}),
             })
           : await prisma.product.findMany({
               where: {
@@ -382,6 +390,7 @@ export class CustomerController {
               orderBy: {
                 name: 'asc',
               },
+              ...(limit ? { skip: offset, take: limit } : {}),
             });
 
       const priceStatsMap = await priceListService.getPriceStatsMap(

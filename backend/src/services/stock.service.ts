@@ -261,6 +261,8 @@ class StockService {
     categoryId?: string;
     search?: string;
     minStock?: number;
+    limit?: number;
+    offset?: number;
   }): Promise<any[]> {
     const where: any = {
       excessStock: { gt: 0 },
@@ -284,6 +286,9 @@ class StockService {
     if (filters?.minStock) {
       where.excessStock = { gte: filters.minStock };
     }
+
+    const take = filters?.limit && filters.limit > 0 ? Math.floor(filters.limit) : undefined;
+    const skip = take ? Math.max(0, Math.floor(filters?.offset || 0)) : 0;
 
     const products = await prisma.product.findMany({
       where,
@@ -311,6 +316,7 @@ class StockService {
       orderBy: {
         excessStock: 'desc',
       },
+      ...(take ? { take, skip } : {}),
     });
 
     return products;

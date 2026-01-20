@@ -20,9 +20,9 @@ import { colors } from './src/theme';
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function AuthGate() {
-  const { user, loading, signOut } = useAuth();
+  const { user, bootstrapping, signOut } = useAuth();
 
-  if (loading) {
+  if (bootstrapping) {
     return (
       <SafeAreaView style={styles.loading}>
         <ActivityIndicator color={colors.primary} />
@@ -38,7 +38,7 @@ function AuthGate() {
 }
 
 export default function App() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Sora_400Regular,
     Sora_500Medium,
     Sora_600SemiBold,
@@ -46,13 +46,24 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded) {
-    return null;
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => undefined);
+    }, 3500);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  if (!fontsLoaded && !fontError) {
+    return (
+      <SafeAreaView style={styles.loading}>
+        <ActivityIndicator color={colors.primary} />
+      </SafeAreaView>
+    );
   }
 
   return (

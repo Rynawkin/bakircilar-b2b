@@ -1,15 +1,15 @@
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
 const links: Array<{ label: string; route: keyof RootStackParamList; description: string }> = [
+  { label: 'Siparislerim', route: 'Orders', description: 'Siparis durumlarim ve detaylar.' },
   { label: 'Talepler', route: 'Requests', description: 'Alt kullanici taleplerini onayla.' },
   { label: 'Taleplerim', route: 'Tasks', description: 'Talep listesi ve yorumlar.' },
-  { label: 'Indirimli Urunler', route: 'DiscountedProducts', description: 'Fazla stok ve kampanya urunleri.' },
-  { label: 'Daha Once Aldiklarim', route: 'PurchasedProducts', description: 'Gecmis satin alma listesi.' },
   { label: 'Anlasmali Fiyatlar', route: 'Agreements', description: 'Sabit fiyat listelerini gor.' },
   { label: 'Bekleyen Siparisler', route: 'PendingOrders', description: 'Acik teslimatlar ve bakiye.' },
   { label: 'Teklifler', route: 'Quotes', description: 'Teklifleri incele ve yanitla.' },
@@ -20,10 +20,14 @@ const links: Array<{ label: string; route: keyof RootStackParamList; description
 
 export function MoreScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const insets = useSafeAreaInsets();
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: spacing.xl + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.title}>Daha Fazla</Text>
         <Text style={styles.subtitle}>Hizli menuler ve ayarlar.</Text>
 
@@ -39,7 +43,7 @@ export function MoreScreen() {
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -50,7 +54,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   container: {
-    flex: 1,
     padding: spacing.xl,
     gap: spacing.md,
   },

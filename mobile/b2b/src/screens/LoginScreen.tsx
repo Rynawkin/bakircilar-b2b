@@ -29,7 +29,9 @@ export function LoginScreen() {
     try {
       await signIn(email.trim(), password);
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Giris yapilamadi. Bilgileri kontrol edin.');
+      const message =
+        err?.response?.data?.error || err?.message || 'Giris yapilamadi. Bilgileri kontrol edin.';
+      setError(message);
     }
   };
 

@@ -59,15 +59,25 @@ export interface DashboardStats {
 
 export interface QuoteItem {
   id: string;
+  productId?: string | null;
   productCode?: string;
   productName: string;
   unit?: string;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  priceSource?: 'PRICE_LIST' | 'MANUAL' | 'LAST_SALE';
+  priceListNo?: number | null;
   priceType?: 'INVOICED' | 'WHITE';
   vatRate?: number;
+  vatZeroed?: boolean;
+  isManualLine?: boolean;
+  manualVatRate?: number | null;
   lineDescription?: string | null;
+  lastSales?: LastSale[];
+  lastEntryPrice?: number | null;
+  currentCost?: number | null;
+  mikroPriceLists?: Record<string, number>;
 }
 
 export interface LastSale {
@@ -89,6 +99,8 @@ export interface Quote {
   validityDate?: string;
   note?: string | null;
   documentNo?: string | null;
+  responsibleCode?: string | null;
+  vatZeroed?: boolean;
   mikroNumber?: string | null;
   adminNote?: string | null;
   items?: QuoteItem[];
@@ -495,6 +507,14 @@ export interface EInvoiceDocument {
   invoiceNo: string;
   customerCode?: string;
   documentUrl?: string;
+  fileName?: string;
+  issueDate?: string;
+  sentAt?: string;
+  subtotalAmount?: number;
+  totalAmount?: number;
+  currency?: string;
+  matchStatus?: string;
+  customerName?: string;
   createdAt: string;
   updatedAt: string;
   customer?: {

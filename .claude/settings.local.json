@@ -61,7 +61,9 @@
       "Bash(timeout 120 ssh root@104.248.38.69 \"cd /var/www/b2b/backend && git pull origin main && npm install && npm run build && pm2 restart b2b-backend\")",
       "Bash(timeout 120 ssh root@104.248.38.69 \"cd /var/www/b2b/backend && git stash && git pull origin main\")",
       "Bash(timeout 120 ssh root@104.248.38.69 \"cd /var/www/b2b && rm -f backend/src/controllers/search.controller.ts backend/src/routes/search.routes.ts backend/src/services/customer-f10.service.ts backend/src/services/stock-f10.service.ts frontend/app/\\(admin\\)/reports/profit-analysis/page.tsx && cd backend && git pull origin main\")",
-      "Bash(timeout 120 ssh:*)"
+      "Bash(timeout 120 ssh:*)",
+      "Bash(timeout 10 ssh:*)",
+      "Bash(npx next lint:*)"
     ],
     "deny": [],
     "ask": []

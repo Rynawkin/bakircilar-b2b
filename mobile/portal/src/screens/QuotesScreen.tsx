@@ -135,7 +135,9 @@ export function QuotesScreen() {
               {error && <Text style={styles.error}>{error}</Text>}
             </View>
           }
-          renderItem={({ item }) => (
+          renderItem={({ item }) => {
+            const canEdit = ['PENDING_APPROVAL', 'SENT_TO_MIKRO'].includes(item.status);
+            return (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{item.quoteNumber}</Text>
               <Text style={styles.cardMeta}>Durum: {item.status}</Text>
@@ -161,6 +163,14 @@ export function QuotesScreen() {
                 >
                   <Text style={styles.secondaryButtonText}>Detay</Text>
                 </TouchableOpacity>
+                {canEdit && (
+                  <TouchableOpacity
+                    style={styles.secondaryButton}
+                    onPress={() => navigation.navigate('QuoteCreate', { quoteId: item.id })}
+                  >
+                    <Text style={styles.secondaryButtonText}>Duzenle</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={styles.secondaryButton}
                   onPress={() => handlePdf(item.id)}
@@ -172,7 +182,7 @@ export function QuotesScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          )}
+          );}}
         />
       )}
     </SafeAreaView>

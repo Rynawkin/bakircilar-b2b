@@ -1,5 +1,6 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { OrdersScreen } from '../screens/OrdersScreen';
@@ -19,6 +20,9 @@ export type PortalTabParamList = {
 const Tab = createBottomTabNavigator<PortalTabParamList>();
 
 export function PortalTabs() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 8);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -28,9 +32,12 @@ export function PortalTabs() {
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
           borderTopColor: colors.border,
-          height: 62,
+          height: 62 + bottomInset,
           paddingTop: 6,
-          paddingBottom: 8,
+          paddingBottom: bottomInset,
+        },
+        tabBarLabelStyle: {
+          fontSize: 10,
         },
         tabBarIcon: ({ color, size }) => {
           const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {

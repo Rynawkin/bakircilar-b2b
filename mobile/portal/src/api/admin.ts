@@ -65,6 +65,10 @@ export const adminApi = {
     const response = await apiClient.post('/admin/quotes', data);
     return response.data as { quote: Quote };
   },
+  updateQuote: async (id: string, data: any) => {
+    const response = await apiClient.put(`/admin/quotes/${id}`, data);
+    return response.data as { quote: Quote };
+  },
   syncQuote: async (id: string) => {
     const response = await apiClient.post(`/admin/quotes/${id}/sync`);
     return response.data as { quote: Quote; updated: boolean };
@@ -571,7 +575,7 @@ export const adminApi = {
   },
   getCariHareketFoyu: async (params: { cariKod: string; startDate?: string; endDate?: string }) => {
     const response = await apiClient.get('/cari-hareket/foyu', { params });
-    return response.data as { data: any[] };
+    return response.data as { data: any[]; opening?: { borc?: number; alacak?: number; bakiye?: number } };
   },
   getCariInfo: async (cariKod: string) => {
     const response = await apiClient.get(`/cari-hareket/info/${cariKod}`);

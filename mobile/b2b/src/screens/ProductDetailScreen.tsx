@@ -69,13 +69,51 @@ export function ProductDetailScreen() {
     fetchProduct();
   }, []);
 
+  const getWarehouseTotal = (item: Product) => {
+    const warehouseStocks = item.warehouseStocks || {};
+    const keyTotal = (key: string) => {
+      const value = warehouseStocks[key];
+      return typeof value === 'number' ? value : Number(value) || 0;
+    };
+    const hasPrimaryKeys = Object.prototype.hasOwnProperty.call(warehouseStocks, '1')
+      || Object.prototype.hasOwnProperty.call(warehouseStocks, '6');
+    const totals = hasPrimaryKeys
+      ? keyTotal('1') + keyTotal('6')
+      : Object.values(warehouseStocks).reduce((sum, value) => {
+          const numeric = typeof value === 'number' ? value : Number(value) || 0;
+          return sum + numeric;
+        }, 0);
+    const baseStock = typeof item.availableStock === 'number' ? item.availableStock : 0;
+    const excessStock = item.excessStock ?? 0;
+    return Math.max(totals, baseStock, excessStock);
+  };
+
+  const getMaxQuantity = (item: Product) => {
+    const totalStock = getWarehouseTotal(item);
+    const baseStock = item.pricingMode === 'EXCESS' ? item.excessStock ?? totalStock : totalStock;
+    return item.maxOrderQuantity ?? baseStock;
+  };
+
   const updateQuantity = (delta: number) => {
-    setQuantity((prev) => Math.max(1, prev + delta));
+    if (!product) return;
+    setQuantity((prev) => {
+      const maxQty = getMaxQuantity(product);
+      const next = Math.max(1, Math.min(maxQty, prev + delta));
+      if (delta > 0 && prev >= maxQty) {
+        Alert.alert('Stok Yetersiz', `Maksimum ${maxQty} adet siparis verebilirsiniz.`);
+      }
+      return next;
+    });
   };
 
   const addToCart = async () => {
     if (!product) return;
     try {
+      const maxQty = getMaxQuantity(product);
+      if (maxQty <= 0) {
+        Alert.alert('Stok Yetersiz', 'Bu urun stokta yok.');
+        return;
+      }
       await customerApi.addToCart({
         productId: product.id,
         quantity,
@@ -125,7 +163,11 @@ export function ProductDetailScreen() {
     user?.vatDisplayPreference
   );
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
-  const maxOrderQuantity = product.maxOrderQuantity ?? product.availableStock ?? product.excessStock ?? 0;
+  const maxOrderQuantity = getMaxQuantity(product);
+  const totalStock = getWarehouseTotal(product);
+  const isDiscounted = product.pricingMode === 'EXCESS';
+  const displayStock = isDiscounted ? product.excessStock ?? totalStock : totalStock;
+  const stockLabel = isDiscounted ? 'Fazla Stok' : 'Stok';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -140,10 +182,10 @@ export function ProductDetailScreen() {
           {product.category?.name && <Text style={styles.meta}>Kategori: {product.category.name}</Text>}
           {unitLabel && <Text style={styles.meta}>{unitLabel}</Text>}
 
-          <View style={styles.stockRow}>
-            <Text style={styles.stockLabel}>Stok</Text>
-            <Text style={styles.stockValue}>{product.availableStock ?? product.excessStock ?? 0}</Text>
-          </View>
+            <View style={styles.stockRow}>
+              <Text style={styles.stockLabel}>{stockLabel}</Text>
+              <Text style={styles.stockValue}>{displayStock}</Text>
+            </View>
 
           {product.agreement && (
             <View style={styles.agreementBox}>

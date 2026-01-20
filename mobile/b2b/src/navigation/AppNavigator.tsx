@@ -7,6 +7,7 @@ import { CustomerTaskDetailScreen } from '../screens/CustomerTaskDetailScreen';
 import { CustomerTasksScreen } from '../screens/CustomerTasksScreen';
 import { DiscountedProductsScreen } from '../screens/DiscountedProductsScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
+import { OrdersScreen } from '../screens/OrdersScreen';
 import { OrderDetailScreen } from '../screens/OrderDetailScreen';
 import { PendingOrdersScreen } from '../screens/PendingOrdersScreen';
 import { PreferencesScreen } from '../screens/PreferencesScreen';
@@ -20,6 +21,7 @@ import { RequestsScreen } from '../screens/RequestsScreen';
 
 export type RootStackParamList = {
   Tabs: undefined;
+  Orders: undefined;
   OrderDetail: { orderId: string };
   ProductDetail: { productId: string };
   Requests: undefined;
@@ -44,6 +46,7 @@ export function AppNavigator() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Tabs" component={CustomerTabs} />
+        <Stack.Screen name="Orders" component={OrdersScreen} />
         <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
         <Stack.Screen name="Requests" component={RequestsScreen} />
