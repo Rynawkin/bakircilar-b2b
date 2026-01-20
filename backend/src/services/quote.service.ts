@@ -516,6 +516,7 @@ class QuoteService {
         sourceSaleQuantity: item.lastSale?.quantity ?? null,
         sourceSaleVatZeroed: item.lastSale?.vatZeroed ?? null,
         lineDescription: item.lineDescription?.trim() || null,
+        lineOrder: index + 1,
       };
     });
 
@@ -578,7 +579,7 @@ class QuoteService {
         },
       },
       include: {
-        items: true,
+        items: { orderBy: { lineOrder: 'asc' } },
         customer: { select: { id: true, name: true, mikroCariCode: true } },
       },
     });
@@ -605,7 +606,7 @@ class QuoteService {
     const existing = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        items: true,
+        items: { orderBy: { lineOrder: 'asc' } },
         customer: { select: { id: true, mikroCariCode: true, paymentPlanNo: true } },
       },
     });
@@ -798,6 +799,7 @@ class QuoteService {
         sourceSaleQuantity: item.lastSale?.quantity ?? null,
         sourceSaleVatZeroed: item.lastSale?.vatZeroed ?? null,
         lineDescription: item.lineDescription?.trim() || null,
+        lineOrder: index + 1,
       };
     });
 
@@ -870,7 +872,7 @@ class QuoteService {
           grandTotal,
           mikroUpdatedAt: mikroUpdated ? new Date() : existing.mikroUpdatedAt,
         },
-        include: { items: true },
+        include: { items: { orderBy: { lineOrder: 'asc' } } },
       });
     });
 
@@ -891,6 +893,7 @@ class QuoteService {
       where,
       include: {
         items: {
+          orderBy: { lineOrder: 'asc' },
           include: {
             product: {
               select: {
@@ -951,6 +954,7 @@ class QuoteService {
       where: { id: quoteId },
       include: {
         items: {
+          orderBy: { lineOrder: 'asc' },
           include: {
             product: {
               select: {
@@ -1043,7 +1047,7 @@ class QuoteService {
   async getQuotesForCustomer(customerId: string) {
     const quotes = await prisma.quote.findMany({
       where: { customerId },
-      include: { items: true },
+      include: { items: { orderBy: { lineOrder: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -1053,7 +1057,7 @@ class QuoteService {
   async getQuoteByIdForCustomer(customerId: string, quoteId: string) {
     const quote = await prisma.quote.findFirst({
       where: { id: quoteId, customerId },
-      include: { items: true },
+      include: { items: { orderBy: { lineOrder: 'asc' } } },
     });
 
     if (!quote) {
@@ -1067,7 +1071,7 @@ class QuoteService {
     const quote = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        items: true,
+        items: { orderBy: { lineOrder: 'asc' } },
         customer: { select: { mikroCariCode: true, paymentPlanNo: true } },
       },
     });
@@ -1115,7 +1119,7 @@ class QuoteService {
         mikroGuid: mikroResult?.guid || null,
         quoteNumber: mikroResult?.quoteNumber || quote.quoteNumber,
       },
-      include: { items: true },
+      include: { items: { orderBy: { lineOrder: 'asc' } } },
     });
 
     return updated;
@@ -1139,7 +1143,7 @@ class QuoteService {
         adminUserId,
         adminActionAt: new Date(),
       },
-      include: { items: true },
+      include: { items: { orderBy: { lineOrder: 'asc' } } },
     });
 
     return updated;
@@ -1148,7 +1152,7 @@ class QuoteService {
   async syncQuoteFromMikro(quoteId: string) {
     const quote = await prisma.quote.findUnique({
       where: { id: quoteId },
-      include: { items: true },
+      include: { items: { orderBy: { lineOrder: 'asc' } } },
     });
 
     if (!quote) {
@@ -1207,7 +1211,7 @@ class QuoteService {
 
     const isDifferentNumber = (a: number, b: number) => Math.abs(a - b) > 0.01;
 
-    for (const line of normalizedLines) {
+    for (const [index, line] of normalizedLines.entries()) {
       const product = productMap.get(line.productCode);
       const isManualLine = !product || manualCodes.has(line.productCode);
       const productName = product ? product.name : (line.lineDescription || 'Manual line');
@@ -1249,6 +1253,7 @@ class QuoteService {
         sourceSaleQuantity: null,
         sourceSaleVatZeroed: null,
         lineDescription: line.lineDescription || null,
+        lineOrder: index + 1,
       };
 
       if (match) {
@@ -1264,7 +1269,8 @@ class QuoteService {
           match.vatZeroed !== baseData.vatZeroed ||
           isDifferentNumber(match.vatRate, baseData.vatRate) ||
           match.isManualLine !== baseData.isManualLine ||
-          (match.lineDescription || '') !== (baseData.lineDescription || '');
+          (match.lineDescription || '') !== (baseData.lineDescription || '') ||
+          match.lineOrder !== baseData.lineOrder;
 
         if (needsUpdate) {
           changed = true;
@@ -1342,7 +1348,7 @@ class QuoteService {
           validityDate: nextValidityDate || quote.validityDate,
           mikroUpdatedAt: new Date(),
         },
-        include: { items: true },
+        include: { items: { orderBy: { lineOrder: 'asc' } } },
       });
 
       return updated;

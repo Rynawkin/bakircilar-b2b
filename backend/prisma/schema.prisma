@@ -847,6 +847,7 @@ model QuoteItem {
   quantity          Int
   unitPrice         Float
   totalPrice        Float
+  lineOrder       Int              @default(0)
 
   priceSource       QuotePriceSource
   priceListNo       Int?
