@@ -107,6 +107,13 @@ export interface MikroPendingOrder {
   type: 'SALES' | 'PURCHASE';
 }
 
+export interface MikroPendingOrderByWarehouse {
+  productCode: string;
+  warehouseCode: string;
+  quantity: number;
+  type: 'SALES' | 'PURCHASE';
+}
+
 export interface MikroCari {
   code: string;
   name: string;

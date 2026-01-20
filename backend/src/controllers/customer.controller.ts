@@ -22,6 +22,19 @@ const sumStocks = (warehouseStocks: Record<string, number>, includedWarehouses: 
   return includedWarehouses.reduce((sum, warehouse) => sum + (Number(warehouseStocks[warehouse]) || 0), 0);
 };
 
+const applyPendingOrders = (
+  warehouseStocks: Record<string, number>,
+  pendingByWarehouse: Record<string, number>
+): Record<string, number> => {
+  const result: Record<string, number> = {};
+  Object.entries(warehouseStocks || {}).forEach(([warehouse, qty]) => {
+    const pending = Number(pendingByWarehouse?.[warehouse]) || 0;
+    const available = Math.max(0, (Number(qty) || 0) - pending);
+    result[warehouse] = available;
+  });
+  return result;
+};
+
 const isPriceTypeAllowed = (visibility: string | null | undefined, priceType: string): boolean => {
   if (visibility === 'WHITE_ONLY') return priceType === 'WHITE';
   if (visibility === 'BOTH') return true;
@@ -197,7 +210,9 @@ export class CustomerController {
 
           const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
           const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
-          const availableStock = sumStocks(warehouseStocks, includedWarehouses);
+          const pendingByWarehouse = (product as any).pendingCustomerOrdersByWarehouse as Record<string, number> || {};
+          const availableWarehouseStocks = applyPendingOrders(warehouseStocks, pendingByWarehouse);
+          const availableStock = sumStocks(availableWarehouseStocks, includedWarehouses);
 
           return {
             id: product.id,
@@ -211,7 +226,7 @@ export class CustomerController {
             availableStock,
             maxOrderQuantity: availableStock,
             imageUrl: product.imageUrl,
-            warehouseStocks,
+            warehouseStocks: availableWarehouseStocks,
             warehouseExcessStocks,
             category: {
               id: product.category.id,
@@ -350,13 +365,15 @@ export class CustomerController {
 
         const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
         const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
-        let availableStock = sumStocks(warehouseStocks, includedWarehouses);
+        const pendingByWarehouse = (product as any).pendingCustomerOrdersByWarehouse as Record<string, number> || {};
+        const availableWarehouseStocks = applyPendingOrders(warehouseStocks, pendingByWarehouse);
+        let availableStock = sumStocks(availableWarehouseStocks, includedWarehouses);
         let excessStock = product.excessStock;
         let maxOrderQuantity = isDiscounted ? excessStock : availableStock;
 
         if (warehouse) {
           const warehouseKey = warehouse as string;
-          const warehouseQty = warehouseStocks?.[warehouseKey] || 0;
+          const warehouseQty = availableWarehouseStocks?.[warehouseKey] || 0;
           const warehouseExcessQty = warehouseExcessStocks?.[warehouseKey] || 0;
           if (isDiscounted) {
             excessStock = warehouseExcessQty;
@@ -379,7 +396,7 @@ export class CustomerController {
           availableStock,
           maxOrderQuantity,
           imageUrl: product.imageUrl,
-          warehouseStocks,
+          warehouseStocks: availableWarehouseStocks,
           warehouseExcessStocks,
           category: {
             id: product.category.id,
@@ -496,7 +513,9 @@ export class CustomerController {
 
       const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
       const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
-      const availableStock = sumStocks(warehouseStocks, includedWarehouses);
+      const pendingByWarehouse = (product as any).pendingCustomerOrdersByWarehouse as Record<string, number> || {};
+      const availableWarehouseStocks = applyPendingOrders(warehouseStocks, pendingByWarehouse);
+      const availableStock = sumStocks(availableWarehouseStocks, includedWarehouses);
 
       const agreement = await prisma.customerPriceAgreement.findFirst({
         where: {
@@ -529,7 +548,7 @@ export class CustomerController {
         excessStock: product.excessStock,
         availableStock,
         maxOrderQuantity: isDiscounted ? product.excessStock : availableStock,
-        warehouseStocks,
+        warehouseStocks: availableWarehouseStocks,
         warehouseExcessStocks,
         imageUrl: product.imageUrl,
         category: product.category,

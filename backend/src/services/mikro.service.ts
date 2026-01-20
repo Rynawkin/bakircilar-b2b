@@ -15,6 +15,7 @@ import {
   MikroSalesMovement,
   MikroCustomerSaleMovement,
   MikroPendingOrder,
+  MikroPendingOrderByWarehouse,
   MikroCari,
   MikroCariPersonel,
 } from '../types';
@@ -592,6 +593,35 @@ class MikroService {
   }
 
   /**
+   * Bekleyen siparişler (depo bazlı)
+   */
+  async getPendingOrdersByWarehouse(): Promise<MikroPendingOrderByWarehouse[]> {
+    await this.connect();
+
+    const query = `
+      SELECT
+        sip_stok_kod as productCode,
+        sip_depono as warehouseCode,
+        SUM(sip_miktar - sip_teslim_miktar) as quantity,
+        sip_tip as orderType
+      FROM SIPARISLER
+      WHERE sip_kapat_fl = 0
+        AND sip_miktar > sip_teslim_miktar
+        AND sip_stok_kod IS NOT NULL
+      GROUP BY sip_stok_kod, sip_tip, sip_depono
+    `;
+
+    const result = await this.pool!.request().query(query);
+
+    return result.recordset.map((row: any) => ({
+      productCode: row.productCode,
+      warehouseCode: String(row.warehouseCode ?? ''),
+      quantity: Number(row.quantity) || 0,
+      type: row.orderType === 0 ? 'SALES' : 'PURCHASE',
+    }));
+  }
+
+  /**
    * Cari listesini getir (basit - sadece kod ve isim)
    */
   async getCariList(): Promise<MikroCari[]> {
@@ -791,6 +821,9 @@ class MikroService {
     const includeBelgeNo = Boolean(belgeNoColumn);
     const includeBelgeTarih = sipBelgeColumns.tarih;
     const evrakSeriValue = evrakSeriInput ? String(evrakSeriInput).trim().slice(0, 20) : '';
+    const sorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
+    const projeKodu = String(process.env.MIKRO_PROJE_KODU || 'R').trim().slice(0, 25);
+    const hareketTipi = 0;
 
     if (documentNoValue && !includeBelgeNo) {
       console.warn('WARN: SIPARISLER sip_belge_no/sip_belgeno kolonunu bulamadik, belge no yazilmadi.');
@@ -906,6 +939,10 @@ class MikroService {
           'sip_doviz_kuru',
           'sip_fileid',
           'sip_aciklama',
+          'sip_harekettipi',
+          'sip_stok_sormerk',
+          'sip_cari_sormerk',
+          'sip_projekodu',
           ...(belgeNoColumn ? [belgeNoColumn] : []),
           ...(includeBelgeTarih ? ['sip_belge_tarih'] : []),
           'sip_create_date',
@@ -950,6 +987,10 @@ class MikroService {
           '1',
           '@sipFileId',
           '@aciklama',
+          '@hareketTipi',
+          '@stokSorMerkez',
+          '@cariSorMerkez',
+          '@projeKodu',
           ...(belgeNoColumn ? ['@belgeNo'] : []),
           ...(includeBelgeTarih ? ['@belgeTarih'] : []),
           'GETDATE()',
@@ -993,7 +1034,11 @@ class MikroService {
           .input('vergiTutari', sql.Float, vergiTutari)
           .input('vergiYuzdesi', sql.Float, vergiYuzdesi)
           .input('sipFileId', sql.SmallInt, sipFileId)
-          .input('aciklama', sql.NVarChar(50), lineDescriptionValue);
+          .input('aciklama', sql.NVarChar(50), lineDescriptionValue)
+          .input('hareketTipi', sql.TinyInt, hareketTipi)
+          .input('stokSorMerkez', sql.NVarChar(25), sorMerkez)
+          .input('cariSorMerkez', sql.NVarChar(25), sorMerkez)
+          .input('projeKodu', sql.NVarChar(25), projeKodu);
 
         if (includeBelgeNo) {
           request.input('belgeNo', sql.NVarChar(50), documentNoValue);

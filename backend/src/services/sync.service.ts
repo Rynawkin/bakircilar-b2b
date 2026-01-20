@@ -215,10 +215,10 @@ class SyncService {
    * Ürünleri Mikro'dan çek ve sync et
    */
   private async syncProducts(): Promise<number> {
-    const [mikroProducts, salesHistory, pendingOrders] = await Promise.all([
+    const [mikroProducts, salesHistory, pendingOrdersByWarehouse] = await Promise.all([
       mikroService.getProducts(),
       mikroService.getSalesHistory(),
-      mikroService.getPendingOrders(),
+      mikroService.getPendingOrdersByWarehouse(),
     ]);
 
     console.log(`📊 Mikro'dan ${mikroProducts.length} ürün çekildi`);
@@ -236,6 +236,36 @@ class SyncService {
 
     let count = 0;
     let skippedNoCategory = 0;
+
+    const pendingMap = new Map<string, {
+      sales: number;
+      purchases: number;
+      salesByWarehouse: Record<string, number>;
+    }>();
+
+    for (const pending of pendingOrdersByWarehouse) {
+      const productCode = String(pending.productCode || '').trim();
+      if (!productCode) continue;
+
+      const entry = pendingMap.get(productCode) || {
+        sales: 0,
+        purchases: 0,
+        salesByWarehouse: {},
+      };
+
+      const quantity = Math.max(0, Number(pending.quantity) || 0);
+      if (pending.type === 'SALES') {
+        entry.sales += quantity;
+        const warehouseKey = String(pending.warehouseCode || '').trim();
+        if (warehouseKey) {
+          entry.salesByWarehouse[warehouseKey] = (entry.salesByWarehouse[warehouseKey] || 0) + quantity;
+        }
+      } else {
+        entry.purchases += quantity;
+      }
+
+      pendingMap.set(productCode, entry);
+    }
 
     for (const mikroProduct of mikroProducts) {
       // Kategorisini bul
@@ -265,13 +295,10 @@ class SyncService {
       });
 
       // Bekleyen siparişleri topla
-      const pendingSales = pendingOrders
-        .filter((o) => o.productCode === mikroProduct.code && o.type === 'SALES')
-        .reduce((sum, o) => sum + o.quantity, 0);
-
-      const pendingPurchases = pendingOrders
-        .filter((o) => o.productCode === mikroProduct.code && o.type === 'PURCHASE')
-        .reduce((sum, o) => sum + o.quantity, 0);
+      const pendingEntry = pendingMap.get(mikroProduct.code);
+      const pendingSales = pendingEntry?.sales || 0;
+      const pendingPurchases = pendingEntry?.purchases || 0;
+      const pendingSalesByWarehouse = pendingEntry?.salesByWarehouse || {};
 
       // Tarihleri parse et
       const parsedCurrentCostDate = this.parseDateString(mikroProduct.currentCostDate);
@@ -294,6 +321,7 @@ class SyncService {
           salesHistory: salesHistoryJson,
           pendingCustomerOrders: pendingSales,
           pendingPurchaseOrders: pendingPurchases,
+          pendingCustomerOrdersByWarehouse: pendingSalesByWarehouse,
           active: true,
         },
         create: {
@@ -312,6 +340,7 @@ class SyncService {
           salesHistory: salesHistoryJson,
           pendingCustomerOrders: pendingSales,
           pendingPurchaseOrders: pendingPurchases,
+          pendingCustomerOrdersByWarehouse: pendingSalesByWarehouse,
           excessStock: 0,
           prices: {},
           active: true,

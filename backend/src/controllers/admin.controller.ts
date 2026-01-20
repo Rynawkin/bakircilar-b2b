@@ -43,6 +43,19 @@ const buildSubUserPassword = (length = 10): string => {
   return `${Date.now().toString(36)}Abc123`;
 };
 
+const applyPendingOrdersToStocks = (
+  warehouseStocks: Record<string, number>,
+  pendingByWarehouse: Record<string, number>
+): Record<string, number> => {
+  const result: Record<string, number> = {};
+  Object.entries(warehouseStocks || {}).forEach(([warehouse, qty]) => {
+    const pending = Number(pendingByWarehouse?.[warehouse]) || 0;
+    const available = Math.max(0, (Number(qty) || 0) - pending);
+    result[warehouse] = available;
+  });
+  return result;
+};
+
 
 const TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
 const USD_RATE_TTL_MS = 60 * 60 * 1000;
@@ -489,6 +502,7 @@ export class AdminController {
           unit2Factor: true,
           excessStock: true,
           warehouseStocks: true,
+          pendingCustomerOrdersByWarehouse: true,
           warehouseExcessStocks: true,
           lastEntryPrice: true,
           lastEntryDate: true,
@@ -521,12 +535,15 @@ export class AdminController {
       // Toplam stok hesapla (sadece included warehouses)
       const productsWithTotalStock = products.map(product => {
         const warehouseStocks = product.warehouseStocks as Record<string, number> || {};
+        const pendingByWarehouse = (product as any).pendingCustomerOrdersByWarehouse as Record<string, number> || {};
+        const availableWarehouseStocks = applyPendingOrdersToStocks(warehouseStocks, pendingByWarehouse);
         const totalStock = includedWarehouses.reduce((sum, warehouse) => {
-          return sum + (warehouseStocks[warehouse] || 0);
+          return sum + (availableWarehouseStocks[warehouse] || 0);
         }, 0);
 
         return {
           ...product,
+          warehouseStocks: availableWarehouseStocks,
           totalStock,
         };
       });

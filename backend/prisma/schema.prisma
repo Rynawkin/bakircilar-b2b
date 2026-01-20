@@ -510,6 +510,7 @@ model Product {
   // Bekleyen siparişler
   pendingCustomerOrders   Int       @default(0)
   pendingPurchaseOrders   Int       @default(0)
+  pendingCustomerOrdersByWarehouse Json @default("{}")
 
   // Hesaplanan fazla stok (toplam)
   excessStock             Int       @default(0)

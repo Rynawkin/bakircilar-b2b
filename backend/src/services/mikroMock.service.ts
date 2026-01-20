@@ -11,6 +11,7 @@ import {
   MikroWarehouseStock,
   MikroSalesMovement,
   MikroPendingOrder,
+  MikroPendingOrderByWarehouse,
   MikroCariPersonel,
 } from '../types';
 
@@ -439,6 +440,18 @@ export class MikroMockService {
       { productCode: 'URN-003', quantity: 15, type: 'PURCHASE' },
       { productCode: 'URN-011', quantity: 10, type: 'PURCHASE' },
       { productCode: 'URN-014', quantity: 8, type: 'PURCHASE' },
+    ];
+  }
+
+  async getPendingOrdersByWarehouse(): Promise<MikroPendingOrderByWarehouse[]> {
+    return [
+      { productCode: 'URN-001', warehouseCode: '1', quantity: 3, type: 'SALES' },
+      { productCode: 'URN-001', warehouseCode: '6', quantity: 2, type: 'SALES' },
+      { productCode: 'URN-004', warehouseCode: '1', quantity: 20, type: 'SALES' },
+      { productCode: 'URN-005', warehouseCode: '1', quantity: 10, type: 'SALES' },
+      { productCode: 'URN-003', warehouseCode: '1', quantity: 15, type: 'PURCHASE' },
+      { productCode: 'URN-011', warehouseCode: '6', quantity: 10, type: 'PURCHASE' },
+      { productCode: 'URN-014', warehouseCode: '1', quantity: 8, type: 'PURCHASE' },
     ];
   }
 
