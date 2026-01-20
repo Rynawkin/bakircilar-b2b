@@ -169,13 +169,46 @@ export class CustomerController {
 
         const products = await prisma.product.findMany({
           where: agreementWhere,
-          include: {
+          select: {
+
+            id: true,
+
+            name: true,
+
+            mikroCode: true,
+
+            unit: true,
+
+            unit2: true,
+
+            unit2Factor: true,
+
+            vatRate: true,
+
+            excessStock: true,
+
+            imageUrl: true,
+
+            warehouseStocks: true,
+
+            warehouseExcessStocks: true,
+
+            pendingCustomerOrdersByWarehouse: true,
+
+            prices: true,
+
             category: {
+
               select: {
+
                 id: true,
+
                 name: true,
+
               },
+
             },
+
           },
           orderBy: {
             name: 'asc',
@@ -278,13 +311,46 @@ export class CustomerController {
                     }
                   : {}),
               },
-              include: {
+              select: {
+
+                id: true,
+
+                name: true,
+
+                mikroCode: true,
+
+                unit: true,
+
+                unit2: true,
+
+                unit2Factor: true,
+
+                vatRate: true,
+
+                excessStock: true,
+
+                imageUrl: true,
+
+                warehouseStocks: true,
+
+                warehouseExcessStocks: true,
+
+                pendingCustomerOrdersByWarehouse: true,
+
+                prices: true,
+
                 category: {
+
                   select: {
+
                     id: true,
+
                     name: true,
+
                   },
+
                 },
+
               },
               orderBy: {
                 name: 'asc',
@@ -305,13 +371,46 @@ export class CustomerController {
                     }
                   : {}),
               },
-              include: {
+              select: {
+
+                id: true,
+
+                name: true,
+
+                mikroCode: true,
+
+                unit: true,
+
+                unit2: true,
+
+                unit2Factor: true,
+
+                vatRate: true,
+
+                excessStock: true,
+
+                imageUrl: true,
+
+                warehouseStocks: true,
+
+                warehouseExcessStocks: true,
+
+                pendingCustomerOrdersByWarehouse: true,
+
+                prices: true,
+
                 category: {
+
                   select: {
+
                     id: true,
+
                     name: true,
+
                   },
+
                 },
+
               },
               orderBy: {
                 name: 'asc',
@@ -477,13 +576,47 @@ export class CustomerController {
 
       const product = await prisma.product.findUnique({
         where: { id },
-        include: {
+        select: {
+
+          id: true,
+
+          name: true,
+
+          mikroCode: true,
+
+          unit: true,
+
+          unit2: true,
+
+          unit2Factor: true,
+
+          vatRate: true,
+
+          excessStock: true,
+
+          imageUrl: true,
+
+          warehouseStocks: true,
+
+          warehouseExcessStocks: true,
+
+          pendingCustomerOrdersByWarehouse: true,
+
+          prices: true,
+          active: true,
+
           category: {
+
             select: {
+
               id: true,
+
               name: true,
+
             },
+
           },
+
         },
       });
 

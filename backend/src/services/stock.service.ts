@@ -287,7 +287,20 @@ class StockService {
 
     const products = await prisma.product.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        name: true,
+        mikroCode: true,
+        unit: true,
+        unit2: true,
+        unit2Factor: true,
+        vatRate: true,
+        excessStock: true,
+        imageUrl: true,
+        warehouseStocks: true,
+        warehouseExcessStocks: true,
+        pendingCustomerOrdersByWarehouse: true,
+        prices: true,
         category: {
           select: {
             id: true,
