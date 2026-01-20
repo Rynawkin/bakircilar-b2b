@@ -77,8 +77,8 @@ router.get(
     keyGenerator: (req) => {
       const userId = req.user?.userId || 'guest';
       const customerType = req.user?.role || 'default';
-      const { categoryId, search, warehouse, mode } = req.query;
-      return `list:${userId}:${customerType}:${mode || 'all'}:${categoryId || ''}:${search || ''}:${warehouse || ''}`;
+      const { categoryId, search, warehouse, mode, limit, offset } = req.query;
+      return `list:${userId}:${customerType}:${mode || 'all'}:${categoryId || ''}:${search || ''}:${warehouse || ''}:${limit || ''}:${offset || ''}`;
     },
   }),
   customerController.getProducts
