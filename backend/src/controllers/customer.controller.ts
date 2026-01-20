@@ -119,12 +119,28 @@ export class CustomerController {
       }> = [];
 
       if (isAgreementMode) {
-        agreementRows = await prisma.customerPriceAgreement.findMany({
-          where: {
-            customerId: customer.id,
-            validFrom: { lte: now },
-            OR: [{ validTo: null }, { validTo: { gte: now } }],
+        const agreementWhere: any = {
+          customerId: customer.id,
+          validFrom: { lte: now },
+          OR: [{ validTo: null }, { validTo: { gte: now } }],
+          product: {
+            active: true,
+            ...(categoryId ? { categoryId: categoryId as string } : {}),
           },
+        };
+
+        if (searchTokens.length > 0) {
+          agreementWhere.AND = searchTokens.map((token) => ({
+            OR: [
+              { customerProductCode: { contains: token, mode: 'insensitive' } },
+              { product: { name: { contains: token, mode: 'insensitive' } } },
+              { product: { mikroCode: { contains: token, mode: 'insensitive' } } },
+            ],
+          }));
+        }
+
+        const agreementRows = await prisma.customerPriceAgreement.findMany({
+          where: agreementWhere,
           select: {
             id: true,
             productId: true,
@@ -134,94 +150,46 @@ export class CustomerController {
             minQuantity: true,
             validFrom: true,
             validTo: true,
-          },
-        });
-
-        const agreementProductIds = agreementRows.map((row) => row.productId);
-        if (agreementProductIds.length === 0) {
-          return res.json({ products: [] });
-        }
-
-        const agreementWhere: any = {
-          active: true,
-          id: { in: agreementProductIds },
-          ...(categoryId ? { categoryId: categoryId as string } : {}),
-        };
-
-        if (searchTokens.length > 0) {
-          agreementWhere.AND = searchTokens.map((token) => ({
-            OR: [
-              { name: { contains: token, mode: 'insensitive' } },
-              { mikroCode: { contains: token, mode: 'insensitive' } },
-              {
-                priceAgreements: {
-                  some: {
-                    customerId: customer.id,
-                    customerProductCode: { contains: token, mode: 'insensitive' },
-                    validFrom: { lte: now },
-                    OR: [{ validTo: null }, { validTo: { gte: now } }],
+            product: {
+              select: {
+                id: true,
+                name: true,
+                mikroCode: true,
+                unit: true,
+                unit2: true,
+                unit2Factor: true,
+                vatRate: true,
+                excessStock: true,
+                imageUrl: true,
+                warehouseStocks: true,
+                warehouseExcessStocks: true,
+                pendingCustomerOrdersByWarehouse: true,
+                prices: true,
+                category: {
+                  select: {
+                    id: true,
+                    name: true,
                   },
                 },
               },
-            ],
-          }));
-        }
-
-        const products = await prisma.product.findMany({
-          where: agreementWhere,
-          select: {
-
-            id: true,
-
-            name: true,
-
-            mikroCode: true,
-
-            unit: true,
-
-            unit2: true,
-
-            unit2Factor: true,
-
-            vatRate: true,
-
-            excessStock: true,
-
-            imageUrl: true,
-
-            warehouseStocks: true,
-
-            warehouseExcessStocks: true,
-
-            pendingCustomerOrdersByWarehouse: true,
-
-            prices: true,
-
-            category: {
-
-              select: {
-
-                id: true,
-
-                name: true,
-
-              },
-
             },
-
           },
           orderBy: {
-            name: 'asc',
+            product: { name: 'asc' },
           },
         });
 
+        if (agreementRows.length == 0) {
+          return res.json({ products: [] });
+        }
+
+        const agreementProducts = agreementRows.map((row) => row.product);
         const priceStatsMap = await priceListService.getPriceStatsMap(
-          products.map((product) => product.mikroCode)
+          agreementProducts.map((product) => product.mikroCode)
         );
 
-        const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
-
-        let productsWithPrices = products.map((product) => {
+        let productsWithPrices = agreementRows.map((row) => {
+          const product = row.product;
           const prices = product.prices as unknown as ProductPrices;
           const customerPrices = pricingService.getPriceForCustomer(
             prices,
@@ -236,14 +204,13 @@ export class CustomerController {
             white: listWhite > 0 ? listWhite : customerPrices.white,
           };
 
-          const agreement = agreementMap.get(product.id);
-          const agreementActive = agreement ? isAgreementActive(agreement, now) : false;
-          const agreementPrices = agreementActive ? applyAgreementPrices(listPrices, agreement) : null;
-          const agreementExcessPrices = agreementActive ? applyAgreementPrices(customerPrices, agreement) : null;
+          const agreementActive = isAgreementActive(row, now);
+          const agreementPrices = agreementActive ? applyAgreementPrices(listPrices, row) : null;
+          const agreementExcessPrices = agreementActive ? applyAgreementPrices(customerPrices, row) : null;
 
           const warehouseStocks = (product.warehouseStocks || {}) as Record<string, number>;
-          const warehouseExcessStocks = (product as any).warehouseExcessStocks as Record<string, number>;
-          const pendingByWarehouse = (product as any).pendingCustomerOrdersByWarehouse as Record<string, number> || {};
+          const warehouseExcessStocks = product.warehouseExcessStocks as Record<string, number>;
+          const pendingByWarehouse = product.pendingCustomerOrdersByWarehouse as Record<string, number> || {};
           const availableWarehouseStocks = applyPendingOrders(warehouseStocks, pendingByWarehouse);
           const availableStock = sumStocks(availableWarehouseStocks, includedWarehouses);
 
@@ -271,12 +238,12 @@ export class CustomerController {
             pricingMode: 'LIST',
             agreement: agreementActive
               ? {
-                  priceInvoiced: agreement!.priceInvoiced,
-                  priceWhite: agreement!.priceWhite,
-                  customerProductCode: agreement!.customerProductCode || null,
-                  minQuantity: agreement!.minQuantity,
-                  validFrom: agreement!.validFrom,
-                  validTo: agreement!.validTo,
+                  priceInvoiced: row.priceInvoiced,
+                  priceWhite: row.priceWhite,
+                  customerProductCode: row.customerProductCode || null,
+                  minQuantity: row.minQuantity,
+                  validFrom: row.validFrom,
+                  validTo: row.validTo,
                 }
               : undefined,
           };
