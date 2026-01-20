@@ -57,6 +57,39 @@ export class CustomerController {
       const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : undefined;
       const rawOffset = Number(req.query.offset);
       const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+      const modeLabel = typeof mode === 'string' ? mode : 'all';
+      const shouldLogTiming = isAgreementMode || isPurchased;
+      const debugTiming =
+        (process.env.PRODUCTS_TIMING_LOG === '1' && shouldLogTiming) || req.query.debug === 'timing';
+      const start = debugTiming ? process.hrtime.bigint() : 0n;
+      let last = start;
+      const timings: Record<string, number> = {};
+      const lap = (label: string) => {
+        if (!debugTiming) return;
+        const now = process.hrtime.bigint();
+        timings[label] = Number(now - last) / 1e6;
+        last = now;
+      };
+      const logTiming = (extra: Record<string, unknown> = {}) => {
+        if (!debugTiming) return;
+        const totalMs = Number(process.hrtime.bigint() - start) / 1e6;
+        console.log(
+          '[products-timing]',
+          JSON.stringify({
+            mode: modeLabel,
+            totalMs,
+            steps: timings,
+            params: {
+              limit,
+              offset,
+              categoryId: Boolean(categoryId),
+              warehouse: Boolean(warehouse),
+              searchTokens: searchTokens.length,
+            },
+            ...extra,
+          })
+        );
+      };
 
       // Kullanıcı bilgisini al
       const user = await prisma.user.findUnique({
@@ -81,6 +114,7 @@ export class CustomerController {
           },
         },
       });
+      lap('user');
 
       const customer = user?.parentCustomer || user;
 
@@ -95,7 +129,9 @@ export class CustomerController {
       let purchasedCodes: string[] = [];
       if (isPurchased) {
         purchasedCodes = await mikroService.getPurchasedProductCodes(customer.mikroCariCode as string);
+        lap('purchasedCodes');
         if (purchasedCodes.length === 0) {
+          logTiming({ counts: { purchasedCodes: 0 }, reason: 'no-purchases' });
           return res.json({ products: [] });
         }
       }
@@ -106,6 +142,7 @@ export class CustomerController {
           customerPriceLists: true,
         },
       });
+      lap('settings');
 
       const priceListPair = resolveCustomerPriceLists(customer, settings);
       const includedWarehouses = settings?.includedWarehouses || [];
@@ -183,8 +220,10 @@ export class CustomerController {
           },
           ...(limit ? { skip: offset, take: limit } : {}),
         });
+        lap('agreementsQuery');
 
         if (agreementRows.length == 0) {
+          logTiming({ counts: { agreementRows: 0 } });
           return res.json({ products: [] });
         }
 
@@ -192,6 +231,7 @@ export class CustomerController {
         const priceStatsMap = await priceListService.getPriceStatsMap(
           agreementProducts.map((product) => product.mikroCode)
         );
+        lap('priceStats');
 
         let productsWithPrices = agreementRows.map((row) => {
           const product = row.product;
@@ -258,6 +298,8 @@ export class CustomerController {
           productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
         }
 
+        lap('enrich');
+        logTiming({ counts: { agreementRows: agreementRows.length, products: productsWithPrices.length } });
         return res.json({ products: productsWithPrices });
       }
 
@@ -393,9 +435,12 @@ export class CustomerController {
               ...(limit ? { skip: offset, take: limit } : {}),
             });
 
+      lap('productsQuery');
+
       const priceStatsMap = await priceListService.getPriceStatsMap(
         products.map((product) => product.mikroCode)
       );
+      lap('priceStats');
 
         agreementRows = await prisma.customerPriceAgreement.findMany({
         where: {
@@ -413,6 +458,7 @@ export class CustomerController {
           validTo: true,
         },
       });
+      lap('agreementsQuery');
       const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
 
       let productsWithPrices = products.map((product) => {
@@ -498,6 +544,8 @@ export class CustomerController {
         productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
       }
 
+      lap('enrich');
+      logTiming({ counts: { products: products.length, agreements: agreementRows.length, purchasedCodes: purchasedCodes.length } });
       res.json({ products: productsWithPrices });
     } catch (error) {
       next(error);
