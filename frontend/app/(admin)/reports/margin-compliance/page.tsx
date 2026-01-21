@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -33,6 +33,7 @@ import * as XLSX from 'xlsx';
 
 // 019703 Raporu veri yapısı
 interface MarginAnalysisRow {
+  [key: string]: any;
   msg_S_0089: string; // Evrak No
   msg_S_0001: string; // Stok Kodu
   Tip: string; // Bekleyen Sipariş / Fatura
@@ -82,20 +83,7 @@ interface Metadata {
   includeCompleted: number;
 }
 
-type ColumnId =
-  | 'documentNo'
-  | 'documentType'
-  | 'documentDate'
-  | 'customerName'
-  | 'stockCode'
-  | 'stockName'
-  | 'quantity'
-  | 'unitPrice'
-  | 'totalAmount'
-  | 'avgCost'
-  | 'unitProfit'
-  | 'totalProfit'
-  | 'margin';
+type ColumnId = string;
 
 interface ColumnConfig {
   id: ColumnId;
@@ -122,6 +110,23 @@ const DEFAULT_COLUMN_IDS: ColumnId[] = [
   'margin',
 ];
 
+const BASE_DATA_KEYS = new Set([
+  'Evrak No',
+  'Tip',
+  'Evrak Tarihi',
+  'Cari ?smi',
+  'Stok Kodu',
+  'Stok ?smi',
+  'Miktar',
+  'Birimi',
+  'BirimSat??KDV',
+  'TutarKDV',
+  'OrtalamaMaliyetKDVli',
+  'BirimKarOrtMalG?re',
+  'ToplamKarOrtMalG?re',
+  'OrtalamaKarYuzde',
+]);
+
 const COLUMN_STORAGE_KEY = 'margin-analysis-columns';
 
 const getDefaultDateValue = () => {
@@ -146,6 +151,7 @@ export default function MarginAnalysisPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(DEFAULT_COLUMN_IDS);
+  const hasInitializedColumns = useRef(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -183,23 +189,6 @@ export default function MarginAnalysisPage() {
   useEffect(() => {
     fetchData();
   }, [page, statusFilter, sortOrder]);
-  useEffect(() => {
-    const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const valid = parsed.filter((id): id is ColumnId =>
-          DEFAULT_COLUMN_IDS.includes(id as ColumnId)
-        );
-        if (valid.length > 0) {
-          setVisibleColumns(valid);
-        }
-      }
-    } catch {
-      // Ignore invalid storage content.
-    }
-  }, []);
 
   useEffect(() => {
     localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
@@ -241,6 +230,20 @@ export default function MarginAnalysisPage() {
     }
   };
 
+  const formatCellValue = (value: unknown) => {
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'number') return value.toLocaleString('tr-TR');
+    if (typeof value === 'boolean') return value ? 'Evet' : 'Hayir';
+    return String(value);
+  };
+
+  const formatExportValue = (value: unknown) => {
+    if (value === null || value === undefined) return null;
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'object') return JSON.stringify(value);
+    return value as string | number;
+  };
+
   const getMarginBadge = (margin: number) => {
     if (margin < 0) {
       return <Badge variant="destructive">Zarar: {formatPercent(margin)}</Badge>;
@@ -253,7 +256,7 @@ export default function MarginAnalysisPage() {
     }
   };
 
-  const columnDefs: ColumnConfig[] = [
+  const baseColumnDefs: ColumnConfig[] = [
     {
       id: 'documentNo',
       label: 'Evrak No',
@@ -359,6 +362,57 @@ export default function MarginAnalysisPage() {
       exportValue: (row) => row.OrtalamaKarYuzde,
     },
   ];
+
+  const extraColumnDefs: ColumnConfig[] = [];
+  if (data.length > 0) {
+    const rowKeys = Object.keys(data[0]);
+    const remainingKeys = rowKeys.filter((key) => !BASE_DATA_KEYS.has(key));
+    remainingKeys.sort((a, b) => a.localeCompare(b, 'tr'));
+    extraColumnDefs.push(
+      ...remainingKeys.map((key) => ({
+        id: key,
+        label: key,
+        headerClassName: 'whitespace-nowrap',
+        cellClassName: 'whitespace-nowrap',
+        render: (row) => formatCellValue(row[key]),
+        exportValue: (row) => formatExportValue(row[key]),
+      }))
+    );
+  }
+
+  const columnDefs = [...baseColumnDefs, ...extraColumnDefs];
+  const columnIdSignature = columnDefs.map((column) => column.id).join('|');
+
+  useEffect(() => {
+    if (hasInitializedColumns.current) return;
+    if (data.length === 0) return;
+    const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter((id) => columnDefs.some((column) => column.id === id));
+          if (valid.length > 0) {
+            const isDefaultSelection =
+              valid.length === DEFAULT_COLUMN_IDS.length &&
+              DEFAULT_COLUMN_IDS.every((id) => valid.includes(id));
+            if (isDefaultSelection && columnDefs.length > DEFAULT_COLUMN_IDS.length) {
+              setVisibleColumns(columnDefs.map((column) => column.id));
+            } else {
+              setVisibleColumns(valid);
+            }
+            hasInitializedColumns.current = true;
+            return;
+          }
+        }
+      } catch {
+        // Ignore invalid storage content.
+      }
+    }
+    setVisibleColumns(columnDefs.map((column) => column.id));
+    hasInitializedColumns.current = true;
+  }, [columnIdSignature, data.length]);
+
 
   const visibleColumnDefs = columnDefs.filter((column) => visibleColumns.includes(column.id));
 
