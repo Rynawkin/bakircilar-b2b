@@ -619,6 +619,9 @@ export interface Settings {
     OZEL: { invoiced: number; white: number };
   };
   lastSyncAt?: string;
+  marginReportEmailEnabled?: boolean;
+  marginReportEmailRecipients?: string[];
+  marginReportEmailSubject?: string;
 }
 
 // ==================== CUSTOMER TYPES ====================

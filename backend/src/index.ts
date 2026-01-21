@@ -17,6 +17,27 @@ import priceSyncService from './services/priceSync.service';
 import quoteService from './services/quote.service';
 import vadeSyncService from './services/vadeSync.service';
 import vadeNotificationService from './services/vadeNotification.service';
+import reportsService from './services/reports.service';
+import { prisma } from './utils/prisma';
+
+
+const getDateInTimeZone = (date: Date, timeZone: string): Date => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const [year, month, day] = formatter.format(date).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+};
+
+const getYesterdayInTimeZone = (timeZone: string): Date => {
+  const today = getDateInTimeZone(new Date(), timeZone);
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(today.getUTCDate() - 1);
+  return yesterday;
+};
 
 // Express app
 const app: Application = express();
@@ -146,6 +167,7 @@ if (config.enableCron) {
 
   console.log('Vade reminder cron schedule:', config.vadeReminderCronSchedule, 'Timezone:', config.cronTimezone);
   cron.schedule(config.vadeReminderCronSchedule, async () => {
+
     try {
       const result = await vadeNotificationService.processNoteReminders();
       if (result.notified > 0) {
@@ -155,6 +177,64 @@ if (config.enableCron) {
       console.error('Vade reminder error:', error);
     }
   }, cronOptions);
+
+  console.log('Margin compliance report cron schedule:', config.marginReportCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.marginReportCronSchedule, async () => {
+    console.log('Margin compliance report sync started...');
+    const reportDate = getYesterdayInTimeZone(config.cronTimezone);
+
+    try {
+      const syncResult = await reportsService.syncMarginComplianceReportForDate(reportDate);
+      if (!syncResult.success) {
+        console.error('Margin compliance report sync failed:', syncResult.error);
+        return;
+      }
+
+      const settings = await prisma.settings.findFirst();
+      const recipients = settings?.marginReportEmailRecipients || [];
+      if (!settings?.marginReportEmailEnabled || recipients.length === 0) {
+        console.log('Margin compliance report email disabled or no recipients configured.');
+        return;
+      }
+
+      const [totalRecords, aggregates, highMarginCount, lowMarginCount, negativeMarginCount] =
+        await prisma.$transaction([
+          prisma.marginComplianceReportRow.count({ where: { reportDate } }),
+          prisma.marginComplianceReportRow.aggregate({
+            where: { reportDate },
+            _sum: { totalRevenue: true, totalProfit: true },
+            _avg: { avgMargin: true },
+          }),
+          prisma.marginComplianceReportRow.count({
+            where: { reportDate, avgMargin: { gt: 30 } },
+          }),
+          prisma.marginComplianceReportRow.count({
+            where: { reportDate, avgMargin: { lt: 10 } },
+          }),
+          prisma.marginComplianceReportRow.count({
+            where: { reportDate, avgMargin: { lt: 0 } },
+          }),
+        ]);
+
+      await emailService.sendMarginComplianceReportSummary({
+        recipients,
+        reportDate,
+        summary: {
+          totalRecords,
+          totalRevenue: Number(aggregates._sum.totalRevenue || 0),
+          totalProfit: Number(aggregates._sum.totalProfit || 0),
+          avgMargin: Number(aggregates._avg.avgMargin || 0),
+          highMarginCount,
+          lowMarginCount,
+          negativeMarginCount,
+        },
+        subject: settings?.marginReportEmailSubject || undefined,
+      });
+    } catch (error) {
+      console.error('Margin compliance report cron error:', error);
+    }
+  }, cronOptions);
+
 
   // Sipariş Takip Modülü - Otomatik sync + mail
   (async () => {

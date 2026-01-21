@@ -149,6 +149,11 @@ enum VadeSyncStatus {
   PARTIAL
 }
 
+enum ReportSyncStatus {
+  SUCCESS
+  FAILED
+}
+
 enum EInvoiceMatchStatus {
   MATCHED
   PARTIAL
@@ -320,6 +325,9 @@ model Settings {
   // Son senkronizasyon
   lastSyncAt                DateTime?
   lastVadeSyncAt            DateTime?
+  marginReportEmailEnabled  Boolean                 @default(false)
+  marginReportEmailRecipients String[]              @default([])
+  marginReportEmailSubject  String                  @default("Kar Marji Raporu")
 
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
@@ -920,6 +928,40 @@ model SyncLog {
   @@index([syncType])
   @@index([status])
 }
+
+// ==================== MARGIN COMPLIANCE REPORT CACHE ====================
+
+model MarginComplianceReportDay {
+  id           String           @id @default(uuid())
+  reportDate   DateTime         @unique
+  status       ReportSyncStatus @default(SUCCESS)
+  rowCount     Int              @default(0)
+  errorMessage String?
+  syncedAt     DateTime         @default(now())
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([reportDate])
+  @@index([status])
+}
+
+model MarginComplianceReportRow {
+  id           String   @id @default(uuid())
+  reportDate   DateTime
+  sectorCode   String?
+  groupCode    String?
+  avgMargin    Float?
+  totalRevenue Float?
+  totalProfit  Float?
+  data         Json
+  createdAt    DateTime @default(now())
+
+  @@index([reportDate])
+  @@index([sectorCode])
+  @@index([groupCode])
+  @@index([avgMargin])
+}
+
 
 // ==================== CAMPAIGNS ====================
 

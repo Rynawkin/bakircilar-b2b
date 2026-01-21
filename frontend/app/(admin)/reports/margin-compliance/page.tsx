@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -14,13 +15,11 @@ import {
 } from '@/components/ui/Table';
 import {
   TrendingUp,
-  TrendingDown,
   ArrowLeft,
   Download,
   RefreshCw,
   Search,
   AlertCircle,
-  Calendar,
   DollarSign,
   Package,
   Percent,
@@ -83,6 +82,54 @@ interface Metadata {
   includeCompleted: number;
 }
 
+type ColumnId =
+  | 'documentNo'
+  | 'documentType'
+  | 'documentDate'
+  | 'customerName'
+  | 'stockCode'
+  | 'stockName'
+  | 'quantity'
+  | 'unitPrice'
+  | 'totalAmount'
+  | 'avgCost'
+  | 'unitProfit'
+  | 'totalProfit'
+  | 'margin';
+
+interface ColumnConfig {
+  id: ColumnId;
+  label: string;
+  headerClassName?: string;
+  cellClassName?: string;
+  render: (row: MarginAnalysisRow) => ReactNode;
+  exportValue: (row: MarginAnalysisRow) => string | number | null;
+}
+
+const DEFAULT_COLUMN_IDS: ColumnId[] = [
+  'documentNo',
+  'documentType',
+  'documentDate',
+  'customerName',
+  'stockCode',
+  'stockName',
+  'quantity',
+  'unitPrice',
+  'totalAmount',
+  'avgCost',
+  'unitProfit',
+  'totalProfit',
+  'margin',
+];
+
+const COLUMN_STORAGE_KEY = 'margin-analysis-columns';
+
+const getDefaultDateValue = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return date.toLocaleDateString('en-CA');
+};
+
 export default function MarginAnalysisPage() {
   const [data, setData] = useState<MarginAnalysisRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -91,19 +138,14 @@ export default function MarginAnalysisPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [startDate, setStartDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
+  const [startDate, setStartDate] = useState(() => getDefaultDateValue());
+  const [endDate, setEndDate] = useState(() => getDefaultDateValue());
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(DEFAULT_COLUMN_IDS);
 
   const fetchData = async () => {
     setLoading(true);
@@ -140,10 +182,39 @@ export default function MarginAnalysisPage() {
   useEffect(() => {
     fetchData();
   }, [page, statusFilter, sortOrder]);
+  useEffect(() => {
+    const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((id): id is ColumnId =>
+          DEFAULT_COLUMN_IDS.includes(id as ColumnId)
+        );
+        if (valid.length > 0) {
+          setVisibleColumns(valid);
+        }
+      }
+    } catch {
+      // Ignore invalid storage content.
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
+  }, [visibleColumns]);
 
   const handleSearch = () => {
     setPage(1);
     fetchData();
+  };
+  const toggleColumn = (columnId: ColumnId) => {
+    setVisibleColumns((prev) => {
+      if (prev.includes(columnId)) {
+        return prev.length === 1 ? prev : prev.filter((id) => id !== columnId);
+      }
+      return [...prev, columnId];
+    });
   };
 
   const formatCurrency = (value: number | null | undefined) => {
@@ -181,13 +252,130 @@ export default function MarginAnalysisPage() {
     }
   };
 
+  const columnDefs: ColumnConfig[] = [
+    {
+      id: 'documentNo',
+      label: 'Evrak No',
+      headerClassName: 'whitespace-nowrap',
+      cellClassName: 'font-mono text-sm whitespace-nowrap',
+      render: (row) => row['Evrak No'],
+      exportValue: (row) => row['Evrak No'],
+    },
+    {
+      id: 'documentType',
+      label: 'Tip',
+      headerClassName: 'whitespace-nowrap',
+      cellClassName: 'whitespace-nowrap',
+      render: (row) => <Badge variant="outline">{row.Tip}</Badge>,
+      exportValue: (row) => row.Tip,
+    },
+    {
+      id: 'documentDate',
+      label: 'Evrak Tarihi',
+      headerClassName: 'whitespace-nowrap',
+      cellClassName: 'whitespace-nowrap',
+      render: (row) => formatDate(row['Evrak Tarihi']),
+      exportValue: (row) => row['Evrak Tarihi'],
+    },
+    {
+      id: 'customerName',
+      label: 'Cari',
+      headerClassName: 'whitespace-nowrap',
+      cellClassName: 'max-w-[200px] truncate',
+      render: (row) => row['Cari İsmi'],
+      exportValue: (row) => row['Cari İsmi'],
+    },
+    {
+      id: 'stockCode',
+      label: 'Stok Kodu',
+      headerClassName: 'whitespace-nowrap',
+      cellClassName: 'font-mono text-sm whitespace-nowrap',
+      render: (row) => row['Stok Kodu'],
+      exportValue: (row) => row['Stok Kodu'],
+    },
+    {
+      id: 'stockName',
+      label: 'Ürün Adı',
+      headerClassName: 'whitespace-nowrap',
+      cellClassName: 'max-w-[250px] truncate',
+      render: (row) => row['Stok İsmi'],
+      exportValue: (row) => row['Stok İsmi'],
+    },
+    {
+      id: 'quantity',
+      label: 'Miktar',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row) => `${row.Miktar} ${row.Birimi}`,
+      exportValue: (row) => `${row.Miktar} ${row.Birimi}`,
+    },
+    {
+      id: 'unitPrice',
+      label: 'Birim Satış',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row) => formatCurrency(row['BirimSatışKDV']),
+      exportValue: (row) => row['BirimSatışKDV'],
+    },
+    {
+      id: 'totalAmount',
+      label: 'Tutar (KDV)',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right font-semibold whitespace-nowrap',
+      render: (row) => formatCurrency(row.TutarKDV),
+      exportValue: (row) => row.TutarKDV,
+    },
+    {
+      id: 'avgCost',
+      label: 'Ort. Maliyet',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row) => formatCurrency(row.OrtalamaMaliyetKDVli),
+      exportValue: (row) => row.OrtalamaMaliyetKDVli,
+    },
+    {
+      id: 'unitProfit',
+      label: 'Birim Kar',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row) => formatCurrency(row['BirimKarOrtMalGöre']),
+      exportValue: (row) => row['BirimKarOrtMalGöre'],
+    },
+    {
+      id: 'totalProfit',
+      label: 'Toplam Kar',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right font-semibold whitespace-nowrap',
+      render: (row) => formatCurrency(row['ToplamKarOrtMalGöre']),
+      exportValue: (row) => row['ToplamKarOrtMalGöre'],
+    },
+    {
+      id: 'margin',
+      label: 'Kar %',
+      headerClassName: 'text-right whitespace-nowrap',
+      cellClassName: 'text-right whitespace-nowrap',
+      render: (row) => getMarginBadge(row.OrtalamaKarYuzde),
+      exportValue: (row) => row.OrtalamaKarYuzde,
+    },
+  ];
+
+  const visibleColumnDefs = columnDefs.filter((column) => visibleColumns.includes(column.id));
+
   const exportToExcel = () => {
-    if (data.length === 0) {
+    if (filteredData.length === 0) {
       toast.error('Dışa aktarılacak veri yok');
       return;
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
+    const exportRows = filteredData.map((row) => {
+      const record: Record<string, string | number | null> = {};
+      visibleColumnDefs.forEach((column) => {
+        record[column.label] = column.exportValue(row);
+      });
+      return record;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar Marjı Analizi');
     XLSX.writeFile(workbook, `kar-marji-analizi-${startDate}-${endDate}.xlsx`);
@@ -357,6 +545,26 @@ export default function MarginAnalysisPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm font-medium text-gray-700">
+                Kolonlar ({visibleColumns.length}/{columnDefs.length})
+              </summary>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {columnDefs.map((column) => (
+                  <label key={column.id} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={visibleColumns.includes(column.id)}
+                      onChange={() => toggleColumn(column.id)}
+                    />
+                    {column.label}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">En az bir kolon seçili olmalı.</p>
+            </details>
           </CardContent>
         </Card>
 
@@ -385,48 +593,28 @@ export default function MarginAnalysisPage() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Evrak No</TableHead>
-                        <TableHead>Tip</TableHead>
-                        <TableHead>Evrak Tarihi</TableHead>
-                        <TableHead>Cari</TableHead>
-                        <TableHead>Stok Kodu</TableHead>
-                        <TableHead>Ürün Adı</TableHead>
-                        <TableHead className="text-right">Miktar</TableHead>
-                        <TableHead className="text-right">Birim Satış</TableHead>
-                        <TableHead className="text-right">Tutar (KDV)</TableHead>
-                        <TableHead className="text-right">Ort. Maliyet</TableHead>
-                        <TableHead className="text-right">Birim Kar</TableHead>
-                        <TableHead className="text-right">Toplam Kar</TableHead>
-                        <TableHead className="text-right">Kar %</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredData.map((row, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell className="font-mono text-sm">{row['Evrak No']}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{row.Tip}</Badge>
-                          </TableCell>
-                          <TableCell>{formatDate(row['Evrak Tarihi'])}</TableCell>
-                          <TableCell className="max-w-[200px] truncate">{row['Cari İsmi']}</TableCell>
-                          <TableCell className="font-mono text-sm">{row['Stok Kodu']}</TableCell>
-                          <TableCell className="max-w-[250px] truncate">{row['Stok İsmi']}</TableCell>
-                          <TableCell className="text-right">{row.Miktar} {row.Birimi}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.BirimSatışKDV)}</TableCell>
-                          <TableCell className="text-right font-semibold">{formatCurrency(row.TutarKDV)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.OrtalamaMaliyetKDVli)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.BirimKarOrtMalGöre)}</TableCell>
-                          <TableCell className="text-right font-semibold">{formatCurrency(row.ToplamKarOrtMalGöre)}</TableCell>
-                          <TableCell className="text-right">{getMarginBadge(row.OrtalamaKarYuzde)}</TableCell>
-                        </TableRow>
+                <Table containerClassName="max-h-[70vh]" className="min-w-max">
+                  <TableHeader>
+                    <TableRow>
+                      {visibleColumnDefs.map((column) => (
+                        <TableHead key={column.id} className={column.headerClassName}>
+                          {column.label}
+                        </TableHead>
                       ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredData.map((row, idx) => (
+                      <TableRow key={`${row.msg_S_0089}-${row.msg_S_0001}-${idx}`}>
+                        {visibleColumnDefs.map((column) => (
+                          <TableCell key={column.id} className={column.cellClassName}>
+                            {column.render(row)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
 
                 {/* Pagination */}
                 {totalPages > 1 && (

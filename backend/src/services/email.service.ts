@@ -759,6 +759,106 @@ class EmailService {
 
     return customerMap;
   }
+  async sendMarginComplianceReportSummary(params: {
+    recipients: string[];
+    reportDate: Date;
+    summary: {
+      totalRecords: number;
+      totalRevenue: number;
+      totalProfit: number;
+      avgMargin: number;
+      highMarginCount: number;
+      lowMarginCount: number;
+      negativeMarginCount: number;
+    };
+    subject?: string;
+  }): Promise<void> {
+    const recipients = (params.recipients || [])
+      .map((email) => (typeof email === 'string' ? email.trim() : ''))
+      .filter(Boolean);
+
+    if (recipients.length === 0) {
+      console.log('Margin compliance report email skipped: no recipients.');
+      return;
+    }
+
+    const formatCurrency = (value: number) =>
+      new Intl.NumberFormat('tr-TR', {
+        style: 'currency',
+        currency: 'TRY',
+      }).format(value || 0);
+
+    const formatPercent = (value: number) => `${(value || 0).toFixed(2)}%`;
+
+    const formatDate = (date: Date) =>
+      new Intl.DateTimeFormat('tr-TR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      }).format(date);
+
+    const subject = params.subject || 'Kar Marji Raporu';
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+        <div style="max-width: 640px; margin: 0 auto; padding: 24px;">
+          <div style="background: #1e40af; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+            <h1 style="margin: 0; font-size: 22px;">Kar Marji Raporu</h1>
+            <p style="margin: 8px 0 0 0; font-size: 14px; opacity: 0.9;">Rapor Tarihi: ${formatDate(params.reportDate)}</p>
+          </div>
+
+          <div style="background: white; padding: 20px; border-radius: 0 0 8px 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+            <h2 style="margin-top: 0; font-size: 16px; color: #111827;">Ozet</h2>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; color: #6b7280;">Toplam Kayit</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">${params.summary.totalRecords}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #6b7280;">Toplam Ciro (KDV)</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">${formatCurrency(params.summary.totalRevenue)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #6b7280;">Toplam Kar</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">${formatCurrency(params.summary.totalProfit)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #6b7280;">Ortalama Kar %</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold;">${formatPercent(params.summary.avgMargin)}</td>
+              </tr>
+            </table>
+
+            <div style="margin-top: 16px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px;">
+              <p style="margin: 0; font-size: 13px; color: #374151;">
+                Yuksek: <strong>${params.summary.highMarginCount}</strong> | Dusuk: <strong>${params.summary.lowMarginCount}</strong> | Zarar: <strong>${params.summary.negativeMarginCount}</strong>
+              </p>
+            </div>
+
+            <div style="margin-top: 18px; font-size: 13px; color: #6b7280;">
+              Detaylara erismek icin B2B panelinden raporu acabilirsiniz.
+              <a href="${process.env.FRONTEND_URL || '#'}" style="color: #2563eb; text-decoration: none;">Panel</a>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    sendSmtpEmail.sender = { email: this.senderEmail, name: this.senderName };
+    sendSmtpEmail.to = recipients.map((email) => ({ email }));
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = htmlContent;
+
+    await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+  }
+
 }
 
 export default new EmailService();

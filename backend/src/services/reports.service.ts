@@ -6,6 +6,7 @@
  */
 
 import { prisma } from '../utils/prisma';
+import { config } from '../config';
 import mikroService from './mikro.service';
 import exclusionService from './exclusion.service';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
@@ -130,6 +131,79 @@ interface PriceHistoryResponse {
     dataSource: string;
   };
 }
+
+
+const parseDateInput = (value?: string): Date | null => {
+  if (!value) return null;
+  const cleaned = value.replace(/-/g, '');
+  if (!/^\d{8}$/.test(cleaned)) return null;
+  const year = Number(cleaned.slice(0, 4));
+  const month = Number(cleaned.slice(4, 6));
+  const day = Number(cleaned.slice(6, 8));
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day));
+};
+
+const formatDateKey = (date: Date): string => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDateCompact = (date: Date): string => formatDateKey(date).replace(/-/g, '');
+
+const addDaysUtc = (date: Date, days: number): Date => {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+};
+
+const listUtcDates = (start: Date, end: Date): Date[] => {
+  const dates: Date[] = [];
+  let current = new Date(start);
+  while (current <= end) {
+    dates.push(new Date(current));
+    current = addDaysUtc(current, 1);
+  }
+  return dates;
+};
+
+const getDateInTimeZone = (date: Date, timeZone: string): Date => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const [year, month, day] = formatter.format(date).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+};
+
+const getYesterdayInTimeZone = (timeZone: string): Date => {
+  const today = getDateInTimeZone(new Date(), timeZone);
+  return addDaysUtc(today, -1);
+};
+
+const toNumber = (value: unknown): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const pickTotalProfit = (row: Record<string, any>): number => {
+  if (!row || typeof row !== 'object') return 0;
+
+  const direct = row['ToplamKarOrtMalGore'];
+  if (direct !== undefined && direct !== null) {
+    return toNumber(direct);
+  }
+
+  const key = Object.keys(row).find((candidate) =>
+    candidate.toLowerCase().includes('toplamkarortmal')
+  );
+
+  return key ? toNumber(row[key]) : 0;
+};
 
 export class ReportsService {
   /**
@@ -325,7 +399,7 @@ export class ReportsService {
   async getMarginComplianceReport(options: {
     startDate?: string;
     endDate?: string;
-    includeCompleted?: number; // 1 = tamamlananları da dahil et, 0 = sadece bekleyenler
+    includeCompleted?: number; // 1 = tamamlananlari da dahil et, 0 = sadece bekleyenler
     customerType?: string;
     category?: string;
     status?: string; // HIGH (>30%), LOW (<10%), NEGATIVE (<0%), OK (10-30%)
@@ -347,14 +421,136 @@ export class ReportsService {
       sortOrder = 'desc',
     } = options;
 
-    // Tarih parametreleri - eğer verilmemişse bugünü kullan
-    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    const start = startDate || today;
-    const end = endDate || today;
+    const defaultDate = getYesterdayInTimeZone(config.cronTimezone);
+    const parsedStart = parseDateInput(startDate) || defaultDate;
+    const parsedEnd = parseDateInput(endDate) || parsedStart;
+    const reportStart = parsedStart <= parsedEnd ? parsedStart : parsedEnd;
+    const reportEnd = parsedStart <= parsedEnd ? parsedEnd : parsedStart;
 
-    // Mikro'dan rapor fonksiyonunu çağır
-    const mikroService = require('./mikroFactory.service').default;
-    await mikroService.connect();
+    const expectedDates = listUtcDates(reportStart, reportEnd).map(formatDateKey);
+    const availableDays = await prisma.marginComplianceReportDay.findMany({
+      where: {
+        reportDate: { gte: reportStart, lte: reportEnd },
+        status: 'SUCCESS',
+      },
+      select: { reportDate: true },
+    });
+
+    const availableSet = new Set(availableDays.map((day) => formatDateKey(day.reportDate)));
+    const missingDates = expectedDates.filter((dateKey) => !availableSet.has(dateKey));
+
+    if (missingDates.length > 0) {
+      const preview = missingDates.slice(0, 5).join(', ');
+      const suffix = missingDates.length > 5 ? '...' : '';
+      throw new Error(`Veri hazir degil. Eksik gunler: ${preview}${suffix}`);
+    }
+
+    const where: any = {
+      reportDate: { gte: reportStart, lte: reportEnd },
+    };
+
+    if (customerType) {
+      where.sectorCode = { contains: customerType };
+    }
+
+    if (category) {
+      where.groupCode = { contains: category };
+    }
+
+    if (status) {
+      if (status === 'HIGH') {
+        where.avgMargin = { gt: 30 };
+      } else if (status === 'LOW') {
+        where.avgMargin = { lt: 10 };
+      } else if (status === 'NEGATIVE') {
+        where.avgMargin = { lt: 0 };
+      } else if (status === 'OK') {
+        where.avgMargin = { gte: 10, lte: 30 };
+      }
+    }
+
+    const sortField =
+      sortBy === 'OrtalamaKarYuzde' || sortBy === 'avgMargin'
+        ? 'avgMargin'
+        : sortBy === 'TutarKDV' || sortBy === 'totalRevenue'
+        ? 'totalRevenue'
+        : sortBy === 'ToplamKarOrtMalGore' || sortBy === 'totalProfit'
+        ? 'totalProfit'
+        : 'avgMargin';
+
+    const orderBy = {
+      [sortField]: sortOrder === 'asc' ? 'asc' : 'desc',
+    } as const;
+
+    const pageValue = Number.isFinite(page) && page > 0 ? page : 1;
+    const limitValue = Number.isFinite(limit) && limit > 0 ? limit : 100;
+    const offset = (pageValue - 1) * limitValue;
+
+    const [rows, totalRecords, aggregates, highMarginCount, lowMarginCount, negativeMarginCount] =
+      await prisma.$transaction([
+        prisma.marginComplianceReportRow.findMany({
+          where,
+          orderBy,
+          skip: offset,
+          take: limitValue,
+        }),
+        prisma.marginComplianceReportRow.count({ where }),
+        prisma.marginComplianceReportRow.aggregate({
+          where,
+          _sum: { totalRevenue: true, totalProfit: true },
+          _avg: { avgMargin: true },
+        }),
+        prisma.marginComplianceReportRow.count({
+          where: { ...where, avgMargin: { gt: 30 } },
+        }),
+        prisma.marginComplianceReportRow.count({
+          where: { ...where, avgMargin: { lt: 10 } },
+        }),
+        prisma.marginComplianceReportRow.count({
+          where: { ...where, avgMargin: { lt: 0 } },
+        }),
+      ]);
+
+    const totalRevenue = toNumber(aggregates._sum.totalRevenue);
+    const totalProfit = toNumber(aggregates._sum.totalProfit);
+    const avgMargin = toNumber(aggregates._avg.avgMargin);
+
+    return {
+      data: rows.map((row) => row.data),
+      summary: {
+        totalRecords,
+        totalRevenue,
+        totalProfit,
+        avgMargin,
+        highMarginCount,
+        lowMarginCount,
+        negativeMarginCount,
+      },
+      pagination: {
+        page: pageValue,
+        limit: limitValue,
+        totalPages: Math.ceil(totalRecords / limitValue),
+        totalRecords,
+      },
+      metadata: {
+        reportDate: new Date(),
+        startDate: formatDateCompact(reportStart),
+        endDate: formatDateCompact(reportEnd),
+        includeCompleted,
+      },
+    };
+  }
+
+  async syncMarginComplianceReportForDate(reportDate: Date, options: {
+    includeCompleted?: number;
+  } = {}): Promise<{ success: boolean; rowCount: number; reportDate: string; error?: string }> {
+    const includeCompleted = options.includeCompleted ?? 1;
+    const reportDateKey = formatDateKey(reportDate);
+    const start = formatDateCompact(reportDate);
+    const end = start;
+
+    const mikroFactory = require('./mikroFactory.service').default;
+    await mikroFactory.connect();
 
     try {
       const query = `
@@ -363,110 +559,109 @@ export class ReportsService {
         ORDER BY [msg_S_0089], [msg_S_0001]
       `;
 
-      const result = await mikroService.executeQuery(query);
+      const result = await mikroFactory.executeQuery(query);
+      const sanitizedRows = result.map((row: any) => JSON.parse(JSON.stringify(row)));
+      const rowData = sanitizedRows.map((row: any) => ({
+        reportDate,
+        sectorCode: typeof row.SektorKodu === 'string' ? row.SektorKodu : null,
+        groupCode: typeof row.GrupKodu === 'string' ? row.GrupKodu : null,
+        avgMargin: toNumber(row.OrtalamaKarYuzde),
+        totalRevenue: toNumber(row.TutarKDV),
+        totalProfit: pickTotalProfit(row),
+        data: row,
+      }));
 
-      // Filtreleme
-      let filteredData = result;
+      await prisma.marginComplianceReportRow.deleteMany({ where: { reportDate } });
 
-      // Müşteri tipi filtresi (SektorKodu alanından)
-      if (customerType) {
-        filteredData = filteredData.filter((row: any) =>
-          row.SektorKodu && row.SektorKodu.includes(customerType)
-        );
-      }
-
-      // Kategori filtresi (GrupKodu alanından)
-      if (category) {
-        filteredData = filteredData.filter((row: any) =>
-          row.GrupKodu && row.GrupKodu.includes(category)
-        );
-      }
-
-      // Kar yüzdesi durumu filtresi
-      if (status) {
-        if (status === 'HIGH') {
-          // Yüksek kar marjı (>30%)
-          filteredData = filteredData.filter((row: any) =>
-            row.OrtalamaKarYuzde > 30
-          );
-        } else if (status === 'LOW') {
-          // Düşük kar marjı (<10%)
-          filteredData = filteredData.filter((row: any) =>
-            row.OrtalamaKarYuzde < 10
-          );
-        } else if (status === 'NEGATIVE') {
-          // Negatif kar (zarar)
-          filteredData = filteredData.filter((row: any) =>
-            row.OrtalamaKarYuzde < 0
-          );
-        } else if (status === 'OK') {
-          // Normal kar marjı (10-30%)
-          filteredData = filteredData.filter((row: any) =>
-            row.OrtalamaKarYuzde >= 10 && row.OrtalamaKarYuzde <= 30
-          );
+      const chunkSize = 1000;
+      for (let i = 0; i < rowData.length; i += chunkSize) {
+        const chunk = rowData.slice(i, i + chunkSize);
+        if (chunk.length > 0) {
+          await prisma.marginComplianceReportRow.createMany({ data: chunk });
         }
       }
 
-      // Sıralama
-      filteredData.sort((a: any, b: any) => {
-        const aValue = a[sortBy] || 0;
-        const bValue = b[sortBy] || 0;
-
-        if (sortOrder === 'desc') {
-          return bValue - aValue;
-        } else {
-          return aValue - bValue;
-        }
+      await prisma.marginComplianceReportDay.upsert({
+        where: { reportDate },
+        create: {
+          reportDate,
+          status: 'SUCCESS',
+          rowCount: rowData.length,
+          syncedAt: new Date(),
+        },
+        update: {
+          status: 'SUCCESS',
+          rowCount: rowData.length,
+          errorMessage: null,
+          syncedAt: new Date(),
+        },
       });
 
-      // Pagination
-      const totalRecords = filteredData.length;
-      const offset = (page - 1) * limit;
-      const paginatedData = filteredData.slice(offset, offset + limit);
-      const totalPages = Math.ceil(totalRecords / limit);
-
-      // Summary hesapla
-      const totalRevenue = filteredData.reduce((sum: number, row: any) => sum + (row.TutarKDV || 0), 0);
-      const totalProfit = filteredData.reduce((sum: number, row: any) => sum + (row.ToplamKarOrtMalGöre || 0), 0);
-      const avgMargin = filteredData.length > 0
-        ? filteredData.reduce((sum: number, row: any) => sum + (row.OrtalamaKarYuzde || 0), 0) / filteredData.length
-        : 0;
-
-      const highMarginCount = filteredData.filter((row: any) => row.OrtalamaKarYuzde > 30).length;
-      const lowMarginCount = filteredData.filter((row: any) => row.OrtalamaKarYuzde < 10).length;
-      const negativeMarginCount = filteredData.filter((row: any) => row.OrtalamaKarYuzde < 0).length;
-
-      await mikroService.disconnect();
+      await mikroFactory.disconnect();
 
       return {
-        data: paginatedData,
-        summary: {
-          totalRecords,
-          totalRevenue,
-          totalProfit,
-          avgMargin,
-          highMarginCount,
-          lowMarginCount,
-          negativeMarginCount,
-        },
-        pagination: {
-          page,
-          limit,
-          totalPages,
-          totalRecords,
-        },
-        metadata: {
-          reportDate: new Date(),
-          startDate: start,
-          endDate: end,
-          includeCompleted,
-        },
+        success: true,
+        rowCount: rowData.length,
+        reportDate: reportDateKey,
       };
-    } catch (error) {
-      await mikroService.disconnect();
-      throw error;
+    } catch (error: any) {
+      await mikroFactory.disconnect();
+      await prisma.marginComplianceReportDay.upsert({
+        where: { reportDate },
+        create: {
+          reportDate,
+          status: 'FAILED',
+          rowCount: 0,
+          errorMessage: error?.message || 'Unknown error',
+          syncedAt: new Date(),
+        },
+        update: {
+          status: 'FAILED',
+          rowCount: 0,
+          errorMessage: error?.message || 'Unknown error',
+          syncedAt: new Date(),
+        },
+      });
+
+      return {
+        success: false,
+        rowCount: 0,
+        reportDate: reportDateKey,
+        error: error?.message || 'Unknown error',
+      };
     }
   }
+
+  async backfillMarginComplianceReport(days: number, options: {
+    includeCompleted?: number;
+    timeZone?: string;
+    delayMs?: number;
+  } = {}): Promise<{ success: boolean; results: Array<{ reportDate: string; success: boolean; rowCount: number; error?: string }> }> {
+    const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 1;
+    const timeZone = options.timeZone || config.cronTimezone;
+    const delayMs = Number.isFinite(options.delayMs) ? Number(options.delayMs) : 0;
+    const includeCompleted = options.includeCompleted ?? 1;
+
+    const endDate = getYesterdayInTimeZone(timeZone);
+    const startDate = addDaysUtc(endDate, -(safeDays - 1));
+    const dateList = listUtcDates(startDate, endDate);
+
+    const results: Array<{ reportDate: string; success: boolean; rowCount: number; error?: string }> = [];
+
+    for (const date of dateList) {
+      const result = await this.syncMarginComplianceReportForDate(date, { includeCompleted });
+      results.push(result);
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return {
+      success: results.every((item) => item.success),
+      results,
+    };
+  }
+
 
   /**
    * En Çok Satan Ürünler Raporu

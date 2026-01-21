@@ -2302,9 +2302,12 @@ export class AdminController {
    */
   async getMarginComplianceReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const { customerType, category, status, page, limit, sortBy, sortOrder } = req.query;
+      const { startDate, endDate, includeCompleted, customerType, category, status, page, limit, sortBy, sortOrder } = req.query;
 
       const data = await reportsService.getMarginComplianceReport({
+        startDate: startDate as string,
+        endDate: endDate as string,
+        includeCompleted: includeCompleted ? parseInt(includeCompleted as string) : undefined,
         customerType: customerType as string,
         category: category as string,
         status: status as string,

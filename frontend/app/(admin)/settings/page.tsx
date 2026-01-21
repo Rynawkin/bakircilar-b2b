@@ -45,6 +45,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [marginRecipientsInput, setMarginRecipientsInput] = useState('');
 
   useEffect(() => {
     fetchSettings();
@@ -53,14 +54,25 @@ export default function SettingsPage() {
   const fetchSettings = async () => {
     try {
       const data = await adminApi.getSettings();
+      const recipients = data.marginReportEmailRecipients || [];
       setSettings({
         ...data,
         customerPriceLists: normalizePriceLists(data.customerPriceLists),
+        marginReportEmailEnabled: data.marginReportEmailEnabled ?? false,
+        marginReportEmailRecipients: recipients,
+        marginReportEmailSubject: data.marginReportEmailSubject || 'Kar Marji Raporu',
       });
+      setMarginRecipientsInput(recipients.join(', '));
     } finally {
       setIsLoading(false);
     }
   };
+
+  const parseEmailList = (value: string) =>
+    value
+      .split(/[\n,;]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,8 +80,12 @@ export default function SettingsPage() {
 
     setIsSaving(true);
     try {
-      await adminApi.updateSettings(settings);
-      toast.success('Ayarlar başarıyla kaydedildi! ✅');
+      const recipients = parseEmailList(marginRecipientsInput);
+      const payload = { ...settings, marginReportEmailRecipients: recipients };
+      await adminApi.updateSettings(payload);
+      setSettings(payload);
+      setMarginRecipientsInput(recipients.join(', '));
+      toast.success('Ayarlar basariyla kaydedildi.');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Kaydetme başarısız');
     } finally {
@@ -325,6 +341,50 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </Card>
+
+
+
+          <Card title="Rapor Mail Bildirimleri">
+            <div className="space-y-4">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={settings.marginReportEmailEnabled}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    marginReportEmailEnabled: e.target.checked,
+                  })}
+                />
+                Kar Marji Raporu icin gunluk mail gonder
+              </label>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Alici Email'ler</label>
+                <textarea
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  rows={3}
+                  placeholder="ornek@firma.com, finans@firma.com"
+                  value={marginRecipientsInput}
+                  onChange={(e) => setMarginRecipientsInput(e.target.value)}
+                />
+                <p className="text-xs text-gray-600 mt-1">Virgul veya yeni satir ile ayirabilirsiniz.</p>
+              </div>
+
+              <Input
+                label="Mail Konusu"
+                value={settings.marginReportEmailSubject || ''}
+                onChange={(e) => setSettings({
+                  ...settings,
+                  marginReportEmailSubject: e.target.value,
+                })}
+              />
+
+              <p className="text-xs text-gray-600">
+                Rapor her gun 03:00'te bir onceki gun icin gonderilir.
+              </p>
             </div>
           </Card>
 

@@ -44,6 +44,7 @@ export const config = {
   quoteSyncCronSchedule: process.env.QUOTE_SYNC_CRON_SCHEDULE || '0 18 * * *', // Her gün 18:00
   vadeSyncCronSchedule: process.env.VADE_SYNC_CRON_SCHEDULE || '0 * * * *',
   vadeReminderCronSchedule: process.env.VADE_REMINDER_CRON_SCHEDULE || '0 * * * *',
+  marginReportCronSchedule: process.env.MARGIN_REPORT_CRON_SCHEDULE || '0 3 * * *',
 
   // App
   isDevelopment: process.env.NODE_ENV === 'development',
