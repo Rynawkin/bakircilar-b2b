@@ -172,8 +172,9 @@ export default function MarginAnalysisPage() {
         throw new Error('Bir hata oluştu');
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Rapor yüklenemedi');
-      toast.error('Rapor yüklenemedi');
+      const message = err.response?.data?.error || err.message || 'Rapor yüklenemedi';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -402,7 +403,7 @@ export default function MarginAnalysisPage() {
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href="/admin/reports">
+            <Link href="/reports">
               <Button variant="outline" size="sm">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Raporlar

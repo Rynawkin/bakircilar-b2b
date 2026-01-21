@@ -7,6 +7,7 @@
 
 import { prisma } from '../utils/prisma';
 import { config } from '../config';
+import { AppError, ErrorCode } from '../types/errors';
 import mikroService from './mikro.service';
 import exclusionService from './exclusion.service';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
@@ -442,7 +443,7 @@ export class ReportsService {
     if (missingDates.length > 0) {
       const preview = missingDates.slice(0, 5).join(', ');
       const suffix = missingDates.length > 5 ? '...' : '';
-      throw new Error(`Veri hazir degil. Eksik gunler: ${preview}${suffix}`);
+      throw new AppError(`Veri hazir degil. Eksik gunler: ${preview}${suffix}`, 409, ErrorCode.REPORT_DATA_NOT_READY, { missingDates });
     }
 
     const where: any = {
