@@ -654,7 +654,7 @@ export default function PreviouslyPurchasedPage() {
 
           {/* Cart Preview Sidebar */}
           <div className="lg:col-span-1">
-            <Card className="sticky top-24 shadow-2xl bg-gradient-to-br from-white via-gray-50 to-white border-2 border-primary-100">
+            <Card className="sticky top-24 shadow-2xl bg-gradient-to-br from-white via-gray-50 to-white border-2 border-primary-100 lg:max-h-[calc(100vh-6rem)] lg:flex lg:flex-col lg:overflow-hidden">
               <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-gray-100">
                 <h3 className="font-bold text-xl flex items-center gap-2 text-gray-900">
                   <span className="text-2xl">🛒</span>
@@ -678,7 +678,7 @@ export default function PreviouslyPurchasedPage() {
                   <p className="text-xs text-gray-400 mt-1">Ürün ekleyerek başlayın</p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="flex flex-col gap-4 min-h-0 lg:flex-1">
                   {/* Clear Cart Button */}
                   <button
                     onClick={async () => {
@@ -716,7 +716,7 @@ export default function PreviouslyPurchasedPage() {
                     🗑️ Sepeti Temizle
                   </button>
 
-                  <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
+                  <div className="max-h-80 overflow-y-auto space-y-2 pr-2 min-h-0 lg:max-h-none lg:flex-1">
                     {(cartItems || []).map((item) => (
                       <div key={item.id} className="text-sm bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
                         <div className="flex justify-between items-start mb-1">
