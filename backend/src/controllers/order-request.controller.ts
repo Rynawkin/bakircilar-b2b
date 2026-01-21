@@ -557,6 +557,23 @@ export class OrderRequestController {
         });
       }
 
+      const requesterId = request.requestedBy?.id;
+      if (requesterId) {
+        const approvedCount = itemsToConvert.length;
+        const pendingCount = remainingPending;
+        const title = pendingCount > 0
+          ? 'Talebiniz kismen onaylandi'
+          : 'Talebiniz onaylandi';
+        const body = pendingCount > 0
+          ? `${approvedCount} kalem onaylandi, ${pendingCount} kalem bekliyor.`
+          : `Talebiniz siparise cevrildi. Siparis No: ${order.orderNumber}.`;
+        await notificationService.createForUsers([requesterId], {
+          title,
+          body,
+          linkUrl: '/order-requests',
+        });
+      }
+
       res.json({ orderId: order.id, orderNumber: order.orderNumber });
     } catch (error) {
       next(error);
@@ -594,6 +611,7 @@ export class OrderRequestController {
         select: {
           id: true,
           parentCustomerId: true,
+          requestedById: true,
           status: true,
           orderId: true,
           items: { select: { id: true, status: true } },
@@ -633,6 +651,21 @@ export class OrderRequestController {
           note: note ? String(note).trim() : undefined,
         },
       });
+
+      if (request.requestedById) {
+        const rejectedCount = pendingIds.length;
+        const title = nextStatus === 'CONVERTED'
+          ? 'Talebiniz kismen reddedildi'
+          : 'Talebiniz reddedildi';
+        const body = nextStatus === 'CONVERTED'
+          ? `${rejectedCount} kalem reddedildi.`
+          : 'Talebiniz reddedildi.';
+        await notificationService.createForUsers([request.requestedById], {
+          title,
+          body,
+          linkUrl: '/order-requests',
+        });
+      }
 
       res.json({ status: nextStatus });
     } catch (error) {
