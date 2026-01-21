@@ -120,6 +120,7 @@ router.get('/cart', customerController.getCart);
 router.post(
   '/cart',
   validateBody(addToCartSchema),
+  invalidateCacheMiddleware(['products:*', 'product:*']),
   customerController.addToCart
 );
 router.put(
@@ -129,6 +130,7 @@ router.put(
 );
 router.delete(
   '/cart/:itemId',
+  invalidateCacheMiddleware(['products:*', 'product:*']),
   customerController.removeFromCart
 );
 
