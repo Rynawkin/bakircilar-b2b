@@ -209,7 +209,7 @@ const hasCurrencyNear = (line: string, index: number, length: number) => {
 };
 
 const extractPrices = (line: string): number[] => {
-  const matches = Array.from(line.matchAll(/\d{1,3}(?:[\.\s]\d{3})*,\d{2}|\d+,\d{2}/g));
+  const matches = Array.from(line.matchAll(/\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\d+,\d{2}/g));
   const candidates = matches
     .map((match) => {
       const value = parseNumber(match[0]);
@@ -340,7 +340,7 @@ const parsePdfFile = async (filePath: string, supplier: any) => {
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const supplierName = line.replace(code, '').replace(/\d{1,3}(?:[\.\s]\d{3})*,\d{2}|\d+,\d{2}/g, '').trim();
+    const supplierName = line.replace(code, '').replace(/\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\d+,\d{2}/g, '').trim();
     items.push({
       supplierCode: code,
       supplierName: supplierName || undefined,
@@ -940,6 +940,7 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
 
 
 
