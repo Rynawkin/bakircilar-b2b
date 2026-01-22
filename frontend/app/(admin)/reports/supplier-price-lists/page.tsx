@@ -67,6 +67,8 @@ interface MappingState {
   pdfCodePattern: string;
 }
 
+type ExcelColumnRole = '' | 'code' | 'name' | 'price';
+
 const STATUS_TABS = [
   { key: 'matched', label: 'Eslesenler' },
   { key: 'unmatched', label: 'Esmeyenler' },
@@ -122,11 +124,51 @@ export default function SupplierPriceListsPage() {
     return preview.excel.headers.filter((header) => header && header.trim());
   }, [preview]);
 
-  const pdfPriceOptions = useMemo(() => {
+  const pdfColumnCandidates = useMemo(() => {
     if (!preview?.pdf?.samples?.length) return [];
     const maxCount = Math.max(...preview.pdf.samples.map((sample) => sample.prices.length));
-    return Array.from({ length: maxCount }, (_, index) => index + 1);
+    if (!Number.isFinite(maxCount) || maxCount <= 0) return [];
+    return Array.from({ length: maxCount }, (_, index) => {
+      const samples = preview.pdf.samples
+        .map((sample) => sample.prices[index])
+        .filter((value): value is number => typeof value === 'number')
+        .slice(0, 3);
+      return { index: index + 1, samples };
+    });
   }, [preview]);
+
+  const getExcelRoleForHeader = (header: string): ExcelColumnRole => {
+    if (mapping.excelCodeHeader === header) return 'code';
+    if (mapping.excelNameHeader === header) return 'name';
+    if (mapping.excelPriceHeader === header) return 'price';
+    return '';
+  };
+
+  const handleExcelRoleChange = (header: string, role: ExcelColumnRole) => {
+    setMapping((prev) => {
+      const next = { ...prev };
+      if (next.excelCodeHeader === header) next.excelCodeHeader = '';
+      if (next.excelNameHeader === header) next.excelNameHeader = '';
+      if (next.excelPriceHeader === header) next.excelPriceHeader = '';
+      if (role === 'code') next.excelCodeHeader = header;
+      if (role === 'name') next.excelNameHeader = header;
+      if (role === 'price') next.excelPriceHeader = header;
+      return next;
+    });
+  };
+
+  const handlePdfColumnRoleChange = (index: number, role: string) => {
+    setMapping((prev) => {
+      const selected = String(index);
+      if (role === 'price') {
+        return { ...prev, pdfPriceIndex: selected };
+      }
+      if (prev.pdfPriceIndex === selected) {
+        return { ...prev, pdfPriceIndex: '' };
+      }
+      return prev;
+    });
+  };
 
   const resetPreview = () => {
     setPreview(null);
@@ -410,7 +452,7 @@ export default function SupplierPriceListsPage() {
               {preview.excel && (
                 <div className="space-y-3">
                   <div className="text-sm font-medium">Excel Onizleme</div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <Select
                       label="Sheet"
                       value={mapping.excelSheetName}
@@ -435,49 +477,44 @@ export default function SupplierPriceListsPage() {
                       }))}
                     />
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <Select
-                      label="Kod Kolonu"
-                      value={mapping.excelCodeHeader}
-                      onChange={(event) => setMapping((prev) => ({
-                        ...prev,
-                        excelCodeHeader: event.target.value,
-                      }))}
-                    >
-                      <option value="">Kolon secin</option>
-                      {excelHeaders.map((header) => (
-                        <option key={header} value={header}>{header}</option>
-                      ))}
-                    </Select>
-                    <Select
-                      label="Ad Kolonu"
-                      value={mapping.excelNameHeader}
-                      onChange={(event) => setMapping((prev) => ({
-                        ...prev,
-                        excelNameHeader: event.target.value,
-                      }))}
-                    >
-                      <option value="">Kolon secin</option>
-                      {excelHeaders.map((header) => (
-                        <option key={header} value={header}>{header}</option>
-                      ))}
-                    </Select>
-                    <Select
-                      label="Fiyat Kolonu"
-                      value={mapping.excelPriceHeader}
-                      onChange={(event) => setMapping((prev) => ({
-                        ...prev,
-                        excelPriceHeader: event.target.value,
-                      }))}
-                    >
-                      <option value="">Kolon secin</option>
-                      {excelHeaders.map((header) => (
-                        <option key={header} value={header}>{header}</option>
-                      ))}
-                    </Select>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Kolon</TableHead>
+                          <TableHead>Tip</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {excelHeaders.length ? (
+                          excelHeaders.map((header) => (
+                            <TableRow key={`excel-col-${header}`}>
+                              <TableCell>{header || '-'}</TableCell>
+                              <TableCell className="w-48">
+                                <Select
+                                  value={getExcelRoleForHeader(header)}
+                                  onChange={(event) => handleExcelRoleChange(header, event.target.value as ExcelColumnRole)}
+                                >
+                                  <option value="">Yoksay</option>
+                                  <option value="code">Urun Kodu</option>
+                                  <option value="name">Urun Adi</option>
+                                  <option value="price">Fiyat</option>
+                                </Select>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={2} className="text-center text-sm text-muted-foreground">
+                              Kolon bulunamadi.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    Baslik satiri veya kolon degistirirseniz onizlemeyi guncelleyin.
+                    Kolon tiplerini degistirirseniz onizlemeyi guncelleyin.
                   </div>
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
@@ -515,22 +552,10 @@ export default function SupplierPriceListsPage() {
               {preview.pdf && (
                 <div className="space-y-3">
                   <div className="text-sm font-medium">PDF Onizleme</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Select
-                      label="Fiyat Secimi"
-                      value={mapping.pdfPriceIndex}
-                      onChange={(event) => setMapping((prev) => ({
-                        ...prev,
-                        pdfPriceIndex: event.target.value,
-                      }))}
-                    >
-                      <option value="">Otomatik (onerilen)</option>
-                      {pdfPriceOptions.map((value) => (
-                        <option key={value} value={String(value)}>Soldan {value}. fiyat</option>
-                      ))}
-                    </Select>
-                    <div className="flex flex-col justify-end gap-2">
-                      <div className="text-xs text-muted-foreground">Kod algilama: Otomatik</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="text-xs text-muted-foreground">Kod kolonu: Otomatik</div>
+                    <div className="text-xs text-muted-foreground">Urun adi: Otomatik</div>
+                    <div className="flex items-end">
                       <Button
                         type="button"
                         variant="outline"
@@ -556,7 +581,47 @@ export default function SupplierPriceListsPage() {
                     </div>
                   )}
                   <div className="text-xs text-muted-foreground">
-                    Fiyatlar soldan sayilir. Emin degilseniz Otomatik kalsin.
+                    Sayisal kolonlardan sadece biri fiyat olmali. Secmezseniz otomatik secilir.
+                  </div>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Kolon</TableHead>
+                          <TableHead>Ornek Degerler</TableHead>
+                          <TableHead>Tip</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pdfColumnCandidates.length ? (
+                          pdfColumnCandidates.map((column) => (
+                            <TableRow key={`pdf-col-${column.index}`}>
+                              <TableCell>Sayisal Kolon {column.index}</TableCell>
+                              <TableCell>
+                                {column.samples.length
+                                  ? column.samples.map((value) => formatCurrency(value)).join(', ')
+                                  : '-'}
+                              </TableCell>
+                              <TableCell className="w-40">
+                                <Select
+                                  value={mapping.pdfPriceIndex === String(column.index) ? 'price' : ''}
+                                  onChange={(event) => handlePdfColumnRoleChange(column.index, event.target.value)}
+                                >
+                                  <option value="">Yoksay</option>
+                                  <option value="price">Fiyat</option>
+                                </Select>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
+                              Sayisal kolon bulunamadi.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
@@ -789,4 +854,5 @@ export default function SupplierPriceListsPage() {
     </div>
   );
 }
+
 

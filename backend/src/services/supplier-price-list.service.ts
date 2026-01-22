@@ -237,7 +237,7 @@ const defaultCodeToken = (token: string) => {
   if (!cleaned) return null;
   if (!/[0-9]/.test(cleaned)) return null;
   if (/^\d+$/.test(cleaned)) {
-    return cleaned.length >= 3 ? cleaned : null;
+    return null;
   }
   return /^[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*$/.test(cleaned) ? cleaned : null;
 };
