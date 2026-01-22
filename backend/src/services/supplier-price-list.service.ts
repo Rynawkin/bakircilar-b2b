@@ -200,7 +200,7 @@ const isHeaderLine = (line: string) => {
 const extractCurrency = (line: string) => {
   if (/\b(USD|\$)\b/i.test(line)) return 'USD';
   if (/\b(EUR|€)\b/i.test(line)) return 'EUR';
-  if (/\b(TL|TRY|?)\b/i.test(line)) return 'TRY';
+  if (/\b(TL|TRY|\u20BA)\b/i.test(line)) return 'TRY';
   return null;
 };
 
@@ -776,4 +776,5 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
 
