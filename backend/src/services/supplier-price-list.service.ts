@@ -5,7 +5,31 @@ import * as XLSX from 'xlsx';
 import { prisma } from '../utils/prisma';
 
 const pdfParseModule = require('pdf-parse');
-const pdfParse = pdfParseModule?.default ?? pdfParseModule;
+
+const parsePdfBuffer = async (buffer: Buffer) => {
+  if (typeof pdfParseModule === 'function') {
+    return pdfParseModule(buffer);
+  }
+
+  const parserClass = pdfParseModule?.PDFParse ?? pdfParseModule?.default?.PDFParse;
+  if (parserClass) {
+    const parser = new parserClass({ data: buffer });
+    try {
+      return await parser.getText();
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await parser.destroy();
+      }
+    }
+  }
+
+  const fallback = pdfParseModule?.default;
+  if (typeof fallback === 'function') {
+    return fallback(buffer);
+  }
+
+  throw new Error('PDF parser not available');
+};
 
 const TURKISH_CHAR_MAP: Record<string, string> = {
   '\u00c7': 'c',
@@ -237,7 +261,7 @@ const parsePdfTokens = (text: string, priceIndex?: number | null) => {
 
 const parsePdfFile = async (filePath: string, supplier: any) => {
   const buffer = await fs.promises.readFile(filePath);
-  const result = await pdfParse(buffer);
+  const result = await parsePdfBuffer(buffer);
   const text = result?.text || '';
   const lines = text.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean);
   const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; rawLine?: string; currency?: string | null }> = [];
@@ -776,5 +800,7 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
+
 
 
