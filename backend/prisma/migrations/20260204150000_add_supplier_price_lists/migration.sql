@@ -1,4 +1,4 @@
-﻿-- Add foreignName to Product
+-- Add foreignName to Product
 ALTER TABLE "Product" ADD COLUMN "foreignName" TEXT;
 
 CREATE INDEX "Product_foreignName_idx" ON "Product"("foreignName");
