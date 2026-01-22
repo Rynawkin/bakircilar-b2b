@@ -308,6 +308,7 @@ class SyncService {
         where: { mikroCode: mikroProduct.code },
         update: {
           name: mikroProduct.name,
+          foreignName: mikroProduct.foreignName || null,
           unit: mikroProduct.unit,
           unit2,
           unit2Factor,
@@ -327,6 +328,7 @@ class SyncService {
         create: {
           mikroCode: mikroProduct.code,
           name: mikroProduct.name,
+          foreignName: mikroProduct.foreignName || null,
           unit: mikroProduct.unit,
           unit2,
           unit2Factor,

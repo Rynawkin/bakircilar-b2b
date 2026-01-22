@@ -1391,6 +1391,111 @@ export const adminApi = {
     const response = await apiClient.get('/role-permissions/my-permissions');
     return response.data;
   },
+
+  // Supplier price lists
+  getSupplierPriceListSuppliers: async (): Promise<{ suppliers: any[] }> => {
+    const response = await apiClient.get('/admin/supplier-price-lists/suppliers');
+    return response.data;
+  },
+
+  createSupplierPriceListSupplier: async (data: {
+    name: string;
+    active?: boolean;
+    discount1?: number | null;
+    discount2?: number | null;
+    discount3?: number | null;
+    discount4?: number | null;
+    discount5?: number | null;
+    priceIsNet?: boolean;
+    priceIncludesVat?: boolean;
+    defaultVatRate?: number | null;
+    excelSheetName?: string | null;
+    excelHeaderRow?: number | null;
+    excelCodeHeader?: string | null;
+    excelNameHeader?: string | null;
+    excelPriceHeader?: string | null;
+    pdfPriceIndex?: number | null;
+    pdfCodePattern?: string | null;
+  }): Promise<{ supplier: any }> => {
+    const response = await apiClient.post('/admin/supplier-price-lists/suppliers', data);
+    return response.data;
+  },
+
+  updateSupplierPriceListSupplier: async (id: string, data: {
+    name?: string;
+    active?: boolean;
+    discount1?: number | null;
+    discount2?: number | null;
+    discount3?: number | null;
+    discount4?: number | null;
+    discount5?: number | null;
+    priceIsNet?: boolean;
+    priceIncludesVat?: boolean;
+    defaultVatRate?: number | null;
+    excelSheetName?: string | null;
+    excelHeaderRow?: number | null;
+    excelCodeHeader?: string | null;
+    excelNameHeader?: string | null;
+    excelPriceHeader?: string | null;
+    pdfPriceIndex?: number | null;
+    pdfCodePattern?: string | null;
+  }): Promise<{ supplier: any }> => {
+    const response = await apiClient.put(`/admin/supplier-price-lists/suppliers/${id}`, data);
+    return response.data;
+  },
+
+  uploadSupplierPriceLists: async (params: {
+    supplierId: string;
+    files: File[];
+  }): Promise<{ uploadId: string; summary: any }> => {
+    const formData = new FormData();
+    formData.append('supplierId', params.supplierId);
+    params.files.forEach((file) => formData.append('files', file));
+
+    const response = await apiClient.post('/admin/supplier-price-lists/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  getSupplierPriceListUploads: async (params: {
+    supplierId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ uploads: any[]; pagination: any }> => {
+    const queryParams = new URLSearchParams();
+    if (params.supplierId) queryParams.append('supplierId', params.supplierId);
+    if (params.page !== undefined) queryParams.append('page', params.page.toString());
+    if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    const response = await apiClient.get(`/admin/supplier-price-lists?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  getSupplierPriceListUpload: async (id: string): Promise<{ upload: any }> => {
+    const response = await apiClient.get(`/admin/supplier-price-lists/${id}`);
+    return response.data;
+  },
+
+  getSupplierPriceListItems: async (params: {
+    uploadId: string;
+    status?: 'matched' | 'unmatched' | 'multiple';
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: any[]; pagination: any }> => {
+    const queryParams = new URLSearchParams();
+    if (params.status) queryParams.append('status', params.status);
+    if (params.page !== undefined) queryParams.append('page', params.page.toString());
+    if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    const response = await apiClient.get(`/admin/supplier-price-lists/${params.uploadId}/items?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  downloadSupplierPriceListExport: async (id: string): Promise<Blob> => {
+    const response = await apiClient.get(`/admin/supplier-price-lists/${id}/export`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
 
 export default adminApi;

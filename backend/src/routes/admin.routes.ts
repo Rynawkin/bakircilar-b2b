@@ -9,6 +9,7 @@ import taskController from '../controllers/task.controller';
 import notificationController from '../controllers/notification.controller';
 import eInvoiceController from '../controllers/einvoice.controller';
 import agreementController from '../controllers/agreement.controller';
+import supplierPriceListController from '../controllers/supplier-price-list.controller';
 import {
   authenticate,
   requireAdmin,
@@ -19,7 +20,7 @@ import {
   requireStaffOrDiversey
 } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
-import { upload, taskUpload, invoiceUpload } from '../middleware/upload.middleware';
+import { upload, taskUpload, invoiceUpload, supplierPriceListUpload } from '../middleware/upload.middleware';
 import { z } from 'zod';
 
 const router = Router();
@@ -161,6 +162,16 @@ router.get('/einvoices', requireStaff, eInvoiceController.getDocuments);
 router.post('/einvoices/upload', requireStaff, invoiceUpload.array('files', 50), eInvoiceController.uploadDocuments);
 router.post('/einvoices/bulk-download', requireStaff, eInvoiceController.bulkDownloadDocuments);
 router.get('/einvoices/:id/download', requireStaff, eInvoiceController.downloadDocument);
+
+// Supplier price lists
+router.get('/supplier-price-lists/suppliers', requireStaff, supplierPriceListController.getSuppliers);
+router.post('/supplier-price-lists/suppliers', requireAdminOrManager, supplierPriceListController.createSupplier);
+router.put('/supplier-price-lists/suppliers/:id', requireAdminOrManager, supplierPriceListController.updateSupplier);
+router.get('/supplier-price-lists', requireStaff, supplierPriceListController.listUploads);
+router.post('/supplier-price-lists/upload', requireAdminOrManager, supplierPriceListUpload.array('files', 20), supplierPriceListController.uploadPriceLists);
+router.get('/supplier-price-lists/:id', requireStaff, supplierPriceListController.getUpload);
+router.get('/supplier-price-lists/:id/items', requireStaff, supplierPriceListController.getUploadItems);
+router.get('/supplier-price-lists/:id/export', requireStaff, supplierPriceListController.exportUpload);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
 router.get('/products', requireStaffOrDiversey, adminController.getProducts);

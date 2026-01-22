@@ -160,6 +160,12 @@ enum EInvoiceMatchStatus {
   NOT_FOUND
 }
 
+enum SupplierPriceListStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
 // ==================== USERS ====================
 
 model User {
@@ -248,6 +254,7 @@ model User {
   vadeAssignmentsCreated VadeAssignment[] @relation("VadeAssignmentCreator")
   eInvoiceDocuments  EInvoiceDocument[] @relation("EInvoiceCustomer")
   eInvoiceUploads    EInvoiceDocument[] @relation("EInvoiceUploader")
+  supplierPriceListUploads SupplierPriceListUpload[] @relation("SupplierPriceListUploader")
 
   @@index([email])
   @@index([role])
@@ -491,6 +498,7 @@ model Product {
   id                      String    @id @default(uuid())
   mikroCode               String    @unique
   name                    String
+  foreignName             String?   // Tedarikci urun kodu (Mikro: sto_yabanci_isim)
   unit                    String    @default("ADET") // Birim
   unit2                   String?   // 2. Birim
   unit2Factor             Float?    // 2. Birim Katsayısı
@@ -558,11 +566,117 @@ model Product {
   customerRequestItems    CustomerRequestItem[]
 
   @@index([mikroCode])
+  @@index([foreignName])
   @@index([excessStock])
   @@index([categoryId])
   @@index([imageSyncStatus])
   @@index([imageSyncErrorType])
   @@index([imageSyncUpdatedAt])
+}
+
+// ==================== SUPPLIERS & PRICE LISTS ====================
+
+model Supplier {
+  id                String    @id @default(uuid())
+  name              String    @unique
+  active            Boolean   @default(true)
+  discount1         Float?
+  discount2         Float?
+  discount3         Float?
+  discount4         Float?
+  discount5         Float?
+  priceIsNet        Boolean   @default(false)
+  priceIncludesVat  Boolean   @default(false)
+  defaultVatRate    Float?
+  excelSheetName    String?
+  excelHeaderRow    Int?
+  excelCodeHeader   String?
+  excelNameHeader   String?
+  excelPriceHeader  String?
+  pdfPriceIndex     Int?
+  pdfCodePattern    String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  priceListUploads  SupplierPriceListUpload[]
+}
+
+model SupplierPriceListUpload {
+  id              String    @id @default(uuid())
+  supplierId      String
+  supplier        Supplier  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  uploadedById    String
+  uploadedBy      User      @relation("SupplierPriceListUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  status          SupplierPriceListStatus @default(PENDING)
+  fileCount       Int       @default(0)
+  totalItems      Int       @default(0)
+  matchedItems    Int       @default(0)
+  unmatchedItems  Int       @default(0)
+  multiMatchItems Int       @default(0)
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+  errorMessage    String?
+  details         Json?
+
+  files           SupplierPriceListFile[]
+  items           SupplierPriceListItem[]
+
+  @@index([supplierId])
+  @@index([uploadedById])
+  @@index([createdAt])
+}
+
+model SupplierPriceListFile {
+  id           String   @id @default(uuid())
+  uploadId     String
+  upload       SupplierPriceListUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  fileName     String
+  originalName String
+  mimeType     String
+  size         Int
+  storagePath  String
+  createdAt    DateTime @default(now())
+
+  @@index([uploadId])
+}
+
+model SupplierPriceListItem {
+  id                 String   @id @default(uuid())
+  uploadId           String
+  upload             SupplierPriceListUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  supplierCode       String
+  supplierName       String?
+  sourcePrice        Float?
+  netPrice           Float?
+  priceCurrency      String?
+  priceIncludesVat   Boolean  @default(false)
+  rawLine            String?
+  matchCount         Int      @default(0)
+  matchedProductIds  String[] @default([])
+  createdAt          DateTime @default(now())
+
+  matches            SupplierPriceListMatch[]
+
+  @@index([uploadId])
+  @@index([supplierCode])
+}
+
+model SupplierPriceListMatch {
+  id             String   @id @default(uuid())
+  itemId         String
+  item           SupplierPriceListItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productCode    String
+  productName    String
+  currentCost    Float?
+  vatRate        Float?
+  netPrice       Float?
+  costDifference Float?
+  createdAt      DateTime @default(now())
+
+  @@index([itemId])
+  @@index([productId])
 }
 
 // ==================== PRICE RULES ====================

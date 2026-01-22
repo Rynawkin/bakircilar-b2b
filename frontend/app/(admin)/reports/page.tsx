@@ -116,6 +116,15 @@ const reports: ReportCard[] = [
     href: '/reports/supplier-performance',
     category: 'order',
   },
+  {
+    id: 'supplier-price-lists',
+    title: 'Tedarikci Fiyat Karsilastirma',
+    description: 'Excel/PDF listelerini yukleyip eslesen ve esmeyen urunleri hizli gorun',
+    icon: <FileText className="h-5 w-5" />,
+    href: '/reports/supplier-price-lists',
+    category: 'order',
+    badge: 'Yeni',
+  },
 ];
 
 const categories = [

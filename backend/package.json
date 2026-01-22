@@ -24,6 +24,7 @@
     "@sendinblue/client": "^3.3.1",
     "@supabase/supabase-js": "^2.48.1",
     "@types/archiver": "^7.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "archiver": "^7.0.1",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
@@ -36,6 +37,7 @@
     "mssql": "^10.0.4",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
+    "pdf-parse": "^2.4.5",
     "sharp": "^0.33.0",
     "xlsx": "^0.18.5",
     "zod": "^3.22.4"

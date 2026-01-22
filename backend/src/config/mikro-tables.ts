@@ -18,6 +18,7 @@ export const MIKRO_TABLES = {
   PRODUCTS_COLUMNS: {
     CODE: 'sto_kod',
     NAME: 'sto_isim',
+    FOREIGN_NAME: 'sto_yabanci_isim',
     CATEGORY_CODE: 'sto_kategori_kodu',
     UNIT: 'sto_birim1_ad',
     UNIT2: 'sto_birim2_ad',

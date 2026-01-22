@@ -29,7 +29,8 @@ import {
   ChevronDown,
   Menu as MenuIcon,
   X,
-  LogOut
+  LogOut,
+  Percent
 } from 'lucide-react';
 
 interface NavItem {
@@ -55,12 +56,14 @@ const navItems: NavItem[] = [
 ];
 
 const settingsItems: NavItem[] = [
-  { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandırma ayarları' },
-  { name: 'Ürün Override', href: '/product-overrides', icon: Tag, description: 'Özel fiyatlar' },
-  { name: 'Hariç Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme' },
-  { name: 'Personel', href: '/staff', icon: Users, description: 'Personel yönetimi' },
-  { name: 'Ayarlar', href: '/settings', icon: Settings, description: 'Sistem ayarları' },
+  { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandirma ayarlari' },
+  { name: 'Urun Override', href: '/product-overrides', icon: Tag, description: 'Ozel fiyatlar' },
+  { name: 'Tedarikci Iskonto', href: '/supplier-price-list-settings', icon: Percent, description: 'Tedarikci iskonto ayarlari' },
+  { name: 'Haric Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme' },
+  { name: 'Personel', href: '/staff', icon: Users, description: 'Personel yonetimi' },
+  { name: 'Ayarlar', href: '/settings', icon: Settings, description: 'Sistem ayarlari' },
 ];
+
 
 export function AdminNavigation() {
   const router = useRouter();

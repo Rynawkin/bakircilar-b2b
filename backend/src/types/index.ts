@@ -65,6 +65,7 @@ export interface MikroProduct {
   id: string;
   code: string;
   name: string;
+  foreignName?: string | null;
   categoryId: string;
   unit: string;
   unit2?: string | null;

@@ -42,6 +42,16 @@ const invoiceStorage = multer.diskStorage({
   },
 });
 
+const supplierPriceListStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    ensureDir(path.join('uploads', 'supplier-price-lists'), cb);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'supplier-price-list-' + uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
 // File filter - only images
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
@@ -96,6 +106,26 @@ const invoiceFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.
   cb(new Error('Sadece PDF dosyasi yuklenebilir'));
 };
 
+const supplierPriceListFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const extname = path.extname(file.originalname).toLowerCase();
+  const allowedExtensions = ['.pdf', '.xls', '.xlsx'];
+  const allowedMimes = [
+    'application/pdf',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/octet-stream',
+  ];
+
+  const isAllowedExt = allowedExtensions.includes(extname);
+  const isAllowedMime = allowedMimes.includes(file.mimetype);
+
+  if (isAllowedExt && isAllowedMime) {
+    return cb(null, true);
+  }
+
+  cb(new Error('Sadece PDF veya Excel dosyalari yuklenebilir'));
+};
+
 // Upload middleware
 export const upload = multer({
   storage,
@@ -119,4 +149,12 @@ export const invoiceUpload = multer({
     fileSize: 25 * 1024 * 1024, // 25MB limit
   },
   fileFilter: invoiceFileFilter,
+});
+
+export const supplierPriceListUpload = multer({
+  storage: supplierPriceListStorage,
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB limit
+  },
+  fileFilter: supplierPriceListFileFilter,
 });
