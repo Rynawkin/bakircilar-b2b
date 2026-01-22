@@ -22,6 +22,7 @@ import {
   AlertCircle,
   DollarSign,
   Package,
+  FileText,
   Percent,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -66,15 +67,34 @@ interface MarginAnalysisRow {
   'Satıcı İsmi': string;
 }
 
+interface SummaryBucket {
+  totalRecords: number;
+  totalDocuments: number;
+  totalRevenue: number;
+  totalProfit: number;
+  avgMargin: number;
+  negativeLines: number;
+  negativeDocuments: number;
+}
+
 interface Summary {
   totalRecords: number;
+  totalDocuments: number;
   totalRevenue: number;
   totalProfit: number;
   avgMargin: number;
   highMarginCount: number;
   lowMarginCount: number;
   negativeMarginCount: number;
+  orderSummary: SummaryBucket;
+  salesSummary: SummaryBucket;
+  salespersonSummary: Array<{
+    sectorCode: string;
+    orderSummary: SummaryBucket;
+    salesSummary: SummaryBucket;
+  }>;
 }
+
 
 interface Metadata {
   reportDate: string;
@@ -256,6 +276,11 @@ export default function MarginAnalysisPage() {
     return `${value.toFixed(2)}%`;
   };
 
+  const formatCount = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return '0';
+    return new Intl.NumberFormat('tr-TR').format(value);
+  };
+
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return '-';
     try {
@@ -279,6 +304,47 @@ export default function MarginAnalysisPage() {
     if (typeof value === 'object') return JSON.stringify(value);
     return value as string | number;
   };
+
+  const renderSummaryBucket = (title: string, bucket: SummaryBucket) => (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>KDV haric degerler</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Toplam Evrak</span>
+            <span className="font-semibold">{formatCount(bucket.totalDocuments)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Toplam Satir</span>
+            <span className="font-semibold">{formatCount(bucket.totalRecords)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Ciro (KDV Haric)</span>
+            <span className="font-semibold">{formatCurrency(bucket.totalRevenue)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Kar (KDV Haric)</span>
+            <span className="font-semibold">{formatCurrency(bucket.totalProfit)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Ortalama Kar %</span>
+            <span className="font-semibold">{formatPercent(bucket.avgMargin)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Zararli Evrak</span>
+            <span className="font-semibold">{formatCount(bucket.negativeDocuments)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Zararli Satir</span>
+            <span className="font-semibold">{formatCount(bucket.negativeLines)}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   const getMarginBadge = (margin: number) => {
     if (margin < 0) {
@@ -520,50 +586,119 @@ export default function MarginAnalysisPage() {
 
         {/* Summary Cards */}
         {summary && (
-          <div className="mb-6 grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Toplam Kayıt</CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summary.totalRecords}</div>
-                <p className="text-xs text-muted-foreground">İşlem sayısı</p>
-              </CardContent>
-            </Card>
+          <div className="mb-6 space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Toplam Satir</CardTitle>
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCount(summary.totalRecords)}</div>
+                  <p className="text-xs text-muted-foreground">Satir sayisi</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Toplam Evrak</CardTitle>
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCount(summary.totalDocuments)}</div>
+                  <p className="text-xs text-muted-foreground">Evrak sayisi</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Toplam Ciro</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(summary.totalRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">KDV Haric</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Toplam Kar</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(summary.totalProfit)}</div>
+                  <p className="text-xs text-muted-foreground">KDV Haric</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Ortalama Kar %</CardTitle>
+                  <Percent className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatPercent(summary.avgMargin)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Yuksek: {formatCount(summary.highMarginCount)} | Dusuk: {formatCount(summary.lowMarginCount)} | Zarar: {formatCount(summary.negativeMarginCount)}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              {renderSummaryBucket('Siparis Ozeti', summary.orderSummary)}
+              {renderSummaryBucket('Satis Ozeti', summary.salesSummary)}
+            </div>
 
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Toplam Ciro</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <CardHeader>
+                <CardTitle>Satis Personeli Ozeti</CardTitle>
+                <CardDescription>Gunluk siparis ve satis performansi (KDV haric)</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(summary.totalRevenue)}</div>
-                <p className="text-xs text-muted-foreground">KDV Dahil</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Toplam Kar</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(summary.totalProfit)}</div>
-                <p className="text-xs text-muted-foreground">Ortalama maliyete göre</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Ortalama Kar %</CardTitle>
-                <Percent className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatPercent(summary.avgMargin)}</div>
-                <p className="text-xs text-muted-foreground">
-                  Yüksek: {summary.highMarginCount} | Düşük: {summary.lowMarginCount} | Zarar: {summary.negativeMarginCount}
-                </p>
+                {summary.salespersonSummary.length === 0 ? (
+                  <p className="text-sm text-gray-500">Kayit bulunamadi.</p>
+                ) : (
+                  <Table containerClassName="max-h-[60vh]" className="min-w-[960px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead rowSpan={2} className="whitespace-nowrap">Satis Personeli</TableHead>
+                        <TableHead colSpan={5} className="text-center whitespace-nowrap">Siparis</TableHead>
+                        <TableHead colSpan={5} className="text-center whitespace-nowrap">Satis</TableHead>
+                      </TableRow>
+                      <TableRow>
+                        <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar %</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar %</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {summary.salespersonSummary.map((entry) => (
+                        <TableRow key={entry.sectorCode}>
+                          <TableCell className="font-medium whitespace-nowrap">{entry.sectorCode}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(entry.orderSummary.totalRevenue)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(entry.orderSummary.totalProfit)}</TableCell>
+                          <TableCell className="text-right">{formatPercent(entry.orderSummary.avgMargin)}</TableCell>
+                          <TableCell className="text-right">{formatCount(entry.orderSummary.negativeDocuments)}</TableCell>
+                          <TableCell className="text-right">{formatCount(entry.orderSummary.negativeLines)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(entry.salesSummary.totalRevenue)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(entry.salesSummary.totalProfit)}</TableCell>
+                          <TableCell className="text-right">{formatPercent(entry.salesSummary.avgMargin)}</TableCell>
+                          <TableCell className="text-right">{formatCount(entry.salesSummary.negativeDocuments)}</TableCell>
+                          <TableCell className="text-right">{formatCount(entry.salesSummary.negativeLines)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </div>

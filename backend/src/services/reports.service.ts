@@ -56,12 +56,12 @@ interface MarginComplianceAlert {
   category: string;
   currentCost: number;
   customerType: string;
-  expectedMargin: number; // % kar marjı (e.g., 60 for 1.6x multiplier)
+  expectedMargin: number; // % kar marjÄ± (e.g., 60 for 1.6x multiplier)
   expectedPrice: number;
   actualPrice: number;
   deviation: number; // % deviation
   deviationAmount: number; // TL deviation
-  status: 'OK' | 'HIGH' | 'LOW'; // OK: ±2%, HIGH: >2%, LOW: <-2%
+  status: 'OK' | 'HIGH' | 'LOW'; // OK: Â±2%, HIGH: >2%, LOW: <-2%
   priceSource: 'CATEGORY_RULE' | 'PRODUCT_OVERRIDE' | 'MIKRO_MARGIN';
 }
 
@@ -288,15 +288,15 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
   },
   customerName: {
     label: 'Cari',
-    resolve: (data) => pickValueByKeys(data, ['Cari İsmi', 'Cari Ä°smi', 'Cari Ismi']),
+    resolve: (data) => pickValueByKeys(data, ['Cari Ä°smi', 'Cari Ã„Â°smi', 'Cari Ismi']),
   },
   stockCode: {
     label: 'Stok Kodu',
     resolve: (data) => pickValueByKeys(data, ['Stok Kodu']),
   },
   stockName: {
-    label: 'Ürün Adı',
-    resolve: (data) => pickValueByKeys(data, ['Stok İsmi', 'Stok Ä°smi', 'Stok Ismi']),
+    label: 'ÃœrÃ¼n AdÄ±',
+    resolve: (data) => pickValueByKeys(data, ['Stok Ä°smi', 'Stok Ã„Â°smi', 'Stok Ismi']),
   },
   quantity: {
     label: 'Miktar',
@@ -307,8 +307,8 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     },
   },
   unitPrice: {
-    label: 'Birim Satış',
-    resolve: (data) => pickValueByKeys(data, ['BirimSatışKDV', 'BirimSatÄ±ÅžKDV', 'BirimSatisKDV']),
+    label: 'Birim SatÄ±ÅŸ',
+    resolve: (data) => pickValueByKeys(data, ['BirimSatÄ±ÅŸKDV', 'BirimSatÃ„Â±Ã…Å¾KDV', 'BirimSatisKDV']),
   },
   totalAmount: {
     label: 'Tutar (KDV)',
@@ -353,23 +353,129 @@ const resolveMarginReportColumns = (columnIds: string[]) => {
   });
 };
 
-const buildMarginComplianceEmailSummary = (rows: Array<{ avgMargin?: number | null; data?: unknown }>) => {
+type MarginSummaryBucket = {
+  totalRecords: number;
+  totalDocuments: number;
+  totalRevenue: number;
+  totalProfit: number;
+  avgMargin: number;
+  negativeLines: number;
+  negativeDocuments: number;
+};
+
+type MarginComplianceSummary = {
+  totalRecords: number;
+  totalDocuments: number;
+  totalRevenue: number;
+  totalProfit: number;
+  avgMargin: number;
+  highMarginCount: number;
+  lowMarginCount: number;
+  negativeMarginCount: number;
+  orderSummary: MarginSummaryBucket;
+  salesSummary: MarginSummaryBucket;
+  salespersonSummary: Array<{
+    sectorCode: string;
+    orderSummary: MarginSummaryBucket;
+    salesSummary: MarginSummaryBucket;
+  }>;
+};
+
+const normalizeReportText = (value: unknown): string => {
+  const raw = String(value || '').toLowerCase();
+  return raw
+    .replace(/ı/g, 'i')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c');
+};
+
+const resolveReportType = (data: Record<string, any>): 'order' | 'sale' => {
+  const tip = normalizeReportText(pickValueByKeys(data, ['Tip']));
+  if (tip.includes('siparis')) return 'order';
+  if (tip.includes('irsaliye') || tip.includes('fatura')) return 'sale';
+  return 'sale';
+};
+
+const resolveDocumentKey = (data: Record<string, any>): string | null => {
+  const docValue = pickValueByKeys(data, ['Evrak No', 'msg_S_0089', 'Belge No']);
+  const docKey = docValue !== null && docValue !== undefined ? String(docValue).trim() : '';
+  return docKey || null;
+};
+
+const resolveSectorCode = (row: { sectorCode?: string | null }, data: Record<string, any>): string => {
+  const sectorValue = row?.sectorCode ?? pickValueByKeys(data, ['SektorKodu']);
+  const sector = typeof sectorValue === 'string' ? sectorValue.trim() : '';
+  return sector || 'TANIMSIZ';
+};
+
+const buildMarginSummaryBucket = (
+  rows: Array<{ avgMargin?: number | null; data?: unknown }>,
+  options: { useTypePrefix?: boolean } = {}
+): MarginSummaryBucket => {
+  const useTypePrefix = options.useTypePrefix === true;
+  const docMap = new Map<string, { profit: number; revenue: number }>();
   let totalRevenue = 0;
   let totalProfit = 0;
-  let avgMarginSum = 0;
+  let negativeLines = 0;
+
+  rows.forEach((row) => {
+    const data = getRowData(row);
+    const revenue = toNumber(pickValueByKeys(data, ['Tutar']));
+    const profit = pickTotalProfit(data);
+    totalRevenue += revenue;
+    totalProfit += profit;
+    if (profit < 0) {
+      negativeLines += 1;
+    }
+
+    const docKey = resolveDocumentKey(data);
+    if (docKey) {
+      const prefix = useTypePrefix ? `${resolveReportType(data)}:` : '';
+      const key = `${prefix}${docKey}`;
+      const entry = docMap.get(key) || { profit: 0, revenue: 0 };
+      entry.profit += profit;
+      entry.revenue += revenue;
+      docMap.set(key, entry);
+    }
+  });
+
+  let negativeDocuments = 0;
+  for (const entry of docMap.values()) {
+    if (entry.profit < 0) {
+      negativeDocuments += 1;
+    }
+  }
+
+  const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  return {
+    totalRecords: rows.length,
+    totalDocuments: docMap.size,
+    totalRevenue,
+    totalProfit,
+    avgMargin,
+    negativeLines,
+    negativeDocuments,
+  };
+};
+
+const buildMarginComplianceSummary = (
+  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>
+): MarginComplianceSummary => {
+  const orderRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }> = [];
+  const salesRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }> = [];
+  const salespeople = new Map<string, { orderRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>; salesRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }> }>();
+
   let highMarginCount = 0;
   let lowMarginCount = 0;
   let negativeMarginCount = 0;
 
   rows.forEach((row) => {
     const data = getRowData(row);
-    const revenue = toNumber(pickValueByKeys(data, ['Tutar']));
-    totalRevenue += revenue;
-
-    totalProfit += pickTotalProfit(data);
-
     const marginValue = Number.isFinite(row.avgMargin) ? Number(row.avgMargin) : pickAvgMargin(data);
-    avgMarginSum += marginValue;
 
     if (marginValue > 30) {
       highMarginCount += 1;
@@ -378,18 +484,48 @@ const buildMarginComplianceEmailSummary = (rows: Array<{ avgMargin?: number | nu
     } else if (marginValue < 10) {
       lowMarginCount += 1;
     }
+
+    const type = resolveReportType(data);
+    if (type === 'order') {
+      orderRows.push(row);
+    } else {
+      salesRows.push(row);
+    }
+
+    const sectorCode = resolveSectorCode(row, data);
+    const entry = salespeople.get(sectorCode) || { orderRows: [], salesRows: [] };
+    if (type === 'order') {
+      entry.orderRows.push(row);
+    } else {
+      entry.salesRows.push(row);
+    }
+    salespeople.set(sectorCode, entry);
   });
 
-  const totalRecords = rows.length;
+  const overallSummary = buildMarginSummaryBucket(rows, { useTypePrefix: true });
+  const orderSummary = buildMarginSummaryBucket(orderRows);
+  const salesSummary = buildMarginSummaryBucket(salesRows);
+
+  const salespersonSummary = Array.from(salespeople.entries())
+    .map(([sectorCode, entry]) => ({
+      sectorCode,
+      orderSummary: buildMarginSummaryBucket(entry.orderRows),
+      salesSummary: buildMarginSummaryBucket(entry.salesRows),
+    }))
+    .sort((a, b) => a.sectorCode.localeCompare(b.sectorCode, 'tr'));
 
   return {
-    totalRecords,
-    totalRevenue,
-    totalProfit,
-    avgMargin: totalRecords > 0 ? avgMarginSum / totalRecords : 0,
+    totalRecords: overallSummary.totalRecords,
+    totalDocuments: overallSummary.totalDocuments,
+    totalRevenue: overallSummary.totalRevenue,
+    totalProfit: overallSummary.totalProfit,
+    avgMargin: overallSummary.avgMargin,
     highMarginCount,
     lowMarginCount,
     negativeMarginCount,
+    orderSummary,
+    salesSummary,
+    salespersonSummary,
   };
 };
 
@@ -674,46 +810,25 @@ export class ReportsService {
     const limitValue = Number.isFinite(limit) && limit > 0 ? limit : 100;
     const offset = (pageValue - 1) * limitValue;
 
-    const [rows, totalRecords, aggregates, highMarginCount, lowMarginCount, negativeMarginCount] =
-      await prisma.$transaction([
-        prisma.marginComplianceReportRow.findMany({
-          where,
-          orderBy,
-          skip: offset,
-          take: limitValue,
-        }),
-        prisma.marginComplianceReportRow.count({ where }),
-        prisma.marginComplianceReportRow.aggregate({
-          where,
-          _sum: { totalRevenue: true, totalProfit: true },
-          _avg: { avgMargin: true },
-        }),
-        prisma.marginComplianceReportRow.count({
-          where: { ...where, avgMargin: { gt: 30 } },
-        }),
-        prisma.marginComplianceReportRow.count({
-          where: { ...where, avgMargin: { lt: 10 } },
-        }),
-        prisma.marginComplianceReportRow.count({
-          where: { ...where, avgMargin: { lt: 0 } },
-        }),
-      ]);
+    const [rows, summaryRows] = await prisma.$transaction([
+      prisma.marginComplianceReportRow.findMany({
+        where,
+        orderBy,
+        skip: offset,
+        take: limitValue,
+      }),
+      prisma.marginComplianceReportRow.findMany({
+        where,
+        select: { avgMargin: true, data: true, sectorCode: true },
+      }),
+    ]);
 
-    const totalRevenue = toNumber(aggregates._sum.totalRevenue);
-    const totalProfit = toNumber(aggregates._sum.totalProfit);
-    const avgMargin = toNumber(aggregates._avg.avgMargin);
+    const summary = buildMarginComplianceSummary(summaryRows);
+    const totalRecords = summary.totalRecords;
 
     return {
       data: rows.map((row) => row.data),
-      summary: {
-        totalRecords,
-        totalRevenue,
-        totalProfit,
-        avgMargin,
-        highMarginCount,
-        lowMarginCount,
-        negativeMarginCount,
-      },
+      summary,
       pagination: {
         page: pageValue,
         limit: limitValue,
@@ -854,7 +969,7 @@ export class ReportsService {
 
   async buildMarginComplianceEmailPayload(reportDate: Date, columnIds: string[] = []) {
     const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
-    const summary = buildMarginComplianceEmailSummary(rows);
+    const summary = buildMarginComplianceSummary(rows);
 
     const resolvedIds = columnIds && columnIds.length > 0
       ? columnIds
