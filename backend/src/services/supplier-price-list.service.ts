@@ -208,8 +208,10 @@ const hasCurrencyNear = (line: string, index: number, length: number) => {
   return CURRENCY_REGEX.test(`${left}${right}`);
 };
 
+const PRICE_REGEX = /\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}/g;
+
 const extractPrices = (line: string): number[] => {
-  const matches = Array.from(line.matchAll(/\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\d+,\d{2}/g));
+  const matches = Array.from(line.matchAll(PRICE_REGEX));
   const candidates = matches
     .map((match) => {
       const value = parseNumber(match[0]);
@@ -263,6 +265,47 @@ const extractCodeFromLine = (line: string, codePattern?: string | null) => {
   }
 
   return null;
+};
+
+const extractCodesWithPositions = (line: string, codePattern?: string | null) => {
+  const results: Array<{ code: string; index: number }> = [];
+
+  const normalizeResults = (entries: Array<{ code: string; index: number }>) => {
+    const seen = new Set<string>();
+    const deduped = entries.filter((entry) => {
+      const key = `${entry.code}|${entry.index}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return deduped.sort((a, b) => a.index - b.index);
+  };
+
+  if (codePattern) {
+    try {
+      const regex = new RegExp(codePattern, 'g');
+      for (const match of line.matchAll(regex)) {
+        if (!match[0]) continue;
+        const index = typeof match.index === 'number' ? match.index : line.indexOf(match[0]);
+        results.push({ code: match[0], index: index >= 0 ? index : 0 });
+      }
+      if (results.length) {
+        return normalizeResults(results);
+      }
+    } catch (error) {
+      // ignore invalid regex
+    }
+  }
+
+  for (const match of line.matchAll(/[A-Za-z0-9][A-Za-z0-9\-\/]*/g)) {
+    const token = match[0];
+    const code = defaultCodeToken(token);
+    if (!code) continue;
+    const index = typeof match.index === 'number' ? match.index : line.indexOf(token);
+    results.push({ code, index: index >= 0 ? index : 0 });
+  }
+
+  return normalizeResults(results);
 };
 
 const isHeaderLine = (line: string) => {
@@ -323,35 +366,66 @@ const parsePdfFile = async (filePath: string, supplier: any) => {
   const lines = text.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean);
   const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; rawLine?: string; currency?: string | null }> = [];
   const seen = new Set<string>();
+  const parsedCodes = new Set<string>();
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     if (isHeaderLine(line)) continue;
 
-    const prices = extractPrices(line);
-    if (!prices.length) continue;
+    const codes = extractCodesWithPositions(line, supplier.pdfCodePattern);
+    if (!codes.length) continue;
 
-    const code = extractCodeFromLine(line, supplier.pdfCodePattern);
-    if (!code) continue;
+    for (let codeIndex = 0; codeIndex < codes.length; codeIndex += 1) {
+      const codeEntry = codes[codeIndex];
+      const nextIndex = codes[codeIndex + 1]?.index ?? line.length;
+      let segment = line.slice(codeEntry.index, nextIndex).trim();
+      if (!segment) {
+        segment = line;
+      }
 
-    const price = selectPriceValue(prices, supplier.pdfPriceIndex);
-    if (price === null) continue;
+      let prices = extractPrices(segment);
+      if (!prices.length) {
+        const nextLine = lines[lineIndex + 1];
+        if (nextLine) {
+          const nextCodes = extractCodesWithPositions(nextLine, supplier.pdfCodePattern);
+          if (!nextCodes.length) {
+            const combined = `${segment} ${nextLine}`.trim();
+            const combinedPrices = extractPrices(combined);
+            if (combinedPrices.length) {
+              segment = combined;
+              prices = combinedPrices;
+            }
+          }
+        }
+      }
 
-    const key = `${code}|${price}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+      if (!prices.length) continue;
 
-    const supplierName = line.replace(code, '').replace(/\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\d+,\d{2}/g, '').trim();
-    items.push({
-      supplierCode: code,
-      supplierName: supplierName || undefined,
-      sourcePrice: price,
-      rawLine: line,
-      currency: extractCurrency(line),
-    });
+      const price = selectPriceValue(prices, supplier.pdfPriceIndex);
+      if (price === null) continue;
+
+      const key = `${codeEntry.code}|${price}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const supplierName = segment.replace(codeEntry.code, '').replace(PRICE_REGEX, '').trim();
+      items.push({
+        supplierCode: codeEntry.code,
+        supplierName: supplierName || undefined,
+        sourcePrice: price,
+        rawLine: segment,
+        currency: extractCurrency(segment),
+      });
+
+      const normalized = normalizeCode(codeEntry.code);
+      if (normalized) parsedCodes.add(normalized);
+    }
   }
 
   const tokenItems = parsePdfTokens(text, supplier.pdfPriceIndex);
   for (const item of tokenItems) {
+    const normalized = normalizeCode(item.supplierCode);
+    if (normalized && parsedCodes.has(normalized)) continue;
     const key = `${item.supplierCode}|${item.sourcePrice}`;
     if (seen.has(key)) continue;
     seen.add(key);
