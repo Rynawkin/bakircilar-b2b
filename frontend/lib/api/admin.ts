@@ -887,12 +887,52 @@ export const adminApi = {
       data: any[];
       summary: {
         totalRecords: number;
+        totalDocuments: number;
         totalRevenue: number;
         totalProfit: number;
         avgMargin: number;
         highMarginCount: number;
         lowMarginCount: number;
         negativeMarginCount: number;
+        orderSummary: {
+          totalRecords: number;
+          totalDocuments: number;
+          totalRevenue: number;
+          totalProfit: number;
+          avgMargin: number;
+          negativeLines: number;
+          negativeDocuments: number;
+        };
+        salesSummary: {
+          totalRecords: number;
+          totalDocuments: number;
+          totalRevenue: number;
+          totalProfit: number;
+          avgMargin: number;
+          negativeLines: number;
+          negativeDocuments: number;
+        };
+        salespersonSummary: Array<{
+          sectorCode: string;
+          orderSummary: {
+            totalRecords: number;
+            totalDocuments: number;
+            totalRevenue: number;
+            totalProfit: number;
+            avgMargin: number;
+            negativeLines: number;
+            negativeDocuments: number;
+          };
+          salesSummary: {
+            totalRecords: number;
+            totalDocuments: number;
+            totalRevenue: number;
+            totalProfit: number;
+            avgMargin: number;
+            negativeLines: number;
+            negativeDocuments: number;
+          };
+        }>;
       };
       pagination: any;
       metadata: {
