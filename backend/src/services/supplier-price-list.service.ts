@@ -464,7 +464,7 @@ class SupplierPriceListService {
       ]);
 
       return {
-        items: items.map((item) => ({
+        items: items.map((item: any) => ({
           supplierCode: item.supplierCode,
           supplierName: item.supplierName,
           sourcePrice: item.sourcePrice,
@@ -497,7 +497,7 @@ class SupplierPriceListService {
       ]);
 
       return {
-        items: items.map((item) => ({
+        items: items.map((item: any) => ({
           supplierCode: item.supplierCode,
           supplierName: item.supplierName,
           sourcePrice: item.sourcePrice,
@@ -505,7 +505,7 @@ class SupplierPriceListService {
           priceCurrency: item.priceCurrency,
           priceIncludesVat: item.priceIncludesVat,
           matchCount: item.matchCount,
-          matchedProductCodes: item.matches.map((match) => match.productCode),
+          matchedProductCodes: item.matches.map((match: any) => match.productCode),
         })),
         pagination: {
           page,
@@ -541,7 +541,7 @@ class SupplierPriceListService {
     ]);
 
     return {
-      items: matches.map((match) => ({
+      items: matches.map((match: any) => ({
         supplierCode: match.item.supplierCode,
         supplierName: match.item.supplierName,
         sourcePrice: match.item.sourcePrice,
@@ -598,7 +598,7 @@ class SupplierPriceListService {
           'Para Birimi': item.priceCurrency || 'TRY',
           'KDV Dahil': item.priceIncludesVat ? 'Evet' : 'Hayir',
           'Eslesme Sayisi': item.matchCount,
-          'Urunler': item.matches.map((match) => match.productCode).join(', '),
+          'Urunler': item.matches.map((match: any) => match.productCode).join(', '),
         });
       }
 
@@ -726,9 +726,9 @@ class SupplierPriceListService {
       }
 
       const totalItems = itemsWithIds.length;
-      const matchedItems = itemsWithIds.filter((item) => item.matchCount > 0).length;
-      const unmatchedItems = itemsWithIds.filter((item) => item.matchCount === 0).length;
-      const multiMatchItems = itemsWithIds.filter((item) => item.matchCount > 1).length;
+      const matchedItems = itemsWithIds.filter((item: any) => item.matchCount > 0).length;
+      const unmatchedItems = itemsWithIds.filter((item: any) => item.matchCount === 0).length;
+      const multiMatchItems = itemsWithIds.filter((item: any) => item.matchCount > 1).length;
 
       const transactions: any[] = [
         prisma.supplierPriceListFile.createMany({ data: fileRows }),
