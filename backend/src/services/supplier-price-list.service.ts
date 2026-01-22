@@ -166,6 +166,18 @@ const selectPriceValue = (values: number[], priceIndex?: number | null) => {
   if (priceIndex && priceIndex > 0 && priceIndex <= values.length) {
     return values[priceIndex - 1];
   }
+
+  if (values.length > 1) {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    if (max >= 10 && min < 1) {
+      return max;
+    }
+    if (min > 0 && max / min >= 20) {
+      return max;
+    }
+  }
+
   return values[values.length - 1];
 };
 
@@ -845,6 +857,7 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
 
 
 
