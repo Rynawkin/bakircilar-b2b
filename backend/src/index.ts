@@ -197,38 +197,17 @@ if (config.enableCron) {
         return;
       }
 
-      const [totalRecords, aggregates, highMarginCount, lowMarginCount, negativeMarginCount] =
-        await prisma.$transaction([
-          prisma.marginComplianceReportRow.count({ where: { reportDate } }),
-          prisma.marginComplianceReportRow.aggregate({
-            where: { reportDate },
-            _sum: { totalRevenue: true, totalProfit: true },
-            _avg: { avgMargin: true },
-          }),
-          prisma.marginComplianceReportRow.count({
-            where: { reportDate, avgMargin: { gt: 30 } },
-          }),
-          prisma.marginComplianceReportRow.count({
-            where: { reportDate, avgMargin: { lt: 10 } },
-          }),
-          prisma.marginComplianceReportRow.count({
-            where: { reportDate, avgMargin: { lt: 0 } },
-          }),
-        ]);
+      const emailPayload = await reportsService.buildMarginComplianceEmailPayload(
+        reportDate,
+        settings?.marginReportEmailColumns || []
+      );
 
       await emailService.sendMarginComplianceReportSummary({
         recipients,
         reportDate,
-        summary: {
-          totalRecords,
-          totalRevenue: Number(aggregates._sum.totalRevenue || 0),
-          totalProfit: Number(aggregates._sum.totalProfit || 0),
-          avgMargin: Number(aggregates._avg.avgMargin || 0),
-          highMarginCount,
-          lowMarginCount,
-          negativeMarginCount,
-        },
+        summary: emailPayload.summary,
         subject: settings?.marginReportEmailSubject || undefined,
+        attachment: emailPayload.attachment,
       });
     } catch (error) {
       console.error('Margin compliance report cron error:', error);

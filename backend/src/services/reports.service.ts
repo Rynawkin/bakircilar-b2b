@@ -11,6 +11,7 @@ import { AppError, ErrorCode } from '../types/errors';
 import mikroService from './mikro.service';
 import exclusionService from './exclusion.service';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
+import * as XLSX from 'xlsx';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -204,6 +205,192 @@ const pickTotalProfit = (row: Record<string, any>): number => {
   );
 
   return key ? toNumber(row[key]) : 0;
+};
+
+const formatExportValue = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'object') return JSON.stringify(value);
+  return value as string | number;
+};
+
+const getRowData = (row: { data?: unknown }): Record<string, any> => {
+  if (row && typeof row.data === 'object' && row.data !== null) {
+    return row.data as Record<string, any>;
+  }
+  return {};
+};
+
+const pickValueByKeys = (data: Record<string, any>, keys: string[]): unknown => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const value = data[key];
+      if (value !== undefined && value !== null) return value;
+    }
+  }
+  return null;
+};
+
+const findValueByToken = (data: Record<string, any>, token: string): unknown => {
+  const normalizedToken = token.toLowerCase();
+  const key = Object.keys(data).find((candidate) =>
+    candidate.toLowerCase().replace(/\s+/g, '').includes(normalizedToken)
+  );
+  return key ? data[key] : null;
+};
+
+const pickUnitProfit = (data: Record<string, any>): number => {
+  const direct = pickValueByKeys(data, ['BirimKarOrtMalGore']);
+  if (direct !== null && direct !== undefined) {
+    return toNumber(direct);
+  }
+  const fallback = findValueByToken(data, 'birimkarortmal');
+  return toNumber(fallback);
+};
+
+const pickAvgMargin = (data: Record<string, any>): number => {
+  const direct = pickValueByKeys(data, ['OrtalamaKarYuzde']);
+  if (direct !== null && direct !== undefined) {
+    return toNumber(direct);
+  }
+  const fallback = findValueByToken(data, 'ortalamakaryuzde');
+  return toNumber(fallback);
+};
+
+const DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS = [
+  'documentNo',
+  'documentType',
+  'documentDate',
+  'customerName',
+  'stockCode',
+  'stockName',
+  'quantity',
+  'unitPrice',
+  'totalAmount',
+  'avgCost',
+  'unitProfit',
+  'totalProfit',
+  'margin',
+];
+
+const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data: Record<string, any>) => unknown }> = {
+  documentNo: {
+    label: 'Evrak No',
+    resolve: (data) => pickValueByKeys(data, ['Evrak No']),
+  },
+  documentType: {
+    label: 'Tip',
+    resolve: (data) => pickValueByKeys(data, ['Tip']),
+  },
+  documentDate: {
+    label: 'Evrak Tarihi',
+    resolve: (data) => pickValueByKeys(data, ['Evrak Tarihi']),
+  },
+  customerName: {
+    label: 'Cari',
+    resolve: (data) => pickValueByKeys(data, ['Cari İsmi', 'Cari Ä°smi', 'Cari Ismi']),
+  },
+  stockCode: {
+    label: 'Stok Kodu',
+    resolve: (data) => pickValueByKeys(data, ['Stok Kodu']),
+  },
+  stockName: {
+    label: 'Ürün Adı',
+    resolve: (data) => pickValueByKeys(data, ['Stok İsmi', 'Stok Ä°smi', 'Stok Ismi']),
+  },
+  quantity: {
+    label: 'Miktar',
+    resolve: (data) => {
+      const quantity = toNumber(pickValueByKeys(data, ['Miktar']));
+      const unit = pickValueByKeys(data, ['Birimi', 'Birim']);
+      return unit ? `${quantity} ${unit}` : quantity;
+    },
+  },
+  unitPrice: {
+    label: 'Birim Satış',
+    resolve: (data) => pickValueByKeys(data, ['BirimSatışKDV', 'BirimSatÄ±ÅžKDV', 'BirimSatisKDV']),
+  },
+  totalAmount: {
+    label: 'Tutar (KDV)',
+    resolve: (data) => pickValueByKeys(data, ['TutarKDV']),
+  },
+  avgCost: {
+    label: 'Ort. Maliyet',
+    resolve: (data) => pickValueByKeys(data, ['OrtalamaMaliyetKDVli']),
+  },
+  unitProfit: {
+    label: 'Birim Kar',
+    resolve: (data) => pickUnitProfit(data),
+  },
+  totalProfit: {
+    label: 'Toplam Kar',
+    resolve: (data) => pickTotalProfit(data),
+  },
+  margin: {
+    label: 'Kar %',
+    resolve: (data) => pickAvgMargin(data),
+  },
+};
+
+const resolveMarginReportColumns = (columnIds: string[]) => {
+  const uniqueIds = Array.from(new Set(columnIds.filter(Boolean)));
+
+  return uniqueIds.map((id) => {
+    const baseColumn = BASE_MARGIN_REPORT_COLUMNS[id];
+    if (baseColumn) {
+      return {
+        id,
+        label: baseColumn.label,
+        resolve: baseColumn.resolve,
+      };
+    }
+
+    return {
+      id,
+      label: id,
+      resolve: (data: Record<string, any>) => (data ? data[id] : null),
+    };
+  });
+};
+
+const buildMarginComplianceEmailSummary = (rows: Array<{ avgMargin?: number | null; data?: unknown }>) => {
+  let totalRevenue = 0;
+  let totalProfit = 0;
+  let avgMarginSum = 0;
+  let highMarginCount = 0;
+  let lowMarginCount = 0;
+  let negativeMarginCount = 0;
+
+  rows.forEach((row) => {
+    const data = getRowData(row);
+    const revenue = toNumber(pickValueByKeys(data, ['Tutar']));
+    totalRevenue += revenue;
+
+    totalProfit += pickTotalProfit(data);
+
+    const marginValue = Number.isFinite(row.avgMargin) ? Number(row.avgMargin) : pickAvgMargin(data);
+    avgMarginSum += marginValue;
+
+    if (marginValue > 30) {
+      highMarginCount += 1;
+    } else if (marginValue < 0) {
+      negativeMarginCount += 1;
+    } else if (marginValue < 10) {
+      lowMarginCount += 1;
+    }
+  });
+
+  const totalRecords = rows.length;
+
+  return {
+    totalRecords,
+    totalRevenue,
+    totalProfit,
+    avgMargin: totalRecords > 0 ? avgMarginSum / totalRecords : 0,
+    highMarginCount,
+    lowMarginCount,
+    negativeMarginCount,
+  };
 };
 
 export class ReportsService {
@@ -663,6 +850,42 @@ export class ReportsService {
     };
   }
 
+
+
+  async buildMarginComplianceEmailPayload(reportDate: Date, columnIds: string[] = []) {
+    const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
+    const summary = buildMarginComplianceEmailSummary(rows);
+
+    const resolvedIds = columnIds && columnIds.length > 0
+      ? columnIds
+      : DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS;
+    const columns = resolveMarginReportColumns(resolvedIds);
+
+    const headerRow = columns.map((column) => column.label);
+    const dataRows = rows.map((row) => {
+      const data = getRowData(row);
+      return columns.map((column) => {
+        const value = column.resolve(data);
+        return formatExportValue(value) ?? '';
+      });
+    });
+
+    const sheetData = [headerRow, ...dataRows];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar Marji Analizi');
+
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+    const fileName = `kar-marji-analizi-${formatDateCompact(reportDate)}.xlsx`;
+
+    return {
+      summary,
+      attachment: {
+        name: fileName,
+        content: Buffer.from(buffer).toString('base64'),
+      },
+    };
+  }
 
   /**
    * En Çok Satan Ürünler Raporu

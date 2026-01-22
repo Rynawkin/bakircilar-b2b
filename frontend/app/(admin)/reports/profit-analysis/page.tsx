@@ -152,6 +152,8 @@ export default function MarginAnalysisPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(DEFAULT_COLUMN_IDS);
   const hasInitializedColumns = useRef(false);
+  const [emailColumnIds, setEmailColumnIds] = useState<ColumnId[]>([]);
+  const [savingEmailColumns, setSavingEmailColumns] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -191,6 +193,21 @@ export default function MarginAnalysisPage() {
   }, [page, statusFilter, sortOrder]);
 
   useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settings = await adminApi.getSettings();
+        if (Array.isArray(settings.marginReportEmailColumns)) {
+          setEmailColumnIds(settings.marginReportEmailColumns);
+        }
+      } catch (err) {
+        console.error('Margin report email settings not loaded:', err);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
   }, [visibleColumns]);
 
@@ -205,6 +222,25 @@ export default function MarginAnalysisPage() {
       }
       return [...prev, columnId];
     });
+  };
+
+  const handleSaveEmailColumns = async () => {
+    const selected = visibleColumns.filter((id) => columnDefs.some((column) => column.id === id));
+    if (selected.length === 0) {
+      toast.error('Mail icin en az bir kolon secin');
+      return;
+    }
+    setSavingEmailColumns(true);
+    try {
+      await adminApi.updateSettings({ marginReportEmailColumns: selected });
+      setEmailColumnIds(selected);
+      toast.success('Mail excel kolonlari kaydedildi');
+    } catch (err) {
+      console.error('Margin report email columns update error:', err);
+      toast.error('Mail kolonlari kaydedilemedi');
+    } finally {
+      setSavingEmailColumns(false);
+    }
   };
 
   const formatCurrency = (value: number | null | undefined) => {
@@ -617,6 +653,20 @@ export default function MarginAnalysisPage() {
                     {column.label}
                   </label>
                 ))}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveEmailColumns}
+                  isLoading={savingEmailColumns}
+                  disabled={savingEmailColumns}
+                >
+                  Mail Excel Kolonlarini Kaydet
+                </Button>
+                <span className="text-xs text-gray-500">
+                  Kayitli mail kolonlari: {emailColumnIds.length > 0 ? emailColumnIds.length : 'Varsayilan'}
+                </span>
               </div>
               <p className="mt-2 text-xs text-gray-500">En az bir kolon seçili olmalı.</p>
             </details>

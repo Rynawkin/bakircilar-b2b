@@ -328,6 +328,7 @@ model Settings {
   marginReportEmailEnabled  Boolean                 @default(false)
   marginReportEmailRecipients String[]              @default([])
   marginReportEmailSubject  String                  @default("Kar Marji Raporu")
+  marginReportEmailColumns String[]              @default([])
 
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt

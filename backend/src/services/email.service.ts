@@ -772,6 +772,10 @@ class EmailService {
       negativeMarginCount: number;
     };
     subject?: string;
+    attachment?: {
+      name: string;
+      content: string;
+    };
   }): Promise<void> {
     const recipients = (params.recipients || [])
       .map((email) => (typeof email === 'string' ? email.trim() : ''))
@@ -821,11 +825,11 @@ class EmailService {
                 <td style="padding: 8px 0; text-align: right; font-weight: bold;">${params.summary.totalRecords}</td>
               </tr>
               <tr>
-                <td style="padding: 8px 0; color: #6b7280;">Toplam Ciro (KDV)</td>
+                <td style="padding: 8px 0; color: #6b7280;">Toplam Ciro (KDV Haric)</td>
                 <td style="padding: 8px 0; text-align: right; font-weight: bold;">${formatCurrency(params.summary.totalRevenue)}</td>
               </tr>
               <tr>
-                <td style="padding: 8px 0; color: #6b7280;">Toplam Kar</td>
+                <td style="padding: 8px 0; color: #6b7280;">Toplam Kar (KDV Haric)</td>
                 <td style="padding: 8px 0; text-align: right; font-weight: bold;">${formatCurrency(params.summary.totalProfit)}</td>
               </tr>
               <tr>
@@ -855,6 +859,9 @@ class EmailService {
     sendSmtpEmail.to = recipients.map((email) => ({ email }));
     sendSmtpEmail.subject = subject;
     sendSmtpEmail.htmlContent = htmlContent;
+    if (params.attachment) {
+      sendSmtpEmail.attachment = [params.attachment];
+    }
 
     await this.apiInstance.sendTransacEmail(sendSmtpEmail);
   }

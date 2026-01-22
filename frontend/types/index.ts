@@ -622,6 +622,7 @@ export interface Settings {
   marginReportEmailEnabled?: boolean;
   marginReportEmailRecipients?: string[];
   marginReportEmailSubject?: string;
+  marginReportEmailColumns?: string[];
 }
 
 // ==================== CUSTOMER TYPES ====================
