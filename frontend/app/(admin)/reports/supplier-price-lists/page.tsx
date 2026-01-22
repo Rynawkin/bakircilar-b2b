@@ -106,6 +106,7 @@ export default function SupplierPriceListsPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [mapping, setMapping] = useState<MappingState>(EMPTY_MAPPING);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [activeUpload, setActiveUpload] = useState<UploadItem | null>(null);
@@ -130,6 +131,7 @@ export default function SupplierPriceListsPage() {
   const resetPreview = () => {
     setPreview(null);
     setMapping(EMPTY_MAPPING);
+    setShowAdvanced(false);
   };
 
   const buildOverrides = () => ({
@@ -139,7 +141,7 @@ export default function SupplierPriceListsPage() {
     excelNameHeader: mapping.excelNameHeader || null,
     excelPriceHeader: mapping.excelPriceHeader || null,
     pdfPriceIndex: parseOptionalInt(mapping.pdfPriceIndex),
-    pdfCodePattern: mapping.pdfCodePattern || null,
+    pdfCodePattern: showAdvanced ? (mapping.pdfCodePattern || null) : null,
   });
 
   const getPdfSelectedPrice = (sample: PreviewPdf['samples'][number]) => {
@@ -515,38 +517,54 @@ export default function SupplierPriceListsPage() {
                   <div className="text-sm font-medium">PDF Onizleme</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <Select
-                      label="Fiyat Sirasi"
+                      label="Fiyat Secimi"
                       value={mapping.pdfPriceIndex}
                       onChange={(event) => setMapping((prev) => ({
                         ...prev,
                         pdfPriceIndex: event.target.value,
                       }))}
                     >
-                      <option value="">Otomatik</option>
+                      <option value="">Otomatik (onerilen)</option>
                       {pdfPriceOptions.map((value) => (
-                        <option key={value} value={String(value)}>{value}. fiyat</option>
+                        <option key={value} value={String(value)}>Soldan {value}. fiyat</option>
                       ))}
                     </Select>
-                    <Input
-                      label="Kod Regex"
-                      value={mapping.pdfCodePattern}
-                      onChange={(event) => setMapping((prev) => ({
-                        ...prev,
-                        pdfCodePattern: event.target.value,
-                      }))}
-                      placeholder="Orn: [A-Z]{2}\\d+"
-                    />
+                    <div className="flex flex-col justify-end gap-2">
+                      <div className="text-xs text-muted-foreground">Kod algilama: Otomatik</div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAdvanced((prev) => !prev)}
+                        className="w-full"
+                      >
+                        {showAdvanced ? 'Gelismisi Gizle' : 'Gelismis Ayarlar'}
+                      </Button>
+                    </div>
                   </div>
+                  {showAdvanced && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Input
+                        label="Kod Filtresi (teknik)"
+                        value={mapping.pdfCodePattern}
+                        onChange={(event) => setMapping((prev) => ({
+                          ...prev,
+                          pdfCodePattern: event.target.value,
+                        }))}
+                        placeholder="Orn: [A-Z]{2}\\d+"
+                      />
+                    </div>
+                  )}
                   <div className="text-xs text-muted-foreground">
-                    Fiyat sirasi veya regex degistirirseniz onizlemeyi guncelleyin.
+                    Fiyatlar soldan sayilir. Emin degilseniz Otomatik kalsin.
                   </div>
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Kod</TableHead>
-                          <TableHead>Fiyatlar</TableHead>
-                          <TableHead>Secilen</TableHead>
+                          <TableHead>Satirdaki Fiyatlar</TableHead>
+                          <TableHead>Secilen Fiyat</TableHead>
                           <TableHead>Satir</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -557,7 +575,7 @@ export default function SupplierPriceListsPage() {
                               <TableCell>{sample.supplierCode}</TableCell>
                               <TableCell>
                                 {sample.prices.length
-                                  ? sample.prices.map((price) => formatCurrency(price)).join(', ')
+                                  ? sample.prices.map((price, idx) => `${idx + 1}. ${formatCurrency(price)}`).join(' | ')
                                   : '-'}
                               </TableCell>
                               <TableCell>
@@ -771,3 +789,4 @@ export default function SupplierPriceListsPage() {
     </div>
   );
 }
+
