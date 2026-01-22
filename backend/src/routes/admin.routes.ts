@@ -215,6 +215,11 @@ const agreementImportSchema = z.object({
     })
   ).min(1),
 });
+const agreementBulkDeleteSchema = z.object({
+  customerId: z.string().uuid(),
+  ids: z.array(z.string().uuid()).optional(),
+});
+
 
 // Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
 router.get('/customers', requireStaff, adminController.getCustomers);
@@ -279,6 +284,7 @@ router.get('/exchange/usd', requireStaff, adminController.getUsdSellingRate);
 router.get('/agreements', requireStaff, agreementController.getAgreements);
 router.post('/agreements', requireAdminOrManager, validateBody(agreementSchema), agreementController.upsertAgreement);
 router.delete('/agreements/:id', requireAdminOrManager, agreementController.deleteAgreement);
+router.post('/agreements/bulk-delete', requireAdminOrManager, validateBody(agreementBulkDeleteSchema), agreementController.bulkDeleteAgreements);
 router.post('/agreements/import', requireAdminOrManager, validateBody(agreementImportSchema), agreementController.importAgreements);
 
 // Categories & Pricing - ADMIN/MANAGER only
@@ -289,6 +295,10 @@ router.post(
   validateBody(categoryPriceRuleSchema),
   adminController.setCategoryPriceRule
 );
+
+
+
+
 router.post(
   '/categories/bulk-price-rules',
   requireAdminOrManager,

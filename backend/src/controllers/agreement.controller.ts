@@ -180,6 +180,28 @@ export class AgreementController {
   }
 
   /**
+   * POST /api/admin/agreements/bulk-delete
+   */
+  async bulkDeleteAgreements(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { customerId, ids } = req.body || {};
+      if (!customerId) {
+        return res.status(400).json({ error: 'customerId is required' });
+      }
+
+      const where: any = { customerId };
+      if (Array.isArray(ids) && ids.length > 0) {
+        where.id = { in: ids };
+      }
+
+      const result = await prisma.customerPriceAgreement.deleteMany({ where });
+      res.json({ deletedCount: result.count });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/agreements/import
    */
   async importAgreements(req: Request, res: Response, next: NextFunction) {

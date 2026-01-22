@@ -265,6 +265,10 @@ export const adminApi = {
     const response = await apiClient.delete(`/admin/agreements/${agreementId}`);
     return response.data;
   },
+  deleteAgreements: async (data: { customerId: string; ids?: string[] }): Promise<{ deletedCount: number }> => {
+    const response = await apiClient.post('/admin/agreements/bulk-delete', data);
+    return response.data;
+  },
   importAgreements: async (data: {
     customerId: string;
     rows: Array<{

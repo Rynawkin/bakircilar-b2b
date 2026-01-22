@@ -76,6 +76,8 @@ export default function AgreementsPage() {
   });
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectedAgreementIds, setSelectedAgreementIds] = useState<string[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [importSummary, setImportSummary] = useState<{
@@ -97,6 +99,14 @@ export default function AgreementsPage() {
     }
     const parsed = Number(str);
     return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const parseOptionalNumber = (value: any) => {
+    if (value === null || value === undefined) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const parsed = parseNumber(value);
+    return Number.isFinite(parsed) ? parsed : null;
   };
 
   const parseDateValue = (value: any) => {
@@ -156,6 +166,7 @@ export default function AgreementsPage() {
   useEffect(() => {
     if (!selectedCustomer) {
       setAgreements([]);
+      setSelectedAgreementIds([]);
       return;
     }
     fetchAgreements();
@@ -171,6 +182,10 @@ export default function AgreementsPage() {
       setAgreements([]);
     }
   };
+
+  useEffect(() => {
+    setSelectedAgreementIds((prev) => prev.filter((id) => agreements.some((agreement) => agreement.id === id)));
+  }, [agreements]);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -270,6 +285,7 @@ export default function AgreementsPage() {
     try {
       await adminApi.deleteAgreement(agreementId);
       toast.success('Anlasma silindi.');
+      setSelectedAgreementIds((prev) => prev.filter((id) => id !== agreementId));
       fetchAgreements();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Anlasma silinemedi.');
@@ -277,6 +293,53 @@ export default function AgreementsPage() {
       setDeletingId(null);
     }
   };
+
+  const toggleAgreementSelection = (agreementId: string) => {
+    setSelectedAgreementIds((prev) => (
+      prev.includes(agreementId) ? prev.filter((id) => id !== agreementId) : [...prev, agreementId]
+    ));
+  };
+
+  const toggleSelectAllAgreements = () => {
+    if (agreements.length === 0) return;
+    setSelectedAgreementIds((prev) => (
+      prev.length === agreements.length ? [] : agreements.map((agreement) => agreement.id)
+    ));
+  };
+
+  const handleBulkDelete = async (mode: 'selected' | 'all') => {
+    if (!selectedCustomer) {
+      toast.error('Once musteri secin.');
+      return;
+    }
+    const targetIds = mode === 'selected' ? selectedAgreementIds : [];
+    if (mode === 'selected' && targetIds.length === 0) {
+      toast.error('Silmek icin en az bir anlasma secin.');
+      return;
+    }
+    const confirmMessage = mode === 'selected'
+      ? `${targetIds.length} anlasmayi silmek istiyor musunuz?`
+      : 'Secili musterinin tum anlasmalarini silmek istiyor musunuz?';
+    if (!confirm(confirmMessage)) return;
+
+    setBulkDeleting(true);
+    try {
+      const result = await adminApi.deleteAgreements({
+        customerId: selectedCustomer.id,
+        ids: mode === 'selected' ? targetIds : undefined,
+      });
+      const deletedCount = result?.deletedCount ?? 0;
+      toast.success(`${deletedCount} anlasma silindi.`);
+      setSelectedAgreementIds([]);
+      fetchAgreements();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Toplu silme basarisiz.');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const allAgreementsSelected = agreements.length > 0 && selectedAgreementIds.length === agreements.length;
 
   const handleDownloadTemplate = () => {
     const rows = [
@@ -330,11 +393,13 @@ export default function AgreementsPage() {
           ? String(row[customerCodeIndex] || '').trim()
           : '';
 
+        const priceWhiteValue = whiteIndex !== -1 ? parseOptionalNumber(row[whiteIndex]) : null;
+
         rows.push({
           mikroCode,
           priceInvoiced: parseNumber(row[invoicedIndex]),
-          priceWhite: whiteIndex !== -1 ? parseNumber(row[whiteIndex]) : null,
-          customerProductCode: rawCustomerCode || undefined,
+          priceWhite: priceWhiteValue,
+          customerProductCode: customerCodeIndex !== -1 ? (rawCustomerCode || null) : null,
           minQuantity: minQtyIndex !== -1 ? parseNumber(row[minQtyIndex]) : 1,
           validFrom: validFromIndex !== -1 ? parseDateValue(row[validFromIndex]) : null,
           validTo: validToIndex !== -1 ? parseDateValue(row[validToIndex]) : null,
@@ -550,14 +615,44 @@ export default function AgreementsPage() {
         </Card>
 
         <Card>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <h2 className="text-lg font-bold text-gray-900">Anlasmalar</h2>
-            <Input
-              placeholder="Anlasma ara"
-              value={agreementSearch}
-              onChange={(e) => setAgreementSearch(e.target.value)}
-              className="w-60"
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={allAgreementsSelected}
+                  onChange={toggleSelectAllAgreements}
+                  disabled={!selectedCustomer || agreements.length === 0 || bulkDeleting}
+                />
+                Tumunu sec
+              </label>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => handleBulkDelete('selected')}
+                disabled={!selectedCustomer || selectedAgreementIds.length === 0 || bulkDeleting}
+                isLoading={bulkDeleting}
+              >
+                Secilenleri Sil{selectedAgreementIds.length > 0 ? ` (${selectedAgreementIds.length})` : ''}
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => handleBulkDelete('all')}
+                disabled={!selectedCustomer || agreements.length === 0 || bulkDeleting}
+                isLoading={bulkDeleting}
+              >
+                Tumunu Sil
+              </Button>
+              <Input
+                placeholder="Anlasma ara"
+                value={agreementSearch}
+                onChange={(e) => setAgreementSearch(e.target.value)}
+                className="w-60"
+              />
+            </div>
           </div>
 
           {!selectedCustomer ? (
@@ -568,6 +663,16 @@ export default function AgreementsPage() {
             <div className="space-y-3">
               {agreements.map((agreement) => (
                 <div key={agreement.id} className="border border-gray-200 rounded-lg p-3 flex flex-wrap items-center gap-3">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      aria-label="Sec"
+                      checked={selectedAgreementIds.includes(agreement.id)}
+                      onChange={() => toggleAgreementSelection(agreement.id)}
+                      disabled={bulkDeleting}
+                    />
+                  </div>
                   <div className="flex-1 min-w-[220px]">
                     <div className="font-semibold text-gray-900">{agreement.product.name}</div>
                     <div className="text-xs text-gray-500 font-mono">{agreement.product.mikroCode}</div>
