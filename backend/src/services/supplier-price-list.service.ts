@@ -169,11 +169,53 @@ const selectPriceValue = (values: number[], priceIndex?: number | null) => {
   return values[values.length - 1];
 };
 
+const UNIT_TOKENS = ['m3', 'm2', 'm', 'kg', 'gr', 'g', 'lt', 'l', 'ml', 'cm', 'mm'];
+
+const normalizeUnitToken = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const isUnitToken = (value: string) => UNIT_TOKENS.includes(normalizeUnitToken(value));
+
+const CURRENCY_REGEX = /\b(USD|EUR|TL|TRY)\b|[$\u20ac\u20ba]/i;
+
+const hasUnitNear = (line: string, index: number, length: number) => {
+  const after = line.slice(index + length);
+  const afterToken = after.trimStart().split(/\s+/)[0] ?? '';
+  if (afterToken && isUnitToken(afterToken)) return true;
+
+  const before = line.slice(0, index);
+  const beforeToken = before.trimEnd().split(/\s+/).pop() ?? '';
+  if (beforeToken && isUnitToken(beforeToken)) return true;
+
+  return false;
+};
+
+const hasCurrencyNear = (line: string, index: number, length: number) => {
+  const left = line.slice(Math.max(0, index - 6), index);
+  const right = line.slice(index + length, index + length + 6);
+  return CURRENCY_REGEX.test(`${left}${right}`);
+};
+
 const extractPrices = (line: string): number[] => {
-  const matches = line.match(/\d{1,3}(?:[\.\s]\d{3})*,\d{2}|\d+,\d{2}/g) || [];
-  return matches
-    .map((value) => parseNumber(value))
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  const matches = Array.from(line.matchAll(/\d{1,3}(?:[\.\s]\d{3})*,\d{2}|\d+,\d{2}/g));
+  const candidates = matches
+    .map((match) => {
+      const value = parseNumber(match[0]);
+      if (value === null || !Number.isFinite(value)) return null;
+      const index = typeof match.index === 'number' ? match.index : line.indexOf(match[0]);
+      const hasUnit = index >= 0 ? hasUnitNear(line, index, match[0].length) : false;
+      const hasCurrency = index >= 0 ? hasCurrencyNear(line, index, match[0].length) : false;
+      return { value, hasUnit, hasCurrency };
+    })
+    .filter((item): item is { value: number; hasUnit: boolean; hasCurrency: boolean } => Boolean(item));
+
+  if (!candidates.length) return [];
+
+  const withCurrency = candidates.filter((item) => item.hasCurrency);
+  const withoutUnit = candidates.filter((item) => !item.hasUnit);
+  const preferred = withCurrency.length ? withCurrency : withoutUnit.length ? withoutUnit : candidates;
+
+  return preferred.map((item) => item.value);
 };
 
 const defaultCodeToken = (token: string) => {
@@ -240,8 +282,11 @@ const parsePdfTokens = (text: string, priceIndex?: number | null) => {
     let price: number | null = null;
     const prices: number[] = [];
     for (let j = i + 1; j < Math.min(tokens.length, i + MAX_TOKEN_LOOKAHEAD); j += 1) {
-      if (!/\d+[,.]\d{2}$/.test(tokens[j])) continue;
-      const possible = parseNumber(tokens[j]);
+      const tokenValue = tokens[j];
+      if (!/\d+[,.]\d{2}$/.test(tokenValue)) continue;
+      const nextToken = tokens[j + 1] || '';
+      if (nextToken && isUnitToken(nextToken)) continue;
+      const possible = parseNumber(tokenValue);
       if (possible !== null) {
         prices.push(possible);
       }
@@ -800,6 +845,9 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
+
+
 
 
 
