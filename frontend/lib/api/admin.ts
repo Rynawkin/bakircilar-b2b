@@ -890,6 +890,7 @@ export const adminApi = {
         totalDocuments: number;
         totalRevenue: number;
         totalProfit: number;
+        entryProfit: number;
         avgMargin: number;
         highMarginCount: number;
         lowMarginCount: number;
@@ -899,6 +900,7 @@ export const adminApi = {
           totalDocuments: number;
           totalRevenue: number;
           totalProfit: number;
+          entryProfit: number;
           avgMargin: number;
           negativeLines: number;
           negativeDocuments: number;
@@ -908,6 +910,7 @@ export const adminApi = {
           totalDocuments: number;
           totalRevenue: number;
           totalProfit: number;
+          entryProfit: number;
           avgMargin: number;
           negativeLines: number;
           negativeDocuments: number;
@@ -919,6 +922,7 @@ export const adminApi = {
             totalDocuments: number;
             totalRevenue: number;
             totalProfit: number;
+            entryProfit: number;
             avgMargin: number;
             negativeLines: number;
             negativeDocuments: number;
@@ -928,6 +932,7 @@ export const adminApi = {
             totalDocuments: number;
             totalRevenue: number;
             totalProfit: number;
+            entryProfit: number;
             avgMargin: number;
             negativeLines: number;
             negativeDocuments: number;
@@ -956,6 +961,30 @@ export const adminApi = {
     if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
 
     const response = await apiClient.get(`/admin/reports/margin-compliance?${queryParams.toString()}`);
+    return response.data;
+  },
+
+
+  syncMarginComplianceReport: async (params: {
+    reportDate: string;
+    includeCompleted?: number;
+  }): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }> => {
+    const response = await apiClient.post('/admin/reports/margin-compliance/sync', params);
+    return response.data;
+  },
+
+  sendMarginComplianceReportEmail: async (params: {
+    reportDate: string;
+  }): Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  }> => {
+    const response = await apiClient.post('/admin/reports/margin-compliance/email', params);
     return response.data;
   },
 

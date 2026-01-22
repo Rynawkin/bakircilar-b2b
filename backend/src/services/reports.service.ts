@@ -239,6 +239,33 @@ const findValueByToken = (data: Record<string, any>, token: string): unknown => 
   return key ? data[key] : null;
 };
 
+const normalizeKeyToken = (value: unknown): string => {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/Ä±/g, 'i')
+    .replace(/Å/g, 's')
+    .replace(/Ä/g, 'g')
+    .replace(/Ã¼/g, 'u')
+    .replace(/Ã¶/g, 'o')
+    .replace(/Ã§/g, 'c')
+    .replace(/[^a-z0-9]+/g, '');
+};
+
+const findValueByNormalizedToken = (data: Record<string, any>, token: string): unknown => {
+  const normalizedToken = normalizeKeyToken(token);
+  const key = Object.keys(data).find((candidate) =>
+    normalizeKeyToken(candidate).includes(normalizedToken)
+  );
+  return key ? data[key] : null;
+};
+
+
 const pickUnitProfit = (data: Record<string, any>): number => {
   const direct = pickValueByKeys(data, ['BirimKarOrtMalGore']);
   if (direct !== null && direct !== undefined) {
@@ -256,6 +283,16 @@ const pickAvgMargin = (data: Record<string, any>): number => {
   const fallback = findValueByToken(data, 'ortalamakaryuzde');
   return toNumber(fallback);
 };
+
+const pickEntryProfit = (data: Record<string, any>): number => {
+  const direct = pickValueByKeys(data, ['SÖ-ToplamKar']);
+  if (direct !== null && direct !== undefined) {
+    return toNumber(direct);
+  }
+  const fallback = findValueByNormalizedToken(data, 'sotoplamkar');
+  return toNumber(fallback);
+};
+
 
 const DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS = [
   'documentNo',
@@ -358,6 +395,7 @@ type MarginSummaryBucket = {
   totalDocuments: number;
   totalRevenue: number;
   totalProfit: number;
+  entryProfit: number;
   avgMargin: number;
   negativeLines: number;
   negativeDocuments: number;
@@ -368,6 +406,7 @@ type MarginComplianceSummary = {
   totalDocuments: number;
   totalRevenue: number;
   totalProfit: number;
+  entryProfit: number;
   avgMargin: number;
   highMarginCount: number;
   lowMarginCount: number;
@@ -419,14 +458,17 @@ const buildMarginSummaryBucket = (
   const docMap = new Map<string, { profit: number; revenue: number }>();
   let totalRevenue = 0;
   let totalProfit = 0;
+  let entryProfit = 0;
   let negativeLines = 0;
 
   rows.forEach((row) => {
     const data = getRowData(row);
     const revenue = toNumber(pickValueByKeys(data, ['Tutar']));
     const profit = pickTotalProfit(data);
+    const entryProfitValue = pickEntryProfit(data);
     totalRevenue += revenue;
     totalProfit += profit;
+    entryProfit += entryProfitValue;
     if (profit < 0) {
       negativeLines += 1;
     }
@@ -456,6 +498,7 @@ const buildMarginSummaryBucket = (
     totalDocuments: docMap.size,
     totalRevenue,
     totalProfit,
+    entryProfit,
     avgMargin,
     negativeLines,
     negativeDocuments,
@@ -519,6 +562,7 @@ const buildMarginComplianceSummary = (
     totalDocuments: overallSummary.totalDocuments,
     totalRevenue: overallSummary.totalRevenue,
     totalProfit: overallSummary.totalProfit,
+    entryProfit: overallSummary.entryProfit,
     avgMargin: overallSummary.avgMargin,
     highMarginCount,
     lowMarginCount,

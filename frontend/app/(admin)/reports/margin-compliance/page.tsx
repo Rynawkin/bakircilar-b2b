@@ -72,6 +72,7 @@ interface SummaryBucket {
   totalDocuments: number;
   totalRevenue: number;
   totalProfit: number;
+  entryProfit: number;
   avgMargin: number;
   negativeLines: number;
   negativeDocuments: number;
@@ -82,6 +83,7 @@ interface Summary {
   totalDocuments: number;
   totalRevenue: number;
   totalProfit: number;
+  entryProfit: number;
   avgMargin: number;
   highMarginCount: number;
   lowMarginCount: number;
@@ -174,6 +176,10 @@ export default function MarginAnalysisPage() {
   const hasInitializedColumns = useRef(false);
   const [emailColumnIds, setEmailColumnIds] = useState<ColumnId[]>([]);
   const [savingEmailColumns, setSavingEmailColumns] = useState(false);
+  const [syncingReport, setSyncingReport] = useState(false);
+  const [sendingReportEmail, setSendingReportEmail] = useState(false);
+
+  const isSingleDate = startDate === endDate;
 
   const fetchData = async () => {
     setLoading(true);
@@ -242,6 +248,54 @@ export default function MarginAnalysisPage() {
       }
       return [...prev, columnId];
     });
+  };
+
+
+  const getSelectedReportDate = () => {
+    if (!isSingleDate) {
+      toast.error('Tek bir gun secin');
+      return null;
+    }
+    return startDate.replace(/-/g, '');
+  };
+
+  const handleResyncReport = async () => {
+    const reportDate = getSelectedReportDate();
+    if (!reportDate) return;
+    setSyncingReport(true);
+    try {
+      const result = await adminApi.syncMarginComplianceReport({ reportDate });
+      if (result.success) {
+        toast.success('Rapor yeniden cekildi');
+        fetchData();
+      } else {
+        throw new Error(result.error || 'Rapor yenilenemedi');
+      }
+    } catch (err: any) {
+      const message = err.response?.data?.error || err.message || 'Rapor yenilenemedi';
+      toast.error(message);
+    } finally {
+      setSyncingReport(false);
+    }
+  };
+
+  const handleSendReportEmail = async () => {
+    const reportDate = getSelectedReportDate();
+    if (!reportDate) return;
+    setSendingReportEmail(true);
+    try {
+      const result = await adminApi.sendMarginComplianceReportEmail({ reportDate });
+      if (result.success) {
+        toast.success('Mail gonderildi');
+      } else {
+        throw new Error(result.error || 'Mail gonderilemedi');
+      }
+    } catch (err: any) {
+      const message = err.response?.data?.error || err.message || 'Mail gonderilemedi';
+      toast.error(message);
+    } finally {
+      setSendingReportEmail(false);
+    }
   };
 
   const handleSaveEmailColumns = async () => {
@@ -328,6 +382,10 @@ export default function MarginAnalysisPage() {
           <div className="flex items-center justify-between">
             <span className="text-gray-500">Kar (KDV Haric)</span>
             <span className="font-semibold">{formatCurrency(bucket.totalProfit)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Kar (Son Giris)</span>
+            <span className="font-semibold">{formatCurrency(bucket.entryProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-gray-500">Ortalama Kar %</span>
@@ -587,7 +645,7 @@ export default function MarginAnalysisPage() {
         {/* Summary Cards */}
         {summary && (
           <div className="mb-6 space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Toplam Satir</CardTitle>
@@ -629,6 +687,18 @@ export default function MarginAnalysisPage() {
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(summary.totalProfit)}</div>
                   <p className="text-xs text-muted-foreground">KDV Haric</p>
+                </CardContent>
+              </Card>
+
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Son Giris Kar</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(summary.entryProfit)}</div>
+                  <p className="text-xs text-muted-foreground">Son giris maliyeti</p>
                 </CardContent>
               </Card>
 
@@ -770,6 +840,28 @@ export default function MarginAnalysisPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResyncReport}
+                isLoading={syncingReport}
+                disabled={!isSingleDate || syncingReport}
+              >
+                Secili Gunu Yeniden Cek
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendReportEmail}
+                isLoading={sendingReportEmail}
+                disabled={!isSingleDate || sendingReportEmail}
+              >
+                Mail Gonder
+              </Button>
+              <span className="text-xs text-gray-500">Tek gun secili olmali.</span>
             </div>
 
             <details className="mt-4">

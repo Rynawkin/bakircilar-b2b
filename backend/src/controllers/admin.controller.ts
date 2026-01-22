@@ -15,6 +15,7 @@ import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
+import emailService from '../services/email.service';
 import priceSyncService from '../services/priceSync.service';
 import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
@@ -41,6 +42,18 @@ const buildSubUserPassword = (length = 10): string => {
   const cleaned = raw.replace(/[^a-zA-Z0-9]/g, '').slice(0, safeLength);
   if (cleaned.length >= 6) return cleaned;
   return `${Date.now().toString(36)}Abc123`;
+};
+
+
+const parseReportDateInput = (value: unknown): Date | null => {
+  if (!value || typeof value !== 'string') return null;
+  const cleaned = value.replace(/-/g, '');
+  if (!/^\d{8}$/.test(cleaned)) return null;
+  const year = Number(cleaned.slice(0, 4));
+  const month = Number(cleaned.slice(4, 6));
+  const day = Number(cleaned.slice(6, 8));
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day));
 };
 
 const applyPendingOrdersToStocks = (
@@ -2321,6 +2334,78 @@ export class AdminController {
         success: true,
         data,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /admin/reports/margin-compliance/sync
+   * Secili gun raporunu tekrar cekip DB'ye yazar
+   */
+  async syncMarginComplianceReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { reportDate, includeCompleted } = req.body || {};
+      const parsedDate = parseReportDateInput(reportDate);
+      if (!parsedDate) {
+        return res.status(400).json({ error: 'Rapor tarihi gerekli (YYYYMMDD).' });
+      }
+
+      const result = await reportsService.syncMarginComplianceReportForDate(parsedDate, {
+        includeCompleted: includeCompleted !== undefined ? Number(includeCompleted) : undefined,
+      });
+
+      if (!result.success) {
+        return res.status(500).json({ success: false, error: result.error || 'Rapor cekilemedi' });
+      }
+
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /admin/reports/margin-compliance/email
+   * Secili gun raporunu manuel mail olarak gonderir
+   */
+  async sendMarginComplianceReportEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { reportDate } = req.body || {};
+      const parsedDate = parseReportDateInput(reportDate);
+      if (!parsedDate) {
+        return res.status(400).json({ error: 'Rapor tarihi gerekli (YYYYMMDD).' });
+      }
+
+      const day = await prisma.marginComplianceReportDay.findUnique({
+        where: { reportDate: parsedDate },
+        select: { status: true },
+      });
+
+      if (!day || day.status !== 'SUCCESS') {
+        return res.status(409).json({ error: 'Veri hazir degil. Once raporu senkronize edin.' });
+      }
+
+      const settings = await prisma.settings.findFirst();
+      const recipients = settings?.marginReportEmailRecipients || [];
+      if (!recipients.length) {
+        return res.status(400).json({ error: 'Mail alicisi bulunamadi.' });
+      }
+
+      const emailPayload = await reportsService.buildMarginComplianceEmailPayload(
+        parsedDate,
+        settings?.marginReportEmailColumns || []
+      );
+
+      await emailService.sendMarginComplianceReportSummary({
+        recipients,
+        reportDate: parsedDate,
+        summary: emailPayload.summary,
+        subject: settings?.marginReportEmailSubject || undefined,
+        attachment: emailPayload.attachment,
+      });
+
+      res.json({ success: true, message: 'Mail gonderildi.' });
     } catch (error) {
       next(error);
     }

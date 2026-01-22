@@ -327,6 +327,8 @@ router.post('/users/bulk-create', requireAdmin, adminController.bulkCreateUsers)
 // Reports - Staff (all can access reports)
 router.get('/reports/cost-update-alerts', requireStaff, adminController.getCostUpdateAlerts);
 router.get('/reports/margin-compliance', requireStaff, adminController.getMarginComplianceReport);
+router.post('/reports/margin-compliance/sync', requireStaff, adminController.syncMarginComplianceReport);
+router.post('/reports/margin-compliance/email', requireStaff, adminController.sendMarginComplianceReportEmail);
 router.get('/reports/categories', requireStaff, adminController.getReportCategories);
 router.get('/reports/top-products', requireStaff, adminController.getTopProducts);
 router.get('/reports/top-customers', requireStaff, adminController.getTopCustomers);

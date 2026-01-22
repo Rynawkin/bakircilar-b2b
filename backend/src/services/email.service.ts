@@ -768,6 +768,7 @@ class EmailService {
       totalDocuments: number;
       totalRevenue: number;
       totalProfit: number;
+      entryProfit: number;
       avgMargin: number;
       highMarginCount: number;
       lowMarginCount: number;
@@ -777,6 +778,7 @@ class EmailService {
         totalDocuments: number;
         totalRevenue: number;
         totalProfit: number;
+        entryProfit: number;
         avgMargin: number;
         negativeLines: number;
         negativeDocuments: number;
@@ -786,6 +788,7 @@ class EmailService {
         totalDocuments: number;
         totalRevenue: number;
         totalProfit: number;
+        entryProfit: number;
         avgMargin: number;
         negativeLines: number;
         negativeDocuments: number;
@@ -797,6 +800,7 @@ class EmailService {
           totalDocuments: number;
           totalRevenue: number;
           totalProfit: number;
+          entryProfit: number;
           avgMargin: number;
           negativeLines: number;
           negativeDocuments: number;
@@ -806,6 +810,7 @@ class EmailService {
           totalDocuments: number;
           totalRevenue: number;
           totalProfit: number;
+          entryProfit: number;
           avgMargin: number;
           negativeLines: number;
           negativeDocuments: number;
@@ -857,6 +862,7 @@ class EmailService {
       totalDocuments: number;
       totalRevenue: number;
       totalProfit: number;
+      entryProfit: number;
       avgMargin: number;
       negativeLines: number;
       negativeDocuments: number;
@@ -868,6 +874,7 @@ class EmailService {
           ${renderBucketRow('Toplam Evrak', formatCount(bucket.totalDocuments))}
           ${renderBucketRow('Ciro (KDV Haric)', formatCurrency(bucket.totalRevenue))}
           ${renderBucketRow('Kar (KDV Haric)', formatCurrency(bucket.totalProfit))}
+          ${renderBucketRow('Kar (Son Giris)', formatCurrency(bucket.entryProfit))}
           ${renderBucketRow('Ortalama Kar %', formatPercent(bucket.avgMargin))}
           ${renderBucketRow('Zararli Evrak', formatCount(bucket.negativeDocuments))}
           ${renderBucketRow('Zararli Satir', formatCount(bucket.negativeLines))}
@@ -943,6 +950,7 @@ class EmailService {
               ${renderBucketRow('Toplam Evrak', formatCount(params.summary.totalDocuments))}
               ${renderBucketRow('Toplam Ciro (KDV Haric)', formatCurrency(params.summary.totalRevenue))}
               ${renderBucketRow('Toplam Kar (KDV Haric)', formatCurrency(params.summary.totalProfit))}
+              ${renderBucketRow('Toplam Kar (Son Giris)', formatCurrency(params.summary.entryProfit))}
               ${renderBucketRow('Ortalama Kar %', formatPercent(params.summary.avgMargin))}
             </table>
 
