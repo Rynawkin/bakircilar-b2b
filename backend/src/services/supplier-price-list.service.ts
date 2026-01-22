@@ -1,10 +1,11 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 import { prisma } from '../utils/prisma';
 
-const pdfParse = require('pdf-parse');
+const pdfParseModule = require('pdf-parse');
+const pdfParse = pdfParseModule?.default ?? pdfParseModule;
 
 const TURKISH_CHAR_MAP: Record<string, string> = {
   '\u00c7': 'c',
@@ -198,8 +199,8 @@ const isHeaderLine = (line: string) => {
 
 const extractCurrency = (line: string) => {
   if (/\b(USD|\$)\b/i.test(line)) return 'USD';
-  if (/\b(EUR|€)\b/i.test(line)) return 'EUR';
-  if (/\b(TL|TRY|₺)\b/i.test(line)) return 'TRY';
+  if (/\b(EUR|�)\b/i.test(line)) return 'EUR';
+  if (/\b(TL|TRY|?)\b/i.test(line)) return 'TRY';
   return null;
 };
 
@@ -775,3 +776,4 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
