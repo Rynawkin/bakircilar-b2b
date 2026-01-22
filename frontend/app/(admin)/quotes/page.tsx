@@ -128,6 +128,7 @@ function AdminQuotesPageContent() {
   const [downloadPromptQuote, setDownloadPromptQuote] = useState<Quote | null>(null);
   const [downloadPromptOpen, setDownloadPromptOpen] = useState(false);
   const [downloadPromptLoading, setDownloadPromptLoading] = useState(false);
+  const [stockPdfLoadingId, setStockPdfLoadingId] = useState<string | null>(null);
   const handledDownloadRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -315,13 +316,92 @@ function AdminQuotesPageContent() {
     window.open(url, '_blank');
   };
 
-  const buildQuotePdf = async (quote: Quote) => {
+  const parseStockNumber = (value: unknown) => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    let raw = String(value).trim();
+    if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(raw)) {
+      raw = raw.replace(/\./g, '').replace(',', '.');
+    } else if (/^-?\d+,\d+$/.test(raw)) {
+      raw = raw.replace(',', '.');
+    } else if (/^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(raw)) {
+      raw = raw.replace(/,/g, '');
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const resolveStockValue = (row: Record<string, unknown> | null | undefined, keys: string[]) => {
+    if (!row) return null;
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(row, key)) {
+        const value = parseStockNumber((row as Record<string, unknown>)[key]);
+        if (value !== null) return value;
+      }
+    }
+    return null;
+  };
+
+  const getStockStatusLabel = (totalStock: number | null, quantity: number) => {
+    if (!Number.isFinite(totalStock)) return 'Stok bilgisi yok';
+    if ((totalStock ?? 0) <= 0) return 'Stok yok';
+    if ((totalStock ?? 0) < quantity) return 'Kismi karsiliyor';
+    return 'Stok karsiliyor';
+  };
+
+  const buildStockStatusMap = async (quote: Quote) => {
+    const codes = Array.from(new Set(
+      (quote.items || [])
+        .map((item) => item.productCode)
+        .filter((code) => typeof code === 'string' && code.trim().length > 0)
+    ));
+    if (codes.length === 0) return {} as Record<string, string>;
+
+    try {
+      const { data } = await adminApi.getStocksByCodes(codes);
+      const stockByCode = new Map<string, number | null>();
+      (data || []).forEach((row: Record<string, unknown>) => {
+        const code = String(row?.['msg_S_0078'] ?? row?.['Stok Kodu'] ?? row?.['stok kod'] ?? '').trim();
+        if (!code) return;
+        const totalStock = resolveStockValue(row, [
+          'Toplam Sat\u0131labilir',
+          'Toplam Satilabilir',
+          'Toplam Sat\u00C4\u00B1labilir',
+          'Toplam Eldeki Miktar',
+        ]);
+        stockByCode.set(code, totalStock);
+      });
+
+      const statusMap: Record<string, string> = {};
+      (quote.items || []).forEach((item) => {
+        const code = String(item.productCode || '').trim();
+        if (!code) return;
+        const totalStock = stockByCode.has(code) ? stockByCode.get(code) ?? null : null;
+        statusMap[code] = getStockStatusLabel(totalStock, Number(item.quantity) || 0);
+      });
+      return statusMap;
+    } catch (error) {
+      console.error('Stok bilgisi alinmadi:', error);
+      const fallback: Record<string, string> = {};
+      (quote.items || []).forEach((item) => {
+        fallback[item.productCode] = 'Stok bilgisi yok';
+      });
+      return fallback;
+    }
+  };
+
+  const buildQuotePdf = async (
+    quote: Quote,
+    options?: { includeStockStatus?: boolean; stockStatusMap?: Record<string, string> }
+  ) => {
     const { default: jsPDF } = await import('jspdf');
     const autoTableModule = await import('jspdf-autotable');
     const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
     if (typeof autoTable !== 'function') {
       throw new Error('autoTable is not available');
     }
+    const includeStockStatus = options?.includeStockStatus === true;
+    const stockStatusMap = options?.stockStatusMap || {};
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -531,6 +611,16 @@ function AdminQuotesPageContent() {
       );
       const imageMap = new Map<string, { dataUrl: string; dimensions: { width: number; height: number } | null }>();
 
+      const stockFallbackLabel = 'Stok bilgisi yok';
+      const emptyRowBase = [
+        cleanPdfText('Urun yok'),
+        '',
+        '0',
+        '-',
+        '-',
+        '-',
+        '',
+      ];
       const tableData = items.length > 0
         ? items.map((item, index) => {
           const imageEntry = imageDataByIndex[index];
@@ -538,7 +628,7 @@ function AdminQuotesPageContent() {
           if (imageKey && imageEntry?.dataUrl) {
             imageMap.set(imageKey, { dataUrl: imageEntry.dataUrl, dimensions: imageEntry.dimensions });
           }
-          return [
+          const row = [
             cleanPdfText(item.productName || '-'),
             { content: '', imageKey },
             String(item.quantity ?? 0),
@@ -547,28 +637,52 @@ function AdminQuotesPageContent() {
             cleanPdfText(safeCurrency(item.totalPrice)),
             cleanPdfText(item.lineDescription || ''),
           ];
+          if (includeStockStatus) {
+            const statusKey = String(item.productCode || '').trim();
+            const statusLabel = statusKey ? (stockStatusMap[statusKey] || stockFallbackLabel) : stockFallbackLabel;
+            row.push(cleanPdfText(statusLabel));
+          }
+          return row;
         })
-        : [[
-          cleanPdfText('Urun yok'),
-          '',
-          '0',
-          '-',
-          '-',
-          '-',
-          '',
-        ]];
+        : [includeStockStatus ? [...emptyRowBase, cleanPdfText(stockFallbackLabel)] : emptyRowBase];
+
+      const tableHead = [
+        'Urun Adi',
+        'Gorsel',
+        'Miktar',
+        'Birim',
+        'Birim Fiyat',
+        'Toplam',
+        'Aciklama',
+      ];
+      if (includeStockStatus) {
+        tableHead.push('Stok Durumu');
+      }
+
+      const columnStyles = includeStockStatus
+        ? {
+          0: { cellWidth: 60 },
+          1: { cellWidth: 16, halign: 'center' },
+          2: { cellWidth: 12, halign: 'right' },
+          3: { cellWidth: 14, halign: 'center' },
+          4: { cellWidth: 24, halign: 'right' },
+          5: { cellWidth: 24, halign: 'right' },
+          6: { cellWidth: 18 },
+          7: { cellWidth: 26, halign: 'center' },
+        }
+        : {
+          0: { cellWidth: 68 },
+          1: { cellWidth: 18, halign: 'center' },
+          2: { cellWidth: 14, halign: 'right' },
+          3: { cellWidth: 16, halign: 'center' },
+          4: { cellWidth: 28, halign: 'right' },
+          5: { cellWidth: 28, halign: 'right' },
+          6: { cellWidth: 22 },
+        };
 
       autoTable(doc, {
         startY: tableStartY,
-        head: [[
-          'Urun Adi',
-          'Gorsel',
-          'Miktar',
-          'Birim',
-          'Birim Fiyat',
-          'Toplam',
-          'Aciklama',
-        ]],
+        head: [tableHead],
         body: tableData,
         styles: {
           fontSize: 9,
@@ -588,15 +702,7 @@ function AdminQuotesPageContent() {
           halign: 'center',
           fontSize: 10,
         },
-        columnStyles: {
-          0: { cellWidth: 68 },
-          1: { cellWidth: 18, halign: 'center' },
-          2: { cellWidth: 14, halign: 'right' },
-          3: { cellWidth: 16, halign: 'center' },
-          4: { cellWidth: 28, halign: 'right' },
-          5: { cellWidth: 28, halign: 'right' },
-          6: { cellWidth: 22 },
-        },
+        columnStyles,
         alternateRowStyles: {
           fillColor: [245, 247, 250],
         },
@@ -755,6 +861,21 @@ function AdminQuotesPageContent() {
     } catch (error) {
       console.error('PDF oluşturma hatası:', error);
       toast.error('PDF oluşturulamadı');
+    }
+  };
+
+  const handleStockPdfExport = async (quote: Quote) => {
+    setStockPdfLoadingId(quote.id);
+    try {
+      const stockStatusMap = await buildStockStatusMap(quote);
+      const { doc, fileName } = await buildQuotePdf(quote, { includeStockStatus: true, stockStatusMap });
+      const stockFileName = fileName.replace(/\.pdf$/i, '_stok.pdf');
+      doc.save(stockFileName);
+    } catch (error) {
+      console.error('Stoklu PDF olusturma hatasi:', error);
+      toast.error('Stoklu PDF olusturulamadi');
+    } finally {
+      setStockPdfLoadingId(null);
     }
   };
 
@@ -1021,6 +1142,14 @@ function AdminQuotesPageContent() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button variant="secondary" onClick={() => handlePdfExport(quote)}>
                       PDF İndir
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleStockPdfExport(quote)}
+                      isLoading={stockPdfLoadingId === quote.id}
+                      disabled={stockPdfLoadingId === quote.id}
+                    >
+                      Stoklu PDF Indir
                     </Button>
                     <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
                       WhatsApp Paylaş
