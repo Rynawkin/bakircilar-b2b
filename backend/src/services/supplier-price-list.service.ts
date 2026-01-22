@@ -468,6 +468,87 @@ const computeMatchNetPrice = (sourcePrice: number | null, supplier: any, vatRate
   return Number(price.toFixed(4));
 };
 
+type ParsedItem = {
+  supplierCode: string;
+  supplierName?: string;
+  sourcePrice?: number | null;
+  rawLine?: string;
+  currency?: string | null;
+};
+
+const selectBestItemForCode = (items: ParsedItem[]) => {
+  if (!items.length) return null;
+
+  const withPrice = items.filter((item) => typeof item.sourcePrice === 'number') as Array<
+    ParsedItem & { sourcePrice: number }
+  >;
+  const fallback = items[0];
+
+  if (!withPrice.length) return fallback;
+
+  let candidates = withPrice;
+  let prices = candidates.map((item) => item.sourcePrice);
+  let min = Math.min(...prices);
+  let max = Math.max(...prices);
+
+  if (max >= 10) {
+    const filtered = candidates.filter((item) => item.sourcePrice >= 1);
+    if (filtered.length) {
+      candidates = filtered;
+      prices = candidates.map((item) => item.sourcePrice);
+      min = Math.min(...prices);
+      max = Math.max(...prices);
+    }
+  }
+
+  if (candidates.length > 1 && min > 0 && max / min >= 20) {
+    candidates = candidates.filter((item) => item.sourcePrice === max);
+  }
+
+  const sorted = candidates.slice().sort((a, b) => {
+    const priceDiff = b.sourcePrice - a.sourcePrice;
+    if (priceDiff !== 0) return priceDiff;
+    const currencyDiff = Number(Boolean(b.currency)) - Number(Boolean(a.currency));
+    if (currencyDiff !== 0) return currencyDiff;
+    const rawDiff = Number(Boolean(b.rawLine)) - Number(Boolean(a.rawLine));
+    if (rawDiff !== 0) return rawDiff;
+    const nameDiff = Number(Boolean(b.supplierName)) - Number(Boolean(a.supplierName));
+    if (nameDiff !== 0) return nameDiff;
+    return 0;
+  });
+
+  const chosen = sorted[0] || fallback;
+  return {
+    ...chosen,
+    supplierName: chosen.supplierName || items.find((item) => item.supplierName)?.supplierName,
+    rawLine: chosen.rawLine || items.find((item) => item.rawLine)?.rawLine,
+    currency: chosen.currency || items.find((item) => item.currency)?.currency,
+  } as ParsedItem;
+};
+
+const consolidateParsedItems = (items: ParsedItem[]) => {
+  const grouped = new Map<string, ParsedItem[]>();
+  const ungrouped: ParsedItem[] = [];
+
+  for (const item of items) {
+    const key = normalizeCode(item.supplierCode || '');
+    if (!key) {
+      ungrouped.push(item);
+      continue;
+    }
+    const bucket = grouped.get(key) || [];
+    bucket.push(item);
+    grouped.set(key, bucket);
+  }
+
+  const consolidated: ParsedItem[] = [];
+  for (const bucket of grouped.values()) {
+    const best = selectBestItemForCode(bucket);
+    if (best) consolidated.push(best);
+  }
+
+  return consolidated.concat(ungrouped);
+};
 class SupplierPriceListService {
   async listSuppliers() {
     return prisma.supplier.findMany({ orderBy: { name: 'asc' } });
@@ -758,7 +839,9 @@ class SupplierPriceListService {
         }
       }
 
-      if (parsedItems.length === 0) {
+      const consolidatedItems = consolidateParsedItems(parsedItems);
+
+      if (consolidatedItems.length === 0) {
         throw new Error('No rows parsed from uploaded files');
       }
 
@@ -766,7 +849,7 @@ class SupplierPriceListService {
       const itemsWithIds = [] as any[];
       const matchRows = [] as any[];
 
-      for (const item of parsedItems) {
+      for (const item of consolidatedItems) {
         const itemId = randomUUID();
         const normalized = normalizeCode(item.supplierCode);
         const matches = normalized ? productMap.get(normalized) || [] : [];
@@ -857,6 +940,8 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
+
 
 
 
