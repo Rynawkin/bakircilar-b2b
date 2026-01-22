@@ -294,6 +294,22 @@ const pickEntryProfit = (data: Record<string, any>): number => {
 };
 
 
+const pickStockName = (data: Record<string, any>): string => {
+  const direct = pickValueByKeys(data, ['Stok ?smi', 'Stok ??smi', 'Stok Ismi']);
+  if (direct !== null && direct !== undefined) {
+    return String(direct);
+  }
+  const fallback = findValueByNormalizedToken(data, 'stokismi');
+  return fallback ? String(fallback) : '';
+};
+
+const shouldExcludeMarginRow = (data: Record<string, any>): boolean => {
+  const stockName = pickStockName(data);
+  if (!stockName) return false;
+  return normalizeKeyToken(stockName).includes('diversey');
+};
+
+
 const DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS = [
   'documentNo',
   'documentType',
@@ -854,24 +870,41 @@ export class ReportsService {
     const limitValue = Number.isFinite(limit) && limit > 0 ? limit : 100;
     const offset = (pageValue - 1) * limitValue;
 
-    const [rows, summaryRows] = await prisma.$transaction([
-      prisma.marginComplianceReportRow.findMany({
-        where,
-        orderBy,
-        skip: offset,
-        take: limitValue,
-      }),
-      prisma.marginComplianceReportRow.findMany({
-        where,
-        select: { avgMargin: true, data: true, sectorCode: true },
-      }),
-    ]);
+    const allRows = await prisma.marginComplianceReportRow.findMany({
+      where,
+      select: {
+        avgMargin: true,
+        data: true,
+        sectorCode: true,
+        totalRevenue: true,
+        totalProfit: true,
+      },
+    });
 
-    const summary = buildMarginComplianceSummary(summaryRows);
+    const filteredRows = allRows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const summary = buildMarginComplianceSummary(filteredRows);
     const totalRecords = summary.totalRecords;
 
+    const sortedRows = filteredRows.slice().sort((a, b) => {
+      const aValue =
+        sortField === 'totalRevenue'
+          ? toNumber(a.totalRevenue)
+          : sortField === 'totalProfit'
+          ? toNumber(a.totalProfit)
+          : toNumber(a.avgMargin);
+      const bValue =
+        sortField === 'totalRevenue'
+          ? toNumber(b.totalRevenue)
+          : sortField === 'totalProfit'
+          ? toNumber(b.totalProfit)
+          : toNumber(b.avgMargin);
+      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+    });
+
+    const pageRows = sortedRows.slice(offset, offset + limitValue);
+
     return {
-      data: rows.map((row) => row.data),
+      data: pageRows.map((row) => row.data),
       summary,
       pagination: {
         page: pageValue,
@@ -908,7 +941,8 @@ export class ReportsService {
 
       const result = await mikroFactory.executeQuery(query);
       const sanitizedRows = result.map((row: any) => JSON.parse(JSON.stringify(row)));
-      const rowData = sanitizedRows.map((row: any) => ({
+      const filteredRows = sanitizedRows.filter((row: any) => !shouldExcludeMarginRow(row));
+      const rowData = filteredRows.map((row: any) => ({
         reportDate,
         sectorCode: typeof row.SektorKodu === 'string' ? row.SektorKodu : null,
         groupCode: typeof row.GrupKodu === 'string' ? row.GrupKodu : null,
@@ -1013,7 +1047,8 @@ export class ReportsService {
 
   async buildMarginComplianceEmailPayload(reportDate: Date, columnIds: string[] = []) {
     const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
-    const summary = buildMarginComplianceSummary(rows);
+    const filteredRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const summary = buildMarginComplianceSummary(filteredRows);
 
     const resolvedIds = columnIds && columnIds.length > 0
       ? columnIds
@@ -1021,7 +1056,7 @@ export class ReportsService {
     const columns = resolveMarginReportColumns(resolvedIds);
 
     const headerRow = columns.map((column) => column.label);
-    const dataRows = rows.map((row) => {
+    const dataRows = filteredRows.map((row) => {
       const data = getRowData(row);
       return columns.map((column) => {
         const value = column.resolve(data);
