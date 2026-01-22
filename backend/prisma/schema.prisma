@@ -564,6 +564,7 @@ model Product {
   priceOverrides          ProductPriceOverride[]
   priceAgreements         CustomerPriceAgreement[]
   customerRequestItems    CustomerRequestItem[]
+  supplierPriceListMatches SupplierPriceListMatch[]
 
   @@index([mikroCode])
   @@index([foreignName])
@@ -1480,4 +1481,5 @@ model Notification {
   @@index([userId, isRead])
   @@index([createdAt])
 }
+
 
