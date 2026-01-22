@@ -28,6 +28,45 @@ interface UploadItem {
   multiMatchItems: number;
 }
 
+interface PreviewExcel {
+  sheetNames: string[];
+  sheetName: string;
+  headerRow: number | null;
+  headers: string[];
+  detected: {
+    code: string | null;
+    name: string | null;
+    price: string | null;
+  };
+  samples: Array<{ code?: string | null; name?: string | null; price?: number | null }>;
+}
+
+interface PreviewPdf {
+  priceIndex: number | null;
+  codePattern: string | null;
+  samples: Array<{
+    supplierCode: string;
+    prices: number[];
+    selectedPrice: number | null;
+    rawLine: string;
+  }>;
+}
+
+interface PreviewData {
+  excel?: PreviewExcel | null;
+  pdf?: PreviewPdf | null;
+}
+
+interface MappingState {
+  excelSheetName: string;
+  excelHeaderRow: string;
+  excelCodeHeader: string;
+  excelNameHeader: string;
+  excelPriceHeader: string;
+  pdfPriceIndex: string;
+  pdfCodePattern: string;
+}
+
 const STATUS_TABS = [
   { key: 'matched', label: 'Eslesenler' },
   { key: 'unmatched', label: 'Esmeyenler' },
@@ -36,11 +75,38 @@ const STATUS_TABS = [
 
 type StatusKey = typeof STATUS_TABS[number]['key'];
 
+const EMPTY_MAPPING: MappingState = {
+  excelSheetName: '',
+  excelHeaderRow: '',
+  excelCodeHeader: '',
+  excelNameHeader: '',
+  excelPriceHeader: '',
+  pdfPriceIndex: '',
+  pdfCodePattern: '',
+};
+
+const parseOptionalInt = (value: string) => {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const formatPercent = (value: number) => {
+  const formatted = new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+  return `${formatted}%`;
+};
+
 export default function SupplierPriceListsPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [mapping, setMapping] = useState<MappingState>(EMPTY_MAPPING);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [activeUpload, setActiveUpload] = useState<UploadItem | null>(null);
   const [activeStatus, setActiveStatus] = useState<StatusKey>('matched');
@@ -49,6 +115,38 @@ export default function SupplierPriceListsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
+
+  const excelHeaders = useMemo(() => {
+    if (!preview?.excel?.headers?.length) return [];
+    return preview.excel.headers.filter((header) => header && header.trim());
+  }, [preview]);
+
+  const pdfPriceOptions = useMemo(() => {
+    if (!preview?.pdf?.samples?.length) return [];
+    const maxCount = Math.max(...preview.pdf.samples.map((sample) => sample.prices.length));
+    return Array.from({ length: maxCount }, (_, index) => index + 1);
+  }, [preview]);
+
+  const resetPreview = () => {
+    setPreview(null);
+    setMapping(EMPTY_MAPPING);
+  };
+
+  const buildOverrides = () => ({
+    excelSheetName: mapping.excelSheetName || null,
+    excelHeaderRow: parseOptionalInt(mapping.excelHeaderRow),
+    excelCodeHeader: mapping.excelCodeHeader || null,
+    excelNameHeader: mapping.excelNameHeader || null,
+    excelPriceHeader: mapping.excelPriceHeader || null,
+    pdfPriceIndex: parseOptionalInt(mapping.pdfPriceIndex),
+    pdfCodePattern: mapping.pdfCodePattern || null,
+  });
+
+  const getPdfSelectedPrice = (sample: PreviewPdf['samples'][number]) => {
+    const index = parseOptionalInt(mapping.pdfPriceIndex);
+    if (!index) return sample.selectedPrice;
+    return sample.prices[index - 1] ?? sample.selectedPrice;
+  };
 
   const loadSuppliers = async () => {
     try {
@@ -117,9 +215,49 @@ export default function SupplierPriceListsPage() {
     loadItems(activeUploadId, activeStatus, 1);
   }, [activeUploadId, activeStatus]);
 
+  const handleSupplierChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedSupplierId(event.target.value);
+    resetPreview();
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     setSelectedFiles(files);
+    resetPreview();
+  };
+
+  const handlePreview = async () => {
+    if (!selectedSupplierId) {
+      toast.error('Tedarikci secin');
+      return;
+    }
+    if (selectedFiles.length === 0) {
+      toast.error('Dosya secin');
+      return;
+    }
+
+    try {
+      setPreviewLoading(true);
+      const result = await adminApi.previewSupplierPriceLists({
+        supplierId: selectedSupplierId,
+        files: selectedFiles,
+        overrides: buildOverrides(),
+      });
+      setPreview(result);
+      setMapping((prev) => ({
+        excelSheetName: result.excel ? result.excel.sheetName || '' : prev.excelSheetName,
+        excelHeaderRow: result.excel ? (result.excel.headerRow ? String(result.excel.headerRow) : '') : prev.excelHeaderRow,
+        excelCodeHeader: result.excel ? result.excel.detected?.code || '' : prev.excelCodeHeader,
+        excelNameHeader: result.excel ? result.excel.detected?.name || '' : prev.excelNameHeader,
+        excelPriceHeader: result.excel ? result.excel.detected?.price || '' : prev.excelPriceHeader,
+        pdfPriceIndex: result.pdf ? (result.pdf.priceIndex ? String(result.pdf.priceIndex) : '') : prev.pdfPriceIndex,
+        pdfCodePattern: result.pdf ? result.pdf.codePattern || '' : prev.pdfCodePattern,
+      }));
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Onizleme basarisiz');
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const handleUpload = async () => {
@@ -131,15 +269,21 @@ export default function SupplierPriceListsPage() {
       toast.error('Dosya secin');
       return;
     }
+    if (!preview) {
+      toast.error('Once onizleme alin');
+      return;
+    }
 
     try {
       setUploading(true);
       const result = await adminApi.uploadSupplierPriceLists({
         supplierId: selectedSupplierId,
         files: selectedFiles,
+        overrides: buildOverrides(),
       });
       toast.success('Dosyalar yuklendi');
       setSelectedFiles([]);
+      resetPreview();
       await loadUploads();
       if (result.uploadId) {
         setActiveUploadId(result.uploadId);
@@ -166,7 +310,9 @@ export default function SupplierPriceListsPage() {
     }
   };
 
-  const columnCount = activeStatus === 'matched' ? 9 : activeStatus === 'multiple' ? 5 : 4;
+  const columnCount = activeStatus === 'matched' ? 10 : activeStatus === 'multiple' ? 5 : 4;
+  const canPreview = Boolean(selectedSupplierId) && selectedFiles.length > 0 && !previewLoading && !uploading;
+  const uploadDisabled = !preview || uploading || previewLoading;
 
   const pageSummary = useMemo(() => {
     if (!activeUpload) return null;
@@ -206,7 +352,7 @@ export default function SupplierPriceListsPage() {
             <Select
               label="Tedarikci"
               value={selectedSupplierId}
-              onChange={(e) => setSelectedSupplierId(e.target.value)}
+              onChange={handleSupplierChange}
             >
               <option value="">Tedarikci secin</option>
               {suppliers.map((supplier) => (
@@ -220,8 +366,23 @@ export default function SupplierPriceListsPage() {
               accept=".pdf,.xls,.xlsx"
               onChange={handleFileChange}
             />
-            <div className="flex items-end">
-              <Button onClick={handleUpload} isLoading={uploading} className="gap-2 w-full">
+            <div className="flex items-end gap-2">
+              <Button
+                variant="outline"
+                onClick={handlePreview}
+                isLoading={previewLoading}
+                disabled={!canPreview}
+                className="gap-2 flex-1"
+              >
+                <FileText className="h-4 w-4" />
+                {preview ? 'Onizlemeyi Guncelle' : 'Onizleme Al'}
+              </Button>
+              <Button
+                onClick={handleUpload}
+                isLoading={uploading}
+                disabled={uploadDisabled}
+                className="gap-2 flex-1"
+              >
                 <Upload className="h-4 w-4" />
                 Yukle
               </Button>
@@ -231,6 +392,196 @@ export default function SupplierPriceListsPage() {
           {selectedFiles.length > 0 && (
             <div className="text-sm text-muted-foreground">
               {selectedFiles.length} dosya secildi.
+            </div>
+          )}
+
+          {!preview && selectedFiles.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              Yukleme icin once onizleme alin.
+            </div>
+          )}
+
+          {preview && (
+            <div className="border rounded-lg bg-gray-50 p-4 space-y-6">
+              <div className="text-sm font-semibold">Onizleme</div>
+
+              {preview.excel && (
+                <div className="space-y-3">
+                  <div className="text-sm font-medium">Excel Onizleme</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <Select
+                      label="Sheet"
+                      value={mapping.excelSheetName}
+                      onChange={(event) => setMapping((prev) => ({
+                        ...prev,
+                        excelSheetName: event.target.value,
+                      }))}
+                    >
+                      <option value="">Sheet secin</option>
+                      {preview.excel.sheetNames.map((sheet) => (
+                        <option key={sheet} value={sheet}>{sheet}</option>
+                      ))}
+                    </Select>
+                    <Input
+                      label="Baslik Satiri"
+                      type="number"
+                      min={1}
+                      value={mapping.excelHeaderRow}
+                      onChange={(event) => setMapping((prev) => ({
+                        ...prev,
+                        excelHeaderRow: event.target.value,
+                      }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <Select
+                      label="Kod Kolonu"
+                      value={mapping.excelCodeHeader}
+                      onChange={(event) => setMapping((prev) => ({
+                        ...prev,
+                        excelCodeHeader: event.target.value,
+                      }))}
+                    >
+                      <option value="">Kolon secin</option>
+                      {excelHeaders.map((header) => (
+                        <option key={header} value={header}>{header}</option>
+                      ))}
+                    </Select>
+                    <Select
+                      label="Ad Kolonu"
+                      value={mapping.excelNameHeader}
+                      onChange={(event) => setMapping((prev) => ({
+                        ...prev,
+                        excelNameHeader: event.target.value,
+                      }))}
+                    >
+                      <option value="">Kolon secin</option>
+                      {excelHeaders.map((header) => (
+                        <option key={header} value={header}>{header}</option>
+                      ))}
+                    </Select>
+                    <Select
+                      label="Fiyat Kolonu"
+                      value={mapping.excelPriceHeader}
+                      onChange={(event) => setMapping((prev) => ({
+                        ...prev,
+                        excelPriceHeader: event.target.value,
+                      }))}
+                    >
+                      <option value="">Kolon secin</option>
+                      {excelHeaders.map((header) => (
+                        <option key={header} value={header}>{header}</option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Baslik satiri veya kolon degistirirseniz onizlemeyi guncelleyin.
+                  </div>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Kod</TableHead>
+                          <TableHead>Ad</TableHead>
+                          <TableHead>Fiyat</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {preview.excel.samples?.length ? (
+                          preview.excel.samples.map((sample, index) => (
+                            <TableRow key={`excel-sample-${index}`}>
+                              <TableCell>{sample.code ?? '-'}</TableCell>
+                              <TableCell>{sample.name ?? '-'}</TableCell>
+                              <TableCell>
+                                {typeof sample.price === 'number' ? formatCurrency(sample.price) : '-'}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
+                              Ornek bulunamadi.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {preview.pdf && (
+                <div className="space-y-3">
+                  <div className="text-sm font-medium">PDF Onizleme</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Select
+                      label="Fiyat Sirasi"
+                      value={mapping.pdfPriceIndex}
+                      onChange={(event) => setMapping((prev) => ({
+                        ...prev,
+                        pdfPriceIndex: event.target.value,
+                      }))}
+                    >
+                      <option value="">Otomatik</option>
+                      {pdfPriceOptions.map((value) => (
+                        <option key={value} value={String(value)}>{value}. fiyat</option>
+                      ))}
+                    </Select>
+                    <Input
+                      label="Kod Regex"
+                      value={mapping.pdfCodePattern}
+                      onChange={(event) => setMapping((prev) => ({
+                        ...prev,
+                        pdfCodePattern: event.target.value,
+                      }))}
+                      placeholder="Orn: [A-Z]{2}\\d+"
+                    />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Fiyat sirasi veya regex degistirirseniz onizlemeyi guncelleyin.
+                  </div>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Kod</TableHead>
+                          <TableHead>Fiyatlar</TableHead>
+                          <TableHead>Secilen</TableHead>
+                          <TableHead>Satir</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {preview.pdf.samples?.length ? (
+                          preview.pdf.samples.map((sample, index) => (
+                            <TableRow key={`pdf-sample-${index}`}>
+                              <TableCell>{sample.supplierCode}</TableCell>
+                              <TableCell>
+                                {sample.prices.length
+                                  ? sample.prices.map((price) => formatCurrency(price)).join(', ')
+                                  : '-'}
+                              </TableCell>
+                              <TableCell>
+                                {typeof getPdfSelectedPrice(sample) === 'number'
+                                  ? formatCurrency(getPdfSelectedPrice(sample) as number)
+                                  : '-'}
+                              </TableCell>
+                              <TableCell className="max-w-[320px] truncate">
+                                {sample.rawLine}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                              Ornek bulunamadi.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -327,6 +678,7 @@ export default function SupplierPriceListsPage() {
                         <TableHead>Guncel Maliyet</TableHead>
                         <TableHead>Yeni Maliyet</TableHead>
                         <TableHead>Fark</TableHead>
+                        <TableHead>Fark %</TableHead>
                       </>
                     )}
                     {activeStatus === 'multiple' && (
@@ -361,6 +713,7 @@ export default function SupplierPriceListsPage() {
                             <TableCell>{typeof row.currentCost === 'number' ? formatCurrency(row.currentCost) : '-'}</TableCell>
                             <TableCell>{typeof row.newCost === 'number' ? formatCurrency(row.newCost) : '-'}</TableCell>
                             <TableCell>{typeof row.costDifference === 'number' ? formatCurrency(row.costDifference) : '-'}</TableCell>
+                            <TableCell>{typeof row.percentDifference === 'number' ? formatPercent(row.percentDifference) : '-'}</TableCell>
                           </>
                         )}
                         {activeStatus === 'multiple' && (

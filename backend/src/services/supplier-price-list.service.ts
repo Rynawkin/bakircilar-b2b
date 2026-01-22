@@ -1,4 +1,4 @@
-import fs from 'fs';
+﻿import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
@@ -277,7 +277,7 @@ const isHeaderLine = (line: string) => {
 
 const extractCurrency = (line: string) => {
   if (/\b(USD|\$)\b/i.test(line)) return 'USD';
-  if (/\b(EUR|�)\b/i.test(line)) return 'EUR';
+  if (/\b(EUR|€)\b/i.test(line)) return 'EUR';
   if (/\b(TL|TRY|\u20BA)\b/i.test(line)) return 'TRY';
   return null;
 };
@@ -378,11 +378,12 @@ const parseExcelFile = (filePath: string, supplier: any) => {
   const headerRowIndex = supplier.excelHeaderRow ? Math.max(0, supplier.excelHeaderRow - 1) : findHeaderRowIndex(rows);
   if (headerRowIndex < 0) return [];
 
-  const headerRow = (rows[headerRowIndex] || []).map(normalizeHeader);
+  const rawHeaderRow = (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim());
+  const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
 
-  const codeIndex = resolveHeaderIndex(headerRow, supplier.excelCodeHeader, CODE_HEADERS);
-  const priceIndex = resolveHeaderIndex(headerRow, supplier.excelPriceHeader, PRICE_HEADERS);
-  const nameIndex = resolveHeaderIndex(headerRow, supplier.excelNameHeader, NAME_HEADERS);
+  const codeIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS);
+  const priceIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS);
+  const nameIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS);
 
   if (codeIndex < 0 || priceIndex < 0) return [];
 
@@ -548,6 +549,126 @@ const consolidateParsedItems = (items: ParsedItem[]) => {
   }
 
   return consolidated.concat(ungrouped);
+};
+type SupplierConfigOverrides = {
+  excelSheetName?: string | null;
+  excelHeaderRow?: number | null;
+  excelCodeHeader?: string | null;
+  excelNameHeader?: string | null;
+  excelPriceHeader?: string | null;
+  pdfPriceIndex?: number | null;
+  pdfCodePattern?: string | null;
+};
+
+const resolveSupplierConfig = (supplier: any, overrides?: SupplierConfigOverrides | null) => {
+  if (!overrides) return supplier;
+  return {
+    ...supplier,
+    excelSheetName: overrides.excelSheetName ?? supplier.excelSheetName,
+    excelHeaderRow: overrides.excelHeaderRow ?? supplier.excelHeaderRow,
+    excelCodeHeader: overrides.excelCodeHeader ?? supplier.excelCodeHeader,
+    excelNameHeader: overrides.excelNameHeader ?? supplier.excelNameHeader,
+    excelPriceHeader: overrides.excelPriceHeader ?? supplier.excelPriceHeader,
+    pdfPriceIndex: overrides.pdfPriceIndex ?? supplier.pdfPriceIndex,
+    pdfCodePattern: overrides.pdfCodePattern ?? supplier.pdfCodePattern,
+  };
+};
+
+const buildExcelPreview = (filePath: string, supplier: any) => {
+  const workbook = XLSX.readFile(filePath, { cellDates: true });
+  const sheetNames = workbook.SheetNames;
+  const sheetName = supplier.excelSheetName || sheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) {
+    throw new Error(`Excel sheet not found: ${sheetName}`);
+  }
+
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
+  if (!rows.length) {
+    return {
+      sheetNames,
+      sheetName,
+      headerRow: null,
+      headers: [],
+      detected: { code: null, name: null, price: null },
+      samples: [],
+    };
+  }
+
+  const headerRowIndex = supplier.excelHeaderRow ? Math.max(0, supplier.excelHeaderRow - 1) : findHeaderRowIndex(rows);
+  const rawHeaderRow = headerRowIndex >= 0 ? (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim()) : [];
+  const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
+
+  const codeIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS) : -1;
+  const priceIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS) : -1;
+  const nameIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS) : -1;
+
+  const samples: Array<{ code?: string | null; name?: string | null; price?: number | null }> = [];
+  if (headerRowIndex >= 0) {
+    for (let i = headerRowIndex + 1; i < Math.min(rows.length, headerRowIndex + 6); i += 1) {
+      const row = rows[i] || [];
+      samples.push({
+        code: codeIndex >= 0 ? row[codeIndex] : null,
+        name: nameIndex >= 0 ? row[nameIndex] : null,
+        price: priceIndex >= 0 ? parseNumber(row[priceIndex]) : null,
+      });
+    }
+  }
+
+  return {
+    sheetNames,
+    sheetName,
+    headerRow: headerRowIndex >= 0 ? headerRowIndex + 1 : null,
+    headers: rawHeaderRow,
+    normalizedHeaders: normalizedHeaderRow,
+    detected: {
+      code: codeIndex >= 0 ? rawHeaderRow[codeIndex] : null,
+      name: nameIndex >= 0 ? rawHeaderRow[nameIndex] : null,
+      price: priceIndex >= 0 ? rawHeaderRow[priceIndex] : null,
+    },
+    samples,
+  };
+};
+
+const buildPdfPreview = async (filePath: string, supplier: any) => {
+  const buffer = await fs.promises.readFile(filePath);
+  const result = await parsePdfBuffer(buffer);
+  const text = result?.text || '';
+  const lines = text.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean);
+  const samples: Array<{
+    supplierCode: string;
+    prices: number[];
+    selectedPrice: number | null;
+    rawLine: string;
+  }> = [];
+
+  for (const line of lines) {
+    if (samples.length >= 10) break;
+    if (isHeaderLine(line)) continue;
+
+    const prices = extractPrices(line);
+    if (!prices.length) continue;
+
+    const code = extractCodeFromLine(line, supplier.pdfCodePattern);
+    if (!code) continue;
+
+    samples.push({
+      supplierCode: code,
+      prices,
+      selectedPrice: selectPriceValue(prices, supplier.pdfPriceIndex),
+      rawLine: line,
+    });
+  }
+
+  return {
+    priceIndex: supplier.pdfPriceIndex ?? null,
+    codePattern: supplier.pdfCodePattern ?? null,
+    samples,
+  };
+};
+const computePercentDifference = (currentCost: number | null | undefined, costDifference: number | null | undefined) => {
+  if (!currentCost || currentCost === 0 || costDifference === null || costDifference === undefined) return null;
+  return Number(((costDifference / currentCost) * 100).toFixed(2));
 };
 class SupplierPriceListService {
   async listSuppliers() {
@@ -717,6 +838,7 @@ class SupplierPriceListService {
         currentCost: match.currentCost,
         newCost: match.netPrice,
         costDifference: match.costDifference,
+        percentDifference: computePercentDifference(match.currentCost, match.costDifference),
       })),
       pagination: {
         page,
@@ -778,6 +900,7 @@ class SupplierPriceListService {
           'Guncel Maliyet': match.currentCost ?? '',
           'Yeni Maliyet': match.netPrice ?? '',
           'Fark': match.costDifference ?? '',
+          'Fark %': computePercentDifference(match.currentCost, match.costDifference) ?? '',
           'Eslesme Sayisi': item.matchCount,
         });
       }
@@ -795,7 +918,48 @@ class SupplierPriceListService {
     };
   }
 
-  async uploadPriceLists(params: { supplierId: string; uploadedById: string; files: Express.Multer.File[] }) {
+  async previewPriceLists(params: { supplierId: string; files: Express.Multer.File[]; overrides?: SupplierConfigOverrides | null }) {
+    const { supplierId, files, overrides } = params;
+    if (!files || files.length === 0) {
+      throw new Error('No files uploaded');
+    }
+
+    const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
+    if (!supplier) {
+      throw new Error('Supplier not found');
+    }
+
+    const previewSupplier = resolveSupplierConfig(supplier, overrides);
+    let excelPreview: any = null;
+    let pdfPreview: any = null;
+
+    for (const file of files) {
+      const ext = path.extname(file.originalname).toLowerCase();
+      if ((ext === '.xls' || ext === '.xlsx') && !excelPreview) {
+        excelPreview = buildExcelPreview(file.path, previewSupplier);
+      } else if (ext === '.pdf') {
+        const pdfData = await buildPdfPreview(file.path, previewSupplier);
+        if (!pdfPreview) {
+          pdfPreview = pdfData;
+        } else {
+          pdfPreview.samples = (pdfPreview.samples || []).concat(pdfData.samples || []).slice(0, 10);
+          if (pdfPreview.priceIndex == null && pdfData.priceIndex != null) {
+            pdfPreview.priceIndex = pdfData.priceIndex;
+          }
+          if (!pdfPreview.codePattern && pdfData.codePattern) {
+            pdfPreview.codePattern = pdfData.codePattern;
+          }
+        }
+      }
+    }
+
+    if (!excelPreview && !pdfPreview) {
+      throw new Error('No preview data');
+    }
+
+    return { excel: excelPreview, pdf: pdfPreview };
+  }
+  async uploadPriceLists(params: { supplierId: string; uploadedById: string; files: Express.Multer.File[]; overrides?: SupplierConfigOverrides | null }) {
     const { supplierId, uploadedById, files } = params;
     if (!files || files.length === 0) {
       throw new Error('No files uploaded');
@@ -805,6 +969,8 @@ class SupplierPriceListService {
     if (!supplier) {
       throw new Error('Supplier not found');
     }
+
+    const uploadSupplier = resolveSupplierConfig(supplier, params.overrides);
 
     const upload = await prisma.supplierPriceListUpload.create({
       data: {
@@ -831,10 +997,10 @@ class SupplierPriceListService {
       for (const file of files) {
         const ext = path.extname(file.originalname).toLowerCase();
         if (ext === '.pdf') {
-          const items = await parsePdfFile(file.path, supplier);
+          const items = await parsePdfFile(file.path, uploadSupplier);
           parsedItems.push(...items);
         } else if (ext === '.xls' || ext === '.xlsx') {
-          const items = parseExcelFile(file.path, supplier);
+          const items = parseExcelFile(file.path, uploadSupplier);
           parsedItems.push(...items);
         }
       }
@@ -854,7 +1020,7 @@ class SupplierPriceListService {
         const normalized = normalizeCode(item.supplierCode);
         const matches = normalized ? productMap.get(normalized) || [] : [];
         const matchIds = matches.map((product) => product.id);
-        const itemNetPrice = computeItemNetPrice(item.sourcePrice ?? null, supplier);
+        const itemNetPrice = computeItemNetPrice(item.sourcePrice ?? null, uploadSupplier);
 
         itemsWithIds.push({
           id: itemId,
@@ -864,14 +1030,14 @@ class SupplierPriceListService {
           sourcePrice: item.sourcePrice ?? null,
           netPrice: itemNetPrice,
           priceCurrency: item.currency || 'TRY',
-          priceIncludesVat: supplier.priceIncludesVat,
+          priceIncludesVat: uploadSupplier.priceIncludesVat,
           rawLine: item.rawLine,
           matchCount: matches.length,
           matchedProductIds: matchIds,
         });
 
         for (const product of matches) {
-          const netPrice = computeMatchNetPrice(item.sourcePrice ?? null, supplier, product.vatRate ?? null);
+          const netPrice = computeMatchNetPrice(item.sourcePrice ?? null, uploadSupplier, product.vatRate ?? null);
           const difference = netPrice !== null && product.currentCost !== null && product.currentCost !== undefined
             ? Number((netPrice - product.currentCost).toFixed(4))
             : null;
@@ -940,6 +1106,13 @@ class SupplierPriceListService {
 }
 
 export default new SupplierPriceListService();
+
+
+
+
+
+
+
 
 
 

@@ -1,5 +1,29 @@
 ﻿import { Request, Response, NextFunction } from 'express';
+import fs from 'fs';
 import supplierPriceListService from '../services/supplier-price-list.service';
+
+
+const parseOptionalNumber = (value: any) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const parseOptionalString = (value: any) => {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed : null;
+};
+
+const parseOverrides = (body: any) => ({
+  excelSheetName: parseOptionalString(body?.excelSheetName),
+  excelHeaderRow: parseOptionalNumber(body?.excelHeaderRow),
+  excelCodeHeader: parseOptionalString(body?.excelCodeHeader),
+  excelNameHeader: parseOptionalString(body?.excelNameHeader),
+  excelPriceHeader: parseOptionalString(body?.excelPriceHeader),
+  pdfPriceIndex: parseOptionalNumber(body?.pdfPriceIndex),
+  pdfCodePattern: parseOptionalString(body?.pdfCodePattern),
+});
 
 class SupplierPriceListController {
   async getSuppliers(req: Request, res: Response, next: NextFunction) {
@@ -85,6 +109,30 @@ class SupplierPriceListController {
     }
   }
 
+  async previewPriceLists(req: Request, res: Response, next: NextFunction) {
+    const files = (req.files || []) as Express.Multer.File[];
+    try {
+      const supplierId = req.body?.supplierId as string | undefined;
+      if (!supplierId) {
+        return res.status(400).json({ error: 'supplierId is required' });
+      }
+      if (!files.length) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+      const overrides = parseOverrides(req.body);
+      const result = await supplierPriceListService.previewPriceLists({
+        supplierId,
+        files,
+        overrides,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    } finally {
+      await Promise.all(files.map((file) => fs.promises.unlink(file.path).catch(() => null)));
+    }
+  }
+
   async uploadPriceLists(req: Request, res: Response, next: NextFunction) {
     try {
       const supplierId = req.body?.supplierId as string | undefined;
@@ -97,10 +145,12 @@ class SupplierPriceListController {
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
+      const overrides = parseOverrides(req.body);
       const result = await supplierPriceListService.uploadPriceLists({
         supplierId,
         uploadedById: userId,
         files,
+        overrides,
       });
 
       res.json(result);

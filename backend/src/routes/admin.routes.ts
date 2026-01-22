@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Admin Routes
  */
 
@@ -25,7 +25,7 @@ import { z } from 'zod';
 
 const router = Router();
 
-// Tüm route'lar authentication gerektirir, role kontrolü route bazında yapılır
+// TÃ¼m route'lar authentication gerektirir, role kontrolÃ¼ route bazÄ±nda yapÄ±lÄ±r
 router.use(authenticate);
 
 // Validation schemas
@@ -41,7 +41,7 @@ const createCustomerSchema = z.object({
 const categoryPriceRuleSchema = z.object({
   categoryId: z.string().uuid(),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']),
-  profitMargin: z.number().min(0).max(5), // 0-500% arası
+  profitMargin: z.number().min(0).max(5), // 0-500% arasÄ±
 });
 
 const productPriceOverrideSchema = z.object({
@@ -168,6 +168,7 @@ router.get('/supplier-price-lists/suppliers', requireStaff, supplierPriceListCon
 router.post('/supplier-price-lists/suppliers', requireAdminOrManager, supplierPriceListController.createSupplier);
 router.put('/supplier-price-lists/suppliers/:id', requireAdminOrManager, supplierPriceListController.updateSupplier);
 router.get('/supplier-price-lists', requireStaff, supplierPriceListController.listUploads);
+router.post('/supplier-price-lists/preview', requireAdminOrManager, supplierPriceListUpload.array('files', 20), supplierPriceListController.previewPriceLists);
 router.post('/supplier-price-lists/upload', requireAdminOrManager, supplierPriceListUpload.array('files', 20), supplierPriceListController.uploadPriceLists);
 router.get('/supplier-price-lists/:id', requireStaff, supplierPriceListController.getUpload);
 router.get('/supplier-price-lists/:id/items', requireStaff, supplierPriceListController.getUploadItems);

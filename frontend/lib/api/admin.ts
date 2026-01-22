@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Admin API
  */
 
@@ -30,6 +30,32 @@ import {
   VadeSyncLog,
   EInvoiceDocument,
 } from '@/types';
+
+type SupplierPriceListOverrides = {
+  excelSheetName?: string | null;
+  excelHeaderRow?: number | null;
+  excelCodeHeader?: string | null;
+  excelNameHeader?: string | null;
+  excelPriceHeader?: string | null;
+  pdfPriceIndex?: number | null;
+  pdfCodePattern?: string | null;
+};
+
+const appendSupplierPriceListOverrides = (formData: FormData, overrides?: SupplierPriceListOverrides) => {
+  if (!overrides) return;
+  const appendValue = (key: string, value?: string | number | null) => {
+    if (value === undefined || value === null || value === '') return;
+    formData.append(key, String(value));
+  };
+
+  appendValue('excelSheetName', overrides.excelSheetName);
+  appendValue('excelHeaderRow', overrides.excelHeaderRow);
+  appendValue('excelCodeHeader', overrides.excelCodeHeader);
+  appendValue('excelNameHeader', overrides.excelNameHeader);
+  appendValue('excelPriceHeader', overrides.excelPriceHeader);
+  appendValue('pdfPriceIndex', overrides.pdfPriceIndex);
+  appendValue('pdfCodePattern', overrides.pdfCodePattern);
+};
 
 export const adminApi = {
   // Settings
@@ -1444,13 +1470,31 @@ export const adminApi = {
     return response.data;
   },
 
+  previewSupplierPriceLists: async (params: {
+    supplierId: string;
+    files: File[];
+    overrides?: SupplierPriceListOverrides;
+  }): Promise<{ excel?: any; pdf?: any }> => {
+    const formData = new FormData();
+    formData.append('supplierId', params.supplierId);
+    params.files.forEach((file) => formData.append('files', file));
+    appendSupplierPriceListOverrides(formData, params.overrides);
+
+    const response = await apiClient.post('/admin/supplier-price-lists/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
   uploadSupplierPriceLists: async (params: {
     supplierId: string;
     files: File[];
+    overrides?: SupplierPriceListOverrides;
   }): Promise<{ uploadId: string; summary: any }> => {
     const formData = new FormData();
     formData.append('supplierId', params.supplierId);
     params.files.forEach((file) => formData.append('files', file));
+    appendSupplierPriceListOverrides(formData, params.overrides);
 
     const response = await apiClient.post('/admin/supplier-price-lists/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
