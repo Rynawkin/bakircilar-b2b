@@ -1526,7 +1526,7 @@ export const adminApi = {
 
   getSupplierPriceListItems: async (params: {
     uploadId: string;
-    status?: 'matched' | 'unmatched' | 'multiple';
+    status?: 'matched' | 'unmatched' | 'multiple' | 'suspicious';
     page?: number;
     limit?: number;
   }): Promise<{ items: any[]; pagination: any }> => {
