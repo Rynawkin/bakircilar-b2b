@@ -1422,7 +1422,7 @@ type ParsedItem = {
 const resolveMatchSourcePrice = (
   item: ParsedItem,
   supplier: any,
-  product?: { name?: string | null; currentCost?: number | null; unit2Factor?: number | null } | null
+  product?: { name?: string | null; currentCost?: number | null; unit2Factor?: number | null; vatRate?: number | null } | null
 ) => {
   const colorGroup = resolveColorGroup(product?.name) ?? resolveColorGroup(item.supplierName);
   const basePrice = supplier?.priceByColor
