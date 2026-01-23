@@ -129,6 +129,8 @@ const PDF_MAX_SAMPLE_ROWS = 20;
 const PDF_MIN_COLUMN_ROWS = 3;
 const PDF_MIN_COLUMN_RATIO = 0.2;
 const PDF_NAME_ROW_MERGE_DISTANCE = 18;
+const PDF_HEADER_TOKEN_GAP = 32;
+const PDF_HEADER_LABELS = ["urun kodu", "stok kodu", "kod", "urun adi", "stok adi", "fiyat", "birim fiyat", "liste fiyat", "net fiyat", "kdv", "urun gorseli", "adet", "koli", "koli ici"];
 
 type PdfTextItem = {
   text: string;
@@ -153,7 +155,7 @@ const isMeaningfulPdfCell = (value: string) => {
   const trimmed = String(value || '').trim();
   if (!trimmed) return false;
   if (/^[-\u2013\u2014]+$/.test(trimmed)) return false;
-  if (/^[\u20ba$â‚¬]+$/.test(trimmed)) return false;
+  if (/^[\u20ba$ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬]+$/.test(trimmed)) return false;
   if (/^[.,]+$/.test(trimmed)) return false;
   return /[A-Za-z0-9]/.test(trimmed);
 };
@@ -481,6 +483,56 @@ const rowItemsHavePrice = (row: { items: PdfTextItem[] }) => {
   return extractPrices(compact).length > 0;
 };
 
+const isPdfHeaderRowLine = (line: string) => {
+  const normalized = normalizeText(line);
+  if (!normalized) return false;
+  return normalized.includes('urun') && normalized.includes('kod') && (normalized.includes('fiyat') || normalized.includes('net'));
+};
+
+const isPdfHeaderLabel = (value: string) => {
+  const normalized = normalizeText(value);
+  if (!normalized) return false;
+  return PDF_HEADER_LABELS.some((label) => normalized === label || normalized.includes(label));
+};
+
+const buildPdfHeaderColumns = (items: PdfTextItem[]) => {
+  const sorted = items.slice().sort((a, b) => a.x - b.x);
+  const clusters: Array<{ xStart: number; xEnd: number; text: string; count: number }> = [];
+
+  for (const item of sorted) {
+    const text = String(item.text || '').trim();
+    if (!text) continue;
+    const last = clusters[clusters.length - 1];
+    if (!last) {
+      clusters.push({ xStart: item.x, xEnd: item.x, text, count: 1 });
+      continue;
+    }
+
+    const gap = item.x - last.xEnd;
+    const combinedText = `${last.text} ${text}`.trim();
+    if (gap <= PDF_HEADER_TOKEN_GAP || isPdfHeaderLabel(combinedText)) {
+      last.text = combinedText;
+      last.xEnd = item.x;
+      last.count += 1;
+    } else {
+      clusters.push({ xStart: item.x, xEnd: item.x, text, count: 1 });
+    }
+  }
+
+  return clusters.map((cluster, index) => ({
+    index,
+    x: (cluster.xStart + cluster.xEnd) / 2,
+    count: cluster.count,
+  }));
+};
+
+const getPdfHeaderColumns = (rows: Array<{ items: PdfTextItem[] }>) => {
+  const headerRow = rows.find((row) => isPdfHeaderRowLine(row.items.map((item) => item.text).join(' ')));
+  if (!headerRow) return null;
+  const columns = buildPdfHeaderColumns(headerRow.items);
+  return columns.length >= 2 ? columns : null;
+};
+
 const findNearestPdfColumnIndex = (x: number, columns: PdfColumn[]) => {
   let bestIndex: number | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -501,8 +553,11 @@ const buildPdfTable = async (filePath: string, options?: { maxPages?: number }) 
   const buffer = await fs.promises.readFile(filePath);
   const textItems = await extractPdfTextItems(buffer, options?.maxPages);
   const rowsWithItems = buildPdfRows(textItems);
+  const headerColumns = getPdfHeaderColumns(rowsWithItems);
   const columnRows = rowsWithItems.filter(rowItemsHavePrice);
-  const columns = buildPdfColumns(columnRows.length ? columnRows : rowsWithItems);
+  const columns = headerColumns && headerColumns.length >= 2
+    ? headerColumns
+    : buildPdfColumns(columnRows.length ? columnRows : rowsWithItems);
 
   const rows: PdfRow[] = rowsWithItems
     .map((row) => {
@@ -775,9 +830,34 @@ const isHeaderLine = (line: string) => {
   );
 };
 
+const detectPdfColumnRolesFromHeader = (rows: PdfRow[]) => {
+  const headerRow = rows.find((row) => isHeaderLine(getPdfRowLine(row)));
+  if (!headerRow) return null;
+  const mapping = { codeIndex: null as number | null, nameIndex: null as number | null, priceIndex: null as number | null };
+
+  headerRow.cells.forEach((cell, index) => {
+    const normalized = normalizeText(cell);
+    if (!normalized) return;
+    if (mapping.codeIndex === null && (normalized.includes('kod') || normalized.includes('stok'))) {
+      mapping.codeIndex = index;
+      return;
+    }
+    if (mapping.nameIndex === null && normalized.includes('adi')) {
+      mapping.nameIndex = index;
+      return;
+    }
+    if (mapping.priceIndex === null && (normalized.includes('fiyat') || normalized.includes('net'))) {
+      mapping.priceIndex = index;
+    }
+  });
+
+  if (mapping.codeIndex === null && mapping.nameIndex === null && mapping.priceIndex === null) return null;
+  return mapping;
+};
+
 const extractCurrency = (line: string) => {
   if (/\b(USD|\$)\b/i.test(line)) return 'USD';
-  if (/\b(EUR|â‚¬)\b/i.test(line)) return 'EUR';
+  if (/\b(EUR|ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬)\b/i.test(line)) return 'EUR';
   if (/\b(TL|TRY|\u20BA)\b/i.test(line)) return 'TRY';
   return null;
 };
@@ -805,7 +885,8 @@ const resolvePdfColumnMapping = (
   supplier: any
 ) => {
   const detectionRows = filterPdfRowsForDetection(rows);
-  const detected = detectPdfColumnRoles(detectionRows, columnCount, supplier.pdfCodePattern);
+  const headerDetected = detectPdfColumnRolesFromHeader(rows);
+  const detected = headerDetected ?? detectPdfColumnRoles(detectionRows, columnCount, supplier.pdfCodePattern);
   const preferred = normalizePdfColumnRoles(supplier.pdfColumnRoles, columnCount);
 
   return {
@@ -1294,7 +1375,8 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
 const buildPdfPreview = async (filePath: string, supplier: any) => {
   const { columns, rows } = await buildPdfTable(filePath, { maxPages: 2 });
   const detectionRows = filterPdfRowsForDetection(rows);
-  const detected = detectPdfColumnRoles(detectionRows, columns.length, supplier.pdfCodePattern);
+  const headerDetected = detectPdfColumnRolesFromHeader(rows);
+  const detected = headerDetected ?? detectPdfColumnRoles(detectionRows, columns.length, supplier.pdfCodePattern);
 
   const previewRows = mergePdfNameRows(rows)
     .filter((row) => {
