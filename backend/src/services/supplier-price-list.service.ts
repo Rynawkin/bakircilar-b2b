@@ -245,9 +245,12 @@ const resolveCaseAdjustedPrice = (
 ) => {
   if (price === null || price === undefined) return null;
   if (!currentCost || !Number.isFinite(currentCost) || currentCost <= 0) return price;
-  if (!unit2Factor || !Number.isFinite(unit2Factor) || unit2Factor <= 1) return price;
+  if (!unit2Factor || !Number.isFinite(unit2Factor)) return price;
 
-  const perUnit = price / unit2Factor;
+  const factor = Math.abs(unit2Factor);
+  if (factor <= 1) return price;
+
+  const perUnit = price / factor;
   if (!Number.isFinite(perUnit) || perUnit <= 0) return price;
 
   const originalDiff = Math.abs(price - currentCost) / currentCost;
