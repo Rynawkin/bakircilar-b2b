@@ -260,7 +260,9 @@ const extractPrices = (line: string): number[] => {
 const extractPdfTextItems = async (buffer: Buffer, maxPages?: number) => {
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), disableWorker: true });
   const pdf = await loadingTask.promise;
-  const totalPages = Math.min(pdf.numPages || 0, maxPages ?? pdf.numPages || 0);
+  const pdfPages = typeof pdf.numPages === 'number' ? pdf.numPages : 0;
+  const limitPages = maxPages ?? pdfPages;
+  const totalPages = Math.min(pdfPages, limitPages);
   const items: PdfTextItem[] = [];
 
   for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
