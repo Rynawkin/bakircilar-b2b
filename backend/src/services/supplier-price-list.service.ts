@@ -1,4 +1,4 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
@@ -128,6 +128,7 @@ const PDF_MAX_PREVIEW_ROWS = 12;
 const PDF_MAX_SAMPLE_ROWS = 20;
 const PDF_MIN_COLUMN_ROWS = 3;
 const PDF_MIN_COLUMN_RATIO = 0.2;
+const PDF_NAME_ROW_MERGE_DISTANCE = 18;
 
 type PdfTextItem = {
   text: string;
@@ -152,7 +153,7 @@ const isMeaningfulPdfCell = (value: string) => {
   const trimmed = String(value || '').trim();
   if (!trimmed) return false;
   if (/^[-\u2013\u2014]+$/.test(trimmed)) return false;
-  if (/^[\u20ba$€]+$/.test(trimmed)) return false;
+  if (/^[\u20ba$â‚¬]+$/.test(trimmed)) return false;
   if (/^[.,]+$/.test(trimmed)) return false;
   return /[A-Za-z0-9]/.test(trimmed);
 };
@@ -473,6 +474,13 @@ const filterPdfColumns = (columns: PdfColumn[], rows: PdfRow[]) => {
   return { columns: remappedColumns, rows: remappedRows };
 };
 
+const rowItemsHavePrice = (row: { items: PdfTextItem[] }) => {
+  const line = row.items.map((item) => item.text).join(' ').trim();
+  if (!line) return false;
+  const compact = line.replace(/\s+/g, '');
+  return extractPrices(compact).length > 0;
+};
+
 const findNearestPdfColumnIndex = (x: number, columns: PdfColumn[]) => {
   let bestIndex: number | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -493,7 +501,8 @@ const buildPdfTable = async (filePath: string, options?: { maxPages?: number }) 
   const buffer = await fs.promises.readFile(filePath);
   const textItems = await extractPdfTextItems(buffer, options?.maxPages);
   const rowsWithItems = buildPdfRows(textItems);
-  const columns = buildPdfColumns(rowsWithItems);
+  const columnRows = rowsWithItems.filter(rowItemsHavePrice);
+  const columns = buildPdfColumns(columnRows.length ? columnRows : rowsWithItems);
 
   const rows: PdfRow[] = rowsWithItems
     .map((row) => {
@@ -563,13 +572,90 @@ const extractCodeFromCell = (cell: string | null | undefined, codePattern?: stri
 const extractPriceFromCell = (cell: string | null | undefined) => {
   if (!cell) return null;
   const text = String(cell);
-  const prices = extractPrices(text);
+  if (/%/.test(text)) return null;
+  const compact = text.replace(/\s+/g, '');
+  const prices = extractPrices(compact);
   if (prices.length) {
     return selectPriceValue(prices);
   }
-  return parseNumber(text);
+  return parseNumber(compact);
 };
 
+const getPdfRowLine = (row: PdfRow) => row.cells.filter(Boolean).join(' ').trim();
+
+const pdfRowHasPrice = (row: PdfRow) => {
+  if (row.cells.some((cell) => extractPriceFromCell(cell) !== null)) return true;
+  const line = getPdfRowLine(row);
+  if (!line) return false;
+  return extractPrices(line.replace(/\s+/g, '')).length > 0;
+};
+
+const pdfRowHasText = (row: PdfRow) =>
+  row.cells.some((cell) => /[A-Za-z]/.test(String(cell || '')));
+
+const isPdfMetaLine = (line: string) => {
+  if (!line) return true;
+  if (isHeaderLine(line)) return true;
+  const normalized = normalizeText(line);
+  if (!normalized) return true;
+  if (normalized.startsWith('tarih')) return true;
+  if (normalized.includes('fiyat listesi')) return true;
+  if (normalized.includes('urun gorseli')) return true;
+  if (normalized.includes('koli') && normalized.includes('adet')) return true;
+  if (normalized === 'adet' || normalized === 'koli ici') return true;
+  return false;
+};
+
+const mergePdfNameRows = (rows: PdfRow[]) => {
+  const merged: PdfRow[] = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const next = rows[index + 1];
+    if (
+      next &&
+      row.page === next.page &&
+      Math.abs(row.y - next.y) <= PDF_NAME_ROW_MERGE_DISTANCE
+    ) {
+      const rowLine = getPdfRowLine(row);
+      const nextLine = getPdfRowLine(next);
+      const shouldMerge =
+        rowLine &&
+        nextLine &&
+        !isPdfMetaLine(rowLine) &&
+        !isPdfMetaLine(nextLine) &&
+        !pdfRowHasPrice(row) &&
+        pdfRowHasPrice(next) &&
+        pdfRowHasText(row);
+      if (shouldMerge) {
+        const combinedCells = next.cells.map((cell, cellIndex) => cell || row.cells[cellIndex] || '');
+        merged.push({ ...next, cells: combinedCells });
+        index += 1;
+        continue;
+      }
+    }
+    merged.push(row);
+  }
+  return merged;
+};
+
+const filterPdfRowsForDetection = (rows: PdfRow[]) => {
+  const filtered = rows.filter((row) => {
+    const line = getPdfRowLine(row);
+    if (!line || isPdfMetaLine(line)) return false;
+    return pdfRowHasPrice(row);
+  });
+
+  if (filtered.length >= PDF_MIN_COLUMN_ROWS) return filtered;
+
+  const fallback = rows.filter((row) => {
+    const line = getPdfRowLine(row);
+    if (!line || isPdfMetaLine(line)) return false;
+    return row.cells.some((cell) => isMeaningfulPdfCell(cell));
+  });
+
+  if (fallback.length) return fallback;
+  return rows;
+};
 const detectPdfColumnRoles = (rows: PdfRow[], columnCount: number, codePattern?: string | null) => {
   if (!rows.length || columnCount <= 0) {
     return { codeIndex: null, nameIndex: null, priceIndex: null };
@@ -691,7 +777,7 @@ const isHeaderLine = (line: string) => {
 
 const extractCurrency = (line: string) => {
   if (/\b(USD|\$)\b/i.test(line)) return 'USD';
-  if (/\b(EUR|€)\b/i.test(line)) return 'EUR';
+  if (/\b(EUR|â‚¬)\b/i.test(line)) return 'EUR';
   if (/\b(TL|TRY|\u20BA)\b/i.test(line)) return 'TRY';
   return null;
 };
@@ -718,7 +804,8 @@ const resolvePdfColumnMapping = (
   columnCount: number,
   supplier: any
 ) => {
-  const detected = detectPdfColumnRoles(rows, columnCount, supplier.pdfCodePattern);
+  const detectionRows = filterPdfRowsForDetection(rows);
+  const detected = detectPdfColumnRoles(detectionRows, columnCount, supplier.pdfCodePattern);
   const preferred = normalizePdfColumnRoles(supplier.pdfColumnRoles, columnCount);
 
   return {
@@ -734,13 +821,33 @@ const parsePdfRowsWithMapping = (
   supplier: any
 ) => {
   const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; rawLine?: string; currency?: string | null }> = [];
+  const mergedRows = mergePdfNameRows(rows);
+  let pendingName: string | null = null;
 
-  for (const row of rows) {
-    const rawLine = row.cells.filter(Boolean).join(' | ').trim();
-    if (!rawLine || isHeaderLine(rawLine)) continue;
+  const buildNameCandidate = (row: PdfRow) => {
+    if (mapping.nameIndex !== null) {
+      const nameCell = row.cells[mapping.nameIndex];
+      if (nameCell) return String(nameCell).trim();
+    }
+    return row.cells
+      .filter((_, index) => index !== mapping.codeIndex && index !== mapping.priceIndex)
+      .filter((cell) => isMeaningfulPdfCell(cell))
+      .join(' ')
+      .trim();
+  };
+
+  for (const row of mergedRows) {
+    const rawLine = getPdfRowLine(row);
+    if (!rawLine || isPdfMetaLine(rawLine)) continue;
 
     const codeCell = mapping.codeIndex !== null ? row.cells[mapping.codeIndex] : null;
     let code = extractCodeFromCell(codeCell, supplier.pdfCodePattern);
+    if (!code && codeCell) {
+      const trimmedCode = String(codeCell).trim();
+      if (trimmedCode) {
+        code = trimmedCode;
+      }
+    }
     if (!code) {
       for (let index = 0; index < row.cells.length; index += 1) {
         if (index === mapping.priceIndex) continue;
@@ -751,18 +858,25 @@ const parsePdfRowsWithMapping = (
         }
       }
     }
+    const rowHasPrice = pdfRowHasPrice(row);
+    if (!code && !rowHasPrice) {
+      const candidateName = buildNameCandidate(row);
+      if (candidateName) {
+        pendingName = candidateName;
+      }
+      continue;
+    }
     if (!code) continue;
 
     const priceCell = mapping.priceIndex !== null ? row.cells[mapping.priceIndex] : null;
     const sourcePrice = extractPriceFromCell(priceCell);
 
-    const nameCell = mapping.nameIndex !== null ? row.cells[mapping.nameIndex] : null;
-    let supplierName = nameCell ? String(nameCell).trim() : '';
-    if (!supplierName) {
-      supplierName = row.cells
-        .filter((_, index) => index !== mapping.codeIndex && index !== mapping.priceIndex)
-        .join(' ')
-        .trim();
+    let supplierName = buildNameCandidate(row);
+    if (!supplierName && pendingName) {
+      supplierName = pendingName;
+    }
+    if (pendingName) {
+      pendingName = null;
     }
 
     items.push({
@@ -1179,11 +1293,19 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
 
 const buildPdfPreview = async (filePath: string, supplier: any) => {
   const { columns, rows } = await buildPdfTable(filePath, { maxPages: 2 });
-  const detected = detectPdfColumnRoles(rows, columns.length, supplier.pdfCodePattern);
+  const detectionRows = filterPdfRowsForDetection(rows);
+  const detected = detectPdfColumnRoles(detectionRows, columns.length, supplier.pdfCodePattern);
 
-  const previewRows = rows.slice(0, PDF_MAX_PREVIEW_ROWS).map((row) => ({
-    cells: row.cells,
-  }));
+  const previewRows = mergePdfNameRows(rows)
+    .filter((row) => {
+      const line = getPdfRowLine(row);
+      if (!line || isPdfMetaLine(line)) return false;
+      return row.cells.some((cell) => isMeaningfulPdfCell(cell));
+    })
+    .slice(0, PDF_MAX_PREVIEW_ROWS)
+    .map((row) => ({
+      cells: row.cells,
+    }));
 
   const previewColumns = columns.map((column) => {
     const samples = rows
