@@ -5,7 +5,30 @@ import * as XLSX from 'xlsx';
 import { prisma } from '../utils/prisma';
 
 const pdfParseModule = require('pdf-parse');
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+let pdfJsPromise: Promise<any> | null = null;
+
+const loadPdfJs = async () => {
+  if (pdfJsPromise) return pdfJsPromise;
+  const dynamicImport = new Function('modulePath', 'return import(modulePath);') as (
+    modulePath: string
+  ) => Promise<any>;
+
+  pdfJsPromise = (async () => {
+    try {
+      const module = await dynamicImport('pdfjs-dist/legacy/build/pdf.mjs');
+      return module?.default ?? module;
+    } catch (error) {
+      try {
+        const module = await dynamicImport('pdfjs-dist/build/pdf.mjs');
+        return module?.default ?? module;
+      } catch (innerError) {
+        return null;
+      }
+    }
+  })();
+
+  return pdfJsPromise;
+};
 
 const parsePdfBuffer = async (buffer: Buffer) => {
   if (typeof pdfParseModule === 'function') {
@@ -258,6 +281,11 @@ const extractPrices = (line: string): number[] => {
 };
 
 const extractPdfTextItems = async (buffer: Buffer, maxPages?: number) => {
+  const pdfjsLib = await loadPdfJs();
+  if (!pdfjsLib) {
+    throw new Error('PDFJS not available');
+  }
+
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), disableWorker: true });
   const pdf = await loadingTask.promise;
   const pdfPages = typeof pdf.numPages === 'number' ? pdf.numPages : 0;
