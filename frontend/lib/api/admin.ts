@@ -1446,6 +1446,7 @@ export const adminApi = {
     excelPriceHeader?: string | null;
     pdfPriceIndex?: number | null;
     pdfCodePattern?: string | null;
+    discountRules?: Array<{ keywords: string[]; discounts: number[] }>;
   }): Promise<{ supplier: any }> => {
     const response = await apiClient.post('/admin/supplier-price-lists/suppliers', data);
     return response.data;
@@ -1469,6 +1470,7 @@ export const adminApi = {
     excelPriceHeader?: string | null;
     pdfPriceIndex?: number | null;
     pdfCodePattern?: string | null;
+    discountRules?: Array<{ keywords: string[]; discounts: number[] }>;
   }): Promise<{ supplier: any }> => {
     const response = await apiClient.put(`/admin/supplier-price-lists/suppliers/${id}`, data);
     return response.data;

@@ -172,6 +172,48 @@ const getDiscounts = (supplier: any) => [
   .map((value: any) => (typeof value === 'number' ? value : parseNumber(value)))
   .filter((value: number | null): value is number => Boolean(value && value > 0));
 
+type SupplierDiscountRule = {
+  keywords?: string[];
+  discounts?: number[];
+};
+
+const normalizeDiscountValues = (values: any[]) =>
+  values
+    .map((value) => (typeof value === 'number' ? value : parseNumber(value)))
+    .filter((value): value is number => Boolean(value && value > 0));
+
+const normalizeMatchText = (value: any) => normalizeText(value).replace(/\s+/g, '');
+
+const getSupplierDiscountRules = (supplier: any) => {
+  if (!supplier?.discountRules || !Array.isArray(supplier.discountRules)) return [];
+  return supplier.discountRules.filter((rule: any) => rule && typeof rule === 'object');
+};
+
+const resolveDiscountsForItem = (supplier: any, supplierName?: string | null) => {
+  const defaultDiscounts = getDiscounts(supplier);
+  if (!supplierName) return defaultDiscounts;
+
+  const normalizedName = normalizeMatchText(supplierName);
+  if (!normalizedName) return defaultDiscounts;
+
+  const rules = getSupplierDiscountRules(supplier);
+  for (const rule of rules) {
+    const keywords = Array.isArray(rule.keywords) ? rule.keywords : [];
+    const normalizedKeywords = keywords
+      .map((keyword) => normalizeMatchText(keyword))
+      .filter(Boolean);
+    if (!normalizedKeywords.length) continue;
+
+    const matches = normalizedKeywords.some((keyword) => normalizedName.includes(keyword));
+    if (!matches) continue;
+
+    const discounts = normalizeDiscountValues(Array.isArray(rule.discounts) ? rule.discounts : []);
+    return discounts.length ? discounts : defaultDiscounts;
+  }
+
+  return defaultDiscounts;
+};
+
 const applyDiscounts = (price: number, discounts: number[]) =>
   discounts.reduce((acc, discount) => acc * (1 - discount / 100), price);
 
@@ -863,7 +905,7 @@ const buildProductMap = async () => {
   return map;
 };
 
-const computeItemNetPrice = (sourcePrice: number | null, supplier: any) => {
+const computeItemNetPrice = (sourcePrice: number | null, supplier: any, supplierName?: string | null) => {
   if (!sourcePrice && sourcePrice !== 0) return null;
   let price = sourcePrice;
   if (supplier.priceIncludesVat) {
@@ -873,12 +915,12 @@ const computeItemNetPrice = (sourcePrice: number | null, supplier: any) => {
     }
   }
   if (!supplier.priceIsNet) {
-    price = applyDiscounts(price, getDiscounts(supplier));
+    price = applyDiscounts(price, resolveDiscountsForItem(supplier, supplierName));
   }
   return Number(price.toFixed(4));
 };
 
-const computeMatchNetPrice = (sourcePrice: number | null, supplier: any, vatRate?: number | null) => {
+const computeMatchNetPrice = (sourcePrice: number | null, supplier: any, vatRate?: number | null, supplierName?: string | null) => {
   if (!sourcePrice && sourcePrice !== 0) return null;
   let price = sourcePrice;
   if (supplier.priceIncludesVat) {
@@ -888,7 +930,7 @@ const computeMatchNetPrice = (sourcePrice: number | null, supplier: any, vatRate
     }
   }
   if (!supplier.priceIsNet) {
-    price = applyDiscounts(price, getDiscounts(supplier));
+    price = applyDiscounts(price, resolveDiscountsForItem(supplier, supplierName));
   }
   return Number(price.toFixed(4));
 };
@@ -1490,7 +1532,7 @@ class SupplierPriceListService {
         const normalized = normalizeCode(item.supplierCode);
         const matches = normalized ? productMap.get(normalized) || [] : [];
         const matchIds = matches.map((product) => product.id);
-        const itemNetPrice = computeItemNetPrice(item.sourcePrice ?? null, uploadSupplier);
+        const itemNetPrice = computeItemNetPrice(item.sourcePrice ?? null, uploadSupplier, item.supplierName ?? null);
 
         itemsWithIds.push({
           id: itemId,
@@ -1507,7 +1549,12 @@ class SupplierPriceListService {
         });
 
         for (const product of matches) {
-          const netPrice = computeMatchNetPrice(item.sourcePrice ?? null, uploadSupplier, product.vatRate ?? null);
+          const netPrice = computeMatchNetPrice(
+            item.sourcePrice ?? null,
+            uploadSupplier,
+            product.vatRate ?? null,
+            item.supplierName ?? null
+          );
           const difference = netPrice !== null && product.currentCost !== null && product.currentCost !== undefined
             ? Number((netPrice - product.currentCost).toFixed(4))
             : null;
