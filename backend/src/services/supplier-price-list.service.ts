@@ -198,9 +198,9 @@ const resolveDiscountsForItem = (supplier: any, supplierName?: string | null) =>
 
   const rules = getSupplierDiscountRules(supplier);
   for (const rule of rules) {
-    const keywords = Array.isArray(rule.keywords) ? rule.keywords : [];
+    const keywords = Array.isArray(rule.keywords) ? (rule.keywords as string[]) : [];
     const normalizedKeywords = keywords
-      .map((keyword) => normalizeMatchText(keyword))
+      .map((keyword: string) => normalizeMatchText(keyword))
       .filter(Boolean);
     if (!normalizedKeywords.length) continue;
 
