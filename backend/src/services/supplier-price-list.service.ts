@@ -126,6 +126,8 @@ const PDF_COLUMN_TOLERANCE = 12;
 const PDF_MIN_COLUMN_HITS = 3;
 const PDF_MAX_PREVIEW_ROWS = 12;
 const PDF_MAX_SAMPLE_ROWS = 20;
+const PDF_MIN_COLUMN_ROWS = 3;
+const PDF_MIN_COLUMN_RATIO = 0.2;
 
 type PdfTextItem = {
   text: string;
@@ -144,6 +146,15 @@ type PdfRow = {
   page: number;
   y: number;
   cells: string[];
+};
+
+const isMeaningfulPdfCell = (value: string) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return false;
+  if (/^[-\u2013\u2014]+$/.test(trimmed)) return false;
+  if (/^[\u20ba$€]+$/.test(trimmed)) return false;
+  if (/^[.,]+$/.test(trimmed)) return false;
+  return /[A-Za-z0-9]/.test(trimmed);
 };
 
 const parseNumber = (value: any): number | null => {
@@ -417,6 +428,51 @@ const buildPdfColumns = (rows: Array<{ items: PdfTextItem[] }>) => {
     }));
 };
 
+const filterPdfColumns = (columns: PdfColumn[], rows: PdfRow[]) => {
+  if (!columns.length || !rows.length) return { columns, rows };
+  const counts = columns.map(() => 0);
+
+  for (const row of rows) {
+    row.cells.forEach((cell, index) => {
+      if (isMeaningfulPdfCell(cell)) {
+        counts[index] += 1;
+      }
+    });
+  }
+
+  const minRows = Math.max(PDF_MIN_COLUMN_ROWS, Math.ceil(rows.length * PDF_MIN_COLUMN_RATIO));
+  let keepIndices = counts
+    .map((count, index) => ({ count, index }))
+    .filter((entry) => entry.count >= minRows)
+    .map((entry) => entry.index)
+    .sort((a, b) => a - b);
+
+  if (keepIndices.length < 2) {
+    keepIndices = counts
+      .map((count, index) => ({ count, index }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, Math.min(columns.length, 6))
+      .map((entry) => entry.index)
+      .sort((a, b) => a - b);
+  }
+
+  if (keepIndices.length === columns.length) {
+    return { columns, rows };
+  }
+
+  const remappedColumns = keepIndices.map((oldIndex, newIndex) => ({
+    ...columns[oldIndex],
+    index: newIndex,
+  }));
+
+  const remappedRows = rows.map((row) => ({
+    ...row,
+    cells: keepIndices.map((oldIndex) => row.cells[oldIndex] || ''),
+  }));
+
+  return { columns: remappedColumns, rows: remappedRows };
+};
+
 const findNearestPdfColumnIndex = (x: number, columns: PdfColumn[]) => {
   let bestIndex: number | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -456,8 +512,7 @@ const buildPdfTable = async (filePath: string, options?: { maxPages?: number }) 
       };
     })
     .filter((row) => row.cells.some((cell) => Boolean(cell)));
-
-  return { columns, rows };
+  return filterPdfColumns(columns, rows);
 };
 
 const defaultCodeToken = (token: string) => {
@@ -490,6 +545,11 @@ const extractCodeFromLine = (line: string, codePattern?: string | null) => {
   for (const token of tokens) {
     const code = defaultCodeToken(token);
     if (code) return code;
+  }
+
+  const spacedMatch = line.match(/([A-Za-z]{2,})\s*[-/ ]\s*(\d{2,})/);
+  if (spacedMatch) {
+    return `${spacedMatch[1]}${spacedMatch[2]}`;
   }
 
   return null;
@@ -527,7 +587,7 @@ const detectPdfColumnRoles = (rows: PdfRow[], columnCount: number, codePattern?:
     row.cells.forEach((cell, index) => {
       if (!cell) return;
       const trimmed = String(cell).trim();
-      if (!trimmed) return;
+      if (!trimmed || !isMeaningfulPdfCell(trimmed)) return;
       stats[index].filled += 1;
 
       const numericValue = extractPriceFromCell(trimmed);
@@ -680,7 +740,17 @@ const parsePdfRowsWithMapping = (
     if (!rawLine || isHeaderLine(rawLine)) continue;
 
     const codeCell = mapping.codeIndex !== null ? row.cells[mapping.codeIndex] : null;
-    const code = extractCodeFromCell(codeCell, supplier.pdfCodePattern);
+    let code = extractCodeFromCell(codeCell, supplier.pdfCodePattern);
+    if (!code) {
+      for (let index = 0; index < row.cells.length; index += 1) {
+        if (index === mapping.priceIndex) continue;
+        const candidate = extractCodeFromCell(row.cells[index], supplier.pdfCodePattern);
+        if (candidate) {
+          code = candidate;
+          break;
+        }
+      }
+    }
     if (!code) continue;
 
     const priceCell = mapping.priceIndex !== null ? row.cells[mapping.priceIndex] : null;
