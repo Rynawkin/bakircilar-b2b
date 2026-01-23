@@ -207,6 +207,34 @@ const normalizeDiscountValues = (values: any[]) =>
 
 const normalizeMatchText = (value: any) => normalizeText(value).replace(/\s+/g, '');
 
+const normalizeKeywordList = (values: string[]) =>
+  values.map((value) => normalizeMatchText(value)).filter(Boolean);
+
+const COLOR_BLACK_KEYWORDS = normalizeKeywordList(['siyah', 'black']);
+const COLOR_OTHER_KEYWORDS = normalizeKeywordList(['mavi', 'sari', 'yesil', 'kirmizi', 'blue', 'yellow', 'green', 'red']);
+
+const resolveColorGroup = (value?: string | null) => {
+  const normalized = normalizeMatchText(value);
+  if (!normalized) return null;
+  if (COLOR_BLACK_KEYWORDS.some((keyword) => normalized.includes(keyword))) return 'black';
+  if (COLOR_OTHER_KEYWORDS.some((keyword) => normalized.includes(keyword))) return 'color';
+  return null;
+};
+
+const resolveColorPrice = (
+  prices: Array<number | null | undefined>,
+  colorGroup: 'black' | 'color' | null
+) => {
+  const numericPrices = prices.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (!numericPrices.length) return null;
+  if (numericPrices.length === 1) return numericPrices[0];
+  const min = Math.min(...numericPrices);
+  const max = Math.max(...numericPrices);
+  if (colorGroup === 'black') return min;
+  if (colorGroup === 'color') return max;
+  return max;
+};
+
 const getSupplierDiscountRules = (supplier: any) => {
   if (!supplier?.discountRules || !Array.isArray(supplier.discountRules)) return [];
   return supplier.discountRules.filter((rule: any) => rule && typeof rule === 'object');
@@ -272,6 +300,40 @@ const resolveHeaderIndex = (
   }
 
   return -1;
+};
+
+const resolveHeaderIndexes = (
+  headers: string[],
+  preferredHeader?: string | null,
+  candidates: string[] = []
+) => {
+  const indices = new Set<number>();
+  const addMatches = (needle: string, exact: boolean) => {
+    headers.forEach((header, index) => {
+      if (!header) return;
+      if (exact ? header === needle : header.includes(needle)) {
+        indices.add(index);
+      }
+    });
+  };
+
+  if (preferredHeader) {
+    const normalizedPreferred = normalizeHeader(preferredHeader);
+    addMatches(normalizedPreferred, true);
+    if (!indices.size) {
+      addMatches(normalizedPreferred, false);
+    }
+  }
+
+  if (!indices.size) {
+    for (const candidate of candidates) {
+      const before = indices.size;
+      addMatches(candidate, false);
+      if (indices.size > before) break;
+    }
+  }
+
+  return Array.from(indices.values()).sort((a, b) => a - b);
 };
 
 const selectPriceValue = (values: number[], priceIndex?: number | null) => {
@@ -1193,17 +1255,16 @@ const parseExcelFile = (filePath: string, supplier: any) => {
   const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
 
   const codeIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS);
-  const priceIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS);
+  const priceIndexes = resolveHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS);
   const nameIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS);
 
-  if (codeIndex < 0 || priceIndex < 0) return [];
+  if (codeIndex < 0 || priceIndexes.length === 0) return [];
 
-  const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; rawLine?: string }> = [];
+  const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; sourcePriceAlt?: number | null; rawLine?: string }> = [];
 
   for (let i = headerRowIndex + 1; i < rows.length; i += 1) {
     const row = rows[i] || [];
     const rawCode = row[codeIndex];
-    const rawPrice = row[priceIndex];
     const rawName = nameIndex >= 0 ? row[nameIndex] : null;
 
     if (rawCode === null || rawCode === undefined || rawCode === '') continue;
@@ -1211,13 +1272,25 @@ const parseExcelFile = (filePath: string, supplier: any) => {
     const supplierCode = String(rawCode).trim();
     if (!supplierCode) continue;
 
-    const sourcePrice = parseNumber(rawPrice);
-    if (sourcePrice === null) continue;
+    const priceValues = priceIndexes
+      .map((index) => parseNumber(row[index]))
+      .filter((value): value is number => value !== null);
+    if (!priceValues.length) continue;
+
+    let sourcePrice = priceValues[0];
+    let sourcePriceAlt: number | null = null;
+    if (supplier.priceByColor && priceValues.length > 1) {
+      const maxPrice = Math.max(...priceValues);
+      const minPrice = Math.min(...priceValues);
+      sourcePrice = maxPrice;
+      sourcePriceAlt = minPrice !== maxPrice ? minPrice : null;
+    }
 
     items.push({
       supplierCode,
       supplierName: rawName ? String(rawName).trim() : undefined,
       sourcePrice,
+      sourcePriceAlt,
     });
   }
 
@@ -1284,8 +1357,20 @@ type ParsedItem = {
   supplierCode: string;
   supplierName?: string;
   sourcePrice?: number | null;
+  sourcePriceAlt?: number | null;
   rawLine?: string;
   currency?: string | null;
+};
+
+const resolveMatchSourcePrice = (
+  item: ParsedItem,
+  supplier: any,
+  productName?: string | null
+) => {
+  if (!supplier?.priceByColor) return item.sourcePrice ?? null;
+
+  const colorGroup = resolveColorGroup(productName) ?? resolveColorGroup(item.supplierName);
+  return resolveColorPrice([item.sourcePrice ?? null, item.sourcePriceAlt ?? null], colorGroup);
 };
 
 const selectBestItemForCode = (items: ParsedItem[]) => {
@@ -1333,6 +1418,7 @@ const selectBestItemForCode = (items: ParsedItem[]) => {
   return {
     ...chosen,
     supplierName: chosen.supplierName || items.find((item) => item.supplierName)?.supplierName,
+    sourcePriceAlt: chosen.sourcePriceAlt ?? items.find((item) => typeof item.sourcePriceAlt === 'number')?.sourcePriceAlt ?? null,
     rawLine: chosen.rawLine || items.find((item) => item.rawLine)?.rawLine,
     currency: chosen.currency || items.find((item) => item.currency)?.currency,
   } as ParsedItem;
@@ -1413,17 +1499,25 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
   const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
 
   const codeIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS) : -1;
-  const priceIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS) : -1;
+  const priceIndexes = headerRowIndex >= 0 ? resolveHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS) : [];
+  const priceIndex = priceIndexes.length ? priceIndexes[0] : -1;
   const nameIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS) : -1;
 
   const samples: Array<{ code?: string | null; name?: string | null; price?: number | null }> = [];
   if (headerRowIndex >= 0) {
     for (let i = headerRowIndex + 1; i < Math.min(rows.length, headerRowIndex + 6); i += 1) {
       const row = rows[i] || [];
+      const priceValues = priceIndexes
+        .map((index) => parseNumber(row[index]))
+        .filter((value): value is number => value !== null);
+      let price: number | null = null;
+      if (priceValues.length) {
+        price = supplier.priceByColor && priceValues.length > 1 ? Math.max(...priceValues) : priceValues[0];
+      }
       samples.push({
         code: codeIndex >= 0 ? row[codeIndex] : null,
         name: nameIndex >= 0 ? row[nameIndex] : null,
-        price: priceIndex >= 0 ? parseNumber(row[priceIndex]) : null,
+        price,
       });
     }
   }
@@ -1700,21 +1794,25 @@ class SupplierPriceListService {
     ]);
 
     return {
-      items: matches.map((match: any) => ({
-        supplierCode: match.item.supplierCode,
-        supplierName: match.item.supplierName,
-        sourcePrice: match.item.sourcePrice,
-        netPrice: match.item.netPrice,
-        priceCurrency: match.item.priceCurrency,
-        priceIncludesVat: match.item.priceIncludesVat,
-        matchCount: match.item.matchCount,
-        productCode: match.productCode,
-        productName: match.productName,
-        currentCost: match.currentCost,
-        newCost: match.netPrice,
-        costDifference: match.costDifference,
-        percentDifference: computePercentDifference(match.currentCost, match.costDifference),
-      })),
+      items: matches.map((match: any) => {
+        const matchSourcePrice = typeof match.sourcePrice === 'number' ? match.sourcePrice : match.item.sourcePrice;
+        const matchNetPrice = typeof match.netPrice === 'number' ? match.netPrice : match.item.netPrice;
+        return {
+          supplierCode: match.item.supplierCode,
+          supplierName: match.item.supplierName,
+          sourcePrice: matchSourcePrice,
+          netPrice: matchNetPrice,
+          priceCurrency: match.item.priceCurrency,
+          priceIncludesVat: match.item.priceIncludesVat,
+          matchCount: match.item.matchCount,
+          productCode: match.productCode,
+          productName: match.productName,
+          currentCost: match.currentCost,
+          newCost: matchNetPrice,
+          costDifference: match.costDifference,
+          percentDifference: computePercentDifference(match.currentCost, match.costDifference),
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -1763,17 +1861,19 @@ class SupplierPriceListService {
       }
 
       for (const match of item.matches) {
+        const matchSourcePrice = typeof match.sourcePrice === 'number' ? match.sourcePrice : item.sourcePrice;
+        const matchNetPrice = typeof match.netPrice === 'number' ? match.netPrice : item.netPrice;
         matchedRows.push({
           'Tedarikci Kod': item.supplierCode,
           'Tedarikci Ad': item.supplierName || '',
-          'Liste Fiyat': item.sourcePrice ?? '',
-          'Net Fiyat': item.netPrice ?? '',
+          'Liste Fiyat': matchSourcePrice ?? '',
+          'Net Fiyat': matchNetPrice ?? '',
           'Para Birimi': item.priceCurrency || 'TRY',
           'KDV Dahil': item.priceIncludesVat ? 'Evet' : 'Hayir',
           'Urun Kodu': match.productCode,
           'Urun Adi': match.productName,
           'Guncel Maliyet': match.currentCost ?? '',
-          'Yeni Maliyet': match.netPrice ?? '',
+          'Yeni Maliyet': matchNetPrice ?? '',
           'Fark': match.costDifference ?? '',
           'Fark %': computePercentDifference(match.currentCost, match.costDifference) ?? '',
           'Eslesme Sayisi': item.matchCount,
@@ -1915,8 +2015,9 @@ class SupplierPriceListService {
         });
 
         for (const product of matches) {
+          const matchSourcePrice = resolveMatchSourcePrice(item, uploadSupplier, product.name);
           const netPrice = computeMatchNetPrice(
-            item.sourcePrice ?? null,
+            matchSourcePrice,
             uploadSupplier,
             product.vatRate ?? null,
             item.supplierName ?? null
@@ -1932,6 +2033,7 @@ class SupplierPriceListService {
             productCode: product.mikroCode,
             productName: product.name,
             currentCost: product.currentCost ?? null,
+            sourcePrice: matchSourcePrice ?? null,
             vatRate: product.vatRate ?? null,
             netPrice,
             costDifference: difference,

@@ -1,0 +1,2 @@
+ALTER TABLE "Supplier" ADD COLUMN "priceByColor" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "SupplierPriceListMatch" ADD COLUMN "sourcePrice" DOUBLE PRECISION;

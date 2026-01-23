@@ -1438,6 +1438,7 @@ export const adminApi = {
     discount5?: number | null;
     priceIsNet?: boolean;
     priceIncludesVat?: boolean;
+    priceByColor?: boolean;
     defaultVatRate?: number | null;
     excelSheetName?: string | null;
     excelHeaderRow?: number | null;
@@ -1462,6 +1463,7 @@ export const adminApi = {
     discount5?: number | null;
     priceIsNet?: boolean;
     priceIncludesVat?: boolean;
+    priceByColor?: boolean;
     defaultVatRate?: number | null;
     excelSheetName?: string | null;
     excelHeaderRow?: number | null;

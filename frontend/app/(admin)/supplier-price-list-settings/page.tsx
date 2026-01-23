@@ -21,6 +21,7 @@ interface Supplier {
   discount5?: number | null;
   priceIsNet?: boolean;
   priceIncludesVat?: boolean;
+  priceByColor?: boolean;
   defaultVatRate?: number | null;
   excelSheetName?: string | null;
   excelHeaderRow?: number | null;
@@ -99,6 +100,7 @@ export default function SupplierPriceListSettingsPage() {
     discount5: '',
     priceIsNet: false,
     priceIncludesVat: false,
+    priceByColor: false,
     defaultVatRate: '',
     excelSheetName: '',
     excelHeaderRow: '',
@@ -137,6 +139,7 @@ export default function SupplierPriceListSettingsPage() {
       discount5: '',
       priceIsNet: false,
       priceIncludesVat: false,
+      priceByColor: false,
       defaultVatRate: '',
       excelSheetName: '',
       excelHeaderRow: '',
@@ -174,6 +177,7 @@ export default function SupplierPriceListSettingsPage() {
         discount5: supplier.discount5?.toString() || '',
         priceIsNet: supplier.priceIsNet ?? false,
         priceIncludesVat: supplier.priceIncludesVat ?? false,
+        priceByColor: supplier.priceByColor ?? false,
         defaultVatRate: supplier.defaultVatRate?.toString() || '',
         excelSheetName: supplier.excelSheetName || '',
         excelHeaderRow: supplier.excelHeaderRow?.toString() || '',
@@ -248,6 +252,7 @@ export default function SupplierPriceListSettingsPage() {
       discount5: parseOptionalNumber(form.discount5),
       priceIsNet: form.priceIsNet,
       priceIncludesVat: form.priceIncludesVat,
+      priceByColor: form.priceByColor,
       defaultVatRate: parseOptionalNumber(form.defaultVatRate),
       excelSheetName: form.excelSheetName.trim() || null,
       excelHeaderRow: form.excelHeaderRow.trim() ? Number(form.excelHeaderRow) : null,
@@ -448,7 +453,7 @@ export default function SupplierPriceListSettingsPage() {
 
           <div>
             <h3 className="text-lg font-semibold mb-3">Fiyat Tipi</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Select
                 label="Fiyat Kaynagi"
                 value={form.priceIsNet ? 'net' : 'list'}
@@ -464,6 +469,14 @@ export default function SupplierPriceListSettingsPage() {
               >
                 <option value="without">KDV haric</option>
                 <option value="with">KDV dahil</option>
+              </Select>
+              <Select
+                label="Renkli/Siyah Ayrimi"
+                value={form.priceByColor ? 'on' : 'off'}
+                onChange={(e) => setForm((prev) => ({ ...prev, priceByColor: e.target.value === 'on' }))}
+              >
+                <option value="off">Tek fiyat</option>
+                <option value="on">Siyah urunlerde dusuk fiyat</option>
               </Select>
               <Input
                 label="Varsayilan KDV Orani"

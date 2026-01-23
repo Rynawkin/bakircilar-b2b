@@ -588,6 +588,7 @@ model Supplier {
   discount5         Float?
   priceIsNet        Boolean   @default(false)
   priceIncludesVat  Boolean   @default(false)
+  priceByColor      Boolean   @default(false)
   defaultVatRate    Float?
   excelSheetName    String?
   excelHeaderRow    Int?
@@ -672,6 +673,7 @@ model SupplierPriceListMatch {
   productCode    String
   productName    String
   currentCost    Float?
+  sourcePrice    Float?
   vatRate        Float?
   netPrice       Float?
   costDifference Float?
