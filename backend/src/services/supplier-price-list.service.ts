@@ -101,15 +101,18 @@ const CODE_HEADERS = [
   'kod',
 ];
 
-const PRICE_HEADERS = [
+const PRICE_HEADERS_GENERIC = [
   'tavsiye birim satis fiyati',
   'tavsiye adet satis fiyati',
   'birim satis fiyati',
   'birim fiyat',
-  'liste fiyat',
-  'net fiyat',
   'fiyat',
 ];
+
+const PRICE_HEADERS_LIST = ['liste fiyat', 'liste'];
+const PRICE_HEADERS_NET = ['net fiyat', 'net'];
+
+const PRICE_HEADERS = [...PRICE_HEADERS_LIST, ...PRICE_HEADERS_NET, ...PRICE_HEADERS_GENERIC];
 
 const NAME_HEADERS = [
   'urun adi',
@@ -268,6 +271,23 @@ const resolveDiscountsForItem = (supplier: any, supplierName?: string | null) =>
 const applyDiscounts = (price: number, discounts: number[]) =>
   discounts.reduce((acc, discount) => acc * (1 - discount / 100), price);
 
+const PRICE_HEADERS_EXACT = new Set(['liste', 'net']);
+
+const matchesPriceHeader = (header: string, candidate: string) => {
+  if (!header) return false;
+  if (PRICE_HEADERS_EXACT.has(candidate)) {
+    return header === candidate;
+  }
+  return header.includes(candidate);
+};
+
+const buildPriceHeaderCandidates = (supplier?: any) => {
+  if (supplier?.priceIsNet) {
+    return [...PRICE_HEADERS_NET, ...PRICE_HEADERS_LIST, ...PRICE_HEADERS_GENERIC];
+  }
+  return [...PRICE_HEADERS_LIST, ...PRICE_HEADERS_NET, ...PRICE_HEADERS_GENERIC];
+};
+
 const findHeaderRowIndex = (rows: any[][]) => {
   const limit = Math.min(rows.length, MAX_HEADER_SCAN);
   for (let i = 0; i < limit; i += 1) {
@@ -275,7 +295,7 @@ const findHeaderRowIndex = (rows: any[][]) => {
     const normalized = row.map(normalizeHeader).filter(Boolean);
     if (!normalized.length) continue;
     const hasCode = normalized.some((cell) => CODE_HEADERS.some((header) => cell.includes(header)));
-    const hasPrice = normalized.some((cell) => PRICE_HEADERS.some((header) => cell.includes(header)));
+    const hasPrice = normalized.some((cell) => PRICE_HEADERS.some((header) => matchesPriceHeader(cell, header)));
     if (hasCode && hasPrice) return i;
   }
   return -1;
@@ -300,6 +320,41 @@ const resolveHeaderIndex = (
   }
 
   return -1;
+};
+
+const resolvePriceHeaderIndexes = (
+  headers: string[],
+  preferredHeader?: string | null,
+  supplier?: any
+) => {
+  const candidates = buildPriceHeaderCandidates(supplier);
+  const indices = new Set<number>();
+  const addMatches = (needle: string, exact: boolean) => {
+    headers.forEach((header, index) => {
+      if (!header) return;
+      if (exact ? header === needle : matchesPriceHeader(header, needle)) {
+        indices.add(index);
+      }
+    });
+  };
+
+  if (preferredHeader) {
+    const normalizedPreferred = normalizeHeader(preferredHeader);
+    addMatches(normalizedPreferred, true);
+    if (!indices.size) {
+      addMatches(normalizedPreferred, false);
+    }
+  }
+
+  if (!indices.size) {
+    for (const candidate of candidates) {
+      const before = indices.size;
+      addMatches(candidate, false);
+      if (indices.size > before) break;
+    }
+  }
+
+  return Array.from(indices.values()).sort((a, b) => a - b);
 };
 
 const resolveHeaderIndexes = (
@@ -1255,7 +1310,7 @@ const parseExcelFile = (filePath: string, supplier: any) => {
   const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
 
   const codeIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS);
-  const priceIndexes = resolveHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS);
+  const priceIndexes = resolvePriceHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, supplier);
   const nameIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS);
 
   if (codeIndex < 0 || priceIndexes.length === 0) return [];
@@ -1499,7 +1554,7 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
   const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
 
   const codeIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS) : -1;
-  const priceIndexes = headerRowIndex >= 0 ? resolveHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, PRICE_HEADERS) : [];
+  const priceIndexes = headerRowIndex >= 0 ? resolvePriceHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, supplier) : [];
   const priceIndex = priceIndexes.length ? priceIndexes[0] : -1;
   const nameIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS) : -1;
 
