@@ -155,7 +155,7 @@ const isMeaningfulPdfCell = (value: string) => {
   const trimmed = String(value || '').trim();
   if (!trimmed) return false;
   if (/^[-\u2013\u2014]+$/.test(trimmed)) return false;
-  if (/^[\u20ba$ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬]+$/.test(trimmed)) return false;
+  if (/^[\u20ba$ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬]+$/.test(trimmed)) return false;
   if (/^[.,]+$/.test(trimmed)) return false;
   return /[A-Za-z0-9]/.test(trimmed);
 };
@@ -492,7 +492,7 @@ const isPdfHeaderRowLine = (line: string) => {
 const isPdfHeaderLabel = (value: string) => {
   const normalized = normalizeText(value);
   if (!normalized) return false;
-  return PDF_HEADER_LABELS.some((label) => normalized === label || normalized.includes(label));
+  return PDF_HEADER_LABELS.some((label) => normalized === label);
 };
 
 const buildPdfHeaderColumns = (items: PdfTextItem[]) => {
@@ -510,7 +510,9 @@ const buildPdfHeaderColumns = (items: PdfTextItem[]) => {
 
     const gap = item.x - last.xEnd;
     const combinedText = `${last.text} ${text}`.trim();
-    if (gap <= PDF_HEADER_TOKEN_GAP || isPdfHeaderLabel(combinedText)) {
+    const shouldMerge =
+      (gap <= PDF_HEADER_TOKEN_GAP && !isPdfHeaderLabel(last.text)) || isPdfHeaderLabel(combinedText);
+    if (shouldMerge) {
       last.text = combinedText;
       last.xEnd = item.x;
       last.count += 1;
@@ -857,7 +859,7 @@ const detectPdfColumnRolesFromHeader = (rows: PdfRow[]) => {
 
 const extractCurrency = (line: string) => {
   if (/\b(USD|\$)\b/i.test(line)) return 'USD';
-  if (/\b(EUR|ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬)\b/i.test(line)) return 'EUR';
+  if (/\b(EUR|ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬)\b/i.test(line)) return 'EUR';
   if (/\b(TL|TRY|\u20BA)\b/i.test(line)) return 'TRY';
   return null;
 };
@@ -1389,8 +1391,14 @@ const buildPdfPreview = async (filePath: string, supplier: any) => {
       cells: row.cells,
     }));
 
+  const sampleRows = mergePdfNameRows(rows).filter((row) => {
+    const line = getPdfRowLine(row);
+    if (!line || isPdfMetaLine(line)) return false;
+    return row.cells.some((cell) => isMeaningfulPdfCell(cell));
+  });
+
   const previewColumns = columns.map((column) => {
-    const samples = rows
+    const samples = sampleRows
       .map((row) => row.cells[column.index])
       .filter((value) => Boolean(value))
       .slice(0, 3);
