@@ -154,7 +154,7 @@ export const invoiceUpload = multer({
 export const supplierPriceListUpload = multer({
   storage: supplierPriceListStorage,
   limits: {
-    fileSize: 25 * 1024 * 1024, // 25MB limit
+    fileSize: 60 * 1024 * 1024, // 60MB limit
   },
   fileFilter: supplierPriceListFileFilter,
 });
