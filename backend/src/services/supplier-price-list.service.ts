@@ -31,6 +31,15 @@ const loadPdfJs = async () => {
 };
 
 const parsePdfBuffer = async (buffer: Buffer) => {
+  try {
+    const textItems = await extractPdfTextItems(buffer);
+    const rows = buildPdfRows(textItems);
+    const text = rows.map((row) => row.items.map((item) => item.text).join(' ')).join('\n');
+    return { text };
+  } catch (error) {
+    // fallback to pdf-parse only if pdfjs fails
+  }
+
   if (typeof pdfParseModule === 'function') {
     return pdfParseModule(buffer);
   }
