@@ -1294,59 +1294,59 @@ const parsePdfFile = async (filePath: string, supplier: any) => {
 
 const parseExcelFile = (filePath: string, supplier: any) => {
   const workbook = XLSX.readFile(filePath, { cellDates: true });
-  const sheetName = supplier.excelSheetName || workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  if (!sheet) {
-    throw new Error(`Excel sheet not found: ${sheetName}`);
-  }
-
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
-  if (!rows.length) return [];
-
-  const headerRowIndex = supplier.excelHeaderRow ? Math.max(0, supplier.excelHeaderRow - 1) : findHeaderRowIndex(rows);
-  if (headerRowIndex < 0) return [];
-
-  const rawHeaderRow = (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim());
-  const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
-
-  const codeIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS);
-  const priceIndexes = resolvePriceHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, supplier);
-  const nameIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS);
-
-  if (codeIndex < 0 || priceIndexes.length === 0) return [];
-
+  const sheetNames = supplier.excelSheetName ? [supplier.excelSheetName] : workbook.SheetNames;
   const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; sourcePriceAlt?: number | null; rawLine?: string }> = [];
 
-  for (let i = headerRowIndex + 1; i < rows.length; i += 1) {
-    const row = rows[i] || [];
-    const rawCode = row[codeIndex];
-    const rawName = nameIndex >= 0 ? row[nameIndex] : null;
+  for (const sheetName of sheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
 
-    if (rawCode === null || rawCode === undefined || rawCode === '') continue;
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
+    if (!rows.length) continue;
 
-    const supplierCode = String(rawCode).trim();
-    if (!supplierCode) continue;
+    const headerRowIndex = supplier.excelHeaderRow ? Math.max(0, supplier.excelHeaderRow - 1) : findHeaderRowIndex(rows);
+    if (headerRowIndex < 0) continue;
 
-    const priceValues = priceIndexes
-      .map((index) => parseNumber(row[index]))
-      .filter((value): value is number => value !== null);
-    if (!priceValues.length) continue;
+    const rawHeaderRow = (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim());
+    const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
 
-    let sourcePrice = priceValues[0];
-    let sourcePriceAlt: number | null = null;
-    if (supplier.priceByColor && priceValues.length > 1) {
-      const maxPrice = Math.max(...priceValues);
-      const minPrice = Math.min(...priceValues);
-      sourcePrice = maxPrice;
-      sourcePriceAlt = minPrice !== maxPrice ? minPrice : null;
+    const codeIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS);
+    const priceIndexes = resolvePriceHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, supplier);
+    const nameIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS);
+
+    if (codeIndex < 0 || priceIndexes.length === 0) continue;
+
+    for (let i = headerRowIndex + 1; i < rows.length; i += 1) {
+      const row = rows[i] || [];
+      const rawCode = row[codeIndex];
+      const rawName = nameIndex >= 0 ? row[nameIndex] : null;
+
+      if (rawCode === null || rawCode === undefined || rawCode === '') continue;
+
+      const supplierCode = String(rawCode).trim();
+      if (!supplierCode) continue;
+
+      const priceValues = priceIndexes
+        .map((index) => parseNumber(row[index]))
+        .filter((value): value is number => value !== null);
+      if (!priceValues.length) continue;
+
+      let sourcePrice = priceValues[0];
+      let sourcePriceAlt: number | null = null;
+      if (supplier.priceByColor && priceValues.length > 1) {
+        const maxPrice = Math.max(...priceValues);
+        const minPrice = Math.min(...priceValues);
+        sourcePrice = maxPrice;
+        sourcePriceAlt = minPrice !== maxPrice ? minPrice : null;
+      }
+
+      items.push({
+        supplierCode,
+        supplierName: rawName ? String(rawName).trim() : undefined,
+        sourcePrice,
+        sourcePriceAlt,
+      });
     }
-
-    items.push({
-      supplierCode,
-      supplierName: rawName ? String(rawName).trim() : undefined,
-      sourcePrice,
-      sourcePriceAlt,
-    });
   }
 
   return items;
