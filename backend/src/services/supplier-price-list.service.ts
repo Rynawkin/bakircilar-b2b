@@ -238,36 +238,6 @@ const resolveColorPrice = (
   return max;
 };
 
-const resolveCaseAdjustedPrice = (
-  price: number | null,
-  currentCost?: number | null,
-  unit2Factor?: number | null
-) => {
-  if (price === null || price === undefined) return null;
-  if (!currentCost || !Number.isFinite(currentCost) || currentCost <= 0) return price;
-  if (!unit2Factor || !Number.isFinite(unit2Factor)) return price;
-
-  const factor = Math.abs(unit2Factor);
-  if (factor <= 1) return price;
-
-  const perUnit = price / factor;
-  if (!Number.isFinite(perUnit) || perUnit <= 0) return price;
-
-  const originalDiff = Math.abs(price - currentCost) / currentCost;
-  const perUnitDiff = Math.abs(perUnit - currentCost) / currentCost;
-  const originalRatio = price / currentCost;
-
-  if (originalRatio >= 2 && perUnitDiff <= 0.35) {
-    return Number(perUnit.toFixed(4));
-  }
-
-  if (perUnitDiff + 0.2 < originalDiff) {
-    return Number(perUnit.toFixed(4));
-  }
-
-  return price;
-};
-
 const getSupplierDiscountRules = (supplier: any) => {
   if (!supplier?.discountRules || !Array.isArray(supplier.discountRules)) return [];
   return supplier.discountRules.filter((rule: any) => rule && typeof rule === 'object');
@@ -1459,7 +1429,32 @@ const resolveMatchSourcePrice = (
     ? resolveColorPrice([item.sourcePrice ?? null, item.sourcePriceAlt ?? null], colorGroup)
     : item.sourcePrice ?? null;
 
-  return resolveCaseAdjustedPrice(basePrice, product?.currentCost ?? null, product?.unit2Factor ?? null);
+  if (basePrice === null || basePrice === undefined) return null;
+
+  const currentCost = product?.currentCost ?? null;
+  if (!currentCost || !Number.isFinite(currentCost) || currentCost <= 0) return basePrice;
+
+  const unit2Factor = product?.unit2Factor ?? null;
+  if (!unit2Factor || !Number.isFinite(unit2Factor)) return basePrice;
+
+  const factor = Math.abs(unit2Factor);
+  if (factor <= 1) return basePrice;
+
+  const perUnit = basePrice / factor;
+  if (!Number.isFinite(perUnit) || perUnit <= 0) return basePrice;
+
+  const baseNet = computeMatchNetPrice(basePrice, supplier, product?.vatRate ?? null, item.supplierName ?? null);
+  const perUnitNet = computeMatchNetPrice(perUnit, supplier, product?.vatRate ?? null, item.supplierName ?? null);
+  if (baseNet === null || perUnitNet === null) return basePrice;
+
+  const baseDiff = Math.abs(baseNet - currentCost) / currentCost;
+  const perUnitDiff = Math.abs(perUnitNet - currentCost) / currentCost;
+
+  if (baseDiff >= 0.8 && perUnitDiff <= 0.35 && perUnitDiff + 0.2 < baseDiff) {
+    return Number(perUnit.toFixed(4));
+  }
+
+  return basePrice;
 };
 
 const selectBestItemForCode = (items: ParsedItem[]) => {
