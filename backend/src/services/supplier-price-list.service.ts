@@ -238,6 +238,33 @@ const resolveColorPrice = (
   return max;
 };
 
+const resolveCaseAdjustedPrice = (
+  price: number | null,
+  currentCost?: number | null,
+  unit2Factor?: number | null
+) => {
+  if (price === null || price === undefined) return null;
+  if (!currentCost || !Number.isFinite(currentCost) || currentCost <= 0) return price;
+  if (!unit2Factor || !Number.isFinite(unit2Factor) || unit2Factor <= 1) return price;
+
+  const perUnit = price / unit2Factor;
+  if (!Number.isFinite(perUnit) || perUnit <= 0) return price;
+
+  const originalDiff = Math.abs(price - currentCost) / currentCost;
+  const perUnitDiff = Math.abs(perUnit - currentCost) / currentCost;
+  const originalRatio = price / currentCost;
+
+  if (originalRatio >= 2 && perUnitDiff <= 0.35) {
+    return Number(perUnit.toFixed(4));
+  }
+
+  if (perUnitDiff + 0.2 < originalDiff) {
+    return Number(perUnit.toFixed(4));
+  }
+
+  return price;
+};
+
 const getSupplierDiscountRules = (supplier: any) => {
   if (!supplier?.discountRules || !Array.isArray(supplier.discountRules)) return [];
   return supplier.discountRules.filter((rule: any) => rule && typeof rule === 'object');
@@ -1362,6 +1389,8 @@ const buildProductMap = async () => {
       foreignName: true,
       currentCost: true,
       vatRate: true,
+      unit2: true,
+      unit2Factor: true,
     },
   });
 
@@ -1420,12 +1449,14 @@ type ParsedItem = {
 const resolveMatchSourcePrice = (
   item: ParsedItem,
   supplier: any,
-  productName?: string | null
+  product?: { name?: string | null; currentCost?: number | null; unit2Factor?: number | null } | null
 ) => {
-  if (!supplier?.priceByColor) return item.sourcePrice ?? null;
+  const colorGroup = resolveColorGroup(product?.name) ?? resolveColorGroup(item.supplierName);
+  const basePrice = supplier?.priceByColor
+    ? resolveColorPrice([item.sourcePrice ?? null, item.sourcePriceAlt ?? null], colorGroup)
+    : item.sourcePrice ?? null;
 
-  const colorGroup = resolveColorGroup(productName) ?? resolveColorGroup(item.supplierName);
-  return resolveColorPrice([item.sourcePrice ?? null, item.sourcePriceAlt ?? null], colorGroup);
+  return resolveCaseAdjustedPrice(basePrice, product?.currentCost ?? null, product?.unit2Factor ?? null);
 };
 
 const selectBestItemForCode = (items: ParsedItem[]) => {
@@ -2070,7 +2101,7 @@ class SupplierPriceListService {
         });
 
         for (const product of matches) {
-          const matchSourcePrice = resolveMatchSourcePrice(item, uploadSupplier, product.name);
+          const matchSourcePrice = resolveMatchSourcePrice(item, uploadSupplier, product);
           const netPrice = computeMatchNetPrice(
             matchSourcePrice,
             uploadSupplier,
