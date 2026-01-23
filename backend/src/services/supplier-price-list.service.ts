@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { prisma } from '../utils/prisma';
 
 const pdfParseModule = require('pdf-parse');
+const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 
 const parsePdfBuffer = async (buffer: Buffer) => {
   if (typeof pdfParseModule === 'function') {
@@ -88,6 +89,30 @@ const NAME_HEADERS = [
 const DEFAULT_VAT_RATE = 0.2;
 const MAX_HEADER_SCAN = 40;
 const MAX_TOKEN_LOOKAHEAD = 16;
+const PDF_ROW_TOLERANCE = 2;
+const PDF_COLUMN_TOLERANCE = 12;
+const PDF_MIN_COLUMN_HITS = 3;
+const PDF_MAX_PREVIEW_ROWS = 12;
+const PDF_MAX_SAMPLE_ROWS = 20;
+
+type PdfTextItem = {
+  text: string;
+  x: number;
+  y: number;
+  page: number;
+};
+
+type PdfColumn = {
+  index: number;
+  x: number;
+  count: number;
+};
+
+type PdfRow = {
+  page: number;
+  y: number;
+  cells: string[];
+};
 
 const parseNumber = (value: any): number | null => {
   if (value === null || value === undefined || value === '') return null;
@@ -232,6 +257,128 @@ const extractPrices = (line: string): number[] => {
   return preferred.map((item) => item.value);
 };
 
+const extractPdfTextItems = async (buffer: Buffer, maxPages?: number) => {
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), disableWorker: true });
+  const pdf = await loadingTask.promise;
+  const totalPages = Math.min(pdf.numPages || 0, maxPages ?? pdf.numPages || 0);
+  const items: PdfTextItem[] = [];
+
+  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    for (const item of textContent.items as any[]) {
+      const text = String(item?.str || '').trim();
+      if (!text) continue;
+      const transform = item?.transform || [];
+      const x = typeof transform[4] === 'number' ? transform[4] : 0;
+      const y = typeof transform[5] === 'number' ? transform[5] : 0;
+      items.push({ text, x, y, page: pageNumber });
+    }
+  }
+
+  return items;
+};
+
+const buildPdfRows = (items: PdfTextItem[]) => {
+  const sorted = items.slice().sort((a, b) => {
+    if (a.page !== b.page) return a.page - b.page;
+    if (a.y !== b.y) return b.y - a.y;
+    return a.x - b.x;
+  });
+
+  const rows: Array<{ page: number; y: number; items: PdfTextItem[] }> = [];
+  let current: { page: number; y: number; items: PdfTextItem[] } | null = null;
+
+  for (const item of sorted) {
+    if (
+      !current ||
+      current.page !== item.page ||
+      Math.abs(item.y - current.y) > PDF_ROW_TOLERANCE
+    ) {
+      current = { page: item.page, y: item.y, items: [] };
+      rows.push(current);
+    }
+    current.items.push(item);
+  }
+
+  for (const row of rows) {
+    row.items.sort((a, b) => a.x - b.x);
+  }
+
+  return rows;
+};
+
+const buildPdfColumns = (rows: Array<{ items: PdfTextItem[] }>) => {
+  const xs = rows.flatMap((row) => row.items.map((item) => item.x)).sort((a, b) => a - b);
+  const clusters: Array<{ x: number; count: number }> = [];
+
+  for (const x of xs) {
+    const last = clusters[clusters.length - 1];
+    if (!last || Math.abs(x - last.x) > PDF_COLUMN_TOLERANCE) {
+      clusters.push({ x, count: 1 });
+    } else {
+      last.x = (last.x * last.count + x) / (last.count + 1);
+      last.count += 1;
+    }
+  }
+
+  let filtered = clusters.filter((cluster) => cluster.count >= PDF_MIN_COLUMN_HITS);
+  if (filtered.length < 2) {
+    filtered = clusters;
+  }
+
+  return filtered
+    .sort((a, b) => a.x - b.x)
+    .map((cluster, index) => ({
+      index,
+      x: cluster.x,
+      count: cluster.count,
+    }));
+};
+
+const findNearestPdfColumnIndex = (x: number, columns: PdfColumn[]) => {
+  let bestIndex: number | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const column of columns) {
+    const distance = Math.abs(x - column.x);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = column.index;
+    }
+  }
+
+  if (bestIndex === null) return null;
+  return bestDistance <= PDF_COLUMN_TOLERANCE * 1.5 ? bestIndex : null;
+};
+
+const buildPdfTable = async (filePath: string, options?: { maxPages?: number }) => {
+  const buffer = await fs.promises.readFile(filePath);
+  const textItems = await extractPdfTextItems(buffer, options?.maxPages);
+  const rowsWithItems = buildPdfRows(textItems);
+  const columns = buildPdfColumns(rowsWithItems);
+
+  const rows: PdfRow[] = rowsWithItems
+    .map((row) => {
+      const cells = Array(columns.length).fill('');
+      for (const item of row.items) {
+        const columnIndex = findNearestPdfColumnIndex(item.x, columns);
+        if (columnIndex === null) continue;
+        cells[columnIndex] = cells[columnIndex]
+          ? `${cells[columnIndex]} ${item.text}`
+          : item.text;
+      }
+      return {
+        page: row.page,
+        y: row.y,
+        cells: cells.map((cell) => cell.trim()),
+      };
+    })
+    .filter((row) => row.cells.some((cell) => Boolean(cell)));
+
+  return { columns, rows };
+};
+
 const defaultCodeToken = (token: string) => {
   const cleaned = token.replace(/[^A-Za-z0-9\-\/]/g, '');
   if (!cleaned) return null;
@@ -265,6 +412,89 @@ const extractCodeFromLine = (line: string, codePattern?: string | null) => {
   }
 
   return null;
+};
+
+const extractCodeFromCell = (cell: string | null | undefined, codePattern?: string | null) => {
+  if (!cell) return null;
+  return extractCodeFromLine(String(cell), codePattern);
+};
+
+const extractPriceFromCell = (cell: string | null | undefined) => {
+  if (!cell) return null;
+  const text = String(cell);
+  const prices = extractPrices(text);
+  if (prices.length) {
+    return selectPriceValue(prices);
+  }
+  return parseNumber(text);
+};
+
+const detectPdfColumnRoles = (rows: PdfRow[], columnCount: number, codePattern?: string | null) => {
+  if (!rows.length || columnCount <= 0) {
+    return { codeIndex: null, nameIndex: null, priceIndex: null };
+  }
+
+  const stats = Array.from({ length: columnCount }, () => ({
+    filled: 0,
+    numeric: 0,
+    code: 0,
+    text: 0,
+  }));
+
+  const sampleRows = rows.slice(0, PDF_MAX_SAMPLE_ROWS);
+  for (const row of sampleRows) {
+    row.cells.forEach((cell, index) => {
+      if (!cell) return;
+      const trimmed = String(cell).trim();
+      if (!trimmed) return;
+      stats[index].filled += 1;
+
+      const numericValue = extractPriceFromCell(trimmed);
+      if (numericValue !== null) {
+        stats[index].numeric += 1;
+      }
+
+      if (extractCodeFromCell(trimmed, codePattern)) {
+        stats[index].code += 1;
+      }
+
+      if (/[A-Za-z]/.test(trimmed)) {
+        stats[index].text += 1;
+      }
+    });
+  }
+
+  const pickIndex = (key: 'numeric' | 'code' | 'text', minCount: number, minRatio: number) => {
+    let bestIndex: number | null = null;
+    let bestRatio = minRatio;
+
+    stats.forEach((stat, index) => {
+      if (!stat.filled || stat[key] < minCount) return;
+      const ratio = stat[key] / stat.filled;
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        bestIndex = index;
+      }
+    });
+
+    return bestIndex;
+  };
+
+  const priceIndex = pickIndex('numeric', 2, 0.5);
+  const codeIndex = pickIndex('code', 2, 0.4);
+
+  let nameIndex: number | null = null;
+  stats.forEach((stat, index) => {
+    if (index === priceIndex || index === codeIndex) return;
+    if (!stat.filled || stat.text < 2) return;
+    const ratio = stat.text / stat.filled;
+    if (ratio < 0.5) return;
+    if (nameIndex === null || ratio > stats[nameIndex].text / stats[nameIndex].filled) {
+      nameIndex = index;
+    }
+  });
+
+  return { codeIndex, nameIndex, priceIndex };
 };
 
 const extractCodesWithPositions = (line: string, codePattern?: string | null) => {
@@ -325,6 +555,77 @@ const extractCurrency = (line: string) => {
   return null;
 };
 
+type PdfColumnRole = 'code' | 'name' | 'price' | 'ignore';
+
+const normalizePdfColumnRoles = (roles: any, columnCount: number) => {
+  if (!roles || typeof roles !== 'object') return null;
+  const mapping = { codeIndex: null as number | null, nameIndex: null as number | null, priceIndex: null as number | null };
+
+  for (const [key, value] of Object.entries(roles)) {
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || index >= columnCount) continue;
+    if (value === 'code' && mapping.codeIndex === null) mapping.codeIndex = index;
+    if (value === 'name' && mapping.nameIndex === null) mapping.nameIndex = index;
+    if (value === 'price' && mapping.priceIndex === null) mapping.priceIndex = index;
+  }
+
+  return mapping;
+};
+
+const resolvePdfColumnMapping = (
+  rows: PdfRow[],
+  columnCount: number,
+  supplier: any
+) => {
+  const detected = detectPdfColumnRoles(rows, columnCount, supplier.pdfCodePattern);
+  const preferred = normalizePdfColumnRoles(supplier.pdfColumnRoles, columnCount);
+
+  return {
+    codeIndex: preferred?.codeIndex ?? detected.codeIndex,
+    nameIndex: preferred?.nameIndex ?? detected.nameIndex,
+    priceIndex: preferred?.priceIndex ?? detected.priceIndex,
+  };
+};
+
+const parsePdfRowsWithMapping = (
+  rows: PdfRow[],
+  mapping: { codeIndex: number | null; nameIndex: number | null; priceIndex: number | null },
+  supplier: any
+) => {
+  const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; rawLine?: string; currency?: string | null }> = [];
+
+  for (const row of rows) {
+    const rawLine = row.cells.filter(Boolean).join(' | ').trim();
+    if (!rawLine || isHeaderLine(rawLine)) continue;
+
+    const codeCell = mapping.codeIndex !== null ? row.cells[mapping.codeIndex] : null;
+    const code = extractCodeFromCell(codeCell, supplier.pdfCodePattern);
+    if (!code) continue;
+
+    const priceCell = mapping.priceIndex !== null ? row.cells[mapping.priceIndex] : null;
+    const sourcePrice = extractPriceFromCell(priceCell);
+
+    const nameCell = mapping.nameIndex !== null ? row.cells[mapping.nameIndex] : null;
+    let supplierName = nameCell ? String(nameCell).trim() : '';
+    if (!supplierName) {
+      supplierName = row.cells
+        .filter((_, index) => index !== mapping.codeIndex && index !== mapping.priceIndex)
+        .join(' ')
+        .trim();
+    }
+
+    items.push({
+      supplierCode: code,
+      supplierName: supplierName || undefined,
+      sourcePrice: sourcePrice ?? null,
+      rawLine: rawLine || undefined,
+      currency: rawLine ? extractCurrency(rawLine) : null,
+    });
+  }
+
+  return items;
+};
+
 const parsePdfTokens = (text: string, priceIndex?: number | null) => {
   const tokens = text.split(/\s+/).filter(Boolean);
   const items: Array<{ supplierCode: string; sourcePrice: number; rawLine?: string }> = [];
@@ -359,7 +660,7 @@ const parsePdfTokens = (text: string, priceIndex?: number | null) => {
   return items;
 };
 
-const parsePdfFile = async (filePath: string, supplier: any) => {
+const parsePdfFileLegacy = async (filePath: string, supplier: any) => {
   const buffer = await fs.promises.readFile(filePath);
   const result = await parsePdfBuffer(buffer);
   const text = result?.text || '';
@@ -436,6 +737,25 @@ const parsePdfFile = async (filePath: string, supplier: any) => {
   }
 
   return items;
+};
+
+const parsePdfFile = async (filePath: string, supplier: any) => {
+  try {
+    const { columns, rows } = await buildPdfTable(filePath);
+    if (columns.length && rows.length) {
+      const mapping = resolvePdfColumnMapping(rows, columns.length, supplier);
+      if (mapping.codeIndex !== null && mapping.priceIndex !== null) {
+        const items = parsePdfRowsWithMapping(rows, mapping, supplier);
+        if (items.length) {
+          return items;
+        }
+      }
+    }
+  } catch (error) {
+    // fallback to legacy parser
+  }
+
+  return parsePdfFileLegacy(filePath, supplier);
 };
 
 const parseExcelFile = (filePath: string, supplier: any) => {
@@ -632,6 +952,7 @@ type SupplierConfigOverrides = {
   excelPriceHeader?: string | null;
   pdfPriceIndex?: number | null;
   pdfCodePattern?: string | null;
+  pdfColumnRoles?: Record<string, string> | null;
 };
 
 const resolveSupplierConfig = (supplier: any, overrides?: SupplierConfigOverrides | null) => {
@@ -645,6 +966,7 @@ const resolveSupplierConfig = (supplier: any, overrides?: SupplierConfigOverride
     excelPriceHeader: overrides.excelPriceHeader ?? supplier.excelPriceHeader,
     pdfPriceIndex: overrides.pdfPriceIndex ?? supplier.pdfPriceIndex,
     pdfCodePattern: overrides.pdfCodePattern ?? supplier.pdfCodePattern,
+    pdfColumnRoles: overrides.pdfColumnRoles ?? supplier.pdfColumnRoles,
   };
 };
 
@@ -705,44 +1027,54 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
 };
 
 const buildPdfPreview = async (filePath: string, supplier: any) => {
-  const buffer = await fs.promises.readFile(filePath);
-  const result = await parsePdfBuffer(buffer);
-  const text = result?.text || '';
-  const lines = text.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean);
-  const samples: Array<{
-    supplierCode: string;
-    prices: number[];
-    selectedPrice: number | null;
-    rawLine: string;
-  }> = [];
+  const { columns, rows } = await buildPdfTable(filePath, { maxPages: 2 });
+  const detected = detectPdfColumnRoles(rows, columns.length, supplier.pdfCodePattern);
 
-  for (const line of lines) {
-    if (samples.length >= 10) break;
-    if (isHeaderLine(line)) continue;
+  const previewRows = rows.slice(0, PDF_MAX_PREVIEW_ROWS).map((row) => ({
+    cells: row.cells,
+  }));
 
-    const prices = extractPrices(line);
-    if (!prices.length) continue;
-
-    const code = extractCodeFromLine(line, supplier.pdfCodePattern);
-    if (!code) continue;
-
-    samples.push({
-      supplierCode: code,
-      prices,
-      selectedPrice: selectPriceValue(prices, supplier.pdfPriceIndex),
-      rawLine: line,
-    });
-  }
+  const previewColumns = columns.map((column) => {
+    const samples = rows
+      .map((row) => row.cells[column.index])
+      .filter((value) => Boolean(value))
+      .slice(0, 3);
+    return {
+      index: column.index,
+      samples,
+    };
+  });
 
   return {
-    priceIndex: supplier.pdfPriceIndex ?? null,
+    columns: previewColumns,
+    rows: previewRows,
+    detected,
     codePattern: supplier.pdfCodePattern ?? null,
-    samples,
   };
 };
 const computePercentDifference = (currentCost: number | null | undefined, costDifference: number | null | undefined) => {
   if (!currentCost || currentCost === 0 || costDifference === null || costDifference === undefined) return null;
   return Number(((costDifference / currentCost) * 100).toFixed(2));
+};
+
+const isSuspiciousItem = (item: { sourcePrice?: number | null; rawLine?: string | null }) => {
+  const price = item.sourcePrice;
+  if (price === null || price === undefined || !Number.isFinite(price)) return true;
+  if (price <= 0) return true;
+  if (price < 1) return true;
+  if (price >= 100000) return true;
+
+  if (item.rawLine) {
+    const prices = extractPrices(item.rawLine);
+    if (prices.length >= 2) {
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      if (max >= 10 && min > 0 && max / min >= 20 && price === min) return true;
+      if (min < 1 && max >= 10 && price === min) return true;
+    }
+  }
+
+  return false;
 };
 class SupplierPriceListService {
   async listSuppliers() {
@@ -856,6 +1188,37 @@ class SupplierPriceListService {
 
       return {
         items: items.map((item: any) => ({
+          supplierCode: item.supplierCode,
+          supplierName: item.supplierName,
+          sourcePrice: item.sourcePrice,
+          netPrice: item.netPrice,
+          priceCurrency: item.priceCurrency,
+          priceIncludesVat: item.priceIncludesVat,
+          matchCount: item.matchCount,
+          matchedProductCodes: item.matches.map((match: any) => match.productCode),
+        })),
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+      };
+    }
+
+    if (status === 'suspicious') {
+      const items = await prisma.supplierPriceListItem.findMany({
+        where: { uploadId: params.uploadId },
+        include: { matches: { select: { productCode: true } } },
+        orderBy: { supplierCode: 'asc' },
+      });
+
+      const suspiciousItems = items.filter((item: any) => isSuspiciousItem(item));
+      const total = suspiciousItems.length;
+      const pagedItems = suspiciousItems.slice(skip, skip + limit);
+
+      return {
+        items: pagedItems.map((item: any) => ({
           supplierCode: item.supplierCode,
           supplierName: item.supplierName,
           sourcePrice: item.sourcePrice,
@@ -1016,9 +1379,12 @@ class SupplierPriceListService {
         if (!pdfPreview) {
           pdfPreview = pdfData;
         } else {
-          pdfPreview.samples = (pdfPreview.samples || []).concat(pdfData.samples || []).slice(0, 10);
-          if (pdfPreview.priceIndex == null && pdfData.priceIndex != null) {
-            pdfPreview.priceIndex = pdfData.priceIndex;
+          pdfPreview.rows = (pdfPreview.rows || []).concat(pdfData.rows || []).slice(0, PDF_MAX_PREVIEW_ROWS);
+          if (!pdfPreview.columns?.length && pdfData.columns?.length) {
+            pdfPreview.columns = pdfData.columns;
+          }
+          if (!pdfPreview.detected && pdfData.detected) {
+            pdfPreview.detected = pdfData.detected;
           }
           if (!pdfPreview.codePattern && pdfData.codePattern) {
             pdfPreview.codePattern = pdfData.codePattern;

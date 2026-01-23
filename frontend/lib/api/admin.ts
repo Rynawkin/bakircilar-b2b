@@ -39,6 +39,7 @@ type SupplierPriceListOverrides = {
   excelPriceHeader?: string | null;
   pdfPriceIndex?: number | null;
   pdfCodePattern?: string | null;
+  pdfColumnRoles?: Record<string, string> | null;
 };
 
 const appendSupplierPriceListOverrides = (formData: FormData, overrides?: SupplierPriceListOverrides) => {
@@ -55,6 +56,9 @@ const appendSupplierPriceListOverrides = (formData: FormData, overrides?: Suppli
   appendValue('excelPriceHeader', overrides.excelPriceHeader);
   appendValue('pdfPriceIndex', overrides.pdfPriceIndex);
   appendValue('pdfCodePattern', overrides.pdfCodePattern);
+  if (overrides.pdfColumnRoles && Object.keys(overrides.pdfColumnRoles).length > 0) {
+    formData.append('pdfColumnRoles', JSON.stringify(overrides.pdfColumnRoles));
+  }
 };
 
 export const adminApi = {

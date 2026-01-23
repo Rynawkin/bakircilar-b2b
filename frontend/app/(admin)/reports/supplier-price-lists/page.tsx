@@ -42,14 +42,19 @@ interface PreviewExcel {
 }
 
 interface PreviewPdf {
-  priceIndex: number | null;
   codePattern: string | null;
-  samples: Array<{
-    supplierCode: string;
-    prices: number[];
-    selectedPrice: number | null;
-    rawLine: string;
+  columns: Array<{
+    index: number;
+    samples: string[];
   }>;
+  rows: Array<{
+    cells: string[];
+  }>;
+  detected: {
+    codeIndex: number | null;
+    nameIndex: number | null;
+    priceIndex: number | null;
+  };
 }
 
 interface PreviewData {
@@ -63,16 +68,18 @@ interface MappingState {
   excelCodeHeader: string;
   excelNameHeader: string;
   excelPriceHeader: string;
-  pdfPriceIndex: string;
   pdfCodePattern: string;
+  pdfColumnRoles: Record<string, PdfColumnRole>;
 }
 
 type ExcelColumnRole = '' | 'code' | 'name' | 'price';
+type PdfColumnRole = '' | 'code' | 'name' | 'price';
 
 const STATUS_TABS = [
   { key: 'matched', label: 'Eslesenler' },
   { key: 'unmatched', label: 'Esmeyenler' },
   { key: 'multiple', label: 'Coklu Eslesenler' },
+  { key: 'suspicious', label: 'Supheli' },
 ] as const;
 
 type StatusKey = typeof STATUS_TABS[number]['key'];
@@ -83,8 +90,8 @@ const EMPTY_MAPPING: MappingState = {
   excelCodeHeader: '',
   excelNameHeader: '',
   excelPriceHeader: '',
-  pdfPriceIndex: '',
   pdfCodePattern: '',
+  pdfColumnRoles: {},
 };
 
 const parseOptionalInt = (value: string) => {
@@ -124,18 +131,22 @@ export default function SupplierPriceListsPage() {
     return preview.excel.headers.filter((header) => header && header.trim());
   }, [preview]);
 
-  const pdfColumnCandidates = useMemo(() => {
-    if (!preview?.pdf?.samples?.length) return [];
-    const maxCount = Math.max(...preview.pdf.samples.map((sample) => sample.prices.length));
-    if (!Number.isFinite(maxCount) || maxCount <= 0) return [];
-    return Array.from({ length: maxCount }, (_, index) => {
-      const samples = preview.pdf.samples
-        .map((sample) => sample.prices[index])
-        .filter((value): value is number => typeof value === 'number')
-        .slice(0, 3);
-      return { index: index + 1, samples };
-    });
-  }, [preview]);
+  const pdfColumns = useMemo(() => preview?.pdf?.columns || [], [preview]);
+
+  const parsePreviewNumber = (value: string) => {
+    if (!value) return null;
+    let normalized = value.replace(/\s+/g, '');
+    normalized = normalized.replace(/[^0-9,\.-]/g, '');
+    if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(normalized)) {
+      normalized = normalized.replace(/\./g, '').replace(',', '.');
+    } else if (/^-?\d+,\d+$/.test(normalized)) {
+      normalized = normalized.replace(',', '.');
+    } else if (/^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(normalized)) {
+      normalized = normalized.replace(/,/g, '');
+    }
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
   const getExcelRoleForHeader = (header: string): ExcelColumnRole => {
     if (mapping.excelCodeHeader === header) return 'code';
@@ -157,16 +168,32 @@ export default function SupplierPriceListsPage() {
     });
   };
 
-  const handlePdfColumnRoleChange = (index: number, role: string) => {
+  const getPdfRoleForColumn = (index: number): PdfColumnRole =>
+    mapping.pdfColumnRoles[String(index)] || '';
+
+  const getPdfIndexForRole = (role: PdfColumnRole) => {
+    const entry = Object.entries(mapping.pdfColumnRoles).find(([, value]) => value === role);
+    return entry ? Number(entry[0]) : null;
+  };
+
+  const handlePdfColumnRoleChange = (index: number, role: PdfColumnRole) => {
     setMapping((prev) => {
-      const selected = String(index);
-      if (role === 'price') {
-        return { ...prev, pdfPriceIndex: selected };
+      const nextRoles: Record<string, PdfColumnRole> = { ...prev.pdfColumnRoles };
+      const key = String(index);
+
+      if (role === '') {
+        delete nextRoles[key];
+        return { ...prev, pdfColumnRoles: nextRoles };
       }
-      if (prev.pdfPriceIndex === selected) {
-        return { ...prev, pdfPriceIndex: '' };
-      }
-      return prev;
+
+      Object.keys(nextRoles).forEach((existingKey) => {
+        if (nextRoles[existingKey] === role) {
+          delete nextRoles[existingKey];
+        }
+      });
+
+      nextRoles[key] = role;
+      return { ...prev, pdfColumnRoles: nextRoles };
     });
   };
 
@@ -182,15 +209,22 @@ export default function SupplierPriceListsPage() {
     excelCodeHeader: mapping.excelCodeHeader || null,
     excelNameHeader: mapping.excelNameHeader || null,
     excelPriceHeader: mapping.excelPriceHeader || null,
-    pdfPriceIndex: parseOptionalInt(mapping.pdfPriceIndex),
+    pdfColumnRoles: Object.keys(mapping.pdfColumnRoles).length ? mapping.pdfColumnRoles : null,
     pdfCodePattern: showAdvanced ? (mapping.pdfCodePattern || null) : null,
   });
 
-  const getPdfSelectedPrice = (sample: PreviewPdf['samples'][number]) => {
-    const index = parseOptionalInt(mapping.pdfPriceIndex);
-    if (!index) return sample.selectedPrice;
-    return sample.prices[index - 1] ?? sample.selectedPrice;
-  };
+  const pdfPreviewRows = useMemo(() => {
+    if (!preview?.pdf?.rows?.length) return [];
+    const codeIndex = getPdfIndexForRole('code');
+    const nameIndex = getPdfIndexForRole('name');
+    const priceIndex = getPdfIndexForRole('price');
+
+    return preview.pdf.rows.map((row) => ({
+      code: codeIndex !== null ? row.cells[codeIndex] || '' : '',
+      name: nameIndex !== null ? row.cells[nameIndex] || '' : '',
+      price: priceIndex !== null ? row.cells[priceIndex] || '' : '',
+    })).filter((row) => row.code || row.name || row.price);
+  }, [preview, mapping.pdfColumnRoles]);
 
   const loadSuppliers = async () => {
     try {
@@ -288,14 +322,24 @@ export default function SupplierPriceListsPage() {
         overrides: buildOverrides(),
       });
       setPreview(result);
+      const detectedPdfRoles: Record<string, PdfColumnRole> = {};
+      if (result.pdf?.detected?.codeIndex !== null && result.pdf?.detected?.codeIndex !== undefined) {
+        detectedPdfRoles[String(result.pdf.detected.codeIndex)] = 'code';
+      }
+      if (result.pdf?.detected?.nameIndex !== null && result.pdf?.detected?.nameIndex !== undefined) {
+        detectedPdfRoles[String(result.pdf.detected.nameIndex)] = 'name';
+      }
+      if (result.pdf?.detected?.priceIndex !== null && result.pdf?.detected?.priceIndex !== undefined) {
+        detectedPdfRoles[String(result.pdf.detected.priceIndex)] = 'price';
+      }
       setMapping((prev) => ({
         excelSheetName: result.excel ? result.excel.sheetName || '' : prev.excelSheetName,
         excelHeaderRow: result.excel ? (result.excel.headerRow ? String(result.excel.headerRow) : '') : prev.excelHeaderRow,
         excelCodeHeader: result.excel ? result.excel.detected?.code || '' : prev.excelCodeHeader,
         excelNameHeader: result.excel ? result.excel.detected?.name || '' : prev.excelNameHeader,
         excelPriceHeader: result.excel ? result.excel.detected?.price || '' : prev.excelPriceHeader,
-        pdfPriceIndex: result.pdf ? (result.pdf.priceIndex ? String(result.pdf.priceIndex) : '') : prev.pdfPriceIndex,
         pdfCodePattern: result.pdf ? result.pdf.codePattern || '' : prev.pdfCodePattern,
+        pdfColumnRoles: result.pdf ? detectedPdfRoles : prev.pdfColumnRoles,
       }));
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Onizleme basarisiz');
@@ -354,7 +398,12 @@ export default function SupplierPriceListsPage() {
     }
   };
 
-  const columnCount = activeStatus === 'matched' ? 10 : activeStatus === 'multiple' ? 5 : 4;
+  const columnCount =
+    activeStatus === 'matched'
+      ? 10
+      : activeStatus === 'multiple' || activeStatus === 'suspicious'
+        ? 5
+        : 4;
   const canPreview = Boolean(selectedSupplierId) && selectedFiles.length > 0 && !previewLoading && !uploading;
   const uploadDisabled = !preview || uploading || previewLoading;
 
@@ -553,8 +602,8 @@ export default function SupplierPriceListsPage() {
                 <div className="space-y-3">
                   <div className="text-sm font-medium">PDF Onizleme</div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="text-xs text-muted-foreground">Kod kolonu: Otomatik</div>
-                    <div className="text-xs text-muted-foreground">Urun adi: Otomatik</div>
+                    <div className="text-xs text-muted-foreground">Kolonlari tiplerine gore eslestirin.</div>
+                    <div className="text-xs text-muted-foreground">Kod / Ad / Fiyat secimi gerekli.</div>
                     <div className="flex items-end">
                       <Button
                         type="button"
@@ -581,7 +630,7 @@ export default function SupplierPriceListsPage() {
                     </div>
                   )}
                   <div className="text-xs text-muted-foreground">
-                    Sayisal kolonlardan sadece biri fiyat olmali. Secmezseniz otomatik secilir.
+                    Kolon tiplerini degistirirseniz onizlemeyi guncelleyin.
                   </div>
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
@@ -593,21 +642,21 @@ export default function SupplierPriceListsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {pdfColumnCandidates.length ? (
-                          pdfColumnCandidates.map((column) => (
+                        {pdfColumns.length ? (
+                          pdfColumns.map((column) => (
                             <TableRow key={`pdf-col-${column.index}`}>
-                              <TableCell>Sayisal Kolon {column.index}</TableCell>
+                              <TableCell>Kolon {column.index + 1}</TableCell>
                               <TableCell>
-                                {column.samples.length
-                                  ? column.samples.map((value) => formatCurrency(value)).join(', ')
-                                  : '-'}
+                                {column.samples.length ? column.samples.join(' | ') : '-'}
                               </TableCell>
                               <TableCell className="w-40">
                                 <Select
-                                  value={mapping.pdfPriceIndex === String(column.index) ? 'price' : ''}
-                                  onChange={(event) => handlePdfColumnRoleChange(column.index, event.target.value)}
+                                  value={getPdfRoleForColumn(column.index)}
+                                  onChange={(event) => handlePdfColumnRoleChange(column.index, event.target.value as PdfColumnRole)}
                                 >
                                   <option value="">Yoksay</option>
+                                  <option value="code">Urun Kodu</option>
+                                  <option value="name">Urun Adi</option>
                                   <option value="price">Fiyat</option>
                                 </Select>
                               </TableCell>
@@ -628,34 +677,27 @@ export default function SupplierPriceListsPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Kod</TableHead>
-                          <TableHead>Satirdaki Fiyatlar</TableHead>
-                          <TableHead>Secilen Fiyat</TableHead>
-                          <TableHead>Satir</TableHead>
+                          <TableHead>Urun Adi</TableHead>
+                          <TableHead>Fiyat</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {preview.pdf.samples?.length ? (
-                          preview.pdf.samples.map((sample, index) => (
-                            <TableRow key={`pdf-sample-${index}`}>
-                              <TableCell>{sample.supplierCode}</TableCell>
-                              <TableCell>
-                                {sample.prices.length
-                                  ? sample.prices.map((price, idx) => `${idx + 1}. ${formatCurrency(price)}`).join(' | ')
-                                  : '-'}
-                              </TableCell>
-                              <TableCell>
-                                {typeof getPdfSelectedPrice(sample) === 'number'
-                                  ? formatCurrency(getPdfSelectedPrice(sample) as number)
-                                  : '-'}
-                              </TableCell>
-                              <TableCell className="max-w-[320px] truncate">
-                                {sample.rawLine}
-                              </TableCell>
-                            </TableRow>
-                          ))
+                        {pdfPreviewRows.length ? (
+                          pdfPreviewRows.map((row, index) => {
+                            const parsedPrice = parsePreviewNumber(row.price);
+                            return (
+                              <TableRow key={`pdf-sample-${index}`}>
+                                <TableCell>{row.code || '-'}</TableCell>
+                                <TableCell>{row.name || '-'}</TableCell>
+                                <TableCell>
+                                  {parsedPrice !== null ? formatCurrency(parsedPrice) : row.price || '-'}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                            <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
                               Ornek bulunamadi.
                             </TableCell>
                           </TableRow>
@@ -767,6 +809,9 @@ export default function SupplierPriceListsPage() {
                     {activeStatus === 'multiple' && (
                       <TableHead>Eslesen Urunler</TableHead>
                     )}
+                    {activeStatus === 'suspicious' && (
+                      <TableHead>Eslesen Urunler</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -800,6 +845,9 @@ export default function SupplierPriceListsPage() {
                           </>
                         )}
                         {activeStatus === 'multiple' && (
+                          <TableCell>{Array.isArray(row.matchedProductCodes) ? row.matchedProductCodes.join(', ') : '-'}</TableCell>
+                        )}
+                        {activeStatus === 'suspicious' && (
                           <TableCell>{Array.isArray(row.matchedProductCodes) ? row.matchedProductCodes.join(', ') : '-'}</TableCell>
                         )}
                       </TableRow>

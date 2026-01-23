@@ -15,6 +15,16 @@ const parseOptionalString = (value: any) => {
   return trimmed ? trimmed : null;
 };
 
+const parseOptionalJson = (value: any) => {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch (error) {
+    return null;
+  }
+};
+
 const parseOverrides = (body: any) => ({
   excelSheetName: parseOptionalString(body?.excelSheetName),
   excelHeaderRow: parseOptionalNumber(body?.excelHeaderRow),
@@ -23,6 +33,7 @@ const parseOverrides = (body: any) => ({
   excelPriceHeader: parseOptionalString(body?.excelPriceHeader),
   pdfPriceIndex: parseOptionalNumber(body?.pdfPriceIndex),
   pdfCodePattern: parseOptionalString(body?.pdfCodePattern),
+  pdfColumnRoles: parseOptionalJson(body?.pdfColumnRoles),
 });
 
 class SupplierPriceListController {
