@@ -29,6 +29,7 @@ export const resolveLastPriceOverride = (params: {
     config,
     lastSalePrice,
     listPrices,
+    guardPrices,
     product,
     priceVisibility,
   } = params;
