@@ -71,7 +71,8 @@ export const resolveCustomerPriceLists = (
 
 const normalizeCode = (value?: string | null) => {
   const trimmed = typeof value === 'string' ? value.trim() : '';
-  return trimmed || null;
+  if (!trimmed) return null;
+  return trimmed.toUpperCase();
 };
 
 export const resolveCustomerPriceListsForProduct = (

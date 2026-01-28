@@ -187,6 +187,8 @@ const updateCustomerSchema = z.object({
   email: z.string().optional(),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']).optional(),
   active: z.boolean().optional(),
+  invoicedPriceListNo: z.number().nullable().optional(),
+  whitePriceListNo: z.number().nullable().optional(),
   priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
   useLastPrices: z.boolean().optional(),
   lastPriceGuardType: z.enum(['COST', 'PRICE_LIST']).optional(),
