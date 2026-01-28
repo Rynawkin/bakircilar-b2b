@@ -6,6 +6,7 @@
  */
 
 import * as sql from 'mssql';
+import crypto from 'crypto';
 import { config } from '../config';
 import MIKRO_TABLES from '../config/mikro-tables';
 import { cacheService } from './cache.service';
@@ -248,12 +249,13 @@ class MikroService {
 
     // Ana depolar: 1=Merkez, 2=EreÄŸli, 6=TopÃ§a, 7=DÃ¼kkan
     const query = `
-      SELECT
-        ${PRODUCTS_COLUMNS.CODE} as id,
-        ${PRODUCTS_COLUMNS.CODE} as code,
-        ${PRODUCTS_COLUMNS.NAME} as name,
-        ${PRODUCTS_COLUMNS.FOREIGN_NAME} as foreignName,
-        ${PRODUCTS_COLUMNS.CATEGORY_CODE} as categoryId,
+        SELECT
+          ${PRODUCTS_COLUMNS.CODE} as id,
+          ${PRODUCTS_COLUMNS.CODE} as code,
+          ${PRODUCTS_COLUMNS.NAME} as name,
+          ${PRODUCTS_COLUMNS.FOREIGN_NAME} as foreignName,
+          ${PRODUCTS_COLUMNS.BRAND_CODE} as brandCode,
+          ${PRODUCTS_COLUMNS.CATEGORY_CODE} as categoryId,
         ${PRODUCTS_COLUMNS.UNIT} as unit,
         ${PRODUCTS_COLUMNS.UNIT2} as unit2,
         ${PRODUCTS_COLUMNS.UNIT2_FACTOR} as unit2Factor,
@@ -323,12 +325,13 @@ class MikroService {
     const result = await this.pool!.request().query(query);
 
     // KDV kodunu yÃ¼zde oranÄ±na Ã§evir ve depo stoklarÄ±nÄ± JSON'a dÃ¶nÃ¼ÅŸtÃ¼r
-    return result.recordset.map((product: any) => ({
-      id: product.id,
-      code: product.code,
-      name: product.name,
-      foreignName: product.foreignName || null,
-      categoryId: product.categoryId,
+      return result.recordset.map((product: any) => ({
+        id: product.id,
+        code: product.code,
+        name: product.name,
+        foreignName: product.foreignName || null,
+        brandCode: product.brandCode || null,
+        categoryId: product.categoryId,
       unit: product.unit,
       unit2: product.unit2 || null,
       unit2Factor: Number.isFinite(Number(product.unit2Factor)) ? Number(product.unit2Factor) : null,
@@ -520,17 +523,32 @@ class MikroService {
       return [];
     }
 
+    const normalizedCodes = productCodes
+      .map((code) => code.trim())
+      .filter((code) => code.length > 0);
+    if (normalizedCodes.length === 0) {
+      return [];
+    }
+
+    const codesHash = crypto
+      .createHash('sha1')
+      .update(normalizedCodes.slice().sort().join('|'))
+      .digest('hex');
+    const cacheKey = `${cariCode}:${limit}:${codesHash}`;
+    const redisCached = await cacheService.get<MikroCustomerSaleMovement[]>('mikro-last-sales', cacheKey);
+    if (redisCached) {
+      return redisCached;
+    }
+
     await this.connect();
 
-      const safeCodes = productCodes
-        .map((code) => code.trim())
-        .filter((code) => code.length > 0)
-        .map((code) => code.replace(/'/g, "''"))
-        .map((code) => `'${code}'`)
-        .join(', ');
-      if (!safeCodes) {
-        return [];
-      }
+        const safeCodes = normalizedCodes
+          .map((code) => code.replace(/'/g, "''"))
+          .map((code) => `'${code}'`)
+          .join(', ');
+        if (!safeCodes) {
+          return [];
+        }
 
     const request = this.pool!.request();
     request.input('cariCode', sql.NVarChar, cariCode);
@@ -579,18 +597,24 @@ class MikroService {
       ORDER BY productCode, saleDate DESC
     `;
 
-    const result = await request.query(query);
-    return result.recordset.map((row: any) => ({
-      productCode: row.productCode,
-      saleDate: row.saleDate,
-      quantity: row.quantity,
-      unitPrice: row.unitPrice,
-      lineTotal: row.lineTotal,
-      vatAmount: row.vatAmount,
-      vatRate: row.vatRate,
-      vatZeroed: Number(row.vatAmount || 0) === 0,
-    }));
-  }
+      const result = await request.query(query);
+      const rows = result.recordset.map((row: any) => ({
+        productCode: row.productCode,
+        saleDate: row.saleDate,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+        lineTotal: row.lineTotal,
+        vatAmount: row.vatAmount,
+        vatRate: row.vatRate,
+        vatZeroed: Number(row.vatAmount || 0) === 0,
+      }));
+      cacheService
+        .set('mikro-last-sales', cacheKey, rows, 300)
+        .catch((error) => {
+          console.error('Customer last sales redis cache set failed:', error);
+        });
+      return rows;
+    }
 
   /**
    * Bekleyen sipariÅŸler (mÃ¼ÅŸteri sipariÅŸleri ve satÄ±n alma sipariÅŸleri)

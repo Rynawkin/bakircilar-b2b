@@ -87,6 +87,16 @@ enum CostCalculationMethod {
   DYNAMIC         // Dinamik hesaplama (tarih ve fiyat farklarına göre)
 }
 
+enum LastPriceGuardType {
+  COST
+  PRICE_LIST
+}
+
+enum LastPriceCostBasis {
+  CURRENT_COST
+  LAST_ENTRY
+}
+
 enum TaskStatus {
   NEW
   TRIAGE
@@ -188,6 +198,10 @@ model User {
   // Optional price list overrides (use settings when null)
   invoicedPriceListNo Int?
   whitePriceListNo    Int?
+  useLastPrices       Boolean          @default(false)
+  lastPriceGuardType  LastPriceGuardType @default(COST)
+  lastPriceCostBasis  LastPriceCostBasis @default(CURRENT_COST)
+  lastPriceMinCostPercent Float         @default(10)
   quoteLastSalesCount Int          @default(1)
   quoteWhatsappTemplate String?
   quoteResponsibleCode String?
@@ -255,6 +269,7 @@ model User {
   eInvoiceDocuments  EInvoiceDocument[] @relation("EInvoiceCustomer")
   eInvoiceUploads    EInvoiceDocument[] @relation("EInvoiceUploader")
   supplierPriceListUploads SupplierPriceListUpload[] @relation("SupplierPriceListUploader")
+  priceListRules     CustomerPriceListRule[]
 
   @@index([email])
   @@index([role])
@@ -490,6 +505,7 @@ model Category {
   // Relations
   products        Product[]
   priceRules      CategoryPriceRule[]
+  priceListRules  CustomerPriceListRule[]
 }
 
 // ==================== PRODUCTS ====================
@@ -499,6 +515,7 @@ model Product {
   mikroCode               String    @unique
   name                    String
   foreignName             String?   // Tedarikci urun kodu (Mikro: sto_yabanci_isim)
+  brandCode               String?   // Mikro marka kodu (sto_marka_kodu)
   unit                    String    @default("ADET") // Birim
   unit2                   String?   // 2. Birim
   unit2Factor             Float?    // 2. Birim Katsayısı
@@ -715,6 +732,25 @@ model ProductPriceOverride {
   updatedAt       DateTime      @updatedAt
 
   @@unique([productId, customerType])
+}
+
+// Musteri bazli fiyat listesi kurallari (marka/kategori)
+model CustomerPriceListRule {
+  id                   String    @id @default(uuid())
+  customerId           String
+  customer             User      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  brandCode            String?
+  categoryId           String?
+  category             Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  invoicedPriceListNo  Int
+  whitePriceListNo     Int
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([customerId, brandCode, categoryId])
+  @@index([customerId])
+  @@index([brandCode])
+  @@index([categoryId])
 }
 
 // ==================== CART ====================

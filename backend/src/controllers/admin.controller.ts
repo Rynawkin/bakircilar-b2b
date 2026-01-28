@@ -661,10 +661,14 @@ export class AdminController {
           name: true,
           customerType: true,
           mikroCariCode: true,
-          invoicedPriceListNo: true,
-          whitePriceListNo: true,
-          priceVisibility: true,
-          active: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
+            priceVisibility: true,
+            useLastPrices: true,
+            lastPriceGuardType: true,
+            lastPriceCostBasis: true,
+            lastPriceMinCostPercent: true,
+            active: true,
           createdAt: true,
           // Mikro ERP fields
           city: true,
@@ -828,14 +832,25 @@ export class AdminController {
     }
   }
 
-  /**
-   * PUT /api/admin/customers/:id
-   * Update customer (only editable fields: email, customerType, active)
-   */
-  async updateCustomer(req: Request, res: Response, next: NextFunction) {
+    /**
+     * PUT /api/admin/customers/:id
+     * Update customer (only editable fields: email, customerType, active)
+     */
+    async updateCustomer(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { email, customerType, active, invoicedPriceListNo, whitePriceListNo, priceVisibility } = req.body;
+      const {
+        email,
+        customerType,
+        active,
+        invoicedPriceListNo,
+        whitePriceListNo,
+        priceVisibility,
+        useLastPrices,
+        lastPriceGuardType,
+        lastPriceCostBasis,
+        lastPriceMinCostPercent,
+      } = req.body;
       const normalizedEmail = typeof email === 'string' ? email.trim() : email;
       const emailValue = normalizedEmail === '' ? null : normalizedEmail;
 
@@ -865,12 +880,16 @@ export class AdminController {
 
       // Update only editable fields (NOT Mikro fields)
       const updateData: any = {};
-      if (email !== undefined) updateData.email = email;
+      if (email !== undefined) updateData.email = emailValue;
       if (customerType !== undefined) updateData.customerType = customerType;
       if (active !== undefined) updateData.active = active;
       if (invoicedPriceListNo !== undefined) updateData.invoicedPriceListNo = invoicedPriceListNo;
       if (whitePriceListNo !== undefined) updateData.whitePriceListNo = whitePriceListNo;
       if (priceVisibility !== undefined) updateData.priceVisibility = priceVisibility;
+      if (useLastPrices !== undefined) updateData.useLastPrices = useLastPrices;
+      if (lastPriceGuardType !== undefined) updateData.lastPriceGuardType = lastPriceGuardType;
+      if (lastPriceCostBasis !== undefined) updateData.lastPriceCostBasis = lastPriceCostBasis;
+      if (lastPriceMinCostPercent !== undefined) updateData.lastPriceMinCostPercent = lastPriceMinCostPercent;
 
       const updatedCustomer = await prisma.user.update({
         where: { id },
@@ -883,10 +902,14 @@ export class AdminController {
           mikroName: true,
           customerType: true,
           mikroCariCode: true,
-          invoicedPriceListNo: true,
-          whitePriceListNo: true,
-          priceVisibility: true,
-          active: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
+            priceVisibility: true,
+            useLastPrices: true,
+            lastPriceGuardType: true,
+            lastPriceCostBasis: true,
+            lastPriceMinCostPercent: true,
+            active: true,
           city: true,
           district: true,
           phone: true,
@@ -902,14 +925,144 @@ export class AdminController {
         },
       });
 
-      res.json({
-        message: 'Customer updated successfully',
-        customer: updatedCustomer,
-      });
-    } catch (error) {
-      next(error);
+        res.json({
+          message: 'Customer updated successfully',
+          customer: updatedCustomer,
+        });
+      } catch (error) {
+        next(error);
+      }
     }
-  }
+
+    /**
+     * GET /api/admin/brands
+     * List distinct brand codes from products
+     */
+    async getBrands(req: Request, res: Response, next: NextFunction) {
+      try {
+        const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+        const rows = await prisma.product.findMany({
+          where: search
+            ? { brandCode: { contains: search, mode: 'insensitive' } }
+            : { brandCode: { not: null } },
+          select: { brandCode: true },
+          distinct: ['brandCode'],
+        });
+        const brands = rows
+          .map((row) => (row.brandCode || '').trim())
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, 'tr'));
+        res.json({ brands });
+      } catch (error) {
+        next(error);
+      }
+    }
+
+    /**
+     * GET /api/admin/customers/:id/price-list-rules
+     */
+    async getCustomerPriceListRules(req: Request, res: Response, next: NextFunction) {
+      try {
+        const { id } = req.params;
+        const customer = await prisma.user.findUnique({
+          where: { id },
+          select: { role: true },
+        });
+
+        if (!customer || customer.role !== 'CUSTOMER') {
+          return res.status(404).json({ error: 'Customer not found' });
+        }
+
+        const rules = await prisma.customerPriceListRule.findMany({
+          where: { customerId: id },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        res.json({ rules });
+      } catch (error) {
+        next(error);
+      }
+    }
+
+    /**
+     * PUT /api/admin/customers/:id/price-list-rules
+     */
+    async updateCustomerPriceListRules(req: Request, res: Response, next: NextFunction) {
+      try {
+        const { id } = req.params;
+        const { rules } = req.body || {};
+
+        if (!Array.isArray(rules)) {
+          return res.status(400).json({ error: 'Rules must be an array' });
+        }
+
+        const customer = await prisma.user.findUnique({
+          where: { id },
+          select: { role: true },
+        });
+
+        if (!customer || customer.role !== 'CUSTOMER') {
+          return res.status(404).json({ error: 'Customer not found' });
+        }
+
+        const normalizedMap = new Map<string, {
+          brandCode: string | null;
+          categoryId: string | null;
+          invoicedPriceListNo: number;
+          whitePriceListNo: number;
+        }>();
+
+        for (const rule of rules) {
+          const brandCode = typeof rule?.brandCode === 'string' ? rule.brandCode.trim() : '';
+          const categoryId = typeof rule?.categoryId === 'string' ? rule.categoryId.trim() : '';
+          const invoiced = Number(rule?.invoicedPriceListNo);
+          const white = Number(rule?.whitePriceListNo);
+
+          if (!brandCode && !categoryId) {
+            return res.status(400).json({ error: 'Brand or category is required' });
+          }
+
+          if (!Number.isFinite(invoiced) || invoiced < 6 || invoiced > 10) {
+            return res.status(400).json({ error: 'Invoiced price list must be between 6 and 10' });
+          }
+
+          if (!Number.isFinite(white) || white < 1 || white > 5) {
+            return res.status(400).json({ error: 'White price list must be between 1 and 5' });
+          }
+
+          const key = `${brandCode || ''}::${categoryId || ''}`;
+          normalizedMap.set(key, {
+            brandCode: brandCode || null,
+            categoryId: categoryId || null,
+            invoicedPriceListNo: invoiced,
+            whitePriceListNo: white,
+          });
+        }
+
+        const normalizedRules = Array.from(normalizedMap.values());
+
+        await prisma.$transaction([
+          prisma.customerPriceListRule.deleteMany({ where: { customerId: id } }),
+          ...(normalizedRules.length > 0
+            ? [prisma.customerPriceListRule.createMany({
+                data: normalizedRules.map((rule) => ({
+                  ...rule,
+                  customerId: id,
+                })),
+              })]
+            : []),
+        ]);
+
+        const updatedRules = await prisma.customerPriceListRule.findMany({
+          where: { customerId: id },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        res.json({ rules: updatedRules });
+      } catch (error) {
+        next(error);
+      }
+    }
 
   /**
    * GET /api/admin/customers/:id/sub-users

@@ -180,11 +180,18 @@ router.post('/products/image-sync', requireAdminOrManager, adminController.trigg
 router.post('/products/:id/image', requireAdminOrManager, upload.single('image'), adminController.uploadProductImage);
 router.delete('/products/:id/image', requireAdminOrManager, adminController.deleteProductImage);
 
+// Brands - Admin/Manager
+router.get('/brands', requireAdminOrManager, adminController.getBrands);
+
 const updateCustomerSchema = z.object({
   email: z.string().optional(),
   customerType: z.enum(['BAYI', 'PERAKENDE', 'VIP', 'OZEL']).optional(),
   active: z.boolean().optional(),
   priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
+  useLastPrices: z.boolean().optional(),
+  lastPriceGuardType: z.enum(['COST', 'PRICE_LIST']).optional(),
+  lastPriceCostBasis: z.enum(['CURRENT_COST', 'LAST_ENTRY']).optional(),
+  lastPriceMinCostPercent: z.number().optional(),
 });
 
 const subUserCreateSchema = z.object({
@@ -232,11 +239,29 @@ const agreementBulkDeleteSchema = z.object({
   ids: z.array(z.string().uuid()).optional(),
 });
 
+const customerPriceListRulesSchema = z.object({
+  rules: z.array(
+    z.object({
+      brandCode: z.string().optional().nullable(),
+      categoryId: z.string().optional().nullable(),
+      invoicedPriceListNo: z.number(),
+      whitePriceListNo: z.number(),
+    })
+  ),
+});
+
 
 // Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
 router.get('/customers', requireStaff, adminController.getCustomers);
 router.post('/customers', requireStaff, validateBody(createCustomerSchema), adminController.createCustomer);
 router.put('/customers/:id', requireAdminOrManager, validateBody(updateCustomerSchema), adminController.updateCustomer);
+router.get('/customers/:id/price-list-rules', requireAdminOrManager, adminController.getCustomerPriceListRules);
+router.put(
+  '/customers/:id/price-list-rules',
+  requireAdminOrManager,
+  validateBody(customerPriceListRulesSchema),
+  adminController.updateCustomerPriceListRules
+);
 router.get('/customers/:id/sub-users', requireStaff, adminController.getCustomerSubUsers);
 router.post('/customers/:id/sub-users', requireAdminOrManager, validateBody(subUserCreateSchema), adminController.createCustomerSubUser);
 router.put('/customers/sub-users/:id', requireAdminOrManager, validateBody(subUserUpdateSchema), adminController.updateCustomerSubUser);

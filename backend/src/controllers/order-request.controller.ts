@@ -8,10 +8,12 @@ import { prisma } from '../utils/prisma';
 import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
 import notificationService from '../services/notification.service';
-import { resolveCustomerPriceLists } from '../utils/customerPricing';
+import mikroService from '../services/mikroFactory.service';
+import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
-import { ProductPrices } from '../types';
+import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { generateOrderNumber } from '../utils/orderNumber';
+import { resolveLastPriceOverride } from '../utils/lastPrice';
 
 const resolvePriceType = (
   visibility: string | null | undefined,
@@ -20,6 +22,19 @@ const resolvePriceType = (
   if (visibility === 'WHITE_ONLY') return 'WHITE';
   if (visibility === 'BOTH') return requested;
   return 'INVOICED';
+};
+
+const buildLastSalesMap = (sales: MikroCustomerSaleMovement[]) => {
+  const map = new Map<string, number>();
+  sales.forEach((sale) => {
+    const code = String(sale.productCode || '').trim();
+    if (!code || map.has(code)) return;
+    const price = Number(sale.unitPrice);
+    if (Number.isFinite(price) && price > 0) {
+      map.set(code, price);
+    }
+  });
+  return map;
 };
 
 export class OrderRequestController {
@@ -34,16 +49,26 @@ export class OrderRequestController {
           id: true,
           parentCustomerId: true,
           customerType: true,
+          mikroCariCode: true,
           priceVisibility: true,
           invoicedPriceListNo: true,
           whitePriceListNo: true,
+          useLastPrices: true,
+          lastPriceGuardType: true,
+          lastPriceCostBasis: true,
+          lastPriceMinCostPercent: true,
           parentCustomer: {
             select: {
               id: true,
               customerType: true,
+              mikroCariCode: true,
               priceVisibility: true,
               invoicedPriceListNo: true,
               whitePriceListNo: true,
+              useLastPrices: true,
+              lastPriceGuardType: true,
+              lastPriceCostBasis: true,
+              lastPriceMinCostPercent: true,
             },
           },
         },
@@ -67,9 +92,13 @@ export class OrderRequestController {
                   id: true,
                   name: true,
                   mikroCode: true,
+                  brandCode: true,
+                  categoryId: true,
                   unit: true,
                   imageUrl: true,
                   prices: true,
+                  currentCost: true,
+                  lastEntryPrice: true,
                 },
               },
             },
@@ -85,10 +114,18 @@ export class OrderRequestController {
         return res.json({ requests });
       }
 
-      const settings = await prisma.settings.findFirst({
-        select: { customerPriceLists: true },
-      });
-      const priceListPair = resolveCustomerPriceLists(pricingCustomer, settings);
+      const [settings, priceListRules] = await Promise.all([
+        prisma.settings.findFirst({
+          select: { customerPriceLists: true },
+        }),
+        prisma.customerPriceListRule.findMany({
+          where: { customerId: pricingCustomer.id },
+        }),
+      ]);
+      const basePriceListPair = resolveCustomerPriceLists(pricingCustomer, settings);
+      const effectiveVisibility = user.parentCustomerId
+        ? (pricingCustomer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
+        : pricingCustomer.priceVisibility;
       const now = new Date();
 
       const productIds = Array.from(
@@ -120,6 +157,22 @@ export class OrderRequestController {
       const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
       const priceStatsMap = await priceListService.getPriceStatsMap(productCodes);
 
+      const shouldUseLastPrices =
+        Boolean(pricingCustomer.useLastPrices && pricingCustomer.mikroCariCode);
+      let lastSalesMap = new Map<string, number>();
+      if (shouldUseLastPrices) {
+        try {
+          const sales = await mikroService.getCustomerSalesMovements(
+            pricingCustomer.mikroCariCode as string,
+            productCodes,
+            1
+          );
+          lastSalesMap = buildLastSalesMap(sales);
+        } catch (error) {
+          console.error('Customer last prices failed', { customerId: pricingCustomer.id, error });
+        }
+      }
+
       const requestsWithPreview = requests.map((request) => ({
         ...request,
         items: request.items.map((item) => {
@@ -137,10 +190,39 @@ export class OrderRequestController {
             unitWhite = customerPrices.white;
           } else {
             const priceStats = priceStatsMap.get(item.product.mikroCode) || null;
-            const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
-            const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
-            unitInvoiced = listInvoiced > 0 ? listInvoiced : customerPrices.invoiced;
-            unitWhite = listWhite > 0 ? listWhite : customerPrices.white;
+            const productPriceListPair = resolveCustomerPriceListsForProduct(
+              basePriceListPair,
+              priceListRules,
+              {
+                brandCode: item.product.brandCode,
+                categoryId: item.product.categoryId,
+              }
+            );
+            const listInvoiced = priceListService.getListPrice(
+              priceStats,
+              productPriceListPair.invoiced
+            );
+            const listWhite = priceListService.getListPrice(
+              priceStats,
+              productPriceListPair.white
+            );
+            const listPricesBase = {
+              invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
+              white: listWhite > 0 ? listWhite : customerPrices.white,
+            };
+            const lastSalePrice = lastSalesMap.get(item.product.mikroCode);
+            const lastPriceResult = resolveLastPriceOverride({
+              config: pricingCustomer,
+              lastSalePrice,
+              listPrices: listPricesBase,
+              product: {
+                currentCost: item.product.currentCost,
+                lastEntryPrice: item.product.lastEntryPrice,
+              },
+              priceVisibility: effectiveVisibility,
+            });
+            unitInvoiced = lastPriceResult.prices.invoiced;
+            unitWhite = lastPriceResult.prices.white;
           }
 
           const agreement = agreementMap.get(item.productId);
@@ -289,6 +371,10 @@ export class OrderRequestController {
           invoicedPriceListNo: true,
           whitePriceListNo: true,
           priceVisibility: true,
+          useLastPrices: true,
+          lastPriceGuardType: true,
+          lastPriceCostBasis: true,
+          lastPriceMinCostPercent: true,
         },
       });
 
@@ -320,9 +406,16 @@ export class OrderRequestController {
         return res.status(404).json({ error: 'Request not found' });
       }
 
-      const priceListPair = resolveCustomerPriceLists(user, await prisma.settings.findFirst({
-        select: { customerPriceLists: true },
-      }));
+      const [settings, priceListRules] = await Promise.all([
+        prisma.settings.findFirst({
+          select: { customerPriceLists: true },
+        }),
+        prisma.customerPriceListRule.findMany({
+          where: { customerId: user.id },
+        }),
+      ]);
+      const basePriceListPair = resolveCustomerPriceLists(user, settings);
+      const effectiveVisibility = user.priceVisibility;
 
       const now = new Date();
       const itemSelections: Record<string, PriceType> = {};
@@ -356,6 +449,21 @@ export class OrderRequestController {
 
       if (itemsToConvert.length === 0) {
         return res.status(400).json({ error: 'No pending items selected for conversion' });
+      }
+
+      let lastSalesMap = new Map<string, number>();
+      if (user.useLastPrices && user.mikroCariCode) {
+        try {
+          const codes = itemsToConvert.map((item) => item.product.mikroCode);
+          const sales = await mikroService.getCustomerSalesMovements(
+            user.mikroCariCode as string,
+            codes,
+            1
+          );
+          lastSalesMap = buildLastSalesMap(sales);
+        } catch (error) {
+          console.error('Customer last prices failed', { customerId: user.id, error });
+        }
       }
 
       const orderItems: Array<{
@@ -393,12 +501,38 @@ export class OrderRequestController {
           unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
         } else {
           const priceStats = await priceListService.getPriceStats(item.product.mikroCode);
-          const listInvoiced = priceListService.getListPrice(priceStats, priceListPair.invoiced);
-          const listWhite = priceListService.getListPrice(priceStats, priceListPair.white);
-          const listPrices = {
+          const productPriceListPair = resolveCustomerPriceListsForProduct(
+            basePriceListPair,
+            priceListRules,
+            {
+              brandCode: item.product.brandCode,
+              categoryId: item.product.categoryId,
+            }
+          );
+          const listInvoiced = priceListService.getListPrice(
+            priceStats,
+            productPriceListPair.invoiced
+          );
+          const listWhite = priceListService.getListPrice(
+            priceStats,
+            productPriceListPair.white
+          );
+          const listPricesBase = {
             invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
             white: listWhite > 0 ? listWhite : customerPrices.white,
           };
+          const lastSalePrice = lastSalesMap.get(item.product.mikroCode);
+          const lastPriceResult = resolveLastPriceOverride({
+            config: user,
+            lastSalePrice,
+            listPrices: listPricesBase,
+            product: {
+              currentCost: item.product.currentCost,
+              lastEntryPrice: item.product.lastEntryPrice,
+            },
+            priceVisibility: effectiveVisibility,
+          });
+          const listPrices = lastPriceResult.prices;
           unitPrice = priceType === 'INVOICED' ? listPrices.invoiced : listPrices.white;
         }
 

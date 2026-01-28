@@ -172,6 +172,10 @@ export default function CustomersPage() {
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
     priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+    useLastPrices?: boolean;
+    lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+    lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
+    lastPriceMinCostPercent?: number;
   }) => {
     try {
       await adminApi.updateCustomer(customerId, data);

@@ -39,6 +39,10 @@ export interface CreateCustomerRequest {
   invoicedPriceListNo?: number | null;
   whitePriceListNo?: number | null;
   priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+  useLastPrices?: boolean;
+  lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+  lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
+  lastPriceMinCostPercent?: number;
 }
 
 export interface PriceListPair {
@@ -66,6 +70,7 @@ export interface MikroProduct {
   code: string;
   name: string;
   foreignName?: string | null;
+  brandCode?: string | null;
   categoryId: string;
   unit: string;
   unit2?: string | null;

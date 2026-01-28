@@ -1,5 +1,12 @@
 import { CustomerPriceListConfig, PriceListPair } from '../types';
 
+export type CustomerPriceListRule = {
+  brandCode?: string | null;
+  categoryId?: string | null;
+  invoicedPriceListNo: number;
+  whitePriceListNo: number;
+};
+
 const DEFAULT_PRICE_LISTS: CustomerPriceListConfig = {
   BAYI: { invoiced: 6, white: 1 },
   PERAKENDE: { invoiced: 6, white: 1 },
@@ -45,10 +52,50 @@ export const resolveCustomerPriceLists = (
   settings: { customerPriceLists?: any } | null
 ): PriceListPair => {
   const config = normalizePriceListConfig(settings?.customerPriceLists);
-  const base = config.BAYI || DEFAULT_PRICE_LISTS.BAYI;
+  const normalizedType =
+    typeof user.customerType === 'string' ? user.customerType.trim().toUpperCase() : 'BAYI';
+  const base =
+    (config as Record<string, PriceListPair>)[normalizedType] ||
+    DEFAULT_PRICE_LISTS.BAYI;
 
   return {
     invoiced: resolveListNo(user.invoicedPriceListNo, base.invoiced, 6, 10),
     white: resolveListNo(user.whitePriceListNo, base.white, 1, 5),
+  };
+};
+
+const normalizeCode = (value?: string | null) => {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed || null;
+};
+
+export const resolveCustomerPriceListsForProduct = (
+  base: PriceListPair,
+  rules: CustomerPriceListRule[] | null | undefined,
+  product: { brandCode?: string | null; categoryId?: string | null }
+): PriceListPair => {
+  if (!rules || rules.length === 0) return base;
+
+  const brandCode = normalizeCode(product.brandCode);
+  const categoryId = product.categoryId || null;
+
+  const matchesBrand = (ruleBrand?: string | null) =>
+    Boolean(brandCode && ruleBrand && normalizeCode(ruleBrand) === brandCode);
+  const matchesCategory = (ruleCategory?: string | null) =>
+    Boolean(categoryId && ruleCategory === categoryId);
+
+  const findRule = (predicate: (rule: CustomerPriceListRule) => boolean) =>
+    rules.find((rule) => predicate(rule)) || null;
+
+  const bestRule =
+    findRule((rule) => matchesBrand(rule.brandCode) && matchesCategory(rule.categoryId)) ||
+    findRule((rule) => matchesBrand(rule.brandCode) && !rule.categoryId) ||
+    findRule((rule) => matchesCategory(rule.categoryId) && !rule.brandCode);
+
+  if (!bestRule) return base;
+
+  return {
+    invoiced: resolveListNo(bestRule.invoicedPriceListNo, base.invoiced, 6, 10),
+    white: resolveListNo(bestRule.whitePriceListNo, base.white, 1, 5),
   };
 };

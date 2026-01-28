@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { Customer, CustomerContact } from '@/types';
+import { Category, Customer, CustomerContact, CustomerPriceListRule } from '@/types';
 import { CUSTOMER_TYPES } from '@/lib/utils/customerTypes';
 import { formatCurrency } from '@/lib/utils/format';
 
@@ -22,6 +22,10 @@ interface CustomerEditModalProps {
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
     priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+    useLastPrices?: boolean;
+    lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+    lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
+    lastPriceMinCostPercent?: number;
   }) => Promise<void>;
   canEditFields?: boolean;
 }
@@ -64,6 +68,10 @@ export function CustomerEditModal({
     invoicedPriceListNo: '',
     whitePriceListNo: '',
     priceVisibility: 'INVOICED_ONLY',
+    useLastPrices: false,
+    lastPriceGuardType: 'COST',
+    lastPriceCostBasis: 'CURRENT_COST',
+    lastPriceMinCostPercent: '10',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [contacts, setContacts] = useState<CustomerContact[]>([]);
@@ -90,6 +98,11 @@ export function CustomerEditModal({
   const [resetCredentials, setResetCredentials] = useState<Record<string, { username: string; password: string }>>({});
   const [resettingSubUserId, setResettingSubUserId] = useState<string | null>(null);
   const [deletingSubUserId, setDeletingSubUserId] = useState<string | null>(null);
+  const [priceListRules, setPriceListRules] = useState<CustomerPriceListRule[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [brands, setBrands] = useState<string[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
   useEffect(() => {
       if (customer) {
@@ -100,6 +113,12 @@ export function CustomerEditModal({
         invoicedPriceListNo: customer.invoicedPriceListNo ? String(customer.invoicedPriceListNo) : '',
         whitePriceListNo: customer.whitePriceListNo ? String(customer.whitePriceListNo) : '',
         priceVisibility: customer.priceVisibility || 'INVOICED_ONLY',
+        useLastPrices: customer.useLastPrices ?? false,
+        lastPriceGuardType: customer.lastPriceGuardType || 'COST',
+        lastPriceCostBasis: customer.lastPriceCostBasis || 'CURRENT_COST',
+        lastPriceMinCostPercent: Number.isFinite(customer.lastPriceMinCostPercent)
+          ? String(customer.lastPriceMinCostPercent)
+          : '10',
       });
     }
   }, [customer]);
@@ -158,9 +177,75 @@ export function CustomerEditModal({
     }
   }, [isOpen, customer, canEditFields]);
 
+  useEffect(() => {
+    if (!isOpen || !customer || !canEditFields) return;
+    setRulesLoading(true);
+    adminApi
+      .getCustomerPriceListRules(customer.id)
+      .then((result) => {
+        setPriceListRules(
+          (result.rules || []).map((rule) => ({
+            ...rule,
+            brandCode: rule.brandCode || '',
+            categoryId: rule.categoryId || '',
+          }))
+        );
+      })
+      .catch((error) => {
+        console.error('Fiyat listesi kurallari yuklenemedi:', error);
+        toast.error('Fiyat listesi kurallari yuklenemedi.');
+        setPriceListRules([]);
+      })
+      .finally(() => setRulesLoading(false));
+  }, [isOpen, customer, canEditFields]);
+
+  useEffect(() => {
+    if (!isOpen || !canEditFields) return;
+    if (categories.length > 0 && brands.length > 0) return;
+    setCatalogLoading(true);
+    Promise.all([
+      adminApi.getCategories(),
+      adminApi.getBrands(),
+    ])
+      .then(([categoriesResult, brandsResult]) => {
+        setCategories(categoriesResult.categories || []);
+        setBrands(brandsResult.brands || []);
+      })
+      .catch((error) => {
+        console.error('Marka/kategori listesi yuklenemedi:', error);
+        toast.error('Marka/kategori listesi yuklenemedi.');
+      })
+      .finally(() => setCatalogLoading(false));
+  }, [isOpen, canEditFields, categories.length, brands.length]);
+
   const resetContactForm = () => {
     setContactForm({ name: '', phone: '', email: '' });
     setEditingContactId(null);
+  };
+
+  const addPriceListRule = () => {
+    setPriceListRules((prev) => ([
+      ...prev,
+      {
+        brandCode: '',
+        categoryId: '',
+        invoicedPriceListNo: 6,
+        whitePriceListNo: 1,
+      },
+    ]));
+  };
+
+  const updatePriceListRule = (
+    index: number,
+    patch: Partial<CustomerPriceListRule>
+  ) => {
+    setPriceListRules((prev) => prev.map((rule, i) => (
+      i === index ? { ...rule, ...patch } : rule
+    )));
+  };
+
+  const removePriceListRule = (index: number) => {
+    setPriceListRules((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleContactSave = async () => {
@@ -356,6 +441,33 @@ export function CustomerEditModal({
 
     setIsSaving(true);
     try {
+      const normalizedRules = priceListRules.map((rule) => {
+        const brandCode = typeof rule.brandCode === 'string' ? rule.brandCode.trim() : '';
+        const categoryId = typeof rule.categoryId === 'string' ? rule.categoryId.trim() : '';
+        if (!brandCode && !categoryId) {
+          throw new Error('Marka veya kategori secilmelidir.');
+        }
+        const invoiced = Number(rule.invoicedPriceListNo);
+        const white = Number(rule.whitePriceListNo);
+        if (!Number.isFinite(invoiced) || invoiced < 6 || invoiced > 10) {
+          throw new Error('Faturali fiyat listesi 6-10 arasinda olmalidir.');
+        }
+        if (!Number.isFinite(white) || white < 1 || white > 5) {
+          throw new Error('Beyaz fiyat listesi 1-5 arasinda olmalidir.');
+        }
+        return {
+          brandCode: brandCode || null,
+          categoryId: categoryId || null,
+          invoicedPriceListNo: invoiced,
+          whitePriceListNo: white,
+        };
+      });
+
+      const parsedMinCostPercent = Number(formData.lastPriceMinCostPercent);
+      const safeMinCostPercent = Number.isFinite(parsedMinCostPercent)
+        ? parsedMinCostPercent
+        : 10;
+
       await onSave(customer.id, {
         email: formData.email.trim() || undefined,
         customerType: formData.customerType,
@@ -367,8 +479,18 @@ export function CustomerEditModal({
           ? parseInt(formData.whitePriceListNo, 10)
           : null,
         priceVisibility: formData.priceVisibility as 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH',
+        useLastPrices: formData.useLastPrices,
+        lastPriceGuardType: formData.lastPriceGuardType as 'COST' | 'PRICE_LIST',
+        lastPriceCostBasis: formData.lastPriceCostBasis as 'CURRENT_COST' | 'LAST_ENTRY',
+        lastPriceMinCostPercent: safeMinCostPercent,
       });
+      await adminApi.updateCustomerPriceListRules(customer.id, normalizedRules);
       onClose();
+    } catch (error: any) {
+      const message = error?.message || error?.response?.data?.error;
+      if (message) {
+        toast.error(message);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -445,6 +567,187 @@ export function CustomerEditModal({
             <p className="text-xs text-gray-500 mt-1">
               Bos birakilirsa genel fiyat listesi kullanilir.
             </p>
+          </div>
+
+          <div className="border-t pt-4">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={formData.useLastPrices}
+                onChange={(e) => setFormData({ ...formData, useLastPrices: e.target.checked })}
+              />
+              Son fiyatlari kullan
+            </label>
+            <p className="text-xs text-gray-500 mt-1">
+              Musterinin son satin aldigi fiyat uygunsa liste yerine gosterilir.
+            </p>
+
+            {formData.useLastPrices && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Kontrol Tipi</label>
+                  <select
+                    className="input w-full"
+                    value={formData.lastPriceGuardType}
+                    onChange={(e) =>
+                      setFormData({ ...formData, lastPriceGuardType: e.target.value })
+                    }
+                  >
+                    <option value="COST">Maliyete gore (yuzde)</option>
+                    <option value="PRICE_LIST">Liste fiyatindan dusuk olmasin</option>
+                  </select>
+                </div>
+
+                {formData.lastPriceGuardType === 'COST' ? (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Maliyet Baz</label>
+                      <select
+                        className="input w-full"
+                        value={formData.lastPriceCostBasis}
+                        onChange={(e) =>
+                          setFormData({ ...formData, lastPriceCostBasis: e.target.value })
+                        }
+                      >
+                        <option value="CURRENT_COST">Guncel maliyet</option>
+                        <option value="LAST_ENTRY">Son giris maliyeti</option>
+                      </select>
+                    </div>
+                    <Input
+                      label="Minimum oran (%)"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.lastPriceMinCostPercent}
+                      onChange={(e) =>
+                        setFormData({ ...formData, lastPriceMinCostPercent: e.target.value })
+                      }
+                      placeholder="10"
+                    />
+                  </>
+                ) : (
+                  <div className="text-xs text-gray-500 mt-2 md:col-span-2">
+                    Son fiyat liste fiyatindan dusukse liste fiyati gosterilir.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t pt-4">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900">Fiyat Listesi Kurallari</h4>
+                <p className="text-xs text-gray-500">
+                  Marka + kategori onceliklidir. Marka veya kategori tek basina da kullanilabilir.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={addPriceListRule}
+                disabled={rulesLoading}
+              >
+                + Kural Ekle
+              </Button>
+            </div>
+
+            {catalogLoading && (
+              <p className="text-xs text-gray-400 mt-2">Marka/kategori listesi yukleniyor...</p>
+            )}
+
+            <datalist id="brand-options">
+              {brands.map((brand) => (
+                <option key={brand} value={brand} />
+              ))}
+            </datalist>
+
+            <div className="mt-3 space-y-3">
+              {rulesLoading && (
+                <p className="text-xs text-gray-400">Kurallar yukleniyor...</p>
+              )}
+              {!rulesLoading && priceListRules.length === 0 && (
+                <p className="text-xs text-gray-500">Henüz kural yok.</p>
+              )}
+
+              {priceListRules.map((rule, index) => (
+                <div key={`${rule.id || index}`} className="border rounded-lg p-3 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Marka Kodu</label>
+                      <Input
+                        value={rule.brandCode || ''}
+                        list="brand-options"
+                        placeholder="Orn: BANEX"
+                        onChange={(e) => updatePriceListRule(index, { brandCode: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Kategori</label>
+                      <select
+                        className="input w-full"
+                        value={rule.categoryId || ''}
+                        onChange={(e) => updatePriceListRule(index, { categoryId: e.target.value })}
+                      >
+                        <option value="">Seciniz</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Faturali (Toptan)</label>
+                      <select
+                        className="input w-full"
+                        value={String(rule.invoicedPriceListNo || 6)}
+                        onChange={(e) =>
+                          updatePriceListRule(index, { invoicedPriceListNo: parseInt(e.target.value, 10) })
+                        }
+                      >
+                        {WHOLESALE_LISTS.map((list) => (
+                          <option key={list.value} value={list.value}>
+                            {list.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Beyaz (Perakende)</label>
+                      <select
+                        className="input w-full"
+                        value={String(rule.whitePriceListNo || 1)}
+                        onChange={(e) =>
+                          updatePriceListRule(index, { whitePriceListNo: parseInt(e.target.value, 10) })
+                        }
+                      >
+                        {RETAIL_LISTS.map((list) => (
+                          <option key={list.value} value={list.value}>
+                            {list.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="danger"
+                      onClick={() => removePriceListRule(index)}
+                    >
+                      Sil
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div>

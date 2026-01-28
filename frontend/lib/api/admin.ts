@@ -194,8 +194,41 @@ export const adminApi = {
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
     priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+    useLastPrices?: boolean;
+    lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+    lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
+    lastPriceMinCostPercent?: number;
   }): Promise<{ message: string; customer: Customer }> => {
     const response = await apiClient.put(`/admin/customers/${id}`, data);
+    return response.data;
+  },
+
+  getCustomerPriceListRules: async (customerId: string): Promise<{ rules: Array<{
+    id: string;
+    brandCode?: string | null;
+    categoryId?: string | null;
+    invoicedPriceListNo: number;
+    whitePriceListNo: number;
+  }> }> => {
+    const response = await apiClient.get(`/admin/customers/${customerId}/price-list-rules`);
+    return response.data;
+  },
+
+  updateCustomerPriceListRules: async (
+    customerId: string,
+    rules: Array<{
+      brandCode?: string | null;
+      categoryId?: string | null;
+      invoicedPriceListNo: number;
+      whitePriceListNo: number;
+    }>
+  ): Promise<{ rules: Array<any> }> => {
+    const response = await apiClient.put(`/admin/customers/${customerId}/price-list-rules`, { rules });
+    return response.data;
+  },
+
+  getBrands: async (search?: string): Promise<{ brands: string[] }> => {
+    const response = await apiClient.get('/admin/brands', { params: search ? { search } : undefined });
     return response.data;
   },
 

@@ -304,14 +304,15 @@ class SyncService {
       const parsedCurrentCostDate = this.parseDateString(mikroProduct.currentCostDate);
 
       // Ürünü upsert et
-      await prisma.product.upsert({
-        where: { mikroCode: mikroProduct.code },
-        update: {
-          name: mikroProduct.name,
-          foreignName: mikroProduct.foreignName || null,
-          unit: mikroProduct.unit,
-          unit2,
-          unit2Factor,
+        await prisma.product.upsert({
+          where: { mikroCode: mikroProduct.code },
+          update: {
+            name: mikroProduct.name,
+            foreignName: mikroProduct.foreignName || null,
+            brandCode: mikroProduct.brandCode || null,
+            unit: mikroProduct.unit,
+            unit2,
+            unit2Factor,
           categoryId: category.id,
           lastEntryPrice: mikroProduct.lastEntryPrice,
           lastEntryDate: mikroProduct.lastEntryDate,
@@ -325,13 +326,14 @@ class SyncService {
           pendingCustomerOrdersByWarehouse: pendingSalesByWarehouse,
           active: true,
         },
-        create: {
-          mikroCode: mikroProduct.code,
-          name: mikroProduct.name,
-          foreignName: mikroProduct.foreignName || null,
-          unit: mikroProduct.unit,
-          unit2,
-          unit2Factor,
+          create: {
+            mikroCode: mikroProduct.code,
+            name: mikroProduct.name,
+            foreignName: mikroProduct.foreignName || null,
+            brandCode: mikroProduct.brandCode || null,
+            unit: mikroProduct.unit,
+            unit2,
+            unit2Factor,
           categoryId: category.id,
           lastEntryPrice: mikroProduct.lastEntryPrice,
           lastEntryDate: mikroProduct.lastEntryDate,

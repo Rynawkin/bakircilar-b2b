@@ -636,6 +636,10 @@ export interface Customer {
   invoicedPriceListNo?: number | null;
   whitePriceListNo?: number | null;
   priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+  useLastPrices?: boolean;
+  lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+  lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
+  lastPriceMinCostPercent?: number;
   active: boolean;
   createdAt: string;
   // Mikro-synced fields
@@ -662,6 +666,18 @@ export interface CreateCustomerRequest {
   invoicedPriceListNo?: number | null;
   whitePriceListNo?: number | null;
   priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+  useLastPrices?: boolean;
+  lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+  lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
+  lastPriceMinCostPercent?: number;
+}
+
+export interface CustomerPriceListRule {
+  id?: string;
+  brandCode?: string | null;
+  categoryId?: string | null;
+  invoicedPriceListNo: number;
+  whitePriceListNo: number;
 }
 
 export interface CustomerContact {
