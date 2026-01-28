@@ -15,6 +15,23 @@ import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '
 import { applyAgreementPrices, isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { resolveLastPriceOverride } from '../utils/lastPrice';
 
+const getLastPriceGuardPrices = (
+  priceStats: any,
+  guardInvoicedListNo?: number | null,
+  guardWhiteListNo?: number | null
+): { invoiced: number; white: number } | undefined => {
+  if (!guardInvoicedListNo && !guardWhiteListNo) return undefined;
+  return {
+    invoiced: guardInvoicedListNo
+      ? priceListService.getListPrice(priceStats, guardInvoicedListNo)
+      : 0,
+    white: guardWhiteListNo
+      ? priceListService.getListPrice(priceStats, guardWhiteListNo)
+      : 0,
+  };
+};
+
+
 const sumStocks = (warehouseStocks: Record<string, number>, includedWarehouses: string[]): number => {
   if (!warehouseStocks) return 0;
   if (!includedWarehouses || includedWarehouses.length === 0) {
@@ -117,6 +134,8 @@ export class CustomerController {
           priceVisibility: true,
           useLastPrices: true,
           lastPriceGuardType: true,
+          lastPriceGuardInvoicedListNo: true,
+          lastPriceGuardWhiteListNo: true,
           lastPriceCostBasis: true,
           lastPriceMinCostPercent: true,
           parentCustomerId: true,
@@ -130,6 +149,8 @@ export class CustomerController {
               priceVisibility: true,
               useLastPrices: true,
               lastPriceGuardType: true,
+              lastPriceGuardInvoicedListNo: true,
+              lastPriceGuardWhiteListNo: true,
               lastPriceCostBasis: true,
               lastPriceMinCostPercent: true,
             },
@@ -311,11 +332,17 @@ export class CustomerController {
             invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
             white: listWhite > 0 ? listWhite : customerPrices.white,
           };
+          const guardPrices = getLastPriceGuardPrices(
+            priceStats,
+            customer.lastPriceGuardInvoicedListNo,
+            customer.lastPriceGuardWhiteListNo
+          );
           const lastSalePrice = lastSalesMap.get(product.mikroCode);
           const lastPriceResult = resolveLastPriceOverride({
             config: customer,
             lastSalePrice,
             listPrices: listPricesRaw,
+              guardPrices,
             product: {
               currentCost: product.currentCost,
               lastEntryPrice: product.lastEntryPrice,
@@ -594,11 +621,17 @@ export class CustomerController {
           invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
           white: listWhite > 0 ? listWhite : customerPrices.white,
         };
+        const guardPrices = getLastPriceGuardPrices(
+          priceStats,
+          customer.lastPriceGuardInvoicedListNo,
+          customer.lastPriceGuardWhiteListNo
+        );
         const lastSalePrice = lastSalesMap.get(product.mikroCode);
         const lastPriceResult = resolveLastPriceOverride({
           config: customer,
           lastSalePrice,
           listPrices: listPricesBase,
+              guardPrices,
           product: {
             currentCost: product.currentCost,
             lastEntryPrice: product.lastEntryPrice,
@@ -701,6 +734,8 @@ export class CustomerController {
           priceVisibility: true,
           useLastPrices: true,
           lastPriceGuardType: true,
+          lastPriceGuardInvoicedListNo: true,
+          lastPriceGuardWhiteListNo: true,
           lastPriceCostBasis: true,
           lastPriceMinCostPercent: true,
           parentCustomerId: true,
@@ -714,6 +749,8 @@ export class CustomerController {
               priceVisibility: true,
               useLastPrices: true,
               lastPriceGuardType: true,
+              lastPriceGuardInvoicedListNo: true,
+              lastPriceGuardWhiteListNo: true,
               lastPriceCostBasis: true,
               lastPriceMinCostPercent: true,
             },
@@ -834,6 +871,11 @@ export class CustomerController {
         invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
         white: listWhite > 0 ? listWhite : customerPrices.white,
       };
+      const guardPrices = getLastPriceGuardPrices(
+        priceStats,
+        customer.lastPriceGuardInvoicedListNo,
+        customer.lastPriceGuardWhiteListNo
+      );
       let listPrices = listPricesBase;
       if (customer.useLastPrices && customer.mikroCariCode && !isDiscounted) {
         try {
@@ -848,6 +890,7 @@ export class CustomerController {
             config: customer,
             lastSalePrice,
             listPrices: listPricesBase,
+              guardPrices,
             product: {
               currentCost: product.currentCost,
               lastEntryPrice: product.lastEntryPrice,
@@ -1078,6 +1121,8 @@ export class CustomerController {
           priceVisibility: true,
           useLastPrices: true,
           lastPriceGuardType: true,
+          lastPriceGuardInvoicedListNo: true,
+          lastPriceGuardWhiteListNo: true,
           lastPriceCostBasis: true,
           lastPriceMinCostPercent: true,
           parentCustomerId: true,
@@ -1091,6 +1136,8 @@ export class CustomerController {
               priceVisibility: true,
               useLastPrices: true,
               lastPriceGuardType: true,
+              lastPriceGuardInvoicedListNo: true,
+              lastPriceGuardWhiteListNo: true,
               lastPriceCostBasis: true,
               lastPriceMinCostPercent: true,
             },
@@ -1168,6 +1215,11 @@ export class CustomerController {
           invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
           white: listWhite > 0 ? listWhite : customerPrices.white,
         };
+        const guardPrices = getLastPriceGuardPrices(
+          priceStats,
+          customer.lastPriceGuardInvoicedListNo,
+          customer.lastPriceGuardWhiteListNo
+        );
         let listPrices = listPricesBase;
         if (customer.useLastPrices && customer.mikroCariCode) {
           try {
@@ -1182,6 +1234,7 @@ export class CustomerController {
               config: customer,
               lastSalePrice,
               listPrices: listPricesBase,
+              guardPrices,
               product: {
                 currentCost: product.currentCost,
                 lastEntryPrice: product.lastEntryPrice,
@@ -1299,6 +1352,8 @@ export class CustomerController {
                   priceVisibility: true,
                   useLastPrices: true,
                   lastPriceGuardType: true,
+                  lastPriceGuardInvoicedListNo: true,
+                  lastPriceGuardWhiteListNo: true,
                   lastPriceCostBasis: true,
                   lastPriceMinCostPercent: true,
                   parentCustomerId: true,
@@ -1312,6 +1367,8 @@ export class CustomerController {
                       priceVisibility: true,
                       useLastPrices: true,
                       lastPriceGuardType: true,
+                      lastPriceGuardInvoicedListNo: true,
+                      lastPriceGuardWhiteListNo: true,
                       lastPriceCostBasis: true,
                       lastPriceMinCostPercent: true,
                     },
@@ -1385,6 +1442,11 @@ export class CustomerController {
           invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
           white: listWhite > 0 ? listWhite : customerPrices.white,
         };
+        const guardPrices = getLastPriceGuardPrices(
+          priceStats,
+          customer.lastPriceGuardInvoicedListNo,
+          customer.lastPriceGuardWhiteListNo
+        );
         let listPrices = listPricesBase;
         if (customer.useLastPrices && customer.mikroCariCode) {
           try {
@@ -1399,6 +1461,7 @@ export class CustomerController {
               config: customer,
               lastSalePrice,
               listPrices: listPricesBase,
+              guardPrices,
               product: {
                 currentCost: cartItem.product.currentCost,
                 lastEntryPrice: cartItem.product.lastEntryPrice,

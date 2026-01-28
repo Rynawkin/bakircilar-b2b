@@ -6,6 +6,8 @@ type PricePair = {
 type LastPriceConfig = {
   useLastPrices?: boolean | null;
   lastPriceGuardType?: 'COST' | 'PRICE_LIST' | null;
+  lastPriceGuardInvoicedListNo?: number | null;
+  lastPriceGuardWhiteListNo?: number | null;
   lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY' | null;
   lastPriceMinCostPercent?: number | null;
 };
@@ -19,6 +21,7 @@ export const resolveLastPriceOverride = (params: {
   config: LastPriceConfig;
   lastSalePrice?: number | null;
   listPrices: PricePair;
+  guardPrices?: PricePair;
   product: ProductCostInfo;
   priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH' | null;
 }): { prices: PricePair; usedLastPrice: boolean } => {
@@ -38,7 +41,9 @@ export const resolveLastPriceOverride = (params: {
   const guardType = config.lastPriceGuardType || 'COST';
   if (guardType === 'PRICE_LIST') {
     const reference =
-      priceVisibility === 'WHITE_ONLY' ? listPrices.white : listPrices.invoiced;
+      priceVisibility === 'WHITE_ONLY'
+        ? (guardPrices && guardPrices.white > 0 ? guardPrices.white : listPrices.white)
+        : (guardPrices && guardPrices.invoiced > 0 ? guardPrices.invoiced : listPrices.invoiced);
     if (Number.isFinite(reference) && reference > 0 && candidate < reference) {
       return { prices: listPrices, usedLastPrice: false };
     }

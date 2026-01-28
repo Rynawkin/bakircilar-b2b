@@ -15,6 +15,23 @@ import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { generateOrderNumber } from '../utils/orderNumber';
 import { resolveLastPriceOverride } from '../utils/lastPrice';
 
+const getLastPriceGuardPrices = (
+  priceStats: any,
+  guardInvoicedListNo?: number | null,
+  guardWhiteListNo?: number | null
+): { invoiced: number; white: number } | undefined => {
+  if (!guardInvoicedListNo && !guardWhiteListNo) return undefined;
+  return {
+    invoiced: guardInvoicedListNo
+      ? priceListService.getListPrice(priceStats, guardInvoicedListNo)
+      : 0,
+    white: guardWhiteListNo
+      ? priceListService.getListPrice(priceStats, guardWhiteListNo)
+      : 0,
+  };
+};
+
+
 const resolvePriceType = (
   visibility: string | null | undefined,
   requested?: PriceType
@@ -55,6 +72,8 @@ export class OrderRequestController {
           whitePriceListNo: true,
           useLastPrices: true,
           lastPriceGuardType: true,
+          lastPriceGuardInvoicedListNo: true,
+          lastPriceGuardWhiteListNo: true,
           lastPriceCostBasis: true,
           lastPriceMinCostPercent: true,
           parentCustomer: {
@@ -67,6 +86,8 @@ export class OrderRequestController {
               whitePriceListNo: true,
               useLastPrices: true,
               lastPriceGuardType: true,
+              lastPriceGuardInvoicedListNo: true,
+              lastPriceGuardWhiteListNo: true,
               lastPriceCostBasis: true,
               lastPriceMinCostPercent: true,
             },
@@ -210,11 +231,17 @@ export class OrderRequestController {
               invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
               white: listWhite > 0 ? listWhite : customerPrices.white,
             };
+            const guardPrices = getLastPriceGuardPrices(
+              priceStats,
+              pricingCustomer.lastPriceGuardInvoicedListNo,
+              pricingCustomer.lastPriceGuardWhiteListNo
+            );
             const lastSalePrice = lastSalesMap.get(item.product.mikroCode);
             const lastPriceResult = resolveLastPriceOverride({
               config: pricingCustomer,
               lastSalePrice,
               listPrices: listPricesBase,
+            guardPrices,
               product: {
                 currentCost: item.product.currentCost,
                 lastEntryPrice: item.product.lastEntryPrice,
@@ -373,6 +400,8 @@ export class OrderRequestController {
           priceVisibility: true,
           useLastPrices: true,
           lastPriceGuardType: true,
+          lastPriceGuardInvoicedListNo: true,
+          lastPriceGuardWhiteListNo: true,
           lastPriceCostBasis: true,
           lastPriceMinCostPercent: true,
         },
@@ -521,11 +550,17 @@ export class OrderRequestController {
             invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
             white: listWhite > 0 ? listWhite : customerPrices.white,
           };
+          const guardPrices = getLastPriceGuardPrices(
+            priceStats,
+            user.lastPriceGuardInvoicedListNo,
+            user.lastPriceGuardWhiteListNo
+          );
           const lastSalePrice = lastSalesMap.get(item.product.mikroCode);
           const lastPriceResult = resolveLastPriceOverride({
             config: user,
             lastSalePrice,
             listPrices: listPricesBase,
+            guardPrices,
             product: {
               currentCost: item.product.currentCost,
               lastEntryPrice: item.product.lastEntryPrice,

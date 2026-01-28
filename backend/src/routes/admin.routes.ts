@@ -192,6 +192,8 @@ const updateCustomerSchema = z.object({
   priceVisibility: z.enum(['INVOICED_ONLY', 'WHITE_ONLY', 'BOTH']).optional(),
   useLastPrices: z.boolean().optional(),
   lastPriceGuardType: z.enum(['COST', 'PRICE_LIST']).optional(),
+  lastPriceGuardInvoicedListNo: z.number().nullable().optional(),
+  lastPriceGuardWhiteListNo: z.number().nullable().optional(),
   lastPriceCostBasis: z.enum(['CURRENT_COST', 'LAST_ENTRY']).optional(),
   lastPriceMinCostPercent: z.number().optional(),
 });

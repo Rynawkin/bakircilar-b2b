@@ -198,6 +198,8 @@ model User {
   // Optional price list overrides (use settings when null)
   invoicedPriceListNo Int?
   whitePriceListNo    Int?
+  lastPriceGuardInvoicedListNo Int?
+  lastPriceGuardWhiteListNo    Int?
   useLastPrices       Boolean          @default(false)
   lastPriceGuardType  LastPriceGuardType @default(COST)
   lastPriceCostBasis  LastPriceCostBasis @default(CURRENT_COST)

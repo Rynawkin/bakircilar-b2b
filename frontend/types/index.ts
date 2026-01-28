@@ -638,6 +638,8 @@ export interface Customer {
   priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
   useLastPrices?: boolean;
   lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+  lastPriceGuardInvoicedListNo?: number | null;
+  lastPriceGuardWhiteListNo?: number | null;
   lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
   lastPriceMinCostPercent?: number;
   active: boolean;
@@ -668,6 +670,8 @@ export interface CreateCustomerRequest {
   priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
   useLastPrices?: boolean;
   lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+  lastPriceGuardInvoicedListNo?: number | null;
+  lastPriceGuardWhiteListNo?: number | null;
   lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
   lastPriceMinCostPercent?: number;
 }

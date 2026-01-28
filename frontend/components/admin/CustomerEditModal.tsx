@@ -24,6 +24,8 @@ interface CustomerEditModalProps {
     priceVisibility?: 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
     useLastPrices?: boolean;
     lastPriceGuardType?: 'COST' | 'PRICE_LIST';
+    lastPriceGuardInvoicedListNo?: number | null;
+    lastPriceGuardWhiteListNo?: number | null;
     lastPriceCostBasis?: 'CURRENT_COST' | 'LAST_ENTRY';
     lastPriceMinCostPercent?: number;
   }) => Promise<void>;
@@ -70,6 +72,8 @@ export function CustomerEditModal({
     priceVisibility: 'INVOICED_ONLY',
     useLastPrices: false,
     lastPriceGuardType: 'COST',
+    lastPriceGuardInvoicedListNo: '',
+    lastPriceGuardWhiteListNo: '',
     lastPriceCostBasis: 'CURRENT_COST',
     lastPriceMinCostPercent: '10',
   });
@@ -115,6 +119,8 @@ export function CustomerEditModal({
         priceVisibility: customer.priceVisibility || 'INVOICED_ONLY',
         useLastPrices: customer.useLastPrices ?? false,
         lastPriceGuardType: customer.lastPriceGuardType || 'COST',
+        lastPriceGuardInvoicedListNo: customer.lastPriceGuardInvoicedListNo ? String(customer.lastPriceGuardInvoicedListNo) : '',
+        lastPriceGuardWhiteListNo: customer.lastPriceGuardWhiteListNo ? String(customer.lastPriceGuardWhiteListNo) : '',
         lastPriceCostBasis: customer.lastPriceCostBasis || 'CURRENT_COST',
         lastPriceMinCostPercent: Number.isFinite(customer.lastPriceMinCostPercent)
           ? String(customer.lastPriceMinCostPercent)
@@ -481,6 +487,12 @@ export function CustomerEditModal({
         priceVisibility: formData.priceVisibility as 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH',
         useLastPrices: formData.useLastPrices,
         lastPriceGuardType: formData.lastPriceGuardType as 'COST' | 'PRICE_LIST',
+        lastPriceGuardInvoicedListNo: formData.lastPriceGuardInvoicedListNo
+          ? parseInt(formData.lastPriceGuardInvoicedListNo, 10)
+          : null,
+        lastPriceGuardWhiteListNo: formData.lastPriceGuardWhiteListNo
+          ? parseInt(formData.lastPriceGuardWhiteListNo, 10)
+          : null,
         lastPriceCostBasis: formData.lastPriceCostBasis as 'CURRENT_COST' | 'LAST_ENTRY',
         lastPriceMinCostPercent: safeMinCostPercent,
       });
@@ -627,9 +639,47 @@ export function CustomerEditModal({
                     />
                   </>
                 ) : (
-                  <div className="text-xs text-gray-500 mt-2 md:col-span-2">
-                    Son fiyat liste fiyatindan dusukse liste fiyati gosterilir.
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Referans Toptan Liste</label>
+                      <select
+                        className="input w-full"
+                        value={formData.lastPriceGuardInvoicedListNo}
+                        onChange={(e) =>
+                          setFormData({ ...formData, lastPriceGuardInvoicedListNo: e.target.value })
+                        }
+                      >
+                        <option value="">Mevcut fiyat listesi</option>
+                        {WHOLESALE_LISTS.map((list) => (
+                          <option key={list.value} value={list.value}>
+                            {list.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Referans Perakende Liste</label>
+                      <select
+                        className="input w-full"
+                        value={formData.lastPriceGuardWhiteListNo}
+                        onChange={(e) =>
+                          setFormData({ ...formData, lastPriceGuardWhiteListNo: e.target.value })
+                        }
+                      >
+                        <option value="">Mevcut fiyat listesi</option>
+                        {RETAIL_LISTS.map((list) => (
+                          <option key={list.value} value={list.value}>
+                            {list.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="text-xs text-gray-500 md:col-span-2">
+                      Son fiyat, secilen referans liste fiyatindan dusukse liste fiyati gosterilir.
+                    </div>
+                  </>
                 )}
               </div>
             )}

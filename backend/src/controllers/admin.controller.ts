@@ -666,6 +666,8 @@ export class AdminController {
             priceVisibility: true,
             useLastPrices: true,
             lastPriceGuardType: true,
+            lastPriceGuardInvoicedListNo: true,
+            lastPriceGuardWhiteListNo: true,
             lastPriceCostBasis: true,
             lastPriceMinCostPercent: true,
             active: true,
@@ -848,6 +850,8 @@ export class AdminController {
         priceVisibility,
         useLastPrices,
         lastPriceGuardType,
+        lastPriceGuardInvoicedListNo,
+        lastPriceGuardWhiteListNo,
         lastPriceCostBasis,
         lastPriceMinCostPercent,
       } = req.body;
@@ -888,6 +892,8 @@ export class AdminController {
       if (priceVisibility !== undefined) updateData.priceVisibility = priceVisibility;
       if (useLastPrices !== undefined) updateData.useLastPrices = useLastPrices;
       if (lastPriceGuardType !== undefined) updateData.lastPriceGuardType = lastPriceGuardType;
+      if (lastPriceGuardInvoicedListNo !== undefined) updateData.lastPriceGuardInvoicedListNo = lastPriceGuardInvoicedListNo;
+      if (lastPriceGuardWhiteListNo !== undefined) updateData.lastPriceGuardWhiteListNo = lastPriceGuardWhiteListNo;
       if (lastPriceCostBasis !== undefined) updateData.lastPriceCostBasis = lastPriceCostBasis;
       if (lastPriceMinCostPercent !== undefined) updateData.lastPriceMinCostPercent = lastPriceMinCostPercent;
 
@@ -907,6 +913,8 @@ export class AdminController {
             priceVisibility: true,
             useLastPrices: true,
             lastPriceGuardType: true,
+            lastPriceGuardInvoicedListNo: true,
+            lastPriceGuardWhiteListNo: true,
             lastPriceCostBasis: true,
             lastPriceMinCostPercent: true,
             active: true,
