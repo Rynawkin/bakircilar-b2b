@@ -55,8 +55,13 @@ export const resolveCustomerPriceLists = (
   const normalizedType =
     typeof user.customerType === 'string' ? user.customerType.trim().toUpperCase() : 'BAYI';
   const base =
-    (config as Record<string, PriceListPair>)[normalizedType] ||
-    DEFAULT_PRICE_LISTS.BAYI;
+    normalizedType === 'PERAKENDE'
+      ? config.PERAKENDE
+      : normalizedType === 'VIP'
+        ? config.VIP
+        : normalizedType === 'OZEL'
+          ? config.OZEL
+          : config.BAYI;
 
   return {
     invoiced: resolveListNo(user.invoicedPriceListNo, base.invoiced, 6, 10),
