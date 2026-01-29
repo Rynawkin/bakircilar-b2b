@@ -134,6 +134,11 @@ export interface Order {
   mikroOrderIds?: string[];
   customerOrderNumber?: string | null;
   deliveryLocation?: string | null;
+  sourceQuote?: {
+    id: string;
+    quoteNumber: string;
+    createdAt: string;
+  } | null;
   customerRequest?: {
     id: string;
     createdAt: string;
@@ -293,7 +298,10 @@ export interface Quote {
   customerRespondedAt?: string;
   createdAt: string;
   updatedAt: string;
+  convertedAt?: string | null;
+  convertedSource?: 'B2B' | 'MIKRO' | null;
   items: QuoteItem[];
+  orders?: Array<{ id: string; orderNumber: string; createdAt: string }>;
   customer?: {
     id: string;
     name: string;
@@ -322,11 +330,34 @@ export interface Quote {
     phone?: string;
     role?: string;
   };
+  updatedBy?: {
+    id: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    role?: string;
+  };
   adminUser?: {
     id: string;
     name: string;
     email?: string;
   };
+}
+
+export type QuoteHistoryAction = 'CREATED' | 'UPDATED' | 'STATUS_CHANGED' | 'CONVERTED';
+
+export interface QuoteHistory {
+  id: string;
+  quoteId: string;
+  action: QuoteHistoryAction;
+  summary?: string | null;
+  payload?: any;
+  createdAt: string;
+  actor?: {
+    id: string;
+    name: string;
+    email?: string;
+  } | null;
 }
 
 // ==================== TASK TYPES ====================

@@ -266,6 +266,33 @@ class MikroService {
     }));
   }
 
+  async hasOrdersForQuote(params: { evrakSeri: string; evrakSira: number }): Promise<boolean> {
+    const sipExtraColumns = await this.resolveSipExtraColumns();
+    if (!sipExtraColumns.teklifUid) {
+      return false;
+    }
+
+    const guids = await this.getQuoteLineGuids(params);
+    const guidList = guids.map((row) => row.guid).filter(Boolean) as string[];
+    if (!guidList.length) {
+      return false;
+    }
+
+    const request = this.pool!.request();
+    guidList.forEach((guid, index) => {
+      request.input(`guid${index}`, sql.UniqueIdentifier, guid);
+    });
+    const inClause = guidList.map((_, index) => `@guid${index}`).join(",");
+
+    const result = await request.query(`
+      SELECT TOP 1 sip_teklif_uid
+      FROM SIPARISLER
+      WHERE sip_teklif_uid IN (${inClause})
+    `);
+
+    return result.recordset.length > 0;
+  }
+
   async closeQuoteLines(params: {
     evrakSeri: string;
     evrakSira: number;

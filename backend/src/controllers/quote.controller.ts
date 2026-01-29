@@ -136,6 +136,20 @@ export class QuoteController {
   }
 
   /**
+   * GET /api/admin/quotes/:id/history
+   */
+  async getQuoteHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const history = await quoteService.getQuoteHistory(id);
+      res.json({ history });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+
+  /**
    * POST /api/admin/quotes/:id/approve
    */
   async approveQuote(req: Request, res: Response, next: NextFunction) {

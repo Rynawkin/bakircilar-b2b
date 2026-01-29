@@ -75,6 +75,18 @@ enum QuoteStatus {
   CUSTOMER_REJECTED  // MÃ¼ÅŸteri reddetti
 }
 
+enum QuoteConversionSource {
+  B2B
+  MIKRO
+}
+
+enum QuoteHistoryAction {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  CONVERTED
+}
+
 enum QuotePriceSource {
   LAST_SALE   // Son satÄ±ÅŸ fiyatÄ±
   PRICE_LIST  // Mikro fiyat listesi
@@ -273,6 +285,8 @@ model User {
   supplierPriceListUploads SupplierPriceListUpload[] @relation("SupplierPriceListUploader")
   priceListRules     CustomerPriceListRule[]
 
+  quotesUpdated      Quote[]       @relation("QuoteUpdater")
+  quoteHistories     QuoteHistory[] @relation("QuoteHistoryActor")
   @@index([email])
   @@index([role])
   @@index([mikroCariCode])
@@ -815,6 +829,9 @@ model Order {
 
   customerRequest CustomerRequest? @relation("CustomerRequestOrder")
 
+  sourceQuoteId   String?
+  sourceQuote     Quote?        @relation("QuoteOrders", fields: [sourceQuoteId], references: [id])
+
   customerOrderNumber String?
   deliveryLocation String?
 
@@ -963,6 +980,14 @@ model Quote {
   createdBy         User          @relation("QuoteCreator", fields: [createdById], references: [id])
 
   adminUserId       String?
+  updatedById       String?
+  updatedBy         User?         @relation("QuoteUpdater", fields: [updatedById], references: [id])
+
+  convertedAt       DateTime?
+  convertedSource   QuoteConversionSource?
+
+  orders            Order[]       @relation("QuoteOrders")
+  histories         QuoteHistory[]
   adminUser         User?         @relation("QuoteAdmin", fields: [adminUserId], references: [id])
 
   items             QuoteItem[]
@@ -1039,6 +1064,21 @@ model QuoteItem {
   @@index([productId])
   @@index([productCode])
   @@index([priceSource])
+}
+
+model QuoteHistory {
+  id        String              @id @default(uuid())
+  quoteId   String
+  quote     Quote               @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  action    QuoteHistoryAction
+  summary   String?
+  payload   Json?
+  actorId   String?
+  actor     User?               @relation("QuoteHistoryActor", fields: [actorId], references: [id])
+  createdAt DateTime            @default(now())
+
+  @@index([quoteId])
+  @@index([actorId])
 }
 
 model CustomerContact {

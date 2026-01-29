@@ -365,6 +365,9 @@ class OrderService {
             requestedBy: { select: { id: true, name: true, email: true } },
           },
         },
+        sourceQuote: {
+          select: { id: true, quoteNumber: true, createdAt: true },
+        },
         items: {
           include: {
             product: {
@@ -433,6 +436,9 @@ class OrderService {
             requestedBy: { select: { id: true, name: true, email: true } },
           },
         },
+        sourceQuote: {
+          select: { id: true, quoteNumber: true, createdAt: true },
+        },
         items: {
           include: {
             product: {
@@ -480,6 +486,9 @@ class OrderService {
             createdAt: true,
             requestedBy: { select: { id: true, name: true, email: true } },
           },
+        },
+        sourceQuote: {
+          select: { id: true, quoteNumber: true, createdAt: true },
         },
         items: {
           include: {

@@ -32,9 +32,7 @@ export default function QuoteConvertPage() {
   const [includedWarehouses, setIncludedWarehouses] = useState<string[]>([]);
   const [warehouseNo, setWarehouseNo] = useState('');
   const [invoicedSeries, setInvoicedSeries] = useState('');
-  const [invoicedSira, setInvoicedSira] = useState('');
   const [whiteSeries, setWhiteSeries] = useState('');
-  const [whiteSira, setWhiteSira] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -116,21 +114,11 @@ export default function QuoteConvertPage() {
         toast.error('Faturali seri gerekli.');
         return;
       }
-      const siraValue = Number(invoicedSira);
-      if (!Number.isFinite(siraValue) || siraValue <= 0) {
-        toast.error('Faturali sira gerekli.');
-        return;
-      }
     }
 
     if (hasWhite) {
       if (!whiteSeries.trim()) {
         toast.error('Beyaz seri gerekli.');
-        return;
-      }
-      const siraValue = Number(whiteSira);
-      if (!Number.isFinite(siraValue) || siraValue <= 0) {
-        toast.error('Beyaz sira gerekli.');
         return;
       }
     }
@@ -149,9 +137,7 @@ export default function QuoteConvertPage() {
         closeReasons,
         warehouseNo: Number(resolveWarehouseValue(warehouseNo)),
         invoicedSeries: invoicedSeries.trim() || undefined,
-        invoicedSira: invoicedSira ? Number(invoicedSira) : undefined,
         whiteSeries: whiteSeries.trim() || undefined,
-        whiteSira: whiteSira ? Number(whiteSira) : undefined,
       });
 
       const orderLabel = result.orderNumber
@@ -315,22 +301,13 @@ export default function QuoteConvertPage() {
                 {hasInvoiced && (
                   <div className="space-y-3">
                     <p className="text-xs font-semibold text-gray-500">Faturali Siparis</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                       <div>
                         <label className="block text-xs text-gray-600 mb-1">Seri</label>
                         <Input
                           value={invoicedSeries}
                           onChange={(e) => setInvoicedSeries(e.target.value)}
                           placeholder="Orn: HENDEK"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-600 mb-1">Sira</label>
-                        <Input
-                          type="number"
-                          value={invoicedSira}
-                          onChange={(e) => setInvoicedSira(e.target.value)}
-                          placeholder="Orn: 8915"
                         />
                       </div>
                     </div>
@@ -340,22 +317,13 @@ export default function QuoteConvertPage() {
                 {hasWhite && (
                   <div className="space-y-3">
                     <p className="text-xs font-semibold text-gray-500">Beyaz Siparis</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                       <div>
                         <label className="block text-xs text-gray-600 mb-1">Seri</label>
                         <Input
                           value={whiteSeries}
                           onChange={(e) => setWhiteSeries(e.target.value)}
                           placeholder="Orn: HENDEK"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-600 mb-1">Sira</label>
-                        <Input
-                          type="number"
-                          value={whiteSira}
-                          onChange={(e) => setWhiteSira(e.target.value)}
-                          placeholder="Orn: 8915"
                         />
                       </div>
                     </div>

@@ -369,12 +369,29 @@ export default function AdminOrdersPage() {
                     {/* Admin Note */}
                     {order.adminNote && (
                       <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-                        <p className="text-xs font-medium text-gray-600">?? Admin Notu:</p>
+                        <p className="text-xs font-medium text-gray-600">Admin Notu:</p>
                         <p className="text-sm text-gray-800 mt-1">{order.adminNote}</p>
                       </div>
                     )}
 
-                    
+                    {order.sourceQuote && (
+                      <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
+                        <p className="text-xs font-medium text-emerald-700">Teklif Kaynagi</p>
+                        <p className="text-xs text-emerald-700 mt-1">
+                          Teklif No: {order.sourceQuote.quoteNumber}
+                          {order.sourceQuote.createdAt ? ` - ${formatDate(order.sourceQuote.createdAt)}` : ''}
+                        </p>
+                        <div className="mt-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => router.push(`/quotes?history=${order.sourceQuote?.id}`)}
+                          >
+                            Teklif Gecmisi
+                          </Button>
+                        </div>
+                      </div>
+                    )}
 
                     {(order.customerOrderNumber || order.deliveryLocation) && (
                       <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">

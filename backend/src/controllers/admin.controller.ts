@@ -1539,7 +1539,7 @@ export class AdminController {
       }
 
       // SALES_REP ise sadece atanan sektörlerdeki müşterilerin siparişlerini göster
-      if (userRole === 'SALES_REP') {
+      if (userRole === 'SALES_REP' && assignedSectorCodes.length > 0) {
         where.user = {
           sectorCode: { in: assignedSectorCodes }
         };
@@ -1569,6 +1569,9 @@ export class AdminController {
               createdAt: true,
               requestedBy: { select: { id: true, name: true, email: true } },
             },
+          },
+          sourceQuote: {
+            select: { id: true, quoteNumber: true, createdAt: true },
           },
           items: {
             include: {

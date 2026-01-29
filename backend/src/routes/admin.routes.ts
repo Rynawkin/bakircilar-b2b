@@ -294,6 +294,7 @@ router.post('/quotes', requireStaff, quoteController.createQuote);
 router.put('/quotes/:id', requireStaff, quoteController.updateQuote);
 router.get('/quotes', requireStaff, quoteController.getQuotes);
 router.get('/quotes/:id', requireStaff, quoteController.getQuoteById);
+router.get('/quotes/:id/history', requireStaff, quoteController.getQuoteHistory);
 router.post('/quotes/:id/sync', requireStaff, quoteController.syncQuoteFromMikro);
 router.post('/quotes/:id/convert-to-order', requireStaff, quoteController.convertQuoteToOrder);
 router.post('/quotes/:id/approve', requireAdmin, quoteController.approveQuote);

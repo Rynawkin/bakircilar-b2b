@@ -561,6 +561,7 @@ class QuoteService {
         status: hasBlockedItem ? 'PENDING_APPROVAL' : 'SENT_TO_MIKRO',
         customerId: customer.id,
         createdById,
+        updatedById: createdById,
         note: note?.trim() || null,
         documentNo: resolvedDocumentNo || null,
         responsibleCode: resolvedResponsibleCode || null,
@@ -582,6 +583,20 @@ class QuoteService {
       include: {
         items: { orderBy: { lineOrder: 'asc' } },
         customer: { select: { id: true, name: true, mikroCariCode: true } },
+      },
+    });
+
+    await prisma.quoteHistory.create({
+      data: {
+        quoteId: quote.id,
+        action: 'CREATED',
+        actorId: createdById,
+        summary: 'Teklif olusturuldu',
+        payload: {
+          totalAmount,
+          itemCount: preparedItems.length,
+          status: quote.status,
+        },
       },
     });
 
@@ -857,6 +872,7 @@ class QuoteService {
       return tx.quote.update({
         where: { id: quoteId },
         data: {
+          updatedById,
           status: nextStatus,
           customerId: customer.id,
           note: note?.trim() || null,
@@ -875,6 +891,20 @@ class QuoteService {
         },
         include: { items: { orderBy: { lineOrder: 'asc' } } },
       });
+    });
+
+    await prisma.quoteHistory.create({
+      data: {
+        quoteId: updatedQuote.id,
+        action: 'UPDATED',
+        actorId: updatedById,
+        summary: 'Teklif guncellendi',
+        payload: {
+          totalAmount,
+          itemCount: preparedItems.length,
+          status: updatedQuote.status,
+        },
+      },
     });
 
     return updatedQuote;
@@ -940,8 +970,20 @@ class QuoteService {
             role: true,
           },
         },
+        updatedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            role: true,
+          },
+        },
         adminUser: {
           select: { id: true, name: true, email: true },
+        },
+        orders: {
+          select: { id: true, orderNumber: true, createdAt: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -982,8 +1024,14 @@ class QuoteService {
         createdBy: {
           select: { id: true, name: true, email: true, phone: true },
         },
+        updatedBy: {
+          select: { id: true, name: true, email: true, phone: true },
+        },
         adminUser: {
           select: { id: true, name: true, email: true },
+        },
+        orders: {
+          select: { id: true, orderNumber: true, createdAt: true },
         },
       },
     });
@@ -1043,6 +1091,18 @@ class QuoteService {
     });
 
     return { ...quote, items };
+  }
+
+  async getQuoteHistory(quoteId: string) {
+    const history = await prisma.quoteHistory.findMany({
+      where: { quoteId },
+      include: {
+        actor: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return history;
   }
 
   async getQuotesForCustomer(customerId: string) {
@@ -1113,6 +1173,7 @@ class QuoteService {
       where: { id: quoteId },
       data: {
         status: 'SENT_TO_MIKRO',
+        updatedById: adminUserId,
         adminNote: adminNote?.trim() || null,
         adminUserId,
         adminActionAt: new Date(),
@@ -1121,6 +1182,19 @@ class QuoteService {
         quoteNumber: mikroResult?.quoteNumber || quote.quoteNumber,
       },
       include: { items: { orderBy: { lineOrder: 'asc' } } },
+    });
+
+    await prisma.quoteHistory.create({
+      data: {
+        quoteId: updated.id,
+        action: 'STATUS_CHANGED',
+        actorId: adminUserId,
+        summary: "Teklif onaylandi ve Mikro'ya gonderildi",
+        payload: {
+          status: updated.status,
+          mikroNumber: updated.mikroNumber,
+        },
+      },
     });
 
     return updated;
@@ -1139,12 +1213,25 @@ class QuoteService {
     const updated = await prisma.quote.update({
       where: { id: quoteId },
       data: {
+        updatedById: adminUserId,
         status: 'REJECTED',
         adminNote: adminNote.trim(),
         adminUserId,
         adminActionAt: new Date(),
       },
       include: { items: { orderBy: { lineOrder: 'asc' } } },
+    });
+
+    await prisma.quoteHistory.create({
+      data: {
+        quoteId: updated.id,
+        action: 'STATUS_CHANGED',
+        actorId: adminUserId,
+        summary: 'Teklif reddedildi',
+        payload: {
+          status: updated.status,
+        },
+      },
     });
 
     return updated;
@@ -1355,7 +1442,32 @@ class QuoteService {
       return updated;
     });
 
-    return { quote: updatedQuote, updated: true };
+    let conversionUpdated = updatedQuote;
+    try {
+      const hasMikroOrder = await mikroService.hasOrdersForQuote(parsed);
+      if (hasMikroOrder && !quote.convertedAt) {
+        conversionUpdated = await prisma.quote.update({
+          where: { id: quoteId },
+          data: {
+            convertedAt: new Date(),
+            convertedSource: 'MIKRO',
+          },
+          include: { items: { orderBy: { lineOrder: 'asc' } } },
+        });
+        await prisma.quoteHistory.create({
+          data: {
+            quoteId,
+            action: 'CONVERTED',
+            summary: 'Mikrodan siparise cevrildi',
+            payload: { source: 'MIKRO' },
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Mikro conversion check failed', { quoteId, error });
+    }
+
+    return { quote: conversionUpdated, updated: true };
   }
 
   async convertQuoteToOrder(
@@ -1494,8 +1606,8 @@ class QuoteService {
     const documentNo = quote.documentNo || undefined;
 
     if (invoicedItems.length > 0) {
-      if (!invoicedSeries || !Number.isFinite(Number(invoicedSira))) {
-        throw new Error('Invoiced order series and number are required');
+      if (!invoicedSeries) {
+        throw new Error('Invoiced order series is required');
       }
       invoicedOrderId = await mikroService.writeOrder({
         cariCode: quote.customer.mikroCariCode,
@@ -1511,7 +1623,7 @@ class QuoteService {
         description: noteBase,
         documentNo,
         evrakSeri: String(invoicedSeries).trim(),
-        evrakSira: Number(invoicedSira),
+        evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
         warehouseNo: warehouseValue,
       });
       if (invoicedOrderId) {
@@ -1520,8 +1632,8 @@ class QuoteService {
     }
 
     if (whiteItems.length > 0) {
-      if (!whiteSeries || !Number.isFinite(Number(whiteSira))) {
-        throw new Error('White order series and number are required');
+      if (!whiteSeries) {
+        throw new Error('White order series is required');
       }
       whiteOrderId = await mikroService.writeOrder({
         cariCode: quote.customer.mikroCariCode,
@@ -1537,7 +1649,7 @@ class QuoteService {
         description: noteBase,
         documentNo,
         evrakSeri: String(whiteSeries).trim(),
-        evrakSira: Number(whiteSira),
+        evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,
         warehouseNo: warehouseValue,
       });
       if (whiteOrderId) {
@@ -1578,6 +1690,7 @@ class QuoteService {
       data: {
         orderNumber,
         userId: quote.customerId,
+        sourceQuoteId: quote.id,
         requestedById: adminUserId,
         status: 'APPROVED',
         totalAmount,
@@ -1612,6 +1725,23 @@ class QuoteService {
         adminUserId,
         adminActionAt: new Date(),
         adminNote,
+        updatedById: adminUserId,
+        convertedAt: new Date(),
+        convertedSource: 'B2B',
+      },
+    });
+
+    await prisma.quoteHistory.create({
+      data: {
+        quoteId: quote.id,
+        action: 'CONVERTED',
+        actorId: adminUserId,
+        summary: 'Teklif siparise cevrildi',
+        payload: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          mikroOrderIds,
+        },
       },
     });
 

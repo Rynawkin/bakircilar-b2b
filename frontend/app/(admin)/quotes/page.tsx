@@ -4,10 +4,10 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
-import { Quote, QuoteStatus } from '@/types';
+import { Quote, QuoteHistory, QuoteStatus } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { ConfirmModal } from '@/components/ui/Modal';
+import { ConfirmModal, Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -131,6 +131,13 @@ function AdminQuotesPageContent() {
   const [stockPdfLoadingId, setStockPdfLoadingId] = useState<string | null>(null);
   const handledDownloadRef = useRef<string | null>(null);
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyQuote, setHistoryQuote] = useState<Quote | null>(null);
+  const [historyItems, setHistoryItems] = useState<QuoteHistory[]>([]);
+  const [pendingHistoryId, setPendingHistoryId] = useState<string | null>(null);
+  const handledHistoryRef = useRef<string | null>(null);
+
   useEffect(() => {
     fetchQuotes();
     fetchPreferences();
@@ -145,7 +152,11 @@ function AdminQuotesPageContent() {
     if (downloadId !== pendingDownloadId) {
       setPendingDownloadId(downloadId);
     }
-  }, [searchParams, activeTab, pendingDownloadId]);
+    const historyId = searchParams.get('history');
+    if (historyId !== pendingHistoryId) {
+      setPendingHistoryId(historyId);
+    }
+  }, [searchParams, activeTab, pendingDownloadId, pendingHistoryId]);
 
   useEffect(() => {
     if (!pendingDownloadId) return;
@@ -156,6 +167,15 @@ function AdminQuotesPageContent() {
     setDownloadPromptQuote(targetQuote);
     setDownloadPromptOpen(true);
   }, [pendingDownloadId, allQuotes]);
+
+  useEffect(() => {
+    if (!pendingHistoryId) return;
+    if (handledHistoryRef.current === pendingHistoryId) return;
+    const targetQuote = allQuotes.find((quote) => quote.id === pendingHistoryId);
+    if (!targetQuote) return;
+    handledHistoryRef.current = pendingHistoryId;
+    handleOpenHistory(targetQuote);
+  }, [pendingHistoryId, allQuotes]);
 
   useEffect(() => {
     if (activeTab === 'ALL') {
@@ -906,6 +926,69 @@ function AdminQuotesPageContent() {
     }
   };
 
+  const clearHistoryParam = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('history');
+    if (!params.get('tab')) {
+      params.set('tab', resolveTabParam(activeTab));
+    }
+    const query = params.toString();
+    router.replace(query ? `/quotes?${query}` : '/quotes');
+    setPendingHistoryId(null);
+  };
+
+  const handleHistoryClose = () => {
+    setHistoryOpen(false);
+    setHistoryQuote(null);
+    setHistoryItems([]);
+    clearHistoryParam();
+  };
+
+  const handleOpenHistory = async (quote: Quote) => {
+    setHistoryQuote(quote);
+    setHistoryItems([]);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const { history } = await adminApi.getQuoteHistory(quote.id);
+      setHistoryItems(history || []);
+    } catch (error) {
+      console.error('Teklif gecmisi yuklenemedi:', error);
+      toast.error('Teklif gecmisi yuklenemedi.');
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const resolveHistoryLabel = (action: QuoteHistory['action']) => {
+    switch (action) {
+      case 'CREATED':
+        return 'Olusturuldu';
+      case 'UPDATED':
+        return 'Guncellendi';
+      case 'STATUS_CHANGED':
+        return 'Durum degisti';
+      case 'CONVERTED':
+        return 'Siparise cevrildi';
+      default:
+        return 'Islem';
+    }
+  };
+
+  const buildHistoryDetails = (entry: QuoteHistory) => {
+    const payload = entry.payload as any;
+    if (!payload || typeof payload !== 'object') return [];
+    const details: string[] = [];
+    if (payload.status) details.push(`Durum: ${payload.status}`);
+    if (payload.orderNumber) details.push(`Siparis: ${payload.orderNumber}`);
+    if (Array.isArray(payload.mikroOrderIds) && payload.mikroOrderIds.length > 0) {
+      details.push(`Mikro: ${payload.mikroOrderIds.join(', ')}`);
+    }
+    if (payload.itemCount) details.push(`Kalem: ${payload.itemCount}`);
+    if (payload.totalAmount) details.push(`Tutar: ${formatCurrency(payload.totalAmount)}`);
+    return details;
+  };
 
   const handleSync = async (quoteId: string) => {
     setSyncingQuoteId(quoteId);
@@ -934,6 +1017,14 @@ function AdminQuotesPageContent() {
       }
       return next;
     });
+  };
+
+  const getConversionBadge = (quote: Quote) => {
+    const hasOrders = Array.isArray(quote.orders) && quote.orders.length > 0;
+    if (!quote.convertedAt && !hasOrders) return null;
+    const source = quote.convertedSource || (hasOrders ? 'B2B' : undefined);
+    const sourceLabel = source === 'MIKRO' ? 'Mikro' : 'B2B';
+    return <Badge variant="info">Siparis ({sourceLabel})</Badge>;
   };
 
   const counts = {
@@ -1102,6 +1193,10 @@ function AdminQuotesPageContent() {
                 '-';
               const customerCode = quote.customer?.mikroCariCode || '-';
               const canEdit = quote.status === 'PENDING_APPROVAL' || quote.status === 'SENT_TO_MIKRO';
+              const createdAtText = quote.createdAt ? formatDate(quote.createdAt) : '-';
+              const updatedAtText = quote.updatedAt ? formatDate(quote.updatedAt) : '-';
+              const createdByName = quote.createdBy?.name || '-';
+              const updatedByName = quote.updatedBy?.name || createdByName || '-';
 
               return (
                 <Card key={quote.id} className="overflow-hidden">
@@ -1110,10 +1205,14 @@ function AdminQuotesPageContent() {
                       <div className="text-xs text-gray-500">Cari</div>
                       <div className="font-semibold text-gray-900">{customerName}</div>
                       <div className="text-xs text-gray-500 mt-1">
-                        Kod: {customerCode} · Teklif #{quote.quoteNumber} · {formatDateShort(quote.createdAt)}
+                        Kod: {customerCode} - Teklif #{quote.quoteNumber} - {createdAtText}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">Olusturan: {createdByName}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Guncelleme: {updatedAtText} - {updatedByName}
                       </div>
                       <div className="text-xs text-gray-500 mt-1">
-                        Geçerlilik: {formatDateShort(quote.validityDate)}
+                        Ge?erlilik: {formatDateShort(quote.validityDate)}
                       </div>
                       {quote.mikroNumber && (
                         <div className="mt-2 inline-flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-2 py-1">
@@ -1124,6 +1223,7 @@ function AdminQuotesPageContent() {
                     </div>
                     <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                       {getStatusBadge(quote.status)}
+                      {getConversionBadge(quote)}
                       <div className="text-right">
                         <div className="text-xs text-gray-500">Toplam</div>
                         <div className="text-lg font-bold text-primary-600">{formatCurrency(quote.grandTotal)}</div>
@@ -1153,6 +1253,9 @@ function AdminQuotesPageContent() {
                     </Button>
                     <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
                       WhatsApp Paylaş
+                    </Button>
+                    <Button variant="secondary" onClick={() => handleOpenHistory(quote)}>
+                      Gecmis
                     </Button>
                     {canEdit && (
                       <Button variant="secondary" onClick={() => router.push(`/quotes/new?edit=${quote.id}`)}>
@@ -1255,6 +1358,49 @@ function AdminQuotesPageContent() {
         variant="info"
         isLoading={downloadPromptLoading}
       />
+
+      <Modal
+        isOpen={historyOpen}
+        onClose={handleHistoryClose}
+        title={historyQuote ? `Teklif Gecmisi - ${historyQuote.quoteNumber}` : 'Teklif Gecmisi'}
+        size="lg"
+        footer={
+          <Button variant="secondary" onClick={handleHistoryClose}>
+            Kapat
+          </Button>
+        }
+      >
+        {historyLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+          </div>
+        ) : historyItems.length === 0 ? (
+          <p className="text-sm text-gray-500">Kayit bulunamadi.</p>
+        ) : (
+          <div className="space-y-3">
+            {historyItems.map((entry) => {
+              const details = buildHistoryDetails(entry);
+              const actorName = entry.actor?.name || 'Sistem';
+              return (
+                <div key={entry.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-gray-900">
+                      {entry.summary || resolveHistoryLabel(entry.action)}
+                    </div>
+                    <Badge variant="outline">{resolveHistoryLabel(entry.action)}</Badge>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {formatDate(entry.createdAt)} - {actorName}
+                  </div>
+                  {details.length > 0 && (
+                    <div className="text-xs text-gray-600 mt-2">{details.join(' - ')}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
 
     </div>
   );

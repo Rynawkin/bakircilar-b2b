@@ -12,6 +12,7 @@ import {
   CreateCustomerRequest,
   PendingOrderForAdmin,
   Quote,
+  QuoteHistory,
   CategoryWithPriceRules,
   SetPriceRuleRequest,
   DashboardStats,
@@ -480,6 +481,11 @@ export const adminApi = {
 
   getQuoteById: async (id: string): Promise<{ quote: Quote }> => {
     const response = await apiClient.get(`/admin/quotes/${id}`);
+    return response.data;
+  },
+
+  getQuoteHistory: async (id: string): Promise<{ history: QuoteHistory[] }> => {
+    const response = await apiClient.get(`/admin/quotes/${id}/history`);
     return response.data;
   },
 

@@ -636,6 +636,10 @@ export class MikroMockService {
   /**
    * Mock Mikro'ya teklif yazma
    */
+  async hasOrdersForQuote(_params: { evrakSeri: string; evrakSira: number }): Promise<boolean> {
+    return false;
+  }
+
   async writeQuote(quoteData: {
     cariCode: string;
     quoteNumber: string;
