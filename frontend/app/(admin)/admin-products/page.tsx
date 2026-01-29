@@ -65,6 +65,7 @@ interface Stats {
 export default function AdminProductsPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
