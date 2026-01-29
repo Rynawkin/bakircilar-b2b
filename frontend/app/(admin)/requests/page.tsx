@@ -122,6 +122,9 @@ export default function AdminRequestsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<TaskView>('KANBAN');
   const kanbanRef = useRef<HTMLDivElement | null>(null);
+  const kanbanScrollProxyRef = useRef<HTMLDivElement | null>(null);
+  const syncScrollRef = useRef(false);
+  const [kanbanScrollWidth, setKanbanScrollWidth] = useState(0);
   const [colorRules, setColorRules] = useState<TaskColorRule[]>([]);
   const [colorRulesOpen, setColorRulesOpen] = useState(false);
   const [colorRulesSaving, setColorRulesSaving] = useState(false);
@@ -613,6 +616,44 @@ export default function AdminRequestsPage() {
   };
 
 
+  const updateKanbanScrollWidth = () => {
+    const container = kanbanRef.current;
+    if (!container) return;
+    const width = Math.max(container.scrollWidth, container.clientWidth);
+    setKanbanScrollWidth(width);
+    if (kanbanScrollProxyRef.current) {
+      kanbanScrollProxyRef.current.scrollLeft = container.scrollLeft;
+    }
+  };
+
+  const handleProxyScroll = () => {
+    const proxy = kanbanScrollProxyRef.current;
+    const container = kanbanRef.current;
+    if (!proxy || !container) return;
+    if (syncScrollRef.current) return;
+    syncScrollRef.current = true;
+    container.scrollLeft = proxy.scrollLeft;
+    syncScrollRef.current = false;
+  };
+
+  const handleKanbanScroll = () => {
+    const proxy = kanbanScrollProxyRef.current;
+    const container = kanbanRef.current;
+    if (!proxy || !container) return;
+    if (syncScrollRef.current) return;
+    syncScrollRef.current = true;
+    proxy.scrollLeft = container.scrollLeft;
+    syncScrollRef.current = false;
+  };
+
+  useEffect(() => {
+    if (view !== 'KANBAN') return;
+    const handleResize = () => updateKanbanScrollWidth();
+    updateKanbanScrollWidth();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [view, tasks.length, visibleStatuses.length]);
+
   const scrollKanban = (direction: 'left' | 'right') => {
     const container = kanbanRef.current;
     if (!container) return;
@@ -810,7 +851,36 @@ export default function AdminRequestsPage() {
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
           </div>
         ) : view === 'KANBAN' ? (
-          <div ref={kanbanRef} className="flex gap-3 overflow-x-auto pb-4">
+          <div className="sticky top-3 z-20 mb-3 rounded-xl border border-gray-200 bg-white/90 backdrop-blur px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-gray-500">Yatay kaydirma</div>
+              <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                <button
+                  className="px-3 py-1 text-sm font-medium bg-white text-gray-700 hover:bg-gray-50"
+                  onClick={() => scrollKanban('left')}
+                  aria-label="Sola kaydir"
+                >
+                  &lt;
+                </button>
+                <button
+                  className="px-3 py-1 text-sm font-medium bg-white text-gray-700 hover:bg-gray-50"
+                  onClick={() => scrollKanban('right')}
+                  aria-label="Saga kaydir"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
+            <div
+              ref={kanbanScrollProxyRef}
+              onScroll={handleProxyScroll}
+              className="mt-2 h-3 overflow-x-auto"
+            >
+              <div style={{ width: kanbanScrollWidth }} />
+            </div>
+          </div>
+
+          <div ref={kanbanRef} onScroll={handleKanbanScroll} className="flex gap-3 overflow-x-auto pb-4">
             {visibleStatuses.map((status) => (
               <div key={status} className="min-w-[220px] max-w-[240px] flex-1">
                 <div className="flex items-center justify-between mb-3">

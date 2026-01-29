@@ -1905,7 +1905,7 @@ function AdminQuoteNewPageContent() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Son Satis Adedi</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{'\u0130lgili Ki\u015fi'}</label>
                 <select
                   value={lastSalesCount}
                   onChange={(e) => handleLastSalesCountChange(Number(e.target.value))}
@@ -1917,7 +1917,7 @@ function AdminQuoteNewPageContent() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-gray-500">Her urun icin son {lastSalesCount} satis gosterilir.</p>
+                <p className="mt-1 text-xs text-gray-500">{'Bu m\u00fc\u015fteri i\u00e7in kay\u0131tl\u0131 ki\u015fi yok.'}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Sablonu</label>
@@ -1936,7 +1936,7 @@ function AdminQuoteNewPageContent() {
                   onChange={(e) => setSelectedResponsibleCode(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                 >
-                  <option value="">Sorumlu secin</option>
+                  <option value="">{'\u0130lgili se\u00e7in'}</option>
                   {responsibles.map((person) => (
                     <option key={person.code} value={person.code}>
                       {person.code} - {person.name} {person.surname}
@@ -2052,7 +2052,7 @@ function AdminQuoteNewPageContent() {
                             placeholder="Depo"
                           />
                         )}
-
+                      </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Belge No (Musteri Siparis No)</label>
                         <Input
@@ -2060,7 +2060,6 @@ function AdminQuoteNewPageContent() {
                           onChange={(e) => setOrderCustomerOrderNumber(e.target.value)}
                           placeholder="Orn: HENDEK-8915"
                         />
-                      </div>
                       </div>
                       <div>
                         {orderHasInvoiced && (
