@@ -60,8 +60,7 @@ export default function AdminOrdersPage() {
   const cleanPdfText = (text: string | number | null | undefined) => {
     const value = text ?? '';
     return String(value)
-      .replace(/?
-/g, ' ')
+      .replace(/\r?\n/g, ' ')
       .replace(/???/g, 'TL')
       .replace(/??/g, 'I')
       .replace(/??/g, 'i')
