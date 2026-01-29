@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { PendingOrderForAdmin } from '@/types';
 import adminApi from '@/lib/api/admin';
@@ -14,6 +15,7 @@ import { formatCurrency, formatDate } from '@/lib/utils/format';
 type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 
 export default function AdminOrdersPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<PendingOrderForAdmin[]>([]);
   const [allOrders, setAllOrders] = useState<PendingOrderForAdmin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -237,6 +239,9 @@ export default function AdminOrdersPage() {
           <h1 className="text-2xl font-bold text-gray-900">Siparisler</h1>
           <p className="text-sm text-gray-600">Tum musteri siparisleri</p>
         </div>
+        <Button variant="primary" onClick={() => router.push('/quotes/new?mode=order')}>
+          Yeni Siparis
+        </Button>
       </div>
     </div>
   );

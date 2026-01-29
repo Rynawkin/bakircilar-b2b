@@ -1159,6 +1159,11 @@ function AdminQuotesPageContent() {
                         Duzenle
                       </Button>
                     )}
+                    {quote.mikroNumber && quote.status !== 'REJECTED' && (
+                      <Button variant="primary" onClick={() => router.push(`/quotes/convert/${quote.id}`)}>
+                        Siparise Cevir
+                      </Button>
+                    )}
                     {quote.mikroNumber && (
                       <Button
                         variant="secondary"

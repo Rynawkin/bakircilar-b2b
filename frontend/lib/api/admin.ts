@@ -379,6 +379,31 @@ export const adminApi = {
     return response.data;
   },
 
+  createManualOrder: async (payload: {
+    customerId: string;
+    items: Array<{
+      productId?: string;
+      productCode?: string;
+      productName?: string;
+      quantity: number;
+      unitPrice: number;
+      priceType?: 'INVOICED' | 'WHITE';
+      vatZeroed?: boolean;
+      manualVatRate?: number;
+      lineDescription?: string;
+    }>;
+    warehouseNo: number;
+    description?: string;
+    documentNo?: string;
+    invoicedSeries?: string;
+    invoicedSira?: number;
+    whiteSeries?: string;
+    whiteSira?: number;
+  }): Promise<{ message: string; mikroOrderIds: string[]; orderId: string; orderNumber: string }> => {
+    const response = await apiClient.post('/admin/orders/manual', payload);
+    return response.data;
+  },
+
   // Quotes (Teklifler)
   getQuotePreferences: async (): Promise<{
     preferences: {
@@ -460,6 +485,22 @@ export const adminApi = {
 
   syncQuote: async (id: string): Promise<{ quote: Quote; updated: boolean }> => {
     const response = await apiClient.post(`/admin/quotes/${id}/sync`);
+    return response.data;
+  },
+
+  convertQuoteToOrder: async (
+    id: string,
+    payload: {
+      selectedItemIds: string[];
+      closeReasons?: Record<string, string>;
+      warehouseNo: number;
+      invoicedSeries?: string;
+      invoicedSira?: number;
+      whiteSeries?: string;
+      whiteSira?: number;
+    }
+  ): Promise<{ mikroOrderIds: string[]; closedCount: number; orderId: string; orderNumber: string }> => {
+    const response = await apiClient.post(`/admin/quotes/${id}/convert-to-order`, payload);
     return response.data;
   },
 

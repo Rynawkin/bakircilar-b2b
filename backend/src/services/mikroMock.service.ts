@@ -608,11 +608,14 @@ export class MikroMockService {
       unitPrice: number;
       vatRate: number;
       lineDescription?: string;
+      quoteLineGuid?: string;
     }>;
     applyVAT: boolean;
     description: string;
     documentNo?: string;
     evrakSeri?: string;
+    evrakSira?: number;
+    warehouseNo?: number;
   }): Promise<string> {
     // Mock sipariş ID üret
     const mockOrderId = `MKR-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -692,6 +695,26 @@ export class MikroMockService {
   async getQuoteLines(params: { evrakSeri: string; evrakSira: number }): Promise<any[]> {
     console.log('[MOCK] Teklif satirlari isteniyor:', params);
     return [];
+  }
+
+  async getQuoteLineGuids(params: { evrakSeri: string; evrakSira: number }): Promise<Array<{
+    satirNo: number;
+    guid: string;
+    productCode: string;
+    unitPrice: number;
+    quantity: number;
+  }>> {
+    console.log('[MOCK] Teklif guid listesi isteniyor:', params);
+    return [];
+  }
+
+  async closeQuoteLines(params: {
+    evrakSeri: string;
+    evrakSira: number;
+    lines: Array<{ satirNo: number; reason: string }>;
+  }): Promise<number> {
+    console.log('[MOCK] Teklif satir kapatma istendi:', params);
+    return 0;
   }
 
   async ensureCariExists(cariData: {

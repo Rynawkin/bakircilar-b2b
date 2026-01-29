@@ -8,6 +8,7 @@ import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import priceListService from './price-list.service';
 import { generateQuoteNumber } from '../utils/quoteNumber';
+import { generateOrderNumber } from '../utils/orderNumber';
 import { MikroCustomerSaleMovement } from '../types';
 
 type QuotePriceSource = 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL';
@@ -1355,6 +1356,266 @@ class QuoteService {
     });
 
     return { quote: updatedQuote, updated: true };
+  }
+
+  async convertQuoteToOrder(
+    quoteId: string,
+    input: {
+      selectedItemIds: string[];
+      closeReasons?: Record<string, string>;
+      warehouseNo: number;
+      invoicedSeries?: string;
+      invoicedSira?: number;
+      whiteSeries?: string;
+      whiteSira?: number;
+      adminUserId: string;
+    }
+  ) {
+    const {
+      selectedItemIds,
+      closeReasons,
+      warehouseNo,
+      invoicedSeries,
+      invoicedSira,
+      whiteSeries,
+      whiteSira,
+      adminUserId,
+    } = input;
+
+    const quote = await prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        items: { orderBy: { lineOrder: 'asc' } },
+        customer: {
+          select: {
+            mikroCariCode: true,
+            name: true,
+            displayName: true,
+            email: true,
+            phone: true,
+            city: true,
+            district: true,
+            hasEInvoice: true,
+          },
+        },
+      },
+    });
+
+    if (!quote) {
+      throw new Error('Quote not found');
+    }
+
+    if (!quote.mikroNumber) {
+      throw new Error('Quote has no Mikro number');
+    }
+
+    if (!quote.customer?.mikroCariCode) {
+      throw new Error('Customer missing Mikro cari code');
+    }
+
+    if (quote.status === 'REJECTED') {
+      throw new Error('Rejected quotes cannot be converted');
+    }
+
+    const warehouseValueRaw = Number(warehouseNo);
+    const warehouseValue =
+      Number.isFinite(warehouseValueRaw) && warehouseValueRaw > 0
+        ? Math.trunc(warehouseValueRaw)
+        : null;
+    if (!warehouseValue) {
+      throw new Error('Warehouse is required');
+    }
+
+    const selectedSet = new Set((selectedItemIds || []).filter(Boolean));
+    const selectedItems = quote.items.filter((item) => selectedSet.has(item.id));
+    if (selectedItems.length === 0) {
+      throw new Error('No quote items selected');
+    }
+
+    const unselectedItems = quote.items.filter((item) => !selectedSet.has(item.id));
+    const closeReasonsMap = closeReasons || {};
+    const missingReasons = unselectedItems.filter((item) => !String(closeReasonsMap[item.id] || '').trim());
+    if (missingReasons.length > 0) {
+      throw new Error('Close reason is required for unselected items');
+    }
+
+    const parsed = this.parseMikroNumber(quote.mikroNumber);
+    if (!parsed) {
+      throw new Error('Invalid Mikro number format');
+    }
+
+    const guidRows = await mikroService.getQuoteLineGuids(parsed);
+    const guidBySatir = new Map<number, string>();
+    const guidByProduct = new Map<string, Array<{ guid: string; unitPrice: number; quantity: number }>>();
+    guidRows.forEach((row) => {
+      if (row.guid) {
+        guidBySatir.set(row.satirNo, row.guid);
+        const list = guidByProduct.get(row.productCode) || [];
+        list.push({ guid: row.guid, unitPrice: row.unitPrice, quantity: row.quantity });
+        guidByProduct.set(row.productCode, list);
+      }
+    });
+
+    const mappedItems = selectedItems.map((item) => {
+      const satirNo = item.lineOrder - 1;
+      let guid = guidBySatir.get(satirNo);
+      if (!guid) {
+        const candidates = guidByProduct.get(item.productCode) || [];
+        if (candidates.length === 1) {
+          guid = candidates[0].guid;
+        } else if (candidates.length > 1) {
+          const matched = candidates.find((candidate) =>
+            Math.abs(candidate.unitPrice - item.unitPrice) < 0.01 &&
+            Math.abs(candidate.quantity - item.quantity) < 0.01
+          );
+          guid = matched?.guid || candidates[0].guid;
+        }
+      }
+
+      return {
+        productCode: item.productCode,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        vatRate: item.vatRate,
+        vatZeroed: item.vatZeroed,
+        priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+        lineDescription: item.lineDescription || (item.isManualLine ? item.productName : ''),
+        quoteLineGuid: guid,
+      };
+    });
+
+    const invoicedItems = mappedItems.filter((item) => item.priceType === 'INVOICED');
+    const whiteItems = mappedItems.filter((item) => item.priceType === 'WHITE');
+
+    const mikroOrderIds: string[] = [];
+    let invoicedOrderId: string | null = null;
+    let whiteOrderId: string | null = null;
+    const noteBase = `B2B Teklif ${quote.quoteNumber} -> Siparis`;
+    const documentNo = quote.documentNo || undefined;
+
+    if (invoicedItems.length > 0) {
+      if (!invoicedSeries || !Number.isFinite(Number(invoicedSira))) {
+        throw new Error('Invoiced order series and number are required');
+      }
+      invoicedOrderId = await mikroService.writeOrder({
+        cariCode: quote.customer.mikroCariCode,
+        items: invoicedItems.map((item) => ({
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: item.vatZeroed ? 0 : item.vatRate,
+          lineDescription: item.lineDescription || undefined,
+          quoteLineGuid: item.quoteLineGuid,
+        })),
+        applyVAT: true,
+        description: noteBase,
+        documentNo,
+        evrakSeri: String(invoicedSeries).trim(),
+        evrakSira: Number(invoicedSira),
+        warehouseNo: warehouseValue,
+      });
+      if (invoicedOrderId) {
+        mikroOrderIds.push(invoicedOrderId);
+      }
+    }
+
+    if (whiteItems.length > 0) {
+      if (!whiteSeries || !Number.isFinite(Number(whiteSira))) {
+        throw new Error('White order series and number are required');
+      }
+      whiteOrderId = await mikroService.writeOrder({
+        cariCode: quote.customer.mikroCariCode,
+        items: whiteItems.map((item) => ({
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: 0,
+          lineDescription: item.lineDescription || undefined,
+          quoteLineGuid: item.quoteLineGuid,
+        })),
+        applyVAT: false,
+        description: noteBase,
+        documentNo,
+        evrakSeri: String(whiteSeries).trim(),
+        evrakSira: Number(whiteSira),
+        warehouseNo: warehouseValue,
+      });
+      if (whiteOrderId) {
+        mikroOrderIds.push(whiteOrderId);
+      }
+    }
+
+    let closedCount = 0;
+    if (unselectedItems.length > 0) {
+      const linesToClose = unselectedItems.map((item) => ({
+        satirNo: item.lineOrder - 1,
+        reason: String(closeReasonsMap[item.id]).trim(),
+      }));
+      closedCount = await mikroService.closeQuoteLines({
+        evrakSeri: parsed.evrakSeri,
+        evrakSira: parsed.evrakSira,
+        lines: linesToClose,
+      });
+    }
+
+    const conversionNote = `Siparise cevrildi: ${mikroOrderIds.join(', ')}`;
+    const adminNote = quote.adminNote
+      ? `${quote.adminNote} | ${conversionNote}`
+      : conversionNote;
+
+    const lastOrder = await prisma.order.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { orderNumber: true },
+    });
+    const orderNumber = generateOrderNumber(lastOrder?.orderNumber);
+
+    const totalAmount = selectedItems.reduce(
+      (sum, item) => sum + item.unitPrice * item.quantity,
+      0
+    );
+
+    const order = await prisma.order.create({
+      data: {
+        orderNumber,
+        userId: quote.customerId,
+        requestedById: adminUserId,
+        status: 'APPROVED',
+        totalAmount,
+        mikroOrderIds,
+        approvedAt: new Date(),
+        customerOrderNumber: quote.documentNo?.trim() || undefined,
+        adminNote,
+        items: {
+          create: selectedItems.map((item) => ({
+            productId: item.productId || undefined,
+            productName: item.productName || item.productCode,
+            mikroCode: item.productCode,
+            quantity: item.quantity,
+            priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+            unitPrice: item.unitPrice,
+            totalPrice: item.unitPrice * item.quantity,
+            lineNote: item.lineDescription || undefined,
+            status: 'APPROVED',
+            approvedQuantity: item.quantity,
+            mikroOrderId:
+              item.priceType === 'WHITE'
+                ? whiteOrderId || undefined
+                : invoicedOrderId || undefined,
+          })),
+        },
+      },
+    });
+
+    await prisma.quote.update({
+      where: { id: quoteId },
+      data: {
+        adminUserId,
+        adminActionAt: new Date(),
+        adminNote,
+      },
+    });
+
+    return { mikroOrderIds, closedCount, orderId: order.id, orderNumber: order.orderNumber };
   }
 
   async syncQuotesFromMikro() {

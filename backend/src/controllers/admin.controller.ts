@@ -1616,6 +1616,48 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/orders/manual
+   * Manual order entry for staff
+   */
+  async createManualOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        customerId,
+        items,
+        warehouseNo,
+        description,
+        documentNo,
+        invoicedSeries,
+        invoicedSira,
+        whiteSeries,
+        whiteSira,
+      } = req.body || {};
+
+      const result = await orderService.createManualOrder({
+        customerId,
+        items,
+        warehouseNo,
+        description,
+        documentNo,
+        invoicedSeries,
+        invoicedSira,
+        whiteSeries,
+        whiteSira,
+        requestedById: req.user?.userId,
+      });
+
+      res.json({
+        message: 'Order created in Mikro',
+        mikroOrderIds: result.mikroOrderIds,
+        orderId: result.orderId,
+        orderNumber: result.orderNumber,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/orders/:id/approve
    * ADMIN: Tüm siparişleri onaylayabilir
    * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin siparişlerini onaylayabilir

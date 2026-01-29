@@ -58,6 +58,7 @@ interface QuoteItemForm {
   manualPriceInput?: string;
   vatRate: number;
   vatZeroed?: boolean;
+  priceType?: 'INVOICED' | 'WHITE';
   isManualLine?: boolean;
   manualVatRate?: number;
   manualMarginEntry?: number;
@@ -329,11 +330,25 @@ const getPercentTone = (value?: number | null) => {
   return value >= 0 ? 'text-emerald-700' : 'text-red-600';
 };
 
+const resolveWarehouseValue = (value: string) => {
+  const normalized = String(value || '').toLowerCase();
+  const digits = normalized.match(/\d+/);
+  if (digits) {
+    return digits[0];
+  }
+  if (normalized.includes('merkez')) return '1';
+  if (normalized.includes('eregl')) return '2';
+  if (normalized.includes('topca') || normalized.includes('top?a')) return '6';
+  if (normalized.includes('dukkan') || normalized.includes('d?kkan')) return '7';
+  return value;
+};
+
 function AdminQuoteNewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editQuoteId = searchParams.get('edit');
-  const isEditMode = Boolean(editQuoteId);
+  const isOrderMode = searchParams.get('mode') === 'order';
+  const isEditMode = Boolean(editQuoteId) && !isOrderMode;
   const editInitializedRef = useRef(false);
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
@@ -388,6 +403,12 @@ function AdminQuoteNewPageContent() {
   const [poolColorRules, setPoolColorRules] = useState<PoolColorRule[]>(() => [createPoolColorRule()]);
   const [savingPoolPreferences, setSavingPoolPreferences] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [includedWarehouses, setIncludedWarehouses] = useState<string[]>([]);
+  const [orderWarehouse, setOrderWarehouse] = useState('');
+  const [orderInvoicedSeries, setOrderInvoicedSeries] = useState('');
+  const [orderInvoicedSira, setOrderInvoicedSira] = useState('');
+  const [orderWhiteSeries, setOrderWhiteSeries] = useState('');
+  const [orderWhiteSira, setOrderWhiteSira] = useState('');
 
   useEffect(() => {
     const defaultDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -396,7 +417,7 @@ function AdminQuoteNewPageContent() {
   }, []);
 
   useEffect(() => {
-    if (!editQuoteId || editInitializedRef.current) return;
+    if (!editQuoteId || isOrderMode || editInitializedRef.current) return;
     editInitializedRef.current = true;
     loadQuoteForEdit(editQuoteId);
   }, [editQuoteId]);
@@ -542,6 +563,7 @@ function AdminQuoteNewPageContent() {
       adminApi.getStockColumns(),
       adminApi.getStockUnits(),
       adminApi.getQuoteResponsibles(),
+      adminApi.getSettings(),
     ]);
 
     const [
@@ -551,6 +573,7 @@ function AdminQuoteNewPageContent() {
       columnResult,
       unitsResult,
       responsiblesResult,
+      settingsResult,
     ] = results;
     let initialSelectedColumns: string[] = [];
 
@@ -621,6 +644,16 @@ function AdminQuoteNewPageContent() {
       setResponsibles(responsiblesResult.value.responsibles || []);
     } else if (responsiblesResult.status === 'rejected') {
       console.error('Sorumlu listesi yuklenemedi:', responsiblesResult.reason);
+    }
+
+    if (settingsResult.status === 'fulfilled') {
+      const warehouses = settingsResult.value?.includedWarehouses || [];
+      setIncludedWarehouses(warehouses);
+      if (!orderWarehouse && warehouses.length > 0) {
+        setOrderWarehouse(resolveWarehouseValue(String(warehouses[0])));
+      }
+    } else if (settingsResult.status === 'rejected') {
+      console.error('Settings yuklenemedi:', settingsResult.reason);
     }
   };
 
@@ -910,6 +943,7 @@ function AdminQuoteNewPageContent() {
       unitPrice: undefined,
       vatRate: sourceProduct.vatRate || 0,
       vatZeroed: false,
+      priceType: 'INVOICED',
       isManualLine: false,
       lastSales: sourceProduct.lastSales || [],
       lastEntryPrice: sourceProduct.lastEntryPrice ?? null,
@@ -982,6 +1016,7 @@ function AdminQuoteNewPageContent() {
       manualPriceInput: isManualLine ? formatManualPriceInput(item.unitPrice) : undefined,
       vatRate: item.vatRate,
       vatZeroed: item.vatZeroed,
+      priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
       isManualLine,
       manualVatRate: isManualLine ? item.vatRate : undefined,
       lineDescription: item.lineDescription || '',
@@ -1025,6 +1060,7 @@ function AdminQuoteNewPageContent() {
       manualPriceInput: '',
       vatRate: 0.2,
       vatZeroed: false,
+      priceType: 'INVOICED',
       isManualLine: true,
       manualVatRate: 0.2,
       lineDescription: '',
@@ -1580,15 +1616,53 @@ function AdminQuoteNewPageContent() {
     return quoteItems.some((item) => getMarginInfo(item)?.blocked);
   }, [quoteItems]);
 
+  const orderHasInvoiced = useMemo(() => {
+    return quoteItems.some((item) => (item.priceType || 'INVOICED') !== 'WHITE');
+  }, [quoteItems]);
+
+  const orderHasWhite = useMemo(() => {
+    return quoteItems.some((item) => item.priceType === 'WHITE');
+  }, [quoteItems]);
+
   const validateQuote = () => {
     if (!selectedCustomer?.id) {
       toast.error('Musteri secmelisiniz.');
       return false;
     }
 
-    if (!validityDate) {
+    if (!isOrderMode && !validityDate) {
       toast.error('Gecerlilik tarihi gerekli.');
       return false;
+    }
+
+    if (isOrderMode) {
+      const resolvedWarehouse = Number(resolveWarehouseValue(orderWarehouse));
+      if (!Number.isFinite(resolvedWarehouse) || resolvedWarehouse <= 0) {
+        toast.error('Depo secmelisiniz.');
+        return false;
+      }
+      if (orderHasInvoiced) {
+        if (!orderInvoicedSeries.trim()) {
+          toast.error('Faturali seri gerekli.');
+          return false;
+        }
+        const siraValue = Number(orderInvoicedSira);
+        if (!Number.isFinite(siraValue) || siraValue <= 0) {
+          toast.error('Faturali sira gerekli.');
+          return false;
+        }
+      }
+      if (orderHasWhite) {
+        if (!orderWhiteSeries.trim()) {
+          toast.error('Beyaz seri gerekli.');
+          return false;
+        }
+        const siraValue = Number(orderWhiteSira);
+        if (!Number.isFinite(siraValue) || siraValue <= 0) {
+          toast.error('Beyaz sira gerekli.');
+          return false;
+        }
+      }
     }
 
     if (quoteItems.length === 0) {
@@ -1603,6 +1677,10 @@ function AdminQuoteNewPageContent() {
         return false;
       }
       if (item.isManualLine) {
+        if (isOrderMode) {
+          toast.error(`Siparis icin manuel satir kullanilamaz (Satir ${i + 1}).`);
+          return false;
+        }
         if (!item.productName?.trim()) {
           toast.error(`Manuel satir urun adi gerekli (Satir ${i + 1}).`);
           return false;
@@ -1647,6 +1725,37 @@ function AdminQuoteNewPageContent() {
 
     setSubmitting(true);
     try {
+      if (isOrderMode) {
+        const orderPayload = {
+          customerId: selectedCustomer.id,
+          warehouseNo: Number(resolveWarehouseValue(orderWarehouse)),
+          description: note,
+          documentNo: undefined,
+          invoicedSeries: orderHasInvoiced ? orderInvoicedSeries.trim() : undefined,
+          invoicedSira: orderHasInvoiced ? Number(orderInvoicedSira) : undefined,
+          whiteSeries: orderHasWhite ? orderWhiteSeries.trim() : undefined,
+          whiteSira: orderHasWhite ? Number(orderWhiteSira) : undefined,
+          items: quoteItems.map((item) => ({
+            productId: item.isManualLine ? undefined : item.productId,
+            productCode: item.productCode,
+            productName: item.productName,
+            quantity: item.quantity,
+            unitPrice: roundUp2(item.unitPrice || 0),
+            priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+            vatZeroed: vatZeroed || item.vatZeroed,
+            manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
+            lineDescription: item.lineDescription || undefined,
+          })),
+        };
+
+        const result = await adminApi.createManualOrder(orderPayload);
+        const orderLabel = result.orderNumber
+          ? `${result.orderNumber} (${result.mikroOrderIds.join(', ')})`
+          : result.mikroOrderIds.join(', ');
+        toast.success(`Siparis olusturuldu: ${orderLabel}`);
+        return;
+      }
+
       const payload = {
         customerId: selectedCustomer.id,
         validityDate,
@@ -1699,7 +1808,8 @@ function AdminQuoteNewPageContent() {
       const downloadParam = savedQuote?.id ? `&download=${savedQuote.id}` : '';
       router.push(`/quotes?tab=sent${downloadParam}`);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Teklif olusturulamadi.');
+      const fallback = isOrderMode ? 'Siparis olusturulamadi.' : 'Teklif olusturulamadi.';
+      toast.error(error.response?.data?.error || fallback);
     } finally {
       setSubmitting(false);
     }
@@ -1738,14 +1848,14 @@ function AdminQuoteNewPageContent() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
-              {isEditMode ? 'Teklif Duzenle' : 'Teklif Olustur'}
+              {isOrderMode ? 'Siparis Olustur' : isEditMode ? 'Teklif Duzenle' : 'Teklif Olustur'}
             </h1>
             <p className="text-sm text-gray-600">
-              {isEditMode ? 'Mikro teklif guncellenir' : 'Mikro teklif fisine aktarilir'}
+              {isOrderMode ? 'Mikro satis siparisi yazilir' : isEditMode ? 'Mikro teklif guncellenir' : 'Mikro teklif fisine aktarilir'}
             </p>
           </div>
-          <Button variant="secondary" onClick={() => router.push('/quotes')}>
-            Teklifler
+          <Button variant="secondary" onClick={() => router.push(isOrderMode ? '/orders' : '/quotes')}>
+            {isOrderMode ? 'Siparisler' : 'Teklifler'}
           </Button>
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -1769,7 +1879,7 @@ function AdminQuoteNewPageContent() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-lg font-semibold">Musteri</h2>
-              <p className="text-xs text-gray-500">Teklif icin cari secin.</p>
+              <p className="text-xs text-gray-500">{isOrderMode ? 'Siparis icin cari secin.' : 'Teklif icin cari secin.'}</p>
             </div>
             <Button variant="secondary" onClick={() => setShowCariModal(true)}>
               {isEditMode ? 'Musteri Degistir' : 'Musteri Sec'}
@@ -1778,7 +1888,7 @@ function AdminQuoteNewPageContent() {
           {selectedCustomer ? (
             <CustomerInfoCard customer={selectedCustomer} />
           ) : (
-            <div className="text-sm text-gray-500">Teklif icin musteri secin.</div>
+            <div className="text-sm text-gray-500">{isOrderMode ? 'Siparis icin musteri secin.' : 'Teklif icin musteri secin.'}</div>
           )}
         </Card>
         <Card className={cardShell}>
@@ -1881,40 +1991,114 @@ function AdminQuoteNewPageContent() {
             <Card className={cardShell}>
               <div className="flex flex-col gap-4">
                 <div>
-                  <h2 className="text-lg font-semibold">Teklif Bilgileri</h2>
-                  <p className="text-xs text-gray-500">Gecerlilik, not ve KDV ayarlari.</p>
+                  <h2 className="text-lg font-semibold">{isOrderMode ? 'Siparis Bilgileri' : 'Teklif Bilgileri'}</h2>
+                  <p className="text-xs text-gray-500">{isOrderMode ? 'Depo ve evrak bilgileri.' : 'Gecerlilik, not ve KDV ayarlari.'}</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Gecerlilik Tarihi</label>
-                    <input
-                      type="date"
-                      value={validityDate}
-                      onChange={(e) => setValidityDate(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">İlgili Kişi</label>
-                    <select
-                      value={selectedContactId}
-                      onChange={(e) => setSelectedContactId(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
-                      disabled={!selectedCustomer || contactsLoading}
-                    >
-                      <option value="">İlgili seçin</option>
-                      {customerContacts.map((contact) => (
-                        <option key={contact.id} value={contact.id}>
-                          {contact.name}
-                          {contact.phone ? ` - ${contact.phone}` : ''}
-                          {contact.email ? ` (${contact.email})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {!contactsLoading && selectedCustomer && customerContacts.length === 0 && (
-                      <p className="mt-1 text-xs text-gray-500">Bu müşteri için kayıtlı kişi yok.</p>
-                    )}
-                  </div>
+                  {!isOrderMode && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gecerlilik Tarihi</label>
+                        <input
+                          type="date"
+                          value={validityDate}
+                          onChange={(e) => setValidityDate(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">?lgili Ki?i</label>
+                        <select
+                          value={selectedContactId}
+                          onChange={(e) => setSelectedContactId(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+                          disabled={!selectedCustomer || contactsLoading}
+                        >
+                          <option value="">?lgili se?in</option>
+                          {customerContacts.map((contact) => (
+                            <option key={contact.id} value={contact.id}>
+                              {contact.name}
+                              {contact.phone ? ` - ${contact.phone}` : ""}
+                              {contact.email ? ` (${contact.email})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        {!contactsLoading && selectedCustomer && customerContacts.length === 0 && (
+                          <p className="mt-1 text-xs text-gray-500">Bu m??teri i?in kay?tl? ki?i yok.</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {isOrderMode && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Depo</label>
+                        {includedWarehouses.length > 0 ? (
+                          <select
+                            value={orderWarehouse}
+                            onChange={(e) => setOrderWarehouse(e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+                          >
+                            {includedWarehouses.map((warehouse) => (
+                              <option key={warehouse} value={resolveWarehouseValue(warehouse)}>
+                                {warehouse}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            value={orderWarehouse}
+                            onChange={(e) => setOrderWarehouse(e.target.value)}
+                            placeholder="Depo"
+                          />
+                        )}
+                      </div>
+                      <div>
+                        {orderHasInvoiced && (
+                          <>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
+                              <Input
+                                value={orderInvoicedSeries}
+                                onChange={(e) => setOrderInvoicedSeries(e.target.value)}
+                                placeholder="Orn: HENDEK"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Sira</label>
+                              <Input
+                                type="number"
+                                value={orderInvoicedSira}
+                                onChange={(e) => setOrderInvoicedSira(e.target.value)}
+                                placeholder="Orn: 8915"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {orderHasWhite && (
+                          <>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
+                              <Input
+                                value={orderWhiteSeries}
+                                onChange={(e) => setOrderWhiteSeries(e.target.value)}
+                                placeholder="Orn: HENDEK"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Sira</label>
+                              <Input
+                                type="number"
+                                value={orderWhiteSira}
+                                onChange={(e) => setOrderWhiteSira(e.target.value)}
+                                placeholder="Orn: 8915"
+                              />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
                   <div className="md:col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm">
                     <input
                       type="checkbox"
@@ -1956,8 +2140,8 @@ function AdminQuoteNewPageContent() {
         >
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between mb-4">
             <div>
-              <h2 className="text-lg font-semibold">Teklif Kalemleri ({quoteItems.length})</h2>
-              <p className="text-xs text-gray-500">Fiyat kaynagini secip satirlari duzenleyin.</p>
+              <h2 className="text-lg font-semibold">{isOrderMode ? 'Siparis Kalemleri' : 'Teklif Kalemleri'} ({quoteItems.length})</h2>
+              <p className="text-xs text-gray-500">{isOrderMode ? 'Siparis satirlarini duzenleyin.' : 'Fiyat kaynagini secip satirlari duzenleyin.'}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">
               <select
@@ -2048,7 +2232,7 @@ function AdminQuoteNewPageContent() {
                       {renderResizeHandle('quantity')}
                     </th>
                     <th className="relative select-none px-3 py-2 text-left bg-slate-50">
-                      Fiyat Kaynagi
+                      {isOrderMode ? 'Fiyat Tipi / Kaynagi' : 'Fiyat Kaynagi'}
                       {renderResizeHandle('priceSource')}
                     </th>
                     <th className="relative select-none px-3 py-2 text-left bg-slate-50">
@@ -2178,6 +2362,16 @@ function AdminQuoteNewPageContent() {
                             </div>
                           </td>
                           <td className="px-3 py-2">
+                            {isOrderMode && (
+                              <select
+                                value={item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED'}
+                                onChange={(e) => updateItem(item.id, { priceType: e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED' })}
+                                className="mb-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs"
+                              >
+                                <option value="INVOICED">Fatural?</option>
+                                <option value="WHITE">Beyaz</option>
+                              </select>
+                            )}
                             {item.isManualLine ? (
                               <span className="text-xs text-gray-600">Manuel</span>
                             ) : (
@@ -2438,7 +2632,7 @@ function AdminQuoteNewPageContent() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-xs text-gray-500">{quoteItems.length} kalem secili</p>
               <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Gonderiliyor...' : isEditMode ? 'Teklifi Guncelle' : 'Teklif Olustur'}
+                {submitting ? 'Gonderiliyor...' : isOrderMode ? 'Siparis Olustur' : isEditMode ? 'Teklifi Guncelle' : 'Teklif Olustur'}
               </Button>
             </div>
           </div>
@@ -2721,7 +2915,7 @@ function AdminQuoteNewPageContent() {
                                 addProductToQuote(product);
                               }}
                             >
-                              Teklife Ekle
+                              {isOrderMode ? 'Siparise Ekle' : 'Teklife Ekle'}
                             </Button>
                             {poolPriceLabel && (
                               <div className="mt-2 text-[11px] font-semibold text-slate-700">
@@ -2868,7 +3062,7 @@ function AdminQuoteNewPageContent() {
                               addProductToQuote(product);
                             }}
                           >
-                            Teklife Ekle
+                            {isOrderMode ? 'Siparise Ekle' : 'Teklife Ekle'}
                           </Button>
                           {poolPriceLabel && (
                             <div className="mt-2 text-[11px] font-semibold text-slate-700">
@@ -2877,7 +3071,6 @@ function AdminQuoteNewPageContent() {
                             </div>
                           )}
                         </div>
-                      </div>
                     </div>
                   );
                   })}

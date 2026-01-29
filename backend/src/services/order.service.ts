@@ -95,6 +95,255 @@ class OrderService {
     };
   }
 
+  async createManualOrder(input: {
+    customerId: string;
+    items: Array<{
+      productId?: string;
+      productCode?: string;
+      productName?: string;
+      quantity: number;
+      unitPrice: number;
+      priceType?: 'INVOICED' | 'WHITE';
+      vatZeroed?: boolean;
+      manualVatRate?: number;
+      lineDescription?: string;
+    }>;
+    warehouseNo: number;
+    description?: string;
+    documentNo?: string;
+    invoicedSeries?: string;
+    invoicedSira?: number;
+    whiteSeries?: string;
+    whiteSira?: number;
+    requestedById?: string;
+  }): Promise<{ mikroOrderIds: string[]; orderId: string; orderNumber: string }> {
+    const {
+      customerId,
+      items,
+      warehouseNo,
+      description,
+      documentNo,
+      invoicedSeries,
+      invoicedSira,
+      whiteSeries,
+      whiteSira,
+      requestedById,
+    } = input;
+
+    if (!customerId) {
+      throw new Error('Customer is required');
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('Order items are required');
+    }
+
+    const warehouseValueRaw = Number(warehouseNo);
+    const warehouseValue =
+      Number.isFinite(warehouseValueRaw) && warehouseValueRaw > 0
+        ? Math.trunc(warehouseValueRaw)
+        : null;
+    if (!warehouseValue) {
+      throw new Error('Warehouse is required');
+    }
+
+    const customer = await prisma.user.findUnique({
+      where: { id: customerId },
+      select: {
+        mikroCariCode: true,
+        name: true,
+        displayName: true,
+        email: true,
+        phone: true,
+        city: true,
+        district: true,
+        hasEInvoice: true,
+      },
+    });
+
+    if (!customer || !customer.mikroCariCode) {
+      throw new Error('Customer not found or missing Mikro cari code');
+    }
+
+    await mikroService.ensureCariExists({
+      cariCode: customer.mikroCariCode,
+      unvan: customer.displayName || customer.name || customer.mikroCariCode,
+      email: customer.email || undefined,
+      phone: customer.phone || undefined,
+      city: customer.city || undefined,
+      district: customer.district || undefined,
+      hasEInvoice: customer.hasEInvoice || false,
+    });
+
+    const productIds = items
+      .map((item) => item.productId)
+      .filter((id): id is string => Boolean(id));
+    const productCodes = items
+      .filter((item) => !item.productId && item.productCode)
+      .map((item) => String(item.productCode));
+
+    const products = await prisma.product.findMany({
+      where: {
+        OR: [
+          ...(productIds.length > 0 ? [{ id: { in: productIds } }] : []),
+          ...(productCodes.length > 0 ? [{ mikroCode: { in: productCodes } }] : []),
+        ],
+      },
+    });
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const productByCode = new Map(products.map((product) => [product.mikroCode, product]));
+
+    const normalizedItems = items.map((item, index) => {
+      const product = item.productId
+        ? productById.get(item.productId)
+        : item.productCode
+          ? productByCode.get(item.productCode)
+          : undefined;
+
+      if (!product) {
+        throw new Error(`Product not found for line ${index + 1}`);
+      }
+
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new Error(`Invalid quantity for line ${index + 1}`);
+      }
+
+      const unitPrice = Number(item.unitPrice);
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        throw new Error(`Invalid unit price for line ${index + 1}`);
+      }
+
+      const priceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+      const manualVatRate = Number(item.manualVatRate);
+      const vatRate =
+        priceType === 'WHITE' || item.vatZeroed
+          ? 0
+          : Number.isFinite(manualVatRate)
+            ? manualVatRate
+            : Number(product.vatRate || 0.18);
+
+      const lineDescription =
+        item.lineDescription?.trim() ||
+        item.productName?.trim() ||
+        product.name ||
+        '';
+
+      return {
+        productId: product.id,
+        productName: item.productName?.trim() || product.name,
+        productCode: product.mikroCode,
+        quantity,
+        unitPrice,
+        vatRate,
+        priceType,
+        lineDescription,
+      };
+    });
+
+    const invoicedItems = normalizedItems.filter((item) => item.priceType === 'INVOICED');
+    const whiteItems = normalizedItems.filter((item) => item.priceType === 'WHITE');
+
+    const mikroOrderIds: string[] = [];
+    let invoicedOrderId: string | null = null;
+    let whiteOrderId: string | null = null;
+
+    if (invoicedItems.length > 0) {
+      if (!invoicedSeries || !Number.isFinite(Number(invoicedSira))) {
+        throw new Error('Invoiced order series and number are required');
+      }
+      invoicedOrderId = await mikroService.writeOrder({
+        cariCode: customer.mikroCariCode,
+        items: invoicedItems.map((item) => ({
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: item.vatRate,
+          lineDescription: item.lineDescription || undefined,
+        })),
+        applyVAT: true,
+        description: description?.trim() || 'B2B Manuel Siparis',
+        documentNo: documentNo?.trim() || undefined,
+        evrakSeri: String(invoicedSeries).trim(),
+        evrakSira: Number(invoicedSira),
+        warehouseNo: warehouseValue,
+      });
+      if (invoicedOrderId) {
+        mikroOrderIds.push(invoicedOrderId);
+      }
+    }
+
+    if (whiteItems.length > 0) {
+      if (!whiteSeries || !Number.isFinite(Number(whiteSira))) {
+        throw new Error('White order series and number are required');
+      }
+      whiteOrderId = await mikroService.writeOrder({
+        cariCode: customer.mikroCariCode,
+        items: whiteItems.map((item) => ({
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: 0,
+          lineDescription: item.lineDescription || undefined,
+        })),
+        applyVAT: false,
+        description: description?.trim() || 'B2B Manuel Siparis',
+        documentNo: documentNo?.trim() || undefined,
+        evrakSeri: String(whiteSeries).trim(),
+        evrakSira: Number(whiteSira),
+        warehouseNo: warehouseValue,
+      });
+      if (whiteOrderId) {
+        mikroOrderIds.push(whiteOrderId);
+      }
+    }
+
+    const lastOrder = await prisma.order.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { orderNumber: true },
+    });
+    const orderNumber = generateOrderNumber(lastOrder?.orderNumber);
+
+    const totalAmount = normalizedItems.reduce(
+      (sum, item) => sum + item.unitPrice * item.quantity,
+      0
+    );
+
+    const order = await prisma.order.create({
+      data: {
+        orderNumber,
+        userId: customerId,
+        requestedById: requestedById || undefined,
+        status: 'APPROVED',
+        totalAmount,
+        mikroOrderIds,
+        approvedAt: new Date(),
+        customerOrderNumber: documentNo?.trim() || undefined,
+        adminNote: description?.trim() || undefined,
+        items: {
+          create: normalizedItems.map((item) => ({
+            productId: item.productId,
+            productName: item.productName || item.productCode,
+            mikroCode: item.productCode,
+            quantity: item.quantity,
+            priceType: item.priceType,
+            unitPrice: item.unitPrice,
+            totalPrice: item.unitPrice * item.quantity,
+            lineNote: item.lineDescription || undefined,
+            status: 'APPROVED',
+            approvedQuantity: item.quantity,
+            mikroOrderId:
+              item.priceType === 'WHITE'
+                ? whiteOrderId || undefined
+                : invoicedOrderId || undefined,
+          })),
+        },
+      },
+    });
+
+    return { mikroOrderIds, orderId: order.id, orderNumber: order.orderNumber };
+  }
+
   /**
    * Kullanıcının siparişlerini getir
    */
@@ -281,6 +530,8 @@ class OrderService {
     const whiteItems = order.items.filter((item: any) => item.priceType === 'WHITE');
 
     const mikroOrderIds: string[] = [];
+    let invoicedOrderId: string | null = null;
+    let whiteOrderId: string | null = null;
     const normalizeSeries = (value: string | undefined, fallback: string) => {
       const trimmed = String(value || '').trim();
       return trimmed ? trimmed.slice(0, 20) : fallback;
@@ -397,6 +648,8 @@ class OrderService {
     const whiteItems = itemsToApprove.filter((item: any) => item.priceType === 'WHITE');
 
     const mikroOrderIds: string[] = [];
+    let invoicedOrderId: string | null = null;
+    let whiteOrderId: string | null = null;
     const normalizeSeries = (value: string | undefined, fallback: string) => {
       const trimmed = String(value || '').trim();
       return trimmed ? trimmed.slice(0, 20) : fallback;

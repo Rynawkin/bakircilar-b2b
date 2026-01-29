@@ -4,6 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import quoteService from '../services/quote.service';
+import { prisma } from '../utils/prisma';
 import mikroService from '../services/mikroFactory.service';
 
 export class QuoteController {
@@ -172,6 +173,62 @@ export class QuoteController {
     try {
       const { id } = req.params;
       const result = await quoteService.syncQuoteFromMikro(id);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/quotes/:id/convert-to-order
+   */
+  async convertQuoteToOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const {
+        selectedItemIds,
+        closeReasons,
+        warehouseNo,
+        invoicedSeries,
+        invoicedSira,
+        whiteSeries,
+        whiteSira,
+      } = req.body || {};
+
+      if (!Array.isArray(selectedItemIds) || selectedItemIds.length === 0) {
+        return res.status(400).json({ error: 'Selected items are required' });
+      }
+
+      if (req.user?.role === 'SALES_REP') {
+        const quote = await prisma.quote.findUnique({
+          where: { id },
+          include: {
+            customer: { select: { sectorCode: true } },
+          },
+        });
+
+        if (!quote) {
+          return res.status(404).json({ error: 'Quote not found' });
+        }
+
+        const sectorCode = quote.customer?.sectorCode;
+        const allowed = sectorCode && (req.user?.assignedSectorCodes || []).includes(sectorCode);
+        if (!allowed) {
+          return res.status(403).json({ error: 'You can only convert quotes from your sectors' });
+        }
+      }
+
+      const result = await quoteService.convertQuoteToOrder(id, {
+        selectedItemIds,
+        closeReasons,
+        warehouseNo,
+        invoicedSeries,
+        invoicedSira,
+        whiteSeries,
+        whiteSira,
+        adminUserId: req.user!.userId,
+      });
+
       res.json(result);
     } catch (error) {
       next(error);

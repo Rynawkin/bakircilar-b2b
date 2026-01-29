@@ -279,6 +279,7 @@ router.delete('/customers/:id/contacts/:contactId', requireStaff, adminControlle
 // Orders - Staff for GET (filtered by sector), OrderApprover (ADMIN/SALES_REP) for approval
 router.get('/orders', requireStaff, adminController.getAllOrders);
 router.get('/orders/pending', requireStaff, adminController.getPendingOrders);
+router.post('/orders/manual', requireStaff, adminController.createManualOrder);
 router.post('/orders/:id/approve', requireOrderApprover, adminController.approveOrder);
 router.post('/orders/:id/reject', requireOrderApprover, adminController.rejectOrder);
 router.post('/orders/:id/approve-items', requireOrderApprover, adminController.approveOrderItems);
@@ -294,6 +295,7 @@ router.put('/quotes/:id', requireStaff, quoteController.updateQuote);
 router.get('/quotes', requireStaff, quoteController.getQuotes);
 router.get('/quotes/:id', requireStaff, quoteController.getQuoteById);
 router.post('/quotes/:id/sync', requireStaff, quoteController.syncQuoteFromMikro);
+router.post('/quotes/:id/convert-to-order', requireStaff, quoteController.convertQuoteToOrder);
 router.post('/quotes/:id/approve', requireAdmin, quoteController.approveQuote);
 router.post('/quotes/:id/reject', requireAdmin, quoteController.rejectQuote);
 

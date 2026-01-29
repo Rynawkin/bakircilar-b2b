@@ -28,6 +28,7 @@ class MikroService {
 
   public pool: sql.ConnectionPool | null = null;
   public sipBelgeColumns: { no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean } | null = null;
+  public sipExtraColumns: { teklifUid: boolean } | null = null;
 
   /**
    * Mikro KDV kod â†’ yÃ¼zde dÃ¶nÃ¼ÅŸÃ¼mÃ¼
@@ -135,6 +136,31 @@ class MikroService {
     return this.sipBelgeColumns;
   }
 
+  public async resolveSipExtraColumns(): Promise<{ teklifUid: boolean }> {
+    if (this.sipExtraColumns) {
+      return this.sipExtraColumns;
+    }
+
+    try {
+      const columnsResult = await this.pool!.request().query(`
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'SIPARISLER'
+      `);
+      const columns = new Set(
+        columnsResult.recordset.map((row: any) =>
+          String(row.COLUMN_NAME || '').toLowerCase()
+        )
+      );
+      this.sipExtraColumns = { teklifUid: columns.has('sip_teklif_uid') };
+    } catch (error) {
+      console.warn('WARN: SIPARISLER ekstra kolonlari kontrol edilemedi:', error);
+      this.sipExtraColumns = { teklifUid: false };
+    }
+
+    return this.sipExtraColumns;
+  }
+
   /**
    * Mikro teklif satirlarini getir
    */
@@ -202,6 +228,82 @@ class MikroService {
       lineDescription: row.tkl_Aciklama || '',
       priceListNo: Number(row.tkl_fiyat_liste_no) || 0,
     }));
+  }
+
+  async getQuoteLineGuids(params: { evrakSeri: string; evrakSira: number }): Promise<Array<{
+    satirNo: number;
+    guid: string;
+    productCode: string;
+    unitPrice: number;
+    quantity: number;
+  }>> {
+    await this.connect();
+
+    const { evrakSeri, evrakSira } = params;
+
+    const result = await this.pool!
+      .request()
+      .input('seri', sql.NVarChar(20), evrakSeri)
+      .input('sira', sql.Int, evrakSira)
+      .query(`
+        SELECT
+          tkl_satirno,
+          tkl_Guid,
+          tkl_stok_kod,
+          tkl_Birimfiyati,
+          tkl_miktar
+        FROM VERILEN_TEKLIFLER
+        WHERE tkl_evrakno_seri = @seri AND tkl_evrakno_sira = @sira
+        ORDER BY tkl_satirno
+      `);
+
+    return result.recordset.map((row: any) => ({
+      satirNo: Number(row.tkl_satirno) || 0,
+      guid: row.tkl_Guid || '',
+      productCode: row.tkl_stok_kod || '',
+      unitPrice: Number(row.tkl_Birimfiyati) || 0,
+      quantity: Number(row.tkl_miktar) || 0,
+    }));
+  }
+
+  async closeQuoteLines(params: {
+    evrakSeri: string;
+    evrakSira: number;
+    lines: Array<{ satirNo: number; reason: string }>;
+  }): Promise<number> {
+    await this.connect();
+
+    const { evrakSeri, evrakSira, lines } = params;
+    let affected = 0;
+
+    for (const line of lines) {
+      const reason = String(line.reason || '').trim().slice(0, 25);
+      const satirNo = Number(line.satirNo);
+      if (!Number.isFinite(satirNo)) {
+        continue;
+      }
+      const result = await this.pool!
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri)
+        .input('sira', sql.Int, evrakSira)
+        .input('satirNo', sql.Int, satirNo)
+        .input('reason', sql.NVarChar(25), reason)
+        .query(`
+          UPDATE VERILEN_TEKLIFLER
+          SET
+            TKL_KAPAT_FL = 1,
+            tkl_kapatmanedenkod = @reason,
+            tkl_lastup_date = GETDATE()
+          WHERE tkl_evrakno_seri = @seri
+            AND tkl_evrakno_sira = @sira
+            AND tkl_satirno = @satirNo
+        `);
+      if (Array.isArray(result.rowsAffected) && result.rowsAffected.length > 0) {
+        affected += result.rowsAffected[0] || 0;
+      }
+    }
+
+    return affected;
   }
 
   /**
@@ -858,15 +960,18 @@ class MikroService {
       unitPrice: number;
       vatRate: number;
       lineDescription?: string;
+      quoteLineGuid?: string;
     }>;
     applyVAT: boolean;
     description: string;
     documentNo?: string;
     evrakSeri?: string;
+    evrakSira?: number;
+    warehouseNo?: number;
   }): Promise<string> {
     await this.connect();
 
-    const { cariCode, items, applyVAT, description, documentNo, evrakSeri: evrakSeriInput } = orderData;
+    const { cariCode, items, applyVAT, description, documentNo, evrakSeri: evrakSeriInput, evrakSira: evrakSiraInput, warehouseNo } = orderData;
     const descriptionValue = String(description || '').trim();
     const documentDescriptionValue = descriptionValue ? descriptionValue.slice(0, 127) : null;
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : null;
@@ -875,6 +980,11 @@ class MikroService {
     const belgeNoColumn = sipBelgeColumns.no;
     const includeBelgeNo = Boolean(belgeNoColumn);
     const includeBelgeTarih = sipBelgeColumns.tarih;
+    const sipExtraColumns = await this.resolveSipExtraColumns();
+    const includeQuoteGuid = sipExtraColumns.teklifUid && items.some((item) => Boolean(item.quoteLineGuid));
+    const zeroGuid = '00000000-0000-0000-0000-000000000000';
+    const warehouseValueRaw = Number(warehouseNo);
+    const warehouseValue = Number.isFinite(warehouseValueRaw) && warehouseValueRaw > 0 ? Math.trunc(warehouseValueRaw) : 1;
     const evrakSeriValue = evrakSeriInput ? String(evrakSeriInput).trim().slice(0, 20) : '';
     const sorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
     const projeKodu = String(process.env.MIKRO_PROJE_KODU || 'R').trim().slice(0, 25);
@@ -935,15 +1045,43 @@ class MikroService {
 
       // 1. Yeni evrak sÄ±ra numarasÄ± al (bu seri iÃ§in)
       console.log('ğŸ”§ Yeni sÄ±ra numarasÄ± alÄ±nÄ±yor...');
-      const maxSiraResult = await transaction
-        .request()
-        .input('seri', sql.NVarChar(20), evrakSeri).query(`
-          SELECT ISNULL(MAX(sip_evrakno_sira), 0) + 1 as yeni_sira
-          FROM SIPARISLER
-          WHERE sip_evrakno_seri = @seri
-        `);
+      const requestedSiraRaw = Number(evrakSiraInput);
+      const requestedSira =
+        Number.isFinite(requestedSiraRaw) && requestedSiraRaw > 0
+          ? Math.trunc(requestedSiraRaw)
+          : null;
 
-      const evrakSira = maxSiraResult.recordset[0].yeni_sira;
+      let evrakSira: number;
+
+      if (requestedSira) {
+        const existingResult = await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .input('sira', sql.Int, requestedSira)
+          .query(`
+            SELECT TOP 1 sip_evrakno_sira
+            FROM SIPARISLER
+            WHERE sip_evrakno_seri = @seri AND sip_evrakno_sira = @sira
+          `);
+
+        if (existingResult.recordset.length > 0) {
+          throw new Error(`Evrak sira zaten kullanilmis: ${evrakSeri}-${requestedSira}`);
+        }
+
+        evrakSira = requestedSira;
+      } else {
+        const maxSiraResult = await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .query(`
+            SELECT ISNULL(MAX(sip_evrakno_sira), 0) + 1 as yeni_sira
+            FROM SIPARISLER
+            WHERE sip_evrakno_seri = @seri
+          `);
+
+        evrakSira = maxSiraResult.recordset[0].yeni_sira;
+      }
+
       const orderNumber = `${evrakSeri}-${evrakSira}`;
 
       console.log(`ğŸ“ Mikro'ya sipariÅŸ yazÄ±lÄ±yor: ${orderNumber}`);
@@ -981,6 +1119,7 @@ class MikroService {
           'sip_cins',
           'sip_musteri_kod',
           'sip_stok_kod',
+          ...(includeQuoteGuid ? ['sip_teklif_uid'] : []),
           'sip_miktar',
           'sip_teslim_miktar',
           'sip_b_fiyat',
@@ -1029,6 +1168,7 @@ class MikroService {
           '0',
           '@cariKod',
           '@stokKod',
+          ...(includeQuoteGuid ? ['@teklifUid'] : []),
           '@miktar',
           '0',
           '@fiyat',
@@ -1037,7 +1177,7 @@ class MikroService {
           '@vergiYuzdesi',
           '0',
           '0',
-          '1',
+          '@depoNo',
           '0',
           '1',
           '@sipFileId',
@@ -1084,6 +1224,7 @@ class MikroService {
           .input('cariKod', sql.NVarChar(25), cariCode)
           .input('stokKod', sql.NVarChar(25), item.productCode)
           .input('miktar', sql.Float, item.quantity)
+          .input('depoNo', sql.Int, warehouseValue)
           .input('fiyat', sql.Float, item.unitPrice)
           .input('tutar', sql.Float, tutar)
           .input('vergiTutari', sql.Float, vergiTutari)
@@ -1094,6 +1235,10 @@ class MikroService {
           .input('stokSorMerkez', sql.NVarChar(25), sorMerkez)
           .input('cariSorMerkez', sql.NVarChar(25), sorMerkez)
           .input('projeKodu', sql.NVarChar(25), projeKodu);
+
+        if (includeQuoteGuid) {
+          request.input('teklifUid', sql.UniqueIdentifier, item.quoteLineGuid || zeroGuid);
+        }
 
         if (includeBelgeNo) {
           request.input('belgeNo', sql.NVarChar(50), documentNoValue);
