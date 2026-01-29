@@ -851,7 +851,8 @@ export default function AdminRequestsPage() {
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
           </div>
         ) : view === 'KANBAN' ? (
-          <div className="sticky top-3 z-20 mb-3 rounded-xl border border-gray-200 bg-white/90 backdrop-blur px-3 py-2">
+          <>
+            <div className="sticky top-3 z-20 mb-3 rounded-xl border border-gray-200 bg-white/90 backdrop-blur px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs text-gray-500">Yatay kaydirma</div>
               <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
@@ -904,6 +905,7 @@ export default function AdminRequestsPage() {
               </div>
             ))}
           </div>
+          </>
         ) : (
           <Card className="overflow-x-auto">
             <table className="min-w-full text-sm">
