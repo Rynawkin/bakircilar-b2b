@@ -209,7 +209,7 @@ export default function ProductDetailPage() {
                   {warehouseEntries.length > 0 && (
                     <div className="border-t pt-4">
                       <p className="text-sm font-medium text-gray-700 mb-2">
-                        {isDiscounted ? 'Depo Bazl?? Fazla Stoklar' : 'Depo Bazl?? Stoklar'}
+                        {isDiscounted ? 'Depo Bazlı Fazla Stoklar' : 'Depo Bazlı Stoklar'}
                       </p>
                       <div className="grid grid-cols-2 gap-2">
                         {warehouseEntries.map(({ key, stock }) => (
@@ -221,7 +221,7 @@ export default function ProductDetailPage() {
                       </div>
                       {isDiscounted && (
                         <p className="text-xs text-gray-500 mt-2">
-                          * Sadece fazla stoklu depolar g??steriliyor
+                          * Sadece fazla stoklu depolar gösteriliyor
                         </p>
                       )}
                     </div>

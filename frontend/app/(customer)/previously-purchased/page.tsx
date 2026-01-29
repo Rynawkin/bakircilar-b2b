@@ -141,7 +141,7 @@ export default function PreviouslyPurchasedPage() {
       setOffset(nextOffset + nextProducts.length);
       setHasMore(nextProducts.length === PAGE_SIZE);
     } catch (error) {
-      console.error('??r??n y??kleme hatas??:', error);
+      console.error('Ürün yükleme hatası:', error);
     } finally {
       if (reset) {
         setIsSearching(false);

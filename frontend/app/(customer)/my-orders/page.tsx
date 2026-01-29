@@ -137,7 +137,7 @@ export default function OrdersPage() {
                         <div className="flex justify-between items-start gap-4">
                           <div className="flex-1">
                             <p className="font-bold text-gray-900 text-lg mb-1">
-                              {item.productName || (item as any).product?.name || '?r?n'}
+                              {item.productName || (item as any).product?.name || 'Ürün'}
                             </p>
                             <div className="flex flex-wrap gap-2 items-center">
                               <span className="text-sm text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">
@@ -147,7 +147,7 @@ export default function OrdersPage() {
                                 variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
                                 className="text-xs font-semibold"
                               >
-                                {item.priceType === 'INVOICED' ? '?? Fatural?' : '? Beyaz'}
+                                {item.priceType === 'INVOICED' ? '📄 Faturalı' : '⚪ Beyaz'}
                               </Badge>
                             </div>
                             {item.lineNote && (
