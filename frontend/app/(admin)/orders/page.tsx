@@ -60,22 +60,21 @@ export default function AdminOrdersPage() {
   const cleanPdfText = (text: string | number | null | undefined) => {
     const value = text ?? '';
     return String(value)
-      .replace(/
-?
+      .replace(/?
 /g, ' ')
       .replace(/???/g, 'TL')
-      .replace(/?/g, 'I')
-      .replace(/?/g, 'i')
-      .replace(/?/g, 'S')
-      .replace(/?/g, 's')
-      .replace(/?/g, 'G')
-      .replace(/?/g, 'g')
-      .replace(/?/g, 'U')
-      .replace(/?/g, 'u')
-      .replace(/?/g, 'O')
-      .replace(/?/g, 'o')
-      .replace(/?/g, 'C')
-      .replace(/?/g, 'c');
+      .replace(/??/g, 'I')
+      .replace(/??/g, 'i')
+      .replace(/??/g, 'S')
+      .replace(/??/g, 's')
+      .replace(/??/g, 'G')
+      .replace(/??/g, 'g')
+      .replace(/??/g, 'U')
+      .replace(/??/g, 'u')
+      .replace(/??/g, 'O')
+      .replace(/??/g, 'o')
+      .replace(/??/g, 'C')
+      .replace(/??/g, 'c');
   };
 
   const buildOrderPdf = async (order: PendingOrderForAdmin) => {
