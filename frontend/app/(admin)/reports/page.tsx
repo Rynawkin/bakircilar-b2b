@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { usePermissions } from '@/hooks/usePermissions';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 
 interface ReportCard {
@@ -27,6 +28,7 @@ interface ReportCard {
   href: string;
   category: 'cost' | 'stock' | 'customer' | 'order';
   badge?: string;
+  permission?: string | string[];
 }
 
 const reports: ReportCard[] = [
@@ -39,6 +41,7 @@ const reports: ReportCard[] = [
     href: '/reports/cost-update-alerts',
     category: 'cost',
     badge: 'Aktif',
+    permission: 'reports:cost-update-alerts',
   },
   {
     id: 'margin-compliance',
@@ -65,6 +68,7 @@ const reports: ReportCard[] = [
     icon: <TrendingUp className="h-5 w-5" />,
     href: '/reports/price-history',
     category: 'cost',
+    permission: 'reports:price-history',
   },
 
   // Stok Raporları
@@ -115,6 +119,7 @@ const reports: ReportCard[] = [
     icon: <FileText className="h-5 w-5" />,
     href: '/reports/supplier-performance',
     category: 'order',
+    permission: 'reports:supplier-price-lists',
   },
   {
     id: 'supplier-price-lists',
@@ -124,6 +129,7 @@ const reports: ReportCard[] = [
     href: '/reports/supplier-price-lists',
     category: 'order',
     badge: 'Yeni',
+    permission: 'reports:supplier-price-lists',
   },
 ];
 
@@ -136,10 +142,22 @@ const categories = [
 ];
 
 export default function ReportsPage() {
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
-  const filteredReports = reports.filter((report) => {
+  const canAccessReport = (permission?: string | string[]) => {
+    if (!permission) return true;
+    if (permissionsLoading) return true;
+    if (Array.isArray(permission)) {
+      return permission.some((perm) => hasPermission(perm));
+    }
+    return hasPermission(permission);
+  };
+
+  const visibleReports = reports.filter((report) => canAccessReport(report.permission));
+
+  const filteredReports = visibleReports.filter((report) => {
     const tokens = buildSearchTokens(searchQuery);
     const haystack = normalizeSearchText(`${report.title} ${report.description}`);
     const matchesSearch = tokens.length === 0 || matchesSearchTokens(haystack, tokens);

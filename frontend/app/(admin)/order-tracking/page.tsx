@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -83,6 +84,7 @@ interface Settings {
 export default function OrderTrackingPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [customerSummary, setCustomerSummary] = useState<CustomerSummary[]>([]);
@@ -124,13 +126,13 @@ export default function OrderTrackingPage() {
   }, [loadUserFromStorage]);
 
   useEffect(() => {
-    if (user === null) return;
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN' && user.role !== 'SALES_REP') {
-      router.push('/login');
+    if (user === null || permissionsLoading) return;
+    if (!hasPermission('admin:order-tracking')) {
+      router.push('/dashboard');
       return;
     }
     fetchData();
-  }, [user, router]);
+  }, [user, permissionsLoading, router, hasPermission]);
 
   // Cron string'ini parse et
   const parseCronSchedule = (cronString: string) => {

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
@@ -156,21 +157,21 @@ export default function AdminProductsPage() {
   }, [fetchProducts, fetchCategories]);
 
   useEffect(() => {
-    if (user === null) return;
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER') {
-      router.push('/login');
+    if (user === null || permissionsLoading) return;
+    if (!hasPermission('admin:products')) {
+      router.push('/dashboard');
       return;
     }
 
     fetchData();
-  }, [user, router, fetchData]);
+  }, [user, permissionsLoading, router, fetchData, hasPermission]);
 
   useEffect(() => {
-    if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
+    if (hasPermission('admin:products')) {
       setCurrentPage(1); // Reset page when filters change
       fetchProducts(1);
     }
-  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder, user, fetchProducts]);
+  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder, hasPermission, fetchProducts]);
 
   const handleSort = (field: typeof sortBy) => {
     if (sortBy === field) {

@@ -9,6 +9,7 @@ import { LogoLink } from '@/components/ui/Logo';
 import adminApi from '@/lib/api/admin';
 import { formatDateShort } from '@/lib/utils/format';
 import { Notification } from '@/types';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -38,37 +39,71 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   description?: string;
+  permission?: string | string[];
 }
 
 const navItems: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, description: 'Genel bakış' },
-  { name: 'Siparişler', href: '/orders', icon: ClipboardList, description: 'Sipariş yönetimi' },
-  { name: 'Teklifler', href: '/quotes', icon: FileText, description: 'Teklif yönetimi' },
-  { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler' },
-  { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi' },
-  { name: 'Anlasmali Fiyatlar', href: '/customer-agreements', icon: Tag, description: 'Musteri anlasmalari' },
-  { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi' },
-  { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arsivi' },
-  { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi' },
-  { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Gorev ve talepler' },
-  { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları' },
-  { name: 'Raporlar', href: '/reports', icon: BarChart3, description: 'Raporlar ve analizler' },
+  {
+    name: 'Dashboard',
+    href: '/dashboard',
+    icon: LayoutDashboard,
+    description: 'Genel bak??',
+    permission: [
+      'dashboard:orders',
+      'dashboard:customers',
+      'dashboard:excess-stock',
+      'dashboard:sync',
+      'dashboard:stok-ara',
+      'dashboard:cari-ara',
+      'dashboard:ekstre',
+      'dashboard:diversey-stok',
+    ],
+  },
+  { name: 'Sipari?ler', href: '/orders', icon: ClipboardList, description: 'Sipari? y?netimi', permission: 'admin:orders' },
+  { name: 'Teklifler', href: '/quotes', icon: FileText, description: 'Teklif y?netimi', permission: 'admin:quotes' },
+  { name: 'Sipari? Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen sipari?ler', permission: 'admin:order-tracking' },
+  { name: 'M??teriler', href: '/customers', icon: Users, description: 'M??teri listesi', permission: 'admin:customers' },
+  { name: 'Anla?mal? Fiyatlar', href: '/customer-agreements', icon: Tag, description: 'M??teri anla?malar?', permission: 'admin:agreements' },
+  { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi', permission: 'admin:vade' },
+  { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF ar?ivi', permission: 'admin:einvoices' },
+  { name: '?r?nler', href: '/admin-products', icon: Package, description: '?r?n y?netimi', permission: 'admin:products' },
+  { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'G?rev ve talepler', permission: 'admin:requests' },
+  { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: '?ndirim kampanyalar?', permission: 'admin:campaigns' },
+  {
+    name: 'Raporlar',
+    href: '/reports',
+    icon: BarChart3,
+    description: 'Raporlar ve analizler',
+    permission: [
+      'reports:margin-compliance',
+      'reports:price-history',
+      'reports:pending-orders',
+      'reports:cost-update-alerts',
+      'reports:profit-analysis',
+      'reports:top-products',
+      'reports:top-customers',
+      'reports:supplier-price-lists',
+    ],
+  },
 ];
 
+
 const settingsItems: NavItem[] = [
-  { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandirma ayarlari' },
-  { name: 'Urun Override', href: '/product-overrides', icon: Tag, description: 'Ozel fiyatlar' },
-  { name: 'Tedarikci Iskonto', href: '/supplier-price-list-settings', icon: Percent, description: 'Tedarikci iskonto ayarlari' },
-  { name: 'Haric Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme' },
-  { name: 'Personel', href: '/staff', icon: Users, description: 'Personel yonetimi' },
-  { name: 'Ayarlar', href: '/settings', icon: Settings, description: 'Sistem ayarlari' },
+  { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandirma ayarlari', permission: 'admin:price-rules' },
+  { name: 'Urun Override', href: '/product-overrides', icon: Tag, description: 'Ozel fiyatlar', permission: 'admin:price-rules' },
+  { name: 'Tedarikci Iskonto', href: '/supplier-price-list-settings', icon: Percent, description: 'Tedarikci iskonto ayarlari', permission: 'admin:supplier-price-lists' },
+  { name: 'Haric Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme', permission: 'admin:exclusions' },
+  { name: 'Personel', href: '/staff', icon: Users, description: 'Personel yonetimi', permission: 'admin:staff' },
+  { name: 'Ayarlar', href: '/settings', icon: Settings, description: 'Sistem ayarlari', permission: 'admin:settings' },
 ];
+
 
 
 export function AdminNavigation() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -130,37 +165,21 @@ export function AdminNavigation() {
   const isActive = (href: string) => pathname === href;
 
   // Role-based navigation filtering
-  const getVisibleNavItems = () => {
-    if (user?.role === 'SALES_REP') {
-      // SALES_REP sadece Dashboard, Siparişler ve Sipariş Takip görsün
-      return navItems.filter(item =>
-        item.href === '/dashboard' ||
-        item.href === '/orders' ||
-        item.href === '/order-tracking' ||
-        item.href === '/quotes' ||
-        item.href === '/customers' ||
-        item.href === '/requests' ||
-        item.href === '/vade' ||
-        item.href === '/einvoices'
-      );
+  const canAccess = (permission?: string | string[]) => {
+    if (!permission) return true;
+    if (permissionsLoading) return true;
+    if (Array.isArray(permission)) {
+      return permission.some((perm) => hasPermission(perm));
     }
-    // ADMIN, MANAGER, HEAD_ADMIN tüm menüleri görsün
-    return navItems;
+    return hasPermission(permission);
+  };
+
+  const getVisibleNavItems = () => {
+    return navItems.filter((item) => canAccess(item.permission));
   };
 
   const getVisibleSettingsItems = () => {
-    if (user?.role === 'SALES_REP') {
-      // SALES_REP ayarlar menüsünü hiç görmesin
-      return [];
-    }
-    if (user?.role === 'MANAGER') {
-      // MANAGER sadece bazı ayarları görsün
-      return settingsItems.filter(item =>
-        item.href === '/staff' // Sadece personel yönetimi
-      );
-    }
-    // ADMIN ve HEAD_ADMIN tüm ayarları görsün
-    return settingsItems;
+    return settingsItems.filter((item) => canAccess(item.permission));
   };
 
   const visibleNavItems = getVisibleNavItems();

@@ -16,6 +16,7 @@ import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { CustomerEditModal } from '@/components/admin/CustomerEditModal';
 import { BulkCreateUsersModal } from '@/components/admin/BulkCreateUsersModal';
 import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface MikroCari {
   code: string;
@@ -51,6 +52,7 @@ const getPaymentPlanLabel = (cari: {
 export default function CustomersPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cariList, setCariList] = useState<MikroCari[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -77,15 +79,15 @@ export default function CustomersPage() {
   }, []);
 
   useEffect(() => {
-    if (user === null) return;
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN' && user.role !== 'SALES_REP') {
-      router.push('/login');
+    if (user === null || permissionsLoading) return;
+    if (!hasPermission('admin:customers')) {
+      router.push('/dashboard');
       return;
     }
 
     fetchCustomers();
     fetchCariList();
-  }, [user, router]);
+  }, [user, permissionsLoading, router, hasPermission]);
 
   const fetchCustomers = async () => {
     try {
@@ -192,18 +194,9 @@ export default function CustomersPage() {
     setShowEditModal(true);
   };
 
-  const canOpenCustomer =
-    user?.role === 'ADMIN' ||
-    user?.role === 'MANAGER' ||
-    user?.role === 'HEAD_ADMIN' ||
-    user?.role === 'SALES_REP';
-  const canEditCustomer =
-    user?.role === 'ADMIN' ||
-    user?.role === 'MANAGER' ||
-    user?.role === 'HEAD_ADMIN';
-  const canBulkCreate =
-    user?.role === 'ADMIN' ||
-    user?.role === 'HEAD_ADMIN';
+  const canOpenCustomer = hasPermission('admin:customers');
+  const canEditCustomer = hasPermission('admin:customers');
+  const canBulkCreate = hasPermission('admin:staff');
 
   if (isLoading) {
     return <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div></div>;

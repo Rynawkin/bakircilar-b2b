@@ -4,14 +4,14 @@
 
 import { Router } from 'express';
 import vadeController from '../controllers/vade.controller';
-import { authenticate, requireAdminOrManager, requireStaffOrDiversey } from '../middleware/auth.middleware';
+import { authenticate, requirePermission } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { z } from 'zod';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(requireStaffOrDiversey);
+router.use(requirePermission('admin:vade'));
 
 const vadeNoteSchema = z.object({
   customerId: z.string().uuid(),
@@ -77,12 +77,12 @@ router.put('/notes/:id', validateBody(vadeNoteUpdateSchema), vadeController.upda
 router.post('/classification', validateBody(vadeClassificationSchema), vadeController.upsertClassification);
 
 router.get('/assignments', vadeController.getAssignments);
-router.post('/assignments', requireAdminOrManager, validateBody(vadeAssignmentSchema), vadeController.assignCustomers);
-router.delete('/assignments', requireAdminOrManager, validateBody(vadeAssignmentRemoveSchema), vadeController.removeAssignment);
+router.post('/assignments', requirePermission('admin:vade'), validateBody(vadeAssignmentSchema), vadeController.assignCustomers);
+router.delete('/assignments', requirePermission('admin:vade'), validateBody(vadeAssignmentRemoveSchema), vadeController.removeAssignment);
 
-router.post('/import', requireAdminOrManager, validateBody(vadeImportSchema), vadeController.importBalances);
+router.post('/import', requirePermission('admin:vade'), validateBody(vadeImportSchema), vadeController.importBalances);
 
-router.post('/sync', requireAdminOrManager, vadeController.triggerSync);
-router.get('/sync/status/:id', requireAdminOrManager, vadeController.getSyncStatus);
+router.post('/sync', requirePermission('admin:vade'), vadeController.triggerSync);
+router.get('/sync/status/:id', requirePermission('admin:vade'), vadeController.getSyncStatus);
 
 export default router;

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware';
+import { authenticate, requirePermission } from '../middleware/auth.middleware';
 import { cacheMiddleware, invalidateCacheMiddleware } from '../middleware/cache.middleware';
 
 const router = Router();
@@ -106,7 +106,7 @@ router.get(
  * GET /api/campaigns/:id
  * Get a single campaign by ID
  */
-router.get('/:id', authenticate, requireAdmin, async (req, res) => {
+router.get('/:id', authenticate, requirePermission('admin:campaigns'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -132,7 +132,7 @@ router.get('/:id', authenticate, requireAdmin, async (req, res) => {
 router.post(
   '/',
   authenticate,
-  requireAdmin,
+  requirePermission('admin:campaigns'),
   invalidateCacheMiddleware(['campaigns:*', 'campaigns-active:*']),
   async (req, res) => {
   try {
@@ -191,7 +191,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  requireAdmin,
+  requirePermission('admin:campaigns'),
   invalidateCacheMiddleware(['campaigns:*', 'campaigns-active:*']),
   async (req, res) => {
   try {
@@ -257,7 +257,7 @@ router.put(
 router.delete(
   '/:id',
   authenticate,
-  requireAdmin,
+  requirePermission('admin:campaigns'),
   invalidateCacheMiddleware(['campaigns:*', 'campaigns-active:*']),
   async (req, res) => {
   try {

@@ -12,12 +12,6 @@ import agreementController from '../controllers/agreement.controller';
 import supplierPriceListController from '../controllers/supplier-price-list.controller';
 import {
   authenticate,
-  requireAdmin,
-  requireAdminOrSalesRep,
-  requireAdminOrManager,
-  requireStaff,
-  requireOrderApprover,
-  requireStaffOrDiversey,
   requirePermission,
   requireAnyPermission
 } from '../middleware/auth.middleware';
@@ -152,38 +146,38 @@ router.post('/sync/images', requireAnyPermission(['admin:sync', 'dashboard:sync'
 router.get('/sync/status/:id', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.getSyncStatus);
 
 // Cari Sync - ADMIN/SALES_REP
-router.post('/sync/cari', requireAdminOrSalesRep, adminController.triggerCariSync);
-router.get('/sync/cari/status/:id', requireAdminOrSalesRep, adminController.getCariSyncStatus);
-router.get('/sync/cari/latest', requireAdminOrSalesRep, adminController.getLatestCariSync);
+router.post('/sync/cari', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.triggerCariSync);
+router.get('/sync/cari/status/:id', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.getCariSyncStatus);
+router.get('/sync/cari/latest', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.getLatestCariSync);
 
 // Cari list from Mikro - Staff (ADMIN, MANAGER, SALES_REP) - filtered by sector in controller
-router.get('/cari-list', requireStaff, adminController.getCariList);
+router.get('/cari-list', requireAnyPermission(['admin:customers', 'admin:einvoices', 'admin:orders', 'admin:quotes']), adminController.getCariList);
 
 // E-Invoice documents - Staff
-router.get('/einvoices', requireStaff, eInvoiceController.getDocuments);
-router.post('/einvoices/upload', requireStaff, invoiceUpload.array('files', 50), eInvoiceController.uploadDocuments);
-router.post('/einvoices/bulk-download', requireStaff, eInvoiceController.bulkDownloadDocuments);
-router.get('/einvoices/:id/download', requireStaff, eInvoiceController.downloadDocument);
+router.get('/einvoices', requirePermission('admin:einvoices'), eInvoiceController.getDocuments);
+router.post('/einvoices/upload', requirePermission('admin:einvoices'), invoiceUpload.array('files', 50), eInvoiceController.uploadDocuments);
+router.post('/einvoices/bulk-download', requirePermission('admin:einvoices'), eInvoiceController.bulkDownloadDocuments);
+router.get('/einvoices/:id/download', requirePermission('admin:einvoices'), eInvoiceController.downloadDocument);
 
 // Supplier price lists
-router.get('/supplier-price-lists/suppliers', requireStaff, supplierPriceListController.getSuppliers);
-router.post('/supplier-price-lists/suppliers', requireAdminOrManager, supplierPriceListController.createSupplier);
-router.put('/supplier-price-lists/suppliers/:id', requireAdminOrManager, supplierPriceListController.updateSupplier);
-router.get('/supplier-price-lists', requireStaff, supplierPriceListController.listUploads);
-router.post('/supplier-price-lists/preview', requireAdminOrManager, supplierPriceListUpload.array('files', 20), supplierPriceListController.previewPriceLists);
-router.post('/supplier-price-lists/upload', requireAdminOrManager, supplierPriceListUpload.array('files', 20), supplierPriceListController.uploadPriceLists);
-router.get('/supplier-price-lists/:id', requireStaff, supplierPriceListController.getUpload);
-router.get('/supplier-price-lists/:id/items', requireStaff, supplierPriceListController.getUploadItems);
-router.get('/supplier-price-lists/:id/export', requireStaff, supplierPriceListController.exportUpload);
+router.get('/supplier-price-lists/suppliers', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getSuppliers);
+router.post('/supplier-price-lists/suppliers', requirePermission('admin:supplier-price-lists'), supplierPriceListController.createSupplier);
+router.put('/supplier-price-lists/suppliers/:id', requirePermission('admin:supplier-price-lists'), supplierPriceListController.updateSupplier);
+router.get('/supplier-price-lists', requirePermission('admin:supplier-price-lists'), supplierPriceListController.listUploads);
+router.post('/supplier-price-lists/preview', requirePermission('admin:supplier-price-lists'), supplierPriceListUpload.array('files', 20), supplierPriceListController.previewPriceLists);
+router.post('/supplier-price-lists/upload', requirePermission('admin:supplier-price-lists'), supplierPriceListUpload.array('files', 20), supplierPriceListController.uploadPriceLists);
+router.get('/supplier-price-lists/:id', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUpload);
+router.get('/supplier-price-lists/:id/items', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUploadItems);
+router.get('/supplier-price-lists/:id/export', requirePermission('admin:supplier-price-lists'), supplierPriceListController.exportUpload);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
-router.get('/products', requireStaffOrDiversey, adminController.getProducts);
-router.post('/products/image-sync', requireAdminOrManager, adminController.triggerSelectedImageSync);
-router.post('/products/:id/image', requireAdminOrManager, upload.single('image'), adminController.uploadProductImage);
-router.delete('/products/:id/image', requireAdminOrManager, adminController.deleteProductImage);
+router.get('/products', requireAnyPermission(['admin:products', 'dashboard:diversey-stok']), adminController.getProducts);
+router.post('/products/image-sync', requirePermission('admin:products'), adminController.triggerSelectedImageSync);
+router.post('/products/:id/image', requirePermission('admin:products'), upload.single('image'), adminController.uploadProductImage);
+router.delete('/products/:id/image', requirePermission('admin:products'), adminController.deleteProductImage);
 
 // Brands - Admin/Manager
-router.get('/brands', requireAdminOrManager, adminController.getBrands);
+router.get('/brands', requirePermission('admin:price-rules'), adminController.getBrands);
 
 const updateCustomerSchema = z.object({
   email: z.string().optional(),
@@ -258,86 +252,86 @@ const customerPriceListRulesSchema = z.object({
 
 
 // Customers - Staff for GET (filtered by sector), ADMIN/MANAGER for POST/PUT
-router.get('/customers', requireStaff, adminController.getCustomers);
-router.post('/customers', requireStaff, validateBody(createCustomerSchema), adminController.createCustomer);
-router.put('/customers/:id', requireAdminOrManager, validateBody(updateCustomerSchema), adminController.updateCustomer);
-router.get('/customers/:id/price-list-rules', requireAdminOrManager, adminController.getCustomerPriceListRules);
+router.get('/customers', requirePermission('admin:customers'), adminController.getCustomers);
+router.post('/customers', requirePermission('admin:customers'), validateBody(createCustomerSchema), adminController.createCustomer);
+router.put('/customers/:id', requirePermission('admin:customers'), validateBody(updateCustomerSchema), adminController.updateCustomer);
+router.get('/customers/:id/price-list-rules', requirePermission('admin:customers'), adminController.getCustomerPriceListRules);
 router.put(
   '/customers/:id/price-list-rules',
-  requireAdminOrManager,
+  requirePermission('admin:customers'),
   validateBody(customerPriceListRulesSchema),
   adminController.updateCustomerPriceListRules
 );
-router.get('/customers/:id/sub-users', requireStaff, adminController.getCustomerSubUsers);
-router.post('/customers/:id/sub-users', requireAdminOrManager, validateBody(subUserCreateSchema), adminController.createCustomerSubUser);
-router.put('/customers/sub-users/:id', requireAdminOrManager, validateBody(subUserUpdateSchema), adminController.updateCustomerSubUser);
-router.delete('/customers/sub-users/:id', requireAdminOrManager, adminController.deleteCustomerSubUser);
-router.post('/customers/sub-users/:id/reset-password', requireAdminOrManager, adminController.resetCustomerSubUserPassword);
-router.get('/customers/:id/contacts', requireStaff, adminController.getCustomerContacts);
-router.post('/customers/:id/contacts', requireStaff, adminController.createCustomerContact);
-router.put('/customers/:id/contacts/:contactId', requireStaff, adminController.updateCustomerContact);
-router.delete('/customers/:id/contacts/:contactId', requireStaff, adminController.deleteCustomerContact);
+router.get('/customers/:id/sub-users', requirePermission('admin:customers'), adminController.getCustomerSubUsers);
+router.post('/customers/:id/sub-users', requirePermission('admin:customers'), validateBody(subUserCreateSchema), adminController.createCustomerSubUser);
+router.put('/customers/sub-users/:id', requirePermission('admin:customers'), validateBody(subUserUpdateSchema), adminController.updateCustomerSubUser);
+router.delete('/customers/sub-users/:id', requirePermission('admin:customers'), adminController.deleteCustomerSubUser);
+router.post('/customers/sub-users/:id/reset-password', requirePermission('admin:customers'), adminController.resetCustomerSubUserPassword);
+router.get('/customers/:id/contacts', requirePermission('admin:customers'), adminController.getCustomerContacts);
+router.post('/customers/:id/contacts', requirePermission('admin:customers'), adminController.createCustomerContact);
+router.put('/customers/:id/contacts/:contactId', requirePermission('admin:customers'), adminController.updateCustomerContact);
+router.delete('/customers/:id/contacts/:contactId', requirePermission('admin:customers'), adminController.deleteCustomerContact);
 
 // Orders - Staff for GET (filtered by sector), OrderApprover (ADMIN/SALES_REP) for approval
-router.get('/orders', requireStaff, adminController.getAllOrders);
-router.get('/orders/pending', requireStaff, adminController.getPendingOrders);
-router.post('/orders/manual', requireStaff, adminController.createManualOrder);
-router.post('/orders/:id/approve', requireOrderApprover, adminController.approveOrder);
-router.post('/orders/:id/reject', requireOrderApprover, adminController.rejectOrder);
-router.post('/orders/:id/approve-items', requireOrderApprover, adminController.approveOrderItems);
-router.post('/orders/:id/reject-items', requireOrderApprover, adminController.rejectOrderItems);
+router.get('/orders', requirePermission('admin:orders'), adminController.getAllOrders);
+router.get('/orders/pending', requirePermission('admin:orders'), adminController.getPendingOrders);
+router.post('/orders/manual', requirePermission('admin:orders'), adminController.createManualOrder);
+router.post('/orders/:id/approve', requirePermission('admin:orders'), adminController.approveOrder);
+router.post('/orders/:id/reject', requirePermission('admin:orders'), adminController.rejectOrder);
+router.post('/orders/:id/approve-items', requirePermission('admin:orders'), adminController.approveOrderItems);
+router.post('/orders/:id/reject-items', requirePermission('admin:orders'), adminController.rejectOrderItems);
 
 // Quotes (Teklifler) - Staff for list/create, ADMIN for approval
-router.get('/quotes/preferences', requireStaff, quoteController.getPreferences);
-router.put('/quotes/preferences', requireStaff, quoteController.updatePreferences);
-router.get('/quotes/responsibles', requireStaff, quoteController.getResponsibles);
-router.get('/quotes/customer/:customerId/purchased-products', requireStaff, quoteController.getCustomerPurchasedProducts);
-router.post('/quotes', requireStaff, quoteController.createQuote);
-router.put('/quotes/:id', requireStaff, quoteController.updateQuote);
-router.get('/quotes', requireStaff, quoteController.getQuotes);
-router.get('/quotes/:id', requireStaff, quoteController.getQuoteById);
-router.get('/quotes/:id/history', requireStaff, quoteController.getQuoteHistory);
-router.post('/quotes/:id/sync', requireStaff, quoteController.syncQuoteFromMikro);
-router.post('/quotes/:id/convert-to-order', requireStaff, quoteController.convertQuoteToOrder);
-router.post('/quotes/:id/approve', requireAdmin, quoteController.approveQuote);
-router.post('/quotes/:id/reject', requireAdmin, quoteController.rejectQuote);
+router.get('/quotes/preferences', requirePermission('admin:quotes'), quoteController.getPreferences);
+router.put('/quotes/preferences', requirePermission('admin:quotes'), quoteController.updatePreferences);
+router.get('/quotes/responsibles', requirePermission('admin:quotes'), quoteController.getResponsibles);
+router.get('/quotes/customer/:customerId/purchased-products', requirePermission('admin:quotes'), quoteController.getCustomerPurchasedProducts);
+router.post('/quotes', requirePermission('admin:quotes'), quoteController.createQuote);
+router.put('/quotes/:id', requirePermission('admin:quotes'), quoteController.updateQuote);
+router.get('/quotes', requirePermission('admin:quotes'), quoteController.getQuotes);
+router.get('/quotes/:id', requirePermission('admin:quotes'), quoteController.getQuoteById);
+router.get('/quotes/:id/history', requirePermission('admin:quotes'), quoteController.getQuoteHistory);
+router.post('/quotes/:id/sync', requirePermission('admin:quotes'), quoteController.syncQuoteFromMikro);
+router.post('/quotes/:id/convert-to-order', requirePermission('admin:quotes'), quoteController.convertQuoteToOrder);
+router.post('/quotes/:id/approve', requirePermission('admin:quotes'), quoteController.approveQuote);
+router.post('/quotes/:id/reject', requirePermission('admin:quotes'), quoteController.rejectQuote);
 
 // Tasks (Talepler) - Staff access
-router.get('/tasks/preferences', requireStaff, taskController.getPreferences);
-router.put('/tasks/preferences', requireStaff, validateBody(taskPreferencesSchema), taskController.updatePreferences);
-router.get('/tasks/assignees', requireStaff, taskController.getAssignees);
-router.get('/tasks/templates', requireStaff, taskController.getTemplates);
-router.post('/tasks/templates', requireAdminOrManager, validateBody(taskTemplateSchema), taskController.createTemplate);
-router.put('/tasks/templates/:id', requireAdminOrManager, validateBody(taskTemplateUpdateSchema), taskController.updateTemplate);
-router.get('/tasks', requireStaff, taskController.getTasks);
-router.post('/tasks', requireStaff, validateBody(createTaskSchema), taskController.createTask);
-router.get('/tasks/:id', requireStaff, taskController.getTaskById);
-router.put('/tasks/:id', requireStaff, validateBody(updateTaskSchema), taskController.updateTask);
-router.post('/tasks/:id/comments', requireStaff, validateBody(taskCommentSchema), taskController.addComment);
-router.post('/tasks/:id/attachments', requireStaff, taskUpload.single('file'), taskController.addAttachment);
-router.post('/tasks/:id/links', requireStaff, validateBody(taskLinkCreateSchema), taskController.addLink);
-router.delete('/tasks/:id/links/:linkId', requireStaff, taskController.deleteLink);
+router.get('/tasks/preferences', requirePermission('admin:requests'), taskController.getPreferences);
+router.put('/tasks/preferences', requirePermission('admin:requests'), validateBody(taskPreferencesSchema), taskController.updatePreferences);
+router.get('/tasks/assignees', requirePermission('admin:requests'), taskController.getAssignees);
+router.get('/tasks/templates', requirePermission('admin:requests'), taskController.getTemplates);
+router.post('/tasks/templates', requirePermission('admin:requests'), validateBody(taskTemplateSchema), taskController.createTemplate);
+router.put('/tasks/templates/:id', requirePermission('admin:requests'), validateBody(taskTemplateUpdateSchema), taskController.updateTemplate);
+router.get('/tasks', requirePermission('admin:requests'), taskController.getTasks);
+router.post('/tasks', requirePermission('admin:requests'), validateBody(createTaskSchema), taskController.createTask);
+router.get('/tasks/:id', requirePermission('admin:requests'), taskController.getTaskById);
+router.put('/tasks/:id', requirePermission('admin:requests'), validateBody(updateTaskSchema), taskController.updateTask);
+router.post('/tasks/:id/comments', requirePermission('admin:requests'), validateBody(taskCommentSchema), taskController.addComment);
+router.post('/tasks/:id/attachments', requirePermission('admin:requests'), taskUpload.single('file'), taskController.addAttachment);
+router.post('/tasks/:id/links', requirePermission('admin:requests'), validateBody(taskLinkCreateSchema), taskController.addLink);
+router.delete('/tasks/:id/links/:linkId', requirePermission('admin:requests'), taskController.deleteLink);
 
 // Notifications
-router.get('/notifications', requireStaff, notificationController.getNotifications);
-router.post('/notifications/read', requireStaff, validateBody(notificationReadSchema), notificationController.markRead);
-router.post('/notifications/read-all', requireStaff, notificationController.markAllRead);
+router.get('/notifications', requirePermission('admin:notifications'), notificationController.getNotifications);
+router.post('/notifications/read', requirePermission('admin:notifications'), validateBody(notificationReadSchema), notificationController.markRead);
+router.post('/notifications/read-all', requirePermission('admin:notifications'), notificationController.markAllRead);
 
 // Exchange rates
-router.get('/exchange/usd', requireStaff, adminController.getUsdSellingRate);
+router.get('/exchange/usd', requirePermission('admin:quotes'), adminController.getUsdSellingRate);
 
 // Customer Agreements
-router.get('/agreements', requireStaff, agreementController.getAgreements);
-router.post('/agreements', requireAdminOrManager, validateBody(agreementSchema), agreementController.upsertAgreement);
-router.delete('/agreements/:id', requireAdminOrManager, agreementController.deleteAgreement);
-router.post('/agreements/bulk-delete', requireAdminOrManager, validateBody(agreementBulkDeleteSchema), agreementController.bulkDeleteAgreements);
-router.post('/agreements/import', requireAdminOrManager, validateBody(agreementImportSchema), agreementController.importAgreements);
+router.get('/agreements', requirePermission('admin:agreements'), agreementController.getAgreements);
+router.post('/agreements', requirePermission('admin:agreements'), validateBody(agreementSchema), agreementController.upsertAgreement);
+router.delete('/agreements/:id', requirePermission('admin:agreements'), agreementController.deleteAgreement);
+router.post('/agreements/bulk-delete', requirePermission('admin:agreements'), validateBody(agreementBulkDeleteSchema), agreementController.bulkDeleteAgreements);
+router.post('/agreements/import', requirePermission('admin:agreements'), validateBody(agreementImportSchema), agreementController.importAgreements);
 
 // Categories & Pricing - ADMIN/MANAGER only
-router.get('/categories', requireAdminOrManager, adminController.getCategories);
+router.get('/categories', requirePermission('admin:price-rules'), adminController.getCategories);
 router.post(
   '/categories/price-rule',
-  requireAdminOrManager,
+  requirePermission('admin:price-rules'),
   validateBody(categoryPriceRuleSchema),
   adminController.setCategoryPriceRule
 );
@@ -347,54 +341,54 @@ router.post(
 
 router.post(
   '/categories/bulk-price-rules',
-  requireAdminOrManager,
+  requirePermission('admin:price-rules'),
   adminController.setBulkCategoryPriceRules
 );
 router.post(
   '/products/price-override',
-  requireAdminOrManager,
+  requirePermission('admin:price-rules'),
   validateBody(productPriceOverrideSchema),
   adminController.setProductPriceOverride
 );
 
 // Dashboard stats - Staff (all can see their relevant data)
-router.get('/dashboard/stats', requireStaff, adminController.getDashboardStats);
+router.get('/dashboard/stats', requireAnyPermission(['dashboard:orders', 'dashboard:customers', 'dashboard:excess-stock', 'dashboard:sync', 'dashboard:stok-ara', 'dashboard:cari-ara', 'dashboard:ekstre', 'dashboard:diversey-stok']), adminController.getDashboardStats);
 
 // Staff management
-router.get('/sector-codes', requireAdminOrManager, adminController.getSectorCodes);
-router.get('/staff', requireAdminOrManager, adminController.getStaffMembers);
-router.post('/staff', requireAdminOrManager, adminController.createStaffMember);
-router.put('/staff/:id', requireAdminOrManager, adminController.updateStaffMember);
+router.get('/sector-codes', requirePermission('admin:staff'), adminController.getSectorCodes);
+router.get('/staff', requirePermission('admin:staff'), adminController.getStaffMembers);
+router.post('/staff', requirePermission('admin:staff'), adminController.createStaffMember);
+router.put('/staff/:id', requirePermission('admin:staff'), adminController.updateStaffMember);
 
 // Bulk user creation from Mikro caris
-router.get('/caris/available', requireAdmin, adminController.getAvailableCaris);
-router.post('/users/bulk-create', requireAdmin, adminController.bulkCreateUsers);
+router.get('/caris/available', requirePermission('admin:staff'), adminController.getAvailableCaris);
+router.post('/users/bulk-create', requirePermission('admin:staff'), adminController.bulkCreateUsers);
 
 // Reports - Staff (all can access reports)
-router.get('/reports/cost-update-alerts', requireStaff, adminController.getCostUpdateAlerts);
-router.get('/reports/margin-compliance', requireStaff, adminController.getMarginComplianceReport);
-router.post('/reports/margin-compliance/sync', requireStaff, adminController.syncMarginComplianceReport);
-router.post('/reports/margin-compliance/email', requireStaff, adminController.sendMarginComplianceReportEmail);
-router.get('/reports/categories', requireStaff, adminController.getReportCategories);
-router.get('/reports/top-products', requireStaff, adminController.getTopProducts);
-router.get('/reports/top-customers', requireStaff, adminController.getTopCustomers);
-router.get('/reports/product-customers/:productCode', requireStaff, adminController.getProductCustomers);
+router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update-alerts'), adminController.getCostUpdateAlerts);
+router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
+router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
+router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);
+router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists']), adminController.getReportCategories);
+router.get('/reports/top-products', requirePermission('reports:top-products'), adminController.getTopProducts);
+router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);
+router.get('/reports/product-customers/:productCode', requirePermission('reports:top-customers'), adminController.getProductCustomers);
 // Price Sync endpoints
-router.post('/price-sync', requireAdmin, adminController.syncPriceChanges);
-router.get('/price-sync/status', requireStaff, adminController.getPriceSyncStatus);
+router.post('/price-sync', requirePermission('admin:price-sync'), adminController.syncPriceChanges);
+router.get('/price-sync/status', requirePermission('admin:price-sync'), adminController.getPriceSyncStatus);
 
 // New Price History endpoints (PostgreSQL based)
-router.get('/reports/price-history-new', requireStaff, adminController.getPriceHistoryNew);
-router.get('/reports/product-price-detail/:productCode', requireStaff, adminController.getProductPriceDetail);
-router.get('/reports/price-summary-stats', requireStaff, adminController.getPriceSummaryStats);
+router.get('/reports/price-history-new', requirePermission('reports:price-history'), adminController.getPriceHistoryNew);
+router.get('/reports/product-price-detail/:productCode', requirePermission('reports:price-history'), adminController.getProductPriceDetail);
+router.get('/reports/price-summary-stats', requirePermission('reports:price-history'), adminController.getPriceSummaryStats);
 
 // Old Price History endpoint (backward compatibility - Mikro based)
-router.get('/reports/price-history', requireStaff, adminController.getPriceHistory);
+router.get('/reports/price-history', requirePermission('reports:price-history'), adminController.getPriceHistory);
 
 // Report Exclusions - ADMIN only
-router.get('/exclusions', requireAdmin, adminController.getExclusions);
-router.post('/exclusions', requireAdmin, adminController.createExclusion);
-router.put('/exclusions/:id', requireAdmin, adminController.updateExclusion);
-router.delete('/exclusions/:id', requireAdmin, adminController.deleteExclusion);
+router.get('/exclusions', requirePermission('admin:exclusions'), adminController.getExclusions);
+router.post('/exclusions', requirePermission('admin:exclusions'), adminController.createExclusion);
+router.put('/exclusions/:id', requirePermission('admin:exclusions'), adminController.updateExclusion);
+router.delete('/exclusions/:id', requirePermission('admin:exclusions'), adminController.deleteExclusion);
 
 export default router;

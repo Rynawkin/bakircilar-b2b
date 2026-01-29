@@ -11,6 +11,7 @@ import { ConfirmModal, Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
 import * as XLSX from 'xlsx';
 
@@ -116,6 +117,7 @@ function AdminQuotesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
+  const { hasPermission } = usePermissions();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [allQuotes, setAllQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1178,7 +1180,7 @@ function AdminQuotesPageContent() {
     );
   }
 
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'HEAD_ADMIN';
+  const isAdmin = hasPermission('admin:quotes');
 
   return (
     <div className="min-h-screen bg-gray-50">

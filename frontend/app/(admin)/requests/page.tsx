@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { formatDate, formatDateShort } from '@/lib/utils/format';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
@@ -115,6 +116,7 @@ const LINK_TYPES: TaskLinkType[] = ['PRODUCT', 'QUOTE', 'ORDER', 'CUSTOMER', 'PA
 
 export default function AdminRequestsPage() {
   const { user, loadUserFromStorage } = useAuthStore();
+  const { hasPermission } = usePermissions();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
   const [assignees, setAssignees] = useState<Array<{ id: string; name: string; email?: string; role?: string }>>([]);
@@ -165,8 +167,7 @@ export default function AdminRequestsPage() {
   const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
   const [productSearching, setProductSearching] = useState(false);
 
-  const canManageTemplates =
-    user?.role === 'HEAD_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const canManageTemplates = hasPermission('admin:requests');
 
   const normalizeColorRules = (rules?: any[] | null): TaskColorRule[] => {
     if (!Array.isArray(rules)) return [];

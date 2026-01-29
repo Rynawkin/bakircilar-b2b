@@ -13,6 +13,7 @@ import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface AgreementRow {
   id: string;
@@ -51,6 +52,7 @@ interface AgreementImportRow {
 export default function AgreementsPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -143,13 +145,13 @@ export default function AgreementsPage() {
   }, [loadUserFromStorage]);
 
   useEffect(() => {
-    if (!user) return;
-    if (user.role !== 'ADMIN' && user.role !== 'MANAGER' && user.role !== 'HEAD_ADMIN') {
-      router.push('/login');
+    if (user === null || permissionsLoading) return;
+    if (!hasPermission('admin:agreements')) {
+      router.push('/dashboard');
       return;
     }
     fetchCustomers();
-  }, [user, router]);
+  }, [user, permissionsLoading, router, hasPermission]);
 
   const fetchCustomers = async () => {
     setIsLoading(true);

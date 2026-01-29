@@ -5,8 +5,8 @@ const prisma = new PrismaClient();
 // Tanımlı izinler - dashboard widget'ları ve rapor sayfaları
 export const AVAILABLE_PERMISSIONS = {
   // Dashboard Widgets
-  'dashboard:orders': 'Sipariş Widget',
-  'dashboard:customers': 'Müşteri Widget',
+  'dashboard:orders': 'Siparis Widget',
+  'dashboard:customers': 'Musteri Widget',
   'dashboard:excess-stock': 'Fazla Stok Widget',
   'dashboard:sync': 'Senkronizasyon Widget',
   'dashboard:stok-ara': 'Stok Ara Widget',
@@ -16,40 +16,76 @@ export const AVAILABLE_PERMISSIONS = {
 
   // Report Pages
   'reports:margin-compliance': 'Marj Uyumsuzluk Raporu',
-  'reports:price-history': 'Fiyat Değişim Raporu',
-  'reports:pending-orders': 'Bekleyen Siparişler',
+  'reports:price-history': 'Fiyat Degisim Raporu',
+  'reports:pending-orders': 'Bekleyen Siparisler',
+  'reports:cost-update-alerts': 'Maliyet Guncelleme Uyarilari',
+  'reports:profit-analysis': 'Kar Marji Analizi',
+  'reports:top-products': 'En Cok Satan Urunler',
+  'reports:top-customers': 'En Cok Satan Musteriler',
+  'reports:supplier-price-lists': 'Tedarikci Fiyat Karsilastirma',
 
   // Admin Pages
-  'admin:customers': 'Müşteri Yönetimi',
-  'admin:price-rules': 'Fiyat Kuralları',
-  'admin:settings': 'Sistem Ayarları',
-  'admin:products': 'Ürün Yönetimi',
+  'admin:customers': 'Musteri Yonetimi',
+  'admin:price-rules': 'Fiyat Kurallari',
+  'admin:settings': 'Sistem Ayarlari',
+  'admin:products': 'Urun Yonetimi',
   'admin:sync': 'Senkronizasyon',
+  'admin:orders': 'Siparis Yonetimi',
+  'admin:quotes': 'Teklif Yonetimi',
+  'admin:agreements': 'Anlasmali Fiyatlar',
+  'admin:order-tracking': 'Siparis Takip',
+  'admin:einvoices': 'E-Faturalar',
+  'admin:requests': 'Talepler',
+  'admin:campaigns': 'Kampanyalar',
+  'admin:vade': 'Vade Takip',
+  'admin:staff': 'Personel Yonetimi',
+  'admin:supplier-price-lists': 'Tedarikci Fiyat Listeleri',
+  'admin:exclusions': 'Rapor Haric Tutma',
+  'admin:notifications': 'Bildirimler',
+  'admin:price-sync': 'Fiyat Senkronizasyonu',
 } as const;
 
 // İzin açıklamaları
 export const PERMISSION_DESCRIPTIONS = {
   // Dashboard Widgets
-  'dashboard:orders': 'Dashboard\'da bekleyen ve onaylanan sipariş istatistiklerini gösterir',
-  'dashboard:customers': 'Dashboard\'da aktif müşteri sayısını ve müşteri ekleme butonunu gösterir',
-  'dashboard:excess-stock': 'Dashboard\'da fazla stoklu ürün sayısını gösterir',
-  'dashboard:sync': 'Dashboard\'da senkronizasyon butonlarını gösterir',
-  'dashboard:stok-ara': 'Dashboard\'da Mikro F10 stok arama widget\'ını gösterir',
-  'dashboard:cari-ara': 'Dashboard\'da Mikro F10 cari arama widget\'ını gösterir',
-  'dashboard:ekstre': 'Dashboard\'da cari ekstre alma (Excel/PDF export) widget\'ını gösterir',
-  'dashboard:diversey-stok': 'Dashboard\'da Diversey markası ürün stokları widget\'ını gösterir',
+  'dashboard:orders': 'Dashboard'da bekleyen ve onaylanan siparis istatistiklerini gosterir',
+  'dashboard:customers': 'Dashboard'da aktif musteri sayisini ve musteri ekleme butonunu gosterir',
+  'dashboard:excess-stock': 'Dashboard'da fazla stoklu urun sayisini gosterir',
+  'dashboard:sync': 'Dashboard'da senkronizasyon butonlarini gosterir',
+  'dashboard:stok-ara': 'Dashboard'da Mikro F10 stok arama widget'ini gosterir',
+  'dashboard:cari-ara': 'Dashboard'da Mikro F10 cari arama widget'ini gosterir',
+  'dashboard:ekstre': 'Dashboard'da cari ekstre alma (Excel/PDF export) widget'ini gosterir',
+  'dashboard:diversey-stok': 'Dashboard'da Diversey markasi urun stoklari widget'ini gosterir',
 
   // Report Pages
-  'reports:margin-compliance': 'Marj uyumsuzluk raporuna erişim izni verir',
-  'reports:price-history': 'Fiyat değişim geçmişi raporuna erişim izni verir',
-  'reports:pending-orders': 'Bekleyen siparişler raporuna erişim izni verir',
+  'reports:margin-compliance': 'Marj uyumsuzluk raporuna erisim izni verir',
+  'reports:price-history': 'Fiyat degisim gecmisi raporuna erisim izni verir',
+  'reports:pending-orders': 'Bekleyen siparisler raporuna erisim izni verir',
+  'reports:cost-update-alerts': 'Maliyet guncelleme uyarilari raporuna erisim izni verir',
+  'reports:profit-analysis': 'Kar marji analiz raporuna erisim izni verir',
+  'reports:top-products': 'En cok satan urunler raporuna erisim izni verir',
+  'reports:top-customers': 'En cok satan musteriler raporuna erisim izni verir',
+  'reports:supplier-price-lists': 'Tedarikci fiyat karsilastirma raporuna erisim izni verir',
 
   // Admin Pages
-  'admin:customers': 'Müşteri listesi ve müşteri yönetim sayfalarına erişim izni verir',
-  'admin:price-rules': 'Kategori ve ürün fiyat kuralları sayfasına erişim izni verir',
-  'admin:settings': 'Sistem ayarları sayfasına erişim izni verir',
-  'admin:products': 'Ürün listesi ve ürün yönetim sayfalarına erişim izni verir',
-  'admin:sync': 'Manuel senkronizasyon başlatma izni verir',
+  'admin:customers': 'Musteri listesi ve musteri yonetim sayfalarina erisim izni verir',
+  'admin:price-rules': 'Kategori ve urun fiyat kurallari sayfasina erisim izni verir',
+  'admin:settings': 'Sistem ayarlari sayfasina erisim izni verir',
+  'admin:products': 'Urun listesi ve urun yonetim sayfalarina erisim izni verir',
+  'admin:sync': 'Manuel senkronizasyon baslatma izni verir',
+  'admin:orders': 'Siparis listesi ve siparis islemlerine erisim izni verir',
+  'admin:quotes': 'Teklif listesi ve teklif islemlerine erisim izni verir',
+  'admin:agreements': 'Anlasmali fiyat yonetimine erisim izni verir',
+  'admin:order-tracking': 'Siparis takip sayfalarina erisim izni verir',
+  'admin:einvoices': 'E-fatura arsivine erisim izni verir',
+  'admin:requests': 'Talepler ve gorevler ekranina erisim izni verir',
+  'admin:campaigns': 'Kampanya yonetimine erisim izni verir',
+  'admin:vade': 'Vade ve alacak takip ekranina erisim izni verir',
+  'admin:staff': 'Personel yonetimine erisim izni verir',
+  'admin:supplier-price-lists': 'Tedarikci fiyat listeleri ekranina erisim izni verir',
+  'admin:exclusions': 'Rapor haric tutma kurallarina erisim izni verir',
+  'admin:notifications': 'Bildirimleri gorme ve okuma izni verir',
+  'admin:price-sync': 'Fiyat senkronizasyon islemlerine erisim izni verir',
 } as const;
 
 export type PermissionKey = keyof typeof AVAILABLE_PERMISSIONS;
@@ -164,34 +200,57 @@ class RolePermissionService {
    * Varsayılan izin değerlerini belirle
    */
   private getDefaultPermission(role: UserRole, permission: string): boolean {
-    // HEAD_ADMIN her şeyi görebilir
+    const isDashboard = permission.startsWith('dashboard:');
+    const isReport = permission.startsWith('reports:');
+
+    // HEAD_ADMIN her seyi gorebilir
     if (role === 'HEAD_ADMIN') return true;
 
-    // ADMIN - tüm dashboard ve admin sayfaları
+    // ADMIN - tum dashboard, rapor ve admin sayfalari
     if (role === 'ADMIN') {
-      if (permission.startsWith('dashboard:')) return true;
-      if (permission.startsWith('reports:')) return true;
+      if (isDashboard || isReport) return true;
       if (permission.startsWith('admin:')) return true;
       return false;
     }
 
-    // MANAGER - dashboard ve raporlar
+    // MANAGER - dashboard, raporlar ve belirli admin sayfalari
     if (role === 'MANAGER') {
-      if (permission.startsWith('dashboard:')) return true;
-      if (permission.startsWith('reports:')) return true;
-      if (permission === 'admin:customers') return true; // Müşteri görüntüleme
-      return false;
+      if (isDashboard || isReport) return true;
+      const allowed = new Set([
+        'admin:customers',
+        'admin:price-rules',
+        'admin:products',
+        'admin:orders',
+        'admin:quotes',
+        'admin:agreements',
+        'admin:order-tracking',
+        'admin:einvoices',
+        'admin:requests',
+        'admin:vade',
+        'admin:staff',
+        'admin:supplier-price-lists',
+        'admin:notifications',
+      ]);
+      return allowed.has(permission);
     }
 
-    // SALES_REP - sınırlı dashboard
+    // SALES_REP - sinirli dashboard + belirli admin sayfalari
     if (role === 'SALES_REP') {
-      const allowedForSalesRep = [
+      const allowed = new Set([
         'dashboard:orders',
         'dashboard:stok-ara',
         'dashboard:cari-ara',
-        'reports:pending-orders'
-      ];
-      return allowedForSalesRep.includes(permission);
+        'reports:pending-orders',
+        'admin:orders',
+        'admin:quotes',
+        'admin:customers',
+        'admin:order-tracking',
+        'admin:requests',
+        'admin:vade',
+        'admin:einvoices',
+        'admin:notifications',
+      ]);
+      return allowed.has(permission);
     }
 
     // DIVERSEY - sadece Diversey stok
@@ -199,7 +258,7 @@ class RolePermissionService {
       return permission === 'dashboard:diversey-stok';
     }
 
-    // CUSTOMER - hiçbir şey (customers panele zaten girmiyor)
+    // CUSTOMER - admin panel izinleri yok
     return false;
   }
 

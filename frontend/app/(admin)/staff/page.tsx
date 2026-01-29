@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -19,6 +20,7 @@ interface StaffMember {
 }
 
 export default function StaffManagementPage() {
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [availableSectorCodes, setAvailableSectorCodes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,9 +47,13 @@ export default function StaffManagementPage() {
   const [selectedSectorCode, setSelectedSectorCode] = useState('');
 
   useEffect(() => {
+    if (permissionsLoading) return;
+    if (!hasPermission('admin:staff')) {
+      return;
+    }
     fetchStaff();
     fetchSectorCodes();
-  }, []);
+  }, [permissionsLoading, hasPermission]);
 
   const fetchSectorCodes = async () => {
     try {
