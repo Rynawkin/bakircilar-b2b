@@ -45,17 +45,22 @@ export default function QuoteConvertPage() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [quoteResult, settingsResult] = await Promise.all([
-          adminApi.getQuoteById(quoteId),
-          adminApi.getSettings(),
-        ]);
+        const quoteResult = await adminApi.getQuoteById(quoteId);
         const loadedQuote = quoteResult.quote;
         setDocumentNo(loadedQuote.documentNo || '');
         setQuote(loadedQuote);
         const allIds = new Set((loadedQuote.items || []).map((item) => item.id));
         setSelectedIds(allIds);
         setCloseReasons({});
-        const warehouses = settingsResult?.includedWarehouses || [];
+
+        let warehouses: string[] = [];
+        try {
+          const settingsResult = await adminApi.getSettings();
+          warehouses = settingsResult?.includedWarehouses || [];
+        } catch (settingsError) {
+          console.warn('Ayarlar yuklenemedi, depo listesi alinmadi.', settingsError);
+        }
+
         setIncludedWarehouses(warehouses);
         if (!warehouseNo && warehouses.length > 0) {
           setWarehouseNo(resolveWarehouseValue(String(warehouses[0])));

@@ -17,7 +17,9 @@ import {
   requireAdminOrManager,
   requireStaff,
   requireOrderApprover,
-  requireStaffOrDiversey
+  requireStaffOrDiversey,
+  requirePermission,
+  requireAnyPermission
 } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload, taskUpload, invoiceUpload, supplierPriceListUpload } from '../middleware/upload.middleware';
@@ -141,13 +143,13 @@ const notificationReadSchema = z.object({
 });
 
 // Settings - ADMIN only
-router.get('/settings', requireAdmin, adminController.getSettings);
-router.put('/settings', requireAdmin, adminController.updateSettings);
+router.get('/settings', requirePermission('admin:settings'), adminController.getSettings);
+router.put('/settings', requirePermission('admin:settings'), adminController.updateSettings);
 
 // Sync - ADMIN only
-router.post('/sync', requireAdmin, adminController.triggerSync);
-router.post('/sync/images', requireAdmin, adminController.triggerImageSync);
-router.get('/sync/status/:id', requireAdmin, adminController.getSyncStatus);
+router.post('/sync', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.triggerSync);
+router.post('/sync/images', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.triggerImageSync);
+router.get('/sync/status/:id', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.getSyncStatus);
 
 // Cari Sync - ADMIN/SALES_REP
 router.post('/sync/cari', requireAdminOrSalesRep, adminController.triggerCariSync);
