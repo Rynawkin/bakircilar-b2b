@@ -48,14 +48,14 @@ export const AVAILABLE_PERMISSIONS = {
 // İzin açıklamaları
 export const PERMISSION_DESCRIPTIONS = {
   // Dashboard Widgets
-  'dashboard:orders': 'Dashboard'da bekleyen ve onaylanan siparis istatistiklerini gosterir',
-  'dashboard:customers': 'Dashboard'da aktif musteri sayisini ve musteri ekleme butonunu gosterir',
-  'dashboard:excess-stock': 'Dashboard'da fazla stoklu urun sayisini gosterir',
-  'dashboard:sync': 'Dashboard'da senkronizasyon butonlarini gosterir',
-  'dashboard:stok-ara': 'Dashboard'da Mikro F10 stok arama widget'ini gosterir',
-  'dashboard:cari-ara': 'Dashboard'da Mikro F10 cari arama widget'ini gosterir',
-  'dashboard:ekstre': 'Dashboard'da cari ekstre alma (Excel/PDF export) widget'ini gosterir',
-  'dashboard:diversey-stok': 'Dashboard'da Diversey markasi urun stoklari widget'ini gosterir',
+  'dashboard:orders': "Dashboard'da bekleyen ve onaylanan siparis istatistiklerini gosterir",
+  'dashboard:customers': "Dashboard'da aktif musteri sayisini ve musteri ekleme butonunu gosterir",
+  'dashboard:excess-stock': "Dashboard'da fazla stoklu urun sayisini gosterir",
+  'dashboard:sync': "Dashboard'da senkronizasyon butonlarini gosterir",
+  'dashboard:stok-ara': "Dashboard'da Mikro F10 stok arama widget'ini gosterir",
+  'dashboard:cari-ara': "Dashboard'da Mikro F10 cari arama widget'ini gosterir",
+  'dashboard:ekstre': "Dashboard'da cari ekstre alma (Excel/PDF export) widget'ini gosterir",
+  'dashboard:diversey-stok': "Dashboard'da Diversey markasi urun stoklari widget'ini gosterir",
 
   // Report Pages
   'reports:margin-compliance': 'Marj uyumsuzluk raporuna erisim izni verir',
