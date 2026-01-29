@@ -3071,6 +3071,7 @@ function AdminQuoteNewPageContent() {
                             </div>
                           )}
                         </div>
+                      </div>
                     </div>
                   );
                   })}
