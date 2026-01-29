@@ -79,11 +79,86 @@ export default function AdminOrdersPage() {
   const buildOrderPdf = async (order: PendingOrderForAdmin) => {
     const { default: jsPDF } = await import('jspdf');
     const autoTableModule = await import('jspdf-autotable');
-    const autoTable = (autoTableModule as any).default || autoTableModule;
+    const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
-    const marginX = 12;
+    const marginX = 14;
+
+    const colors = {
+      primary: [37, 99, 235] as const,
+      dark: [15, 23, 42] as const,
+      muted: [100, 116, 139] as const,
+      light: [248, 250, 252] as const,
+      border: [226, 232, 240] as const,
+    };
+
+    const resolveImageUrl = (url?: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http://') || url.startsWith('https://')) return url;
+      if (url.startsWith('/')) return `${window.location.origin}${url}`;
+      return `${window.location.origin}/${url}`;
+    };
+
+    const loadImageData = async (url: string): Promise<string | null> => {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch (error) {
+        return null;
+      }
+    };
+
+    const getImageFormat = (dataUrl: string) => (dataUrl.includes('image/png') ? 'PNG' : 'JPEG');
+
+    const getImageDimensions = (dataUrl: string): Promise<{ width: number; height: number } | null> =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+          if (!width || !height) {
+            resolve(null);
+            return;
+          }
+          resolve({ width, height });
+        };
+        img.onerror = () => resolve(null);
+        img.src = dataUrl;
+      });
+
+    const fitWithin = (width: number, height: number, maxWidth: number, maxHeight: number) => {
+      if (!width || !height) {
+        return { width: maxWidth, height: maxHeight };
+      }
+      const ratio = width / height;
+      let fittedWidth = maxWidth;
+      let fittedHeight = fittedWidth / ratio;
+      if (fittedHeight > maxHeight) {
+        fittedHeight = maxHeight;
+        fittedWidth = fittedHeight * ratio;
+      }
+      return { width: fittedWidth, height: fittedHeight };
+    };
+
+    const logoPath = '/quote-logo.png';
+    const logoUrl = resolveImageUrl(logoPath);
+    const logoData = logoUrl ? await loadImageData(logoUrl) : null;
+    const logoDimensions = logoData ? await getImageDimensions(logoData) : null;
+    const logoMaxWidth = 70;
+    const logoMaxHeight = 20;
+    const logoSize = logoData
+      ? logoDimensions
+        ? fitWithin(logoDimensions.width, logoDimensions.height, logoMaxWidth, logoMaxHeight)
+        : { width: logoMaxWidth, height: logoMaxHeight }
+      : null;
 
     const customerName =
       order.user?.displayName ||
@@ -91,31 +166,79 @@ export default function AdminOrdersPage() {
       order.user?.name ||
       '-';
     const customerCode = order.user?.mikroCariCode || '-';
+    const creatorName = order.requestedBy?.name
+      ? order.requestedBy.name
+      : order.customerRequest?.requestedBy?.name
+        ? order.customerRequest.requestedBy.name
+        : customerName;
 
-    doc.setFontSize(14);
-    doc.text(cleanPdfText('SIPARIS PROFORMA'), pageWidth / 2, 14, { align: 'center' });
+    const headerHeight = 28;
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, pageWidth, headerHeight, 'F');
+
+    if (logoData && logoSize) {
+      const logoFormat = getImageFormat(logoData);
+      const logoY = (headerHeight - logoSize.height) / 2;
+      const logoX = (pageWidth - logoSize.width) / 2;
+      doc.addImage(logoData, logoFormat, logoX, logoY, logoSize.width, logoSize.height);
+    }
+
+    const infoY = 28;
+    const boxHeight = 48;
+    const boxGap = 6;
+    const boxWidth = (pageWidth - marginX * 2 - boxGap) / 2;
+    const rightBoxX = marginX + boxWidth + boxGap;
+    const lineGap = 4.5;
+
+    doc.setFillColor(...colors.light);
+    doc.setDrawColor(...colors.border);
+    doc.roundedRect(marginX, infoY, boxWidth, boxHeight, 2, 2, 'F');
+    doc.roundedRect(rightBoxX, infoY, boxWidth, boxHeight, 2, 2, 'F');
+
+    const writeLines = (lines: string[], x: number, startY: number, width: number) => {
+      let currentY = startY;
+      lines.forEach((line) => {
+        const wrapped = doc.splitTextToSize(cleanPdfText(line), width) as string[];
+        wrapped.forEach((chunk) => {
+          doc.text(chunk, x, currentY);
+          currentY += lineGap;
+        });
+      });
+    };
 
     doc.setFontSize(9);
-    let cursorY = 22;
-    const infoLines = [
-      `Siparis No: ${order.orderNumber}`,
-      `Cari: ${customerName}`,
-      `Cari Kodu: ${customerCode}`,
-      `Tarih: ${order.createdAt ? formatDateShort(order.createdAt) : '-'}`,
-    ];
-    if (order.customerOrderNumber) {
-      infoLines.push(`Musteri Siparis No: ${order.customerOrderNumber}`);
-    }
-    if (order.mikroOrderIds && order.mikroOrderIds.length > 0) {
-      infoLines.push(`Mikro: ${order.mikroOrderIds.join(', ')}`);
-    }
+    doc.setTextColor(...colors.muted);
+    doc.text(cleanPdfText('FIRMA BILGILERI'), marginX + 4, infoY + 6);
+    doc.setTextColor(...colors.dark);
+    writeLines(
+      [
+        `Firma: ${customerName}`,
+        `Cari Kodu: ${customerCode}`,
+        `Mail: ${order.user?.email || '-'}`,
+      ],
+      marginX + 4,
+      infoY + 12,
+      boxWidth - 8
+    );
 
-    infoLines.forEach((line) => {
-      doc.text(cleanPdfText(line), marginX, cursorY);
-      cursorY += 5;
-    });
+    doc.setTextColor(...colors.muted);
+    doc.text(cleanPdfText('SIPARIS BILGILERI'), rightBoxX + 4, infoY + 6);
+    doc.setTextColor(...colors.dark);
+    writeLines(
+      [
+        `Tarih: ${order.createdAt ? formatDateShort(order.createdAt) : '-'}`,
+        `Siparis No: ${order.orderNumber}`,
+        `Belge No: ${order.customerOrderNumber || '-'}`,
+        `Olusturan: ${creatorName}`,
+        order.mikroOrderIds && order.mikroOrderIds.length > 0 ? `Mikro: ${order.mikroOrderIds.join(', ')}` : 'Mikro: -',
+      ],
+      rightBoxX + 4,
+      infoY + 12,
+      boxWidth - 8
+    );
 
-    const tableHead = [['Urun Kodu', 'Urun Adi', 'Miktar', 'Birim Fiyat', 'Toplam', 'Tip']];
+    const tableStartY = infoY + boxHeight + 10;
+    const tableHead = [['Urun Kodu', 'Urun Adi', 'Miktar', 'Birim Fiyat', 'Toplam', 'Tip', 'Not']];
     const tableBody = (order.items || []).map((item) => ([
       cleanPdfText(item.mikroCode),
       cleanPdfText(item.productName),
@@ -123,26 +246,28 @@ export default function AdminOrdersPage() {
       cleanPdfText(formatCurrency(item.unitPrice)),
       cleanPdfText(formatCurrency(item.totalPrice)),
       cleanPdfText(item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali'),
+      cleanPdfText(item.lineNote || ''),
     ]));
 
     autoTable(doc, {
-      startY: cursorY + 2,
+      startY: tableStartY,
       head: tableHead,
       body: tableBody,
       styles: { fontSize: 8, cellPadding: 1.5 },
-      headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255] },
+      headStyles: { fillColor: colors.primary, textColor: [255, 255, 255] },
       margin: { left: marginX, right: marginX },
       columnStyles: {
-        0: { cellWidth: 28 },
+        0: { cellWidth: 24 },
         1: { cellWidth: 60 },
-        2: { halign: 'right', cellWidth: 18 },
-        3: { halign: 'right', cellWidth: 24 },
-        4: { halign: 'right', cellWidth: 24 },
-        5: { halign: 'center', cellWidth: 18 },
+        2: { halign: 'right', cellWidth: 16 },
+        3: { halign: 'right', cellWidth: 22 },
+        4: { halign: 'right', cellWidth: 22 },
+        5: { halign: 'center', cellWidth: 16 },
+        6: { cellWidth: 24 },
       },
     });
 
-    const endY = (doc as any).lastAutoTable?.finalY || cursorY + 10;
+    const endY = (doc as any).lastAutoTable?.finalY || tableStartY + 10;
     doc.setFontSize(10);
     doc.text(cleanPdfText(`Toplam: ${formatCurrency(order.totalAmount)}`), pageWidth - marginX, endY + 8, { align: 'right' });
 

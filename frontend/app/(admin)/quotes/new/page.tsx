@@ -2029,7 +2029,7 @@ function AdminQuoteNewPageContent() {
                         )}
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Musteri Siparis No</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Belge No (Musteri Siparis No)</label>
                         <Input
                           value={orderCustomerOrderNumber}
                           onChange={(e) => setOrderCustomerOrderNumber(e.target.value)}

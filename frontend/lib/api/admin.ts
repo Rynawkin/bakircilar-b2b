@@ -505,6 +505,7 @@ export const adminApi = {
       invoicedSira?: number;
       whiteSeries?: string;
       whiteSira?: number;
+      documentNo?: string;
       itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string }>;
     }
   ): Promise<{ mikroOrderIds: string[]; closedCount: number; orderId: string; orderNumber: string }> => {

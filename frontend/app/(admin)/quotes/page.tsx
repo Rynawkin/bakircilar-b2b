@@ -1101,6 +1101,20 @@ function AdminQuotesPageContent() {
     }
   };
 
+  const updateTabParam = (tab: QuoteStatusFilter) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', resolveTabParam(tab));
+    params.delete('history');
+    params.delete('download');
+    const query = params.toString();
+    router.replace(query ? `/quotes?${query}` : '/quotes');
+  };
+
+  const handleTabChange = (tab: QuoteStatusFilter) => {
+    setActiveTab(tab);
+    updateTabParam(tab);
+  };
+
   const toggleExpanded = (quoteId: string) => {
     setExpandedQuotes((prev) => {
       const next = new Set(prev);
@@ -1185,7 +1199,7 @@ function AdminQuotesPageContent() {
         <div className="container-custom">
           <div className="flex gap-2 overflow-x-auto">
             <button
-              onClick={() => setActiveTab('PENDING_APPROVAL')}
+              onClick={() => handleTabChange('PENDING_APPROVAL')}
               className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
                 activeTab === 'PENDING_APPROVAL'
                   ? 'text-primary-600 border-b-2 border-primary-600'
@@ -1198,7 +1212,7 @@ function AdminQuotesPageContent() {
               }`}>{counts.pending}</span>
             </button>
             <button
-              onClick={() => setActiveTab('SENT_TO_MIKRO')}
+              onClick={() => handleTabChange('SENT_TO_MIKRO')}
               className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
                 activeTab === 'SENT_TO_MIKRO'
                   ? 'text-green-600 border-b-2 border-green-600'
@@ -1211,7 +1225,7 @@ function AdminQuotesPageContent() {
               }`}>{counts.sent}</span>
             </button>
             <button
-              onClick={() => setActiveTab('REJECTED')}
+              onClick={() => handleTabChange('REJECTED')}
               className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
                 activeTab === 'REJECTED'
                   ? 'text-red-600 border-b-2 border-red-600'
@@ -1224,7 +1238,7 @@ function AdminQuotesPageContent() {
               }`}>{counts.rejected}</span>
             </button>
             <button
-              onClick={() => setActiveTab('CUSTOMER_ACCEPTED')}
+              onClick={() => handleTabChange('CUSTOMER_ACCEPTED')}
               className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
                 activeTab === 'CUSTOMER_ACCEPTED'
                   ? 'text-green-700 border-b-2 border-green-700'
@@ -1237,7 +1251,7 @@ function AdminQuotesPageContent() {
               }`}>{counts.accepted}</span>
             </button>
             <button
-              onClick={() => setActiveTab('ALL')}
+              onClick={() => handleTabChange('ALL')}
               className={`px-6 py-4 font-semibold text-sm whitespace-nowrap transition-colors relative ${
                 activeTab === 'ALL'
                   ? 'text-gray-900 border-b-2 border-gray-900'

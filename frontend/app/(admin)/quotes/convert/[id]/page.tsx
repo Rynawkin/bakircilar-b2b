@@ -33,6 +33,7 @@ export default function QuoteConvertPage() {
   const [warehouseNo, setWarehouseNo] = useState('');
   const [invoicedSeries, setInvoicedSeries] = useState('');
   const [whiteSeries, setWhiteSeries] = useState('');
+  const [documentNo, setDocumentNo] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [itemQuantities, setItemQuantities] = useState<Record<string, number>>({});
   const [itemResponsibilityCenters, setItemResponsibilityCenters] = useState<Record<string, string>>({});
@@ -49,6 +50,7 @@ export default function QuoteConvertPage() {
           adminApi.getSettings(),
         ]);
         const loadedQuote = quoteResult.quote;
+        setDocumentNo(loadedQuote.documentNo || '');
         setQuote(loadedQuote);
         const allIds = new Set((loadedQuote.items || []).map((item) => item.id));
         setSelectedIds(allIds);
@@ -171,6 +173,7 @@ export default function QuoteConvertPage() {
     setSubmitting(true);
     try {
       const result = await adminApi.convertQuoteToOrder(quote.id, {
+        documentNo: documentNo.trim() || undefined,
         selectedItemIds: Array.from(selectedIds),
         closeReasons,
         warehouseNo: Number(resolveWarehouseValue(warehouseNo)),
@@ -329,6 +332,17 @@ export default function QuoteConvertPage() {
                             </span>
                           </td>
                           <td className="py-3">
+                            {isSelected ? (
+                              <Input
+                                value={resolveItemResponsibility(item)}
+                                onChange={(e) => updateItemResponsibility(item.id, e.target.value)}
+                                placeholder="Sorumluluk merkezi"
+                              />
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="py-3">
                             {!isSelected && (
                               <Input
                                 value={closeReasons[item.id] || ''}
@@ -357,6 +371,15 @@ export default function QuoteConvertPage() {
                 <div>
                   <h2 className="text-lg font-semibold">Siparis Bilgileri</h2>
                   <p className="text-xs text-gray-500">Depo ve evrak bilgilerini girin.</p>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Belge No</label>
+                  <Input
+                    value={documentNo}
+                    onChange={(e) => setDocumentNo(e.target.value)}
+                    placeholder="Musteri siparis no / belge no"
+                  />
+                </div>
                 </div>
 
                 <div>

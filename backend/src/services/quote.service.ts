@@ -1564,6 +1564,7 @@ class QuoteService {
       whiteSeries?: string;
       whiteSira?: number;
       itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string }>;
+      documentNo?: string;
       adminUserId: string;
     }
   ) {
@@ -1576,6 +1577,7 @@ class QuoteService {
       whiteSeries,
       whiteSira,
       itemUpdates,
+      documentNo: documentNoInput,
       adminUserId,
     } = input;
 
@@ -1593,6 +1595,7 @@ class QuoteService {
             city: true,
             district: true,
             hasEInvoice: true,
+            paymentPlanNo: true,
           },
         },
       },
@@ -1622,6 +1625,10 @@ class QuoteService {
     if (!warehouseValue) {
       throw new Error('Warehouse is required');
     }
+
+    const resolvedDocumentNo = String(documentNoInput ?? quote.documentNo ?? '').trim();
+    const documentNo = resolvedDocumentNo || undefined;
+    const documentNoChanged = resolvedDocumentNo !== String(quote.documentNo || '').trim();
 
     const selectedSet = new Set((selectedItemIds || []).filter(Boolean));
     const updateMap = new Map<string, { quantity?: number; responsibilityCenter?: string }>();
@@ -1703,6 +1710,7 @@ class QuoteService {
             totalAmount: totals.totalAmount,
             totalVat: totals.totalVat,
             grandTotal,
+            ...(documentNoChanged ? { documentNo: documentNo || null } : {}),
           },
         });
 
@@ -1723,9 +1731,41 @@ class QuoteService {
       });
     }
 
+    if (!hasDiff && documentNoChanged) {
+      await prisma.quote.update({
+        where: { id: quoteId },
+        data: { documentNo: documentNo || null, updatedById: adminUserId },
+      });
+    }
+
     const parsed = this.parseMikroNumber(quote.mikroNumber);
     if (!parsed) {
       throw new Error('Invalid Mikro number format');
+    }
+
+    const shouldUpdateMikro = hasDiff || documentNoChanged;
+    if (shouldUpdateMikro) {
+      await mikroService.updateQuote({
+        evrakSeri: parsed.evrakSeri,
+        evrakSira: parsed.evrakSira,
+        cariCode: quote.customer.mikroCariCode,
+        validityDate: new Date(quote.validityDate),
+        description: quote.note?.trim() || '',
+        documentNo,
+        responsibleCode: quote.responsibleCode || undefined,
+        paymentPlanNo: quote.customer?.paymentPlanNo ?? 0,
+        items: normalizedItems
+          .slice()
+          .sort((a, b) => a.lineOrder - b.lineOrder)
+          .map((item) => ({
+            productCode: item.productCode,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            vatRate: item.vatZeroed ? 0 : item.vatRate,
+            lineDescription: item.isManualLine ? item.productName : (item.lineDescription || ''),
+            priceListNo: item.priceListNo ?? 0,
+          })),
+      });
     }
 
     const guidRows = await mikroService.getQuoteLineGuids(parsed);
@@ -1776,7 +1816,6 @@ class QuoteService {
     let invoicedOrderId: string | null = null;
     let whiteOrderId: string | null = null;
     const noteBase = `B2B Teklif ${quote.quoteNumber} -> Siparis`;
-    const documentNo = quote.documentNo || undefined;
 
     if (invoicedItems.length > 0) {
       if (!invoicedSeries) {
@@ -1871,7 +1910,7 @@ class QuoteService {
         totalAmount,
         mikroOrderIds,
         approvedAt: new Date(),
-        customerOrderNumber: quote.documentNo?.trim() || undefined,
+        customerOrderNumber: documentNo || undefined,
         adminNote,
         items: {
           create: selectedItems.map((item) => ({

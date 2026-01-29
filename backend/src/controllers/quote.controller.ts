@@ -208,6 +208,7 @@ export class QuoteController {
         whiteSeries,
         whiteSira,
         itemUpdates,
+        documentNo,
       } = req.body || {};
 
       if (!Array.isArray(selectedItemIds) || selectedItemIds.length === 0) {
@@ -243,6 +244,7 @@ export class QuoteController {
         whiteSira,
         itemUpdates,
         adminUserId: req.user!.userId,
+        documentNo,
       });
 
       res.json(result);
