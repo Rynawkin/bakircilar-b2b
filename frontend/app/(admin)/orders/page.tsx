@@ -10,9 +10,11 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { OrderCardSkeleton } from '@/components/ui/Skeleton';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
-import { formatCurrency, formatDate } from '@/lib/utils/format';
+import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import * as XLSX from 'xlsx';
 
 type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+type OrderSource = 'ALL' | 'CUSTOMER' | 'B2B';
 
 export default function AdminOrdersPage() {
   const router = useRouter();
@@ -20,19 +22,28 @@ export default function AdminOrdersPage() {
   const [allOrders, setAllOrders] = useState<PendingOrderForAdmin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<OrderStatus>('PENDING');
+  const [sourceTab, setSourceTab] = useState<OrderSource>('ALL');
 
   useEffect(() => {
     fetchOrders();
   }, []);
 
+  const isCustomerOrder = (order: PendingOrderForAdmin) => {
+    return Boolean(order.customerRequest) || (!order.requestedBy && !order.sourceQuote);
+  };
+
   useEffect(() => {
-    // Filter orders based on active tab
-    if (activeTab === 'ALL') {
-      setOrders(allOrders);
-    } else {
-      setOrders(allOrders.filter(order => order.status === activeTab));
+    let filtered = allOrders;
+    if (activeTab !== 'ALL') {
+      filtered = filtered.filter(order => order.status === activeTab);
     }
-  }, [activeTab, allOrders]);
+    if (sourceTab === 'CUSTOMER') {
+      filtered = filtered.filter(isCustomerOrder);
+    } else if (sourceTab === 'B2B') {
+      filtered = filtered.filter(order => !isCustomerOrder(order));
+    }
+    setOrders(filtered);
+  }, [activeTab, sourceTab, allOrders]);
 
   const fetchOrders = async () => {
     try {
@@ -42,6 +53,155 @@ export default function AdminOrdersPage() {
       setOrders(orders.filter(order => order.status === 'PENDING'));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+
+  const cleanPdfText = (text: string | number | null | undefined) => {
+    const value = text ?? '';
+    return String(value)
+      .replace(/
+?
+/g, ' ')
+      .replace(/???/g, 'TL')
+      .replace(/?/g, 'I')
+      .replace(/?/g, 'i')
+      .replace(/?/g, 'S')
+      .replace(/?/g, 's')
+      .replace(/?/g, 'G')
+      .replace(/?/g, 'g')
+      .replace(/?/g, 'U')
+      .replace(/?/g, 'u')
+      .replace(/?/g, 'O')
+      .replace(/?/g, 'o')
+      .replace(/?/g, 'C')
+      .replace(/?/g, 'c');
+  };
+
+  const buildOrderPdf = async (order: PendingOrderForAdmin) => {
+    const { default: jsPDF } = await import('jspdf');
+    const autoTableModule = await import('jspdf-autotable');
+    const autoTable = (autoTableModule as any).default || autoTableModule;
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 12;
+
+    const customerName =
+      order.user?.displayName ||
+      order.user?.mikroName ||
+      order.user?.name ||
+      '-';
+    const customerCode = order.user?.mikroCariCode || '-';
+
+    doc.setFontSize(14);
+    doc.text(cleanPdfText('SIPARIS PROFORMA'), pageWidth / 2, 14, { align: 'center' });
+
+    doc.setFontSize(9);
+    let cursorY = 22;
+    const infoLines = [
+      `Siparis No: ${order.orderNumber}`,
+      `Cari: ${customerName}`,
+      `Cari Kodu: ${customerCode}`,
+      `Tarih: ${order.createdAt ? formatDateShort(order.createdAt) : '-'}`,
+    ];
+    if (order.customerOrderNumber) {
+      infoLines.push(`Musteri Siparis No: ${order.customerOrderNumber}`);
+    }
+    if (order.mikroOrderIds && order.mikroOrderIds.length > 0) {
+      infoLines.push(`Mikro: ${order.mikroOrderIds.join(', ')}`);
+    }
+
+    infoLines.forEach((line) => {
+      doc.text(cleanPdfText(line), marginX, cursorY);
+      cursorY += 5;
+    });
+
+    const tableHead = [['Urun Kodu', 'Urun Adi', 'Miktar', 'Birim Fiyat', 'Toplam', 'Tip']];
+    const tableBody = (order.items || []).map((item) => ([
+      cleanPdfText(item.mikroCode),
+      cleanPdfText(item.productName),
+      cleanPdfText(item.quantity),
+      cleanPdfText(formatCurrency(item.unitPrice)),
+      cleanPdfText(formatCurrency(item.totalPrice)),
+      cleanPdfText(item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali'),
+    ]));
+
+    autoTable(doc, {
+      startY: cursorY + 2,
+      head: tableHead,
+      body: tableBody,
+      styles: { fontSize: 8, cellPadding: 1.5 },
+      headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255] },
+      margin: { left: marginX, right: marginX },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 60 },
+        2: { halign: 'right', cellWidth: 18 },
+        3: { halign: 'right', cellWidth: 24 },
+        4: { halign: 'right', cellWidth: 24 },
+        5: { halign: 'center', cellWidth: 18 },
+      },
+    });
+
+    const endY = (doc as any).lastAutoTable?.finalY || cursorY + 10;
+    doc.setFontSize(10);
+    doc.text(cleanPdfText(`Toplam: ${formatCurrency(order.totalAmount)}`), pageWidth - marginX, endY + 8, { align: 'right' });
+
+    const fileName = `siparis-proforma-${order.orderNumber}.pdf`;
+    return { doc, fileName };
+  };
+
+  const handleOrderPdfExport = async (order: PendingOrderForAdmin) => {
+    try {
+      const { doc, fileName } = await buildOrderPdf(order);
+      doc.save(fileName);
+    } catch (error) {
+      console.error('Siparis PDF olusturma hatasi:', error);
+      toast.error('Siparis PDF olusturulamadi');
+    }
+  };
+
+  const handleOrderExcelExport = (order: PendingOrderForAdmin) => {
+    try {
+      const customerName =
+        order.user?.displayName ||
+        order.user?.mikroName ||
+        order.user?.name ||
+        '';
+      const safeCustomer = customerName ? customerName.replace(/[^a-zA-Z0-9-_]+/g, '_') : 'Siparis';
+      const headerRows = [
+        ['Siparis No', order.orderNumber],
+        ['Cari', customerName || '-'],
+        ['Cari Kodu', order.user?.mikroCariCode || '-'],
+        ['Tarih', order.createdAt ? formatDateShort(order.createdAt) : '-'],
+      ];
+      if (order.customerOrderNumber) {
+        headerRows.push(['Musteri Siparis No', order.customerOrderNumber]);
+      }
+      if (order.mikroOrderIds && order.mikroOrderIds.length > 0) {
+        headerRows.push(['Mikro', order.mikroOrderIds.join(', ')]);
+      }
+
+      const tableHeader = ['Urun Kodu', 'Urun Adi', 'Miktar', 'Birim Fiyat', 'Toplam', 'Tip', 'Not'];
+      const itemRows = (order.items || []).map((item) => ([
+        item.mikroCode,
+        item.productName,
+        item.quantity,
+        item.unitPrice,
+        item.totalPrice,
+        item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali',
+        item.lineNote || '',
+      ]));
+
+      const rows = [...headerRows, [], tableHeader, ...itemRows];
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Siparis');
+      XLSX.writeFile(workbook, `siparis-proforma-${order.orderNumber}_${safeCustomer}.xlsx`);
+    } catch (error) {
+      console.error('Siparis Excel olusturma hatasi:', error);
+      toast.error('Siparis Excel olusturulamadi');
     }
   };
 
@@ -232,6 +392,11 @@ export default function AdminOrdersPage() {
   };
 
   const counts = getOrderCounts();
+  const sourceCounts = {
+    all: allOrders.length,
+    customer: allOrders.filter(isCustomerOrder).length,
+    b2b: allOrders.filter((order) => !isCustomerOrder(order)).length,
+  };
   const pageHeader = (
     <div className="container-custom py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -331,6 +496,58 @@ export default function AdminOrdersPage() {
         </div>
       </div>
 
+      <div className="bg-white border-b border-gray-200">
+        <div className="container-custom">
+          <div className="flex gap-2 overflow-x-auto py-3">
+            <button
+              onClick={() => setSourceTab('ALL')}
+              className={`px-4 py-2 text-sm font-semibold rounded-full border transition-colors ${
+                sourceTab === 'ALL'
+                  ? 'border-gray-900 bg-gray-900 text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Tum Siparisler
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                sourceTab === 'ALL' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {sourceCounts.all}
+              </span>
+            </button>
+            <button
+              onClick={() => setSourceTab('CUSTOMER')}
+              className={`px-4 py-2 text-sm font-semibold rounded-full border transition-colors ${
+                sourceTab === 'CUSTOMER'
+                  ? 'border-primary-600 bg-primary-600 text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Musteri Siparisleri
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                sourceTab === 'CUSTOMER' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {sourceCounts.customer}
+              </span>
+            </button>
+            <button
+              onClick={() => setSourceTab('B2B')}
+              className={`px-4 py-2 text-sm font-semibold rounded-full border transition-colors ${
+                sourceTab === 'B2B'
+                  ? 'border-emerald-600 bg-emerald-600 text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              B2B Siparisleri
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                sourceTab === 'B2B' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {sourceCounts.b2b}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="container-custom py-8">
         {orders.length === 0 ? (
           <Card>
@@ -343,7 +560,20 @@ export default function AdminOrdersPage() {
           </Card>
         ) : (
           <div className="space-y-6">
-            {orders.map((order) => (
+            {orders.map((order) => {
+              const customerName =
+                order.user?.displayName ||
+                order.user?.mikroName ||
+                order.user?.name ||
+                '-';
+              const creatorLabel = order.requestedBy?.name
+                ? `${order.requestedBy.name} (B2B)`
+                : order.customerRequest?.requestedBy?.name
+                  ? `${order.customerRequest.requestedBy.name} (Talep)`
+                  : `${customerName} (Musteri)`;
+
+              return (
+
               <Card key={order.id} className="overflow-hidden">
                 {/* Order Header */}
                 <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-200">
@@ -353,6 +583,7 @@ export default function AdminOrdersPage() {
                       {getStatusBadge(order.status)}
                     </div>
                     <p className="text-sm text-gray-500 mt-1">{formatDate(order.createdAt)}</p>
+                    <p className="text-xs text-gray-500 mt-1">Olusturan: {creatorLabel}</p>
 
                     {/* Mikro Order IDs */}
                     {order.mikroOrderIds && order.mikroOrderIds.length > 0 && (
@@ -458,6 +689,15 @@ export default function AdminOrdersPage() {
                   </div>
                 </div>
 
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Button variant="secondary" onClick={() => handleOrderPdfExport(order)}>
+                    Siparis Proforma PDF
+                  </Button>
+                  <Button variant="secondary" onClick={() => handleOrderExcelExport(order)}>
+                    Siparis Proforma Excel
+                  </Button>
+                </div>
+
                 {/* Action Buttons - Only show for PENDING orders */}
                 {order.status === 'PENDING' && (
                   <div className="flex gap-3 pt-4 border-t border-gray-200">
@@ -486,7 +726,8 @@ export default function AdminOrdersPage() {
                   </div>
                 )}
               </Card>
-            ))}
+            );
+            })}
           </div>
         )}
       </div>

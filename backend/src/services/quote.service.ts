@@ -66,6 +66,83 @@ const safeNumber = (value: any, fallback = 0): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+
+const buildQuoteItemDiff = (
+  beforeItems: Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; priceType?: string; lineDescription?: string | null }>,
+  afterItems: Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; priceType?: string; lineDescription?: string | null }>
+) => {
+  const normalize = (item: { productCode: string; productName: string; quantity: number; unitPrice: number; priceType?: string; lineDescription?: string | null }) => ({
+    productCode: item.productCode,
+    productName: item.productName,
+    quantity: Number(item.quantity) || 0,
+    unitPrice: Number(item.unitPrice) || 0,
+    priceType: normalizePriceType(item.priceType),
+    lineDescription: item.lineDescription || '',
+  });
+
+  const beforeMap = new Map<string, ReturnType<typeof normalize>[]>();
+  beforeItems.forEach((item) => {
+    const snapshot = normalize(item);
+    const list = beforeMap.get(snapshot.productCode) || [];
+    list.push(snapshot);
+    beforeMap.set(snapshot.productCode, list);
+  });
+
+  const added: Array<ReturnType<typeof normalize>> = [];
+  const removed: Array<ReturnType<typeof normalize>> = [];
+  const updated: Array<{ productCode: string; productName: string; changes: Record<string, { from: any; to: any }> }> = [];
+
+  afterItems.forEach((item) => {
+    const snapshot = normalize(item);
+    const candidates = beforeMap.get(snapshot.productCode) || [];
+    if (candidates.length === 0) {
+      added.push(snapshot);
+      return;
+    }
+
+    let bestIndex = 0;
+    let bestScore = Number.POSITIVE_INFINITY;
+    candidates.forEach((candidate, index) => {
+      const score = Math.abs(candidate.unitPrice - snapshot.unitPrice) + Math.abs(candidate.quantity - snapshot.quantity);
+      if (score < bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+
+    const matched = candidates.splice(bestIndex, 1)[0];
+    if (candidates.length === 0) {
+      beforeMap.delete(snapshot.productCode);
+    } else {
+      beforeMap.set(snapshot.productCode, candidates);
+    }
+
+    const changes: Record<string, { from: any; to: any }> = {};
+    if (matched.quantity !== snapshot.quantity) {
+      changes.quantity = { from: matched.quantity, to: snapshot.quantity };
+    }
+    if (Math.abs(matched.unitPrice - snapshot.unitPrice) > 0.001) {
+      changes.unitPrice = { from: matched.unitPrice, to: snapshot.unitPrice };
+    }
+    if (matched.priceType !== snapshot.priceType) {
+      changes.priceType = { from: matched.priceType, to: snapshot.priceType };
+    }
+    if (matched.lineDescription !== snapshot.lineDescription) {
+      changes.lineDescription = { from: matched.lineDescription, to: snapshot.lineDescription };
+    }
+
+    if (Object.keys(changes).length > 0) {
+      updated.push({ productCode: snapshot.productCode, productName: snapshot.productName, changes });
+    }
+  });
+
+  beforeMap.forEach((items) => {
+    items.forEach((item) => removed.push(item));
+  });
+
+  return { added, removed, updated };
+};
+
 const roundUp2 = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
   return Math.ceil((value + Number.EPSILON) * 100) / 100;
@@ -521,7 +598,9 @@ class QuoteService {
       };
     });
 
-    const grandTotal = totalAmount + totalVat;
+    const itemChanges = buildQuoteItemDiff(existing.items, preparedItems);
+
+        const grandTotal = totalAmount + totalVat;
 
     const resolvedDocumentNo = (documentNo || note || '').trim();
     const resolvedResponsibleCode = (responsibleCode || '').trim();
@@ -819,7 +898,9 @@ class QuoteService {
       };
     });
 
-    const grandTotal = totalAmount + totalVat;
+    const itemChanges = buildQuoteItemDiff(existing.items, preparedItems);
+
+        const grandTotal = totalAmount + totalVat;
 
     const resolvedDocumentNo = (documentNo || note || existing.documentNo || '').trim();
     const resolvedResponsibleCode = (responsibleCode || existing.responsibleCode || '').trim();
@@ -903,6 +984,7 @@ class QuoteService {
           totalAmount,
           itemCount: preparedItems.length,
           status: updatedQuote.status,
+          changes: itemChanges,
         },
       },
     });
@@ -1251,6 +1333,70 @@ class QuoteService {
       throw new Error('Quote has no Mikro number');
     }
 
+
+    const itemDiff = buildQuoteItemDiff(quote.items as any, normalizedItems as any);
+    const hasDiff = itemDiff.added.length > 0 || itemDiff.removed.length > 0 || itemDiff.updated.length > 0;
+    if (hasDiff) {
+      const totals = normalizedItems.reduce(
+        (acc, item) => {
+          const lineTotal = (item.unitPrice || 0) * (item.quantity || 0);
+          const vatAmount = item.vatZeroed ? 0 : lineTotal * (item.vatRate || 0);
+          acc.totalAmount += lineTotal;
+          acc.totalVat += vatAmount;
+          return acc;
+        },
+        { totalAmount: 0, totalVat: 0 }
+      );
+      const grandTotal = totals.totalAmount + totals.totalVat;
+
+      await prisma.$transaction(async (tx) => {
+        const originalById = new Map(quote.items.map((item) => [item.id, item]));
+        const updates = normalizedItems.map((item) => {
+          const original = originalById.get(item.id);
+          if (!original) return null;
+          if (original.quantity !== item.quantity) {
+            return tx.quoteItem.update({
+              where: { id: item.id },
+              data: {
+                quantity: item.quantity,
+                totalPrice: item.unitPrice * item.quantity,
+              },
+            });
+          }
+          return null;
+        }).filter(Boolean);
+
+        if (updates.length > 0) {
+          await Promise.all(updates as any);
+        }
+
+        await tx.quote.update({
+          where: { id: quoteId },
+          data: {
+            updatedById: adminUserId,
+            totalAmount: totals.totalAmount,
+            totalVat: totals.totalVat,
+            grandTotal,
+          },
+        });
+
+        await tx.quoteHistory.create({
+          data: {
+            quoteId: quote.id,
+            action: 'UPDATED',
+            actorId: adminUserId,
+            summary: 'Teklif satirlari guncellendi',
+            payload: {
+              totalAmount: totals.totalAmount,
+              itemCount: normalizedItems.length,
+              status: quote.status,
+              changes: itemDiff,
+            },
+          },
+        });
+      });
+    }
+
     const parsed = this.parseMikroNumber(quote.mikroNumber);
     if (!parsed) {
       throw new Error('Invalid Mikro number format');
@@ -1393,7 +1539,9 @@ class QuoteService {
 
     const totalAmount = normalizedLines.reduce((sum, line) => sum + line.lineTotal, 0);
     const totalVat = normalizedLines.reduce((sum, line) => sum + line.lineTotal * (line.vatRate || 0), 0);
-    const grandTotal = totalAmount + totalVat;
+    const itemChanges = buildQuoteItemDiff(existing.items, preparedItems);
+
+        const grandTotal = totalAmount + totalVat;
     const allVatZero = normalizedLines.every((line) => line.vatRate === 0);
 
     const totalsChanged =
@@ -1480,6 +1628,7 @@ class QuoteService {
       invoicedSira?: number;
       whiteSeries?: string;
       whiteSira?: number;
+      itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string }>;
       adminUserId: string;
     }
   ) {
@@ -1491,6 +1640,7 @@ class QuoteService {
       invoicedSira,
       whiteSeries,
       whiteSira,
+      itemUpdates,
       adminUserId,
     } = input;
 
@@ -1539,16 +1689,103 @@ class QuoteService {
     }
 
     const selectedSet = new Set((selectedItemIds || []).filter(Boolean));
-    const selectedItems = quote.items.filter((item) => selectedSet.has(item.id));
+    const updateMap = new Map<string, { quantity?: number; responsibilityCenter?: string }>();
+    (itemUpdates || []).forEach((update) => {
+      if (update && update.id) {
+        updateMap.set(update.id, {
+          quantity: update.quantity,
+          responsibilityCenter: update.responsibilityCenter,
+        });
+      }
+    });
+
+    const normalizedItems = quote.items.map((item) => {
+      const update = updateMap.get(item.id);
+      const resolvedQuantity = Number(update?.quantity);
+      const quantity = Number.isFinite(resolvedQuantity) && resolvedQuantity > 0
+        ? Math.trunc(resolvedQuantity)
+        : item.quantity;
+      return {
+        ...item,
+        quantity,
+        responsibilityCenter: update?.responsibilityCenter?.trim() || undefined,
+      };
+    });
+
+    const selectedItems = normalizedItems.filter((item) => selectedSet.has(item.id));
     if (selectedItems.length === 0) {
       throw new Error('No quote items selected');
     }
 
-    const unselectedItems = quote.items.filter((item) => !selectedSet.has(item.id));
+    const unselectedItems = normalizedItems.filter((item) => !selectedSet.has(item.id));
     const closeReasonsMap = closeReasons || {};
     const missingReasons = unselectedItems.filter((item) => !String(closeReasonsMap[item.id] || '').trim());
     if (missingReasons.length > 0) {
       throw new Error('Close reason is required for unselected items');
+    }
+
+
+    const itemDiff = buildQuoteItemDiff(quote.items as any, normalizedItems as any);
+    const hasDiff = itemDiff.added.length > 0 || itemDiff.removed.length > 0 || itemDiff.updated.length > 0;
+    if (hasDiff) {
+      const totals = normalizedItems.reduce(
+        (acc, item) => {
+          const lineTotal = (item.unitPrice || 0) * (item.quantity || 0);
+          const vatAmount = item.vatZeroed ? 0 : lineTotal * (item.vatRate || 0);
+          acc.totalAmount += lineTotal;
+          acc.totalVat += vatAmount;
+          return acc;
+        },
+        { totalAmount: 0, totalVat: 0 }
+      );
+      const grandTotal = totals.totalAmount + totals.totalVat;
+
+      await prisma.$transaction(async (tx) => {
+        const originalById = new Map(quote.items.map((item) => [item.id, item]));
+        const updates = normalizedItems.map((item) => {
+          const original = originalById.get(item.id);
+          if (!original) return null;
+          if (original.quantity !== item.quantity) {
+            return tx.quoteItem.update({
+              where: { id: item.id },
+              data: {
+                quantity: item.quantity,
+                totalPrice: item.unitPrice * item.quantity,
+              },
+            });
+          }
+          return null;
+        }).filter(Boolean);
+
+        if (updates.length > 0) {
+          await Promise.all(updates as any);
+        }
+
+        await tx.quote.update({
+          where: { id: quoteId },
+          data: {
+            updatedById: adminUserId,
+            totalAmount: totals.totalAmount,
+            totalVat: totals.totalVat,
+            grandTotal,
+          },
+        });
+
+        await tx.quoteHistory.create({
+          data: {
+            quoteId: quote.id,
+            action: 'UPDATED',
+            actorId: adminUserId,
+            summary: 'Teklif satirlari guncellendi',
+            payload: {
+              totalAmount: totals.totalAmount,
+              itemCount: normalizedItems.length,
+              status: quote.status,
+              changes: itemDiff,
+            },
+          },
+        });
+      });
     }
 
     const parsed = this.parseMikroNumber(quote.mikroNumber);
@@ -1592,6 +1829,7 @@ class QuoteService {
         vatZeroed: item.vatZeroed,
         priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
         lineDescription: item.lineDescription || (item.isManualLine ? item.productName : ''),
+        responsibilityCenter: (item as any).responsibilityCenter || undefined,
         quoteLineGuid: guid,
       };
     });
@@ -1617,6 +1855,7 @@ class QuoteService {
           unitPrice: item.unitPrice,
           vatRate: item.vatZeroed ? 0 : item.vatRate,
           lineDescription: item.lineDescription || undefined,
+          responsibilityCenter: item.responsibilityCenter || undefined,
           quoteLineGuid: item.quoteLineGuid,
         })),
         applyVAT: true,
@@ -1643,6 +1882,7 @@ class QuoteService {
           unitPrice: item.unitPrice,
           vatRate: 0,
           lineDescription: item.lineDescription || undefined,
+          responsibilityCenter: item.responsibilityCenter || undefined,
           quoteLineGuid: item.quoteLineGuid,
         })),
         applyVAT: false,
@@ -1708,6 +1948,7 @@ class QuoteService {
             unitPrice: item.unitPrice,
             totalPrice: item.unitPrice * item.quantity,
             lineNote: item.lineDescription || undefined,
+            responsibilityCenter: (item as any).responsibilityCenter || undefined,
             status: 'APPROVED',
             approvedQuantity: item.quantity,
             mikroOrderId:

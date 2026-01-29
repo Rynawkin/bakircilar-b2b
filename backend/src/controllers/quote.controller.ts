@@ -207,6 +207,7 @@ export class QuoteController {
         invoicedSira,
         whiteSeries,
         whiteSira,
+        itemUpdates,
       } = req.body || {};
 
       if (!Array.isArray(selectedItemIds) || selectedItemIds.length === 0) {
@@ -240,6 +241,7 @@ export class QuoteController {
         invoicedSira,
         whiteSeries,
         whiteSira,
+        itemUpdates,
         adminUserId: req.user!.userId,
       });
 

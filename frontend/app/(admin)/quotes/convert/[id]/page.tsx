@@ -34,6 +34,9 @@ export default function QuoteConvertPage() {
   const [invoicedSeries, setInvoicedSeries] = useState('');
   const [whiteSeries, setWhiteSeries] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [itemQuantities, setItemQuantities] = useState<Record<string, number>>({});
+  const [itemResponsibilityCenters, setItemResponsibilityCenters] = useState<Record<string, string>>({});
+  const [bulkResponsibilityCenter, setBulkResponsibilityCenter] = useState('');
 
   useEffect(() => {
     if (!quoteId) return;
@@ -66,6 +69,17 @@ export default function QuoteConvertPage() {
     loadData();
   }, [quoteId]);
 
+  const resolveItemQuantity = (item: Quote['items'][number]) => {
+    const raw = itemQuantities[item.id];
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    return Number(item.quantity) || 0;
+  };
+
+  const resolveItemResponsibility = (item: Quote['items'][number]) => {
+    return itemResponsibilityCenters[item.id] || '';
+  };
+
   const selectedItems = useMemo(() => {
     if (!quote) return [];
     return (quote.items || []).filter((item) => selectedIds.has(item.id));
@@ -93,6 +107,30 @@ export default function QuoteConvertPage() {
 
   const deselectAll = () => {
     setSelectedIds(new Set());
+  };
+
+  const updateItemQuantity = (itemId: string, quantity: number) => {
+    setItemQuantities((prev) => ({
+      ...prev,
+      [itemId]: Math.max(1, Math.floor(quantity || 0)),
+    }));
+  };
+
+  const updateItemResponsibility = (itemId: string, value: string) => {
+    setItemResponsibilityCenters((prev) => ({
+      ...prev,
+      [itemId]: value,
+    }));
+  };
+
+  const applyResponsibilityToAll = () => {
+    if (!quote) return;
+    const value = bulkResponsibilityCenter.trim();
+    const next: Record<string, string> = {};
+    (quote.items || []).forEach((item) => {
+      next[item.id] = value;
+    });
+    setItemResponsibilityCenters(next);
   };
 
   const handleSubmit = async () => {
@@ -138,6 +176,11 @@ export default function QuoteConvertPage() {
         warehouseNo: Number(resolveWarehouseValue(warehouseNo)),
         invoicedSeries: invoicedSeries.trim() || undefined,
         whiteSeries: whiteSeries.trim() || undefined,
+        itemUpdates: selectedItems.map((item) => ({
+          id: item.id,
+          quantity: resolveItemQuantity(item),
+          responsibilityCenter: resolveItemResponsibility(item).trim() || undefined,
+        })),
       });
 
       const orderLabel = result.orderNumber
@@ -205,6 +248,18 @@ export default function QuoteConvertPage() {
                 </div>
               </div>
 
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <input
+                  value={bulkResponsibilityCenter}
+                  onChange={(e) => setBulkResponsibilityCenter(e.target.value)}
+                  placeholder="Sorumluluk merkezi (Toplu)"
+                  className="w-56 rounded border border-slate-200 px-3 py-2 text-xs"
+                />
+                <Button variant="secondary" size="sm" onClick={applyResponsibilityToAll}>
+                  Tum satirlara uygula
+                </Button>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-left text-xs text-gray-500">
@@ -215,13 +270,15 @@ export default function QuoteConvertPage() {
                       <th className="text-right">Birim</th>
                       <th className="text-right">Toplam</th>
                       <th>Tip</th>
+                      <th>Sorumluluk</th>
                       <th>Kapatma Nedeni</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {(quote.items || []).map((item) => {
                       const isSelected = selectedIds.has(item.id);
-                      const lineTotal = (item.unitPrice || 0) * (item.quantity || 0);
+                      const resolvedQuantity = resolveItemQuantity(item);
+                      const lineTotal = (item.unitPrice || 0) * resolvedQuantity;
                       return (
                         <tr key={item.id} className="align-top">
                           <td className="py-3">
@@ -236,7 +293,34 @@ export default function QuoteConvertPage() {
                             <div className="font-medium text-gray-900">{item.productName}</div>
                             <div className="text-xs text-gray-500">{item.productCode}</div>
                           </td>
-                          <td className="py-3 text-right">{item.quantity}</td>
+                          <td className="py-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                className="h-6 w-6 rounded border border-slate-200 text-xs text-gray-600 hover:bg-slate-50 disabled:opacity-40"
+                                onClick={() => updateItemQuantity(item.id, resolvedQuantity - 1)}
+                                disabled={!isSelected || resolvedQuantity <= 1}
+                              >
+                                -
+                              </button>
+                              <input
+                                type="number"
+                                className="w-16 rounded border border-slate-200 px-2 py-1 text-right text-xs"
+                                value={resolvedQuantity}
+                                onChange={(e) => updateItemQuantity(item.id, Number(e.target.value))}
+                                min={1}
+                                disabled={!isSelected}
+                              />
+                              <button
+                                type="button"
+                                className="h-6 w-6 rounded border border-slate-200 text-xs text-gray-600 hover:bg-slate-50 disabled:opacity-40"
+                                onClick={() => updateItemQuantity(item.id, resolvedQuantity + 1)}
+                                disabled={!isSelected}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </td>
                           <td className="py-3 text-right">{formatCurrency(item.unitPrice)}</td>
                           <td className="py-3 text-right">{formatCurrency(lineTotal)}</td>
                           <td className="py-3">

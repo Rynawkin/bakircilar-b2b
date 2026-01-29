@@ -392,6 +392,7 @@ export const adminApi = {
       vatZeroed?: boolean;
       manualVatRate?: number;
       lineDescription?: string;
+      responsibilityCenter?: string;
     }>;
     warehouseNo: number;
     description?: string;
@@ -504,6 +505,7 @@ export const adminApi = {
       invoicedSira?: number;
       whiteSeries?: string;
       whiteSira?: number;
+      itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string }>;
     }
   ): Promise<{ mikroOrderIds: string[]; closedCount: number; orderId: string; orderNumber: string }> => {
     const response = await apiClient.post(`/admin/quotes/${id}/convert-to-order`, payload);

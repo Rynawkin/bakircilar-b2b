@@ -108,6 +108,7 @@ class OrderService {
       vatZeroed?: boolean;
       manualVatRate?: number;
       lineDescription?: string;
+      responsibilityCenter?: string;
     }>;
     warehouseNo: number;
     description?: string;
@@ -239,6 +240,7 @@ class OrderService {
         vatRate,
         priceType,
         lineDescription,
+        responsibilityCenter: item.responsibilityCenter?.trim() || undefined,
       };
     });
 
@@ -250,8 +252,8 @@ class OrderService {
     let whiteOrderId: string | null = null;
 
     if (invoicedItems.length > 0) {
-      if (!invoicedSeries || !Number.isFinite(Number(invoicedSira))) {
-        throw new Error('Invoiced order series and number are required');
+      if (!invoicedSeries) {
+        throw new Error('Invoiced order series is required');
       }
       invoicedOrderId = await mikroService.writeOrder({
         cariCode: customer.mikroCariCode,
@@ -261,12 +263,13 @@ class OrderService {
           unitPrice: item.unitPrice,
           vatRate: item.vatRate,
           lineDescription: item.lineDescription || undefined,
+          responsibilityCenter: item.responsibilityCenter || undefined,
         })),
         applyVAT: true,
         description: description?.trim() || 'B2B Manuel Siparis',
         documentNo: documentNo?.trim() || undefined,
         evrakSeri: String(invoicedSeries).trim(),
-        evrakSira: Number(invoicedSira),
+        evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
         warehouseNo: warehouseValue,
       });
       if (invoicedOrderId) {
@@ -275,8 +278,8 @@ class OrderService {
     }
 
     if (whiteItems.length > 0) {
-      if (!whiteSeries || !Number.isFinite(Number(whiteSira))) {
-        throw new Error('White order series and number are required');
+      if (!whiteSeries) {
+        throw new Error('White order series is required');
       }
       whiteOrderId = await mikroService.writeOrder({
         cariCode: customer.mikroCariCode,
@@ -286,12 +289,13 @@ class OrderService {
           unitPrice: item.unitPrice,
           vatRate: 0,
           lineDescription: item.lineDescription || undefined,
+          responsibilityCenter: item.responsibilityCenter || undefined,
         })),
         applyVAT: false,
         description: description?.trim() || 'B2B Manuel Siparis',
         documentNo: documentNo?.trim() || undefined,
         evrakSeri: String(whiteSeries).trim(),
-        evrakSira: Number(whiteSira),
+        evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,
         warehouseNo: warehouseValue,
       });
       if (whiteOrderId) {
@@ -331,6 +335,7 @@ class OrderService {
             unitPrice: item.unitPrice,
             totalPrice: item.unitPrice * item.quantity,
             lineNote: item.lineDescription || undefined,
+            responsibilityCenter: item.responsibilityCenter || undefined,
             status: 'APPROVED',
             approvedQuantity: item.quantity,
             mikroOrderId:

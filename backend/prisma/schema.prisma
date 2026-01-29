@@ -798,6 +798,7 @@ model CartItem {
   unitPrice       Float       // O andaki fiyat (snapshot)
   lineNote          String?
   approvedQuantity  Int?
+  responsibilityCenter String?
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -866,6 +867,7 @@ model OrderItem {
   totalPrice      Float
   lineNote          String?
   approvedQuantity  Int?
+  responsibilityCenter String?
 
   // Item-level approval (kısmi onay için)
   status          OrderItemStatus   @default(PENDING)
@@ -954,6 +956,7 @@ model CustomerRequestItem {
   priceMode         PriceMode   @default(LIST)
   lineNote          String?
   approvedQuantity  Int?
+  responsibilityCenter String?
   selectedPriceType PriceType?
   selectedUnitPrice Float?
   selectedTotalPrice Float?

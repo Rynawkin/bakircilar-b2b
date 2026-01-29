@@ -91,6 +91,7 @@ export interface CartItem {
   totalPrice: number;
   vatRate: number;
   lineNote?: string | null;
+  responsibilityCenter?: string | null;
 }
 
 export interface Cart {
@@ -119,6 +120,7 @@ export interface OrderItem {
   unitPrice: number;
   totalPrice: number;
   lineNote?: string | null;
+  responsibilityCenter?: string | null;
 }
 
 export interface Order {
@@ -206,6 +208,8 @@ export interface PendingOrderForAdmin extends Order {
     name: string;
     email: string;
     mikroCariCode: string;
+    displayName?: string | null;
+    mikroName?: string | null;
   customerType?: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
   city?: string;
   district?: string;

@@ -64,6 +64,7 @@ interface QuoteItemForm {
   manualMarginEntry?: number;
   manualMarginCost?: number;
   lineDescription?: string;
+  responsibilityCenter?: string;
   lastSales?: LastSale[];
   selectedSaleIndex?: number;
   lastEntryPrice?: number | null;
@@ -406,9 +407,9 @@ function AdminQuoteNewPageContent() {
   const [includedWarehouses, setIncludedWarehouses] = useState<string[]>([]);
   const [orderWarehouse, setOrderWarehouse] = useState('');
   const [orderInvoicedSeries, setOrderInvoicedSeries] = useState('');
-  const [orderInvoicedSira, setOrderInvoicedSira] = useState('');
   const [orderWhiteSeries, setOrderWhiteSeries] = useState('');
-  const [orderWhiteSira, setOrderWhiteSira] = useState('');
+  const [orderCustomerOrderNumber, setOrderCustomerOrderNumber] = useState('');
+  const [bulkResponsibilityCenter, setBulkResponsibilityCenter] = useState('');
 
   useEffect(() => {
     const defaultDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -1206,6 +1207,16 @@ function AdminQuoteNewPageContent() {
     );
   };
 
+
+  const applyResponsibilityCenterToAll = () => {
+    const value = bulkResponsibilityCenter.trim();
+    if (!value) {
+      toast.error('Sorumluluk merkezi girin.');
+      return;
+    }
+    setQuoteItems((prev) => prev.map((item) => ({ ...item, responsibilityCenter: value })));
+  };
+
   const applyLastSaleToAll = () => {
     let applied = 0;
     let missing = 0;
@@ -1646,20 +1657,10 @@ function AdminQuoteNewPageContent() {
           toast.error('Faturali seri gerekli.');
           return false;
         }
-        const siraValue = Number(orderInvoicedSira);
-        if (!Number.isFinite(siraValue) || siraValue <= 0) {
-          toast.error('Faturali sira gerekli.');
-          return false;
-        }
       }
       if (orderHasWhite) {
         if (!orderWhiteSeries.trim()) {
           toast.error('Beyaz seri gerekli.');
-          return false;
-        }
-        const siraValue = Number(orderWhiteSira);
-        if (!Number.isFinite(siraValue) || siraValue <= 0) {
-          toast.error('Beyaz sira gerekli.');
           return false;
         }
       }
@@ -1730,11 +1731,9 @@ function AdminQuoteNewPageContent() {
           customerId: selectedCustomer.id,
           warehouseNo: Number(resolveWarehouseValue(orderWarehouse)),
           description: note,
-          documentNo: undefined,
+          documentNo: orderCustomerOrderNumber.trim() || undefined,
           invoicedSeries: orderHasInvoiced ? orderInvoicedSeries.trim() : undefined,
-          invoicedSira: orderHasInvoiced ? Number(orderInvoicedSira) : undefined,
           whiteSeries: orderHasWhite ? orderWhiteSeries.trim() : undefined,
-          whiteSira: orderHasWhite ? Number(orderWhiteSira) : undefined,
           items: quoteItems.map((item) => ({
             productId: item.isManualLine ? undefined : item.productId,
             productCode: item.productCode,
@@ -1745,6 +1744,7 @@ function AdminQuoteNewPageContent() {
             vatZeroed: vatZeroed || item.vatZeroed,
             manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
             lineDescription: item.lineDescription || undefined,
+            responsibilityCenter: item.responsibilityCenter || undefined,
           })),
         };
 
@@ -1783,6 +1783,7 @@ function AdminQuoteNewPageContent() {
             manualLine: item.isManualLine,
             manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
             lineDescription: item.lineDescription || undefined,
+            responsibilityCenter: item.responsibilityCenter || undefined,
             lastSale: sale
               ? {
                   saleDate: sale.saleDate,
@@ -2027,6 +2028,14 @@ function AdminQuoteNewPageContent() {
                           <p className="mt-1 text-xs text-gray-500">Bu m??teri i?in kay?tl? ki?i yok.</p>
                         )}
                       </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Musteri Siparis No</label>
+                        <Input
+                          value={orderCustomerOrderNumber}
+                          onChange={(e) => setOrderCustomerOrderNumber(e.target.value)}
+                          placeholder="Orn: HENDEK-8915"
+                        />
+                      </div>
                     </>
                   )}
                   {isOrderMode && (
@@ -2064,15 +2073,6 @@ function AdminQuoteNewPageContent() {
                                 placeholder="Orn: HENDEK"
                               />
                             </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Sira</label>
-                              <Input
-                                type="number"
-                                value={orderInvoicedSira}
-                                onChange={(e) => setOrderInvoicedSira(e.target.value)}
-                                placeholder="Orn: 8915"
-                              />
-                            </div>
                           </>
                         )}
                         {orderHasWhite && (
@@ -2083,15 +2083,6 @@ function AdminQuoteNewPageContent() {
                                 value={orderWhiteSeries}
                                 onChange={(e) => setOrderWhiteSeries(e.target.value)}
                                 placeholder="Orn: HENDEK"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Sira</label>
-                              <Input
-                                type="number"
-                                value={orderWhiteSira}
-                                onChange={(e) => setOrderWhiteSira(e.target.value)}
-                                placeholder="Orn: 8915"
                               />
                             </div>
                           </>
@@ -2118,7 +2109,9 @@ function AdminQuoteNewPageContent() {
                       placeholder="Teklif notu"
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                      Not, Mikro'da belge no alanina da yazilir.
+                      {isOrderMode
+                        ? "Not, Mikro'da aciklama alanina yazilir."
+                        : "Not, Mikro'da belge no alanina da yazilir."}
                     </p>
                   </div>
                 </div>
@@ -2162,6 +2155,20 @@ function AdminQuoteNewPageContent() {
               <Button variant="secondary" size="sm" onClick={applyLastSaleToAll} className="rounded-full">
                 Son Satisi Uygula
               </Button>
+              {isOrderMode && (
+                <>
+                  <input
+                    value={bulkResponsibilityCenter}
+                    onChange={(e) => setBulkResponsibilityCenter(e.target.value)}
+                    placeholder="Sorumluluk merkezi"
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-sm"
+                  />
+                  <Button variant="secondary" size="sm" onClick={applyResponsibilityCenterToAll} className="rounded-full">
+                    Sorumluluk Uygula
+                  </Button>
+                </>
+              )}
+
               <Button variant="secondary" size="sm" onClick={() => setShowColumnSelector(true)} className="rounded-full">
                 Kolonlari Sec
               </Button>
@@ -2534,6 +2541,15 @@ function AdminQuoteNewPageContent() {
                                     maxLength={40}
                                     className="w-full"
                                   />
+                                  {isOrderMode && (
+                                    <Input
+                                      placeholder="Sorumluluk merkezi"
+                                      value={item.responsibilityCenter || ''}
+                                      onChange={(e) => updateItem(item.id, { responsibilityCenter: e.target.value })}
+                                      maxLength={25}
+                                      className="w-full mt-1"
+                                    />
+                                  )}
                                 </td>
                               );
                             }

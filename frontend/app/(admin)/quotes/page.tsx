@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/Badge';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { useAuthStore } from '@/lib/store/authStore';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import * as XLSX from 'xlsx';
 
 type QuoteStatusFilter = QuoteStatus | 'ALL';
 
@@ -135,6 +136,7 @@ function AdminQuotesPageContent() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyQuote, setHistoryQuote] = useState<Quote | null>(null);
   const [historyItems, setHistoryItems] = useState<QuoteHistory[]>([]);
+  const [expandedHistoryEntries, setExpandedHistoryEntries] = useState<Set<string>>(new Set());
   const [pendingHistoryId, setPendingHistoryId] = useState<string | null>(null);
   const handledHistoryRef = useRef<string | null>(null);
 
@@ -899,6 +901,44 @@ function AdminQuotesPageContent() {
     }
   };
 
+
+  const handleExcelExport = (quote: Quote) => {
+    try {
+      const customerName =
+        quote.customer?.displayName ||
+        quote.customer?.mikroName ||
+        quote.customer?.name ||
+        '';
+      const safeCustomer = customerName ? customerName.replace(/[^a-zA-Z0-9-_]+/g, '_') : 'Teklif';
+      const headerRows = [
+        ['Teklif No', quote.quoteNumber],
+        ['Cari', customerName || '-'],
+        ['Cari Kodu', quote.customer?.mikroCariCode || '-'],
+        ['Tarih', quote.createdAt ? formatDateShort(quote.createdAt) : '-'],
+        ['Gecerlilik', quote.validityDate ? formatDateShort(quote.validityDate) : '-'],
+      ];
+      const tableHeader = ['Urun Kodu', 'Urun Adi', 'Miktar', 'Birim', 'Birim Fiyat', 'Toplam', 'Tip', 'Aciklama'];
+      const itemRows = (quote.items || []).map((item) => ([
+        item.productCode,
+        item.productName,
+        item.quantity,
+        item.unit || item.product?.unit || '',
+        item.unitPrice,
+        item.totalPrice,
+        item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali',
+        item.lineDescription || '',
+      ]));
+      const rows = [...headerRows, [], tableHeader, ...itemRows];
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Teklif');
+      XLSX.writeFile(workbook, `${quote.quoteNumber}_${safeCustomer}.xlsx`);
+    } catch (error) {
+      console.error('Excel olusturma hatasi:', error);
+      toast.error('Excel olusturulamadi');
+    }
+  };
+
   const clearDownloadParam = () => {
     const resolvedTab = resolveTabFilter(searchParams.get('tab')) || activeTab;
     const query = `?tab=${resolveTabParam(resolvedTab)}`;
@@ -941,12 +981,14 @@ function AdminQuotesPageContent() {
     setHistoryOpen(false);
     setHistoryQuote(null);
     setHistoryItems([]);
+    setExpandedHistoryEntries(new Set());
     clearHistoryParam();
   };
 
   const handleOpenHistory = async (quote: Quote) => {
     setHistoryQuote(quote);
     setHistoryItems([]);
+    setExpandedHistoryEntries(new Set());
     setHistoryOpen(true);
     setHistoryLoading(true);
     try {
@@ -959,6 +1001,19 @@ function AdminQuotesPageContent() {
     } finally {
       setHistoryLoading(false);
     }
+  };
+
+
+  const toggleHistoryEntry = (entryId: string) => {
+    setExpandedHistoryEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryId)) {
+        next.delete(entryId);
+      } else {
+        next.add(entryId);
+      }
+      return next;
+    });
   };
 
   const resolveHistoryLabel = (action: QuoteHistory['action']) => {
@@ -978,16 +1033,55 @@ function AdminQuotesPageContent() {
 
   const buildHistoryDetails = (entry: QuoteHistory) => {
     const payload = entry.payload as any;
-    if (!payload || typeof payload !== 'object') return [];
-    const details: string[] = [];
-    if (payload.status) details.push(`Durum: ${payload.status}`);
-    if (payload.orderNumber) details.push(`Siparis: ${payload.orderNumber}`);
-    if (Array.isArray(payload.mikroOrderIds) && payload.mikroOrderIds.length > 0) {
-      details.push(`Mikro: ${payload.mikroOrderIds.join(', ')}`);
+    const summaryLines: string[] = [];
+    const changeLines: string[] = [];
+
+    if (!payload || typeof payload !== 'object') {
+      return { summaryLines, changeLines };
     }
-    if (payload.itemCount) details.push(`Kalem: ${payload.itemCount}`);
-    if (payload.totalAmount) details.push(`Tutar: ${formatCurrency(payload.totalAmount)}`);
-    return details;
+
+    if (payload.status) summaryLines.push(`Durum: ${payload.status}`);
+    if (payload.orderNumber) summaryLines.push(`Siparis: ${payload.orderNumber}`);
+    if (Array.isArray(payload.mikroOrderIds) && payload.mikroOrderIds.length > 0) {
+      summaryLines.push(`Mikro: ${payload.mikroOrderIds.join(', ')}`);
+    }
+    if (payload.itemCount) summaryLines.push(`Kalem: ${payload.itemCount}`);
+    if (payload.totalAmount) summaryLines.push(`Tutar: ${formatCurrency(payload.totalAmount)}`);
+
+    const changes = payload.changes || {};
+    const added = Array.isArray(changes.added) ? changes.added : [];
+    const removed = Array.isArray(changes.removed) ? changes.removed : [];
+    const updated = Array.isArray(changes.updated) ? changes.updated : [];
+
+    added.forEach((item: any) => {
+      if (!item?.productCode) return;
+      changeLines.push(`Eklendi: ${item.productCode} - ${item.productName || ''} (${item.quantity ?? '-'} adet)`);
+    });
+    removed.forEach((item: any) => {
+      if (!item?.productCode) return;
+      changeLines.push(`Silindi: ${item.productCode} - ${item.productName || ''}`);
+    });
+    updated.forEach((item: any) => {
+      const parts: string[] = [];
+      const changesMap = item?.changes || {};
+      if (changesMap.quantity) {
+        parts.push(`Miktar ${changesMap.quantity.from} -> ${changesMap.quantity.to}`);
+      }
+      if (changesMap.unitPrice) {
+        parts.push(`Fiyat ${formatCurrency(changesMap.unitPrice.from)} -> ${formatCurrency(changesMap.unitPrice.to)}`);
+      }
+      if (changesMap.priceType) {
+        parts.push(`Tip ${changesMap.priceType.from} -> ${changesMap.priceType.to}`);
+      }
+      if (changesMap.lineDescription) {
+        parts.push('Aciklama guncellendi');
+      }
+      if (parts.length > 0) {
+        changeLines.push(`${item.productCode} - ${item.productName || ''}: ${parts.join(', ')}`);
+      }
+    });
+
+    return { summaryLines, changeLines };
   };
 
   const handleSync = async (quoteId: string) => {
@@ -1243,6 +1337,9 @@ function AdminQuotesPageContent() {
                     <Button variant="secondary" onClick={() => handlePdfExport(quote)}>
                       PDF İndir
                     </Button>
+                    <Button variant="secondary" onClick={() => handleExcelExport(quote)}>
+                      Excel Indir
+                    </Button>
                     <Button
                       variant="secondary"
                       onClick={() => handleStockPdfExport(quote)}
@@ -1379,8 +1476,9 @@ function AdminQuotesPageContent() {
         ) : (
           <div className="space-y-3">
             {historyItems.map((entry) => {
-              const details = buildHistoryDetails(entry);
+              const { summaryLines, changeLines } = buildHistoryDetails(entry);
               const actorName = entry.actor?.name || 'Sistem';
+              const isExpanded = expandedHistoryEntries.has(entry.id);
               return (
                 <div key={entry.id} className="rounded-lg border border-gray-200 bg-white p-3">
                   <div className="flex items-center justify-between gap-3">
@@ -1392,8 +1490,26 @@ function AdminQuotesPageContent() {
                   <div className="text-xs text-gray-500 mt-1">
                     {formatDate(entry.createdAt)} - {actorName}
                   </div>
-                  {details.length > 0 && (
-                    <div className="text-xs text-gray-600 mt-2">{details.join(' - ')}</div>
+                  {summaryLines.length > 0 && (
+                    <div className="text-xs text-gray-600 mt-2">{summaryLines.join(' - ')}</div>
+                  )}
+                  {changeLines.length > 0 && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-primary-600 hover:text-primary-700"
+                        onClick={() => toggleHistoryEntry(entry.id)}
+                      >
+                        {isExpanded ? 'Detayi Gizle' : 'Detayi Goster'}
+                      </button>
+                      {isExpanded && (
+                        <ul className="mt-2 space-y-1 text-xs text-gray-600">
+                          {changeLines.map((line, index) => (
+                            <li key={`${entry.id}-change-${index}`}>- {line}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </div>
               );

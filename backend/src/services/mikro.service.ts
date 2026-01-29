@@ -1013,7 +1013,7 @@ class MikroService {
     const warehouseValueRaw = Number(warehouseNo);
     const warehouseValue = Number.isFinite(warehouseValueRaw) && warehouseValueRaw > 0 ? Math.trunc(warehouseValueRaw) : 1;
     const evrakSeriValue = evrakSeriInput ? String(evrakSeriInput).trim().slice(0, 20) : '';
-    const sorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
+    const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
     const projeKodu = String(process.env.MIKRO_PROJE_KODU || 'R').trim().slice(0, 25);
     const hareketTipi = 0;
 
@@ -1119,6 +1119,7 @@ class MikroService {
         const satirNo = i;
         const itemLineNote = item.lineDescription ? String(item.lineDescription).trim() : '';
         const lineDescriptionValue = itemLineNote.slice(0, 50);
+        const lineSorMerkez = (item.responsibilityCenter || defaultSorMerkez || '').trim().slice(0, 25);
 
         // Hesaplamalar
         const tutar = item.quantity * item.unitPrice;
@@ -1259,8 +1260,8 @@ class MikroService {
           .input('sipFileId', sql.SmallInt, sipFileId)
           .input('aciklama', sql.NVarChar(50), lineDescriptionValue)
           .input('hareketTipi', sql.TinyInt, hareketTipi)
-          .input('stokSorMerkez', sql.NVarChar(25), sorMerkez)
-          .input('cariSorMerkez', sql.NVarChar(25), sorMerkez)
+          .input('stokSorMerkez', sql.NVarChar(25), lineSorMerkez)
+          .input('cariSorMerkez', sql.NVarChar(25), lineSorMerkez)
           .input('projeKodu', sql.NVarChar(25), projeKodu);
 
         if (includeQuoteGuid) {

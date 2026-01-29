@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
@@ -611,6 +611,14 @@ export default function AdminRequestsPage() {
     return null;
   };
 
+
+  const scrollKanban = (direction: 'left' | 'right') => {
+    const container = kanbanRef.current;
+    if (!container) return;
+    const amount = direction === 'left' ? -320 : 320;
+    container.scrollBy({ left: amount, behavior: 'smooth' });
+  };
+
   const renderTaskCard = (task: Task) => {
     const dueLabel = task.dueDate ? formatDateShort(task.dueDate) : null;
     const isOverdue = task.dueDate ? new Date(task.dueDate) < new Date() && task.status !== 'DONE' : false;
@@ -759,7 +767,25 @@ export default function AdminRequestsPage() {
                 ))}
               </select>
             </div>
-            <div className="lg:col-span-2 flex justify-end">
+            <div className="lg:col-span-2 flex justify-end gap-2">
+              {view === 'KANBAN' && (
+                <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    className="px-3 py-2 text-sm font-medium bg-white text-gray-700 hover:bg-gray-50"
+                    onClick={() => scrollKanban('left')}
+                    aria-label="Sola kaydir"
+                  >
+                    &lt;
+                  </button>
+                  <button
+                    className="px-3 py-2 text-sm font-medium bg-white text-gray-700 hover:bg-gray-50"
+                    onClick={() => scrollKanban('right')}
+                    aria-label="Saga kaydir"
+                  >
+                    &gt;
+                  </button>
+                </div>
+              )}
               <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
                 <button
                   className={`px-4 py-2 text-sm font-medium ${view === 'KANBAN' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700'}`}
@@ -783,7 +809,7 @@ export default function AdminRequestsPage() {
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
           </div>
         ) : view === 'KANBAN' ? (
-          <div className="flex gap-3 overflow-x-auto pb-4">
+          <div ref={kanbanRef} className="flex gap-3 overflow-x-auto pb-4">
             {visibleStatuses.map((status) => (
               <div key={status} className="min-w-[220px] max-w-[240px] flex-1">
                 <div className="flex items-center justify-between mb-3">
