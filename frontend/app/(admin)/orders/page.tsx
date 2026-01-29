@@ -58,22 +58,22 @@ export default function AdminOrdersPage() {
 
 
   const cleanPdfText = (text: string | number | null | undefined) => {
-    const value = text ?? '';
-    return String(value)
+    const value = String(text ?? '');
+    return value
       .replace(/\r?\n/g, ' ')
-      .replace(/???/g, 'TL')
-      .replace(/??/g, 'I')
-      .replace(/??/g, 'i')
-      .replace(/??/g, 'S')
-      .replace(/??/g, 's')
-      .replace(/??/g, 'G')
-      .replace(/??/g, 'g')
-      .replace(/??/g, 'U')
-      .replace(/??/g, 'u')
-      .replace(/??/g, 'O')
-      .replace(/??/g, 'o')
-      .replace(/??/g, 'C')
-      .replace(/??/g, 'c');
+      .replace(/\u20BA/g, 'TL')
+      .replace(/\u0130/g, 'I')
+      .replace(/\u0131/g, 'i')
+      .replace(/\u015E/g, 'S')
+      .replace(/\u015F/g, 's')
+      .replace(/\u011E/g, 'G')
+      .replace(/\u011F/g, 'g')
+      .replace(/\u00DC/g, 'U')
+      .replace(/\u00FC/g, 'u')
+      .replace(/\u00D6/g, 'O')
+      .replace(/\u00F6/g, 'o')
+      .replace(/\u00C7/g, 'C')
+      .replace(/\u00E7/g, 'c');
   };
 
   const buildOrderPdf = async (order: PendingOrderForAdmin) => {
