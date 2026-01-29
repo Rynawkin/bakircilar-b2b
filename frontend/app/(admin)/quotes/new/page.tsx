@@ -1726,7 +1726,7 @@ function AdminQuoteNewPageContent() {
     setSubmitting(true);
     try {
       if (isOrderMode) {
-        const orderPayload = {
+        const orderPayload: Parameters<typeof adminApi.createManualOrder>[0] = {
           customerId: selectedCustomer.id,
           warehouseNo: Number(resolveWarehouseValue(orderWarehouse)),
           description: note,
