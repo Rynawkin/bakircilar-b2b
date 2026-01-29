@@ -2008,14 +2008,14 @@ function AdminQuoteNewPageContent() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">?lgili Ki?i</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">İlgili Kişi</label>
                         <select
                           value={selectedContactId}
                           onChange={(e) => setSelectedContactId(e.target.value)}
                           className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
                           disabled={!selectedCustomer || contactsLoading}
                         >
-                          <option value="">?lgili se?in</option>
+                          <option value="">İlgili seçin</option>
                           {customerContacts.map((contact) => (
                             <option key={contact.id} value={contact.id}>
                               {contact.name}
@@ -2025,18 +2025,9 @@ function AdminQuoteNewPageContent() {
                           ))}
                         </select>
                         {!contactsLoading && selectedCustomer && customerContacts.length === 0 && (
-                          <p className="mt-1 text-xs text-gray-500">Bu m??teri i?in kay?tl? ki?i yok.</p>
+                          <p className="mt-1 text-xs text-gray-500">Bu müşteri için kayıtlı kişi yok.</p>
                         )}
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Belge No (Musteri Siparis No)</label>
-                        <Input
-                          value={orderCustomerOrderNumber}
-                          onChange={(e) => setOrderCustomerOrderNumber(e.target.value)}
-                          placeholder="Orn: HENDEK-8915"
-                        />
-                      </div>
-                    </>
+                      </div>                    </>
                   )}
                   {isOrderMode && (
                     <>
@@ -2061,6 +2052,15 @@ function AdminQuoteNewPageContent() {
                             placeholder="Depo"
                           />
                         )}
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Belge No (Musteri Siparis No)</label>
+                        <Input
+                          value={orderCustomerOrderNumber}
+                          onChange={(e) => setOrderCustomerOrderNumber(e.target.value)}
+                          placeholder="Orn: HENDEK-8915"
+                        />
+                      </div>
                       </div>
                       <div>
                         {orderHasInvoiced && (
