@@ -8,6 +8,7 @@
  * - Mikro'ya sipariş yazma (2 ayrı sipariş mantığı ile)
  */
 
+import { PriceType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { generateOrderNumber } from '../utils/orderNumber';
 import mikroService from './mikroFactory.service';
@@ -214,7 +215,7 @@ class OrderService {
         throw new Error(`Invalid unit price for line ${index + 1}`);
       }
 
-      const priceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+      const priceType: PriceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
       const manualVatRate = Number(item.manualVatRate);
       const vatRate =
         priceType === 'WHITE' || item.vatZeroed
