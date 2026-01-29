@@ -988,6 +988,7 @@ class MikroService {
       vatRate: number;
       lineDescription?: string;
       quoteLineGuid?: string;
+      responsibilityCenter?: string;
     }>;
     applyVAT: boolean;
     description: string;

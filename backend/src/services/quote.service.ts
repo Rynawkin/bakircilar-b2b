@@ -598,9 +598,8 @@ class QuoteService {
       };
     });
 
-    const itemChanges = buildQuoteItemDiff(existing.items, preparedItems);
 
-        const grandTotal = totalAmount + totalVat;
+    const grandTotal = totalAmount + totalVat;
 
     const resolvedDocumentNo = (documentNo || note || '').trim();
     const resolvedResponsibleCode = (responsibleCode || '').trim();
@@ -900,7 +899,7 @@ class QuoteService {
 
     const itemChanges = buildQuoteItemDiff(existing.items, preparedItems);
 
-        const grandTotal = totalAmount + totalVat;
+    const grandTotal = totalAmount + totalVat;
 
     const resolvedDocumentNo = (documentNo || note || existing.documentNo || '').trim();
     const resolvedResponsibleCode = (responsibleCode || existing.responsibleCode || '').trim();
@@ -1334,69 +1333,6 @@ class QuoteService {
     }
 
 
-    const itemDiff = buildQuoteItemDiff(quote.items as any, normalizedItems as any);
-    const hasDiff = itemDiff.added.length > 0 || itemDiff.removed.length > 0 || itemDiff.updated.length > 0;
-    if (hasDiff) {
-      const totals = normalizedItems.reduce(
-        (acc, item) => {
-          const lineTotal = (item.unitPrice || 0) * (item.quantity || 0);
-          const vatAmount = item.vatZeroed ? 0 : lineTotal * (item.vatRate || 0);
-          acc.totalAmount += lineTotal;
-          acc.totalVat += vatAmount;
-          return acc;
-        },
-        { totalAmount: 0, totalVat: 0 }
-      );
-      const grandTotal = totals.totalAmount + totals.totalVat;
-
-      await prisma.$transaction(async (tx) => {
-        const originalById = new Map(quote.items.map((item) => [item.id, item]));
-        const updates = normalizedItems.map((item) => {
-          const original = originalById.get(item.id);
-          if (!original) return null;
-          if (original.quantity !== item.quantity) {
-            return tx.quoteItem.update({
-              where: { id: item.id },
-              data: {
-                quantity: item.quantity,
-                totalPrice: item.unitPrice * item.quantity,
-              },
-            });
-          }
-          return null;
-        }).filter(Boolean);
-
-        if (updates.length > 0) {
-          await Promise.all(updates as any);
-        }
-
-        await tx.quote.update({
-          where: { id: quoteId },
-          data: {
-            updatedById: adminUserId,
-            totalAmount: totals.totalAmount,
-            totalVat: totals.totalVat,
-            grandTotal,
-          },
-        });
-
-        await tx.quoteHistory.create({
-          data: {
-            quoteId: quote.id,
-            action: 'UPDATED',
-            actorId: adminUserId,
-            summary: 'Teklif satirlari guncellendi',
-            payload: {
-              totalAmount: totals.totalAmount,
-              itemCount: normalizedItems.length,
-              status: quote.status,
-              changes: itemDiff,
-            },
-          },
-        });
-      });
-    }
-
     const parsed = this.parseMikroNumber(quote.mikroNumber);
     if (!parsed) {
       throw new Error('Invalid Mikro number format');
@@ -1539,9 +1475,8 @@ class QuoteService {
 
     const totalAmount = normalizedLines.reduce((sum, line) => sum + line.lineTotal, 0);
     const totalVat = normalizedLines.reduce((sum, line) => sum + line.lineTotal * (line.vatRate || 0), 0);
-    const itemChanges = buildQuoteItemDiff(existing.items, preparedItems);
 
-        const grandTotal = totalAmount + totalVat;
+    const grandTotal = totalAmount + totalVat;
     const allVatZero = normalizedLines.every((line) => line.vatRate === 0);
 
     const totalsChanged =
