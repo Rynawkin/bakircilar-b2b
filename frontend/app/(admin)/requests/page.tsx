@@ -121,6 +121,7 @@ export default function AdminRequestsPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<TaskView>('KANBAN');
+  const kanbanRef = useRef<HTMLDivElement | null>(null);
   const [colorRules, setColorRules] = useState<TaskColorRule[]>([]);
   const [colorRulesOpen, setColorRulesOpen] = useState(false);
   const [colorRulesSaving, setColorRulesSaving] = useState(false);
