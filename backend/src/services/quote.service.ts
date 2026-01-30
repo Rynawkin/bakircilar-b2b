@@ -186,6 +186,12 @@ class QuoteService {
 
     const takeCount = Math.min(codes.length * limit * 5, 2000);
 
+    const customer = await prisma.user.findUnique({
+      where: { id: customerId },
+      select: { mikroCariCode: true },
+    });
+    const mikroCariCode = customer?.mikroCariCode || '';
+
     const items = await prisma.quoteItem.findMany({
       where: {
         productCode: { in: codes },
@@ -229,7 +235,7 @@ class QuoteService {
 
     for (const item of items) {
       const mikroNumber = resolveMikroNumber(item.quote);
-      if (!item.quote?.documentNo && mikroNumber) {
+      if (mikroNumber) {
         const parsed = this.parseMikroNumber(mikroNumber);
         if (parsed) {
           missingBelgePairs.set(`${parsed.evrakSeri}-${parsed.evrakSira}`, parsed);
@@ -251,12 +257,13 @@ class QuoteService {
       const list = map.get(code) || [];
       if (list.length >= limit) continue;
       let documentNo = item.quote?.documentNo ?? null;
-      if (!documentNo) {
-        const mikroNumber = resolveMikroNumber(item.quote);
-        if (mikroNumber) {
-          const parsed = this.parseMikroNumber(mikroNumber);
-          if (parsed) {
-            documentNo = belgeNoMap.get(`${parsed.evrakSeri}-${parsed.evrakSira}`) || null;
+      const mikroNumber = resolveMikroNumber(item.quote);
+      if (mikroNumber) {
+        const parsed = this.parseMikroNumber(mikroNumber);
+        if (parsed) {
+          const mikroBelge = belgeNoMap.get(`${parsed.evrakSeri}-${parsed.evrakSira}`) || null;
+          if (mikroBelge) {
+            documentNo = mikroBelge;
           }
         }
       }
@@ -270,6 +277,61 @@ class QuoteService {
         quoteNumber: item.quote?.quoteNumber ?? null,
       });
       map.set(code, list);
+    }
+
+    const buildQuoteKey = (entry: LastQuoteSnapshot) =>
+      `${entry.documentNo || ''}|${entry.quoteNumber || ''}|${entry.unitPrice}|${entry.quantity}`;
+
+    if (mikroCariCode) {
+      const needCodes = codes.filter((code) => (map.get(code)?.length || 0) < limit);
+      if (needCodes.length) {
+        try {
+          const mikroQuotes = await mikroService.getCustomerQuoteHistory({
+            cariCode: mikroCariCode,
+            productCodes: needCodes,
+            limit,
+          });
+
+          const keyMap = new Map<string, Set<string>>();
+          for (const [code, list] of map.entries()) {
+            keyMap.set(code, new Set(list.map(buildQuoteKey)));
+          }
+
+          for (const quote of mikroQuotes) {
+            const code = quote.productCode;
+            if (!code) continue;
+            const entry: LastQuoteSnapshot = {
+              quoteDate: quote.quoteDate ? new Date(quote.quoteDate).toISOString() : new Date().toISOString(),
+              unitPrice: quote.unitPrice || 0,
+              quantity: quote.quantity || 0,
+              priceType: 'INVOICED',
+              documentNo: quote.documentNo ?? null,
+              quoteNumber: quote.quoteNumber ?? null,
+            };
+            const list = map.get(code) || [];
+            const keySet = keyMap.get(code) || new Set<string>();
+            const key = buildQuoteKey(entry);
+            if (keySet.has(key)) continue;
+            list.push(entry);
+            keySet.add(key);
+            map.set(code, list);
+            keyMap.set(code, keySet);
+          }
+        } catch (error) {
+          console.error('Mikro quote history fetch failed', { customerId, error });
+        }
+      }
+    }
+
+    for (const code of codes) {
+      const list = map.get(code);
+      if (!list || list.length === 0) continue;
+      list.sort((a, b) => new Date(b.quoteDate).getTime() - new Date(a.quoteDate).getTime());
+      if (list.length > limit) {
+        map.set(code, list.slice(0, limit));
+      } else {
+        map.set(code, list);
+      }
     }
 
     return map;

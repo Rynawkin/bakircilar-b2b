@@ -706,6 +706,15 @@ export class MikroMockService {
     return new Map();
   }
 
+  async getCustomerQuoteHistory(params: {
+    cariCode: string;
+    productCodes: string[];
+    limit: number;
+  }): Promise<Array<import('../types').MikroCustomerQuoteHistory>> {
+    console.log('[MOCK] Musteri teklif gecmisi isteniyor:', params);
+    return [];
+  }
+
   async getQuoteLineGuids(params: { evrakSeri: string; evrakSira: number }): Promise<Array<{
     satirNo: number;
     guid: string;

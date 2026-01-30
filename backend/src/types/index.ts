@@ -109,6 +109,15 @@ export interface MikroCustomerSaleMovement {
   vatZeroed: boolean;
 }
 
+export interface MikroCustomerQuoteHistory {
+  productCode: string;
+  quoteDate: Date;
+  quantity: number;
+  unitPrice: number;
+  documentNo?: string | null;
+  quoteNumber?: string | null;
+}
+
 export interface MikroPendingOrder {
   productCode: string;
   quantity: number;

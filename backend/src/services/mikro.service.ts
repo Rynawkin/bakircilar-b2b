@@ -16,6 +16,7 @@ import {
   MikroWarehouseStock,
   MikroSalesMovement,
   MikroCustomerSaleMovement,
+  MikroCustomerQuoteHistory,
   MikroPendingOrder,
   MikroPendingOrderByWarehouse,
   MikroCari,
@@ -281,6 +282,64 @@ class MikroService {
 
     return map;
   }
+  async getCustomerQuoteHistory(params: {
+    cariCode: string;
+    productCodes: string[];
+    limit: number;
+  }): Promise<MikroCustomerQuoteHistory[]> {
+    const cariCode = String(params.cariCode || '').trim();
+    const limit = Math.max(1, Math.min(10, Number(params.limit) || 1));
+    const codes = (params.productCodes || [])
+      .map((code) => String(code || '').trim())
+      .filter(Boolean)
+      .slice(0, 200);
+
+    if (!cariCode || codes.length === 0) return [];
+
+    await this.connect();
+
+    const inClause = codes.map((_, index) => `@code${index}`).join(', ');
+    const request = this.pool!.request();
+    request.input('cariCode', sql.NVarChar(25), cariCode);
+    codes.forEach((code, index) => {
+      request.input(`code${index}`, sql.NVarChar(25), code);
+    });
+
+    const result = await request.query(`
+      WITH ranked AS (
+        SELECT
+          tkl_stok_kod as productCode,
+          tkl_Birimfiyati as unitPrice,
+          tkl_miktar as quantity,
+          tkl_evrak_tarihi as quoteDate,
+          tkl_evrakno_seri as evrakSeri,
+          tkl_evrakno_sira as evrakSira,
+          tkl_belge_no as documentNo,
+          ROW_NUMBER() OVER (
+            PARTITION BY tkl_stok_kod
+            ORDER BY tkl_evrak_tarihi DESC, tkl_evrakno_sira DESC, tkl_satirno DESC
+          ) as rn
+        FROM VERILEN_TEKLIFLER
+        WHERE tkl_cari_kod = @cariCode
+          AND tkl_stok_kod IN (${inClause})
+      )
+      SELECT * FROM ranked
+      WHERE rn <= ${limit}
+      ORDER BY productCode, rn
+    `);
+
+    return result.recordset.map((row: any) => ({
+      productCode: String(row.productCode || '').trim(),
+      quoteDate: row.quoteDate || new Date(),
+      quantity: Number(row.quantity) || 0,
+      unitPrice: Number(row.unitPrice) || 0,
+      documentNo: row.documentNo ? String(row.documentNo).trim() : null,
+      quoteNumber: row.evrakSeri && row.evrakSira
+        ? `${String(row.evrakSeri).trim()}-${Number(row.evrakSira)}`
+        : null,
+    }));
+  }
+
 
   async getQuoteLineGuids(params: { evrakSeri: string; evrakSira: number }): Promise<Array<{
     satirNo: number;
