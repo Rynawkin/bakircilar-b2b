@@ -230,6 +230,58 @@ class MikroService {
     }));
   }
 
+  async getQuoteBelgeNos(pairs: Array<{ evrakSeri: string; evrakSira: number }>): Promise<Map<string, string>> {
+    const normalized = pairs
+      .map((pair) => ({
+        evrakSeri: String(pair.evrakSeri || '').trim(),
+        evrakSira: Number(pair.evrakSira),
+      }))
+      .filter((pair) => pair.evrakSeri && Number.isFinite(pair.evrakSira));
+
+    const uniqueMap = new Map<string, { evrakSeri: string; evrakSira: number }>();
+    normalized.forEach((pair) => {
+      uniqueMap.set(`${pair.evrakSeri}-${pair.evrakSira}`, pair);
+    });
+
+    const uniquePairs = Array.from(uniqueMap.values()).slice(0, 200);
+    if (uniquePairs.length === 0) {
+      return new Map();
+    }
+
+    await this.connect();
+
+    const conditions = uniquePairs
+      .map((_, index) => `(tkl_evrakno_seri = @seri${index} AND tkl_evrakno_sira = @sira${index})`)
+      .join(' OR ');
+
+    const request = this.pool!.request();
+    uniquePairs.forEach((pair, index) => {
+      request.input(`seri${index}`, sql.NVarChar(20), pair.evrakSeri);
+      request.input(`sira${index}`, sql.Int, pair.evrakSira);
+    });
+
+    const result = await request.query(`
+      SELECT
+        tkl_evrakno_seri,
+        tkl_evrakno_sira,
+        MAX(tkl_belge_no) as belge_no
+      FROM VERILEN_TEKLIFLER
+      WHERE ${conditions}
+      GROUP BY tkl_evrakno_seri, tkl_evrakno_sira
+    `);
+
+    const map = new Map<string, string>();
+    result.recordset.forEach((row: any) => {
+      const evrakSeri = row.tkl_evrakno_seri ? String(row.tkl_evrakno_seri).trim() : '';
+      const evrakSira = Number(row.tkl_evrakno_sira);
+      const belgeNo = row.belge_no ? String(row.belge_no).trim() : '';
+      if (!evrakSeri || !Number.isFinite(evrakSira) || !belgeNo) return;
+      map.set(`${evrakSeri}-${evrakSira}`, belgeNo);
+    });
+
+    return map;
+  }
+
   async getQuoteLineGuids(params: { evrakSeri: string; evrakSira: number }): Promise<Array<{
     satirNo: number;
     guid: string;

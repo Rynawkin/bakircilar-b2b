@@ -2428,10 +2428,11 @@ function AdminQuoteNewPageContent() {
                                         {hasLastQuoteHistory ? (
                                           <div className="space-y-1">
                                             <div
-                                              className="flex flex-wrap items-center gap-2"
+                                              className={`flex flex-wrap items-center gap-2${canToggleQuoteHistory ? ' cursor-pointer' : ''}`}
                                               onClick={canToggleQuoteHistory ? () => toggleQuoteHistory(item.id) : undefined}
                                               role={canToggleQuoteHistory ? 'button' : undefined}
                                               tabIndex={canToggleQuoteHistory ? 0 : undefined}
+                                              title={canToggleQuoteHistory ? 'Gecmis teklifleri goster' : undefined}
                                               onKeyDown={
                                                 canToggleQuoteHistory
                                                   ? (event) => {

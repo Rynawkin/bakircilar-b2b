@@ -210,24 +210,53 @@ class QuoteService {
             createdAt: true,
             documentNo: true,
             quoteNumber: true,
+            mikroNumber: true,
           },
         },
       },
     });
 
     const map = new Map<string, LastQuoteSnapshot[]>();
+    let belgeNoMap = new Map<string, string>();
+    const missingBelgePairs = new Map<string, { evrakSeri: string; evrakSira: number }>();
+
+    for (const item of items) {
+      const mikroNumber = item.quote?.mikroNumber || null;
+      if (!item.quote?.documentNo && mikroNumber) {
+        const parsed = this.parseMikroNumber(mikroNumber);
+        if (parsed) {
+          missingBelgePairs.set(`${parsed.evrakSeri}-${parsed.evrakSira}`, parsed);
+        }
+      }
+    }
+
+    if (missingBelgePairs.size > 0) {
+      try {
+        belgeNoMap = await mikroService.getQuoteBelgeNos(Array.from(missingBelgePairs.values()));
+      } catch (error) {
+        console.error('Quote belge no fetch failed', { customerId, error });
+      }
+    }
 
     for (const item of items) {
       const code = item.productCode;
       if (!code) continue;
       const list = map.get(code) || [];
       if (list.length >= limit) continue;
+      let documentNo = item.quote?.documentNo ?? null;
+      if (!documentNo && item.quote?.mikroNumber) {
+        const parsed = this.parseMikroNumber(item.quote.mikroNumber);
+        if (parsed) {
+          documentNo = belgeNoMap.get(`${parsed.evrakSeri}-${parsed.evrakSira}`) || null;
+        }
+      }
+
       list.push({
         quoteDate: item.quote?.createdAt ? item.quote.createdAt.toISOString() : new Date().toISOString(),
         unitPrice: item.unitPrice,
         quantity: item.quantity,
         priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
-        documentNo: item.quote?.documentNo ?? null,
+        documentNo,
         quoteNumber: item.quote?.quoteNumber ?? null,
       });
       map.set(code, list);

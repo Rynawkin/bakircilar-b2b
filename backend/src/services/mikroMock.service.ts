@@ -701,6 +701,11 @@ export class MikroMockService {
     return [];
   }
 
+  async getQuoteBelgeNos(pairs: Array<{ evrakSeri: string; evrakSira: number }>): Promise<Map<string, string>> {
+    console.log('[MOCK] Teklif belge no listesi isteniyor:', pairs);
+    return new Map();
+  }
+
   async getQuoteLineGuids(params: { evrakSeri: string; evrakSira: number }): Promise<Array<{
     satirNo: number;
     guid: string;
