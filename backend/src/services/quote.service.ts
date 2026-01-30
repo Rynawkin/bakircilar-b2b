@@ -829,6 +829,16 @@ class QuoteService {
 
     const finalQuoteNumber = mikroNumber || quoteNumber;
 
+    const createItems = preparedItems.map((item) => {
+      const { productId, ...rest } = item;
+      return productId
+        ? {
+            ...rest,
+            product: { connect: { id: productId } },
+          }
+        : rest;
+    });
+
     const quote = await prisma.quote.create({
       data: {
         quoteNumber: finalQuoteNumber,
@@ -851,7 +861,7 @@ class QuoteService {
         mikroNumber: mikroNumber || null,
         mikroGuid: mikroGuid || null,
         items: {
-          create: preparedItems,
+          create: createItems,
         },
       },
       include: {
