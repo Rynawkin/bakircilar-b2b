@@ -1059,6 +1059,7 @@ model QuoteItem {
   sourceSaleVatZeroed Boolean?
 
   lineDescription   String?
+  manualImageUrl    String?
 
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt

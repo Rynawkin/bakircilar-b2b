@@ -258,6 +258,7 @@ export interface QuoteItem {
   sourceSaleQuantity?: number;
   sourceSaleVatZeroed?: boolean;
   lineDescription?: string;
+  manualImageUrl?: string | null;
   lastSales?: Array<{
     saleDate: string;
     quantity: number;

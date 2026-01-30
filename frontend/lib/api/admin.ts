@@ -918,6 +918,16 @@ export const adminApi = {
     return response.data;
   },
 
+  // Quote Item Images
+  uploadQuoteItemImage: async (formData: FormData): Promise<{ imageUrl: string; message?: string }> => {
+    const response = await apiClient.post('/admin/quotes/items/upload-image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
   // Staff Management
   getSectorCodes: async (): Promise<{ sectorCodes: string[] }> => {
     const response = await apiClient.get('/admin/sector-codes');

@@ -52,6 +52,16 @@ const supplierPriceListStorage = multer.diskStorage({
   },
 });
 
+const quoteItemImageStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    ensureDir(path.join('uploads', 'quote-items'), cb);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'quote-item-' + uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
 // File filter - only images
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
@@ -157,4 +167,12 @@ export const supplierPriceListUpload = multer({
     fileSize: 60 * 1024 * 1024, // 60MB limit
   },
   fileFilter: supplierPriceListFileFilter,
+});
+
+export const quoteItemImageUpload = multer({
+  storage: quoteItemImageStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter,
 });

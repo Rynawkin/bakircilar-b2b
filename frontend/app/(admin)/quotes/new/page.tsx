@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent } from 'react';
+import type { DragEvent, ChangeEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -74,6 +74,7 @@ interface QuoteItemForm {
   manualMarginEntry?: number;
   manualMarginCost?: number;
   lineDescription?: string;
+  manualImageUrl?: string | null;
   responsibilityCenter?: string;
   lastSales?: LastSale[];
   lastQuotes?: LastQuote[];
@@ -398,6 +399,7 @@ function AdminQuoteNewPageContent() {
   const [showLastQuoteInfo, setShowLastQuoteInfo] = useState(false);
   const [expandedQuoteHistory, setExpandedQuoteHistory] = useState<Record<string, boolean>>({});
   const [lastQuoteMap, setLastQuoteMap] = useState<Record<string, LastQuote[]>>({});
+  const [manualImageUploading, setManualImageUploading] = useState<Record<string, boolean>>({});
   const [whatsappTemplate, setWhatsappTemplate] = useState('');
   const [responsibles, setResponsibles] = useState<Array<{ code: string; name: string; surname: string }>>([]);
   const [selectedResponsibleCode, setSelectedResponsibleCode] = useState('');
@@ -1013,6 +1015,7 @@ function AdminQuoteNewPageContent() {
       vatZeroed: false,
       priceType: 'INVOICED',
       isManualLine: false,
+      manualImageUrl: null,
       lastSales: sourceProduct.lastSales || [],
       lastQuotes: sourceProduct.lastQuotes || [],
       lastEntryPrice: sourceProduct.lastEntryPrice ?? null,
@@ -1089,6 +1092,7 @@ function AdminQuoteNewPageContent() {
       isManualLine,
       manualVatRate: isManualLine ? item.vatRate : undefined,
       lineDescription: item.lineDescription || '',
+      manualImageUrl: item.manualImageUrl ?? null,
       lastSales,
       lastQuotes: item.lastQuotes || [],
       selectedSaleIndex,
@@ -1134,6 +1138,7 @@ function AdminQuoteNewPageContent() {
       isManualLine: true,
       manualVatRate: 0.2,
       lineDescription: '',
+      manualImageUrl: null,
     };
 
     setQuoteItems((prev) => [...prev, newItem]);
@@ -1151,6 +1156,47 @@ function AdminQuoteNewPageContent() {
     setQuoteItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
     );
+  };
+
+  const handleManualImageUpload = async (item: QuoteItemForm, file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Lutfen sadece resim dosyasi yukleyin');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Dosya boyutu 5MB altinda olmali');
+      return;
+    }
+
+    setManualImageUploading((prev) => ({ ...prev, [item.id]: true }));
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const result = await adminApi.uploadQuoteItemImage(formData);
+      updateItem(item.id, { manualImageUrl: result.imageUrl });
+      toast.success('Gorsel yuklendi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Gorsel yuklenemedi');
+    } finally {
+      setManualImageUploading((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    }
+  };
+
+  const handleManualImageFileChange = (item: QuoteItemForm, event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = '';
+    if (!file) return;
+    handleManualImageUpload(item, file);
+  };
+
+  const removeManualImage = (itemId: string) => {
+    updateItem(itemId, { manualImageUrl: null });
   };
 
   const handlePriceSourceChange = (item: QuoteItemForm, value: string) => {
@@ -1855,6 +1901,7 @@ function AdminQuoteNewPageContent() {
             vatZeroed: vatZeroed || item.vatZeroed,
             manualLine: item.isManualLine,
             manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
+            manualImageUrl: item.isManualLine ? (item.manualImageUrl || undefined) : undefined,
             lineDescription: item.lineDescription || undefined,
             responsibilityCenter: item.responsibilityCenter || undefined,
             lastSale: sale
@@ -2410,6 +2457,38 @@ function AdminQuoteNewPageContent() {
                                     />
                                     <div className="text-xs text-gray-500">Kod: {item.productCode}</div>
                                     <Badge variant="warning" className="text-xs">Manuel</Badge>
+                                    <div className="flex items-center gap-2 pt-1">
+                                      {item.manualImageUrl ? (
+                                        <img
+                                          src={item.manualImageUrl}
+                                          alt="Manuel gorsel"
+                                          className="h-10 w-10 rounded-md border border-slate-200 object-cover"
+                                        />
+                                      ) : null}
+                                      <label className={`inline-flex items-center gap-1 text-xs font-medium ${manualImageUploading[item.id] ? 'text-gray-400' : 'text-primary-600 hover:text-primary-700'}`}>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          onChange={(event) => handleManualImageFileChange(item, event)}
+                                          disabled={manualImageUploading[item.id]}
+                                          className="hidden"
+                                        />
+                                        {manualImageUploading[item.id]
+                                          ? 'Yukleniyor...'
+                                          : item.manualImageUrl
+                                            ? 'Gorsel Degistir'
+                                            : 'Gorsel Yukle'}
+                                      </label>
+                                      {item.manualImageUrl && !manualImageUploading[item.id] ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => removeManualImage(item.id)}
+                                          className="text-xs text-red-600 hover:text-red-700 underline"
+                                        >
+                                          Kaldir
+                                        </button>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 ) : (
                                   <div>

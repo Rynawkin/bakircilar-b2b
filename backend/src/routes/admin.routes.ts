@@ -16,7 +16,7 @@ import {
   requireAnyPermission
 } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
-import { upload, taskUpload, invoiceUpload, supplierPriceListUpload } from '../middleware/upload.middleware';
+import { upload, taskUpload, invoiceUpload, supplierPriceListUpload, quoteItemImageUpload } from '../middleware/upload.middleware';
 import { z } from 'zod';
 
 const router = Router();
@@ -287,6 +287,7 @@ router.put('/quotes/preferences', requirePermission('admin:quotes'), quoteContro
 router.get('/quotes/responsibles', requirePermission('admin:quotes'), quoteController.getResponsibles);
 router.get('/quotes/customer/:customerId/purchased-products', requirePermission('admin:quotes'), quoteController.getCustomerPurchasedProducts);
 router.post('/quotes/last-quotes', requirePermission('admin:quotes'), quoteController.getLastQuotesForCustomer);
+router.post('/quotes/items/upload-image', requirePermission('admin:quotes'), quoteItemImageUpload.single('image'), quoteController.uploadQuoteItemImage);
 router.post('/quotes', requirePermission('admin:quotes'), quoteController.createQuote);
 router.put('/quotes/:id', requirePermission('admin:quotes'), quoteController.updateQuote);
 router.get('/quotes', requirePermission('admin:quotes'), quoteController.getQuotes);

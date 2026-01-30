@@ -27,6 +27,7 @@ interface QuoteItemInput {
   vatZeroed?: boolean;
   manualLine?: boolean;
   manualVatRate?: number;
+  manualImageUrl?: string | null;
   lineDescription?: string;
   lastSale?: {
     saleDate?: string;
@@ -788,6 +789,7 @@ class QuoteService {
         sourceSaleQuantity: item.lastSale?.quantity ?? null,
         sourceSaleVatZeroed: item.lastSale?.vatZeroed ?? null,
         lineDescription: item.lineDescription?.trim() || null,
+        manualImageUrl: isManualLine ? (item.manualImageUrl?.trim() || null) : null,
         lineOrder: index + 1,
       };
     });
@@ -1087,6 +1089,7 @@ class QuoteService {
         sourceSaleQuantity: item.lastSale?.quantity ?? null,
         sourceSaleVatZeroed: item.lastSale?.vatZeroed ?? null,
         lineDescription: item.lineDescription?.trim() || null,
+        manualImageUrl: isManualLine ? (item.manualImageUrl?.trim() || null) : null,
         lineOrder: index + 1,
       };
     });

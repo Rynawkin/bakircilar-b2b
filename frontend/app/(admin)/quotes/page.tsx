@@ -620,7 +620,7 @@ function AdminQuotesPageContent() {
       const imageCache = new Map<string, { dataUrl: string | null; dimensions: { width: number; height: number } | null }>();
       const imageDataByIndex = await Promise.all(
         items.map(async (item) => {
-          const imageUrl = resolveImageUrl(item.product?.imageUrl || null);
+          const imageUrl = resolveImageUrl(item.manualImageUrl || item.product?.imageUrl || null);
           if (!imageUrl) return null;
           const cached = imageCache.get(imageUrl);
           if (cached) {

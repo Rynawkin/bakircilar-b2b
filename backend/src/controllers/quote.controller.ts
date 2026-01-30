@@ -171,6 +171,22 @@ export class QuoteController {
     }
   }
 
+  /**
+   * POST /api/admin/quotes/items/upload-image
+   */
+  async uploadQuoteItemImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const imageUrl = `/uploads/quote-items/${req.file.filename}`;
+      res.json({ imageUrl, message: 'Gorsel yuklendi' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
   /**
    * POST /api/admin/quotes/:id/approve
