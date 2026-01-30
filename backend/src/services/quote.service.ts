@@ -216,12 +216,19 @@ class QuoteService {
       },
     });
 
+    const resolveMikroNumber = (quote?: { mikroNumber?: string | null; quoteNumber?: string | null }) => {
+      if (!quote) return null;
+      if (quote.mikroNumber) return quote.mikroNumber;
+      if (quote.quoteNumber && /^[A-Za-z0-9]+-\d+$/.test(quote.quoteNumber)) return quote.quoteNumber;
+      return null;
+    };
+
     const map = new Map<string, LastQuoteSnapshot[]>();
     let belgeNoMap = new Map<string, string>();
     const missingBelgePairs = new Map<string, { evrakSeri: string; evrakSira: number }>();
 
     for (const item of items) {
-      const mikroNumber = item.quote?.mikroNumber || null;
+      const mikroNumber = resolveMikroNumber(item.quote);
       if (!item.quote?.documentNo && mikroNumber) {
         const parsed = this.parseMikroNumber(mikroNumber);
         if (parsed) {
@@ -244,10 +251,13 @@ class QuoteService {
       const list = map.get(code) || [];
       if (list.length >= limit) continue;
       let documentNo = item.quote?.documentNo ?? null;
-      if (!documentNo && item.quote?.mikroNumber) {
-        const parsed = this.parseMikroNumber(item.quote.mikroNumber);
-        if (parsed) {
-          documentNo = belgeNoMap.get(`${parsed.evrakSeri}-${parsed.evrakSira}`) || null;
+      if (!documentNo) {
+        const mikroNumber = resolveMikroNumber(item.quote);
+        if (mikroNumber) {
+          const parsed = this.parseMikroNumber(mikroNumber);
+          if (parsed) {
+            documentNo = belgeNoMap.get(`${parsed.evrakSeri}-${parsed.evrakSira}`) || null;
+          }
         }
       }
 
