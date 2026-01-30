@@ -25,6 +25,15 @@ interface LastSale {
   vatZeroed?: boolean;
 }
 
+interface LastQuote {
+  quoteDate: string;
+  quantity: number;
+  unitPrice: number;
+  priceType?: 'INVOICED' | 'WHITE';
+  documentNo?: string | null;
+  quoteNumber?: string | null;
+}
+
 interface QuoteProduct {
   id: string;
   name: string;
@@ -41,6 +50,7 @@ interface QuoteProduct {
   category?: { id: string; name: string } | null;
   mikroPriceLists?: Record<number, number> | Record<string, number>;
   lastSales?: LastSale[];
+  lastQuotes?: LastQuote[];
 }
 
 interface QuoteItemForm {
@@ -66,6 +76,7 @@ interface QuoteItemForm {
   lineDescription?: string;
   responsibilityCenter?: string;
   lastSales?: LastSale[];
+  lastQuotes?: LastQuote[];
   selectedSaleIndex?: number;
   lastEntryPrice?: number | null;
   lastEntryDate?: string | null;
@@ -319,6 +330,15 @@ const formatPercent = (value?: number | null) => {
   return `${sign}${rounded.toFixed(1)}%`;
 };
 
+const formatQuotePriceType = (priceType?: 'INVOICED' | 'WHITE') => (
+  priceType === 'WHITE' ? 'Beyaz' : 'Fatural?'
+);
+
+const getQuoteDocumentLabel = (quote?: LastQuote) => {
+  if (!quote) return '-';
+  return quote.documentNo || quote.quoteNumber || '-';
+};
+
 const roundUp2 = (value: number) => {
   if (!Number.isFinite(value)) return 0;
   return Math.ceil((value + Number.EPSILON) * 100) / 100;
@@ -375,6 +395,9 @@ function AdminQuoteNewPageContent() {
   const [note, setNote] = useState('');
   const [vatZeroed, setVatZeroed] = useState(false);
   const [lastSalesCount, setLastSalesCount] = useState(1);
+  const [showLastQuoteInfo, setShowLastQuoteInfo] = useState(false);
+  const [expandedQuoteHistory, setExpandedQuoteHistory] = useState<Record<string, boolean>>({});
+  const [lastQuoteMap, setLastQuoteMap] = useState<Record<string, LastQuote[]>>({});
   const [whatsappTemplate, setWhatsappTemplate] = useState('');
   const [responsibles, setResponsibles] = useState<Array<{ code: string; name: string; surname: string }>>([]);
   const [selectedResponsibleCode, setSelectedResponsibleCode] = useState('');
@@ -443,6 +466,12 @@ function AdminQuoteNewPageContent() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isQuoteTableFullscreen]);
+
+  useEffect(() => {
+    if (!showLastQuoteInfo) {
+      setExpandedQuoteHistory({});
+    }
+  }, [showLastQuoteInfo]);
 
   useEffect(() => {
     setSelectedPurchasedCodes(new Set());
@@ -555,6 +584,44 @@ function AdminQuoteNewPageContent() {
 
     return () => clearTimeout(timer);
   }, [quoteItems]);
+
+  const quoteProductCodes = useMemo(() => {
+    return Array.from(new Set(
+      quoteItems
+        .filter((item) => !item.isManualLine)
+        .map((item) => item.productCode)
+        .filter(Boolean)
+    ));
+  }, [quoteItems]);
+
+  useEffect(() => {
+    if (!showLastQuoteInfo) {
+      setLastQuoteMap({});
+      return;
+    }
+
+    if (!selectedCustomer || quoteProductCodes.length === 0) {
+      setLastQuoteMap({});
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await adminApi.getLastQuoteItems({
+          customerId: selectedCustomer.id,
+          productCodes: quoteProductCodes,
+          limit: Math.max(1, lastSalesCount),
+          excludeQuoteId: editingQuote?.id,
+        });
+        setLastQuoteMap(result.lastQuotes || {});
+      } catch (error) {
+        console.error('Son teklifler alinmadi:', error);
+        setLastQuoteMap({});
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [showLastQuoteInfo, selectedCustomer?.id, quoteProductCodes.join('|'), lastSalesCount, editingQuote?.id]);
 
   const loadInitialData = async () => {
     const results = await Promise.allSettled([
@@ -947,6 +1014,7 @@ function AdminQuoteNewPageContent() {
       priceType: 'INVOICED',
       isManualLine: false,
       lastSales: sourceProduct.lastSales || [],
+      lastQuotes: sourceProduct.lastQuotes || [],
       lastEntryPrice: sourceProduct.lastEntryPrice ?? null,
       lastEntryDate: sourceProduct.lastEntryDate ?? null,
       currentCost: sourceProduct.currentCost ?? null,
@@ -1022,6 +1090,7 @@ function AdminQuoteNewPageContent() {
       manualVatRate: isManualLine ? item.vatRate : undefined,
       lineDescription: item.lineDescription || '',
       lastSales,
+      lastQuotes: item.lastQuotes || [],
       selectedSaleIndex,
       lastEntryPrice: item.product?.lastEntryPrice ?? null,
       lastEntryDate: item.product?.lastEntryDate ?? null,
@@ -1068,6 +1137,10 @@ function AdminQuoteNewPageContent() {
     };
 
     setQuoteItems((prev) => [...prev, newItem]);
+  };
+
+  const toggleQuoteHistory = (id: string) => {
+    setExpandedQuoteHistory((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const removeItem = (id: string) => {
@@ -2154,6 +2227,14 @@ function AdminQuoteNewPageContent() {
               <Button variant="secondary" size="sm" onClick={applyLastSaleToAll} className="rounded-full">
                 Son Satisi Uygula
               </Button>
+              <Button
+                variant={showLastQuoteInfo ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setShowLastQuoteInfo((prev) => !prev)}
+                className="rounded-full"
+              >
+                {showLastQuoteInfo ? 'Son Teklifi Gizle' : 'Son Teklifi Goster'}
+              </Button>
               {isOrderMode && (
                 <>
                   <input
@@ -2283,6 +2364,11 @@ function AdminQuoteNewPageContent() {
                 <tbody className="divide-y">
                   {quoteItems.map((item, index) => {
                     const marginInfo = getMarginInfo(item);
+                    const itemLastQuotes = !item.isManualLine
+                      ? (lastQuoteMap[item.productCode] || item.lastQuotes || [])
+                      : [];
+                    const hasLastQuoteHistory = showLastQuoteInfo && itemLastQuotes.length > 0;
+                    const isQuoteHistoryExpanded = Boolean(expandedQuoteHistory[item.id]);
                     const roundedUnitPrice = roundUp2(item.unitPrice || 0);
                     const lineTotal = roundedUnitPrice * (item.quantity || 0);
 
@@ -2335,6 +2421,48 @@ function AdminQuoteNewPageContent() {
                                     )}
                                     {marginInfo?.blocked && (
                                       <Badge variant="danger" className="text-xs mt-1">Blok</Badge>
+                                    )}
+                                    {showLastQuoteInfo && (
+                                      <div className="mt-2 text-[11px] text-gray-500">
+                                        {hasLastQuoteHistory ? (
+                                          <div className="space-y-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <span className="font-semibold text-gray-700">Son Teklif:</span>
+                                              <span>{formatDateShort(itemLastQuotes[0].quoteDate)}</span>
+                                              <span className="font-semibold text-gray-900">{formatCurrency(itemLastQuotes[0].unitPrice)}</span>
+                                              <span className="text-gray-500">Belge: {getQuoteDocumentLabel(itemLastQuotes[0])}</span>
+                                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                                {formatQuotePriceType(itemLastQuotes[0].priceType)}
+                                              </span>
+                                              {itemLastQuotes.length > 1 && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => toggleQuoteHistory(item.id)}
+                                                  className="text-primary-600 hover:text-primary-700 underline"
+                                                >
+                                                  {isQuoteHistoryExpanded ? 'Gecmisi Gizle' : `Gecmis (${itemLastQuotes.length - 1})`}
+                                                </button>
+                                              )}
+                                            </div>
+                                            {isQuoteHistoryExpanded && itemLastQuotes.length > 1 && (
+                                              <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+                                                {itemLastQuotes.slice(1).map((quote, idx) => (
+                                                  <div key={`${item.id}-quote-${idx}`} className="flex flex-wrap items-center gap-2 py-0.5 text-[11px] text-gray-600">
+                                                    <span className="font-medium text-gray-700">{formatDateShort(quote.quoteDate)}</span>
+                                                    <span className="font-semibold text-gray-900">{formatCurrency(quote.unitPrice)}</span>
+                                                    <span className="text-gray-500">Belge: {getQuoteDocumentLabel(quote)}</span>
+                                                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 border border-slate-200">
+                                                      {formatQuotePriceType(quote.priceType)}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span className="text-gray-400">Son teklif yok</span>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
                                 )}

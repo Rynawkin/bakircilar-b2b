@@ -465,6 +465,16 @@ export const adminApi = {
     return response.data;
   },
 
+  getLastQuoteItems: async (payload: {
+    customerId: string;
+    productCodes: string[];
+    limit?: number;
+    excludeQuoteId?: string;
+  }): Promise<{ lastQuotes: Record<string, any[]> }> => {
+    const response = await apiClient.post('/admin/quotes/last-quotes', payload);
+    return response.data;
+  },
+
   createQuote: async (data: any): Promise<{ quote: Quote }> => {
     const response = await apiClient.post('/admin/quotes', data);
     return response.data;

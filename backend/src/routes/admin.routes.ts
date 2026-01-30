@@ -286,6 +286,7 @@ router.get('/quotes/preferences', requirePermission('admin:quotes'), quoteContro
 router.put('/quotes/preferences', requirePermission('admin:quotes'), quoteController.updatePreferences);
 router.get('/quotes/responsibles', requirePermission('admin:quotes'), quoteController.getResponsibles);
 router.get('/quotes/customer/:customerId/purchased-products', requirePermission('admin:quotes'), quoteController.getCustomerPurchasedProducts);
+router.post('/quotes/last-quotes', requirePermission('admin:quotes'), quoteController.getLastQuotesForCustomer);
 router.post('/quotes', requirePermission('admin:quotes'), quoteController.createQuote);
 router.put('/quotes/:id', requirePermission('admin:quotes'), quoteController.updateQuote);
 router.get('/quotes', requirePermission('admin:quotes'), quoteController.getQuotes);

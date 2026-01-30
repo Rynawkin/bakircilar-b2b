@@ -148,6 +148,29 @@ export class QuoteController {
     }
   }
 
+  /**
+   * POST /api/admin/quotes/last-quotes
+   */
+  async getLastQuotesForCustomer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { customerId, productCodes, limit, excludeQuoteId } = req.body || {};
+      if (!customerId || !Array.isArray(productCodes) || productCodes.length === 0) {
+        return res.json({ lastQuotes: {} });
+      }
+      const normalizedCodes = productCodes.map((code: any) => String(code)).filter(Boolean);
+      const safeLimit = Math.max(1, Math.min(10, Number(limit) || 1));
+      const lastQuotes = await quoteService.getCustomerLastQuoteItems(
+        customerId,
+        normalizedCodes,
+        safeLimit,
+        excludeQuoteId
+      );
+      res.json({ lastQuotes });
+    } catch (error) {
+      next(error);
+    }
+  }
+
 
   /**
    * POST /api/admin/quotes/:id/approve

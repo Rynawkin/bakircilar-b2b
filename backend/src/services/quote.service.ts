@@ -36,6 +36,15 @@ interface QuoteItemInput {
   };
 }
 
+interface LastQuoteSnapshot {
+  quoteDate: string;
+  unitPrice: number;
+  quantity: number;
+  priceType: PriceType;
+  documentNo?: string | null;
+  quoteNumber?: string | null;
+}
+
 interface CreateQuoteInput {
   customerId: string;
   validityDate: string;
@@ -164,6 +173,67 @@ class QuoteService {
     const date = new Date(dateValue);
     if (Number.isNaN(date.getTime())) return '';
     return date.toISOString().slice(0, 10);
+  }
+
+  private async getLastQuotesForProducts(
+    customerId: string,
+    productCodes: string[],
+    limit: number,
+    excludeQuoteId?: string
+  ) {
+    const codes = productCodes.filter(Boolean);
+    if (!customerId || codes.length == 0 || limit <= 0) return new Map<string, LastQuoteSnapshot[]>();
+
+    const takeCount = Math.min(codes.length * limit * 5, 2000);
+
+    const items = await prisma.quoteItem.findMany({
+      where: {
+        productCode: { in: codes },
+        isManualLine: false,
+        quote: {
+          customerId,
+          ...(excludeQuoteId ? { id: { not: excludeQuoteId } } : {}),
+        },
+      },
+      orderBy: [
+        { quote: { createdAt: 'desc' } },
+        { createdAt: 'desc' },
+      ],
+      take: takeCount,
+      select: {
+        productCode: true,
+        unitPrice: true,
+        quantity: true,
+        priceType: true,
+        quote: {
+          select: {
+            createdAt: true,
+            documentNo: true,
+            quoteNumber: true,
+          },
+        },
+      },
+    });
+
+    const map = new Map<string, LastQuoteSnapshot[]>();
+
+    for (const item of items) {
+      const code = item.productCode;
+      if (!code) continue;
+      const list = map.get(code) || [];
+      if (list.length >= limit) continue;
+      list.push({
+        quoteDate: item.quote?.createdAt ? item.quote.createdAt.toISOString() : new Date().toISOString(),
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+        documentNo: item.quote?.documentNo ?? null,
+        quoteNumber: item.quote?.quoteNumber ?? null,
+      });
+      map.set(code, list);
+    }
+
+    return map;
   }
 
   private sanitizeColumnWidths(input?: Record<string, unknown> | null) {
@@ -351,6 +421,12 @@ class QuoteService {
       salesMap.set(movement.productCode, list);
     }
 
+    const lastQuotesMap = await this.getLastQuotesForProducts(
+      customer.id,
+      products.map((product) => product.mikroCode),
+      Math.max(1, lastSalesCount)
+    );
+
     const productsWithLists = products.map((product) => {
       const priceStats = priceStatsMap.get(product.mikroCode) || null;
       const mikroPriceLists: Record<string, number> = {};
@@ -374,6 +450,7 @@ class QuoteService {
         category: product.category,
         mikroPriceLists,
         lastSales: salesMap.get(product.mikroCode) || [],
+        lastQuotes: lastQuotesMap.get(product.mikroCode) || [],
       };
     });
 
@@ -394,6 +471,22 @@ class QuoteService {
 
     return { customer, products: sortedProducts };
   }
+
+  async getCustomerLastQuoteItems(
+    customerId: string,
+    productCodes: string[],
+    limit: number,
+    excludeQuoteId?: string
+  ) {
+    const safeLimit = Math.max(1, Math.min(10, Number(limit) || 1));
+    const map = await this.getLastQuotesForProducts(customerId, productCodes, safeLimit, excludeQuoteId);
+    const output: Record<string, LastQuoteSnapshot[]> = {};
+    map.forEach((value, key) => {
+      output[key] = value;
+    });
+    return output;
+  }
+
 
   async createQuote(input: CreateQuoteInput, createdById: string) {
     const {
@@ -1143,6 +1236,13 @@ class QuoteService {
     }
 
     const salesMap = new Map<string, MikroCustomerSaleMovement[]>();
+    const lastQuotesMap = await this.getLastQuotesForProducts(
+      quote.customer?.id || '',
+      uniqueCodes,
+      lastSalesLimit,
+      quote.id
+    );
+
     for (const movement of salesMovements) {
       const list = salesMap.get(movement.productCode) || [];
       list.push(movement);
@@ -1154,6 +1254,7 @@ class QuoteService {
         return {
           ...item,
           lastSales: [],
+          lastQuotes: [],
           mikroPriceLists: undefined,
         };
       }
@@ -1167,6 +1268,7 @@ class QuoteService {
       return {
         ...item,
         lastSales: salesMap.get(item.productCode) || [],
+        lastQuotes: lastQuotesMap.get(item.productCode) || [],
         mikroPriceLists,
       };
     });

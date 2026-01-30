@@ -267,6 +267,14 @@ export interface QuoteItem {
     vatRate?: number;
     vatZeroed?: boolean;
   }>;
+  lastQuotes?: Array<{
+    quoteDate: string;
+    quantity: number;
+    unitPrice: number;
+    priceType?: 'INVOICED' | 'WHITE';
+    documentNo?: string | null;
+    quoteNumber?: string | null;
+  }>;
   mikroPriceLists?: Record<number, number> | Record<string, number>;
   product?: {
     imageUrl?: string | null;
