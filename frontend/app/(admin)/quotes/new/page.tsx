@@ -335,8 +335,8 @@ const formatQuotePriceType = (priceType?: 'INVOICED' | 'WHITE') => (
 );
 
 const getQuoteDocumentLabel = (quote?: LastQuote) => {
-  if (!quote) return '-';
-  return quote.documentNo || quote.quoteNumber || '-';
+  if (!quote?.documentNo) return '-';
+  return quote.documentNo;
 };
 
 const roundUp2 = (value: number) => {
@@ -610,7 +610,7 @@ function AdminQuoteNewPageContent() {
         const result = await adminApi.getLastQuoteItems({
           customerId: selectedCustomer.id,
           productCodes: quoteProductCodes,
-          limit: Math.max(1, lastSalesCount),
+          limit: Math.max(5, lastSalesCount || 1),
           excludeQuoteId: editingQuote?.id,
         });
         setLastQuoteMap(result.lastQuotes || {});
@@ -2368,6 +2368,7 @@ function AdminQuoteNewPageContent() {
                       ? (lastQuoteMap[item.productCode] || item.lastQuotes || [])
                       : [];
                     const hasLastQuoteHistory = showLastQuoteInfo && itemLastQuotes.length > 0;
+                    const canToggleQuoteHistory = showLastQuoteInfo && itemLastQuotes.length > 1;
                     const isQuoteHistoryExpanded = Boolean(expandedQuoteHistory[item.id]);
                     const roundedUnitPrice = roundUp2(item.unitPrice || 0);
                     const lineTotal = roundedUnitPrice * (item.quantity || 0);
@@ -2426,7 +2427,22 @@ function AdminQuoteNewPageContent() {
                                       <div className="mt-2 text-[11px] text-gray-500">
                                         {hasLastQuoteHistory ? (
                                           <div className="space-y-1">
-                                            <div className="flex flex-wrap items-center gap-2">
+                                            <div
+                                              className="flex flex-wrap items-center gap-2"
+                                              onClick={canToggleQuoteHistory ? () => toggleQuoteHistory(item.id) : undefined}
+                                              role={canToggleQuoteHistory ? 'button' : undefined}
+                                              tabIndex={canToggleQuoteHistory ? 0 : undefined}
+                                              onKeyDown={
+                                                canToggleQuoteHistory
+                                                  ? (event) => {
+                                                      if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        toggleQuoteHistory(item.id);
+                                                      }
+                                                    }
+                                                  : undefined
+                                              }
+                                            >
                                               <span className="font-semibold text-gray-700">Son Teklif:</span>
                                               <span>{formatDateShort(itemLastQuotes[0].quoteDate)}</span>
                                               <span className="font-semibold text-gray-900">{formatCurrency(itemLastQuotes[0].unitPrice)}</span>
