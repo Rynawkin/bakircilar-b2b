@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 
@@ -30,9 +30,9 @@ export function usePermissions() {
     }
   };
 
-  const hasPermission = (permission: string): boolean => {
+  const hasPermission = useCallback((permission: string): boolean => {
     return permissions[permission] === true;
-  };
+  }, [permissions]);
 
   return {
     permissions,
