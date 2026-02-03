@@ -1128,6 +1128,7 @@ class MikroService {
     const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
     const projeKodu = String(process.env.MIKRO_PROJE_KODU || 'R').trim().slice(0, 25);
     const hareketTipi = 0;
+    const vergiSizFlag = applyVAT ? 0 : 1;
 
     if (documentNoValue && !includeBelgeNo) {
       console.warn('WARN: SIPARISLER sip_belge_no/sip_belgeno kolonunu bulamadik, belge no yazilmadi.');
@@ -1512,6 +1513,103 @@ class MikroService {
               )
               VALUES (${insertValues.join(', ')})
           `);
+      }
+
+
+      try {
+        await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .input('sira', sql.Int, evrakSira)
+          .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
+          .input('vergiSiz', sql.Bit, vergiSizFlag)
+          .query(`
+            UPDATE SIPARISLER
+            SET
+              sip_SpecRECno = ISNULL(sip_SpecRECno, 0),
+              sip_hidden = ISNULL(sip_hidden, 0),
+              sip_kilitli = ISNULL(sip_kilitli, 0),
+              sip_degisti = ISNULL(sip_degisti, 0),
+              sip_checksum = ISNULL(sip_checksum, 0),
+              sip_special1 = ISNULL(sip_special1, ''),
+              sip_special2 = ISNULL(sip_special2, ''),
+              sip_special3 = ISNULL(sip_special3, ''),
+              sip_satici_kod = ISNULL(sip_satici_kod, ''),
+              sip_birim_pntr = ISNULL(sip_birim_pntr, 1),
+              sip_masvergi_pntr = ISNULL(sip_masvergi_pntr, 0),
+              sip_opno = ISNULL(sip_opno, 8),
+              sip_aciklama2 = ISNULL(sip_aciklama2, ''),
+              sip_OnaylayanKulNo = ISNULL(sip_OnaylayanKulNo, 0),
+              sip_vergisiz_fl = ISNULL(sip_vergisiz_fl, @vergiSiz),
+              sip_promosyon_fl = ISNULL(sip_promosyon_fl, 0),
+              sip_cari_grupno = ISNULL(sip_cari_grupno, 0),
+              sip_alt_doviz_kuru = ISNULL(sip_alt_doviz_kuru, 1),
+              sip_adresno = ISNULL(sip_adresno, 1),
+              sip_teslimturu = ISNULL(sip_teslimturu, ''),
+              sip_cagrilabilir_fl = ISNULL(sip_cagrilabilir_fl, 1),
+              sip_prosip_uid = ISNULL(sip_prosip_uid, @zeroGuid),
+              sip_iskonto1 = ISNULL(sip_iskonto1, 0),
+              sip_iskonto2 = ISNULL(sip_iskonto2, 1),
+              sip_iskonto3 = ISNULL(sip_iskonto3, 1),
+              sip_iskonto4 = ISNULL(sip_iskonto4, 1),
+              sip_iskonto5 = ISNULL(sip_iskonto5, 1),
+              sip_iskonto6 = ISNULL(sip_iskonto6, 1),
+              sip_masraf1 = ISNULL(sip_masraf1, 1),
+              sip_masraf2 = ISNULL(sip_masraf2, 1),
+              sip_masraf3 = ISNULL(sip_masraf3, 1),
+              sip_masraf4 = ISNULL(sip_masraf4, 1),
+              sip_isk1 = ISNULL(sip_isk1, 0),
+              sip_isk2 = ISNULL(sip_isk2, 0),
+              sip_isk3 = ISNULL(sip_isk3, 0),
+              sip_isk4 = ISNULL(sip_isk4, 0),
+              sip_isk5 = ISNULL(sip_isk5, 0),
+              sip_isk6 = ISNULL(sip_isk6, 0),
+              sip_mas1 = ISNULL(sip_mas1, 0),
+              sip_mas2 = ISNULL(sip_mas2, 0),
+              sip_mas3 = ISNULL(sip_mas3, 0),
+              sip_mas4 = ISNULL(sip_mas4, 0),
+              sip_Exp_Imp_Kodu = ISNULL(sip_Exp_Imp_Kodu, ''),
+              sip_kar_orani = ISNULL(sip_kar_orani, 0),
+              sip_durumu = ISNULL(sip_durumu, 0),
+              sip_stal_uid = ISNULL(sip_stal_uid, @zeroGuid),
+              sip_planlananmiktar = ISNULL(sip_planlananmiktar, 0),
+              sip_parti_kodu = ISNULL(sip_parti_kodu, ''),
+              sip_lot_no = ISNULL(sip_lot_no, 0),
+              sip_fiyat_liste_no = ISNULL(sip_fiyat_liste_no, 1),
+              sip_Otv_Pntr = ISNULL(sip_Otv_Pntr, 0),
+              sip_OtvVergisiz_Fl = ISNULL(sip_OtvVergisiz_Fl, 0),
+              sip_paket_kod = ISNULL(sip_paket_kod, ''),
+              sip_Rez_uid = ISNULL(sip_Rez_uid, @zeroGuid),
+              sip_yetkili_uid = ISNULL(sip_yetkili_uid, @zeroGuid),
+              sip_kapatmanedenkod = ISNULL(sip_kapatmanedenkod, ''),
+              sip_gecerlilik_tarihi = ISNULL(sip_gecerlilik_tarihi, '1899-12-30'),
+              sip_onodeme_evrak_tip = ISNULL(sip_onodeme_evrak_tip, 0),
+              sip_onodeme_evrak_seri = ISNULL(sip_onodeme_evrak_seri, ''),
+              sip_onodeme_evrak_sira = ISNULL(sip_onodeme_evrak_sira, 0),
+              sip_rezervasyon_miktari = ISNULL(sip_rezervasyon_miktari, 0),
+              sip_rezerveden_teslim_edilen = ISNULL(sip_rezerveden_teslim_edilen, 0),
+              sip_HareketGrupKodu1 = ISNULL(sip_HareketGrupKodu1, ''),
+              sip_HareketGrupKodu2 = ISNULL(sip_HareketGrupKodu2, ''),
+              sip_HareketGrupKodu3 = ISNULL(sip_HareketGrupKodu3, ''),
+              sip_Olcu1 = ISNULL(sip_Olcu1, 0),
+              sip_Olcu2 = ISNULL(sip_Olcu2, 0),
+              sip_Olcu3 = ISNULL(sip_Olcu3, 0),
+              sip_Olcu4 = ISNULL(sip_Olcu4, 0),
+              sip_Olcu5 = ISNULL(sip_Olcu5, 0),
+              sip_FormulMiktarNo = ISNULL(sip_FormulMiktarNo, 0),
+              sip_FormulMiktar = ISNULL(sip_FormulMiktar, 0),
+              sip_satis_fiyat_doviz_cinsi = ISNULL(sip_satis_fiyat_doviz_cinsi, 0),
+              sip_satis_fiyat_doviz_kuru = ISNULL(sip_satis_fiyat_doviz_kuru, 0),
+              sip_eticaret_kanal_kodu = ISNULL(sip_eticaret_kanal_kodu, ''),
+              sip_Tevkifat_turu = ISNULL(sip_Tevkifat_turu, 0),
+              sip_otv_tevkifat_turu = ISNULL(sip_otv_tevkifat_turu, 0),
+              sip_otv_tevkifat_tutari = ISNULL(sip_otv_tevkifat_tutari, 0),
+              sip_tevkifat_sifirlandi_fl = ISNULL(sip_tevkifat_sifirlandi_fl, 0)
+            WHERE sip_evrakno_seri = @seri
+              AND sip_evrakno_sira = @sira
+          `);
+      } catch (error) {
+        console.warn('WARN: Siparis varsayilan alanlari guncellenemedi:', error);
       }
 
       await transaction.commit();
