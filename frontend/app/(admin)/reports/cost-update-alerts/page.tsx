@@ -289,7 +289,7 @@ export default function CostUpdateAlertsPage() {
   };
 
   const getRiskLevelBadge = (percent: number | null | undefined) => {
-    if (!isFiniteNumber(percent)) return <Badge variant="secondary">-</Badge>;
+    if (!isFiniteNumber(percent)) return <Badge variant="outline">-</Badge>;
     if (percent >= 20) return <Badge variant="destructive">Kritik</Badge>;
     if (percent >= 10) return <Badge className="bg-orange-500">Yüksek</Badge>;
     if (percent >= 5) return <Badge className="bg-yellow-500">Orta</Badge>;
