@@ -37,22 +37,22 @@ interface CostUpdateAlert {
   productName: string;
   category: string;
   currentCostDate: string | null;
-  currentCost: number;
+  currentCost: number | null;
   lastEntryDate: string | null;
-  lastEntryCost: number;
-  diffAmount: number;
-  diffPercent: number;
-  dayDiff: number;
-  stockQuantity: number;
-  riskAmount: number;
-  salePrice: number;
+  lastEntryCost: number | null;
+  diffAmount: number | null;
+  diffPercent: number | null;
+  dayDiff: number | null;
+  stockQuantity: number | null;
+  riskAmount: number | null;
+  salePrice: number | null;
 }
 
 interface Summary {
   totalAlerts: number;
-  totalRiskAmount: number;
-  totalStockValue: number;
-  avgDiffPercent: number;
+  totalRiskAmount: number | null;
+  totalStockValue: number | null;
+  avgDiffPercent: number | null;
 }
 
 interface Metadata {
@@ -75,6 +75,12 @@ export default function CostUpdateAlertsPage() {
   const [percentDiffFilter, setPercentDiffFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+
+  const isFiniteNumber = (value: any): value is number => Number.isFinite(value);
+  const toFixedSafe = (value: number | null | undefined, digits: number) =>
+    isFiniteNumber(value) ? value.toFixed(digits) : '-';
+  const toNumberFixed = (value: number | null | undefined, digits: number) =>
+    isFiniteNumber(value) ? Number(value.toFixed(digits)) : '';
 
   const fetchData = async () => {
     setLoading(true);
@@ -203,15 +209,15 @@ export default function CostUpdateAlertsPage() {
         'Ürün Adı': item.productName,
         'Kategori': item.category,
         'Güncel Mal. Tarihi': formatDate(item.currentCostDate),
-        'Güncel Maliyet (TL)': parseFloat(item.currentCost.toFixed(2)),
+        'Güncel Maliyet (TL)': toNumberFixed(item.currentCost, 2),
         'Son Giriş Tarihi': formatDate(item.lastEntryDate),
-        'Son Giriş Mal. (TL)': parseFloat(item.lastEntryCost.toFixed(2)),
-        'Fark (TL)': parseFloat(item.diffAmount.toFixed(2)),
-        'Fark (%)': parseFloat(item.diffPercent.toFixed(1)),
-        'Gün Farkı': item.dayDiff,
-        'Eldeki Stok': parseFloat(item.stockQuantity.toFixed(0)),
-        'Risk Tutarı (TL)': parseFloat(item.riskAmount.toFixed(2)),
-        'Satış Fiyatı (TL)': parseFloat(item.salePrice.toFixed(2)),
+        'Son Giriş Mal. (TL)': toNumberFixed(item.lastEntryCost, 2),
+        'Fark (TL)': toNumberFixed(item.diffAmount, 2),
+        'Fark (%)': toNumberFixed(item.diffPercent, 1),
+        'Gün Farkı': isFiniteNumber(item.dayDiff) ? item.dayDiff : '',
+        'Eldeki Stok': toNumberFixed(item.stockQuantity, 0),
+        'Risk Tutarı (TL)': toNumberFixed(item.riskAmount, 2),
+        'Satış Fiyatı (TL)': toNumberFixed(item.salePrice, 2),
       }));
 
       // Özet satırı ekle
@@ -226,10 +232,10 @@ export default function CostUpdateAlertsPage() {
           'Son Giriş Tarihi': '',
           'Son Giriş Mal. (TL)': '',
           'Fark (TL)': '',
-          'Fark (%)': `Ort: ${exportSummary.avgDiffPercent.toFixed(1)}%`,
+          'Fark (%)': `Ort: ${toFixedSafe(exportSummary.avgDiffPercent, 1)}%`,
           'Gün Farkı': '',
           'Eldeki Stok': '',
-          'Risk Tutarı (TL)': parseFloat(exportSummary.totalRiskAmount.toFixed(2)),
+          'Risk Tutarı (TL)': toNumberFixed(exportSummary.totalRiskAmount, 2),
           'Satış Fiyatı (TL)': '',
         } as any);
       }
@@ -274,21 +280,24 @@ export default function CostUpdateAlertsPage() {
     }
   };
 
-  const getRiskLevelColor = (percent: number) => {
+  const getRiskLevelColor = (percent: number | null | undefined) => {
+    if (!isFiniteNumber(percent)) return 'text-slate-500 bg-slate-50';
     if (percent >= 20) return 'text-red-600 bg-red-50';
     if (percent >= 10) return 'text-orange-600 bg-orange-50';
     if (percent >= 5) return 'text-yellow-600 bg-yellow-50';
     return 'text-green-600 bg-green-50';
   };
 
-  const getRiskLevelBadge = (percent: number) => {
+  const getRiskLevelBadge = (percent: number | null | undefined) => {
+    if (!isFiniteNumber(percent)) return <Badge variant="secondary">-</Badge>;
     if (percent >= 20) return <Badge variant="destructive">Kritik</Badge>;
     if (percent >= 10) return <Badge className="bg-orange-500">Yüksek</Badge>;
     if (percent >= 5) return <Badge className="bg-yellow-500">Orta</Badge>;
     return <Badge className="bg-green-500">Düşük</Badge>;
   };
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number | null | undefined) => {
+    if (!isFiniteNumber(value)) return '-';
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
       currency: 'TRY',
@@ -414,7 +423,7 @@ export default function CostUpdateAlertsPage() {
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-purple-500" />
                 <span className="text-2xl font-bold">
-                  %{summary.avgDiffPercent.toFixed(1)}
+                  %{toFixedSafe(summary.avgDiffPercent, 1)}
                 </span>
               </div>
             </CardContent>
@@ -538,12 +547,14 @@ export default function CostUpdateAlertsPage() {
                           {formatCurrency(item.diffAmount)}
                         </TableCell>
                         <TableCell className="text-right font-bold">
-                          %{item.diffPercent.toFixed(1)}
+                          %{toFixedSafe(item.diffPercent, 1)}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Badge variant="outline">{item.dayDiff} gün</Badge>
+                          <Badge variant="outline">
+                            {isFiniteNumber(item.dayDiff) ? `${item.dayDiff} gün` : '-'}
+                          </Badge>
                         </TableCell>
-                        <TableCell className="text-right">{item.stockQuantity.toFixed(0)}</TableCell>
+                        <TableCell className="text-right">{toFixedSafe(item.stockQuantity, 0)}</TableCell>
                         <TableCell className="text-right font-bold text-red-700">
                           {formatCurrency(item.riskAmount)}
                         </TableCell>
