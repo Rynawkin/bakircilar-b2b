@@ -452,7 +452,7 @@ export default function QuoteConvertPage() {
               <div className="flex flex-col gap-4">
                 <div className="text-sm text-gray-500">Toplam</div>
                 <div className="text-2xl font-semibold text-gray-900">
-                  {formatCurrency(selectedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0))}
+                  {formatCurrency(selectedItems.reduce((sum, item) => sum + (item.unitPrice || 0) * resolveItemQuantity(item), 0))}
                 </div>
                 <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
                   {submitting ? 'Gonderiliyor...' : 'Siparise Cevir'}
