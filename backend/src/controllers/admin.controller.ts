@@ -1599,6 +1599,82 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/orders/:id
+   */
+  async getOrderById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          user: { select: { sectorCode: true } },
+        },
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      if (userRole == 'SALES_REP') {
+        if (!order.user.sectorCode || !assignedSectorCodes.includes(order.user.sectorCode)) {
+          return res.status(403).json({
+            error: 'You can only access orders from customers in your assigned sectors',
+          });
+        }
+      }
+
+      const detail = await orderService.getOrderById(id);
+      res.json({ order: detail });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/admin/orders/:id
+   */
+  async updateOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { items, customerOrderNumber, deliveryLocation } = req.body || {};
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          user: { select: { sectorCode: true } },
+        },
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+
+      if (userRole == 'SALES_REP') {
+        if (!order.user.sectorCode || !assignedSectorCodes.includes(order.user.sectorCode)) {
+          return res.status(403).json({
+            error: 'You can only update orders from customers in your assigned sectors',
+          });
+        }
+      }
+
+      const updated = await orderService.updateOrder(id, {
+        items,
+        customerOrderNumber,
+        deliveryLocation,
+      });
+
+      res.json({ order: updated });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/orders/pending
    * ADMIN/MANAGER: Tüm bekleyen siparişler
    * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin bekleyen siparişleri

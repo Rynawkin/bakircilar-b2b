@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { PendingOrderForAdmin } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { OrderCardSkeleton } from '@/components/ui/Skeleton';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
@@ -16,6 +18,18 @@ import * as XLSX from 'xlsx';
 type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 type OrderSource = 'ALL' | 'CUSTOMER' | 'B2B';
 
+
+type EditableOrderItem = {
+  id: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  priceType: 'INVOICED' | 'WHITE';
+  lineNote?: string | null;
+  responsibilityCenter?: string | null;
+};
+
 export default function AdminOrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<PendingOrderForAdmin[]>([]);
@@ -23,6 +37,14 @@ export default function AdminOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<OrderStatus>('PENDING');
   const [sourceTab, setSourceTab] = useState<OrderSource>('ALL');
+
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [editOrder, setEditOrder] = useState<PendingOrderForAdmin | null>(null);
+  const [editItems, setEditItems] = useState<EditableOrderItem[]>([]);
+  const [editCustomerOrderNumber, setEditCustomerOrderNumber] = useState('');
+  const [editDeliveryLocation, setEditDeliveryLocation] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     fetchOrders();
@@ -53,6 +75,108 @@ export default function AdminOrdersPage() {
       setOrders(orders.filter(order => order.status === 'PENDING'));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const toggleExpanded = (orderId: string) => {
+    setExpandedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
+  const openEdit = (order: PendingOrderForAdmin) => {
+    setEditOrder(order);
+    setEditCustomerOrderNumber(order.customerOrderNumber || '');
+    setEditDeliveryLocation(order.deliveryLocation || '');
+    setEditItems((order.items || []).map((item) => ({
+      id: item.id,
+      productCode: item.mikroCode,
+      productName: item.productName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+      lineNote: item.lineNote || '',
+      responsibilityCenter: item.responsibilityCenter || '',
+    })));
+    setEditOpen(true);
+  };
+
+  const closeEdit = () => {
+    setEditOpen(false);
+    setEditOrder(null);
+    setEditItems([]);
+  };
+
+  const updateEditItem = (id: string, patch: Partial<EditableOrderItem>) => {
+    setEditItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const removeEditItem = (id: string) => {
+    setEditItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const editTotal = useMemo(() => {
+    return editItems.reduce((sum, item) => {
+      const qty = Number(item.quantity) || 0;
+      const price = Number(item.unitPrice) || 0;
+      return sum + qty * price;
+    }, 0);
+  }, [editItems]);
+
+  const handleSaveEdit = async () => {
+    if (!editOrder) return;
+    if (editItems.length === 0) {
+      toast.error('En az bir kalem olmali.');
+      return;
+    }
+    for (let i = 0; i < editItems.length; i += 1) {
+      const item = editItems[i];
+      if (!item.productCode) {
+        toast.error(`Urun kodu eksik (Satir ${i + 1}).`);
+        return;
+      }
+      if (!item.productName) {
+        toast.error(`Urun adi eksik (Satir ${i + 1}).`);
+        return;
+      }
+      if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) {
+        toast.error(`Miktar gecersiz (Satir ${i + 1}).`);
+        return;
+      }
+      if (!Number.isFinite(Number(item.unitPrice)) || Number(item.unitPrice) < 0) {
+        toast.error(`Birim fiyat gecersiz (Satir ${i + 1}).`);
+        return;
+      }
+    }
+
+    setEditSaving(true);
+    try {
+      await adminApi.updateOrder(editOrder.id, {
+        customerOrderNumber: editCustomerOrderNumber.trim() || undefined,
+        deliveryLocation: editDeliveryLocation.trim() || undefined,
+        items: editItems.map((item) => ({
+          productCode: item.productCode,
+          productName: item.productName,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+          lineNote: item.lineNote?.trim() || undefined,
+          responsibilityCenter: item.responsibilityCenter?.trim() || undefined,
+        })),
+      });
+      toast.success('Siparis guncellendi.');
+      closeEdit();
+      fetchOrders();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Siparis guncellenemedi.');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -684,6 +808,7 @@ export default function AdminOrdersPage() {
         ) : (
           <div className="space-y-6">
             {orders.map((order) => {
+              const isExpanded = expandedOrders.has(order.id);
               const customerName =
                 order.user?.displayName ||
                 order.user?.mikroName ||
@@ -698,29 +823,32 @@ export default function AdminOrdersPage() {
               return (
 
               <Card key={order.id} className="overflow-hidden">
-                {/* Order Header */}
-                <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-200">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-bold text-xl text-gray-900">#{order.orderNumber}</h3>
-                      {getStatusBadge(order.status)}
+                    <div className="text-xs text-gray-500">Cari</div>
+                    <div className="font-semibold text-gray-900">{customerName}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Kod: {order.user?.mikroCariCode || '-'} - Siparis #{order.orderNumber} - {formatDate(order.createdAt)}
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{formatDate(order.createdAt)}</p>
-                    <p className="text-xs text-gray-500 mt-1">Olusturan: {creatorLabel}</p>
+                    <div className="text-xs text-gray-500 mt-1">Olusturan: {creatorLabel}</div>
+                    {order.customerOrderNumber && (
+                      <div className="text-xs text-gray-500 mt-1">Belge No: {order.customerOrderNumber}</div>
+                    )}
+                    {order.deliveryLocation && (
+                      <div className="text-xs text-gray-500 mt-1">Teslimat: {order.deliveryLocation}</div>
+                    )}
 
-                    {/* Mikro Order IDs */}
                     {order.mikroOrderIds && order.mikroOrderIds.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {order.mikroOrderIds.map((mikroId, idx) => (
                           <div key={idx} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded px-2 py-1">
-                            <span className="text-xs font-medium text-blue-700">🔗 Mikro ID:</span>
+                            <span className="text-xs font-medium text-blue-700">Mikro ID:</span>
                             <span className="text-xs font-mono font-bold text-blue-900">{mikroId}</span>
                           </div>
                         ))}
                       </div>
                     )}
 
-                    {/* Admin Note */}
                     {order.adminNote && (
                       <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
                         <p className="text-xs font-medium text-gray-600">Admin Notu:</p>
@@ -747,18 +875,6 @@ export default function AdminOrdersPage() {
                       </div>
                     )}
 
-                    {(order.customerOrderNumber || order.deliveryLocation) && (
-                      <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-                        <p className="text-xs font-medium text-gray-600">Siparis Ek Bilgileri:</p>
-                        {order.customerOrderNumber && (
-                          <p className="text-xs text-gray-700 mt-1">Belge No: {order.customerOrderNumber}</p>
-                        )}
-                        {order.deliveryLocation && (
-                          <p className="text-xs text-gray-700 mt-1">Teslimat: {order.deliveryLocation}</p>
-                        )}
-                      </div>
-                    )}
-
                     {order.customerRequest && (
                       <div className="mt-2 bg-indigo-50 border border-indigo-200 rounded px-3 py-2">
                         <p className="text-xs font-medium text-indigo-700">Talep Kaynagi</p>
@@ -771,88 +887,218 @@ export default function AdminOrdersPage() {
                         )}
                       </div>
                     )}
-
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500 mb-1">Toplam Tutar</p>
-                    <p className="text-2xl font-bold text-primary-600">{formatCurrency(order.totalAmount)}</p>
-                  </div>
-                </div>
-
-                {/* Customer Information */}
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Musteri Bilgileri</h4>
-                  <CustomerInfoCard customer={order.user} />
-                </div>
-
-                {/* Order Items */}
-                <div className="border-t pt-4 mb-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Siparis Kalemleri ({order.items.length} urun)</p>
-                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    {order.items.map((item) => (
-                      <div key={item.id} className="flex justify-between items-center text-sm py-2 px-3 bg-white rounded border border-gray-100">
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">{item.productName}</p>
-                          <div className="flex gap-2 mt-1">
-                            <span className="text-xs text-gray-500">{item.mikroCode}</span>
-                            <Badge variant={item.priceType === 'INVOICED' ? 'info' : 'default'} className="text-xs">
-                              {item.priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
-                            </Badge>
-                          </div>
-                          {item.lineNote && (
-                            <p className="text-xs text-gray-500 mt-1">Not: {item.lineNote}</p>
-                          )}
-                        </div>
-                        <div className="text-right ml-4">
-                          <p className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</p>
-                          <p className="font-semibold text-gray-900">{formatCurrency(item.totalPrice)}</p>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                    {getStatusBadge(order.status)}
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500">Toplam</div>
+                      <div className="text-lg font-bold text-primary-600">{formatCurrency(order.totalAmount)}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
+                      onClick={() => toggleExpanded(order.id)}
+                    >
+                      {isExpanded ? 'Detayi Gizle' : 'Detayi Goster'}
+                      <span className={`inline-block transition-transform ${isExpanded ? 'rotate-90' : ''}`}>{'>'}</span>
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 pt-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={() => handleOrderPdfExport(order)}>
                     Siparis Proforma PDF
                   </Button>
                   <Button variant="secondary" onClick={() => handleOrderExcelExport(order)}>
                     Siparis Proforma Excel
                   </Button>
+                  {order.status === 'PENDING' && (
+                    <Button variant="secondary" onClick={() => openEdit(order)}>
+                      Duzenle
+                    </Button>
+                  )}
+                  {order.status === 'PENDING' && (
+                    <>
+                      <Button variant="primary" onClick={() => handleApprove(order.id)}>
+                        Onayla ve Mikro'ya Gonder
+                      </Button>
+                      <Button variant="danger" onClick={() => handleReject(order.id)}>
+                        Reddet
+                      </Button>
+                    </>
+                  )}
                 </div>
 
-                {/* Action Buttons - Only show for PENDING orders */}
-                {order.status === 'PENDING' && (
-                  <div className="flex gap-3 pt-4 border-t border-gray-200">
-                    <Button variant="primary" onClick={() => handleApprove(order.id)} className="flex-1">
-                      Onayla ve Mikro'ya Gonder
-                    </Button>
-                    <Button variant="danger" onClick={() => handleReject(order.id)} className="flex-1">
-                      Reddet
-                    </Button>
-                  </div>
-                )}
+                {isExpanded && (
+                  <>
+                    <div className="mt-4">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Musteri Bilgileri</h4>
+                      <CustomerInfoCard customer={order.user} />
+                    </div>
 
-                {/* Status Info for Approved/Rejected */}
-                {order.status === 'APPROVED' && order.approvedAt && (
-                  <div className="pt-4 border-t border-gray-200 text-center">
-                    <p className="text-sm text-green-700">
-                      ✅ Onaylandı: {formatDate(order.approvedAt)}
-                    </p>
-                  </div>
-                )}
-                {order.status === 'REJECTED' && order.rejectedAt && (
-                  <div className="pt-4 border-t border-gray-200 text-center">
-                    <p className="text-sm text-red-700">
-                      ❌ Reddedildi: {formatDate(order.rejectedAt)}
-                    </p>
-                  </div>
+                    <div className="border-t pt-4 mt-4">
+                      <p className="text-sm font-semibold text-gray-700 mb-3">Siparis Kalemleri ({order.items.length} urun)</p>
+                      <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                        {order.items.map((item) => (
+                          <div key={item.id} className="flex justify-between items-center text-sm py-2 px-3 bg-white rounded border border-gray-100">
+                            <div className="flex-1">
+                              <p className="font-medium text-gray-900">{item.productName}</p>
+                              <div className="flex gap-2 mt-1">
+                                <span className="text-xs text-gray-500">{item.mikroCode}</span>
+                                <Badge variant={item.priceType === 'INVOICED' ? 'info' : 'default'} className="text-xs">
+                                  {item.priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
+                                </Badge>
+                              </div>
+                              {item.lineNote && (
+                                <p className="text-xs text-gray-500 mt-1">Not: {item.lineNote}</p>
+                              )}
+                              {item.responsibilityCenter && (
+                                <p className="text-xs text-gray-500 mt-1">Sorumluluk: {item.responsibilityCenter}</p>
+                              )}
+                            </div>
+                            <div className="text-right ml-4">
+                              <p className="text-gray-600">{item.quantity} x {formatCurrency(item.unitPrice)}</p>
+                              <p className="font-semibold text-gray-900">{formatCurrency(item.totalPrice)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {order.status === 'APPROVED' && order.approvedAt && (
+                      <div className="pt-4 border-t border-gray-200 text-center">
+                        <p className="text-sm text-green-700">
+                          Onaylandi: {formatDate(order.approvedAt)}
+                        </p>
+                      </div>
+                    )}
+                    {order.status === 'REJECTED' && order.rejectedAt && (
+                      <div className="pt-4 border-t border-gray-200 text-center">
+                        <p className="text-sm text-red-700">
+                          Reddedildi: {formatDate(order.rejectedAt)}
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </Card>
             );
             })}
           </div>
         )}
+
+      <Modal
+        isOpen={editOpen}
+        onClose={closeEdit}
+        title={editOrder ? `Siparis Duzenle - ${editOrder.orderNumber}` : 'Siparis Duzenle'}
+        size="xl"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeEdit} disabled={editSaving}>
+              Iptal
+            </Button>
+            <Button variant="primary" onClick={handleSaveEdit} isLoading={editSaving}>
+              Kaydet
+            </Button>
+          </>
+        }
+      >
+        {!editOrder ? (
+          <p className="text-sm text-gray-500">Siparis secilmedi.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Belge No (Musteri Siparis No)"
+                value={editCustomerOrderNumber}
+                onChange={(e) => setEditCustomerOrderNumber(e.target.value)}
+                placeholder="Orn: HENDEK-8915"
+              />
+              <Input
+                label="Teslimat"
+                value={editDeliveryLocation}
+                onChange={(e) => setEditDeliveryLocation(e.target.value)}
+                placeholder="Teslimat yeri"
+              />
+            </div>
+
+            <div className="space-y-3">
+              {editItems.map((item) => (
+                <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">{item.productName}</div>
+                      <div className="text-xs text-gray-500">{item.productCode}</div>
+                    </div>
+                    <Button variant="danger" size="sm" onClick={() => removeEditItem(item.id)}>
+                      Sil
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Miktar</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={item.quantity}
+                        onChange={(e) => updateEditItem(item.id, { quantity: Number(e.target.value) })}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Birim Fiyat</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={item.unitPrice}
+                        onChange={(e) => updateEditItem(item.id, { unitPrice: Number(e.target.value) })}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Fiyat Tipi</label>
+                      <select
+                        value={item.priceType}
+                        onChange={(e) => updateEditItem(item.id, { priceType: e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED' })}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                      >
+                        <option value="INVOICED">Faturali</option>
+                        <option value="WHITE">Beyaz</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Sorumluluk</label>
+                      <input
+                        type="text"
+                        value={item.responsibilityCenter || ''}
+                        onChange={(e) => updateEditItem(item.id, { responsibilityCenter: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Not</label>
+                    <input
+                      type="text"
+                      value={item.lineNote || ''}
+                      onChange={(e) => updateEditItem(item.id, { lineNote: e.target.value })}
+                      className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end text-sm font-semibold text-gray-900">
+              Toplam: {formatCurrency(editTotal)}
+            </div>
+          </div>
+        )}
+      </Modal>
       </div>
     </div>
   );

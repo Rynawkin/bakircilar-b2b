@@ -363,6 +363,32 @@ export const adminApi = {
     return response.data;
   },
 
+  getOrderById: async (id: string): Promise<{ order: PendingOrderForAdmin }> => {
+    const response = await apiClient.get(`/admin/orders/${id}`);
+    return response.data;
+  },
+
+  updateOrder: async (
+    id: string,
+    payload: {
+      items: Array<{
+        productId?: string;
+        productCode?: string;
+        productName?: string;
+        quantity: number;
+        unitPrice: number;
+        priceType?: 'INVOICED' | 'WHITE';
+        lineNote?: string;
+        responsibilityCenter?: string;
+      }>;
+      customerOrderNumber?: string;
+      deliveryLocation?: string;
+    }
+  ): Promise<{ order: PendingOrderForAdmin }> => {
+    const response = await apiClient.put(`/admin/orders/${id}`, payload);
+    return response.data;
+  },
+
   approveOrder: async (
     id: string,
     options?: { adminNote?: string; invoicedSeries?: string; whiteSeries?: string }

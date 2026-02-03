@@ -465,6 +465,141 @@ class OrderService {
   }
 
   /**
+   * Update pending order (admin)
+   */
+  async updateOrder(
+    orderId: string,
+    input: {
+      customerOrderNumber?: string;
+      deliveryLocation?: string;
+      items: Array<{
+        productId?: string;
+        productCode?: string;
+        productName?: string;
+        quantity: number;
+        unitPrice: number;
+        priceType?: 'INVOICED' | 'WHITE';
+        lineNote?: string;
+        responsibilityCenter?: string;
+      }>;
+    }
+  ): Promise<any> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        user: { select: { id: true } },
+        items: { select: { id: true } },
+      },
+    });
+
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    if (order.status !== 'PENDING') {
+      throw new Error('Only pending orders can be updated');
+    }
+
+    if (!input?.items || !Array.isArray(input.items) || input.items.length == 0) {
+      throw new Error('Order items are required');
+    }
+
+    const productIds = input.items
+      .map((item) => item.productId)
+      .filter((id): id is string => Boolean(id));
+    const productCodes = input.items
+      .map((item) => item.productCode)
+      .filter((code): code is string => Boolean(code))
+      .map((code) => String(code));
+
+    const products = await prisma.product.findMany({
+      where: {
+        OR: [
+          ...(productIds.length > 0 ? [{ id: { in: productIds } }] : []),
+          ...(productCodes.length > 0 ? [{ mikroCode: { in: productCodes } }] : []),
+        ],
+      },
+    });
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const productByCode = new Map(products.map((product) => [product.mikroCode, product]));
+
+    const normalizedItems = input.items.map((item, index) => {
+      const product = item.productId
+        ? productById.get(item.productId)
+        : item.productCode
+          ? productByCode.get(item.productCode)
+          : undefined;
+
+      if (!product) {
+        throw new Error(`Product not found for line ${index + 1}`);
+      }
+
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new Error(`Invalid quantity for line ${index + 1}`);
+      }
+
+      const unitPrice = Number(item.unitPrice);
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        throw new Error(`Invalid unit price for line ${index + 1}`);
+      }
+
+      const priceType: PriceType = item.priceType == 'WHITE' ? 'WHITE' : 'INVOICED';
+      const lineNote = item.lineNote?.trim();
+      const responsibilityCenter = item.responsibilityCenter?.trim();
+      const productName = item.productName?.trim() || product.name;
+
+      return {
+        orderId,
+        productId: product.id,
+        productName,
+        mikroCode: product.mikroCode,
+        quantity,
+        priceType,
+        unitPrice,
+        totalPrice: unitPrice * quantity,
+        lineNote: lineNote || undefined,
+        responsibilityCenter: responsibilityCenter || undefined,
+        status: 'PENDING' as const,
+      };
+    });
+
+    const totalAmount = normalizedItems.reduce(
+      (sum, item) => sum + item.unitPrice * item.quantity,
+      0
+    );
+
+    const normalizedCustomerOrderNumber = input.customerOrderNumber
+      ? String(input.customerOrderNumber).trim()
+      : '';
+    const normalizedDeliveryLocation = input.deliveryLocation
+      ? String(input.deliveryLocation).trim()
+      : '';
+
+    await prisma.$transaction(async (tx) => {
+      await tx.orderItem.deleteMany({
+        where: { orderId },
+      });
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          totalAmount,
+          customerOrderNumber: normalizedCustomerOrderNumber || null,
+          deliveryLocation: normalizedDeliveryLocation || null,
+        },
+      });
+
+      await tx.orderItem.createMany({
+        data: normalizedItems,
+      });
+    });
+
+    return this.getOrderById(orderId);
+  }
+
+  /**
    * Sipariş detayını getir
    */
   async getOrderById(orderId: string): Promise<any> {
@@ -516,6 +651,7 @@ class OrderService {
 
     return order;
   }
+
 
   /**
    * Siparişi onayla ve Mikro'ya yaz
@@ -800,6 +936,7 @@ class OrderService {
     }
   }
 
+
   /**
    * Sipariş kalemlerini reddet
    */
@@ -869,6 +1006,7 @@ class OrderService {
     return { rejectedCount: itemsToReject.length };
   }
 
+
   /**
    * Siparişi reddet (Tüm sipariş)
    */
@@ -903,6 +1041,7 @@ class OrderService {
       },
     });
   }
+
 
   /**
    * Sipariş istatistikleri (Admin dashboard için)
