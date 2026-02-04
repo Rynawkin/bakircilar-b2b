@@ -500,8 +500,8 @@ class OrderService {
       throw new Error('Order not found');
     }
 
-    if (order.status !== 'PENDING') {
-      throw new Error('Only pending orders can be updated');
+    if (!['PENDING', 'APPROVED'].includes(order.status)) {
+      throw new Error('Only pending or approved orders can be updated');
     }
 
     if (!input?.items || !Array.isArray(input.items) || input.items.length == 0) {
@@ -569,6 +569,84 @@ class OrderService {
       };
     });
 
+    const shouldUpdateMikro = order.status === 'APPROVED' && (order.mikroOrderIds || []).length > 0;
+    let existingItems: Array<any> = [];
+    const mikroIdByProductId = new Map<string, string | null>();
+    if (shouldUpdateMikro) {
+      existingItems = await prisma.orderItem.findMany({
+        where: { orderId },
+        include: { product: { select: { vatRate: true } } },
+      });
+
+      const existingByProductId = new Map(existingItems.map((item) => [item.productId, item]));
+      existingItems.forEach((item) => {
+        if (item.productId) {
+          mikroIdByProductId.set(item.productId, item.mikroOrderId || null);
+        }
+      });
+      const mikroUpdates = new Map<string, Array<{
+        productCode: string;
+        quantity: number;
+        unitPrice: number;
+        vatRate: number;
+        lineDescription?: string;
+      }>>();
+
+      const seenProductIds = new Set<string>();
+
+      normalizedItems.forEach((item) => {
+        const existing = existingByProductId.get(item.productId);
+        if (!existing) {
+          throw new Error('Cannot update approved order with new products');
+        }
+        seenProductIds.add(item.productId);
+        const mikroOrderId = existing.mikroOrderId || (order.mikroOrderIds?.[0] || '');
+        const vatRate =
+          item.priceType === 'WHITE'
+            ? 0
+            : Number(existing.product?.vatRate || 0.18);
+        const payload = {
+          productCode: item.mikroCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate,
+          lineDescription: item.lineNote || item.productName,
+        };
+        const list = mikroUpdates.get(mikroOrderId) || [];
+        list.push(payload);
+        mikroUpdates.set(mikroOrderId, list);
+      });
+
+      // Removed items -> close in Mikro
+      existingItems.forEach((item) => {
+        if (item.productId && !seenProductIds.has(item.productId)) {
+          const mikroOrderId = item.mikroOrderId || (order.mikroOrderIds?.[0] || '');
+          const vatRate =
+            item.priceType === 'WHITE'
+              ? 0
+              : Number(item.product?.vatRate || 0.18);
+          const payload = {
+            productCode: item.mikroCode,
+            quantity: 0,
+            unitPrice: item.unitPrice,
+            vatRate,
+            lineDescription: item.lineNote || item.productName,
+          };
+          const list = mikroUpdates.get(mikroOrderId) || [];
+          list.push(payload);
+          mikroUpdates.set(mikroOrderId, list);
+        }
+      });
+
+      for (const [mikroOrderId, items] of mikroUpdates.entries()) {
+        if (!mikroOrderId) continue;
+        await mikroService.updateOrderLines({
+          orderNumber: mikroOrderId,
+          items,
+        });
+      }
+    }
+
     const totalAmount = normalizedItems.reduce(
       (sum, item) => sum + item.unitPrice * item.quantity,
       0
@@ -596,7 +674,16 @@ class OrderService {
       });
 
       await tx.orderItem.createMany({
-        data: normalizedItems,
+        data: normalizedItems.map((item) => {
+          const mikroOrderId = mikroIdByProductId.get(item.productId) || undefined;
+          const approved = order.status === 'APPROVED';
+          return {
+            ...item,
+            status: approved ? 'APPROVED' : 'PENDING',
+            approvedQuantity: approved ? item.quantity : undefined,
+            mikroOrderId,
+          };
+        }),
       });
     });
 

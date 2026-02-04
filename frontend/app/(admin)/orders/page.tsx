@@ -912,11 +912,11 @@ export default function AdminOrdersPage() {
                   <Button variant="secondary" onClick={() => handleOrderExcelExport(order)}>
                     Siparis Proforma Excel
                   </Button>
-                  {order.status === 'PENDING' && (
-                    <Button variant="secondary" onClick={() => openEdit(order)}>
-                      Duzenle
-                    </Button>
-                  )}
+                    {(order.status === 'PENDING' || order.status === 'APPROVED') && (
+                      <Button variant="secondary" onClick={() => openEdit(order)}>
+                        Duzenle
+                      </Button>
+                    )}
                   {order.status === 'PENDING' && (
                     <>
                       <Button variant="primary" onClick={() => handleApprove(order.id)}>

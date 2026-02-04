@@ -1514,6 +1514,23 @@ class MikroService {
               )
               VALUES (${insertValues.join(', ')})
           `);
+
+        // Ctrl+Q aciklama alani icin SIPARISLER.sip_aciklama2'yi de guncelle
+        try {
+          await transaction
+            .request()
+            .input('seri', sql.NVarChar(20), evrakSeri)
+            .input('sira', sql.Int, evrakSira)
+            .input('aciklama2', sql.NVarChar(127), documentDescriptionValue)
+            .query(`
+              UPDATE SIPARISLER
+              SET sip_aciklama2 = @aciklama2
+              WHERE sip_evrakno_seri = @seri
+                AND sip_evrakno_sira = @sira
+            `);
+        } catch (error) {
+          console.warn('WARN: sip_aciklama2 guncellenemedi:', error);
+        }
       }
 
 
@@ -1642,6 +1659,105 @@ class MikroService {
       } catch (err) {
         console.error('âš ï¸ Trigger tekrar etkinleÅŸtirilemedi:', err);
       }
+    }
+  }
+
+  /**
+   * Update existing Mikro order lines
+   */
+  async updateOrderLines(params: {
+    orderNumber: string;
+    items: Array<{
+      productCode: string;
+      quantity: number;
+      unitPrice: number;
+      vatRate: number;
+      lineDescription?: string;
+    }>;
+    documentDescription?: string;
+  }): Promise<void> {
+    await this.connect();
+
+    const orderNumber = String(params.orderNumber || '').trim();
+    const lastDash = orderNumber.lastIndexOf('-');
+    if (lastDash <= 0 || lastDash === orderNumber.length - 1) {
+      throw new Error('Invalid Mikro order number');
+    }
+    const evrakSeri = orderNumber.slice(0, lastDash);
+    const evrakSira = Number(orderNumber.slice(lastDash + 1));
+    if (!Number.isFinite(evrakSira) || evrakSira <= 0) {
+      throw new Error('Invalid Mikro order sequence');
+    }
+
+    const documentDescriptionValue = params.documentDescription
+      ? String(params.documentDescription).trim().slice(0, 127)
+      : '';
+
+    const transaction = this.pool!.transaction();
+    try {
+      await transaction.begin();
+
+      if (documentDescriptionValue) {
+        try {
+          await transaction
+            .request()
+            .input('seri', sql.NVarChar(20), evrakSeri)
+            .input('sira', sql.Int, evrakSira)
+            .input('aciklama2', sql.NVarChar(127), documentDescriptionValue)
+            .query(`
+              UPDATE SIPARISLER
+              SET sip_aciklama2 = @aciklama2
+              WHERE sip_evrakno_seri = @seri
+                AND sip_evrakno_sira = @sira
+            `);
+        } catch (error) {
+          console.warn('WARN: sip_aciklama2 guncellenemedi:', error);
+        }
+      }
+
+      for (const item of params.items) {
+        const quantity = Number(item.quantity) || 0;
+        const unitPrice = Number(item.unitPrice) || 0;
+        const vatRate = Number(item.vatRate) || 0;
+        const vatCode = this.convertVatRateToCode(vatRate);
+        const lineTotal = unitPrice * quantity;
+        const vatAmount = lineTotal * vatRate;
+        const lineDescription = item.lineDescription ? String(item.lineDescription).slice(0, 40) : null;
+
+        await transaction
+          .request()
+          .input('seri', sql.NVarChar(20), evrakSeri)
+          .input('sira', sql.Int, evrakSira)
+          .input('stokKod', sql.NVarChar(25), item.productCode)
+          .input('miktar', sql.Float, quantity)
+          .input('fiyat', sql.Float, unitPrice)
+          .input('tutar', sql.Float, lineTotal)
+          .input('vergi', sql.Float, vatAmount)
+          .input('vergiPntr', sql.TinyInt, vatCode)
+          .input('aciklama', sql.NVarChar(40), lineDescription)
+          .input('kapat', sql.Bit, quantity <= 0 ? 1 : 0)
+          .input('iptal', sql.Bit, quantity <= 0 ? 1 : 0)
+          .query(`
+            UPDATE SIPARISLER
+            SET
+              sip_miktar = @miktar,
+              sip_b_fiyat = @fiyat,
+              sip_tutar = @tutar,
+              sip_vergi = @vergi,
+              sip_vergi_pntr = @vergiPntr,
+              sip_aciklama = ISNULL(@aciklama, sip_aciklama),
+              sip_kapat_fl = @kapat,
+              sip_iptal = @iptal
+            WHERE sip_evrakno_seri = @seri
+              AND sip_evrakno_sira = @sira
+              AND sip_stok_kod = @stokKod
+          `);
+      }
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
   }
 
