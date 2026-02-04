@@ -1401,6 +1401,19 @@ class MikroService {
           dosyaNo?: number | null;
           createUser?: number | null;
           lastupUser?: number | null;
+          iptal?: boolean | null;
+          hidden?: boolean | null;
+          kilitli?: boolean | null;
+          degisti?: boolean | null;
+          checksum?: number | null;
+          special1?: string | null;
+          special2?: string | null;
+          special3?: string | null;
+          evrUstKod?: string | null;
+          evrDokSayisi?: number | null;
+          previewSayisi?: number | null;
+          emailSayisi?: number | null;
+          evrakOpnoVerildiFl?: boolean | null;
         } | null = null;
 
         try {
@@ -1411,7 +1424,20 @@ class MikroService {
               SELECT TOP 1
                 egk_fileid,
                 egk_create_user,
-                egk_lastup_user
+                egk_lastup_user,
+                egk_iptal,
+                egk_hidden,
+                egk_kilitli,
+                egk_degisti,
+                egk_checksum,
+                egk_special1,
+                egk_special2,
+                egk_special3,
+                egk_evr_ustkod,
+                egk_evr_doksayisi,
+                egk_prevwiewsayisi,
+                egk_emailsayisi,
+                egk_Evrakopno_verildi_fl
               FROM EVRAK_ACIKLAMALARI
               WHERE egk_dosyano = @dosyaNo
                 AND egk_fileid IS NOT NULL
@@ -1423,12 +1449,38 @@ class MikroService {
             dosyaNo: sipFileId,
             createUser: defaultsRow?.egk_create_user ?? null,
             lastupUser: defaultsRow?.egk_lastup_user ?? null,
+            iptal: defaultsRow?.egk_iptal ?? false,
+            hidden: defaultsRow?.egk_hidden ?? false,
+            kilitli: defaultsRow?.egk_kilitli ?? false,
+            degisti: defaultsRow?.egk_degisti ?? false,
+            checksum: defaultsRow?.egk_checksum ?? 0,
+            special1: defaultsRow?.egk_special1 ?? '',
+            special2: defaultsRow?.egk_special2 ?? '',
+            special3: defaultsRow?.egk_special3 ?? '',
+            evrUstKod: defaultsRow?.egk_evr_ustkod ?? '',
+            evrDokSayisi: defaultsRow?.egk_evr_doksayisi ?? 0,
+            previewSayisi: defaultsRow?.egk_prevwiewsayisi ?? 0,
+            emailSayisi: defaultsRow?.egk_emailsayisi ?? 0,
+            evrakOpnoVerildiFl: defaultsRow?.egk_Evrakopno_verildi_fl ?? false,
           };
         } catch (error) {
           console.warn('WARN: Evrak aciklama varsayilanlari okunamadi:', error);
           evrakDefaults = {
             fileId: 66,
             dosyaNo: sipFileId,
+            iptal: false,
+            hidden: false,
+            kilitli: false,
+            degisti: false,
+            checksum: 0,
+            special1: '',
+            special2: '',
+            special3: '',
+            evrUstKod: '',
+            evrDokSayisi: 0,
+            previewSayisi: 0,
+            emailSayisi: 0,
+            evrakOpnoVerildiFl: false,
           };
         }
 
@@ -1436,6 +1488,21 @@ class MikroService {
           'egk_evracik1 = @acik1',
           'egk_lastup_date = GETDATE()',
         ];
+        updateParts.push(
+          'egk_iptal = @iptal',
+          'egk_hidden = @hidden',
+          'egk_kilitli = @kilitli',
+          'egk_degisti = @degisti',
+          'egk_checksum = @checksum',
+          'egk_special1 = @special1',
+          'egk_special2 = @special2',
+          'egk_special3 = @special3',
+          'egk_evr_ustkod = @evrUstKod',
+          'egk_evr_doksayisi = @evrDokSayisi',
+          'egk_prevwiewsayisi = @previewSayisi',
+          'egk_emailsayisi = @emailSayisi',
+          'egk_Evrakopno_verildi_fl = @evrakOpnoVerildiFl'
+        );
         if (evrakDefaults?.fileId !== null && evrakDefaults?.fileId !== undefined) {
           updateParts.push('egk_fileid = @fileId');
         }
@@ -1450,13 +1517,45 @@ class MikroService {
         }
 
         const insertColumns = [
+          'egk_iptal',
+          'egk_hidden',
+          'egk_kilitli',
+          'egk_degisti',
+          'egk_checksum',
+          'egk_special1',
+          'egk_special2',
+          'egk_special3',
+          'egk_evr_ustkod',
+          'egk_evr_doksayisi',
+          'egk_prevwiewsayisi',
+          'egk_emailsayisi',
+          'egk_Evrakopno_verildi_fl',
           'egk_evr_seri',
           'egk_evr_sira',
           'egk_hareket_tip',
           'egk_evr_tip',
           'egk_evracik1',
         ];
-        const insertValues = ['@seri', '@sira', '0', '0', '@acik1'];
+        const insertValues = [
+          '@iptal',
+          '@hidden',
+          '@kilitli',
+          '@degisti',
+          '@checksum',
+          '@special1',
+          '@special2',
+          '@special3',
+          '@evrUstKod',
+          '@evrDokSayisi',
+          '@previewSayisi',
+          '@emailSayisi',
+          '@evrakOpnoVerildiFl',
+          '@seri',
+          '@sira',
+          '0',
+          '0',
+          '@acik1',
+        ];
         if (evrakDefaults?.fileId !== null && evrakDefaults?.fileId !== undefined) {
           insertColumns.push('egk_fileid');
           insertValues.push('@fileId');
@@ -1478,7 +1577,20 @@ class MikroService {
           .request()
           .input('seri', sql.NVarChar(20), evrakSeri)
           .input('sira', sql.Int, evrakSira)
-          .input('acik1', sql.NVarChar(127), documentDescriptionValue);
+          .input('acik1', sql.NVarChar(127), documentDescriptionValue)
+          .input('iptal', sql.Bit, evrakDefaults?.iptal ?? false)
+          .input('hidden', sql.Bit, evrakDefaults?.hidden ?? false)
+          .input('kilitli', sql.Bit, evrakDefaults?.kilitli ?? false)
+          .input('degisti', sql.Bit, evrakDefaults?.degisti ?? false)
+          .input('checksum', sql.Int, evrakDefaults?.checksum ?? 0)
+          .input('special1', sql.NVarChar(4), evrakDefaults?.special1 ?? '')
+          .input('special2', sql.NVarChar(4), evrakDefaults?.special2 ?? '')
+          .input('special3', sql.NVarChar(4), evrakDefaults?.special3 ?? '')
+          .input('evrUstKod', sql.NVarChar(25), evrakDefaults?.evrUstKod ?? '')
+          .input('evrDokSayisi', sql.Int, evrakDefaults?.evrDokSayisi ?? 0)
+          .input('previewSayisi', sql.Int, evrakDefaults?.previewSayisi ?? 0)
+          .input('emailSayisi', sql.Int, evrakDefaults?.emailSayisi ?? 0)
+          .input('evrakOpnoVerildiFl', sql.Bit, evrakDefaults?.evrakOpnoVerildiFl ?? false);
 
         if (evrakDefaults?.fileId !== null && evrakDefaults?.fileId !== undefined) {
           evrakRequest.input('fileId', sql.SmallInt, evrakDefaults.fileId);
