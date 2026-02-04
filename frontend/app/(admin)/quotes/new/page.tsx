@@ -2192,31 +2192,23 @@ function AdminQuoteNewPageContent() {
                           placeholder="Orn: test"
                         />
                       </div>
-                      <div>
-                        {orderHasInvoiced && (
-                          <>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
-                              <Input
-                                value={orderInvoicedSeries}
-                                onChange={(e) => setOrderInvoicedSeries(e.target.value)}
-                                placeholder="Orn: HENDEK"
-                              />
-                            </div>
-                          </>
-                        )}
-                        {orderHasWhite && (
-                          <>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
-                              <Input
-                                value={orderWhiteSeries}
-                                onChange={(e) => setOrderWhiteSeries(e.target.value)}
-                                placeholder="Orn: HENDEK"
-                              />
-                            </div>
-                          </>
-                        )}
+                      <div className="grid grid-cols-1 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
+                          <Input
+                            value={orderInvoicedSeries}
+                            onChange={(e) => setOrderInvoicedSeries(e.target.value)}
+                            placeholder="Orn: HENDEK"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
+                          <Input
+                            value={orderWhiteSeries}
+                            onChange={(e) => setOrderWhiteSeries(e.target.value)}
+                            placeholder="Orn: HENDEK"
+                          />
+                        </div>
                       </div>
                     </>
                   )}
