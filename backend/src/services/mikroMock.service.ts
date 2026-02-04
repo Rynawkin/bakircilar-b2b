@@ -736,6 +736,20 @@ export class MikroMockService {
     return 0;
   }
 
+  async updateOrderLines(params: {
+    orderNumber: string;
+    items: Array<{
+      productCode: string;
+      quantity: number;
+      unitPrice: number;
+      vatRate: number;
+      lineDescription?: string;
+    }>;
+    documentDescription?: string;
+  }): Promise<void> {
+    console.log('[MOCK] Siparis satir guncelleme istendi:', params);
+  }
+
   async ensureCariExists(cariData: {
     cariCode: string;
     unvan: string;
