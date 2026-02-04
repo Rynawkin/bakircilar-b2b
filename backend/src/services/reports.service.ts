@@ -303,6 +303,241 @@ const pickStockName = (data: Record<string, any>): string => {
   return fallback ? String(fallback) : '';
 };
 
+const pickStockCode = (data: Record<string, any>): string => {
+  const direct = pickValueByKeys(data, ['Stok Kodu']);
+  if (direct !== null && direct !== undefined) {
+    return String(direct);
+  }
+  const fallback = findValueByToken(data, 'stokkodu');
+  return fallback ? String(fallback) : '';
+};
+
+const pickCustomerName = (data: Record<string, any>): string => {
+  const direct = pickValueByKeys(data, [
+    'Cari Ismi',
+    'Cari Ä°smi',
+    'Cari Ã„Â°smi',
+    'Cari Ãƒâ€Ã‚Â°smi',
+  ]);
+  if (direct !== null && direct !== undefined) {
+    return String(direct);
+  }
+  const fallback = findValueByNormalizedToken(data, 'cariismi');
+  return fallback ? String(fallback) : '';
+};
+
+const pickCustomerCode = (data: Record<string, any>): string => {
+  const direct = pickValueByKeys(data, [
+    'Cari Kodu',
+    'Cari Kod',
+    'Cari Hesap Kodu',
+    'CariHesapKodu',
+  ]);
+  if (direct !== null && direct !== undefined) {
+    return String(direct);
+  }
+  const fallback = findValueByNormalizedToken(data, 'carikodu');
+  return fallback ? String(fallback) : '';
+};
+
+const pickDocumentType = (data: Record<string, any>): string => {
+  const direct = pickValueByKeys(data, ['Tip']);
+  if (direct !== null && direct !== undefined) {
+    return String(direct);
+  }
+  const fallback = findValueByToken(data, 'tip');
+  return fallback ? String(fallback) : '';
+};
+
+const pickQuantity = (data: Record<string, any>): number => {
+  return toNumber(pickValueByKeys(data, ['Miktar']));
+};
+
+const pickUnit = (data: Record<string, any>): string => {
+  const direct = pickValueByKeys(data, ['Birimi', 'Birim']);
+  return direct ? String(direct) : '';
+};
+
+const pickRevenue = (data: Record<string, any>): number => {
+  const direct = pickValueByKeys(data, ['Tutar']);
+  if (direct !== null && direct !== undefined) {
+    return toNumber(direct);
+  }
+  const fallback = pickValueByKeys(data, ['TutarKDV', 'Tutar KDV', 'Tutar KDVli']);
+  return toNumber(fallback);
+};
+
+const pickUnitPrice = (data: Record<string, any>): number => {
+  const direct = pickValueByKeys(data, [
+    'BirimFiyat',
+    'Birim Fiyat',
+    'BirimSatis',
+    'BirimSatÄ±ÅŸ',
+    'BirimSatisKDV',
+    'BirimSatÄ±ÅŸKDV',
+    'BirimSatÄ±ÅŸKDVli',
+  ]);
+  if (direct !== null && direct !== undefined) {
+    return toNumber(direct);
+  }
+  const revenue = pickRevenue(data);
+  const quantity = pickQuantity(data);
+  return quantity > 0 ? revenue / quantity : 0;
+};
+
+const buildMarginAlertRow = (
+  row: { avgMargin?: number | null; data?: unknown }
+): MarginAlertRow => {
+  const data = getRowData(row);
+  const revenue = pickRevenue(data);
+  const profit = pickTotalProfit(data);
+  const entryProfit = pickEntryProfit(data);
+  const avgMargin = Number.isFinite(row.avgMargin) ? Number(row.avgMargin) : pickAvgMargin(data);
+  const entryMargin = revenue > 0 ? (entryProfit / revenue) * 100 : 0;
+  const quantity = pickQuantity(data);
+  const unit = pickUnit(data);
+
+  return {
+    documentNo: resolveDocumentKey(data) || '',
+    documentType: pickDocumentType(data),
+    customerName: pickCustomerName(data),
+    productCode: pickStockCode(data),
+    productName: pickStockName(data),
+    quantity,
+    unit,
+    quantityLabel: unit ? `${quantity} ${unit}` : `${quantity}`,
+    unitPrice: pickUnitPrice(data),
+    revenue,
+    profit,
+    entryProfit,
+    avgMargin,
+    entryMargin,
+  };
+};
+
+const splitRowsByType = (
+  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>
+) => {
+  const orderRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }> = [];
+  const salesRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }> = [];
+
+  rows.forEach((row) => {
+    const data = getRowData(row);
+    const type = resolveReportType(data);
+    if (type === 'order') {
+      orderRows.push(row);
+    } else {
+      salesRows.push(row);
+    }
+  });
+
+  return { orderRows, salesRows };
+};
+
+const sortAlertRows = (
+  rows: MarginAlertRow[],
+  direction: 'asc' | 'desc',
+  field: 'avgMargin' | 'entryMargin'
+) => {
+  rows.sort((a, b) => {
+    const aValue = Number.isFinite(a[field]) ? a[field] : 0;
+    const bValue = Number.isFinite(b[field]) ? b[field] : 0;
+    return direction === 'asc' ? aValue - bValue : bValue - aValue;
+  });
+};
+
+const buildAlertSet = (
+  rows: Array<{ avgMargin?: number | null; data?: unknown }>,
+  field: 'avgMargin' | 'entryMargin'
+): MarginAlertSet => {
+  const negative: MarginAlertRow[] = [];
+  const low: MarginAlertRow[] = [];
+  const high: MarginAlertRow[] = [];
+
+  rows.forEach((row) => {
+    const alertRow = buildMarginAlertRow(row);
+    const marginValue = Number.isFinite(alertRow[field]) ? alertRow[field] : 0;
+    if (marginValue < 0) {
+      negative.push(alertRow);
+    } else if (marginValue < 5) {
+      low.push(alertRow);
+    }
+    if (marginValue > 70) {
+      high.push(alertRow);
+    }
+  });
+
+  sortAlertRows(negative, 'asc', field);
+  sortAlertRows(low, 'asc', field);
+  sortAlertRows(high, 'desc', field);
+
+  return { negative, low, high };
+};
+
+const buildAlertSummary = (
+  rows: Array<{ avgMargin?: number | null; data?: unknown }>
+): MarginAlertSummary => ({
+  current: buildAlertSet(rows, 'avgMargin'),
+  entry: buildAlertSet(rows, 'entryMargin'),
+});
+
+const aggregateRows = (
+  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>,
+  keyResolver: (row: { avgMargin?: number | null; data?: unknown; sectorCode?: string | null }, data: Record<string, any>) => string,
+  nameResolver: (row: { avgMargin?: number | null; data?: unknown; sectorCode?: string | null }, data: Record<string, any>) => string
+): MarginAggregateRow[] => {
+  const map = new Map<string, MarginAggregateRow>();
+
+  rows.forEach((row) => {
+    const data = getRowData(row);
+    const key = keyResolver(row, data);
+    if (!key) return;
+    const name = nameResolver(row, data) || key;
+    const revenue = pickRevenue(data);
+    const profit = pickTotalProfit(data);
+    const entryProfit = pickEntryProfit(data);
+    const current = map.get(key) || {
+      key,
+      name,
+      revenue: 0,
+      profit: 0,
+      entryProfit: 0,
+      avgMargin: 0,
+      entryMargin: 0,
+      count: 0,
+    };
+    current.revenue += revenue;
+    current.profit += profit;
+    current.entryProfit += entryProfit;
+    current.count += 1;
+    map.set(key, current);
+  });
+
+  const results = Array.from(map.values()).map((entry) => {
+    const avgMargin = entry.revenue > 0 ? (entry.profit / entry.revenue) * 100 : 0;
+    const entryMargin = entry.revenue > 0 ? (entry.entryProfit / entry.revenue) * 100 : 0;
+    return {
+      ...entry,
+      avgMargin,
+      entryMargin,
+    };
+  });
+
+  return results;
+};
+
+const buildTopBottom = (
+  rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>,
+  keyResolver: (row: { avgMargin?: number | null; data?: unknown; sectorCode?: string | null }, data: Record<string, any>) => string,
+  nameResolver: (row: { avgMargin?: number | null; data?: unknown; sectorCode?: string | null }, data: Record<string, any>) => string,
+  limit = 10
+): MarginTopBottom => {
+  const aggregates = aggregateRows(rows, keyResolver, nameResolver);
+  const top = [...aggregates].sort((a, b) => b.profit - a.profit).slice(0, limit);
+  const bottom = [...aggregates].sort((a, b) => a.avgMargin - b.avgMargin).slice(0, limit);
+  return { top, bottom };
+};
+
 const shouldExcludeMarginRow = (data: Record<string, any>): boolean => {
   const stockName = pickStockName(data);
   if (!stockName) return false;
@@ -434,6 +669,80 @@ type MarginComplianceSummary = {
     orderSummary: MarginSummaryBucket;
     salesSummary: MarginSummaryBucket;
   }>;
+};
+
+type MarginAlertRow = {
+  documentNo: string;
+  documentType: string;
+  customerName: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  quantityLabel: string;
+  unitPrice: number;
+  revenue: number;
+  profit: number;
+  entryProfit: number;
+  avgMargin: number;
+  entryMargin: number;
+};
+
+type MarginAlertSet = {
+  negative: MarginAlertRow[];
+  low: MarginAlertRow[];
+  high: MarginAlertRow[];
+};
+
+type MarginAlertSummary = {
+  current: MarginAlertSet;
+  entry: MarginAlertSet;
+};
+
+type MarginAlertGroups = {
+  order: MarginAlertSummary;
+  sales: MarginAlertSummary;
+};
+
+type MarginAggregateRow = {
+  key: string;
+  name: string;
+  revenue: number;
+  profit: number;
+  entryProfit: number;
+  avgMargin: number;
+  entryMargin: number;
+  count: number;
+};
+
+type MarginTopBottom = {
+  top: MarginAggregateRow[];
+  bottom: MarginAggregateRow[];
+};
+
+type MarginTopBottomGroup = {
+  products: MarginTopBottom;
+  customers: MarginTopBottom;
+  salespeople: MarginTopBottom;
+};
+
+type MarginTopBottomSummary = {
+  orders: MarginTopBottomGroup;
+  sales: MarginTopBottomGroup;
+};
+
+type MarginSevenDaySummary = {
+  startDate: Date;
+  endDate: Date;
+  overall: MarginSummaryBucket;
+  orders: MarginSummaryBucket;
+  sales: MarginSummaryBucket;
+};
+
+type MarginComplianceEmailSummary = MarginComplianceSummary & {
+  alerts: MarginAlertGroups;
+  topBottom: MarginTopBottomSummary;
+  sevenDaySummary: MarginSevenDaySummary;
 };
 
 const normalizeReportText = (value: unknown): string => {
@@ -1043,12 +1352,72 @@ export class ReportsService {
     };
   }
 
+  private buildMarginTopBottomSummary(
+    orderRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>,
+    salesRows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>
+  ): MarginTopBottomSummary {
+    const buildGroup = (rows: Array<{ avgMargin?: number | null; data?: unknown; sectorCode?: string | null }>): MarginTopBottomGroup => ({
+      products: buildTopBottom(
+        rows,
+        (_row, data) => pickStockCode(data),
+        (_row, data) => pickStockName(data)
+      ),
+      customers: buildTopBottom(
+        rows,
+        (_row, data) => pickCustomerCode(data) || pickCustomerName(data),
+        (_row, data) => pickCustomerName(data)
+      ),
+      salespeople: buildTopBottom(
+        rows,
+        (row, data) => resolveSectorCode(row, data),
+        (row, data) => resolveSectorCode(row, data)
+      ),
+    });
+
+    return {
+      orders: buildGroup(orderRows),
+      sales: buildGroup(salesRows),
+    };
+  }
+
+  private async buildMarginSevenDaySummary(reportDate: Date): Promise<MarginSevenDaySummary> {
+    const startDate = addDaysUtc(reportDate, -6);
+    const rows = await prisma.marginComplianceReportRow.findMany({
+      where: {
+        reportDate: { gte: startDate, lte: reportDate },
+      },
+    });
+    const filteredRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const { orderRows, salesRows } = splitRowsByType(filteredRows);
+
+    return {
+      startDate,
+      endDate: reportDate,
+      overall: buildMarginSummaryBucket(filteredRows, { useTypePrefix: true }),
+      orders: buildMarginSummaryBucket(orderRows),
+      sales: buildMarginSummaryBucket(salesRows),
+    };
+  }
+
 
 
   async buildMarginComplianceEmailPayload(reportDate: Date, columnIds: string[] = []) {
     const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
     const filteredRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
     const summary = buildMarginComplianceSummary(filteredRows);
+    const { orderRows, salesRows } = splitRowsByType(filteredRows);
+    const alerts: MarginAlertGroups = {
+      order: buildAlertSummary(orderRows),
+      sales: buildAlertSummary(salesRows),
+    };
+    const topBottom = this.buildMarginTopBottomSummary(orderRows, salesRows);
+    const sevenDaySummary = await this.buildMarginSevenDaySummary(reportDate);
+    const emailSummary: MarginComplianceEmailSummary = {
+      ...summary,
+      alerts,
+      topBottom,
+      sevenDaySummary,
+    };
 
     const resolvedIds = columnIds && columnIds.length > 0
       ? columnIds
@@ -1073,7 +1442,7 @@ export class ReportsService {
     const fileName = `kar-marji-analizi-${formatDateCompact(reportDate)}.xlsx`;
 
     return {
-      summary,
+      summary: emailSummary,
       attachment: {
         name: fileName,
         content: Buffer.from(buffer).toString('base64'),
