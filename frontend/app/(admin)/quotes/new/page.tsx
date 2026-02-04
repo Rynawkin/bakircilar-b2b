@@ -434,6 +434,7 @@ function AdminQuoteNewPageContent() {
   const [orderInvoicedSeries, setOrderInvoicedSeries] = useState('');
   const [orderWhiteSeries, setOrderWhiteSeries] = useState('');
   const [orderCustomerOrderNumber, setOrderCustomerOrderNumber] = useState('');
+  const [orderDocumentDescription, setOrderDocumentDescription] = useState('');
   const [bulkResponsibilityCenter, setBulkResponsibilityCenter] = useState('');
 
   useEffect(() => {
@@ -1850,6 +1851,7 @@ function AdminQuoteNewPageContent() {
           customerId: selectedCustomer.id,
           warehouseNo: Number(resolveWarehouseValue(orderWarehouse)),
           description: note,
+          documentDescription: orderDocumentDescription.trim() || undefined,
           documentNo: orderCustomerOrderNumber.trim() || undefined,
           invoicedSeries: orderHasInvoiced ? orderInvoicedSeries.trim() : undefined,
           whiteSeries: orderHasWhite ? orderWhiteSeries.trim() : undefined,
@@ -1872,6 +1874,7 @@ function AdminQuoteNewPageContent() {
           ? `${result.orderNumber} (${result.mikroOrderIds.join(', ')})`
           : result.mikroOrderIds.join(', ');
         toast.success(`Siparis olusturuldu: ${orderLabel}`);
+        router.push('/orders');
         return;
       }
 
@@ -2179,6 +2182,14 @@ function AdminQuoteNewPageContent() {
                           value={orderCustomerOrderNumber}
                           onChange={(e) => setOrderCustomerOrderNumber(e.target.value)}
                           placeholder="Orn: HENDEK-8915"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Ctrl+Q Aciklama 1</label>
+                        <Input
+                          value={orderDocumentDescription}
+                          onChange={(e) => setOrderDocumentDescription(e.target.value)}
+                          placeholder="Orn: test"
                         />
                       </div>
                       <div>

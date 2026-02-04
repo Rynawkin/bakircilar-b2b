@@ -112,6 +112,7 @@ class OrderService {
     }>;
     warehouseNo: number;
     description?: string;
+    documentDescription?: string;
     documentNo?: string;
     invoicedSeries?: string;
     invoicedSira?: number;
@@ -124,6 +125,7 @@ class OrderService {
       items,
       warehouseNo,
       description,
+      documentDescription,
       documentNo,
       invoicedSeries,
       invoicedSira,
@@ -267,6 +269,7 @@ class OrderService {
         })),
         applyVAT: true,
         description: description?.trim() || 'B2B Manuel Siparis',
+        documentDescription: documentDescription?.trim() || undefined,
         documentNo: documentNo?.trim() || undefined,
         evrakSeri: String(invoicedSeries).trim(),
         evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
@@ -293,6 +296,7 @@ class OrderService {
         })),
         applyVAT: false,
         description: description?.trim() || 'B2B Manuel Siparis',
+        documentDescription: documentDescription?.trim() || undefined,
         documentNo: documentNo?.trim() || undefined,
         evrakSeri: String(whiteSeries).trim(),
         evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,

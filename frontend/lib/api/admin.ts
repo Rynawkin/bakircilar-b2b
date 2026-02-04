@@ -422,6 +422,7 @@ export const adminApi = {
     }>;
     warehouseNo: number;
     description?: string;
+    documentDescription?: string;
     documentNo?: string;
     invoicedSeries?: string;
     invoicedSira?: number;
@@ -542,6 +543,7 @@ export const adminApi = {
       whiteSeries?: string;
       whiteSira?: number;
       documentNo?: string;
+      documentDescription?: string;
       itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string }>;
     }
   ): Promise<{ mikroOrderIds: string[]; closedCount: number; orderId: string; orderNumber: string }> => {

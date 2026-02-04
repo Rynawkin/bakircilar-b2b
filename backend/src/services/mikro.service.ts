@@ -1103,6 +1103,7 @@ class MikroService {
     }>;
     applyVAT: boolean;
     description: string;
+    documentDescription?: string;
     documentNo?: string;
     evrakSeri?: string;
     evrakSira?: number;
@@ -1110,8 +1111,8 @@ class MikroService {
   }): Promise<string> {
     await this.connect();
 
-    const { cariCode, items, applyVAT, description, documentNo, evrakSeri: evrakSeriInput, evrakSira: evrakSiraInput, warehouseNo } = orderData;
-    const descriptionValue = String(description || '').trim();
+    const { cariCode, items, applyVAT, description, documentDescription, documentNo, evrakSeri: evrakSeriInput, evrakSira: evrakSiraInput, warehouseNo } = orderData;
+    const descriptionValue = String((documentDescription ?? description) || '').trim();
     const documentDescriptionValue = descriptionValue ? descriptionValue.slice(0, 127) : null;
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : null;
     const belgeTarih = documentNoValue ? new Date() : null;

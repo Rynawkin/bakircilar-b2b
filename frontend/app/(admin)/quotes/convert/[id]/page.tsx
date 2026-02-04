@@ -34,6 +34,7 @@ export default function QuoteConvertPage() {
   const [invoicedSeries, setInvoicedSeries] = useState('');
   const [whiteSeries, setWhiteSeries] = useState('');
   const [documentNo, setDocumentNo] = useState('');
+  const [documentDescription, setDocumentDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [itemQuantities, setItemQuantities] = useState<Record<string, number>>({});
   const [itemResponsibilityCenters, setItemResponsibilityCenters] = useState<Record<string, string>>({});
@@ -179,6 +180,7 @@ export default function QuoteConvertPage() {
     try {
       const result = await adminApi.convertQuoteToOrder(quote.id, {
         documentNo: documentNo.trim() || undefined,
+        documentDescription: documentDescription.trim() || undefined,
         selectedItemIds: Array.from(selectedIds),
         closeReasons,
         warehouseNo: Number(resolveWarehouseValue(warehouseNo)),
@@ -383,6 +385,14 @@ export default function QuoteConvertPage() {
                     value={documentNo}
                     onChange={(e) => setDocumentNo(e.target.value)}
                     placeholder="Musteri siparis no / belge no"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ctrl+Q Aciklama 1</label>
+                  <Input
+                    value={documentDescription}
+                    onChange={(e) => setDocumentDescription(e.target.value)}
+                    placeholder="Orn: test"
                   />
                 </div>
                 </div>

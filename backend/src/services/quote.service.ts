@@ -1781,6 +1781,7 @@ class QuoteService {
       whiteSira?: number;
       itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string }>;
       documentNo?: string;
+      documentDescription?: string;
       adminUserId: string;
     }
   ) {
@@ -1794,6 +1795,7 @@ class QuoteService {
       whiteSira,
       itemUpdates,
       documentNo: documentNoInput,
+      documentDescription: documentDescriptionInput,
       adminUserId,
     } = input;
 
@@ -2032,6 +2034,9 @@ class QuoteService {
     let invoicedOrderId: string | null = null;
     let whiteOrderId: string | null = null;
     const noteBase = `B2B Teklif ${quote.quoteNumber} -> Siparis`;
+    const documentDescriptionValue = documentDescriptionInput
+      ? String(documentDescriptionInput).trim()
+      : undefined;
 
     if (invoicedItems.length > 0) {
       if (!invoicedSeries) {
@@ -2050,6 +2055,7 @@ class QuoteService {
         })),
         applyVAT: true,
         description: noteBase,
+        documentDescription: documentDescriptionValue,
         documentNo,
         evrakSeri: String(invoicedSeries).trim(),
         evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
@@ -2077,6 +2083,7 @@ class QuoteService {
         })),
         applyVAT: false,
         description: noteBase,
+        documentDescription: documentDescriptionValue,
         documentNo,
         evrakSeri: String(whiteSeries).trim(),
         evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,

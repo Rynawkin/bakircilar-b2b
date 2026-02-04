@@ -612,6 +612,7 @@ export class MikroMockService {
     }>;
     applyVAT: boolean;
     description: string;
+    documentDescription?: string;
     documentNo?: string;
     evrakSeri?: string;
     evrakSira?: number;
