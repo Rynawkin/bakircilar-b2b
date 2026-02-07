@@ -68,6 +68,18 @@ const VALID_POOL_SORTS = new Set([
   'price_desc',
 ]);
 
+const QUOTE_LINE_CLOSE_REASONS = [
+  'Stok yok',
+  'Fiyat kabul edilmedi',
+  'Musteri vazgecti',
+  'Teklif suresi doldu',
+  'Hata/duzeltme',
+  'Diger',
+];
+
+const normalizeCloseReason = (reason?: string) => String(reason || '').trim();
+const isValidCloseReason = (reason: string) => QUOTE_LINE_CLOSE_REASONS.includes(reason);
+
 const normalizePriceType = (value?: string): PriceType =>
   value === 'WHITE' ? 'WHITE' : 'INVOICED';
 
@@ -1401,6 +1413,270 @@ class QuoteService {
 
     return history;
   }
+  async getQuoteLineItems(params: {
+    status?: string;
+    search?: string;
+    closeReason?: string;
+    minDays?: number;
+    maxDays?: number;
+    limit?: number;
+    offset?: number;
+  }) {
+    const {
+      status,
+      search,
+      closeReason,
+      minDays,
+      maxDays,
+      limit = 50,
+      offset = 0,
+    } = params || {};
+
+    const where: any = {};
+    const normalizedStatus = status && status !== 'ALL' ? String(status) : undefined;
+    if (normalizedStatus) {
+      where.status = normalizedStatus;
+    }
+
+    const trimmedReason = normalizeCloseReason(closeReason);
+    if (trimmedReason) {
+      where.closedReason = trimmedReason;
+    }
+
+    const searchTerm = String(search || '').trim();
+    if (searchTerm) {
+      where.OR = [
+        { productCode: { contains: searchTerm, mode: 'insensitive' } },
+        { productName: { contains: searchTerm, mode: 'insensitive' } },
+        { quote: { quoteNumber: { contains: searchTerm, mode: 'insensitive' } } },
+        { quote: { documentNo: { contains: searchTerm, mode: 'insensitive' } } },
+        { quote: { customer: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { quote: { customer: { displayName: { contains: searchTerm, mode: 'insensitive' } } } },
+        { quote: { customer: { mikroCariCode: { contains: searchTerm, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const now = new Date();
+    const minDaysNumber = Number(minDays);
+    const maxDaysNumber = Number(maxDays);
+    if (Number.isFinite(minDaysNumber)) {
+      const minDate = new Date(now);
+      minDate.setDate(minDate.getDate() - Math.max(0, minDaysNumber));
+      where.statusUpdatedAt = { ...(where.statusUpdatedAt || {}), lte: minDate };
+    }
+    if (Number.isFinite(maxDaysNumber)) {
+      const maxDate = new Date(now);
+      maxDate.setDate(maxDate.getDate() - Math.max(0, maxDaysNumber));
+      where.statusUpdatedAt = { ...(where.statusUpdatedAt || {}), gte: maxDate };
+    }
+
+    const total = await prisma.quoteItem.count({ where });
+    const items = await prisma.quoteItem.findMany({
+      where,
+      include: {
+        quote: {
+          select: {
+            id: true,
+            quoteNumber: true,
+            documentNo: true,
+            status: true,
+            createdAt: true,
+            mikroNumber: true,
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                mikroCariCode: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { statusUpdatedAt: normalizedStatus === 'OPEN' ? 'asc' : 'desc' },
+      skip: Math.max(0, Number(offset) || 0),
+      take: Math.max(1, Math.min(200, Number(limit) || 50)),
+    });
+
+    const enriched = items.map((item) => {
+      const baseDate = item.statusUpdatedAt || item.createdAt;
+      const waitingDays = Math.max(
+        0,
+        Math.floor((now.getTime() - new Date(baseDate).getTime()) / 86400000)
+      );
+      return { ...item, waitingDays };
+    });
+
+    return { items: enriched, total };
+  }
+
+  async closeQuoteItems(input: {
+    items: Array<{ id: string; reason: string }>;
+    adminUserId: string;
+  }) {
+    const payloadItems = input.items || [];
+    if (payloadItems.length === 0) {
+      throw new Error('Items are required');
+    }
+
+    const reasonMap = new Map<string, string>();
+    payloadItems.forEach((item) => {
+      const reason = normalizeCloseReason(item.reason);
+      if (!reason || !isValidCloseReason(reason)) {
+        throw new Error('Close reason is required for selected items');
+      }
+      reasonMap.set(item.id, reason);
+    });
+
+    const itemIds = Array.from(reasonMap.keys());
+    const dbItems = await prisma.quoteItem.findMany({
+      where: { id: { in: itemIds } },
+      include: { quote: { select: { id: true, mikroNumber: true } } },
+    });
+    if (dbItems.length === 0) {
+      throw new Error('Quote items not found');
+    }
+
+    const openItems = dbItems.filter((item) => item.status === 'OPEN');
+    if (openItems.length === 0) {
+      return { closedCount: 0, mikroClosedCount: 0 };
+    }
+
+    const grouped = new Map<string, { parsed: { evrakSeri: string; evrakSira: number }; lines: Array<{ satirNo: number; reason: string }>; quoteId: string }>();
+    openItems.forEach((item) => {
+      const mikroNumber = item.quote?.mikroNumber;
+      if (!mikroNumber) {
+        throw new Error('Quote has no Mikro number');
+      }
+      const parsed = this.parseMikroNumber(mikroNumber);
+      if (!parsed) {
+        throw new Error('Invalid Mikro number format');
+      }
+      const key = `${parsed.evrakSeri}-${parsed.evrakSira}`;
+      const entry = grouped.get(key) || { parsed, lines: [], quoteId: item.quoteId };
+      entry.lines.push({ satirNo: item.lineOrder - 1, reason: reasonMap.get(item.id) || '' });
+      grouped.set(key, entry);
+    });
+
+    let mikroClosedCount = 0;
+    for (const entry of grouped.values()) {
+      mikroClosedCount += await mikroService.closeQuoteLines({
+        evrakSeri: entry.parsed.evrakSeri,
+        evrakSira: entry.parsed.evrakSira,
+        lines: entry.lines,
+      });
+    }
+
+    const statusNow = new Date();
+    const updates = openItems.map((item) =>
+      prisma.quoteItem.update({
+        where: { id: item.id },
+        data: {
+          status: 'CLOSED',
+          closedReason: reasonMap.get(item.id) || null,
+          closedAt: statusNow,
+          statusUpdatedAt: statusNow,
+        },
+      })
+    );
+
+    await prisma.$transaction(updates);
+
+    const historyEntries = Array.from(new Set(openItems.map((item) => item.quoteId))).map((quoteId) => ({
+      quoteId,
+      action: 'UPDATED' as const,
+      actorId: input.adminUserId,
+      summary: 'Teklif satirlari kapatildi',
+      payload: {
+        itemIds: openItems.map((item) => item.id),
+      },
+    }));
+
+    if (historyEntries.length > 0) {
+      await prisma.quoteHistory.createMany({ data: historyEntries });
+    }
+
+    return { closedCount: openItems.length, mikroClosedCount };
+  }
+
+  async reopenQuoteItems(input: {
+    itemIds: string[];
+    adminUserId: string;
+  }) {
+    const itemIds = Array.from(new Set((input.itemIds || []).filter(Boolean)));
+    if (itemIds.length === 0) {
+      throw new Error('Items are required');
+    }
+
+    const dbItems = await prisma.quoteItem.findMany({
+      where: { id: { in: itemIds } },
+      include: { quote: { select: { id: true, mikroNumber: true } } },
+    });
+    if (dbItems.length === 0) {
+      throw new Error('Quote items not found');
+    }
+
+    const closedItems = dbItems.filter((item) => item.status === 'CLOSED');
+    if (closedItems.length === 0) {
+      return { reopenedCount: 0, mikroReopenCount: 0 };
+    }
+
+    const grouped = new Map<string, { parsed: { evrakSeri: string; evrakSira: number }; lines: Array<{ satirNo: number }>; quoteId: string }>();
+    closedItems.forEach((item) => {
+      const mikroNumber = item.quote?.mikroNumber;
+      if (!mikroNumber) {
+        throw new Error('Quote has no Mikro number');
+      }
+      const parsed = this.parseMikroNumber(mikroNumber);
+      if (!parsed) {
+        throw new Error('Invalid Mikro number format');
+      }
+      const key = `${parsed.evrakSeri}-${parsed.evrakSira}`;
+      const entry = grouped.get(key) || { parsed, lines: [], quoteId: item.quoteId };
+      entry.lines.push({ satirNo: item.lineOrder - 1 });
+      grouped.set(key, entry);
+    });
+
+    let mikroReopenCount = 0;
+    for (const entry of grouped.values()) {
+      mikroReopenCount += await mikroService.reopenQuoteLines({
+        evrakSeri: entry.parsed.evrakSeri,
+        evrakSira: entry.parsed.evrakSira,
+        lines: entry.lines,
+      });
+    }
+
+    const statusNow = new Date();
+    const updates = closedItems.map((item) =>
+      prisma.quoteItem.update({
+        where: { id: item.id },
+        data: {
+          status: 'OPEN',
+          closedReason: null,
+          closedAt: null,
+          statusUpdatedAt: statusNow,
+        },
+      })
+    );
+
+    await prisma.$transaction(updates);
+
+    const historyEntries = Array.from(new Set(closedItems.map((item) => item.quoteId))).map((quoteId) => ({
+      quoteId,
+      action: 'UPDATED' as const,
+      actorId: input.adminUserId,
+      summary: 'Teklif satirlari acildi',
+      payload: {
+        itemIds: closedItems.map((item) => item.id),
+      },
+    }));
+
+    if (historyEntries.length > 0) {
+      await prisma.quoteHistory.createMany({ data: historyEntries });
+    }
+
+    return { reopenedCount: closedItems.length, mikroReopenCount };
+  }
 
   async getQuotesForCustomer(customerId: string) {
     const quotes = await prisma.quote.findMany({
@@ -1596,6 +1872,11 @@ class QuoteService {
     let changed = false;
 
     const isDifferentNumber = (a: number, b: number) => Math.abs(a - b) > 0.01;
+    const isDifferentDate = (a?: Date | null, b?: Date | null) => {
+      const aTime = a ? new Date(a).getTime() : 0;
+      const bTime = b ? new Date(b).getTime() : 0;
+      return aTime !== bTime;
+    };
 
     for (const [index, line] of normalizedLines.entries()) {
       const product = productMap.get(line.productCode);
@@ -1616,8 +1897,24 @@ class QuoteService {
           item.productCode === line.productCode
         );
       }
-
       const unit = product?.unit || match?.unit || 'ADET';
+      const lineIsClosed = Boolean((line as any).isClosed);
+      const fallbackStatusDate = line.lastUpdatedAt ? new Date(line.lastUpdatedAt) : new Date();
+      const nextStatus = match?.status === 'CONVERTED'
+        ? 'CONVERTED'
+        : (lineIsClosed ? 'CLOSED' : 'OPEN');
+      const nextStatusUpdatedAt = match && match.status === nextStatus
+        ? match.statusUpdatedAt
+        : fallbackStatusDate;
+      const nextClosedReason = nextStatus === 'CLOSED'
+        ? (line.closeReason || match?.closedReason || null)
+        : null;
+      const nextClosedAt = nextStatus === 'CLOSED'
+        ? (match?.status === 'CLOSED' && match.closedAt ? match.closedAt : fallbackStatusDate)
+        : null;
+      const nextConvertedAt = nextStatus === 'CONVERTED'
+        ? (match?.convertedAt || match?.statusUpdatedAt || fallbackStatusDate)
+        : null;
       const baseData = {
         productId: product ? product.id : null,
         productCode: line.productCode,
@@ -1634,6 +1931,11 @@ class QuoteService {
         isManualLine,
         isBlocked: false,
         blockedReason: null,
+        status: nextStatus,
+        statusUpdatedAt: nextStatusUpdatedAt,
+        closedReason: nextClosedReason,
+        closedAt: nextClosedAt,
+        convertedAt: nextConvertedAt,
         sourceSaleDate: null,
         sourceSalePrice: null,
         sourceSaleQuantity: null,
@@ -1655,6 +1957,11 @@ class QuoteService {
           match.vatZeroed !== baseData.vatZeroed ||
           isDifferentNumber(match.vatRate, baseData.vatRate) ||
           match.isManualLine !== baseData.isManualLine ||
+          match.status !== baseData.status ||
+          isDifferentDate(match.statusUpdatedAt, baseData.statusUpdatedAt) ||
+          (match.closedReason || '') !== (baseData.closedReason || '') ||
+          isDifferentDate(match.closedAt, baseData.closedAt) ||
+          isDifferentDate(match.convertedAt, baseData.convertedAt) ||
           (match.lineDescription || '') !== (baseData.lineDescription || '') ||
           match.lineOrder !== baseData.lineOrder;
 
@@ -1774,6 +2081,7 @@ class QuoteService {
     input: {
       selectedItemIds: string[];
       closeReasons?: Record<string, string>;
+      closeUnselected?: boolean;
       warehouseNo: number;
       invoicedSeries?: string;
       invoicedSira?: number;
@@ -1788,6 +2096,7 @@ class QuoteService {
     const {
       selectedItemIds,
       closeReasons,
+      closeUnselected,
       warehouseNo,
       invoicedSeries,
       invoicedSira,
@@ -1871,20 +2180,34 @@ class QuoteService {
         responsibilityCenter: update?.responsibilityCenter?.trim() || undefined,
       };
     });
+    const resolveStatus = (item: any) => (item.status ? item.status : 'OPEN');
 
-    const selectedItems = normalizedItems.filter((item) => selectedSet.has(item.id));
+    const selectedItems = normalizedItems.filter(
+      (item) => selectedSet.has(item.id) && resolveStatus(item) === 'OPEN'
+    );
+    const invalidSelected = normalizedItems.filter(
+      (item) => selectedSet.has(item.id) && resolveStatus(item) !== 'OPEN'
+    );
+    if (invalidSelected.length > 0) {
+      throw new Error('Selected items are closed or already converted');
+    }
     if (selectedItems.length === 0) {
       throw new Error('No quote items selected');
     }
 
     const unselectedItems = normalizedItems.filter((item) => !selectedSet.has(item.id));
+    const openUnselectedItems = unselectedItems.filter((item) => resolveStatus(item) === 'OPEN');
     const closeReasonsMap = closeReasons || {};
-    const missingReasons = unselectedItems.filter((item) => !String(closeReasonsMap[item.id] || '').trim());
-    if (missingReasons.length > 0) {
-      throw new Error('Close reason is required for unselected items');
+    const shouldCloseUnselected = Boolean(closeUnselected);
+    if (shouldCloseUnselected && openUnselectedItems.length > 0) {
+      const missingReasons = openUnselectedItems.filter((item) => {
+        const reason = normalizeCloseReason(closeReasonsMap[item.id]);
+        return !reason || !isValidCloseReason(reason);
+      });
+      if (missingReasons.length > 0) {
+        throw new Error('Close reason is required for unselected items');
+      }
     }
-
-
     const itemDiff = buildQuoteItemDiff(quote.items as any, normalizedItems as any);
     const hasDiff = itemDiff.added.length > 0 || itemDiff.removed.length > 0 || itemDiff.updated.length > 0;
     if (hasDiff) {
@@ -2093,12 +2416,11 @@ class QuoteService {
         mikroOrderIds.push(whiteOrderId);
       }
     }
-
     let closedCount = 0;
-    if (unselectedItems.length > 0) {
-      const linesToClose = unselectedItems.map((item) => ({
+    if (shouldCloseUnselected && openUnselectedItems.length > 0) {
+      const linesToClose = openUnselectedItems.map((item) => ({
         satirNo: item.lineOrder - 1,
-        reason: String(closeReasonsMap[item.id]).trim(),
+        reason: normalizeCloseReason(closeReasonsMap[item.id]),
       }));
       closedCount = await mikroService.closeQuoteLines({
         evrakSeri: parsed.evrakSeri,
@@ -2169,6 +2491,38 @@ class QuoteService {
       },
     });
 
+    const statusNow = new Date();
+    const statusUpdates: any[] = [];
+    if (selectedItems.length > 0) {
+      statusUpdates.push(
+        prisma.quoteItem.updateMany({
+          where: { id: { in: selectedItems.map((item) => item.id) } },
+          data: {
+            status: 'CONVERTED',
+            convertedAt: statusNow,
+            statusUpdatedAt: statusNow,
+          },
+        })
+      );
+    }
+    if (shouldCloseUnselected && openUnselectedItems.length > 0) {
+      openUnselectedItems.forEach((item) => {
+        statusUpdates.push(
+          prisma.quoteItem.update({
+            where: { id: item.id },
+            data: {
+              status: 'CLOSED',
+              closedReason: normalizeCloseReason(closeReasonsMap[item.id]) || null,
+              closedAt: statusNow,
+              statusUpdatedAt: statusNow,
+            },
+          })
+        );
+      });
+    }
+    if (statusUpdates.length > 0) {
+      await prisma.$transaction(statusUpdates);
+    }
     await prisma.quoteHistory.create({
       data: {
         quoteId: quote.id,
@@ -2239,3 +2593,24 @@ class QuoteService {
 }
 
 export default new QuoteService();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

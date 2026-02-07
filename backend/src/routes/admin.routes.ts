@@ -293,6 +293,9 @@ router.post('/quotes/items/upload-image', requirePermission('admin:quotes'), quo
 router.post('/quotes', requirePermission('admin:quotes'), quoteController.createQuote);
 router.put('/quotes/:id', requirePermission('admin:quotes'), quoteController.updateQuote);
 router.get('/quotes', requirePermission('admin:quotes'), quoteController.getQuotes);
+router.get('/quotes/line-items', requirePermission('admin:quotes'), quoteController.getQuoteLineItems);
+router.post('/quotes/line-items/close', requirePermission('admin:quotes'), quoteController.closeQuoteItems);
+router.post('/quotes/line-items/reopen', requirePermission('admin:quotes'), quoteController.reopenQuoteItems);
 router.get('/quotes/:id', requirePermission('admin:quotes'), quoteController.getQuoteById);
 router.get('/quotes/:id/history', requirePermission('admin:quotes'), quoteController.getQuoteHistory);
 router.post('/quotes/:id/sync', requirePermission('admin:quotes'), quoteController.syncQuoteFromMikro);

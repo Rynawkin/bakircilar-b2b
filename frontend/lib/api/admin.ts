@@ -13,6 +13,7 @@ import {
   PendingOrderForAdmin,
   Quote,
   QuoteHistory,
+  QuoteLineItem,
   CategoryWithPriceRules,
   SetPriceRuleRequest,
   DashboardStats,
@@ -527,6 +528,29 @@ export const adminApi = {
     return response.data;
   },
 
+  getQuoteLineItems: async (params?: {
+    status?: string;
+    search?: string;
+    closeReason?: string;
+    minDays?: number;
+    maxDays?: number;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ items: QuoteLineItem[]; total: number }> => {
+    const response = await apiClient.get('/admin/quotes/line-items', { params });
+    return response.data;
+  },
+
+  closeQuoteLineItems: async (items: Array<{ id: string; reason: string }>): Promise<{ closedCount: number; mikroClosedCount: number }> => {
+    const response = await apiClient.post('/admin/quotes/line-items/close', { items });
+    return response.data;
+  },
+
+  reopenQuoteLineItems: async (itemIds: string[]): Promise<{ reopenedCount: number; mikroReopenCount: number }> => {
+    const response = await apiClient.post('/admin/quotes/line-items/reopen', { itemIds });
+    return response.data;
+  },
+
   syncQuote: async (id: string): Promise<{ quote: Quote; updated: boolean }> => {
     const response = await apiClient.post(`/admin/quotes/${id}/sync`);
     return response.data;
@@ -537,6 +561,7 @@ export const adminApi = {
     payload: {
       selectedItemIds: string[];
       closeReasons?: Record<string, string>;
+      closeUnselected?: boolean;
       warehouseNo: number;
       invoicedSeries?: string;
       invoicedSira?: number;

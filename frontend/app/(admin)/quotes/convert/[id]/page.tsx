@@ -7,6 +7,8 @@ import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { Badge } from '@/components/ui/Badge';
+import { Select } from '@/components/ui/Select';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import type { Quote } from '@/types';
 
@@ -21,6 +23,23 @@ const resolveWarehouseValue = (value: string) => {
   return value;
 };
 
+const CLOSE_REASONS = [
+  'Stok yok',
+  'Fiyat kabul edilmedi',
+  'Musteri vazgecti',
+  'Teklif suresi doldu',
+  'Hata/duzeltme',
+  'Diger',
+];
+
+const resolveItemStatus = (item?: Quote['items'][number]) => item?.status || 'OPEN';
+
+const getStatusBadge = (status: string) => {
+  if (status === 'CLOSED') return <Badge variant="danger">Kapali</Badge>;
+  if (status === 'CONVERTED') return <Badge variant="info">Siparise cevrildi</Badge>;
+  return <Badge variant="success">Acik</Badge>;
+};
+
 export default function QuoteConvertPage() {
   const params = useParams();
   const router = useRouter();
@@ -29,6 +48,7 @@ export default function QuoteConvertPage() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [closeReasons, setCloseReasons] = useState<Record<string, string>>({});
+  const [closeUnselected, setCloseUnselected] = useState(false);
   const [includedWarehouses, setIncludedWarehouses] = useState<string[]>([]);
   const [warehouseNo, setWarehouseNo] = useState('');
   const [invoicedSeries, setInvoicedSeries] = useState('');
@@ -50,8 +70,12 @@ export default function QuoteConvertPage() {
         const loadedQuote = quoteResult.quote;
         setDocumentNo(loadedQuote.documentNo || '');
         setQuote(loadedQuote);
-        const allIds = new Set((loadedQuote.items || []).map((item) => item.id));
-        setSelectedIds(allIds);
+        const openIds = new Set(
+          (loadedQuote.items || [])
+            .filter((item) => resolveItemStatus(item) === 'OPEN')
+            .map((item) => item.id)
+        );
+        setSelectedIds(openIds);
         setCloseReasons({});
 
         let warehouses: string[] = [];
@@ -90,13 +114,28 @@ export default function QuoteConvertPage() {
 
   const selectedItems = useMemo(() => {
     if (!quote) return [];
-    return (quote.items || []).filter((item) => selectedIds.has(item.id));
+    return (quote.items || []).filter(
+      (item) => selectedIds.has(item.id) && resolveItemStatus(item) === 'OPEN'
+    );
   }, [quote, selectedIds]);
+
+  const openItems = useMemo(() => {
+    if (!quote) return [];
+    return (quote.items || []).filter((item) => resolveItemStatus(item) === 'OPEN');
+  }, [quote]);
+
+  const openUnselectedItems = useMemo(() => {
+    return openItems.filter((item) => !selectedIds.has(item.id));
+  }, [openItems, selectedIds]);
 
   const hasInvoiced = selectedItems.some((item) => item.priceType !== 'WHITE');
   const hasWhite = selectedItems.some((item) => item.priceType === 'WHITE');
 
   const toggleItem = (itemId: string) => {
+    const target = quote?.items?.find((item) => item.id === itemId);
+    if (target && resolveItemStatus(target) !== 'OPEN') {
+      return;
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(itemId)) {
@@ -110,7 +149,10 @@ export default function QuoteConvertPage() {
 
   const selectAll = () => {
     if (!quote) return;
-    setSelectedIds(new Set((quote.items || []).map((item) => item.id)));
+    const ids = (quote.items || [])
+      .filter((item) => resolveItemStatus(item) === 'OPEN')
+      .map((item) => item.id);
+    setSelectedIds(new Set(ids));
   };
 
   const deselectAll = () => {
@@ -169,11 +211,14 @@ export default function QuoteConvertPage() {
       }
     }
 
-    const unselected = (quote.items || []).filter((item) => !selectedIds.has(item.id));
-    const missingReason = unselected.find((item) => !String(closeReasons[item.id] || '').trim());
-    if (missingReason) {
-      toast.error('Secilmeyen kalemler icin kapatma nedeni yazin.');
-      return;
+    if (closeUnselected && openUnselectedItems.length > 0) {
+      const missingReason = openUnselectedItems.find(
+        (item) => !String(closeReasons[item.id] || '').trim()
+      );
+      if (missingReason) {
+        toast.error('Secilmeyen kalemler icin kapatma nedeni secin.');
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -181,8 +226,9 @@ export default function QuoteConvertPage() {
       const result = await adminApi.convertQuoteToOrder(quote.id, {
         documentNo: documentNo.trim() || undefined,
         documentDescription: documentDescription.trim() || undefined,
-        selectedItemIds: Array.from(selectedIds),
+        selectedItemIds: selectedItems.map((item) => item.id),
         closeReasons,
+        closeUnselected,
         warehouseNo: Number(resolveWarehouseValue(warehouseNo)),
         invoicedSeries: invoicedSeries.trim() || undefined,
         whiteSeries: whiteSeries.trim() || undefined,
@@ -276,6 +322,7 @@ export default function QuoteConvertPage() {
                     <tr>
                       <th className="py-2">Sec</th>
                       <th>Urun</th>
+                      <th>Durum</th>
                       <th className="text-right">Miktar</th>
                       <th className="text-right">Birim</th>
                       <th className="text-right">Toplam</th>
@@ -286,23 +333,30 @@ export default function QuoteConvertPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {(quote.items || []).map((item) => {
-                      const isSelected = selectedIds.has(item.id);
+                      const status = resolveItemStatus(item);
+                      const isSelectable = status === 'OPEN';
+                      const isSelected = isSelectable && selectedIds.has(item.id);
                       const resolvedQuantity = resolveItemQuantity(item);
                       const lineTotal = (item.unitPrice || 0) * resolvedQuantity;
                       return (
-                        <tr key={item.id} className="align-top">
+                        <tr
+                          key={item.id}
+                          className={`align-top ${!isSelectable ? 'bg-slate-50 text-gray-500' : ''}`}
+                        >
                           <td className="py-3">
                             <input
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => toggleItem(item.id)}
                               className="h-4 w-4 accent-primary-600"
+                              disabled={!isSelectable}
                             />
                           </td>
                           <td className="py-3">
                             <div className="font-medium text-gray-900">{item.productName}</div>
                             <div className="text-xs text-gray-500">{item.productCode}</div>
                           </td>
+                          <td className="py-3">{getStatusBadge(status)}</td>
                           <td className="py-3 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <button
@@ -350,8 +404,19 @@ export default function QuoteConvertPage() {
                             )}
                           </td>
                           <td className="py-3">
-                            {!isSelected && (
-                              <Input
+                            {status === 'CLOSED' && (
+                              <span className="text-xs text-gray-600">
+                                {item.closedReason || '-'}
+                              </span>
+                            )}
+                            {status === 'CONVERTED' && (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                            {status === 'OPEN' && isSelected && (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                            {status === 'OPEN' && !isSelected && closeUnselected && (
+                              <Select
                                 value={closeReasons[item.id] || ''}
                                 onChange={(e) =>
                                   setCloseReasons((prev) => ({
@@ -359,8 +424,18 @@ export default function QuoteConvertPage() {
                                     [item.id]: e.target.value,
                                   }))
                                 }
-                                placeholder="Kapatma nedeni"
-                              />
+                                className="text-xs"
+                              >
+                                <option value="">Kapatma nedeni secin</option>
+                                {CLOSE_REASONS.map((reason) => (
+                                  <option key={reason} value={reason}>
+                                    {reason}
+                                  </option>
+                                ))}
+                              </Select>
+                            )}
+                            {status === 'OPEN' && !isSelected && !closeUnselected && (
+                              <span className="text-xs text-gray-400">Acik kalacak</span>
                             )}
                           </td>
                         </tr>
@@ -452,8 +527,21 @@ export default function QuoteConvertPage() {
                   </div>
                 )}
 
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={closeUnselected}
+                    onChange={(e) => setCloseUnselected(e.target.checked)}
+                    className="h-4 w-4 accent-primary-600"
+                  />
+                  <span>Secilmeyen acik kalemleri kapat</span>
+                </div>
+
                 <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 text-xs text-gray-600">
-                  {selectedItems.length} kalem secili. Secilmeyen kalemler kapatilacak.
+                  {selectedItems.length} kalem secili.{' '}
+                  {closeUnselected
+                    ? `${openUnselectedItems.length} acik kalem kapatilacak.`
+                    : `${openUnselectedItems.length} acik kalem acik kalacak.`}
                 </div>
               </div>
             </Card>

@@ -61,6 +61,7 @@ const navItems: NavItem[] = [
   },
   { name: 'Siparişler', href: '/orders', icon: ClipboardList, description: 'Sipariş yönetimi', permission: 'admin:orders' },
   { name: 'Teklifler', href: '/quotes', icon: FileText, description: 'Teklif yönetimi', permission: 'admin:quotes' },
+  { name: 'Teklif Kalemleri', href: '/quotes/lines', icon: FileText, description: 'Teklif kalemleri', permission: 'admin:quotes' },
   { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler', permission: 'admin:order-tracking' },
   { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi', permission: 'admin:customers' },
   { name: 'Anlaşmalı Fiyatlar', href: '/customer-agreements', icon: Tag, description: 'Müşteri anlaşmaları', permission: 'admin:agreements' },

@@ -149,6 +149,85 @@ export class QuoteController {
   }
 
   /**
+   * GET /api/admin/quotes/line-items
+   */
+  async getQuoteLineItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        status,
+        search,
+        closeReason,
+        minDays,
+        maxDays,
+        limit,
+        offset,
+      } = req.query;
+
+      const parseNumber = (value: any) => {
+        if (value === undefined || value === null || value === '') return undefined;
+        const parsed = parseInt(String(value), 10);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      };
+
+      const result = await quoteService.getQuoteLineItems({
+        status: status ? String(status) : undefined,
+        search: search ? String(search) : undefined,
+        closeReason: closeReason ? String(closeReason) : undefined,
+        minDays: parseNumber(minDays),
+        maxDays: parseNumber(maxDays),
+        limit: parseNumber(limit),
+        offset: parseNumber(offset),
+      });
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/quotes/line-items/close
+   */
+  async closeQuoteItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { items } = req.body || {};
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Items are required' });
+      }
+
+      const result = await quoteService.closeQuoteItems({
+        items,
+        adminUserId: req.user!.userId,
+      });
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/quotes/line-items/reopen
+   */
+  async reopenQuoteItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { itemIds } = req.body || {};
+      if (!Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ error: 'Item ids are required' });
+      }
+
+      const result = await quoteService.reopenQuoteItems({
+        itemIds,
+        adminUserId: req.user!.userId,
+      });
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/quotes/last-quotes
    */
   async getLastQuotesForCustomer(req: Request, res: Response, next: NextFunction) {
@@ -241,6 +320,7 @@ export class QuoteController {
       const {
         selectedItemIds,
         closeReasons,
+        closeUnselected,
         warehouseNo,
         invoicedSeries,
         invoicedSira,
@@ -277,6 +357,7 @@ export class QuoteController {
       const result = await quoteService.convertQuoteToOrder(id, {
         selectedItemIds,
         closeReasons,
+        closeUnselected,
         warehouseNo,
         invoicedSeries,
         invoicedSira,

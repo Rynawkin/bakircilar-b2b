@@ -696,7 +696,6 @@ export class MikroMockService {
       quoteNumber: `${quoteData.evrakSeri}-${quoteData.evrakSira}`,
     };
   }
-
   async getQuoteLines(params: { evrakSeri: string; evrakSira: number }): Promise<any[]> {
     console.log('[MOCK] Teklif satirlari isteniyor:', params);
     return [];
@@ -733,6 +732,15 @@ export class MikroMockService {
     lines: Array<{ satirNo: number; reason: string }>;
   }): Promise<number> {
     console.log('[MOCK] Teklif satir kapatma istendi:', params);
+    return 0;
+  }
+
+  async reopenQuoteLines(params: {
+    evrakSeri: string;
+    evrakSira: number;
+    lines: Array<{ satirNo: number }>;
+  }): Promise<number> {
+    console.log('[MOCK] Teklif satir acma istendi:', params);
     return 0;
   }
 
@@ -785,3 +793,9 @@ export class MikroMockService {
 }
 
 export default new MikroMockService();
+
+
+
+
+
+

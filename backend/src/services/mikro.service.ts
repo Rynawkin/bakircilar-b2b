@@ -1,8 +1,8 @@
-﻿/**
- * GerÃ§ek Mikro ERP Service
+/**
+ * Gerçek Mikro ERP Service
  *
- * Production'da Mikro MSSQL veritabanÄ±na baÄŸlanarak
- * veri Ã§eker ve sipariÅŸ yazar.
+ * Production'da Mikro MSSQL veritabanına bağlanarak
+ * veri çeker ve sipariş yazar.
  */
 
 import * as sql from 'mssql';
@@ -32,18 +32,18 @@ class MikroService {
   public sipExtraColumns: { teklifUid: boolean } | null = null;
 
   /**
-   * Mikro KDV kod â†’ yÃ¼zde dÃ¶nÃ¼ÅŸÃ¼mÃ¼
-   * GerÃ§ek hareketlerden tespit edildi
+   * Mikro KDV kod → yüzde dönüşümü
+   * Gerçek hareketlerden tespit edildi
    */
   public convertVatCodeToRate(vatCode: number): number {
     const vatMap: { [key: number]: number } = {
-      0: 0.00,  // Ä°stisna
-      1: 0.00,  // Ä°stisna
+      0: 0.00,  // İstisna
+      1: 0.00,  // İstisna
       2: 0.01,  // %1
-      3: 0.00,  // KullanÄ±lmÄ±yor
+      3: 0.00,  // Kullanılmıyor
       4: 0.18,  // %18
       5: 0.20,  // %20
-      6: 0.00,  // KullanÄ±lmÄ±yor
+      6: 0.00,  // Kullanılmıyor
       7: 0.10,  // %10
     };
     return vatMap[vatCode] ?? 0.20; // Default %20
@@ -62,7 +62,7 @@ class MikroService {
   }
 
   /**
-   * Mikro veritabanÄ±na baÄŸlan
+   * Mikro veritabanına bağlan
    */
   async connect(): Promise<void> {
     if (this.pool) {
@@ -91,11 +91,11 @@ class MikroService {
         this.pool = null;
       });
       await this.pool.connect();
-      console.log('âœ… Mikro ERP baÄŸlantÄ±sÄ± baÅŸarÄ±lÄ±');
+      console.log('✅ Mikro ERP bağlantısı başarılı');
     } catch (error) {
-      console.error('âŒ Mikro ERP baÄŸlantÄ± hatasÄ±:', error);
+      console.error('❌ Mikro ERP bağlantı hatası:', error);
       this.pool = null;
-      throw new Error('Mikro ERP baÄŸlantÄ±sÄ± kurulamadÄ±');
+      throw new Error('Mikro ERP bağlantısı kurulamadı');
     }
   }
 
@@ -181,6 +181,9 @@ class MikroService {
     vatCode: number;
     lineDescription: string;
     priceListNo: number;
+    isClosed: boolean;
+    closeReason: string;
+    lastUpdatedAt: Date | null;
   }>> {
     await this.connect();
 
@@ -206,7 +209,10 @@ class MikroService {
           tkl_vergi,
           tkl_vergi_pntr,
           tkl_Aciklama,
-          tkl_fiyat_liste_no
+          tkl_fiyat_liste_no,
+          tkl_kapat_fl,
+          tkl_kapatmanedenkod,
+          tkl_lastup_date
         FROM VERILEN_TEKLIFLER
         WHERE tkl_evrakno_seri = @seri AND tkl_evrakno_sira = @sira
         ORDER BY tkl_satirno
@@ -228,6 +234,9 @@ class MikroService {
       vatCode: Number(row.tkl_vergi_pntr) || 0,
       lineDescription: row.tkl_Aciklama || '',
       priceListNo: Number(row.tkl_fiyat_liste_no) || 0,
+      isClosed: Boolean(row.tkl_kapat_fl),
+      closeReason: row.tkl_kapatmanedenkod || '',
+      lastUpdatedAt: row.tkl_lastup_date || null,
     }));
   }
 
@@ -444,19 +453,46 @@ class MikroService {
     return affected;
   }
 
-  /**
-   * BaÄŸlantÄ±yÄ± kapat
-   */
-  async disconnect(): Promise<void> {
-    if (this.pool) {
-      await this.pool.close();
-      this.pool = null;
-      console.log('ğŸ”Œ Mikro ERP baÄŸlantÄ±sÄ± kapatÄ±ldÄ±');
+  async reopenQuoteLines(params: {
+    evrakSeri: string;
+    evrakSira: number;
+    lines: Array<{ satirNo: number }>;
+  }): Promise<number> {
+    await this.connect();
+
+    const { evrakSeri, evrakSira, lines } = params;
+    let affected = 0;
+
+    for (const line of lines) {
+      const satirNo = Number(line.satirNo);
+      if (!Number.isFinite(satirNo)) {
+        continue;
+      }
+      const result = await this.pool!
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri)
+        .input('sira', sql.Int, evrakSira)
+        .input('satirNo', sql.Int, satirNo)
+        .query(`
+          UPDATE VERILEN_TEKLIFLER
+          SET
+            TKL_KAPAT_FL = 0,
+            tkl_kapatmanedenkod = '',
+            tkl_lastup_date = GETDATE()
+          WHERE tkl_evrakno_seri = @seri
+            AND tkl_evrakno_sira = @sira
+            AND tkl_satirno = @satirNo
+        `);
+      if (Array.isArray(result.rowsAffected) && result.rowsAffected.length > 0) {
+        affected += result.rowsAffected[0] || 0;
+      }
     }
+
+    return affected;
   }
 
   /**
-   * Kategorileri Ã§ek
+   * Kategorileri çek
    */
   async getCategories(): Promise<MikroCategory[]> {
     await this.connect();
@@ -479,15 +515,15 @@ class MikroService {
   }
 
   /**
-   * ÃœrÃ¼nleri Ã§ek (sadece aktif stoklar)
-   * Depo bazlÄ± stok bilgilerini de dahil eder
+   * Ürünleri çek (sadece aktif stoklar)
+   * Depo bazlı stok bilgilerini de dahil eder
    */
   async getProducts(): Promise<MikroProduct[]> {
     await this.connect();
 
     const { PRODUCTS, PRODUCTS_COLUMNS } = MIKRO_TABLES;
 
-    // Ana depolar: 1=Merkez, 2=EreÄŸli, 6=TopÃ§a, 7=DÃ¼kkan
+    // Ana depolar: 1=Merkez, 2=Ereğli, 6=Topça, 7=Dükkan
     const query = `
         SELECT
           ${PRODUCTS_COLUMNS.CODE} as id,
@@ -503,10 +539,10 @@ class MikroService {
         ${PRODUCTS_COLUMNS.CURRENT_COST} as currentCost,
         sto_Guid as guid,
 
-        -- GÃ¼ncel maliyet tarihi (sto_resim_url alanÄ±nda tutuluyor)
+        -- Güncel maliyet tarihi (sto_resim_url alanında tutuluyor)
         sto_resim_url as currentCostDate,
 
-        -- Son giriÅŸ tarihi (STOK_HAREKETLERI'nden)
+        -- Son giriş tarihi (STOK_HAREKETLERI'nden)
         (SELECT TOP 1 sth_tarih
          FROM STOK_HAREKETLERI
          WHERE sth_stok_kod = ${PRODUCTS_COLUMNS.CODE}
@@ -516,8 +552,8 @@ class MikroService {
            AND sth_normal_iade = 0
          ORDER BY sth_tarih DESC) as lastEntryDate,
 
-        -- Son giriÅŸ maliyeti (KDV hariÃ§, birim fiyat)
-        -- F10'daki ile aynÄ± mantÄ±k: Sadece gerÃ§ek depo giriÅŸleri
+        -- Son giriş maliyeti (KDV hariç, birim fiyat)
+        -- F10'daki ile aynı mantık: Sadece gerçek depo girişleri
         (SELECT TOP 1
          dbo.fn_StokHareketNetDeger(
            sth_tutar,
@@ -548,7 +584,7 @@ class MikroService {
            AND sth_fat_uid != '00000000-0000-0000-0000-000000000000'
          ORDER BY sth_tarih DESC) as lastEntryPrice,
 
-        -- Depo stoklarÄ±
+        -- Depo stokları
         dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 1, 0) as depo1,
         dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 2, 0) as depo2,
         dbo.fn_DepodakiMiktar(${PRODUCTS_COLUMNS.CODE}, 6, 0) as depo6,
@@ -564,7 +600,7 @@ class MikroService {
 
     const result = await this.pool!.request().query(query);
 
-    // KDV kodunu yÃ¼zde oranÄ±na Ã§evir ve depo stoklarÄ±nÄ± JSON'a dÃ¶nÃ¼ÅŸtÃ¼r
+    // KDV kodunu yüzde oranına çevir ve depo stoklarını JSON'a dönüştür
       return result.recordset.map((product: any) => ({
         id: product.id,
         code: product.code,
@@ -581,13 +617,13 @@ class MikroService {
       currentCostDate: product.currentCostDate,
       lastEntryPrice: product.lastEntryPrice,
       lastEntryDate: product.lastEntryDate,
-      guid: product.guid, // Resim Ã§ekmek iÃ§in GUID gerekli
-      // Depo stoklarÄ±nÄ± JSON formatÄ±na Ã§evir
+      guid: product.guid, // Resim çekmek için GUID gerekli
+      // Depo stoklarını JSON formatına çevir
       warehouseStocks: {
         '1': product.depo1 || 0,  // Merkez
-        '2': product.depo2 || 0,  // EreÄŸli
-        '6': product.depo6 || 0,  // TopÃ§a
-        '7': product.depo7 || 0,  // DÃ¼kkan
+        '2': product.depo2 || 0,  // Ereğli
+        '6': product.depo6 || 0,  // Topça
+        '7': product.depo7 || 0,  // Dükkan
       },
     }));
   }
@@ -630,22 +666,22 @@ class MikroService {
   }
 
   /**
-   * Depo stoklarÄ±nÄ± Ã§ek
-   * NOT: Bu metod artÄ±k getProducts() iÃ§inde Ã§ekiliyor
+   * Depo stoklarını çek
+   * NOT: Bu metod artık getProducts() içinde çekiliyor
    */
   async getWarehouseStocks(): Promise<MikroWarehouseStock[]> {
-    // ArtÄ±k bu metoda gerek yok, getProducts() iÃ§inde alÄ±nÄ±yor
-    // Ama geriye dÃ¶nÃ¼k uyumluluk iÃ§in boÅŸ array dÃ¶ndÃ¼rÃ¼yoruz
+    // Artık bu metoda gerek yok, getProducts() içinde alınıyor
+    // Ama geriye dönük uyumluluk için boş array döndürüyoruz
     return [];
   }
 
   /**
-   * SatÄ±ÅŸ geÃ§miÅŸi (gÃ¼nlÃ¼k - son 90 gÃ¼n)
-   * F10 sorgusundan alÄ±nan TAMAMEN AYNI mantÄ±k:
-   * - Ä°rsaliyeli (evraktip=4) satÄ±ÅŸlar
-   * - VEYA FaturalÄ± (evraktip=1 + fat_uid dolu) satÄ±ÅŸlar
-   * - VEYA fat_uid boÅŸ olan satÄ±ÅŸlar (evraktip ne olursa olsun)
-   * - Sadece belirli sektÃ¶r kodlarÄ±na sahip carilerle yapÄ±lan satÄ±ÅŸlar
+   * Satış geçmişi (günlük - son 90 gün)
+   * F10 sorgusundan alınan TAMAMEN AYNI mantık:
+   * - İrsaliyeli (evraktip=4) satışlar
+   * - VEYA Faturalı (evraktip=1 + fat_uid dolu) satışlar
+   * - VEYA fat_uid boş olan satışlar (evraktip ne olursa olsun)
+   * - Sadece belirli sektör kodlarına sahip carilerle yapılan satışlar
    */
   async getSalesHistory(): Promise<MikroSalesMovement[]> {
     await this.connect();
@@ -657,9 +693,9 @@ class MikroService {
         SUM(sth_miktar) as totalQuantity
       FROM STOK_HAREKETLERI
       WHERE
-        -- SatÄ±ÅŸ hareketleri (tip=1)
+        -- Satış hareketleri (tip=1)
         sth_tip = 1
-        -- F10'daki mantÄ±k: Ä°rsaliyeli VEYA FaturalÄ± VEYA fat_uid boÅŸ olanlar
+        -- F10'daki mantık: İrsaliyeli VEYA Faturalı VEYA fat_uid boş olanlar
         AND (
           (sth_evraktip = 4)
           OR
@@ -667,13 +703,13 @@ class MikroService {
           OR
           (sth_fat_uid = '00000000-0000-0000-0000-000000000000')
         )
-        -- Belirli sektÃ¶r kodlarÄ±na sahip carilerle yapÄ±lan satÄ±ÅŸlar
+        -- Belirli sektör kodlarına sahip carilerle yapılan satışlar
         AND (
           SELECT cari_sektor_kodu
           FROM CARI_HESAPLAR
           WHERE cari_kod = sth_cari_kodu
-        ) IN ('Ä°NTERNET','HENDEK','HUKUKÄ°','Ä°PTAL EDÄ°LECEK CARÄ°','ERHAN','TOPÃ‡A','BÃœÅRA','ENSAR','SATICI BARTIR','BETÃœL','HAVUZ','ERTANE','MERVE','SELDA','SORUNLU CARÄ°')
-        -- Son 90 gÃ¼n (F10 ile aynÄ±)
+        ) IN ('İNTERNET','HENDEK','HUKUKİ','İPTAL EDİLECEK CARİ','ERHAN','TOPÇA','BÜŞRA','ENSAR','SATICI BARTIR','BETÜL','HAVUZ','ERTANE','MERVE','SELDA','SORUNLU CARİ')
+        -- Son 90 gün (F10 ile aynı)
         AND sth_tarih >= DATEADD(DAY, -90, GETDATE())
       GROUP BY
         sth_stok_kod,
@@ -685,7 +721,7 @@ class MikroService {
   }
 
   /**
-   * Cari bazlÅ½Ã± daha Ã‡Ã´nce satÅ½Ã±ÂY yapÅ½Ã±lan Ã‡Â¬rÃ‡Â¬n kodlarÅ½Ã±nÅ½Ã± getir
+   * Cari bazlŽñ daha Çônce satŽñY yapŽñlan Ç¬rÇ¬n kodlarŽñnŽñ getir
    */
   async getPurchasedProductCodes(cariCode: string): Promise<string[]> {
     if (!cariCode) {
@@ -752,7 +788,7 @@ class MikroService {
   }
 
   /**
-   * Cari bazlÃ„Â± son satÃ„Â±Ã…Å¸ hareketleri (ÃƒÂ¼rÃƒÂ¼n bazÃ„Â±nda son N)
+   * Cari bazlÄ± son satÄ±ÅŸ hareketleri (Ã¼rÃ¼n bazÄ±nda son N)
    */
   async getCustomerSalesMovements(
     cariCode: string,
@@ -857,11 +893,11 @@ class MikroService {
     }
 
   /**
-   * Bekleyen sipariÅŸler (mÃ¼ÅŸteri sipariÅŸleri ve satÄ±n alma sipariÅŸleri)
+   * Bekleyen siparişler (müşteri siparişleri ve satın alma siparişleri)
    *
-   * F10'dan alÄ±nan gerÃ§ek sorgu:
-   * - sip_tip=0: MÃ¼ÅŸteri sipariÅŸi (SALES)
-   * - sip_tip=1: SatÄ±n alma sipariÅŸi (PURCHASE)
+   * F10'dan alınan gerçek sorgu:
+   * - sip_tip=0: Müşteri siparişi (SALES)
+   * - sip_tip=1: Satın alma siparişi (PURCHASE)
    */
   async getPendingOrders(): Promise<MikroPendingOrder[]> {
     await this.connect();
@@ -888,7 +924,7 @@ class MikroService {
   }
 
   /**
-   * Bekleyen siparişler (depo bazlı)
+   * Bekleyen sipari�ler (depo bazl�)
    */
   async getPendingOrdersByWarehouse(): Promise<MikroPendingOrderByWarehouse[]> {
     await this.connect();
@@ -946,8 +982,8 @@ class MikroService {
   }
 
   /**
-   * Cari detaylÄ± bilgilerini getir (tÃ¼m cariler)
-   * Åehir, telefon, bakiye, vade gibi detaylÄ± bilgilerle
+   * Cari detaylı bilgilerini getir (tüm cariler)
+   * Şehir, telefon, bakiye, vade gibi detaylı bilgilerle
    */
   async getCariDetails(): Promise<Array<{
     code: string;
@@ -980,13 +1016,13 @@ class MikroService {
         odp.odp_adi as paymentPlanName,
         cari_efatura_fl as hasEInvoice,
 
-        -- Adres bilgileri (1 numaralÄ± adres = ana adres)
+        -- Adres bilgileri (1 numaralı adres = ana adres)
         (SELECT adr_il FROM CARI_HESAP_ADRESLERI
          WHERE adr_adres_no = '1' AND adr_cari_kod = cari_kod) as city,
         (SELECT adr_ilce FROM CARI_HESAP_ADRESLERI
          WHERE adr_adres_no = '1' AND adr_cari_kod = cari_kod) as district,
 
-        -- Genel bakiye (ana dÃ¶viz - TL)
+        -- Genel bakiye (ana döviz - TL)
         dbo.fn_CariHesapAnaDovizBakiye('', 0, cari_kod, '', '', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL) as balance
 
       FROM CARI_HESAPLAR
@@ -1051,7 +1087,7 @@ class MikroService {
   }
 
   /**
-   * AnlÄ±k stok kontrolÃ¼ (Mikro fonksiyonu kullanarak)
+   * Anlık stok kontrolü (Mikro fonksiyonu kullanarak)
    */
   async getRealtimeStock(
     productCode: string,
@@ -1059,7 +1095,7 @@ class MikroService {
   ): Promise<number> {
     await this.connect();
 
-    // Her depo iÃ§in ayrÄ± ayrÄ± fonksiyon Ã§aÄŸÄ±r ve topla
+    // Her depo için ayrı ayrı fonksiyon çağır ve topla
     let totalStock = 0;
 
     for (const warehouseNo of includedWarehouses) {
@@ -1079,16 +1115,16 @@ class MikroService {
   }
 
   /**
-   * Mikro'ya sipariÅŸ yaz
+   * Mikro'ya sipariş yaz
    *
-   * FaturalÄ± ve beyaz sipariÅŸler iÃ§in ayrÄ± evrak serileri kullanÄ±lÄ±r:
-   * - FaturalÄ±: "B2B_FATURAL"
+   * Faturalı ve beyaz siparişler için ayrı evrak serileri kullanılır:
+   * - Faturalı: "B2B_FATURAL"
    * - Beyaz: "B2B_BEYAZ"
    *
-   * Her sipariÅŸ iÃ§in:
-   * 1. Yeni evrak sÄ±ra numarasÄ± alÄ±nÄ±r (MAX + 1)
-   * 2. Her item iÃ§in ayrÄ± satÄ±r eklenir (satirno: 0, 1, 2...)
-   * 3. Transaction iÃ§inde Ã§alÄ±ÅŸÄ±r (hepsi veya hiÃ§biri)
+   * Her sipariş için:
+   * 1. Yeni evrak sıra numarası alınır (MAX + 1)
+   * 2. Her item için ayrı satır eklenir (satirno: 0, 1, 2...)
+   * 3. Transaction içinde çalışır (hepsi veya hiçbiri)
    */
   async writeOrder(orderData: {
     cariCode: string;
@@ -1160,32 +1196,32 @@ class MikroService {
       sipFileId = 21;
     }
 
-    console.log(`ğŸ”§ SipariÅŸ parametreleri:`, {
+    console.log(`🔧 Sipariş parametreleri:`, {
       cariCode,
       itemCount: items.length,
       applyVAT,
       evrakSeri
     });
 
-    // SIPARISLER_OZET trigger'Ä±nÄ± geÃ§ici olarak devre dÄ±ÅŸÄ± bÄ±rak
-    // Bu trigger duplicate key hatasÄ± veriyor ve transaction'Ä± uncommittable yapÄ±yor
+    // SIPARISLER_OZET trigger'ını geçici olarak devre dışı bırak
+    // Bu trigger duplicate key hatası veriyor ve transaction'ı uncommittable yapıyor
     try {
       await this.pool!.request().query('DISABLE TRIGGER mye_SIPARISLER_Trigger ON SIPARISLER');
-      console.log('âœ“ SIPARISLER trigger devre dÄ±ÅŸÄ± bÄ±rakÄ±ldÄ±');
+      console.log('✓ SIPARISLER trigger devre dışı bırakıldı');
     } catch (err) {
-      console.log('âš ï¸ Trigger devre dÄ±ÅŸÄ± bÄ±rakÄ±lamadÄ±:', err);
+      console.log('⚠️ Trigger devre dışı bırakılamadı:', err);
     }
 
-    // Transaction baÅŸlat
+    // Transaction başlat
     const transaction = this.pool!.transaction();
 
     try {
-      console.log('ğŸ”§ Transaction baÅŸlatÄ±lÄ±yor...');
+      console.log('🔧 Transaction başlatılıyor...');
       await transaction.begin();
-      console.log('âœ“ Transaction baÅŸlatÄ±ldÄ±');
+      console.log('✓ Transaction başlatıldı');
 
-      // 1. Yeni evrak sÄ±ra numarasÄ± al (bu seri iÃ§in)
-      console.log('ğŸ”§ Yeni sÄ±ra numarasÄ± alÄ±nÄ±yor...');
+      // 1. Yeni evrak sıra numarası al (bu seri için)
+      console.log('🔧 Yeni sıra numarası alınıyor...');
       const requestedSiraRaw = Number(evrakSiraInput);
       const requestedSira =
         Number.isFinite(requestedSiraRaw) && requestedSiraRaw > 0
@@ -1225,9 +1261,9 @@ class MikroService {
 
       const orderNumber = `${evrakSeri}-${evrakSira}`;
 
-      console.log(`ğŸ“ Mikro'ya sipariÅŸ yazÄ±lÄ±yor: ${orderNumber}`);
+      console.log(`📝 Mikro'ya sipariş yazılıyor: ${orderNumber}`);
 
-      // 2. Her item iÃ§in satÄ±r ekle
+      // 2. Her item için satır ekle
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const satirNo = i;
@@ -1238,9 +1274,9 @@ class MikroService {
         // Hesaplamalar
         const tutar = item.quantity * item.unitPrice;
         const vergiTutari = applyVAT ? tutar * item.vatRate : 0;
-        const vergiYuzdesi = applyVAT ? item.vatRate * 100 : 0; // Mikro'da yÃ¼zde olarak (18, 0.18 deÄŸil)
+        const vergiYuzdesi = applyVAT ? item.vatRate * 100 : 0; // Mikro'da yüzde olarak (18, 0.18 değil)
 
-        console.log(`ğŸ”§ SatÄ±r ${satirNo} hazÄ±rlanÄ±yor:`, {
+        console.log(`🔧 Satır ${satirNo} hazırlanıyor:`, {
           productCode: item.productCode,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
@@ -1250,7 +1286,7 @@ class MikroService {
           vergiYuzdesi
         });
 
-        // INSERT query - Trigger devre dÄ±ÅŸÄ± olduÄŸu iÃ§in hatasÄ±z Ã§alÄ±ÅŸacak
+        // INSERT query - Trigger devre dışı olduğu için hatasız çalışacak
         const columnNames = [
           'sip_evrakno_seri',
           'sip_evrakno_sira',
@@ -1391,7 +1427,7 @@ class MikroService {
 
         await request.query(insertQuery);
 
-        console.log(`  âœ“ SatÄ±r ${satirNo}: ${item.productCode} Ã— ${item.quantity}`);
+        console.log(`  ✓ Satır ${satirNo}: ${item.productCode} × ${item.quantity}`);
       }
 
       // Transaction commit
@@ -1744,14 +1780,14 @@ class MikroService {
 
       await transaction.commit();
 
-      console.log(`âœ… SipariÅŸ baÅŸarÄ±yla oluÅŸturuldu: ${orderNumber}`);
+      console.log(`✅ Sipariş başarıyla oluşturuldu: ${orderNumber}`);
       return orderNumber;
     } catch (error) {
       // Transaction rollback
       await transaction.rollback();
 
-      // DetaylÄ± hata logu
-      console.error('âŒ SipariÅŸ yazma hatasÄ± - DETAYLI:');
+      // Detaylı hata logu
+      console.error('❌ Sipariş yazma hatası - DETAYLI:');
       console.error('Error type:', error instanceof Error ? error.constructor.name : typeof error);
       console.error('Error message:', error instanceof Error ? error.message : String(error));
       if (error instanceof Error && 'code' in error) {
@@ -1762,14 +1798,14 @@ class MikroService {
       }
       console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
 
-      throw new Error(`SipariÅŸ Mikro'ya yazÄ±lamadÄ±: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
+      throw new Error(`Sipariş Mikro'ya yazılamadı: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
     } finally {
-      // Trigger'Ä± tekrar enable et (baÅŸarÄ±lÄ± veya baÅŸarÄ±sÄ±z fark etmez)
+      // Trigger'ı tekrar enable et (başarılı veya başarısız fark etmez)
       try {
         await this.pool!.request().query('ENABLE TRIGGER mye_SIPARISLER_Trigger ON SIPARISLER');
-        console.log('âœ“ SIPARISLER trigger tekrar etkinleÅŸtirildi');
+        console.log('✓ SIPARISLER trigger tekrar etkinleştirildi');
       } catch (err) {
-        console.error('âš ï¸ Trigger tekrar etkinleÅŸtirilemedi:', err);
+        console.error('⚠️ Trigger tekrar etkinleştirilemedi:', err);
       }
     }
   }
@@ -1874,14 +1910,14 @@ class MikroService {
   }
 
   /**
-   * Cari hesap kaydÄ±nÄ±n varlÄ±ÄŸÄ±nÄ± kontrol et, yoksa oluÅŸtur
+   * Cari hesap kaydının varlığını kontrol et, yoksa oluştur
    *
    * @param cariData - Cari bilgileri
-   * @returns true ise yeni oluÅŸturuldu, false ise zaten vardÄ±
+   * @returns true ise yeni oluşturuldu, false ise zaten vardı
    */
   /**
    * Mikro'ya teklif yaz
-   * NOT: GerÃƒÂ§ek kolonlar kesinleÃ…Å¸tirildikten sonra gÃƒÂ¼ncellenecek.
+   * NOT: GerÃ§ek kolonlar kesinleÅŸtirildikten sonra gÃ¼ncellenecek.
    */
   async writeQuote(quoteData: {
     cariCode: string;
@@ -1905,7 +1941,7 @@ class MikroService {
     const { cariCode, validityDate, description, documentNo, responsibleCode, paymentPlanNo, items } = quoteData;
     const evrakSeri = 'B2B';
 
-    console.log('âš¡ Teklif parametreleri:', {
+    console.log('⚡ Teklif parametreleri:', {
       cariCode,
       itemCount: items.length,
       evrakSeri,
@@ -2185,7 +2221,7 @@ class MikroService {
 
       await transaction.commit();
 
-      console.log(`âœ… Teklif Mikro'ya yazildi: ${mikroQuoteNumber}`);
+      console.log(`✅ Teklif Mikro'ya yazildi: ${mikroQuoteNumber}`);
 
       return {
         quoteNumber: mikroQuoteNumber,
@@ -2193,7 +2229,7 @@ class MikroService {
     } catch (error) {
       await transaction.rollback();
 
-      console.error('âŒ Teklif yazma hatasi:', error);
+      console.error('❌ Teklif yazma hatasi:', error);
       throw new Error(`Teklif Mikro'ya yazilamadi: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
     }
   }
@@ -2506,7 +2542,7 @@ class MikroService {
       };
     } catch (error) {
       await transaction.rollback();
-      console.error('❌ Teklif guncelleme hatasi:', error);
+      console.error('? Teklif guncelleme hatasi:', error);
       throw new Error(`Teklif Mikro'da guncellenemedi: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
     }
   }
@@ -2526,7 +2562,7 @@ class MikroService {
 
     const { cariCode, unvan, email, phone, city, district, hasEInvoice, taxOffice, taxNumber } = cariData;
 
-    // 1. Cari var mÄ± kontrol et
+    // 1. Cari var mı kontrol et
     const checkResult = await this.pool!.request()
       .input('cariKod', sql.NVarChar(25), cariCode)
       .query(`
@@ -2536,12 +2572,12 @@ class MikroService {
       `);
 
     if (checkResult.recordset[0].count > 0) {
-      console.log(`â„¹ï¸ Cari zaten mevcut: ${cariCode}`);
+      console.log(`ℹ️ Cari zaten mevcut: ${cariCode}`);
       return false;
     }
 
-    // 2. Cari yoksa oluÅŸtur
-    console.log(`ğŸ“ Yeni cari oluÅŸturuluyor: ${cariCode} - ${unvan}`);
+    // 2. Cari yoksa oluştur
+    console.log(`📝 Yeni cari oluşturuluyor: ${cariCode} - ${unvan}`);
 
     try {
       await this.pool!.request()
@@ -2582,11 +2618,11 @@ class MikroService {
           )
         `);
 
-      console.log(`âœ… Cari baÅŸarÄ±yla oluÅŸturuldu: ${cariCode}`);
+      console.log(`✅ Cari başarıyla oluşturuldu: ${cariCode}`);
       return true;
     } catch (error) {
-      console.error('âŒ Cari oluÅŸturma hatasÄ±:', error);
-      throw new Error(`Cari oluÅŸturulamadÄ±: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
+      console.error('❌ Cari oluşturma hatası:', error);
+      throw new Error(`Cari oluşturulamadı: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`);
     }
   }
 
@@ -2697,7 +2733,7 @@ class MikroService {
    * Mikro teklif satirlarini getir
    */
   /**
-   * BaÄŸlantÄ± testi
+   * Bağlantı testi
    */
   async testConnection(): Promise<boolean> {
     try {
@@ -2705,13 +2741,13 @@ class MikroService {
       await this.pool!.request().query('SELECT 1 as test');
       return true;
     } catch (error) {
-      console.error('âŒ Mikro baÄŸlantÄ± testi baÅŸarÄ±sÄ±z:', error);
+      console.error('❌ Mikro bağlantı testi başarısız:', error);
       return false;
     }
   }
 
   /**
-   * Ham SQL sorgusu Ã§alÄ±ÅŸtÄ±r
+   * Ham SQL sorgusu çalıştır
    */
   async executeQuery(query: string): Promise<any[]> {
     try {
@@ -2740,4 +2776,11 @@ class MikroService {
 }
 
 export default new MikroService();
+
+
+
+
+
+
+
 

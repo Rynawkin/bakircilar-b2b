@@ -67,18 +67,12 @@ enum OrderItemStatus {
   REJECTED  // Reddedildi
 }
 
-enum QuoteStatus {
-  PENDING_APPROVAL   // Admin onayÄ± bekliyor
-  SENT_TO_MIKRO      // Mikro'ya gÃ¶nderildi
-  REJECTED           // Admin tarafÄ±ndan reddedildi
-  CUSTOMER_ACCEPTED  // MÃ¼ÅŸteri kabul etti
-  CUSTOMER_REJECTED  // MÃ¼ÅŸteri reddetti
-}
 
 enum QuoteConversionSource {
   B2B
   MIKRO
 }
+
 
 enum QuoteHistoryAction {
   CREATED
@@ -86,6 +80,14 @@ enum QuoteHistoryAction {
   STATUS_CHANGED
   CONVERTED
 }
+
+
+enum QuoteItemStatus {
+  OPEN
+  CONVERTED
+  CLOSED
+}
+
 
 enum QuotePriceSource {
   LAST_SALE   // Son satÄ±ÅŸ fiyatÄ±
@@ -1053,6 +1055,13 @@ model QuoteItem {
   isBlocked         Boolean           @default(false)
   blockedReason     String?
 
+  status            QuoteItemStatus   @default(OPEN)
+  statusUpdatedAt   DateTime          @default(now())
+  closedReason      String?
+  closedAt          DateTime?
+  convertedAt       DateTime?
+
+
   sourceSaleDate    DateTime?
   sourceSalePrice   Float?
   sourceSaleQuantity Float?
@@ -1068,6 +1077,8 @@ model QuoteItem {
   @@index([productId])
   @@index([productCode])
   @@index([priceSource])
+  @@index([status])
+  @@index([statusUpdatedAt])
 }
 
 model QuoteHistory {
@@ -1566,5 +1577,10 @@ model Notification {
   @@index([userId, isRead])
   @@index([createdAt])
 }
+
+
+
+
+
 
 

@@ -236,12 +236,14 @@ export type QuoteStatus =
   | 'CUSTOMER_REJECTED';
 
 export type QuotePriceSource = 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL';
+export type QuoteItemStatus = 'OPEN' | 'CONVERTED' | 'CLOSED';
 
 export interface QuoteItem {
   id: string;
   productCode: string;
   productName: string;
   unit?: string;
+  lineOrder?: number;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -253,6 +255,11 @@ export interface QuoteItem {
   isManualLine: boolean;
   isBlocked: boolean;
   blockedReason?: string;
+  status?: QuoteItemStatus;
+  statusUpdatedAt?: string;
+  closedReason?: string | null;
+  closedAt?: string | null;
+  convertedAt?: string | null;
   sourceSaleDate?: string;
   sourceSalePrice?: number;
   sourceSaleQuantity?: number;
@@ -354,6 +361,24 @@ export interface Quote {
     id: string;
     name: string;
     email?: string;
+  };
+}
+
+export interface QuoteLineItem extends QuoteItem {
+  waitingDays?: number;
+  quote?: {
+    id: string;
+    quoteNumber: string;
+    documentNo?: string | null;
+    status: QuoteStatus;
+    createdAt: string;
+    mikroNumber?: string | null;
+    customer?: {
+      id: string;
+      name: string;
+      displayName?: string;
+      mikroCariCode?: string;
+    };
   };
 }
 
