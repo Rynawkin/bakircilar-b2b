@@ -286,7 +286,7 @@ export default function QuoteLineItemsPage() {
                             </Select>
                             <Button
                               size="sm"
-                              variant="destructive"
+                              variant="danger"
                               onClick={() => handleCloseItem(item)}
                               disabled={!closeReasonMap[item.id] || actionId === item.id}
                             >
