@@ -68,6 +68,16 @@ enum OrderItemStatus {
 }
 
 
+
+
+enum QuoteStatus {
+  PENDING_APPROVAL
+  SENT_TO_MIKRO
+  REJECTED
+  CUSTOMER_ACCEPTED
+  CUSTOMER_REJECTED
+}
+
 enum QuoteConversionSource {
   B2B
   MIKRO
