@@ -159,9 +159,9 @@ const buildCustomerProductPayloads = async (params: {
     lastEntryPrice?: number | null;
     excessStock: number;
     imageUrl?: string | null;
-    warehouseStocks?: Record<string, number> | null;
-    warehouseExcessStocks?: Record<string, number> | null;
-    pendingCustomerOrdersByWarehouse?: Record<string, number> | null;
+    warehouseStocks?: unknown;
+    warehouseExcessStocks?: unknown;
+    pendingCustomerOrdersByWarehouse?: unknown;
     prices: unknown;
     category: { id: string; name: string };
   }>;
