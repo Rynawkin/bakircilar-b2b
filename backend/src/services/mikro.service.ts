@@ -61,6 +61,14 @@ class MikroService {
     return 0;
   }
 
+  private normalizeVatRate(rate: number): number {
+    const numeric = Number(rate) || 0;
+    if (numeric > 1) {
+      return numeric / 100;
+    }
+    return numeric;
+  }
+
   /**
    * Mikro veritabanına bağlan
    */
@@ -1283,7 +1291,7 @@ class MikroService {
         const lineSorMerkez = (item.responsibilityCenter || defaultSorMerkez || '').trim().slice(0, 25);
 
         // Hesaplamalar
-        const vatRate = Number(item.vatRate) || 0;
+        const vatRate = this.normalizeVatRate(Number(item.vatRate) || 0);
         const tutar = item.quantity * item.unitPrice;
         const vergiTutari = applyVAT ? tutar * vatRate : 0;
         const vatCode = applyVAT ? this.convertVatRateToCode(vatRate) : 0;
@@ -1878,7 +1886,7 @@ class MikroService {
       for (const item of params.items) {
         const quantity = Number(item.quantity) || 0;
         const unitPrice = Number(item.unitPrice) || 0;
-        const vatRate = Number(item.vatRate) || 0;
+        const vatRate = this.normalizeVatRate(Number(item.vatRate) || 0);
         const vatCode = this.convertVatRateToCode(vatRate);
         const lineTotal = unitPrice * quantity;
         const vatAmount = lineTotal * vatRate;

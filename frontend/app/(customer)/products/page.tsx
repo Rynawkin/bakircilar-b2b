@@ -365,6 +365,7 @@ export default function ProductsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredProducts.map((product) => {
                   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+                  const vatPercent = Math.round((Number(product.vatRate) || 0) * 100);
                                     const selectedPriceType = allowedPriceTypes.includes(quickAddPriceTypes[product.id])
                     ? quickAddPriceTypes[product.id]
                     : defaultPriceType;
@@ -466,6 +467,7 @@ export default function ProductsPage() {
                           {unitLabel && (
                             <span className="text-xs text-gray-500">{unitLabel}</span>
                           )}
+                          <span className="text-xs text-gray-500">KDV: %{vatPercent}</span>
                           {hasAgreement && (
                             <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded inline-block">
                               Anlasma: min {product.agreement?.minQuantity ?? 1} {product.unit}
