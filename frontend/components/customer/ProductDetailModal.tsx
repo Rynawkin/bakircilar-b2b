@@ -29,7 +29,8 @@ interface ProductDetailModalProps {
 export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allowedPriceTypes, vatDisplayPreference }: ProductDetailModalProps) {
   const router = useRouter();
   const [quantity, setQuantity] = useState(1);
-  const resolvedAllowed = allowedPriceTypes && allowedPriceTypes.length > 0 ? allowedPriceTypes : ['INVOICED', 'WHITE'];
+  const resolvedAllowed: Array<'INVOICED' | 'WHITE'> =
+    allowedPriceTypes && allowedPriceTypes.length > 0 ? allowedPriceTypes : ['INVOICED', 'WHITE'];
   const defaultPriceType = resolvedAllowed.includes('INVOICED') ? 'INVOICED' : 'WHITE';
   const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>(defaultPriceType);
   const [isZoomed, setIsZoomed] = useState(false);
