@@ -54,7 +54,9 @@ const applyPendingOrders = (
   return result;
 };
 
-const isPriceTypeAllowed = (visibility: string | null | undefined, priceType: string): boolean => {
+type PriceVisibilityValue = 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+
+const isPriceTypeAllowed = (visibility: PriceVisibilityValue | null | undefined, priceType: 'INVOICED' | 'WHITE'): boolean => {
   if (visibility === 'WHITE_ONLY') return priceType === 'WHITE';
   if (visibility === 'BOTH') return true;
   return priceType === 'INVOICED';
@@ -128,7 +130,7 @@ const loadCustomerContext = async (userId: string) => {
 
   const basePriceListPair = resolveCustomerPriceLists(customer, settings);
   const includedWarehouses = settings?.includedWarehouses || [];
-  const effectiveVisibility = user?.parentCustomerId
+  const effectiveVisibility: PriceVisibilityValue | null | undefined = user?.parentCustomerId
     ? (customer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
     : customer.priceVisibility;
 
@@ -157,9 +159,9 @@ const buildCustomerProductPayloads = async (params: {
     lastEntryPrice?: number | null;
     excessStock: number;
     imageUrl?: string | null;
-    warehouseStocks?: Record<string, number>;
-    warehouseExcessStocks?: Record<string, number>;
-    pendingCustomerOrdersByWarehouse?: Record<string, number>;
+    warehouseStocks?: Record<string, number> | null;
+    warehouseExcessStocks?: Record<string, number> | null;
+    pendingCustomerOrdersByWarehouse?: Record<string, number> | null;
     prices: unknown;
     category: { id: string; name: string };
   }>;
@@ -167,7 +169,7 @@ const buildCustomerProductPayloads = async (params: {
   priceListRules: any[];
   basePriceListPair: { invoiced: number; white: number };
   includedWarehouses: string[];
-  effectiveVisibility: string | null | undefined;
+  effectiveVisibility: PriceVisibilityValue | null | undefined;
   isDiscounted?: boolean;
 }) => {
   const {
