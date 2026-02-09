@@ -19,6 +19,11 @@ import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel, getVatStatusLabel } from '@/lib/utils/vatDisplay';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
+type RecommendationGroup = {
+  baseProduct: { id: string; name: string; mikroCode: string };
+  products: Product[];
+};
+
 export default function CartPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -27,7 +32,7 @@ export default function CartPage() {
   const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
   const [customerOrderNumber, setCustomerOrderNumber] = useState('');
   const [deliveryLocation, setDeliveryLocation] = useState('');
-  const [recommendations, setRecommendations] = useState<Product[]>([]);
+  const [recommendationGroups, setRecommendationGroups] = useState<RecommendationGroup[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
@@ -60,16 +65,16 @@ export default function CartPage() {
 
   const fetchRecommendations = async () => {
     if (!cartSignature) {
-      setRecommendations([]);
+      setRecommendationGroups([]);
       return;
     }
     setIsLoadingRecommendations(true);
     try {
       const data = await customerApi.getCartRecommendations();
-      setRecommendations(data.products || []);
+      setRecommendationGroups(data.groups || []);
     } catch (error) {
       console.error('Oneriler yuklenemedi:', error);
-      setRecommendations([]);
+      setRecommendationGroups([]);
     } finally {
       setIsLoadingRecommendations(false);
     }
@@ -481,22 +486,26 @@ Siparis No: ${result.orderNumber}`, {
                 </Button>
               </div>
 
-              {isLoadingRecommendations ? (
+                            {isLoadingRecommendations ? (
                 <Card className="shadow-xl border-2 border-gray-200 bg-white">
                   <div className="text-sm text-gray-500">Oneriler yukleniyor...</div>
                 </Card>
-              ) : recommendations.length > 0 ? (
-                <Card className="shadow-xl border-2 border-gray-200 bg-white">
-                  <ProductRecommendations
-                    products={recommendations}
-                    title="Tamamlayici Urunler"
-                    icon="+"
-                    onProductClick={(item) => router.push(`/products/${item.id}`)}
-                    onAddToCart={handleRecommendationAdd}
-                    allowedPriceTypes={allowedPriceTypes}
-                    vatDisplayPreference={vatDisplayPreference}
-                  />
-                </Card>
+              ) : recommendationGroups.length > 0 ? (
+                <div className="space-y-4">
+                  {recommendationGroups.map((group) => (
+                    <Card key={group.baseProduct.id} className="shadow-xl border-2 border-gray-200 bg-white">
+                      <ProductRecommendations
+                        products={group.products}
+                        title={`${group.baseProduct.mikroCode} - ${group.baseProduct.name} icin tamamlayici urunler`}
+                        icon="+"
+                        onProductClick={(item) => router.push(`/products/${item.id}`)}
+                        onAddToCart={handleRecommendationAdd}
+                        allowedPriceTypes={allowedPriceTypes}
+                        vatDisplayPreference={vatDisplayPreference}
+                      />
+                    </Card>
+                  ))}
+                </div>
               ) : null}
 
               {/* Order Summary */}
@@ -612,3 +621,8 @@ Siparis No: ${result.orderNumber}`, {
     </div>
   );
 }
+
+
+
+
+

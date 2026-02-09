@@ -400,10 +400,11 @@ router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update
 router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
 router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
 router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);
-router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists']), adminController.getReportCategories);
+router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing']), adminController.getReportCategories);
 router.get('/reports/top-products', requirePermission('reports:top-products'), adminController.getTopProducts);
 router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);
 router.get('/reports/product-customers/:productCode', requirePermission('reports:top-customers'), adminController.getProductCustomers);
+router.get('/reports/complement-missing', requirePermission('reports:complement-missing'), adminController.getComplementMissingReport);
 // Price Sync endpoints
 router.post('/price-sync', requirePermission('admin:price-sync'), adminController.syncPriceChanges);
 router.get('/price-sync/status', requirePermission('admin:price-sync'), adminController.getPriceSyncStatus);

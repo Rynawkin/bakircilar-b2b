@@ -102,6 +102,16 @@ const reports: ReportCard[] = [
     badge: 'Önerilen',
   },
   {
+    id: 'complement-missing',
+    title: 'Tamamlayici Urun Eksikleri',
+    description: 'Secilen urun veya cari icin tamamlayici urunleri almayanlari listeler',
+    icon: <Package className="h-5 w-5" />,
+    href: '/reports/complement-missing',
+    category: 'customer',
+    badge: 'Yeni',
+    permission: 'reports:complement-missing',
+  },
+  {
     id: 'overdue-payments',
     title: 'Vade & Alacak Takip Raporu',
     description: 'Vadesi geçmiş alacaklar, aranması gerekenler ve satış durdurma önerileri',

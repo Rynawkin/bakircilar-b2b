@@ -400,6 +400,76 @@ class ProductComplementService {
       .slice(0, limit)
       .map(([productId]) => productId);
   }
+
+  async getRecommendationIdsByProduct(
+    productIds: string[],
+    limit = COMPLEMENT_LIMIT,
+    excludeIds: string[] = []
+  ): Promise<Record<string, string[]>> {
+    const uniqueProductIds = Array.from(new Set(productIds.filter(Boolean)));
+    if (uniqueProductIds.length === 0) return {};
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: uniqueProductIds } },
+      select: { id: true, complementMode: true },
+    });
+
+    const manualIds = products.filter((p) => p.complementMode === 'MANUAL').map((p) => p.id);
+    const autoIds = products.filter((p) => p.complementMode !== 'MANUAL').map((p) => p.id);
+
+    const [manualRows, autoRows] = await Promise.all([
+      manualIds.length
+        ? prisma.productComplementManual.findMany({
+            where: { productId: { in: manualIds } },
+            orderBy: [{ productId: 'asc' }, { sortOrder: 'asc' }],
+            select: { productId: true, relatedProductId: true },
+          })
+        : Promise.resolve([]),
+      uniqueProductIds.length
+        ? prisma.productComplementAuto.findMany({
+            where: { productId: { in: uniqueProductIds } },
+            orderBy: [{ productId: 'asc' }, { rank: 'asc' }],
+            select: { productId: true, relatedProductId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const manualMap = new Map<string, string[]>();
+    manualRows.forEach((row) => {
+      const list = manualMap.get(row.productId) || [];
+      list.push(row.relatedProductId);
+      manualMap.set(row.productId, list);
+    });
+
+    const autoMap = new Map<string, string[]>();
+    autoRows.forEach((row) => {
+      const list = autoMap.get(row.productId) || [];
+      list.push(row.relatedProductId);
+      autoMap.set(row.productId, list);
+    });
+
+    const excludeSet = new Set(excludeIds.filter(Boolean));
+    const result: Record<string, string[]> = {};
+
+    products.forEach((product) => {
+      const manualList = manualMap.get(product.id) || [];
+      const autoList = autoMap.get(product.id) || [];
+      const baseList = product.complementMode === 'MANUAL' && manualList.length > 0
+        ? manualList
+        : autoList;
+
+      const filtered = baseList
+        .filter((id) => id && id !== product.id && !excludeSet.has(id))
+        .slice(0, limit);
+
+      result[product.id] = filtered;
+    });
+
+    return result;
+  }
 }
 
 export default new ProductComplementService();
+
+
+

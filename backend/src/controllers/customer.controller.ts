@@ -1290,25 +1290,40 @@ export class CustomerController {
           },
         },
       });
-      const cartProductIds = (cart?.items || []).map((item) => item.productId);
+      const cartProductIds: string[] = [];
+      const seen = new Set<string>();
+      (cart?.items || []).forEach((item) => {
+        if (!item.productId || seen.has(item.productId)) return;
+        seen.add(item.productId);
+        cartProductIds.push(item.productId);
+      });
+
       if (cartProductIds.length === 0) {
-        return res.json({ products: [] });
+        return res.json({ groups: [] });
       }
 
-      const rawLimit = Number(req.query.limit);
-      const requestedLimit = Number.isFinite(rawLimit) && rawLimit > 0
-        ? Math.min(Math.floor(rawLimit), 500)
-        : undefined;
-      const dynamicLimit = Math.max(5, cartProductIds.length * 5);
-      const limit = requestedLimit ?? dynamicLimit;
+      const baseProducts = await prisma.product.findMany({
+        where: { id: { in: cartProductIds } },
+        select: { id: true, name: true, mikroCode: true },
+      });
+      const baseProductMap = new Map(baseProducts.map((product) => [product.id, product]));
 
-      const recommendedIds = await productComplementService.getRecommendationIdsForCart(cartProductIds, limit);
-      if (recommendedIds.length === 0) {
-        return res.json({ products: [] });
+      const recommendationsByProduct = await productComplementService.getRecommendationIdsByProduct(
+        cartProductIds,
+        5,
+        cartProductIds
+      );
+
+      const allRecommendedIds = Array.from(
+        new Set(Object.values(recommendationsByProduct).flat())
+      );
+
+      if (allRecommendedIds.length === 0) {
+        return res.json({ groups: [] });
       }
 
       const products = await prisma.product.findMany({
-        where: { id: { in: recommendedIds }, active: true },
+        where: { id: { in: allRecommendedIds }, active: true },
         select: {
           id: true,
           name: true,
@@ -1336,7 +1351,7 @@ export class CustomerController {
       });
 
       const productMap = new Map(products.map((product) => [product.id, product]));
-      const orderedProducts = recommendedIds
+      const orderedProducts = allRecommendedIds
         .map((productId) => productMap.get(productId))
         .filter(Boolean) as typeof products;
 
@@ -1350,7 +1365,27 @@ export class CustomerController {
         isDiscounted: false,
       });
 
-      res.json({ products: payload });
+      const payloadMap = new Map(payload.map((product) => [product.id, product]));
+
+      const groups = cartProductIds
+        .map((productId) => {
+          const baseProduct = baseProductMap.get(productId);
+          if (!baseProduct) return null;
+          const recommendedIds = recommendationsByProduct[productId] || [];
+          const recommendedProducts = recommendedIds
+            .map((id) => payloadMap.get(id))
+            .filter(Boolean);
+
+          if (recommendedProducts.length === 0) return null;
+
+          return {
+            baseProduct,
+            products: recommendedProducts,
+          };
+        })
+        .filter(Boolean);
+
+      res.json({ groups });
     } catch (error) {
       next(error);
     }
@@ -2017,3 +2052,5 @@ export class CustomerController {
 }
 
 export default new CustomerController();
+
+

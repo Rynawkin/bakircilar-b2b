@@ -1418,6 +1418,56 @@ export const adminApi = {
     return response.data;
   },
 
+  getComplementMissingReport: async (params: {
+    mode: 'product' | 'customer';
+    productCode?: string;
+    customerCode?: string;
+    periodMonths?: number;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      rows: Array<{
+        customerCode?: string;
+        customerName?: string;
+        productCode?: string;
+        productName?: string;
+        missingComplements: Array<{ productCode: string; productName: string }>;
+        missingCount: number;
+      }>;
+      summary: {
+        totalRows: number;
+        totalMissing: number;
+      };
+      pagination: {
+        page: number;
+        limit: number;
+        totalPages: number;
+        totalRecords: number;
+      };
+      metadata: {
+        mode: 'product' | 'customer';
+        periodMonths: number;
+        startDate: string;
+        endDate: string;
+        baseProduct?: { productCode: string; productName: string };
+        customer?: { customerCode: string; customerName: string | null };
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('mode', params.mode);
+    if (params.productCode) queryParams.append('productCode', params.productCode);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.periodMonths) queryParams.append('periodMonths', params.periodMonths.toString());
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+
+    const response = await apiClient.get(`/admin/reports/complement-missing?${queryParams.toString()}`);
+    return response.data;
+  },
+
   // Exclusions
   getExclusions: async (activeOnly?: boolean): Promise<{
     success: boolean;

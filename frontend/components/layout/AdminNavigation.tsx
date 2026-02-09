@@ -84,6 +84,7 @@ const navItems: NavItem[] = [
       'reports:top-products',
       'reports:top-customers',
       'reports:supplier-price-lists',
+      'reports:complement-missing',
     ],
   },
 ];

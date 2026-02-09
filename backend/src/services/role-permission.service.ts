@@ -23,6 +23,7 @@ export const AVAILABLE_PERMISSIONS = {
   'reports:top-products': 'En Cok Satan Urunler',
   'reports:top-customers': 'En Cok Satan Musteriler',
   'reports:supplier-price-lists': 'Tedarikci Fiyat Karsilastirma',
+  'reports:complement-missing': 'Tamamlayici Urun Eksikleri',
 
   // Admin Pages
   'admin:customers': 'Musteri Yonetimi',
@@ -66,6 +67,7 @@ export const PERMISSION_DESCRIPTIONS = {
   'reports:top-products': 'En cok satan urunler raporuna erisim izni verir',
   'reports:top-customers': 'En cok satan musteriler raporuna erisim izni verir',
   'reports:supplier-price-lists': 'Tedarikci fiyat karsilastirma raporuna erisim izni verir',
+  'reports:complement-missing': 'Tamamlayici urun eksikleri raporuna erisim izni verir',
 
   // Admin Pages
   'admin:customers': 'Musteri listesi ve musteri yonetim sayfalarina erisim izni verir',

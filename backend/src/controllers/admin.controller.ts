@@ -2985,6 +2985,32 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/complement-missing
+   * Tamamlayici urunleri eksik olanlar raporu
+   */
+  async getComplementMissingReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { mode, productCode, customerCode, periodMonths, page, limit } = req.query;
+
+      const data = await reportsService.getComplementMissingReport({
+        mode: mode as 'product' | 'customer',
+        productCode: productCode as string,
+        customerCode: customerCode as string,
+        periodMonths: periodMonths ? parseInt(periodMonths as string, 10) : undefined,
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Exclusion Management - Get all exclusions
    * GET /api/admin/exclusions
    */

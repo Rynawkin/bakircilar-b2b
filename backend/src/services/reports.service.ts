@@ -135,6 +135,48 @@ interface PriceHistoryResponse {
 }
 
 
+interface ComplementMissingItem {
+  productCode: string;
+  productName: string;
+}
+
+interface ComplementMissingRow {
+  customerCode?: string;
+  customerName?: string;
+  productCode?: string;
+  productName?: string;
+  missingComplements: ComplementMissingItem[];
+  missingCount: number;
+}
+
+interface ComplementMissingReportResponse {
+  rows: ComplementMissingRow[];
+  summary: {
+    totalRows: number;
+    totalMissing: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+    totalRecords: number;
+  };
+  metadata: {
+    mode: 'product' | 'customer';
+    periodMonths: number;
+    startDate: string;
+    endDate: string;
+    baseProduct?: {
+      productCode: string;
+      productName: string;
+    };
+    customer?: {
+      customerCode: string;
+      customerName: string | null;
+    };
+  };
+}
+
 const parseDateInput = (value?: string): Date | null => {
   if (!value) return null;
   const cleaned = value.replace(/-/g, '');
@@ -154,6 +196,19 @@ const formatDateKey = (date: Date): string => {
 };
 
 const formatDateCompact = (date: Date): string => formatDateKey(date).replace(/-/g, '');
+
+const subtractMonthsUtc = (date: Date, months: number): Date => {
+  const next = new Date(date);
+  next.setUTCMonth(next.getUTCMonth() - months);
+  return next;
+};
+
+const normalizeReportCode = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  return value.trim().toUpperCase();
+};
+
+const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''");
 
 const addDaysUtc = (date: Date, days: number): Date => {
   const next = new Date(date);
@@ -2161,6 +2216,380 @@ export class ReportsService {
   /**
    * Ürün Detay Raporu - Belirli bir ürünün hangi müşterilere satıldığını gösterir
    */
+  private async resolveComplementIdsForProducts(
+    products: Array<{ id: string; complementMode: 'AUTO' | 'MANUAL' }>,
+    limit: number
+  ): Promise<Map<string, string[]>> {
+    const productIds = products.map((product) => product.id);
+    if (productIds.length === 0) return new Map();
+
+    const manualIds = products
+      .filter((product) => product.complementMode === 'MANUAL')
+      .map((product) => product.id);
+
+    const [manualRows, autoRows] = await Promise.all([
+      manualIds.length
+        ? prisma.productComplementManual.findMany({
+            where: { productId: { in: manualIds } },
+            orderBy: [{ productId: 'asc' }, { sortOrder: 'asc' }],
+            select: { productId: true, relatedProductId: true },
+          })
+        : Promise.resolve([]),
+      productIds.length
+        ? prisma.productComplementAuto.findMany({
+            where: { productId: { in: productIds } },
+            orderBy: [{ productId: 'asc' }, { rank: 'asc' }],
+            select: { productId: true, relatedProductId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const manualMap = new Map<string, string[]>();
+    manualRows.forEach((row) => {
+      const list = manualMap.get(row.productId) || [];
+      list.push(row.relatedProductId);
+      manualMap.set(row.productId, list);
+    });
+
+    const autoMap = new Map<string, string[]>();
+    autoRows.forEach((row) => {
+      const list = autoMap.get(row.productId) || [];
+      list.push(row.relatedProductId);
+      autoMap.set(row.productId, list);
+    });
+
+    const result = new Map<string, string[]>();
+    products.forEach((product) => {
+      const manualList = manualMap.get(product.id) || [];
+      const autoList = autoMap.get(product.id) || [];
+      const baseList = product.complementMode === 'MANUAL' && manualList.length > 0
+        ? manualList
+        : autoList;
+
+      result.set(product.id, baseList.slice(0, limit));
+    });
+
+    return result;
+  }
+
+  async getComplementMissingReport(options: {
+    mode: 'product' | 'customer';
+    productCode?: string;
+    customerCode?: string;
+    periodMonths?: number;
+    page?: number;
+    limit?: number;
+  }): Promise<ComplementMissingReportResponse> {
+    const { mode, productCode, customerCode } = options;
+    if (mode !== 'product' && mode !== 'customer') {
+      throw new AppError('Rapor modu gecersiz.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const periodMonths = options.periodMonths === 12 ? 12 : 6;
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 50;
+
+    const reportEnd = new Date();
+    const reportStart = subtractMonthsUtc(reportEnd, periodMonths);
+    const startDate = formatDateCompact(reportStart);
+    const endDate = formatDateCompact(reportEnd);
+
+    const metadata: ComplementMissingReportResponse['metadata'] = {
+      mode,
+      periodMonths,
+      startDate,
+      endDate,
+    };
+
+    const buildResponse = (rows: ComplementMissingRow[]): ComplementMissingReportResponse => {
+      const totalRows = rows.length;
+      const totalMissing = rows.reduce((sum, row) => sum + row.missingCount, 0);
+      const totalPages = totalRows > 0 ? Math.ceil(totalRows / limit) : 0;
+      const offset = (page - 1) * limit;
+      const paginatedRows = rows.slice(offset, offset + limit);
+
+      return {
+        rows: paginatedRows,
+        summary: {
+          totalRows,
+          totalMissing,
+        },
+        pagination: {
+          page,
+          limit,
+          totalPages,
+          totalRecords: totalRows,
+        },
+        metadata,
+      };
+    };
+
+    if (mode === 'product') {
+      const normalizedProductCode = normalizeReportCode(productCode);
+      if (!normalizedProductCode) {
+        throw new AppError('Urun kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
+      }
+
+      const product = await prisma.product.findFirst({
+        where: {
+          mikroCode: {
+            equals: normalizedProductCode,
+            mode: 'insensitive',
+          },
+        },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          complementMode: true,
+        },
+      });
+
+      if (!product) {
+        throw new AppError('Urun bulunamadi.', 404, ErrorCode.PRODUCT_NOT_FOUND);
+      }
+
+      metadata.baseProduct = {
+        productCode: product.mikroCode,
+        productName: product.name,
+      };
+
+      const complementMap = await this.resolveComplementIdsForProducts(
+        [{ id: product.id, complementMode: product.complementMode }],
+        5
+      );
+      const complementIds = complementMap.get(product.id) || [];
+      if (complementIds.length === 0) {
+        return buildResponse([]);
+      }
+
+      const complementProducts = await prisma.product.findMany({
+        where: { id: { in: complementIds } },
+        select: { id: true, mikroCode: true, name: true },
+      });
+      const complementLookup = new Map(complementProducts.map((item) => [item.id, item]));
+      const complementList = complementIds
+        .map((id) => complementLookup.get(id))
+        .filter(Boolean) as Array<{ id: string; mikroCode: string; name: string }>;
+
+      if (complementList.length === 0) {
+        return buildResponse([]);
+      }
+
+      const codeList = [product.mikroCode, ...complementList.map((item) => item.mikroCode)];
+      const inClause = codeList
+        .map((code) => `'${escapeSqlLiteral(code)}'`)
+        .join(', ');
+
+      await mikroService.connect();
+      try {
+        const whereConditions = [
+          'sth_cins = 0',
+          'sth_tip = 1',
+          'sth_evraktip IN (1, 4)',
+          `sth_tarih >= '${startDate}'`,
+          `sth_tarih <= '${endDate}'`,
+          '(sth_iptal = 0 OR sth_iptal IS NULL)',
+          'sth.sth_stok_kod IS NOT NULL',
+          "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+          'sth.sth_cari_kodu IS NOT NULL',
+          "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+          `RTRIM(sth.sth_stok_kod) IN (${inClause})`,
+        ];
+
+        const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+        whereConditions.push(...exclusionConditions);
+
+        const whereClause = whereConditions.join(' AND ');
+
+        const query = `
+          SELECT
+            RTRIM(sth.sth_cari_kodu) as customerCode,
+            MAX(c.cari_unvan1) as customerName,
+            RTRIM(sth.sth_stok_kod) as productCode
+          FROM STOK_HAREKETLERI sth
+          LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+          LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+          WHERE ${whereClause}
+          GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
+        `;
+
+        const rawData = await mikroService.executeQuery(query);
+        const baseCode = normalizeReportCode(product.mikroCode);
+        const complementCodes = complementList.map((item) => ({
+          productCode: item.mikroCode,
+          productName: item.name,
+          normalizedCode: normalizeReportCode(item.mikroCode),
+        }));
+
+        const customerMap = new Map<string, { customerCode: string; customerName: string | null; purchasedCodes: Set<string> }>();
+        rawData.forEach((row: any) => {
+          const customer = normalizeReportCode(row.customerCode);
+          if (!customer) return;
+          const productCodeValue = normalizeReportCode(row.productCode);
+          if (!productCodeValue) return;
+
+          const entry = customerMap.get(customer) || {
+            customerCode: row.customerCode?.trim() || customer,
+            customerName: row.customerName || null,
+            purchasedCodes: new Set<string>(),
+          };
+          entry.purchasedCodes.add(productCodeValue);
+          customerMap.set(customer, entry);
+        });
+
+        const rows: ComplementMissingRow[] = [];
+        customerMap.forEach((entry) => {
+          if (!entry.purchasedCodes.has(baseCode)) return;
+
+          const missingComplements = complementCodes
+            .filter((item) => !entry.purchasedCodes.has(item.normalizedCode))
+            .map((item) => ({
+              productCode: item.productCode,
+              productName: item.productName,
+            }));
+
+          if (missingComplements.length === 0) return;
+
+          rows.push({
+            customerCode: entry.customerCode,
+            customerName: entry.customerName || '-',
+            missingComplements,
+            missingCount: missingComplements.length,
+          });
+        });
+
+        rows.sort((a, b) => {
+          if (b.missingCount !== a.missingCount) {
+            return b.missingCount - a.missingCount;
+          }
+          return (a.customerName || '').localeCompare(b.customerName || '');
+        });
+
+        return buildResponse(rows);
+      } finally {
+        await mikroService.disconnect();
+      }
+    }
+
+    const normalizedCustomerCode = normalizeReportCode(customerCode);
+    if (!normalizedCustomerCode) {
+      throw new AppError('Cari kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    await mikroService.connect();
+    try {
+      const whereConditions = [
+        'sth_cins = 0',
+        'sth_tip = 1',
+        'sth_evraktip IN (1, 4)',
+        `sth_tarih >= '${startDate}'`,
+        `sth_tarih <= '${endDate}'`,
+        '(sth_iptal = 0 OR sth_iptal IS NULL)',
+        'sth.sth_stok_kod IS NOT NULL',
+        "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+        `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
+      ];
+
+      const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+      whereConditions.push(...exclusionConditions);
+
+      const whereClause = whereConditions.join(' AND ');
+
+      const query = `
+        SELECT
+          RTRIM(sth.sth_stok_kod) as productCode,
+          MAX(st.sto_isim) as productName,
+          MAX(c.cari_unvan1) as customerName
+        FROM STOK_HAREKETLERI sth
+        LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+        WHERE ${whereClause}
+        GROUP BY sth.sth_stok_kod
+      `;
+
+      const rawData = await mikroService.executeQuery(query);
+      const customerName = rawData.length > 0 ? rawData[0].customerName || null : null;
+      metadata.customer = {
+        customerCode: normalizedCustomerCode,
+        customerName,
+      };
+
+      const purchasedCodes = rawData
+        .map((row: any) => normalizeReportCode(row.productCode))
+        .filter(Boolean);
+      const purchasedSet = new Set(purchasedCodes);
+
+      if (purchasedCodes.length === 0) {
+        return buildResponse([]);
+      }
+
+      const purchasedProducts = await prisma.product.findMany({
+        where: { mikroCode: { in: purchasedCodes } },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          complementMode: true,
+        },
+      });
+
+      if (purchasedProducts.length === 0) {
+        return buildResponse([]);
+      }
+
+      const complementMap = await this.resolveComplementIdsForProducts(purchasedProducts, 5);
+      const allComplementIds = Array.from(
+        new Set(Array.from(complementMap.values()).flat())
+      );
+
+      if (allComplementIds.length === 0) {
+        return buildResponse([]);
+      }
+
+      const complementProducts = await prisma.product.findMany({
+        where: { id: { in: allComplementIds } },
+        select: { id: true, mikroCode: true, name: true },
+      });
+      const complementLookup = new Map(complementProducts.map((item) => [item.id, item]));
+
+      const rows: ComplementMissingRow[] = [];
+      purchasedProducts.forEach((product) => {
+        const complementIds = complementMap.get(product.id) || [];
+        if (complementIds.length === 0) return;
+
+        const missingComplements = complementIds
+          .map((id) => complementLookup.get(id))
+          .filter(Boolean)
+          .filter((item) => !purchasedSet.has(normalizeReportCode(item!.mikroCode)))
+          .map((item) => ({
+            productCode: item!.mikroCode,
+            productName: item!.name,
+          }));
+
+        if (missingComplements.length === 0) return;
+
+        rows.push({
+          productCode: product.mikroCode,
+          productName: product.name,
+          missingComplements,
+          missingCount: missingComplements.length,
+        });
+      });
+
+      rows.sort((a, b) => {
+        if (b.missingCount !== a.missingCount) {
+          return b.missingCount - a.missingCount;
+        }
+        return (a.productName || '').localeCompare(b.productName || '');
+      });
+
+      return buildResponse(rows);
+    } finally {
+      await mikroService.disconnect();
+    }
+  }
+
   async getProductCustomers(params: {
     productCode: string;
     startDate?: string;
@@ -2268,3 +2697,8 @@ export class ReportsService {
 }
 
 export default new ReportsService();
+
+
+
+
+

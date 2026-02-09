@@ -42,7 +42,7 @@ export const customerApi = {
     return response.data;
   },
 
-  getCartRecommendations: async (): Promise<{ products: Product[] }> => {
+  getCartRecommendations: async (): Promise<{ groups: Array<{ baseProduct: { id: string; name: string; mikroCode: string }; products: Product[] }> }> => {
     const response = await apiClient.get('/recommendations/cart');
     return response.data;
   },
@@ -222,5 +222,7 @@ export const customerApi = {
 };
 
 export default customerApi;
+
+
 
 
