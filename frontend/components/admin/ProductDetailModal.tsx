@@ -82,6 +82,7 @@ export function ProductDetailModal({
   const manualLimitReached = manualIds.length >= complementLimit;
   const saveMode = manualIds.length === 0 ? 'AUTO' : complementMode;
   const manualModeNeedsItems = complementMode === 'MANUAL' && manualIds.length === 0;
+  const showManualPanel = complementMode === 'MANUAL';
 
   const filteredSearchResults = useMemo(() => {
     if (searchResults.length === 0) return [];
@@ -527,7 +528,7 @@ export function ProductDetailModal({
           ) : complementsError ? (
             <div className="text-sm text-red-600">{complementsError}</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={showManualPanel ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'space-y-4'}>
               <div className="border border-gray-200 rounded-lg p-3">
                 <div className="text-sm font-semibold text-gray-800 mb-2">Otomatik Oneriler</div>
                 {autoComplements.length === 0 ? (
@@ -546,73 +547,75 @@ export function ProductDetailModal({
                   </div>
                 )}
               </div>
-              <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm font-semibold text-gray-800">Manuel Liste</div>
-                  <div className="text-xs text-gray-500">
-                    {manualIds.length}/{complementLimit}
+              {showManualPanel && (
+                <div className="border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold text-gray-800">Manuel Liste</div>
+                    <div className="text-xs text-gray-500">
+                      {manualIds.length}/{complementLimit}
+                    </div>
                   </div>
-                </div>
-                {manualComplements.length === 0 ? (
-                  <div className="text-xs text-gray-500">Manuel urun secilmedi</div>
-                ) : (
-                  <div className="space-y-2 mb-3">
-                    {manualComplements.map((item) => (
-                      <div key={item.productId} className="flex items-start justify-between gap-2 text-xs">
-                        <div>
-                          <div className="font-semibold text-gray-800">{item.productName}</div>
-                          <div className="text-gray-500">{item.productCode}</div>
+                  {manualComplements.length === 0 ? (
+                    <div className="text-xs text-gray-500">Manuel urun secilmedi</div>
+                  ) : (
+                    <div className="space-y-2 mb-3">
+                      {manualComplements.map((item) => (
+                        <div key={item.productId} className="flex items-start justify-between gap-2 text-xs">
+                          <div>
+                            <div className="font-semibold text-gray-800">{item.productName}</div>
+                            <div className="text-gray-500">{item.productCode}</div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRemoveManual(item.productId)}
+                          >
+                            Kaldir
+                          </Button>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleRemoveManual(item.productId)}
-                        >
-                          Kaldir
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="border-t pt-2 mt-2">
-                  <div className="text-xs font-semibold text-gray-600 mb-2">Urun ekle</div>
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Urun adi veya kodu"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
-                  />
-                  {isSearching && (
-                    <div className="text-xs text-gray-500 mt-2">Araniyor...</div>
-                  )}
-                  {!isSearching && searchTerm.trim() && filteredSearchResults.length === 0 && (
-                    <div className="text-xs text-gray-500 mt-2">Sonuc bulunamadi</div>
-                  )}
-                  {filteredSearchResults.length > 0 && (
-                    <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y">
-                      {filteredSearchResults.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => handleAddManual(item)}
-                          disabled={manualLimitReached}
-                          className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          <span>
-                            <span className="font-semibold text-gray-800">{item.name}</span>
-                            <span className="text-gray-500 ml-2">{item.mikroCode}</span>
-                          </span>
-                          <span className="text-primary-600">Ekle</span>
-                        </button>
                       ))}
                     </div>
                   )}
-                  {manualLimitReached && (
-                    <div className="text-[11px] text-gray-500 mt-2">Limit doldu. Once listeden cikarin.</div>
-                  )}
+                  <div className="border-t pt-2 mt-2">
+                    <div className="text-xs font-semibold text-gray-600 mb-2">Urun ekle</div>
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Urun adi veya kodu"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                    />
+                    {isSearching && (
+                      <div className="text-xs text-gray-500 mt-2">Araniyor...</div>
+                    )}
+                    {!isSearching && searchTerm.trim() && filteredSearchResults.length === 0 && (
+                      <div className="text-xs text-gray-500 mt-2">Sonuc bulunamadi</div>
+                    )}
+                    {filteredSearchResults.length > 0 && (
+                      <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y">
+                        {filteredSearchResults.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => handleAddManual(item)}
+                            disabled={manualLimitReached}
+                            className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <span>
+                              <span className="font-semibold text-gray-800">{item.name}</span>
+                              <span className="text-gray-500 ml-2">{item.mikroCode}</span>
+                            </span>
+                            <span className="text-primary-600">Ekle</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {manualLimitReached && (
+                      <div className="text-[11px] text-gray-500 mt-2">Limit doldu. Once listeden cikarin.</div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
           <div className="flex justify-end pt-2">

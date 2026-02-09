@@ -1295,7 +1295,14 @@ export class CustomerController {
         return res.json({ products: [] });
       }
 
-      const recommendedIds = await productComplementService.getRecommendationIdsForCart(cartProductIds);
+      const rawLimit = Number(req.query.limit);
+      const requestedLimit = Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), 50)
+        : undefined;
+      const dynamicLimit = Math.min(20, Math.max(5, cartProductIds.length * 5));
+      const limit = requestedLimit ?? dynamicLimit;
+
+      const recommendedIds = await productComplementService.getRecommendationIdsForCart(cartProductIds, limit);
       if (recommendedIds.length === 0) {
         return res.json({ products: [] });
       }

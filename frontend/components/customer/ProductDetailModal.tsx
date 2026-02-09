@@ -1,14 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 import { Product } from '@/types';
+import customerApi from '@/lib/api/customer';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
 import { Button } from '@/components/ui/Button';
+import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -25,18 +27,22 @@ interface ProductDetailModalProps {
 }
 
 export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allowedPriceTypes, vatDisplayPreference }: ProductDetailModalProps) {
+  const router = useRouter();
   const [quantity, setQuantity] = useState(1);
   const resolvedAllowed = allowedPriceTypes && allowedPriceTypes.length > 0 ? allowedPriceTypes : ['INVOICED', 'WHITE'];
   const defaultPriceType = resolvedAllowed.includes('INVOICED') ? 'INVOICED' : 'WHITE';
   const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>(defaultPriceType);
   const [isZoomed, setIsZoomed] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [recommendations, setRecommendations] = useState<Product[]>([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
 
   // Reset state when product changes
   useEffect(() => {
     setQuantity(1);
     setPriceType(defaultPriceType);
     setIsZoomed(false);
+    setRecommendations([]);
   }, [product]);
 
   useEffect(() => {
@@ -70,6 +76,41 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !product?.id) {
+      setRecommendations([]);
+      setIsLoadingRecommendations(false);
+      return;
+    }
+
+    let active = true;
+
+    const loadRecommendations = async () => {
+      setIsLoadingRecommendations(true);
+      try {
+        const data = await customerApi.getProductRecommendations(product.id);
+        if (active) {
+          setRecommendations(data.products || []);
+        }
+      } catch (error) {
+        console.error('Oneriler yuklenemedi:', error);
+        if (active) {
+          setRecommendations([]);
+        }
+      } finally {
+        if (active) {
+          setIsLoadingRecommendations(false);
+        }
+      }
+    };
+
+    loadRecommendations();
+
+    return () => {
+      active = false;
+    };
+  }, [isOpen, product?.id]);
+
   const handleAddToCart = async () => {
     if (!product) return;
 
@@ -93,6 +134,25 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
     } finally {
       setIsAdding(false);
     }
+  };
+
+  const handleRecommendationAdd = async (productId: string) => {
+    const recommendation = recommendations.find((item) => item.id === productId);
+    if (!recommendation) return;
+
+    const safePriceType = resolvedAllowed.includes(priceType) ? priceType : defaultPriceType;
+    const priceMode = recommendation.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST';
+
+    try {
+      await onAddToCart(productId, 1, safePriceType, priceMode);
+    } catch (error) {
+      // Error is handled in parent
+    }
+  };
+
+  const handleRecommendationClick = (item: Product) => {
+    onClose();
+    router.push(`/products/${item.id}`);
   };
 
   if (!isOpen || !product) return null;
@@ -454,6 +514,24 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
           </div>
         </div>
       </div>
+
+      {(isLoadingRecommendations || recommendations.length > 0) && (
+        <div className="px-8 pb-8">
+          {isLoadingRecommendations ? (
+            <div className="text-sm text-gray-500">Oneriler yukleniyor...</div>
+          ) : (
+            <ProductRecommendations
+              products={recommendations}
+              title="Tamamlayici Urunler"
+              icon="+"
+              onProductClick={handleRecommendationClick}
+              onAddToCart={handleRecommendationAdd}
+              allowedPriceTypes={resolvedAllowed}
+              vatDisplayPreference={vatDisplayPreference}
+            />
+          )}
+        </div>
+      )}
 
       <style jsx global>{`
         @keyframes fadeIn {
