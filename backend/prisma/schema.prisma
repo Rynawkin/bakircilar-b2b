@@ -620,6 +620,8 @@ model Product {
   supplierPriceListMatches SupplierPriceListMatch[]
   complementAuto          ProductComplementAuto[]
   complementManual        ProductComplementManual[]
+  complementAutoRelated   ProductComplementAuto[] @relation("ProductComplementAutoRelated")
+  complementManualRelated ProductComplementManual[] @relation("ProductComplementManualRelated")
 
   @@index([mikroCode])
   @@index([foreignName])
