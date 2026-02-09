@@ -2,7 +2,7 @@ import mikroService from './mikroFactory.service';
 import { prisma } from '../utils/prisma';
 import { cacheService } from './cache.service';
 
-const COMPLEMENT_LIMIT = 5;
+const COMPLEMENT_LIMIT = 10;
 const INITIAL_WINDOW_MONTHS = 24;
 const REGULAR_WINDOW_MONTHS = 6;
 const MANUAL_WEIGHT = 10000;
@@ -470,6 +470,7 @@ class ProductComplementService {
 }
 
 export default new ProductComplementService();
+
 
 
 
