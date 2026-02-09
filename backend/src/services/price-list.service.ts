@@ -4,7 +4,22 @@
  * Reads Mikro list prices from product_price_stats and returns numeric values.
  */
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+
+type PriceStatsRow = {
+  productCode: string;
+  currentPriceList1: number | null;
+  currentPriceList2: number | null;
+  currentPriceList3: number | null;
+  currentPriceList4: number | null;
+  currentPriceList5: number | null;
+  currentPriceList6: number | null;
+  currentPriceList7: number | null;
+  currentPriceList8: number | null;
+  currentPriceList9: number | null;
+  currentPriceList10: number | null;
+};
 
 const PRICE_LIST_FIELDS: Record<number, string> = {
   1: 'currentPriceList1',
@@ -63,44 +78,50 @@ class PriceListService {
       return new Map();
     }
 
-    const stats = await prisma.productPriceStat.findMany({
-      where: { productCode: { in: productCodes } },
-      select: {
-        productCode: true,
-        currentPriceList1: true,
-        currentPriceList2: true,
-        currentPriceList3: true,
-        currentPriceList4: true,
-        currentPriceList5: true,
-        currentPriceList6: true,
-        currentPriceList7: true,
-        currentPriceList8: true,
-        currentPriceList9: true,
-        currentPriceList10: true,
-      },
-    });
+    const uniqueCodes = Array.from(new Set(productCodes.filter(Boolean)));
+    if (uniqueCodes.length === 0) return new Map();
+
+    const stats = await prisma.$queryRaw<PriceStatsRow[]>(Prisma.sql`
+      SELECT
+        product_code AS "productCode",
+        current_price_list_1 AS "currentPriceList1",
+        current_price_list_2 AS "currentPriceList2",
+        current_price_list_3 AS "currentPriceList3",
+        current_price_list_4 AS "currentPriceList4",
+        current_price_list_5 AS "currentPriceList5",
+        current_price_list_6 AS "currentPriceList6",
+        current_price_list_7 AS "currentPriceList7",
+        current_price_list_8 AS "currentPriceList8",
+        current_price_list_9 AS "currentPriceList9",
+        current_price_list_10 AS "currentPriceList10"
+      FROM product_price_stats
+      WHERE product_code IN (${Prisma.join(uniqueCodes)})
+    `);
 
     return new Map(stats.map((row) => [row.productCode, row]));
   }
 
   async getPriceStats(productCode: string): Promise<any | null> {
     if (!productCode) return null;
-    return prisma.productPriceStat.findUnique({
-      where: { productCode },
-      select: {
-        productCode: true,
-        currentPriceList1: true,
-        currentPriceList2: true,
-        currentPriceList3: true,
-        currentPriceList4: true,
-        currentPriceList5: true,
-        currentPriceList6: true,
-        currentPriceList7: true,
-        currentPriceList8: true,
-        currentPriceList9: true,
-        currentPriceList10: true,
-      },
-    });
+    const rows = await prisma.$queryRaw<PriceStatsRow[]>(Prisma.sql`
+      SELECT
+        product_code AS "productCode",
+        current_price_list_1 AS "currentPriceList1",
+        current_price_list_2 AS "currentPriceList2",
+        current_price_list_3 AS "currentPriceList3",
+        current_price_list_4 AS "currentPriceList4",
+        current_price_list_5 AS "currentPriceList5",
+        current_price_list_6 AS "currentPriceList6",
+        current_price_list_7 AS "currentPriceList7",
+        current_price_list_8 AS "currentPriceList8",
+        current_price_list_9 AS "currentPriceList9",
+        current_price_list_10 AS "currentPriceList10"
+      FROM product_price_stats
+      WHERE product_code = ${productCode}
+      LIMIT 1
+    `);
+
+    return rows[0] || null;
   }
 }
 
