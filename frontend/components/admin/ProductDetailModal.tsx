@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'rea
 import adminApi from '@/lib/api/admin';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { getCustomerTypeName } from '@/lib/utils/customerTypes';
@@ -34,6 +35,7 @@ type ComplementItem = {
 type ComplementState = {
   mode: ComplementMode;
   limit: number;
+  complementGroupCode?: string | null;
   auto: ComplementItem[];
   manual: ComplementItem[];
 };
@@ -62,10 +64,11 @@ export function ProductDetailModal({
     return typeof value === 'number' ? value : Number(value) || 0;
   };
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
-  const [complementLimit, setComplementLimit] = useState(5);
+  const [complementLimit, setComplementLimit] = useState(10);
   const [autoComplements, setAutoComplements] = useState<ComplementItem[]>([]);
   const [manualComplements, setManualComplements] = useState<ComplementItem[]>([]);
   const [complementMode, setComplementMode] = useState<ComplementMode>('AUTO');
+  const [complementGroupCode, setComplementGroupCode] = useState('');
   const [complementsLoading, setComplementsLoading] = useState(false);
   const [complementsError, setComplementsError] = useState<string | null>(null);
 
@@ -76,6 +79,7 @@ export function ProductDetailModal({
 
   const [initialMode, setInitialMode] = useState<ComplementMode>('AUTO');
   const [initialManualIds, setInitialManualIds] = useState<string[]>([]);
+  const [initialComplementGroupCode, setInitialComplementGroupCode] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   const manualIds = useMemo(() => manualComplements.map((item) => item.productId), [manualComplements]);
@@ -95,9 +99,17 @@ export function ProductDetailModal({
 
   const isDirty = useMemo(() => {
     if (saveMode !== initialMode) return true;
+    if (complementGroupCode.trim() !== initialComplementGroupCode.trim()) return true;
     if (manualIds.length !== initialManualIds.length) return true;
     return manualIds.some((id, index) => id !== initialManualIds[index]);
-  }, [saveMode, initialMode, manualIds, initialManualIds]);
+  }, [
+    saveMode,
+    initialMode,
+    manualIds,
+    initialManualIds,
+    complementGroupCode,
+    initialComplementGroupCode,
+  ]);
 
   const loadComplements = useCallback(async () => {
     if (!product?.id) return;
@@ -108,7 +120,10 @@ export function ProductDetailModal({
       setAutoComplements(data.auto || []);
       setManualComplements(data.manual || []);
       setComplementMode(data.mode || 'AUTO');
-      setComplementLimit(data.limit || 5);
+      setComplementLimit(data.limit || 10);
+      const groupCode = typeof data.complementGroupCode === 'string' ? data.complementGroupCode.trim() : '';
+      setComplementGroupCode(groupCode);
+      setInitialComplementGroupCode(groupCode);
       setInitialMode(data.mode || 'AUTO');
       setInitialManualIds((data.manual || []).map((item) => item.productId));
     } catch (error) {
@@ -193,9 +208,11 @@ export function ProductDetailModal({
     setIsSaving(true);
     setComplementsError(null);
     try {
+      const normalizedGroup = complementGroupCode.trim();
       await adminApi.updateProductComplements(product.id, {
         manualProductIds: manualIds,
         mode: saveMode,
+        complementGroupCode: normalizedGroup ? normalizedGroup : null,
       });
       await loadComplements();
     } catch (error) {
@@ -517,6 +534,17 @@ export function ProductDetailModal({
               {complementMode === 'MANUAL' ? 'Manuel liste kullaniliyor' : 'Otomatik oneriler aktif'}
             </span>
             <span className="text-xs text-gray-400">Limit: {complementLimit}</span>
+          </div>
+          <div className="mb-3 max-w-xs">
+            <Input
+              label="Tamamlayici Grup Kodu"
+              placeholder="Ornek: TEA"
+              value={complementGroupCode}
+              onChange={(event) => setComplementGroupCode(event.target.value)}
+            />
+            <div className="text-xs text-gray-500 mt-1">
+              Grup bazli raporlar icin kullanilir.
+            </div>
           </div>
           {manualModeNeedsItems && (
             <div className="text-xs text-orange-600 mb-3">

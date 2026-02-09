@@ -15,15 +15,17 @@ class ProductComplementController {
   async updateComplements(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { manualProductIds, mode } = req.body as {
+      const { manualProductIds, mode, complementGroupCode } = req.body as {
         manualProductIds?: string[];
         mode?: 'AUTO' | 'MANUAL';
+        complementGroupCode?: string | null;
       };
 
       const result = await productComplementService.updateManualComplements(
         id,
         manualProductIds || [],
-        mode
+        mode,
+        complementGroupCode
       );
       res.json(result);
     } catch (error) {

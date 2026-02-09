@@ -26,6 +26,7 @@ interface ComplementMissingRow {
 
 interface ComplementMissingMetadata {
   mode: 'product' | 'customer';
+  matchMode: 'product' | 'category' | 'group';
   periodMonths: number;
   startDate: string;
   endDate: string;
@@ -46,6 +47,7 @@ interface ComplementMissingSummary {
 
 interface ComplementMissingParams {
   mode: 'product' | 'customer';
+  matchMode: 'product' | 'category' | 'group';
   productCode?: string;
   customerCode?: string;
   periodMonths: number;
@@ -53,6 +55,7 @@ interface ComplementMissingParams {
 
 export default function ComplementMissingReportPage() {
   const [mode, setMode] = useState<'product' | 'customer'>('product');
+  const [matchMode, setMatchMode] = useState<'product' | 'category' | 'group'>('product');
   const [productSearch, setProductSearch] = useState('');
   const [productCode, setProductCode] = useState('');
   const [productName, setProductName] = useState('');
@@ -172,6 +175,7 @@ export default function ComplementMissingReportPage() {
     setPage(1);
     setSubmitted({
       mode,
+      matchMode,
       periodMonths,
       productCode: productValue || undefined,
       customerCode: customerValue || undefined,
@@ -185,6 +189,7 @@ export default function ComplementMissingReportPage() {
     try {
       const result = await adminApi.getComplementMissingReport({
         mode: params.mode,
+        matchMode: params.matchMode,
         productCode: params.productCode,
         customerCode: params.customerCode,
         periodMonths: params.periodMonths,
@@ -213,6 +218,8 @@ export default function ComplementMissingReportPage() {
   }, [submitted, page]);
 
   const tableMode = metadata?.mode ?? mode;
+  const matchModeValue = metadata?.matchMode ?? matchMode;
+  const matchModeLabel = matchModeValue === 'category' ? 'Kategori' : matchModeValue === 'group' ? 'Grup' : 'Urun';
   const showProductMode = mode === 'product';
   const showProductTable = tableMode === 'product';
 
@@ -265,7 +272,7 @@ export default function ComplementMissingReportPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Rapor Modu</label>
               <div className="flex gap-2">
@@ -286,6 +293,18 @@ export default function ComplementMissingReportPage() {
                   Cari Bazli
                 </Button>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Eslesme Tipi</label>
+              <Select
+                value={matchMode}
+                onChange={(e) => setMatchMode(e.target.value as 'product' | 'category' | 'group')}
+              >
+                <option value="product">Urun Bazli</option>
+                <option value="category">Kategori Bazli</option>
+                <option value="group">Grup Bazli</option>
+              </Select>
             </div>
 
             {showProductMode ? (
@@ -396,6 +415,9 @@ export default function ComplementMissingReportPage() {
             <CardContent>
               <div className="text-lg font-semibold">
                 {metadata.mode === 'product' ? 'Urun' : 'Cari'}
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Eslesme: {matchModeLabel}
               </div>
             </CardContent>
           </Card>

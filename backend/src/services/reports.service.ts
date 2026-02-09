@@ -140,6 +140,8 @@ interface ComplementMissingItem {
   productName: string;
 }
 
+type ComplementMatchMode = 'product' | 'category' | 'group';
+
 interface ComplementMissingRow {
   customerCode?: string;
   customerName?: string;
@@ -163,6 +165,7 @@ interface ComplementMissingReportResponse {
   };
   metadata: {
     mode: 'product' | 'customer';
+    matchMode: ComplementMatchMode;
     periodMonths: number;
     startDate: string;
     endDate: string;
@@ -206,6 +209,19 @@ const subtractMonthsUtc = (date: Date, months: number): Date => {
 const normalizeReportCode = (value: unknown): string => {
   if (typeof value !== 'string') return '';
   return value.trim().toUpperCase();
+};
+
+const COMPLEMENT_REPORT_LIMIT = 10;
+const REPORT_CODE_BATCH_SIZE = 900;
+const REPORT_CUSTOMER_BATCH_SIZE = 200;
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  if (size <= 0) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 };
 
 const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''");
@@ -2274,6 +2290,7 @@ export class ReportsService {
 
   async getComplementMissingReport(options: {
     mode: 'product' | 'customer';
+    matchMode?: ComplementMatchMode;
     productCode?: string;
     customerCode?: string;
     periodMonths?: number;
@@ -2294,8 +2311,107 @@ export class ReportsService {
     const startDate = formatDateCompact(reportStart);
     const endDate = formatDateCompact(reportEnd);
 
+    const matchMode: ComplementMatchMode =
+      options.matchMode === 'category' || options.matchMode === 'group'
+        ? options.matchMode
+        : 'product';
+
+    type ComplementProductMeta = {
+      productCode: string;
+      productName?: string | null;
+      categoryCode?: string | null;
+      categoryName?: string | null;
+      groupCode?: string | null;
+    };
+
+    const makeProductKey = (code: string) => `PRODUCT:${code}`;
+    const makeCategoryKey = (code: string) => `CATEGORY:${code}`;
+    const makeGroupKey = (code: string) => `GROUP:${code}`;
+
+    const addPurchasedKeys = (set: Set<string>, code: string, meta?: ComplementProductMeta) => {
+      if (!code) return;
+      set.add(makeProductKey(code));
+      if (meta?.categoryCode) {
+        set.add(makeCategoryKey(meta.categoryCode));
+      }
+      if (meta?.groupCode) {
+        set.add(makeGroupKey(meta.groupCode));
+      }
+    };
+
+    const buildComplementKey = (meta: ComplementProductMeta | undefined, code: string): string => {
+      if (!code) return '';
+      if (matchMode === 'group') {
+        if (meta?.groupCode) return makeGroupKey(meta.groupCode);
+        if (meta?.categoryCode) return makeCategoryKey(meta.categoryCode);
+        return makeProductKey(code);
+      }
+      if (matchMode === 'category') {
+        if (meta?.categoryCode) return makeCategoryKey(meta.categoryCode);
+        return makeProductKey(code);
+      }
+      return makeProductKey(code);
+    };
+
+    const buildComplementDisplay = (
+      meta: ComplementProductMeta | undefined,
+      code: string,
+      name: string
+    ): ComplementMissingItem => {
+      if (matchMode === 'group') {
+        if (meta?.groupCode) {
+          return { productCode: meta.groupCode, productName: `Grup ${meta.groupCode}` };
+        }
+        if (meta?.categoryCode) {
+          return {
+            productCode: meta.categoryCode,
+            productName: meta.categoryName || `Kategori ${meta.categoryCode}`,
+          };
+        }
+      }
+
+      if (matchMode === 'category' && meta?.categoryCode) {
+        return {
+          productCode: meta.categoryCode,
+          productName: meta.categoryName || `Kategori ${meta.categoryCode}`,
+        };
+      }
+
+      return { productCode: code, productName: name };
+    };
+
+    const buildProductMetaMap = async (codes: string[]) => {
+      const uniqueCodes = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
+      const map = new Map<string, ComplementProductMeta>();
+      for (const chunk of chunkArray(uniqueCodes, REPORT_CODE_BATCH_SIZE)) {
+        if (chunk.length === 0) continue;
+        const rows = await prisma.product.findMany({
+          where: { mikroCode: { in: chunk } },
+          select: {
+            mikroCode: true,
+            name: true,
+            complementGroupCode: true,
+            category: { select: { mikroCode: true, name: true } },
+          },
+        });
+        rows.forEach((row) => {
+          const normalized = normalizeReportCode(row.mikroCode);
+          if (!normalized) return;
+          map.set(normalized, {
+            productCode: normalized,
+            productName: row.name,
+            categoryCode: row.category?.mikroCode ? normalizeReportCode(row.category.mikroCode) : null,
+            categoryName: row.category?.name ?? null,
+            groupCode: row.complementGroupCode ? normalizeReportCode(row.complementGroupCode) : null,
+          });
+        });
+      }
+      return map;
+    };
+
     const metadata: ComplementMissingReportResponse['metadata'] = {
       mode,
+      matchMode,
       periodMonths,
       startDate,
       endDate,
@@ -2356,7 +2472,7 @@ export class ReportsService {
 
       const complementMap = await this.resolveComplementIdsForProducts(
         [{ id: product.id, complementMode: product.complementMode }],
-        5
+        COMPLEMENT_REPORT_LIMIT
       );
       const complementIds = complementMap.get(product.id) || [];
       if (complementIds.length === 0) {
@@ -2365,25 +2481,32 @@ export class ReportsService {
 
       const complementProducts = await prisma.product.findMany({
         where: { id: { in: complementIds } },
-        select: { id: true, mikroCode: true, name: true },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          complementGroupCode: true,
+          category: { select: { mikroCode: true, name: true } },
+        },
       });
       const complementLookup = new Map(complementProducts.map((item) => [item.id, item]));
       const complementList = complementIds
         .map((id) => complementLookup.get(id))
-        .filter(Boolean) as Array<{ id: string; mikroCode: string; name: string }>;
+        .filter(Boolean) as Array<{
+          id: string;
+          mikroCode: string;
+          name: string;
+          complementGroupCode: string | null;
+          category: { mikroCode: string; name: string } | null;
+        }>;
 
       if (complementList.length === 0) {
         return buildResponse([]);
       }
 
-      const codeList = [product.mikroCode, ...complementList.map((item) => item.mikroCode)];
-      const inClause = codeList
-        .map((code) => `'${escapeSqlLiteral(code)}'`)
-        .join(', ');
-
       await mikroService.connect();
       try {
-        const whereConditions = [
+        const baseConditions = [
           'sth_cins = 0',
           'sth_tip = 1',
           'sth_evraktip IN (1, 4)',
@@ -2394,66 +2517,131 @@ export class ReportsService {
           "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
           'sth.sth_cari_kodu IS NOT NULL',
           "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
-          `RTRIM(sth.sth_stok_kod) IN (${inClause})`,
         ];
 
         const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
-        whereConditions.push(...exclusionConditions);
 
-        const whereClause = whereConditions.join(' AND ');
+        const baseCustomerConditions = [
+          ...baseConditions,
+          ...exclusionConditions,
+          `RTRIM(sth.sth_stok_kod) = '${escapeSqlLiteral(product.mikroCode)}'`,
+        ];
+        const baseCustomerClause = baseCustomerConditions.join(' AND ');
 
-        const query = `
+        const customerQuery = `
           SELECT
             RTRIM(sth.sth_cari_kodu) as customerCode,
-            MAX(c.cari_unvan1) as customerName,
-            RTRIM(sth.sth_stok_kod) as productCode
+            MAX(c.cari_unvan1) as customerName
           FROM STOK_HAREKETLERI sth
           LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
-          LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-          WHERE ${whereClause}
-          GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
+          WHERE ${baseCustomerClause}
+          GROUP BY sth.sth_cari_kodu
         `;
 
-        const rawData = await mikroService.executeQuery(query);
-        const baseCode = normalizeReportCode(product.mikroCode);
-        const complementCodes = complementList.map((item) => ({
-          productCode: item.mikroCode,
-          productName: item.name,
-          normalizedCode: normalizeReportCode(item.mikroCode),
-        }));
+        const customerRows = await mikroService.executeQuery(customerQuery);
 
-        const customerMap = new Map<string, { customerCode: string; customerName: string | null; purchasedCodes: Set<string> }>();
-        rawData.forEach((row: any) => {
+        const customerMap = new Map<string, { customerCode: string; customerName: string | null }>();
+        const customerCodes: string[] = [];
+        customerRows.forEach((row: any) => {
           const customer = normalizeReportCode(row.customerCode);
           if (!customer) return;
-          const productCodeValue = normalizeReportCode(row.productCode);
-          if (!productCodeValue) return;
-
-          const entry = customerMap.get(customer) || {
-            customerCode: row.customerCode?.trim() || customer,
+          if (customerMap.has(customer)) return;
+          const rawCode = row.customerCode?.trim() || customer;
+          customerMap.set(customer, {
+            customerCode: rawCode,
             customerName: row.customerName || null,
-            purchasedCodes: new Set<string>(),
-          };
-          entry.purchasedCodes.add(productCodeValue);
-          customerMap.set(customer, entry);
+          });
+          customerCodes.push(rawCode);
         });
 
-        const rows: ComplementMissingRow[] = [];
-        customerMap.forEach((entry) => {
-          if (!entry.purchasedCodes.has(baseCode)) return;
+        if (customerCodes.length === 0) {
+          return buildResponse([]);
+        }
 
-          const missingComplements = complementCodes
-            .filter((item) => !entry.purchasedCodes.has(item.normalizedCode))
-            .map((item) => ({
-              productCode: item.productCode,
-              productName: item.productName,
-            }));
+        const purchaseMap = new Map<string, Set<string>>();
+
+        const customerChunks = chunkArray(customerCodes, REPORT_CUSTOMER_BATCH_SIZE);
+        for (const chunk of customerChunks) {
+          if (chunk.length === 0) continue;
+          const inClause = chunk
+            .map((code) => `'${escapeSqlLiteral(code)}'`)
+            .join(', ');
+
+          const purchaseConditions = [
+            ...baseConditions,
+            ...exclusionConditions,
+            `RTRIM(sth.sth_cari_kodu) IN (${inClause})`,
+          ];
+          const purchaseClause = purchaseConditions.join(' AND ');
+
+          const purchaseQuery = `
+            SELECT
+              RTRIM(sth.sth_cari_kodu) as customerCode,
+              RTRIM(sth.sth_stok_kod) as productCode
+            FROM STOK_HAREKETLERI sth
+            WHERE ${purchaseClause}
+            GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
+          `;
+
+          const purchaseRows = await mikroService.executeQuery(purchaseQuery);
+          purchaseRows.forEach((row: any) => {
+            const customer = normalizeReportCode(row.customerCode);
+            const code = normalizeReportCode(row.productCode);
+            if (!customer || !code) return;
+            const set = purchaseMap.get(customer) || new Set<string>();
+            set.add(code);
+            purchaseMap.set(customer, set);
+          });
+        }
+
+        const allPurchasedCodes = Array.from(purchaseMap.values())
+          .flatMap((set) => Array.from(set));
+        const metaMap = await buildProductMetaMap([
+          product.mikroCode,
+          ...complementList.map((item) => item.mikroCode),
+          ...allPurchasedCodes,
+        ]);
+
+        const complementTargets = new Map<string, ComplementMissingItem>();
+        complementList.forEach((item) => {
+          const normalizedCode = normalizeReportCode(item.mikroCode);
+          if (!normalizedCode) return;
+          const meta = metaMap.get(normalizedCode);
+          const key = buildComplementKey(meta, normalizedCode);
+          if (!key) return;
+          const display = buildComplementDisplay(meta, item.mikroCode, item.name);
+          if (!complementTargets.has(key)) {
+            complementTargets.set(key, display);
+          }
+        });
+
+        if (complementTargets.size === 0) {
+          return buildResponse([]);
+        }
+
+        const rows: ComplementMissingRow[] = [];
+        customerMap.forEach((customerInfo, normalizedCustomer) => {
+          const purchasedCodes = purchaseMap.get(normalizedCustomer);
+          if (!purchasedCodes || purchasedCodes.size === 0) return;
+
+          const purchasedKeys = new Set<string>();
+          purchasedCodes.forEach((code) => {
+            const meta = metaMap.get(code);
+            addPurchasedKeys(purchasedKeys, code, meta);
+          });
+
+          const missingComplements: ComplementMissingItem[] = [];
+          complementTargets.forEach((item, key) => {
+            if (!purchasedKeys.has(key)) {
+              missingComplements.push(item);
+            }
+          });
 
           if (missingComplements.length === 0) return;
 
           rows.push({
-            customerCode: entry.customerCode,
-            customerName: entry.customerName || '-',
+            customerCode: customerInfo.customerCode,
+            customerName: customerInfo.customerName || '-',
             missingComplements,
             missingCount: missingComplements.length,
           });
@@ -2518,7 +2706,6 @@ export class ReportsService {
       const purchasedCodes = rawData
         .map((row: any) => normalizeReportCode(row.productCode))
         .filter(Boolean);
-      const purchasedSet = new Set(purchasedCodes);
 
       if (purchasedCodes.length === 0) {
         return buildResponse([]);
@@ -2531,6 +2718,8 @@ export class ReportsService {
           mikroCode: true,
           name: true,
           complementMode: true,
+          complementGroupCode: true,
+          category: { select: { mikroCode: true, name: true } },
         },
       });
 
@@ -2538,7 +2727,10 @@ export class ReportsService {
         return buildResponse([]);
       }
 
-      const complementMap = await this.resolveComplementIdsForProducts(purchasedProducts, 5);
+      const complementMap = await this.resolveComplementIdsForProducts(
+        purchasedProducts,
+        COMPLEMENT_REPORT_LIMIT
+      );
       const allComplementIds = Array.from(
         new Set(Array.from(complementMap.values()).flat())
       );
@@ -2549,25 +2741,70 @@ export class ReportsService {
 
       const complementProducts = await prisma.product.findMany({
         where: { id: { in: allComplementIds } },
-        select: { id: true, mikroCode: true, name: true },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          complementGroupCode: true,
+          category: { select: { mikroCode: true, name: true } },
+        },
       });
       const complementLookup = new Map(complementProducts.map((item) => [item.id, item]));
+
+      const metaMap = new Map<string, ComplementProductMeta>();
+      const addMeta = (item: {
+        mikroCode: string;
+        name: string;
+        complementGroupCode?: string | null;
+        category?: { mikroCode: string; name: string } | null;
+      }) => {
+        const normalized = normalizeReportCode(item.mikroCode);
+        if (!normalized) return;
+        metaMap.set(normalized, {
+          productCode: normalized,
+          productName: item.name,
+          categoryCode: item.category?.mikroCode ? normalizeReportCode(item.category.mikroCode) : null,
+          categoryName: item.category?.name ?? null,
+          groupCode: item.complementGroupCode ? normalizeReportCode(item.complementGroupCode) : null,
+        });
+      };
+
+      purchasedProducts.forEach(addMeta);
+      complementProducts.forEach(addMeta);
+
+      const purchasedKeys = new Set<string>();
+      purchasedCodes.forEach((code) => {
+        const normalized = normalizeReportCode(code);
+        if (!normalized) return;
+        const meta = metaMap.get(normalized);
+        addPurchasedKeys(purchasedKeys, normalized, meta);
+      });
 
       const rows: ComplementMissingRow[] = [];
       purchasedProducts.forEach((product) => {
         const complementIds = complementMap.get(product.id) || [];
         if (complementIds.length === 0) return;
 
-        const missingComplements = complementIds
-          .map((id) => complementLookup.get(id))
-          .filter(Boolean)
-          .filter((item) => !purchasedSet.has(normalizeReportCode(item!.mikroCode)))
-          .map((item) => ({
-            productCode: item!.mikroCode,
-            productName: item!.name,
-          }));
+        const missingMap = new Map<string, ComplementMissingItem>();
+        complementIds.forEach((id) => {
+          const complement = complementLookup.get(id);
+          if (!complement) return;
+          const normalizedCode = normalizeReportCode(complement.mikroCode);
+          if (!normalizedCode) return;
+          const meta = metaMap.get(normalizedCode);
+          const key = buildComplementKey(meta, normalizedCode);
+          if (!key || purchasedKeys.has(key)) return;
+          if (!missingMap.has(key)) {
+            missingMap.set(
+              key,
+              buildComplementDisplay(meta, complement.mikroCode, complement.name)
+            );
+          }
+        });
 
-        if (missingComplements.length === 0) return;
+        if (missingMap.size === 0) return;
+
+        const missingComplements = Array.from(missingMap.values());
 
         rows.push({
           productCode: product.mikroCode,

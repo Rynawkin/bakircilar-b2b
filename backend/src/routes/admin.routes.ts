@@ -140,6 +140,7 @@ const notificationReadSchema = z.object({
 const complementUpdateSchema = z.object({
   mode: z.enum(['AUTO', 'MANUAL']).optional(),
   manualProductIds: z.array(z.string().uuid()).optional(),
+  complementGroupCode: z.string().optional().nullable(),
 });
 
 const complementSyncSchema = z.object({

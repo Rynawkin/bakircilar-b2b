@@ -191,7 +191,7 @@ class ProductComplementService {
   async getAdminComplements(productId: string) {
     const product = await prisma.product.findUnique({
       where: { id: productId },
-      select: { id: true, complementMode: true },
+      select: { id: true, complementMode: true, complementGroupCode: true },
     });
     if (!product) {
       throw new Error('Product not found');
@@ -231,6 +231,7 @@ class ProductComplementService {
     return {
       mode: product.complementMode,
       limit: COMPLEMENT_LIMIT,
+      complementGroupCode: product.complementGroupCode ?? null,
       auto: autoRows.map((row) => ({
         productId: row.relatedProductId,
         productCode: row.relatedProduct.mikroCode,
@@ -249,7 +250,12 @@ class ProductComplementService {
     };
   }
 
-  async updateManualComplements(productId: string, manualProductIds: string[], mode?: 'AUTO' | 'MANUAL') {
+  async updateManualComplements(
+    productId: string,
+    manualProductIds: string[],
+    mode?: 'AUTO' | 'MANUAL',
+    complementGroupCode?: string | null
+  ) {
     const normalizedIds = Array.from(
       new Set(
         manualProductIds
@@ -257,6 +263,12 @@ class ProductComplementService {
           .filter((id) => id && id !== productId)
       )
     ).slice(0, COMPLEMENT_LIMIT);
+
+    const normalizedGroupCode = typeof complementGroupCode === 'string'
+      ? complementGroupCode.trim()
+      : '';
+    const groupValue = normalizedGroupCode ? normalizedGroupCode.toUpperCase() : null;
+    const shouldUpdateGroup = complementGroupCode !== undefined;
 
     if (mode === 'AUTO') {
       await prisma.$transaction([
@@ -266,6 +278,12 @@ class ProductComplementService {
           data: { complementMode: 'AUTO' },
         }),
       ]);
+      if (shouldUpdateGroup) {
+        await prisma.product.update({
+          where: { id: productId },
+          data: { complementGroupCode: groupValue },
+        });
+      }
       await cacheService.deletePattern('recommendations:*');
       return { mode: 'AUTO', manual: [] };
     }
@@ -322,6 +340,13 @@ class ProductComplementService {
       });
     });
 
+    if (shouldUpdateGroup) {
+      await prisma.product.update({
+        where: { id: productId },
+        data: { complementGroupCode: groupValue },
+      });
+    }
+
     await cacheService.deletePattern('recommendations:*');
     return { mode: nextMode, manual: normalizedIds };
   }
@@ -360,7 +385,7 @@ class ProductComplementService {
 
     const products = await prisma.product.findMany({
       where: { id: { in: uniqueProductIds } },
-      select: { id: true, complementMode: true },
+      select: { id: true, complementMode: true, complementGroupCode: true },
     });
     const manualIds = products.filter((p) => p.complementMode === 'MANUAL').map((p) => p.id);
     const autoIds = products.filter((p) => p.complementMode !== 'MANUAL').map((p) => p.id);
@@ -411,7 +436,7 @@ class ProductComplementService {
 
     const products = await prisma.product.findMany({
       where: { id: { in: uniqueProductIds } },
-      select: { id: true, complementMode: true },
+      select: { id: true, complementMode: true, complementGroupCode: true },
     });
 
     const manualIds = products.filter((p) => p.complementMode === 'MANUAL').map((p) => p.id);
@@ -470,6 +495,8 @@ class ProductComplementService {
 }
 
 export default new ProductComplementService();
+
+
 
 
 

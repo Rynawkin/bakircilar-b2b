@@ -2990,10 +2990,11 @@ export class AdminController {
    */
   async getComplementMissingReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const { mode, productCode, customerCode, periodMonths, page, limit } = req.query;
+      const { mode, productCode, customerCode, periodMonths, page, limit, matchMode } = req.query;
 
       const data = await reportsService.getComplementMissingReport({
         mode: mode as 'product' | 'customer',
+        matchMode: matchMode as 'product' | 'category' | 'group',
         productCode: productCode as string,
         customerCode: customerCode as string,
         periodMonths: periodMonths ? parseInt(periodMonths as string, 10) : undefined,

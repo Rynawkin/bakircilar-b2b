@@ -180,6 +180,7 @@ export const adminApi = {
   getProductComplements: async (productId: string): Promise<{
     mode: 'AUTO' | 'MANUAL';
     limit: number;
+    complementGroupCode?: string | null;
     auto: Array<{
       productId: string;
       productCode: string;
@@ -202,7 +203,11 @@ export const adminApi = {
 
   updateProductComplements: async (
     productId: string,
-    data: { manualProductIds: string[]; mode?: 'AUTO' | 'MANUAL' }
+    data: {
+      manualProductIds: string[];
+      mode?: 'AUTO' | 'MANUAL';
+      complementGroupCode?: string | null;
+    }
   ): Promise<{ mode: 'AUTO' | 'MANUAL'; manual: string[] }> => {
     const response = await apiClient.put(`/admin/products/${productId}/complements`, data);
     return response.data;
@@ -1420,6 +1425,7 @@ export const adminApi = {
 
   getComplementMissingReport: async (params: {
     mode: 'product' | 'customer';
+    matchMode?: 'product' | 'category' | 'group';
     productCode?: string;
     customerCode?: string;
     periodMonths?: number;
@@ -1448,6 +1454,7 @@ export const adminApi = {
       };
       metadata: {
         mode: 'product' | 'customer';
+        matchMode: 'product' | 'category' | 'group';
         periodMonths: number;
         startDate: string;
         endDate: string;
@@ -1458,6 +1465,7 @@ export const adminApi = {
   }> => {
     const queryParams = new URLSearchParams();
     queryParams.append('mode', params.mode);
+    if (params.matchMode) queryParams.append('matchMode', params.matchMode);
     if (params.productCode) queryParams.append('productCode', params.productCode);
     if (params.customerCode) queryParams.append('customerCode', params.customerCode);
     if (params.periodMonths) queryParams.append('periodMonths', params.periodMonths.toString());

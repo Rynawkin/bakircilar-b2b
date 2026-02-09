@@ -597,6 +597,7 @@ model Product {
 
   // Complementary product recommendation mode
   complementMode          ProductComplementMode @default(AUTO)
+  complementGroupCode     String?   // Tamamlayici grup kodu
 
   // Ürün resmi
   imageUrl                String?
@@ -1630,6 +1631,7 @@ model Notification {
   @@index([userId, isRead])
   @@index([createdAt])
 }
+
 
 
 
