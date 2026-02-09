@@ -99,6 +99,17 @@ class MikroService {
     }
   }
 
+  async disconnect(): Promise<void> {
+    if (!this.pool) return;
+    try {
+      await this.pool.close();
+    } catch (error) {
+      console.warn('WARN: Mikro connection could not be closed:', error);
+    } finally {
+      this.pool = null;
+    }
+  }
+
   public async resolveSipBelgeColumns(): Promise<{ no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean }> {
     if (this.sipBelgeColumns) {
       return this.sipBelgeColumns;

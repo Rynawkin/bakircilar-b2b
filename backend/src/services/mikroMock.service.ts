@@ -34,6 +34,10 @@ export class MikroMockService {
     return vatMap[vatCode] ?? 0.20; // Default %20
   }
 
+  async disconnect(): Promise<void> {
+    return;
+  }
+
   /**
    * Mock kategoriler
    */
