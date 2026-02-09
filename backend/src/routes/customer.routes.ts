@@ -98,6 +98,18 @@ router.get(
   }),
   customerController.getProductById
 );
+router.get(
+  '/products/:id/recommendations',
+  cacheMiddleware({
+    namespace: 'recommendations',
+    ttl: 600,
+    keyGenerator: (req) => {
+      const userId = req.user?.userId || 'guest';
+      return `${req.params.id}:${userId}`;
+    },
+  }),
+  customerController.getProductRecommendations
+);
 
 // Categories (with cache - 30 minutes TTL)
 router.get(
@@ -133,6 +145,7 @@ router.delete(
   invalidateCacheMiddleware(['products:*', 'product:*']),
   customerController.removeFromCart
 );
+router.get('/recommendations/cart', customerController.getCartRecommendations);
 
 // Orders
 router.post(

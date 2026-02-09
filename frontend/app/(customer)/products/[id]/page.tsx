@@ -10,6 +10,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
@@ -28,6 +29,8 @@ export default function ProductDetailPage() {
   const [quantity, setQuantity] = useState(1);
   const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>('INVOICED');
   const [isAdding, setIsAdding] = useState(false);
+  const [recommendations, setRecommendations] = useState<Product[]>([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -52,6 +55,12 @@ export default function ProductDetailPage() {
   }, [params.id]);
 
   useEffect(() => {
+    if (params.id) {
+      fetchRecommendations(params.id as string);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
     if (!allowedPriceTypes.includes(priceType)) {
       setPriceType(defaultPriceType);
     }
@@ -68,6 +77,19 @@ export default function ProductDetailPage() {
       setIsLoading(false);
     }
   };
+
+  const fetchRecommendations = async (id: string) => {
+    setIsLoadingRecommendations(true);
+    try {
+      const data = await customerApi.getProductRecommendations(id);
+      setRecommendations(data.products || []);
+    } catch (error) {
+      console.error('Oneriler yuklenemedi:', error);
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
 
   const handleAddToCart = async () => {
     if (!product) return;
@@ -100,6 +122,24 @@ export default function ProductDetailPage() {
       setIsAdding(false);
     }
   };
+
+  const handleRecommendationAdd = async (productId: string) => {
+    try {
+      const safePriceType = allowedPriceTypes.includes(defaultPriceType)
+        ? defaultPriceType
+        : (allowedPriceTypes[0] || 'INVOICED');
+      await addToCart({
+        productId,
+        quantity: 1,
+        priceType: safePriceType,
+        priceMode: 'LIST',
+      });
+      toast.success('Urun sepete eklendi!');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Sepete eklenirken hata olustu');
+    }
+  };
+
 
   if (isLoading) {
     return (
@@ -342,6 +382,23 @@ export default function ProductDetailPage() {
               </div>
             </div>
           </Card>
+
+          {isLoadingRecommendations ? (
+            <div className="mt-6 text-sm text-gray-500">Oneriler yukleniyor...</div>
+          ) : recommendations.length > 0 ? (
+            <div className="mt-8">
+              <ProductRecommendations
+                products={recommendations}
+                title="Tamamlayici Urunler"
+                icon="+"
+                onProductClick={(item) => router.push(`/products/${item.id}`)}
+                onAddToCart={handleRecommendationAdd}
+                allowedPriceTypes={allowedPriceTypes}
+                vatDisplayPreference={vatDisplayPreference}
+              />
+            </div>
+          ) : null}
+
         </div>
       </div>
     </div>

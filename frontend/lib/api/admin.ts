@@ -177,6 +177,44 @@ export const adminApi = {
     const response = await apiClient.post('/admin/products/image-sync', { productIds });
     return response.data;
   },
+  getProductComplements: async (productId: string): Promise<{
+    mode: 'AUTO' | 'MANUAL';
+    limit: number;
+    auto: Array<{
+      productId: string;
+      productCode: string;
+      productName: string;
+      imageUrl?: string | null;
+      pairCount: number;
+      rank: number;
+    }>;
+    manual: Array<{
+      productId: string;
+      productCode: string;
+      productName: string;
+      imageUrl?: string | null;
+      sortOrder: number;
+    }>;
+  }> => {
+    const response = await apiClient.get(`/admin/products/${productId}/complements`);
+    return response.data;
+  },
+
+  updateProductComplements: async (
+    productId: string,
+    data: { manualProductIds: string[]; mode?: 'AUTO' | 'MANUAL' }
+  ): Promise<{ mode: 'AUTO' | 'MANUAL'; manual: string[] }> => {
+    const response = await apiClient.put(`/admin/products/${productId}/complements`, data);
+    return response.data;
+  },
+
+  syncProductComplements: async (params?: {
+    months?: number;
+    limit?: number;
+  }): Promise<{ success: boolean; result: any }> => {
+    const response = await apiClient.post('/admin/product-complements/sync', params || {});
+    return response.data;
+  },
 
   // Customers
   getCustomers: async (): Promise<{ customers: Customer[] }> => {

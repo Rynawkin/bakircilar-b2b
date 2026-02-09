@@ -10,6 +10,7 @@ import notificationController from '../controllers/notification.controller';
 import eInvoiceController from '../controllers/einvoice.controller';
 import agreementController from '../controllers/agreement.controller';
 import supplierPriceListController from '../controllers/supplier-price-list.controller';
+import productComplementController from '../controllers/product-complement.controller';
 import {
   authenticate,
   requirePermission,
@@ -136,6 +137,16 @@ const notificationReadSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 });
 
+const complementUpdateSchema = z.object({
+  mode: z.enum(['AUTO', 'MANUAL']).optional(),
+  manualProductIds: z.array(z.string().uuid()).optional(),
+});
+
+const complementSyncSchema = z.object({
+  months: z.number().int().min(1).max(60).optional(),
+  limit: z.number().int().min(1).max(20).optional(),
+});
+
 // Settings - ADMIN only
 router.get('/settings', requirePermission('admin:settings'), adminController.getSettings);
 router.put('/settings', requirePermission('admin:settings'), adminController.updateSettings);
@@ -175,6 +186,19 @@ router.get('/products', requireAnyPermission(['admin:products', 'dashboard:diver
 router.post('/products/image-sync', requirePermission('admin:products'), adminController.triggerSelectedImageSync);
 router.post('/products/:id/image', requirePermission('admin:products'), upload.single('image'), adminController.uploadProductImage);
 router.delete('/products/:id/image', requirePermission('admin:products'), adminController.deleteProductImage);
+router.get('/products/:id/complements', requirePermission('admin:products'), productComplementController.getComplements);
+router.put(
+  '/products/:id/complements',
+  requirePermission('admin:products'),
+  validateBody(complementUpdateSchema),
+  productComplementController.updateComplements
+);
+router.post(
+  '/product-complements/sync',
+  requirePermission('admin:products'),
+  validateBody(complementSyncSchema),
+  productComplementController.syncComplements
+);
 
 // Brands - Admin/Manager
 router.get('/brands', requirePermission('admin:price-rules'), adminController.getBrands);

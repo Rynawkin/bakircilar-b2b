@@ -37,6 +37,15 @@ export const customerApi = {
     const response = await apiClient.get(`/products/${id}`);
     return response.data;
   },
+  getProductRecommendations: async (id: string): Promise<{ products: Product[] }> => {
+    const response = await apiClient.get(`/products/${id}/recommendations`);
+    return response.data;
+  },
+
+  getCartRecommendations: async (): Promise<{ products: Product[] }> => {
+    const response = await apiClient.get('/recommendations/cart');
+    return response.data;
+  },
 
   // Categories
   getCategories: async (): Promise<{ categories: Category[] }> => {

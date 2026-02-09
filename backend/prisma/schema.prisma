@@ -43,6 +43,11 @@ enum PriceMode {
   EXCESS
 }
 
+enum ProductComplementMode {
+  AUTO
+  MANUAL
+}
+
 enum CustomerRequestStatus {
   PENDING
   CONVERTED
@@ -590,6 +595,9 @@ model Product {
   // }
   prices                  Json      @default("{}")
 
+  // Complementary product recommendation mode
+  complementMode          ProductComplementMode @default(AUTO)
+
   // Ürün resmi
   imageUrl                String?
   imageChecksum           String?
@@ -610,6 +618,8 @@ model Product {
   priceAgreements         CustomerPriceAgreement[]
   customerRequestItems    CustomerRequestItem[]
   supplierPriceListMatches SupplierPriceListMatch[]
+  complementAuto          ProductComplementAuto[]
+  complementManual        ProductComplementManual[]
 
   @@index([mikroCode])
   @@index([foreignName])
@@ -618,6 +628,37 @@ model Product {
   @@index([imageSyncStatus])
   @@index([imageSyncErrorType])
   @@index([imageSyncUpdatedAt])
+}
+
+model ProductComplementAuto {
+  id              String   @id @default(uuid())
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  relatedProductId String
+  relatedProduct  Product  @relation("ProductComplementAutoRelated", fields: [relatedProductId], references: [id], onDelete: Cascade)
+  pairCount       Int      @default(0)
+  rank            Int      @default(0)
+  windowStart     DateTime
+  windowEnd       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([productId, relatedProductId])
+  @@index([productId, rank])
+}
+
+model ProductComplementManual {
+  id              String   @id @default(uuid())
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  relatedProductId String
+  relatedProduct  Product  @relation("ProductComplementManualRelated", fields: [relatedProductId], references: [id], onDelete: Cascade)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([productId, relatedProductId])
+  @@index([productId, sortOrder])
 }
 
 // ==================== SUPPLIERS & PRICE LISTS ====================

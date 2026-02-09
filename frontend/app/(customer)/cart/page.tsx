@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { Product } from '@/types';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import customerApi from '@/lib/api/customer';
@@ -11,22 +12,31 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel, getVatStatusLabel } from '@/lib/utils/vatDisplay';
+import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
 export default function CartPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
-  const { cart, fetchCart, removeItem, updateQuantity, updateItemNote } = useCartStore();
+  const { cart, fetchCart, removeItem, updateQuantity, updateItemNote, addToCart } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
   const [customerOrderNumber, setCustomerOrderNumber] = useState('');
   const [deliveryLocation, setDeliveryLocation] = useState('');
+  const [recommendations, setRecommendations] = useState<Product[]>([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
+  const effectiveVisibility = isSubUser
+    ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
+    : user?.priceVisibility;
   const vatDisplayPreference = user?.vatDisplayPreference || 'WITHOUT_VAT';
+  const allowedPriceTypes = useMemo(() => getAllowedPriceTypes(effectiveVisibility), [effectiveVisibility]);
+  const defaultPriceType = getDefaultPriceType(effectiveVisibility);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -41,6 +51,50 @@ export default function CartPage() {
     });
     setLineNotes(nextNotes);
   }, [cart?.items]);
+
+  const cartSignature = useMemo(() => {
+    if (!cart?.items || cart.items.length === 0) return '';
+    const ids = cart.items.map((item) => item.product.id).sort();
+    return ids.join('|');
+  }, [cart?.items]);
+
+  const fetchRecommendations = async () => {
+    if (!cartSignature) {
+      setRecommendations([]);
+      return;
+    }
+    setIsLoadingRecommendations(true);
+    try {
+      const data = await customerApi.getCartRecommendations();
+      setRecommendations(data.products || []);
+    } catch (error) {
+      console.error('Oneriler yuklenemedi:', error);
+      setRecommendations([]);
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecommendations();
+  }, [cartSignature]);
+
+  const handleRecommendationAdd = async (productId: string) => {
+    try {
+      const safePriceType = allowedPriceTypes.includes(defaultPriceType)
+        ? defaultPriceType
+        : (allowedPriceTypes[0] || 'INVOICED');
+      await addToCart({
+        productId,
+        quantity: 1,
+        priceType: safePriceType,
+        priceMode: 'LIST',
+      });
+      toast.success('Urun sepete eklendi!');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Sepete eklenirken hata olustu');
+    }
+  };
 
   const handleRemove = async (itemId: string) => {
     await showConfirmDialog(
@@ -426,6 +480,24 @@ Siparis No: ${result.orderNumber}`, {
                   🗑️ Sepeti Temizle
                 </Button>
               </div>
+
+              {isLoadingRecommendations ? (
+                <Card className="shadow-xl border-2 border-gray-200 bg-white">
+                  <div className="text-sm text-gray-500">Oneriler yukleniyor...</div>
+                </Card>
+              ) : recommendations.length > 0 ? (
+                <Card className="shadow-xl border-2 border-gray-200 bg-white">
+                  <ProductRecommendations
+                    products={recommendations}
+                    title="Tamamlayici Urunler"
+                    icon="+"
+                    onProductClick={(item) => router.push(`/products/${item.id}`)}
+                    onAddToCart={handleRecommendationAdd}
+                    allowedPriceTypes={allowedPriceTypes}
+                    vatDisplayPreference={vatDisplayPreference}
+                  />
+                </Card>
+              ) : null}
 
               {/* Order Summary */}
               <Card className="shadow-xl border-2 border-green-100 bg-gradient-to-br from-white to-green-50">

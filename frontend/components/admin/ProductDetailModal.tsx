@@ -1,6 +1,8 @@
 'use client';
 
-import type { ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import adminApi from '@/lib/api/admin';
+import { useDebounce } from '@/lib/hooks/useDebounce';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
@@ -16,6 +18,32 @@ interface ProductDetailModalProps {
   imageUploading?: boolean;
   imageDeleting?: boolean;
 }
+
+type ComplementMode = 'AUTO' | 'MANUAL';
+
+type ComplementItem = {
+  productId: string;
+  productCode: string;
+  productName: string;
+  imageUrl?: string | null;
+  pairCount?: number;
+  rank?: number;
+  sortOrder?: number;
+};
+
+type ComplementState = {
+  mode: ComplementMode;
+  limit: number;
+  auto: ComplementItem[];
+  manual: ComplementItem[];
+};
+
+type ProductSearchResult = {
+  id: string;
+  name: string;
+  mikroCode: string;
+  imageUrl?: string | null;
+};
 
 export function ProductDetailModal({
   isOpen,
@@ -34,6 +62,149 @@ export function ProductDetailModal({
     return typeof value === 'number' ? value : Number(value) || 0;
   };
   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+  const [complementLimit, setComplementLimit] = useState(5);
+  const [autoComplements, setAutoComplements] = useState<ComplementItem[]>([]);
+  const [manualComplements, setManualComplements] = useState<ComplementItem[]>([]);
+  const [complementMode, setComplementMode] = useState<ComplementMode>('AUTO');
+  const [complementsLoading, setComplementsLoading] = useState(false);
+  const [complementsError, setComplementsError] = useState<string | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 300);
+  const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const [initialMode, setInitialMode] = useState<ComplementMode>('AUTO');
+  const [initialManualIds, setInitialManualIds] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const manualIds = useMemo(() => manualComplements.map((item) => item.productId), [manualComplements]);
+  const manualLimitReached = manualIds.length >= complementLimit;
+  const saveMode = manualIds.length === 0 ? 'AUTO' : complementMode;
+  const manualModeNeedsItems = complementMode === 'MANUAL' && manualIds.length === 0;
+
+  const filteredSearchResults = useMemo(() => {
+    if (searchResults.length === 0) return [];
+    const excludedIds = new Set(manualIds);
+    if (product?.id) {
+      excludedIds.add(product.id);
+    }
+    return searchResults.filter((item) => !excludedIds.has(item.id));
+  }, [searchResults, manualIds, product?.id]);
+
+  const isDirty = useMemo(() => {
+    if (saveMode !== initialMode) return true;
+    if (manualIds.length !== initialManualIds.length) return true;
+    return manualIds.some((id, index) => id !== initialManualIds[index]);
+  }, [saveMode, initialMode, manualIds, initialManualIds]);
+
+  const loadComplements = useCallback(async () => {
+    if (!product?.id) return;
+    setComplementsLoading(true);
+    setComplementsError(null);
+    try {
+      const data: ComplementState = await adminApi.getProductComplements(product.id);
+      setAutoComplements(data.auto || []);
+      setManualComplements(data.manual || []);
+      setComplementMode(data.mode || 'AUTO');
+      setComplementLimit(data.limit || 5);
+      setInitialMode(data.mode || 'AUTO');
+      setInitialManualIds((data.manual || []).map((item) => item.productId));
+    } catch (error) {
+      console.error('Tamamlayici urunler yuklenemedi:', error);
+      setComplementsError('Tamamlayici urunler yuklenemedi');
+    } finally {
+      setComplementsLoading(false);
+    }
+  }, [product?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !product?.id) return;
+    loadComplements();
+  }, [isOpen, product?.id, loadComplements]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    setSearchTerm('');
+    setSearchResults([]);
+    setComplementsError(null);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const term = debouncedSearch.trim();
+    if (!term) {
+      setSearchResults([]);
+      return;
+    }
+    let active = true;
+    const run = async () => {
+      setIsSearching(true);
+      try {
+        const response = await adminApi.getProducts({ search: term, page: 1, limit: 10 });
+        const results = (response.products || []).map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          mikroCode: item.mikroCode,
+          imageUrl: item.imageUrl ?? null,
+        }));
+        if (active) {
+          setSearchResults(results);
+        }
+      } catch (error) {
+        console.error('Urun arama hatasi:', error);
+        if (active) {
+          setSearchResults([]);
+        }
+      } finally {
+        if (active) {
+          setIsSearching(false);
+        }
+      }
+    };
+    run();
+    return () => {
+      active = false;
+    };
+  }, [debouncedSearch, isOpen]);
+
+  const handleAddManual = (item: ProductSearchResult) => {
+    if (manualIds.includes(item.id) || manualLimitReached) return;
+    setManualComplements((prev) => [
+      ...prev,
+      {
+        productId: item.id,
+        productCode: item.mikroCode,
+        productName: item.name,
+        imageUrl: item.imageUrl ?? null,
+        sortOrder: prev.length,
+      },
+    ]);
+    setComplementMode('MANUAL');
+  };
+
+  const handleRemoveManual = (productId: string) => {
+    setManualComplements((prev) => prev.filter((item) => item.productId !== productId));
+  };
+
+  const handleSaveComplements = async () => {
+    if (!product?.id) return;
+    setIsSaving(true);
+    setComplementsError(null);
+    try {
+      await adminApi.updateProductComplements(product.id, {
+        manualProductIds: manualIds,
+        mode: saveMode,
+      });
+      await loadComplements();
+    } catch (error) {
+      console.error('Tamamlayici urunler kaydedilemedi:', error);
+      setComplementsError('Tamamlayici urunler kaydedilemedi');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -316,6 +487,144 @@ export function ProductDetailModal({
                 </div>
               );
             })}
+          </div>
+        </div>
+
+
+        {/* Complementary Products */}
+        <div>
+          <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <span className="text-xl">+</span>
+            Tamamlayici Urunler
+          </h3>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <Button
+              size="sm"
+              variant={complementMode === 'AUTO' ? 'primary' : 'secondary'}
+              onClick={() => setComplementMode('AUTO')}
+            >
+              Otomatik
+            </Button>
+            <Button
+              size="sm"
+              variant={complementMode === 'MANUAL' ? 'primary' : 'secondary'}
+              onClick={() => setComplementMode('MANUAL')}
+            >
+              Manuel
+            </Button>
+            <span className="text-xs text-gray-500">
+              {complementMode === 'MANUAL' ? 'Manuel liste kullaniliyor' : 'Otomatik oneriler aktif'}
+            </span>
+            <span className="text-xs text-gray-400">Limit: {complementLimit}</span>
+          </div>
+          {manualModeNeedsItems && (
+            <div className="text-xs text-orange-600 mb-3">
+              Manuel mod icin en az 1 urun ekleyin. Kaydedince otomatik moda doner.
+            </div>
+          )}
+          {complementsLoading ? (
+            <div className="text-sm text-gray-500">Yukleniyor...</div>
+          ) : complementsError ? (
+            <div className="text-sm text-red-600">{complementsError}</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="text-sm font-semibold text-gray-800 mb-2">Otomatik Oneriler</div>
+                {autoComplements.length === 0 ? (
+                  <div className="text-xs text-gray-500">Oneri bulunamadi</div>
+                ) : (
+                  <div className="space-y-2">
+                    {autoComplements.map((item) => (
+                      <div key={item.productId} className="flex items-center justify-between gap-2 text-xs">
+                        <div>
+                          <div className="font-semibold text-gray-800">{item.productName}</div>
+                          <div className="text-gray-500">{item.productCode}</div>
+                        </div>
+                        <div className="text-gray-500">x{item.pairCount}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold text-gray-800">Manuel Liste</div>
+                  <div className="text-xs text-gray-500">
+                    {manualIds.length}/{complementLimit}
+                  </div>
+                </div>
+                {manualComplements.length === 0 ? (
+                  <div className="text-xs text-gray-500">Manuel urun secilmedi</div>
+                ) : (
+                  <div className="space-y-2 mb-3">
+                    {manualComplements.map((item) => (
+                      <div key={item.productId} className="flex items-start justify-between gap-2 text-xs">
+                        <div>
+                          <div className="font-semibold text-gray-800">{item.productName}</div>
+                          <div className="text-gray-500">{item.productCode}</div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleRemoveManual(item.productId)}
+                        >
+                          Kaldir
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="border-t pt-2 mt-2">
+                  <div className="text-xs font-semibold text-gray-600 mb-2">Urun ekle</div>
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Urun adi veya kodu"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                  />
+                  {isSearching && (
+                    <div className="text-xs text-gray-500 mt-2">Araniyor...</div>
+                  )}
+                  {!isSearching && searchTerm.trim() && filteredSearchResults.length === 0 && (
+                    <div className="text-xs text-gray-500 mt-2">Sonuc bulunamadi</div>
+                  )}
+                  {filteredSearchResults.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y">
+                      {filteredSearchResults.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => handleAddManual(item)}
+                          disabled={manualLimitReached}
+                          className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          <span>
+                            <span className="font-semibold text-gray-800">{item.name}</span>
+                            <span className="text-gray-500 ml-2">{item.mikroCode}</span>
+                          </span>
+                          <span className="text-primary-600">Ekle</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {manualLimitReached && (
+                    <div className="text-[11px] text-gray-500 mt-2">Limit doldu. Once listeden cikarin.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end pt-2">
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={handleSaveComplements}
+              disabled={!isDirty || isSaving || complementsLoading}
+              isLoading={isSaving}
+            >
+              Kaydet
+            </Button>
           </div>
         </div>
       </div>

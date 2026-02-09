@@ -18,6 +18,7 @@ import quoteService from './services/quote.service';
 import vadeSyncService from './services/vadeSync.service';
 import vadeNotificationService from './services/vadeNotification.service';
 import reportsService from './services/reports.service';
+import productComplementService from './services/product-complement.service';
 import { prisma } from './utils/prisma';
 
 
@@ -214,6 +215,16 @@ if (config.enableCron) {
     }
   }, cronOptions);
 
+  console.log('Product complement cron schedule:', config.productComplementCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.productComplementCronSchedule, async () => {
+    console.log('Product complement sync started...');
+    try {
+      const result = await productComplementService.syncAutoRecommendations();
+      console.log('Product complement sync completed:', result);
+    } catch (error) {
+      console.error('Product complement cron error:', error);
+    }
+  }, cronOptions);
 
   // Sipariş Takip Modülü - Otomatik sync + mail
   (async () => {
