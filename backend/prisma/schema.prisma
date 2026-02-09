@@ -218,7 +218,7 @@ model User {
   // Müşteri bilgileri (sadece CUSTOMER role için)
   customerType        CustomerType?
   mikroCariCode       String?       @unique // Mikro ERP'deki cari kodu
-  vatDisplayPreference String       @default("WITH_VAT") // "WITH_VAT" | "WITHOUT_VAT"
+  vatDisplayPreference String       @default("WITHOUT_VAT") // "WITH_VAT" | "WITHOUT_VAT"
   // Optional price list overrides (use settings when null)
   invoicedPriceListNo Int?
   whitePriceListNo    Int?

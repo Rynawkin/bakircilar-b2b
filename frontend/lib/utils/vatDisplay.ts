@@ -2,7 +2,7 @@ export type VatDisplayPreference = 'WITH_VAT' | 'WITHOUT_VAT';
 
 export const resolveVatDisplayPreference = (
   value?: string | null
-): VatDisplayPreference => (value === 'WITHOUT_VAT' ? 'WITHOUT_VAT' : 'WITH_VAT');
+): VatDisplayPreference => (value === 'WITH_VAT' ? 'WITH_VAT' : 'WITHOUT_VAT');
 
 export const getDisplayPrice = (
   price: number,

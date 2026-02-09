@@ -35,7 +35,7 @@ export default function PreviouslyPurchasedPage() {
   const effectiveVisibility = isSubUser
     ? (user?.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
     : user?.priceVisibility;
-  const vatDisplayPreference = user?.vatDisplayPreference || 'WITH_VAT';
+  const vatDisplayPreference = user?.vatDisplayPreference || 'WITHOUT_VAT';
   const allowedPriceTypes = useMemo(() => getAllowedPriceTypes(effectiveVisibility), [effectiveVisibility]);
   const defaultPriceType = getDefaultPriceType(effectiveVisibility);
   const defaultFilterPriceType = defaultPriceType === 'INVOICED' ? 'invoiced' : 'white';

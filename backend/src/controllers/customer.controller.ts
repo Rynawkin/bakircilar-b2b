@@ -1015,10 +1015,33 @@ export class CustomerController {
         return res.status(400).json({ error: 'Invalid VAT display preference' });
       }
 
-      await prisma.user.update({
+      const user = await prisma.user.findUnique({
         where: { id: req.user!.userId },
-        data: { vatDisplayPreference },
+        select: { id: true, parentCustomerId: true },
       });
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const targetId = user.parentCustomerId || user.id;
+      const updates = [
+        prisma.user.update({
+          where: { id: targetId },
+          data: { vatDisplayPreference },
+        }),
+      ];
+
+      if (targetId !== user.id) {
+        updates.push(
+          prisma.user.update({
+            where: { id: user.id },
+            data: { vatDisplayPreference },
+          })
+        );
+      }
+
+      await prisma.$transaction(updates);
 
       res.json({ message: 'Settings updated successfully' });
     } catch (error) {

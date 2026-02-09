@@ -26,7 +26,7 @@ export default function CartPage() {
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
-  const vatDisplayPreference = user?.vatDisplayPreference || 'WITH_VAT';
+  const vatDisplayPreference = user?.vatDisplayPreference || 'WITHOUT_VAT';
 
   useEffect(() => {
     loadUserFromStorage();

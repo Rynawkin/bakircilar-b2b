@@ -10,7 +10,7 @@ import apiClient from '@/lib/api/client';
 export default function PreferencesPage() {
   const router = useRouter();
   const { user, loadUserFromStorage, refreshUser } = useAuthStore();
-  const [vatDisplayPreference, setVatDisplayPreference] = useState<'WITH_VAT' | 'WITHOUT_VAT'>('WITH_VAT');
+  const [vatDisplayPreference, setVatDisplayPreference] = useState<'WITH_VAT' | 'WITHOUT_VAT'>('WITHOUT_VAT');
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -20,7 +20,7 @@ export default function PreferencesPage() {
 
   useEffect(() => {
     if (user) {
-      setVatDisplayPreference(user.vatDisplayPreference || 'WITH_VAT');
+      setVatDisplayPreference(user.vatDisplayPreference || 'WITHOUT_VAT');
     }
   }, [user]);
 
