@@ -1283,18 +1283,19 @@ class MikroService {
         const lineSorMerkez = (item.responsibilityCenter || defaultSorMerkez || '').trim().slice(0, 25);
 
         // Hesaplamalar
+        const vatRate = Number(item.vatRate) || 0;
         const tutar = item.quantity * item.unitPrice;
-        const vergiTutari = applyVAT ? tutar * item.vatRate : 0;
-        const vergiYuzdesi = applyVAT ? item.vatRate * 100 : 0; // Mikro'da yüzde olarak (18, 0.18 değil)
+        const vergiTutari = applyVAT ? tutar * vatRate : 0;
+        const vatCode = applyVAT ? this.convertVatRateToCode(vatRate) : 0;
 
         console.log(`🔧 Satır ${satirNo} hazırlanıyor:`, {
           productCode: item.productCode,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          vatRate: item.vatRate,
+          vatRate,
+          vatCode,
           tutar,
           vergiTutari,
-          vergiYuzdesi
         });
 
         // INSERT query - Trigger devre dışı olduğu için hatasız çalışacak
@@ -1363,7 +1364,7 @@ class MikroService {
           '@fiyat',
           '@tutar',
           '@vergiTutari',
-          '@vergiYuzdesi',
+          '@vergiPntr',
           '0',
           '0',
           '@depoNo',
@@ -1417,7 +1418,7 @@ class MikroService {
           .input('fiyat', sql.Float, item.unitPrice)
           .input('tutar', sql.Float, tutar)
           .input('vergiTutari', sql.Float, vergiTutari)
-          .input('vergiYuzdesi', sql.Float, vergiYuzdesi)
+          .input('vergiPntr', sql.TinyInt, vatCode)
           .input('sipFileId', sql.SmallInt, sipFileId)
           .input('aciklama', sql.NVarChar(50), lineDescriptionValue)
           .input('hareketTipi', sql.TinyInt, hareketTipi)
