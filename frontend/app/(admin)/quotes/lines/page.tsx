@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Badge } from '@/components/ui/Badge';
@@ -48,9 +48,23 @@ export default function QuoteLineItemsPage() {
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [closeReasonMap, setCloseReasonMap] = useState<Record<string, string>>({});
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkClosing, setBulkClosing] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   const debouncedSearch = useDebounce(search, 300);
   const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const openItemIds = useMemo(
+    () => items.filter((item) => (item.status || 'OPEN') === 'OPEN').map((item) => item.id),
+    [items]
+  );
+  const selectedOpenIds = useMemo(() => {
+    const openSet = new Set(openItemIds);
+    return selectedIds.filter((id) => openSet.has(id));
+  }, [selectedIds, openItemIds]);
+  const allSelected = openItemIds.length > 0 && selectedOpenIds.length === openItemIds.length;
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -87,11 +101,28 @@ export default function QuoteLineItemsPage() {
 
   useEffect(() => {
     setPage(1);
+    setSelectedIds([]);
+    setBulkReason('');
   }, [statusFilter, debouncedSearch, closeReasonFilter, minDays, maxDays]);
 
   useEffect(() => {
     loadItems();
   }, [loadItems]);
+
+  useEffect(() => {
+    if (openItemIds.length === 0) {
+      setSelectedIds([]);
+      return;
+    }
+    const openSet = new Set(openItemIds);
+    setSelectedIds((prev) => prev.filter((id) => openSet.has(id)));
+  }, [openItemIds]);
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate =
+      selectedOpenIds.length > 0 && selectedOpenIds.length < openItemIds.length;
+  }, [selectedOpenIds.length, openItemIds.length]);
 
   const handleCloseItem = async (item: QuoteLineItem) => {
     const reason = closeReasonMap[item.id];
@@ -109,11 +140,62 @@ export default function QuoteLineItemsPage() {
         delete next[item.id];
         return next;
       });
+      setSelectedIds((prev) => prev.filter((id) => id !== item.id));
       await loadItems();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Kalem kapatilamadi.');
     } finally {
       setActionId(null);
+    }
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(openItemIds);
+    } else {
+      setSelectedIds([]);
+    }
+  };
+
+  const toggleSelectItem = (itemId: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      if (checked) {
+        return Array.from(new Set([...prev, itemId]));
+      }
+      return prev.filter((id) => id !== itemId);
+    });
+  };
+
+  const handleBulkClose = async () => {
+    if (selectedOpenIds.length === 0) {
+      toast.error('Kapatilacak kalem secin.');
+      return;
+    }
+    if (!bulkReason) {
+      toast.error('Kapatma nedeni secin.');
+      return;
+    }
+
+    setBulkClosing(true);
+    try {
+      await adminApi.closeQuoteLineItems(
+        selectedOpenIds.map((id) => ({ id, reason: bulkReason }))
+      );
+      toast.success('Secili kalemler kapatildi.');
+      setSelectedIds([]);
+      setBulkReason('');
+      setCloseReasonMap((prev) => {
+        const next = { ...prev };
+        selectedOpenIds.forEach((id) => {
+          delete next[id];
+        });
+        return next;
+      });
+      await loadItems();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Kalemler kapatilamadi.');
+    } finally {
+      setBulkClosing(false);
     }
   };
 
@@ -162,7 +244,7 @@ export default function QuoteLineItemsPage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Urun, musteri, teklif no"
+                placeholder="Urun/kod, cari/kod, teklif/belge no"
               />
             </div>
             <div>
@@ -203,6 +285,43 @@ export default function QuoteLineItemsPage() {
         </Card>
 
         <Card>
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 pb-4">
+            <div className="text-sm text-gray-600">
+              Secili: <span className="font-medium text-gray-900">{selectedOpenIds.length}</span>
+            </div>
+            <div className="min-w-[220px]">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Toplu kapatma nedeni
+              </label>
+              <Select value={bulkReason} onChange={(e) => setBulkReason(e.target.value)}>
+                <option value="">Kapatma nedeni secin</option>
+                {CLOSE_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {reason}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={handleBulkClose}
+                disabled={!bulkReason || selectedOpenIds.length === 0 || bulkClosing}
+              >
+                {bulkClosing ? 'Kapatiliyor...' : 'Secilileri Kapat'}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setSelectedIds([])}
+                disabled={selectedOpenIds.length === 0 || bulkClosing}
+              >
+                Secimi Temizle
+              </Button>
+            </div>
+          </div>
+
           {loading ? (
             <div className="py-12 text-center text-sm text-gray-500">Yukleniyor...</div>
           ) : items.length === 0 ? (
@@ -211,6 +330,19 @@ export default function QuoteLineItemsPage() {
             <Table containerClassName="max-h-[70vh]">
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <div className="flex items-center justify-center">
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        className="h-4 w-4 accent-slate-600"
+                        checked={allSelected}
+                        onChange={(e) => toggleSelectAll(e.target.checked)}
+                        disabled={openItemIds.length === 0}
+                        aria-label="Tum acik kalemleri sec"
+                      />
+                    </div>
+                  </TableHead>
                   <TableHead>Durum</TableHead>
                   <TableHead>Bekleme</TableHead>
                   <TableHead>Teklif</TableHead>
@@ -233,8 +365,24 @@ export default function QuoteLineItemsPage() {
                     '-';
                   const customerCode = item.quote?.customer?.mikroCariCode;
                   const waiting = item.waitingDays ?? '-';
+                  const isSelected = selectedOpenIds.includes(item.id);
                   return (
-                    <TableRow key={item.id}>
+                    <TableRow key={item.id} className={isSelected ? 'bg-slate-50' : undefined}>
+                      <TableCell className="w-10">
+                        {status === 'OPEN' ? (
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-slate-600"
+                              checked={isSelected}
+                              onChange={(e) => toggleSelectItem(item.id, e.target.checked)}
+                              aria-label="Kalem sec"
+                            />
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-300">-</span>
+                        )}
+                      </TableCell>
                       <TableCell>{getStatusBadge(status)}</TableCell>
                       <TableCell className="text-xs text-gray-600">
                         {waiting !== '-' ? `${waiting} gun` : '-'}
