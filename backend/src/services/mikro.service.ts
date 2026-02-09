@@ -61,7 +61,7 @@ class MikroService {
     return 0;
   }
 
-  private normalizeVatRate(rate: number): number {
+  public normalizeVatRate(rate: number): number {
     const numeric = Number(rate) || 0;
     if (numeric > 1) {
       return numeric / 100;
