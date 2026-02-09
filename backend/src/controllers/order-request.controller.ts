@@ -219,11 +219,11 @@ export class OrderRequestController {
                 categoryId: item.product.categoryId,
               }
             );
-            const listInvoiced = priceListService.getListPrice(
+            const listInvoiced = priceListService.getListPriceWithFallback(
               priceStats,
               productPriceListPair.invoiced
             );
-            const listWhite = priceListService.getListPrice(
+            const listWhite = priceListService.getListPriceWithFallback(
               priceStats,
               productPriceListPair.white
             );
@@ -538,11 +538,11 @@ export class OrderRequestController {
               categoryId: item.product.categoryId,
             }
           );
-          const listInvoiced = priceListService.getListPrice(
+          const listInvoiced = priceListService.getListPriceWithFallback(
             priceStats,
             productPriceListPair.invoiced
           );
-          const listWhite = priceListService.getListPrice(
+          const listWhite = priceListService.getListPriceWithFallback(
             priceStats,
             productPriceListPair.white
           );

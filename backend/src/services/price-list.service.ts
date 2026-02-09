@@ -37,6 +37,27 @@ class PriceListService {
     return toNumber((stats as any)[field]);
   }
 
+  getListPriceWithFallback(
+    stats: any | null,
+    listNo: number,
+    range?: { min?: number; max?: number }
+  ): number {
+    const primary = this.getListPrice(stats, listNo);
+    if (primary > 0) return primary;
+    if (!Number.isFinite(listNo)) return 0;
+
+    const min = range?.min ?? (listNo <= 5 ? 1 : 6);
+    const max = range?.max ?? (listNo <= 5 ? 5 : 10);
+    const start = Math.min(Math.max(listNo - 1, min), max);
+
+    for (let i = start; i >= min; i -= 1) {
+      const price = this.getListPrice(stats, i);
+      if (price > 0) return price;
+    }
+
+    return 0;
+  }
+
   async getPriceStatsMap(productCodes: string[]): Promise<Map<string, any>> {
     if (productCodes.length === 0) {
       return new Map();

@@ -320,11 +320,11 @@ export class CustomerController {
               categoryId: product.category.id,
             }
           );
-          const listInvoiced = priceListService.getListPrice(
+          const listInvoiced = priceListService.getListPriceWithFallback(
             priceStats,
             productPriceListPair.invoiced
           );
-          const listWhite = priceListService.getListPrice(
+          const listWhite = priceListService.getListPriceWithFallback(
             priceStats,
             productPriceListPair.white
           );
@@ -607,11 +607,11 @@ export class CustomerController {
             categoryId: product.category.id,
           }
         );
-        const listInvoiced = priceListService.getListPrice(
+        const listInvoiced = priceListService.getListPriceWithFallback(
           priceStats,
           productPriceListPair.invoiced
         );
-        const listWhite = priceListService.getListPrice(
+        const listWhite = priceListService.getListPriceWithFallback(
           priceStats,
           productPriceListPair.white
         );
@@ -857,11 +857,11 @@ export class CustomerController {
           categoryId: product.category.id,
         }
       );
-      const listInvoiced = priceListService.getListPrice(
+      const listInvoiced = priceListService.getListPriceWithFallback(
         priceStats,
         productPriceListPair.invoiced
       );
-      const listWhite = priceListService.getListPrice(
+      const listWhite = priceListService.getListPriceWithFallback(
         priceStats,
         productPriceListPair.white
       );
@@ -1225,11 +1225,11 @@ export class CustomerController {
           }
         );
         const priceStats = await priceListService.getPriceStats(product.mikroCode);
-        const listInvoiced = priceListService.getListPrice(
+        const listInvoiced = priceListService.getListPriceWithFallback(
           priceStats,
           productPriceListPair.invoiced
         );
-        const listWhite = priceListService.getListPrice(
+        const listWhite = priceListService.getListPriceWithFallback(
           priceStats,
           productPriceListPair.white
         );
@@ -1452,11 +1452,11 @@ export class CustomerController {
           }
         );
         const priceStats = await priceListService.getPriceStats(cartItem.product.mikroCode);
-        const listInvoiced = priceListService.getListPrice(
+        const listInvoiced = priceListService.getListPriceWithFallback(
           priceStats,
           productPriceListPair.invoiced
         );
-        const listWhite = priceListService.getListPrice(
+        const listWhite = priceListService.getListPriceWithFallback(
           priceStats,
           productPriceListPair.white
         );
