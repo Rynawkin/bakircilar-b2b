@@ -1297,9 +1297,9 @@ export class CustomerController {
 
       const rawLimit = Number(req.query.limit);
       const requestedLimit = Number.isFinite(rawLimit) && rawLimit > 0
-        ? Math.min(Math.floor(rawLimit), 50)
+        ? Math.min(Math.floor(rawLimit), 500)
         : undefined;
-      const dynamicLimit = Math.min(20, Math.max(5, cartProductIds.length * 5));
+      const dynamicLimit = Math.max(5, cartProductIds.length * 5);
       const limit = requestedLimit ?? dynamicLimit;
 
       const recommendedIds = await productComplementService.getRecommendationIdsForCart(cartProductIds, limit);

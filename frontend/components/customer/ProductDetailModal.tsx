@@ -514,7 +514,6 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
             )}
           </div>
         </div>
-      </div>
 
       {(isLoadingRecommendations || recommendations.length > 0) && (
         <div className="px-8 pb-8">
@@ -533,6 +532,8 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
           )}
         </div>
       )}
+
+      </div>
 
       <style jsx global>{`
         @keyframes fadeIn {
