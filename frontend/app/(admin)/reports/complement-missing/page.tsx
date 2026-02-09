@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -53,8 +53,16 @@ interface ComplementMissingParams {
 
 export default function ComplementMissingReportPage() {
   const [mode, setMode] = useState<'product' | 'customer'>('product');
+  const [productSearch, setProductSearch] = useState('');
   const [productCode, setProductCode] = useState('');
+  const [productName, setProductName] = useState('');
+  const [productOptions, setProductOptions] = useState<any[]>([]);
+  const [productSearching, setProductSearching] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
   const [customerCode, setCustomerCode] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerOptions, setCustomerOptions] = useState<any[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
   const [periodMonths, setPeriodMonths] = useState<6 | 12>(6);
   const [submitted, setSubmitted] = useState<ComplementMissingParams | null>(null);
   const [rows, setRows] = useState<ComplementMissingRow[]>([]);
@@ -65,13 +73,108 @@ export default function ComplementMissingReportPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
+  const parseProductOption = (item: any) => {
+    const code = String(item?.['msg_S_0078'] ?? item?.productCode ?? '').trim();
+    const name = String(item?.['msg_S_0870'] ?? item?.productName ?? '').trim();
+    const label = [code, name].filter(Boolean).join(' - ');
+    return { code, name, label };
+  };
+
+  const parseCustomerOption = (item: any) => {
+    const code = String(item?.['msg_S_1032'] ?? item?.customerCode ?? '').trim();
+    const name = String(item?.['msg_S_1033'] ?? item?.customerName ?? '').trim();
+    const label = [code, name].filter(Boolean).join(' - ');
+    return { code, name, label };
+  };
+
+  const handleSelectProduct = (item: any) => {
+    const parsed = parseProductOption(item);
+    if (!parsed.code) return;
+    setProductCode(parsed.code);
+    setProductName(parsed.name);
+    setProductSearch(parsed.label || parsed.code);
+    setProductOptions([]);
+  };
+
+  const handleSelectCustomer = (item: any) => {
+    const parsed = parseCustomerOption(item);
+    if (!parsed.code) return;
+    setCustomerCode(parsed.code);
+    setCustomerName(parsed.name);
+    setCustomerSearch(parsed.label || parsed.code);
+    setCustomerOptions([]);
+  };
+
+  useEffect(() => {
+    if (mode === 'product') {
+      setCustomerSearch('');
+      setCustomerCode('');
+      setCustomerName('');
+      setCustomerOptions([]);
+      setCustomerSearching(false);
+      return;
+    }
+    setProductSearch('');
+    setProductCode('');
+    setProductName('');
+    setProductOptions([]);
+    setProductSearching(false);
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== 'product') return;
+    const term = productSearch.trim();
+    if (term.length < 2) {
+      setProductOptions([]);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      setProductSearching(true);
+      try {
+        const result = await adminApi.searchStocks({ searchTerm: term, limit: 12, offset: 0 });
+        setProductOptions(result.data || []);
+      } catch (_err) {
+        setProductOptions([]);
+      } finally {
+        setProductSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(handle);
+  }, [productSearch, mode]);
+
+  useEffect(() => {
+    if (mode !== 'customer') return;
+    const term = customerSearch.trim();
+    if (term.length < 2) {
+      setCustomerOptions([]);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      setCustomerSearching(true);
+      try {
+        const result = await adminApi.searchCustomers({ searchTerm: term, limit: 12, offset: 0 });
+        setCustomerOptions(result.data || []);
+      } catch (_err) {
+        setCustomerOptions([]);
+      } finally {
+        setCustomerSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(handle);
+  }, [customerSearch, mode]);
+
   const handleRunReport = () => {
+    const productValue = productCode.trim() || productSearch.trim();
+    const customerValue = customerCode.trim() || customerSearch.trim();
+
     setPage(1);
     setSubmitted({
       mode,
       periodMonths,
-      productCode: productCode.trim() || undefined,
-      customerCode: customerCode.trim() || undefined,
+      productCode: productValue || undefined,
+      customerCode: customerValue || undefined,
     });
   };
 
@@ -109,8 +212,9 @@ export default function ComplementMissingReportPage() {
     fetchReport(submitted, page);
   }, [submitted, page]);
 
-  const activeMode = metadata?.mode ?? mode;
-  const showProductMode = activeMode === 'product';
+  const tableMode = metadata?.mode ?? mode;
+  const showProductMode = mode === 'product';
+  const showProductTable = tableMode === 'product';
 
   const renderMissingList = (items: ComplementMissingItem[]) => {
     if (items.length === 0) return '-';
@@ -185,19 +289,85 @@ export default function ComplementMissingReportPage() {
             </div>
 
             {showProductMode ? (
-              <Input
-                label="Urun Kodu"
-                placeholder="Orn: B100123"
-                value={productCode}
-                onChange={(e) => setProductCode(e.target.value)}
-              />
+              <div className="space-y-2">
+                <div className="relative">
+                  <Input
+                    label="Urun Ara"
+                    placeholder="Kod veya isim ile ara"
+                    value={productSearch}
+                    onChange={(e) => {
+                      setProductSearch(e.target.value);
+                      setProductCode('');
+                      setProductName('');
+                    }}
+                  />
+                  {productSearching && (
+                    <div className="absolute right-3 top-9 text-xs text-gray-500">Araniyor...</div>
+                  )}
+                  {!productCode && productOptions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                      {productOptions.map((item, index) => {
+                        const parsed = parseProductOption(item);
+                        if (!parsed.code) return null;
+                        return (
+                          <button
+                            type="button"
+                            key={`${parsed.code}-${index}`}
+                            className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                            onClick={() => handleSelectProduct(item)}
+                          >
+                            <div className="text-sm font-semibold">{parsed.code}</div>
+                            <div className="text-xs text-gray-500">{parsed.name || '-'} </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {productName && (
+                  <div className="text-xs text-gray-500">Secilen urun: {productName}</div>
+                )}
+              </div>
             ) : (
-              <Input
-                label="Cari Kodu"
-                placeholder="Orn: 120.01.123"
-                value={customerCode}
-                onChange={(e) => setCustomerCode(e.target.value)}
-              />
+              <div className="space-y-2">
+                <div className="relative">
+                  <Input
+                    label="Cari Ara"
+                    placeholder="Kod veya isim ile ara"
+                    value={customerSearch}
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value);
+                      setCustomerCode('');
+                      setCustomerName('');
+                    }}
+                  />
+                  {customerSearching && (
+                    <div className="absolute right-3 top-9 text-xs text-gray-500">Araniyor...</div>
+                  )}
+                  {!customerCode && customerOptions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                      {customerOptions.map((item, index) => {
+                        const parsed = parseCustomerOption(item);
+                        if (!parsed.code) return null;
+                        return (
+                          <button
+                            type="button"
+                            key={`${parsed.code}-${index}`}
+                            className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                            onClick={() => handleSelectCustomer(item)}
+                          >
+                            <div className="text-sm font-semibold">{parsed.code}</div>
+                            <div className="text-xs text-gray-500">{parsed.name || '-'} </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {customerName && (
+                  <div className="text-xs text-gray-500">Secilen cari: {customerName}</div>
+                )}
+              </div>
             )}
 
             <div className="space-y-2">
@@ -308,7 +478,7 @@ export default function ComplementMissingReportPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {showProductMode ? (
+                    {showProductTable ? (
                       <>
                         <TableHead>Cari Kodu</TableHead>
                         <TableHead>Cari Adi</TableHead>
@@ -326,7 +496,7 @@ export default function ComplementMissingReportPage() {
                 <TableBody>
                   {rows.map((row, index) => (
                     <TableRow key={`${row.customerCode || row.productCode}-${index}`}>
-                      {showProductMode ? (
+                      {showProductTable ? (
                         <>
                           <TableCell className="font-mono text-sm">{row.customerCode}</TableCell>
                           <TableCell>{row.customerName || '-'}</TableCell>
@@ -376,3 +546,5 @@ export default function ComplementMissingReportPage() {
     </div>
   );
 }
+
+
