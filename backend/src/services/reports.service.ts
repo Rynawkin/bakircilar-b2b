@@ -2345,6 +2345,7 @@ export class ReportsService {
       Number.isFinite(value) ? Math.round((value + Number.EPSILON) * 100) / 100 : 0;
     const safeDivide = (numerator: number, denominator: number): number =>
       denominator > 0 ? numerator / denominator : 0;
+    const monthDivider = periodMonths > 0 ? periodMonths : 1;
 
     type ComplementProductMeta = {
       productCode: string;
@@ -2618,20 +2619,23 @@ export class ReportsService {
 
       await mikroService.connect();
       try {
-        const baseConditions = [
-          'sth_cins = 0',
-          'sth_tip = 1',
-          'sth_evraktip IN (1, 4)',
-          `sth_tarih >= '${startDate}'`,
-          `sth_tarih <= '${endDate}'`,
-          '(sth_iptal = 0 OR sth_iptal IS NULL)',
-          'sth.sth_stok_kod IS NOT NULL',
-          "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
-          'sth.sth_cari_kodu IS NOT NULL',
-          "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
-        ];
+      const baseConditions = [
+        'sth_cins = 0',
+        'sth_tip = 1',
+        'sth_evraktip IN (1, 4)',
+        `sth_tarih >= '${startDate}'`,
+        `sth_tarih <= '${endDate}'`,
+        '(sth_iptal = 0 OR sth_iptal IS NULL)',
+        'sth.sth_stok_kod IS NOT NULL',
+        "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+        'sth.sth_cari_kodu IS NOT NULL',
+        "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+      ];
 
-        const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+      const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+      const perakendeNameFilter =
+        "(c.cari_unvan1 IS NULL OR UPPER(c.cari_unvan1) NOT LIKE '%PERAKENDE%')";
+      const averageConditions = [...baseConditions, perakendeNameFilter];
 
         const loadQuantityStats = async (codes: string[]) => {
           const normalized = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
@@ -2649,7 +2653,7 @@ export class ReportsService {
               FROM STOK_HAREKETLERI sth
               LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
               LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-              WHERE ${[...baseConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
+              WHERE ${[...averageConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
               GROUP BY sth.sth_stok_kod
             `;
             const rows = await mikroService.executeQuery(statsQuery);
@@ -2894,7 +2898,7 @@ export class ReportsService {
               ratio > 0 ? ratio : (product.complementMode === 'MANUAL' ? 1 : 0);
             const avgComplementQty = normalizedCode ? (complementAvgQtyMap.get(normalizedCode) || 0) : 0;
             const quantityPerDoc = avgComplementQty > 0 ? avgComplementQty : baseAvgQty;
-            const estimatedDocs = customerInfo.documentCount * effectiveRatio;
+            const estimatedDocs = (customerInfo.documentCount * effectiveRatio) / monthDivider;
             const estimatedQuantity = estimatedDocs * quantityPerDoc;
             const unitPrice = resolveUnitPrice(customerInfo.customerCode, item.productCode);
             const estimatedRevenue =
@@ -3155,6 +3159,9 @@ export class ReportsService {
         'sth.sth_cari_kodu IS NOT NULL',
         "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
       ];
+      const perakendeNameFilter =
+        "(c.cari_unvan1 IS NULL OR UPPER(c.cari_unvan1) NOT LIKE '%PERAKENDE%')";
+      const averageGlobalConditions = [...globalConditions, perakendeNameFilter];
 
       const loadGlobalStats = async (codes: string[]) => {
         const normalized = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
@@ -3172,7 +3179,7 @@ export class ReportsService {
             FROM STOK_HAREKETLERI sth
             LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
             LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-            WHERE ${[...globalConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
+            WHERE ${[...averageGlobalConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
             GROUP BY sth.sth_stok_kod
           `;
           const rows = await mikroService.executeQuery(statsQuery);
@@ -3248,7 +3255,7 @@ export class ReportsService {
                 ratio > 0 ? ratio : (product.complementMode === 'MANUAL' ? 1 : 0);
               const avgComplementQty = complementAvgQtyMap.get(normalizedCode) || 0;
               const quantityPerDoc = avgComplementQty > 0 ? avgComplementQty : baseAvgQty;
-              const estimatedDocs = documentCount * effectiveRatio;
+              const estimatedDocs = (documentCount * effectiveRatio) / monthDivider;
               const estimatedQuantity = estimatedDocs * quantityPerDoc;
               const productMeta = pricingMetaByCode.get(normalizedCode);
               let unitPrice: number | null = null;
@@ -3336,8 +3343,8 @@ export class ReportsService {
       Number.isFinite(value) ? Math.round((value + Number.EPSILON) * 100) / 100 : 0;
 
     const header = data.metadata.mode === 'product'
-      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Gelir']
-      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Gelir'];
+      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Aylik Gelir']
+      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Aylik Gelir'];
 
     const rows = data.rows.map((row) => {
       const missingList = row.missingComplements

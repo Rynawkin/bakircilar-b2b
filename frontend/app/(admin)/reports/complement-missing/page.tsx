@@ -816,7 +816,7 @@ export default function ComplementMissingReportPage() {
                     )}
                     <TableHead className="text-right">Evrak</TableHead>
                     <TableHead>Eksik Tamamlayicilar</TableHead>
-                    <TableHead className="text-right">Potansiyel Gelir</TableHead>
+                    <TableHead className="text-right">Potansiyel Aylik Gelir</TableHead>
                     <TableHead className="text-right">Adet</TableHead>
                     <TableHead className="text-right">Aksiyon</TableHead>
                   </TableRow>
