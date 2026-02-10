@@ -10,6 +10,9 @@ import { config } from '../config';
 import { AppError, ErrorCode } from '../types/errors';
 import mikroService from './mikro.service';
 import exclusionService from './exclusion.service';
+import priceListService from './price-list.service';
+import pricingService from './pricing.service';
+import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
 import * as XLSX from 'xlsx';
 
@@ -138,6 +141,9 @@ interface PriceHistoryResponse {
 interface ComplementMissingItem {
   productCode: string;
   productName: string;
+  estimatedQuantity?: number | null;
+  unitPrice?: number | null;
+  estimatedRevenue?: number | null;
 }
 
 type ComplementMatchMode = 'product' | 'category' | 'group';
@@ -2331,6 +2337,14 @@ export class ReportsService {
       options.matchMode === 'category' || options.matchMode === 'group'
         ? options.matchMode
         : 'product';
+    const includePotentialRevenue = matchMode === 'product';
+    const priceSettings = includePotentialRevenue
+      ? await prisma.settings.findFirst({ select: { customerPriceLists: true } })
+      : null;
+    const round2 = (value: number): number =>
+      Number.isFinite(value) ? Math.round((value + Number.EPSILON) * 100) / 100 : 0;
+    const safeDivide = (numerator: number, denominator: number): number =>
+      denominator > 0 ? numerator / denominator : 0;
 
     type ComplementProductMeta = {
       productCode: string;
@@ -2540,7 +2554,10 @@ export class ReportsService {
           id: true,
           mikroCode: true,
           name: true,
+          brandCode: true,
+          categoryId: true,
           complementGroupCode: true,
+          prices: true,
           category: { select: { mikroCode: true, name: true } },
         },
       });
@@ -2551,12 +2568,52 @@ export class ReportsService {
           id: string;
           mikroCode: string;
           name: string;
+          brandCode?: string | null;
+          categoryId?: string | null;
           complementGroupCode: string | null;
+          prices?: unknown;
           category: { mikroCode: string; name: string } | null;
         }>;
 
       if (complementList.length === 0) {
         return buildResponse([]);
+      }
+
+      const complementCodes = complementList
+        .map((item) => normalizeReportCode(item.mikroCode))
+        .filter(Boolean);
+      const complementMetaByCode = new Map<string, {
+        code: string;
+        brandCode?: string | null;
+        categoryId?: string | null;
+        prices?: unknown;
+      }>();
+      complementList.forEach((item) => {
+        const code = normalizeReportCode(item.mikroCode);
+        if (!code) return;
+        complementMetaByCode.set(code, {
+          code,
+          brandCode: item.brandCode ?? null,
+          categoryId: item.categoryId ?? null,
+          prices: item.prices,
+        });
+      });
+
+      const priceStatsMap = includePotentialRevenue && complementCodes.length > 0
+        ? await priceListService.getPriceStatsMap(complementCodes)
+        : new Map();
+      const pairCountByCode = new Map<string, number>();
+      if (includePotentialRevenue && product.complementMode !== 'MANUAL' && complementIds.length > 0) {
+        const pairRows = await prisma.productComplementAuto.findMany({
+          where: { productId: product.id, relatedProductId: { in: complementIds } },
+          select: { relatedProductId: true, pairCount: true },
+        });
+        pairRows.forEach((row) => {
+          const related = complementLookup.get(row.relatedProductId);
+          const code = related ? normalizeReportCode(related.mikroCode) : '';
+          if (!code) return;
+          pairCountByCode.set(code, toNumber(row.pairCount));
+        });
       }
 
       await mikroService.connect();
@@ -2576,6 +2633,39 @@ export class ReportsService {
 
         const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
 
+        const loadQuantityStats = async (codes: string[]) => {
+          const normalized = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
+          const result = new Map<string, { docCount: number; totalQuantity: number }>();
+          if (normalized.length === 0) return result;
+
+          for (const chunk of chunkArray(normalized, REPORT_CODE_BATCH_SIZE)) {
+            if (chunk.length === 0) continue;
+            const inClause = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+            const statsQuery = `
+              SELECT
+                RTRIM(sth.sth_stok_kod) as productCode,
+                COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
+                SUM(sth.sth_miktar) as totalQuantity
+              FROM STOK_HAREKETLERI sth
+              LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+              LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+              WHERE ${[...baseConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
+              GROUP BY sth.sth_stok_kod
+            `;
+            const rows = await mikroService.executeQuery(statsQuery);
+            rows.forEach((row: any) => {
+              const code = normalizeReportCode(row.productCode);
+              if (!code) return;
+              result.set(code, {
+                docCount: toNumber(row.documentCount),
+                totalQuantity: toNumber(row.totalQuantity),
+              });
+            });
+          }
+
+          return result;
+        };
+
         const baseCustomerConditions = [
           ...baseConditions,
           ...exclusionConditions,
@@ -2588,7 +2678,8 @@ export class ReportsService {
             RTRIM(sth.sth_cari_kodu) as customerCode,
             MAX(c.cari_unvan1) as customerName,
             MAX(c.cari_sektor_kodu) as sectorCode,
-            COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
+            COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
+            SUM(sth.sth_miktar) as totalQuantity
           FROM STOK_HAREKETLERI sth
           LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
           WHERE ${baseCustomerClause}
@@ -2602,6 +2693,7 @@ export class ReportsService {
           customerName: string | null;
           sectorCode: string | null;
           documentCount: number;
+          totalQuantity: number;
         }>();
         const customerCodes: string[] = [];
         customerRows.forEach((row: any) => {
@@ -2612,17 +2704,76 @@ export class ReportsService {
           if (allowedSectorSet && (!sectorValue || !allowedSectorSet.has(sectorValue))) return;
           const rawCode = row.customerCode?.trim() || customer;
           const documentCountValue = Number(row.documentCount) || 0;
+          const totalQuantityValue = toNumber(row.totalQuantity);
           customerMap.set(customer, {
             customerCode: rawCode,
             customerName: row.customerName || null,
             sectorCode: sectorValue || null,
             documentCount: documentCountValue,
+            totalQuantity: totalQuantityValue,
           });
           customerCodes.push(rawCode);
         });
 
         if (customerCodes.length === 0) {
           return buildResponse([]);
+        }
+
+        let customerPricingMap = new Map<string, {
+          customerType: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
+          basePair: { invoiced: number; white: number };
+          rules: Array<{
+            brandCode?: string | null;
+            categoryId?: string | null;
+            invoicedPriceListNo: number;
+            whitePriceListNo: number;
+          }>;
+        }>();
+        if (includePotentialRevenue) {
+          const pricingCustomers = await prisma.user.findMany({
+            where: { mikroCariCode: { in: customerCodes } },
+            select: {
+              id: true,
+              mikroCariCode: true,
+              customerType: true,
+              invoicedPriceListNo: true,
+              whitePriceListNo: true,
+              priceListRules: true,
+            },
+          });
+          pricingCustomers.forEach((customer) => {
+            const code = normalizeReportCode(customer.mikroCariCode || '');
+            if (!code) return;
+            const customerType =
+              customer.customerType === 'PERAKENDE' ||
+              customer.customerType === 'VIP' ||
+              customer.customerType === 'OZEL'
+                ? customer.customerType
+                : 'BAYI';
+            const basePair = resolveCustomerPriceLists(customer, priceSettings);
+            customerPricingMap.set(code, {
+              customerType,
+              basePair,
+              rules: customer.priceListRules || [],
+            });
+          });
+        }
+
+        let baseDocCount = 0;
+        let complementAvgQtyMap = new Map<string, number>();
+        if (includePotentialRevenue) {
+          const baseStats = await loadQuantityStats([product.mikroCode]);
+          const baseCode = normalizeReportCode(product.mikroCode);
+          const baseEntry = baseCode ? baseStats.get(baseCode) : undefined;
+          baseDocCount = baseEntry?.docCount || 0;
+
+          const complementStats = await loadQuantityStats(complementCodes);
+          complementAvgQtyMap = new Map(
+            Array.from(complementStats.entries()).map(([code, stat]) => [
+              code,
+              safeDivide(stat.totalQuantity, stat.docCount),
+            ])
+          );
         }
 
         const purchaseMap = new Map<string, Set<string>>();
@@ -2686,6 +2837,35 @@ export class ReportsService {
           return buildResponse([]);
         }
 
+        const resolveUnitPrice = (customerCode: string, complementCode: string): number | null => {
+          if (!includePotentialRevenue) return null;
+          const customerKey = normalizeReportCode(customerCode);
+          const productKey = normalizeReportCode(complementCode);
+          if (!customerKey || !productKey) return null;
+          const pricing = customerPricingMap.get(customerKey);
+          const productMeta = complementMetaByCode.get(productKey);
+          if (!pricing || !productMeta) return null;
+
+          const listPair = resolveCustomerPriceListsForProduct(
+            pricing.basePair,
+            pricing.rules,
+            {
+              brandCode: productMeta.brandCode || null,
+              categoryId: productMeta.categoryId || null,
+            }
+          );
+          const priceStats = priceStatsMap.get(productMeta.code) || null;
+          let unitPrice = priceListService.getListPriceWithFallback(priceStats, listPair.invoiced);
+          if (!unitPrice && productMeta.prices) {
+            const basePrices = pricingService.getPriceForCustomer(
+              productMeta.prices as any,
+              pricing.customerType
+            );
+            unitPrice = basePrices.invoiced;
+          }
+          return unitPrice > 0 ? round2(unitPrice) : null;
+        };
+
         const rows: ComplementMissingRow[] = [];
         customerMap.forEach((customerInfo, normalizedCustomer) => {
           if (minDocumentCount && customerInfo.documentCount < minDocumentCount) return;
@@ -2699,10 +2879,33 @@ export class ReportsService {
           });
 
           const missingComplements: ComplementMissingItem[] = [];
+          const baseAvgQty = safeDivide(customerInfo.totalQuantity, customerInfo.documentCount);
           complementTargets.forEach((item, key) => {
-            if (!purchasedKeys.has(key)) {
+            if (purchasedKeys.has(key)) return;
+            if (!includePotentialRevenue) {
               missingComplements.push(item);
+              return;
             }
+
+            const normalizedCode = normalizeReportCode(item.productCode);
+            const pairCount = normalizedCode ? (pairCountByCode.get(normalizedCode) || 0) : 0;
+            const ratio = baseDocCount > 0 ? pairCount / baseDocCount : 0;
+            const effectiveRatio =
+              ratio > 0 ? ratio : (product.complementMode === 'MANUAL' ? 1 : 0);
+            const avgComplementQty = normalizedCode ? (complementAvgQtyMap.get(normalizedCode) || 0) : 0;
+            const quantityPerDoc = avgComplementQty > 0 ? avgComplementQty : baseAvgQty;
+            const estimatedDocs = customerInfo.documentCount * effectiveRatio;
+            const estimatedQuantity = estimatedDocs * quantityPerDoc;
+            const unitPrice = resolveUnitPrice(customerInfo.customerCode, item.productCode);
+            const estimatedRevenue =
+              unitPrice !== null ? round2(estimatedQuantity * unitPrice) : null;
+
+            missingComplements.push({
+              ...item,
+              estimatedQuantity: round2(estimatedQuantity),
+              unitPrice,
+              estimatedRevenue,
+            });
           });
 
           if (missingComplements.length === 0) return;
@@ -2759,7 +2962,8 @@ export class ReportsService {
           MAX(st.sto_isim) as productName,
           MAX(c.cari_unvan1) as customerName,
           MAX(c.cari_sektor_kodu) as sectorCode,
-          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
+          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
+          SUM(sth.sth_miktar) as totalQuantity
         FROM STOK_HAREKETLERI sth
         LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
         LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
@@ -2780,12 +2984,15 @@ export class ReportsService {
       metadata.sectorCode = customerSector || null;
 
       const documentCountMap = new Map<string, number>();
+      const quantityMap = new Map<string, number>();
       const purchasedCodes = rawData
         .map((row: any) => {
           const normalized = normalizeReportCode(row.productCode);
           if (!normalized) return '';
           const docCount = Number(row.documentCount) || 0;
+          const totalQuantity = toNumber(row.totalQuantity);
           documentCountMap.set(normalized, docCount);
+          quantityMap.set(normalized, totalQuantity);
           return normalized;
         })
         .filter(Boolean);
@@ -2801,7 +3008,10 @@ export class ReportsService {
           mikroCode: true,
           name: true,
           complementMode: true,
+          brandCode: true,
+          categoryId: true,
           complementGroupCode: true,
+          prices: true,
           category: { select: { mikroCode: true, name: true } },
         },
       });
@@ -2828,11 +3038,36 @@ export class ReportsService {
           id: true,
           mikroCode: true,
           name: true,
+          brandCode: true,
+          categoryId: true,
           complementGroupCode: true,
+          prices: true,
           category: { select: { mikroCode: true, name: true } },
         },
       });
       const complementLookup = new Map(complementProducts.map((item) => [item.id, item]));
+
+      const pricingMetaByCode = new Map<string, {
+        code: string;
+        brandCode?: string | null;
+        categoryId?: string | null;
+        prices?: unknown;
+      }>();
+      const addPricingMeta = (item: {
+        mikroCode: string;
+        brandCode?: string | null;
+        categoryId?: string | null;
+        prices?: unknown;
+      }) => {
+        const normalized = normalizeReportCode(item.mikroCode);
+        if (!normalized) return;
+        pricingMetaByCode.set(normalized, {
+          code: normalized,
+          brandCode: item.brandCode ?? null,
+          categoryId: item.categoryId ?? null,
+          prices: item.prices,
+        });
+      };
 
       const metaMap = new Map<string, ComplementProductMeta>();
       const addMeta = (item: {
@@ -2854,6 +3089,8 @@ export class ReportsService {
 
       purchasedProducts.forEach(addMeta);
       complementProducts.forEach(addMeta);
+      purchasedProducts.forEach(addPricingMeta);
+      complementProducts.forEach(addPricingMeta);
 
       const purchasedKeys = new Set<string>();
       purchasedCodes.forEach((code) => {
@@ -2862,6 +3099,121 @@ export class ReportsService {
         const meta = metaMap.get(normalized);
         addPurchasedKeys(purchasedKeys, normalized, meta);
       });
+
+      const complementCodes = Array.from(new Set(
+        complementProducts.map((item) => normalizeReportCode(item.mikroCode)).filter(Boolean)
+      ));
+      const priceStatsMap = includePotentialRevenue && complementCodes.length > 0
+        ? await priceListService.getPriceStatsMap(complementCodes)
+        : new Map();
+
+      let customerPricing: {
+        customerType: 'BAYI' | 'PERAKENDE' | 'VIP' | 'OZEL';
+        basePair: { invoiced: number; white: number };
+        rules: Array<{
+          brandCode?: string | null;
+          categoryId?: string | null;
+          invoicedPriceListNo: number;
+          whitePriceListNo: number;
+        }>;
+      } | null = null;
+
+      if (includePotentialRevenue) {
+        const pricingCustomer = await prisma.user.findFirst({
+          where: { mikroCariCode: normalizedCustomerCode },
+          select: {
+            customerType: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
+            priceListRules: true,
+          },
+        });
+        if (pricingCustomer) {
+          const customerType =
+            pricingCustomer.customerType === 'PERAKENDE' ||
+            pricingCustomer.customerType === 'VIP' ||
+            pricingCustomer.customerType === 'OZEL'
+              ? pricingCustomer.customerType
+              : 'BAYI';
+          customerPricing = {
+            customerType,
+            basePair: resolveCustomerPriceLists(pricingCustomer, priceSettings),
+            rules: pricingCustomer.priceListRules || [],
+          };
+        }
+      }
+
+      const globalConditions = [
+        'sth_cins = 0',
+        'sth_tip = 1',
+        'sth_evraktip IN (1, 4)',
+        `sth_tarih >= '${startDate}'`,
+        `sth_tarih <= '${endDate}'`,
+        '(sth_iptal = 0 OR sth_iptal IS NULL)',
+        'sth.sth_stok_kod IS NOT NULL',
+        "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+        'sth.sth_cari_kodu IS NOT NULL',
+        "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+      ];
+
+      const loadGlobalStats = async (codes: string[]) => {
+        const normalized = Array.from(new Set(codes.map(normalizeReportCode).filter(Boolean)));
+        const result = new Map<string, { docCount: number; totalQuantity: number }>();
+        if (normalized.length === 0) return result;
+
+        for (const chunk of chunkArray(normalized, REPORT_CODE_BATCH_SIZE)) {
+          if (chunk.length === 0) continue;
+          const inClause = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+          const statsQuery = `
+            SELECT
+              RTRIM(sth.sth_stok_kod) as productCode,
+              COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
+              SUM(sth.sth_miktar) as totalQuantity
+            FROM STOK_HAREKETLERI sth
+            LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+            LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+            WHERE ${[...globalConditions, ...exclusionConditions, `RTRIM(sth.sth_stok_kod) IN (${inClause})`].join(' AND ')}
+            GROUP BY sth.sth_stok_kod
+          `;
+          const rows = await mikroService.executeQuery(statsQuery);
+          rows.forEach((row: any) => {
+            const code = normalizeReportCode(row.productCode);
+            if (!code) return;
+            result.set(code, {
+              docCount: toNumber(row.documentCount),
+              totalQuantity: toNumber(row.totalQuantity),
+            });
+          });
+        }
+
+        return result;
+      };
+
+      const baseDocCountMap = new Map<string, number>();
+      const complementAvgQtyMap = new Map<string, number>();
+      if (includePotentialRevenue) {
+        const baseStats = await loadGlobalStats(purchasedCodes);
+        baseStats.forEach((stat, code) => {
+          baseDocCountMap.set(code, stat.docCount);
+        });
+
+        const complementStats = await loadGlobalStats(complementCodes);
+        complementStats.forEach((stat, code) => {
+          complementAvgQtyMap.set(code, safeDivide(stat.totalQuantity, stat.docCount));
+        });
+      }
+
+      const pairCountByPair = new Map<string, number>();
+      if (includePotentialRevenue && allComplementIds.length > 0) {
+        const pairRows = await prisma.productComplementAuto.findMany({
+          where: { productId: { in: purchasedProducts.map((item) => item.id) }, relatedProductId: { in: allComplementIds } },
+          select: { productId: true, relatedProductId: true, pairCount: true },
+        });
+        pairRows.forEach((row) => {
+          const key = `${row.productId}:${row.relatedProductId}`;
+          pairCountByPair.set(key, toNumber(row.pairCount));
+        });
+      }
 
       const rows: ComplementMissingRow[] = [];
       purchasedProducts.forEach((product) => {
@@ -2881,10 +3233,58 @@ export class ReportsService {
           const key = buildComplementKey(meta, normalizedCode);
           if (!key || purchasedKeys.has(key)) return;
           if (!missingMap.has(key)) {
-            missingMap.set(
-              key,
-              buildComplementDisplay(meta, complement.mikroCode, complement.name)
-            );
+            if (!includePotentialRevenue) {
+              missingMap.set(
+                key,
+                buildComplementDisplay(meta, complement.mikroCode, complement.name)
+              );
+            } else {
+              const baseTotalQty = quantityMap.get(normalized) || 0;
+              const baseAvgQty = safeDivide(baseTotalQty, documentCount);
+              const baseDocCount = baseDocCountMap.get(normalized) || 0;
+              const pairCount = pairCountByPair.get(`${product.id}:${id}`) || 0;
+              const ratio = baseDocCount > 0 ? pairCount / baseDocCount : 0;
+              const effectiveRatio =
+                ratio > 0 ? ratio : (product.complementMode === 'MANUAL' ? 1 : 0);
+              const avgComplementQty = complementAvgQtyMap.get(normalizedCode) || 0;
+              const quantityPerDoc = avgComplementQty > 0 ? avgComplementQty : baseAvgQty;
+              const estimatedDocs = documentCount * effectiveRatio;
+              const estimatedQuantity = estimatedDocs * quantityPerDoc;
+              const productMeta = pricingMetaByCode.get(normalizedCode);
+              let unitPrice: number | null = null;
+              if (customerPricing && productMeta) {
+                const listPair = resolveCustomerPriceListsForProduct(
+                  customerPricing.basePair,
+                  customerPricing.rules,
+                  {
+                    brandCode: productMeta.brandCode || null,
+                    categoryId: productMeta.categoryId || null,
+                  }
+                );
+                const priceStats = priceStatsMap.get(productMeta.code) || null;
+                let priceValue = priceListService.getListPriceWithFallback(priceStats, listPair.invoiced);
+                if (!priceValue && productMeta.prices) {
+                  const basePrices = pricingService.getPriceForCustomer(
+                    productMeta.prices as any,
+                    customerPricing.customerType
+                  );
+                  priceValue = basePrices.invoiced;
+                }
+                unitPrice = priceValue > 0 ? round2(priceValue) : null;
+              }
+              const estimatedRevenue =
+                unitPrice !== null ? round2(estimatedQuantity * unitPrice) : null;
+
+              missingMap.set(
+                key,
+                {
+                  ...buildComplementDisplay(meta, complement.mikroCode, complement.name),
+                  estimatedQuantity: round2(estimatedQuantity),
+                  unitPrice,
+                  estimatedRevenue,
+                }
+              );
+            }
           }
         });
 
@@ -2930,14 +3330,27 @@ export class ReportsService {
       limit: 100000,
     });
 
+    const formatNumber = (value: number | null | undefined) =>
+      Number.isFinite(value) ? Number(value).toFixed(2) : '-';
+    const round2Local = (value: number): number =>
+      Number.isFinite(value) ? Math.round((value + Number.EPSILON) * 100) / 100 : 0;
+
     const header = data.metadata.mode === 'product'
-      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi']
-      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi'];
+      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Gelir']
+      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi', 'Potansiyel Gelir'];
 
     const rows = data.rows.map((row) => {
       const missingList = row.missingComplements
-        .map((item) => `${item.productCode} - ${item.productName}`)
+        .map((item) => {
+          const qty = formatNumber(item.estimatedQuantity);
+          const unitPrice = formatNumber(item.unitPrice);
+          const revenue = formatNumber(item.estimatedRevenue);
+          return `${item.productCode} - ${item.productName} (${qty} x ${unitPrice} = ${revenue})`;
+        })
         .join(', ');
+      const potentialRevenue = round2Local(
+        row.missingComplements.reduce((sum, item) => sum + (item.estimatedRevenue || 0), 0)
+      );
       return data.metadata.mode === 'product'
         ? [
             row.customerCode || '',
@@ -2945,6 +3358,7 @@ export class ReportsService {
             row.documentCount || 0,
             missingList,
             row.missingCount,
+            potentialRevenue,
           ]
         : [
             row.productCode || '',
@@ -2952,6 +3366,7 @@ export class ReportsService {
             row.documentCount || 0,
             missingList,
             row.missingCount,
+            potentialRevenue,
           ];
     });
 

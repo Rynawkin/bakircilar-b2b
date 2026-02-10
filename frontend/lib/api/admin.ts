@@ -1443,7 +1443,13 @@ export const adminApi = {
         productCode?: string;
         productName?: string;
         documentCount?: number;
-        missingComplements: Array<{ productCode: string; productName: string }>;
+        missingComplements: Array<{
+          productCode: string;
+          productName: string;
+          estimatedQuantity?: number | null;
+          unitPrice?: number | null;
+          estimatedRevenue?: number | null;
+        }>;
         missingCount: number;
       }>;
       summary: {

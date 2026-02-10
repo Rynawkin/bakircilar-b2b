@@ -10,11 +10,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Modal } from '@/components/ui/Modal';
 import { ArrowLeft, RefreshCw, Package, Users, AlertTriangle } from 'lucide-react';
 import { adminApi } from '@/lib/api/admin';
+import { formatCurrency } from '@/lib/utils/format';
 import toast from 'react-hot-toast';
 
 interface ComplementMissingItem {
   productCode: string;
   productName: string;
+  estimatedQuantity?: number | null;
+  unitPrice?: number | null;
+  estimatedRevenue?: number | null;
 }
 
 interface ComplementMissingRow {
@@ -306,18 +310,38 @@ export default function ComplementMissingReportPage() {
   const matchModeLabel = matchModeValue === 'category' ? 'Kategori' : matchModeValue === 'group' ? 'Grup' : 'Urun';
   const showProductMode = mode === 'product';
   const showProductTable = tableMode === 'product';
+  const formatMoney = (value?: number | null) =>
+    Number.isFinite(value) ? formatCurrency(value as number) : '-';
+  const formatQuantity = (value?: number | null) =>
+    Number.isFinite(value)
+      ? (value as number).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '-';
 
   const renderMissingList = (items: ComplementMissingItem[]) => {
     if (items.length === 0) return '-';
 
     return (
-      <div className="space-y-1">
-        {items.map((item) => (
-          <div key={`${item.productCode}-${item.productName}`} className="text-xs">
-            <span className="font-mono">{item.productCode}</span>
-            <span className="text-gray-600"> - {item.productName}</span>
-          </div>
-        ))}
+      <div className="space-y-2">
+        {items.map((item) => {
+          const hasEstimate =
+            Number.isFinite(item.estimatedQuantity) ||
+            Number.isFinite(item.unitPrice) ||
+            Number.isFinite(item.estimatedRevenue);
+
+          return (
+            <div key={`${item.productCode}-${item.productName}`} className="text-xs">
+              <div>
+                <span className="font-mono">{item.productCode}</span>
+                <span className="text-gray-600"> - {item.productName}</span>
+              </div>
+              {hasEstimate && (
+                <div className="text-[11px] text-gray-500">
+                  {formatQuantity(item.estimatedQuantity)} x {formatMoney(item.unitPrice)} = {formatMoney(item.estimatedRevenue)}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -792,6 +816,7 @@ export default function ComplementMissingReportPage() {
                     )}
                     <TableHead className="text-right">Evrak</TableHead>
                     <TableHead>Eksik Tamamlayicilar</TableHead>
+                    <TableHead className="text-right">Potansiyel Gelir</TableHead>
                     <TableHead className="text-right">Adet</TableHead>
                     <TableHead className="text-right">Aksiyon</TableHead>
                   </TableRow>
@@ -800,6 +825,10 @@ export default function ComplementMissingReportPage() {
                   {rows.map((row, index) => {
                     const customerCodeValue = showProductTable ? row.customerCode : metadata?.customer?.customerCode;
                     const canCreateQuote = Boolean(customerCodeValue) && row.missingComplements.length > 0;
+                    const hasRevenue = row.missingComplements.some((item) => Number.isFinite(item.estimatedRevenue));
+                    const rowPotentialRevenue = hasRevenue
+                      ? row.missingComplements.reduce((sum, item) => sum + (item.estimatedRevenue || 0), 0)
+                      : null;
 
                     return (
                       <TableRow key={`${row.customerCode || row.productCode}-${index}`}>
@@ -816,6 +845,7 @@ export default function ComplementMissingReportPage() {
                         )}
                         <TableCell className="text-right">{row.documentCount ?? '-'}</TableCell>
                         <TableCell>{renderMissingList(row.missingComplements)}</TableCell>
+                        <TableCell className="text-right font-semibold">{formatMoney(rowPotentialRevenue)}</TableCell>
                         <TableCell className="text-right font-semibold">{row.missingCount}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-col items-end gap-2">
