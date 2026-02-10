@@ -20,6 +20,7 @@ import priceSyncService from '../services/priceSync.service';
 import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
 import priceListService from '../services/price-list.service';
+import productComplementService from '../services/product-complement.service';
 import { splitSearchTokens } from '../utils/search';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
@@ -28,6 +29,74 @@ const DEFAULT_CUSTOMER_PRICE_LISTS = {
   PERAKENDE: { invoiced: 6, white: 1 },
   VIP: { invoiced: 6, white: 1 },
   OZEL: { invoiced: 6, white: 1 },
+};
+
+const PRODUCT_SELECT = {
+  id: true,
+  name: true,
+  mikroCode: true,
+  unit: true,
+  unit2: true,
+  unit2Factor: true,
+  excessStock: true,
+  warehouseStocks: true,
+  pendingCustomerOrdersByWarehouse: true,
+  warehouseExcessStocks: true,
+  lastEntryPrice: true,
+  lastEntryDate: true,
+  currentCost: true,
+  currentCostDate: true,
+  calculatedCost: true,
+  vatRate: true,
+  prices: true,
+  imageUrl: true,
+  category: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+};
+
+const buildProductsWithPriceLists = async (products: any[]) => {
+  if (!products || products.length === 0) return [];
+
+  const settings = await prisma.settings.findFirst();
+  const includedWarehouses = settings?.includedWarehouses || [];
+
+  const productsWithTotalStock = products.map((product) => {
+    const warehouseStocks = (product.warehouseStocks as Record<string, number>) || {};
+    const pendingByWarehouse =
+      (product as any).pendingCustomerOrdersByWarehouse as Record<string, number> || {};
+    const availableWarehouseStocks = applyPendingOrdersToStocks(warehouseStocks, pendingByWarehouse);
+    const totalStock = includedWarehouses.reduce((sum, warehouse) => {
+      return sum + (availableWarehouseStocks[warehouse] || 0);
+    }, 0);
+
+    return {
+      ...product,
+      warehouseStocks: availableWarehouseStocks,
+      totalStock,
+    };
+  });
+
+  const priceStatsMap = await priceListService.getPriceStatsMap(
+    productsWithTotalStock.map((product) => product.mikroCode)
+  );
+
+  return productsWithTotalStock.map((product) => {
+    const priceStats = priceStatsMap.get(product.mikroCode) || null;
+    const mikroPriceLists: Record<string, number> = {};
+
+    for (let listNo = 1; listNo <= 10; listNo += 1) {
+      mikroPriceLists[listNo] = priceListService.getListPrice(priceStats, listNo);
+    }
+
+    return {
+      ...product,
+      mikroPriceLists,
+    };
+  });
 };
 
 const buildSubUserBase = (mikroCariCode: string | null | undefined, fallbackId: string): string => {
@@ -630,6 +699,34 @@ export class AdminController {
           withoutImage: withoutImageCount,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/products/by-codes
+   * Kod listesine gore urunleri getirir.
+   */
+  async getProductsByCodes(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { codes } = req.body as { codes?: string[] };
+      const normalizedCodes = Array.from(
+        new Set((codes || []).map((code) => String(code || '').trim()).filter(Boolean))
+      );
+
+      if (normalizedCodes.length === 0) {
+        res.json({ products: [], total: 0 });
+        return;
+      }
+
+      const products = await prisma.product.findMany({
+        where: { mikroCode: { in: normalizedCodes } },
+        select: PRODUCT_SELECT,
+      });
+
+      const productsWithPriceLists = await buildProductsWithPriceLists(products);
+      res.json({ products: productsWithPriceLists, total: productsWithPriceLists.length });
     } catch (error) {
       next(error);
     }
@@ -2990,22 +3087,147 @@ export class AdminController {
    */
   async getComplementMissingReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const { mode, productCode, customerCode, periodMonths, page, limit, matchMode } = req.query;
+      const {
+        mode,
+        productCode,
+        customerCode,
+        periodMonths,
+        page,
+        limit,
+        matchMode,
+        sectorCode,
+        salesRepId,
+        minDocumentCount,
+      } = req.query;
 
       const data = await reportsService.getComplementMissingReport({
         mode: mode as 'product' | 'customer',
         matchMode: matchMode as 'product' | 'category' | 'group',
         productCode: productCode as string,
         customerCode: customerCode as string,
+        sectorCode: sectorCode as string,
+        salesRepId: salesRepId as string,
         periodMonths: periodMonths ? parseInt(periodMonths as string, 10) : undefined,
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
+        minDocumentCount: minDocumentCount ? parseInt(minDocumentCount as string, 10) : undefined,
       });
 
       res.json({
         success: true,
         data,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/recommendations/complements
+   * Tamamlayici urun onerilerini getirir.
+   */
+  async getComplementRecommendations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { productCodes, limit, excludeCodes } = req.body as {
+        productCodes?: string[];
+        excludeCodes?: string[];
+        limit?: number;
+      };
+
+      const normalizedCodes = Array.from(
+        new Set((productCodes || []).map((code) => String(code || '').trim()).filter(Boolean))
+      );
+      const normalizedExcludeCodes = Array.from(
+        new Set((excludeCodes || []).map((code) => String(code || '').trim()).filter(Boolean))
+      );
+
+      if (normalizedCodes.length === 0) {
+        res.json({ success: true, products: [], total: 0 });
+        return;
+      }
+
+      const sourceProducts = await prisma.product.findMany({
+        where: { mikroCode: { in: normalizedCodes } },
+        select: { id: true, mikroCode: true },
+      });
+
+      if (sourceProducts.length === 0) {
+        res.json({ success: true, products: [], total: 0 });
+        return;
+      }
+
+      const excludeProducts = normalizedExcludeCodes.length > 0
+        ? await prisma.product.findMany({
+            where: { mikroCode: { in: normalizedExcludeCodes } },
+            select: { id: true },
+          })
+        : [];
+
+      const excludeIdSet = new Set([
+        ...sourceProducts.map((item) => item.id),
+        ...excludeProducts.map((item) => item.id),
+      ]);
+
+      const safeLimit = Number.isFinite(Number(limit)) && Number(limit) > 0
+        ? Math.min(20, Math.floor(Number(limit)))
+        : 10;
+
+      const recommendedIds = await productComplementService.getRecommendationIdsForCart(
+        sourceProducts.map((item) => item.id),
+        safeLimit
+      );
+
+      const filteredIds = recommendedIds.filter((id) => !excludeIdSet.has(id));
+      if (filteredIds.length === 0) {
+        res.json({ success: true, products: [], total: 0 });
+        return;
+      }
+
+      const recommendedProducts = await prisma.product.findMany({
+        where: { id: { in: filteredIds } },
+        select: PRODUCT_SELECT,
+      });
+      const enriched = await buildProductsWithPriceLists(recommendedProducts);
+      const productMap = new Map(enriched.map((product: any) => [product.id, product]));
+      const orderedProducts = filteredIds.map((id) => productMap.get(id)).filter(Boolean);
+
+      res.json({ success: true, products: orderedProducts, total: orderedProducts.length });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/complement-missing/export
+   * Tamamlayici urun eksikleri raporu Excel
+   */
+  async exportComplementMissingReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        mode,
+        productCode,
+        customerCode,
+        periodMonths,
+        matchMode,
+        sectorCode,
+        salesRepId,
+        minDocumentCount,
+      } = req.query;
+
+      const { buffer, fileName } = await reportsService.exportComplementMissingReport({
+        mode: mode as 'product' | 'customer',
+        matchMode: matchMode as 'product' | 'category' | 'group',
+        productCode: productCode as string,
+        customerCode: customerCode as string,
+        sectorCode: sectorCode as string,
+        salesRepId: salesRepId as string,
+        periodMonths: periodMonths ? parseInt(periodMonths as string, 10) : undefined,
+        minDocumentCount: minDocumentCount ? parseInt(minDocumentCount as string, 10) : undefined,
+      });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(buffer);
     } catch (error) {
       next(error);
     }

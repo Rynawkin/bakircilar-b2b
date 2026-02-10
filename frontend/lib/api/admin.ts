@@ -1428,9 +1428,12 @@ export const adminApi = {
     matchMode?: 'product' | 'category' | 'group';
     productCode?: string;
     customerCode?: string;
+    sectorCode?: string;
+    salesRepId?: string;
     periodMonths?: number;
     page?: number;
     limit?: number;
+    minDocumentCount?: number;
   }): Promise<{
     success: boolean;
     data: {
@@ -1439,6 +1442,7 @@ export const adminApi = {
         customerName?: string;
         productCode?: string;
         productName?: string;
+        documentCount?: number;
         missingComplements: Array<{ productCode: string; productName: string }>;
         missingCount: number;
       }>;
@@ -1460,6 +1464,9 @@ export const adminApi = {
         endDate: string;
         baseProduct?: { productCode: string; productName: string };
         customer?: { customerCode: string; customerName: string | null };
+        sectorCode?: string | null;
+        salesRep?: { id: string; name: string | null; email: string | null; assignedSectorCodes: string[] };
+        minDocumentCount?: number | null;
       };
     };
   }> => {
@@ -1468,11 +1475,53 @@ export const adminApi = {
     if (params.matchMode) queryParams.append('matchMode', params.matchMode);
     if (params.productCode) queryParams.append('productCode', params.productCode);
     if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
+    if (params.salesRepId) queryParams.append('salesRepId', params.salesRepId);
     if (params.periodMonths) queryParams.append('periodMonths', params.periodMonths.toString());
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.minDocumentCount) queryParams.append('minDocumentCount', params.minDocumentCount.toString());
 
     const response = await apiClient.get(`/admin/reports/complement-missing?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  downloadComplementMissingExport: async (params: {
+    mode: 'product' | 'customer';
+    matchMode?: 'product' | 'category' | 'group';
+    productCode?: string;
+    customerCode?: string;
+    sectorCode?: string;
+    salesRepId?: string;
+    periodMonths?: number;
+    minDocumentCount?: number;
+  }): Promise<Blob> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('mode', params.mode);
+    if (params.matchMode) queryParams.append('matchMode', params.matchMode);
+    if (params.productCode) queryParams.append('productCode', params.productCode);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
+    if (params.salesRepId) queryParams.append('salesRepId', params.salesRepId);
+    if (params.periodMonths) queryParams.append('periodMonths', params.periodMonths.toString());
+    if (params.minDocumentCount) queryParams.append('minDocumentCount', params.minDocumentCount.toString());
+    const response = await apiClient.get(`/admin/reports/complement-missing/export?${queryParams.toString()}`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  getProductsByCodes: async (codes: string[]): Promise<{ products: any[]; total: number }> => {
+    const response = await apiClient.post('/admin/products/by-codes', { codes });
+    return response.data;
+  },
+
+  getComplementRecommendations: async (params: {
+    productCodes: string[];
+    excludeCodes?: string[];
+    limit?: number;
+  }): Promise<{ success: boolean; products: any[]; total: number }> => {
+    const response = await apiClient.post('/admin/recommendations/complements', params);
     return response.data;
   },
 

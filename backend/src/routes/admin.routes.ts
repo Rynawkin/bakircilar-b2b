@@ -148,6 +148,16 @@ const complementSyncSchema = z.object({
   limit: z.number().int().min(1).max(20).optional(),
 });
 
+const productCodesSchema = z.object({
+  codes: z.array(z.string()).min(1),
+});
+
+const complementRecommendationSchema = z.object({
+  productCodes: z.array(z.string()).min(1),
+  excludeCodes: z.array(z.string()).optional(),
+  limit: z.number().int().min(1).max(20).optional(),
+});
+
 // Settings - ADMIN only
 router.get('/settings', requirePermission('admin:settings'), adminController.getSettings);
 router.put('/settings', requirePermission('admin:settings'), adminController.updateSettings);
@@ -184,6 +194,12 @@ router.get('/supplier-price-lists/:id/export', requirePermission('admin:supplier
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
 router.get('/products', requireAnyPermission(['admin:products', 'dashboard:diversey-stok']), adminController.getProducts);
+router.post(
+  '/products/by-codes',
+  requireAnyPermission(['admin:quotes', 'admin:products']),
+  validateBody(productCodesSchema),
+  adminController.getProductsByCodes
+);
 router.post('/products/image-sync', requirePermission('admin:products'), adminController.triggerSelectedImageSync);
 router.post('/products/:id/image', requirePermission('admin:products'), upload.single('image'), adminController.uploadProductImage);
 router.delete('/products/:id/image', requirePermission('admin:products'), adminController.deleteProductImage);
@@ -199,6 +215,12 @@ router.post(
   requirePermission('admin:products'),
   validateBody(complementSyncSchema),
   productComplementController.syncComplements
+);
+router.post(
+  '/recommendations/complements',
+  requireAnyPermission(['admin:quotes', 'reports:complement-missing']),
+  validateBody(complementRecommendationSchema),
+  adminController.getComplementRecommendations
 );
 
 // Brands - Admin/Manager
@@ -406,6 +428,7 @@ router.get('/reports/top-products', requirePermission('reports:top-products'), a
 router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);
 router.get('/reports/product-customers/:productCode', requirePermission('reports:top-customers'), adminController.getProductCustomers);
 router.get('/reports/complement-missing', requirePermission('reports:complement-missing'), adminController.getComplementMissingReport);
+router.get('/reports/complement-missing/export', requirePermission('reports:complement-missing'), adminController.exportComplementMissingReport);
 // Price Sync endpoints
 router.post('/price-sync', requirePermission('admin:price-sync'), adminController.syncPriceChanges);
 router.get('/price-sync/status', requirePermission('admin:price-sync'), adminController.getPriceSyncStatus);

@@ -147,6 +147,7 @@ interface ComplementMissingRow {
   customerName?: string;
   productCode?: string;
   productName?: string;
+  documentCount?: number;
   missingComplements: ComplementMissingItem[];
   missingCount: number;
 }
@@ -177,6 +178,14 @@ interface ComplementMissingReportResponse {
       customerCode: string;
       customerName: string | null;
     };
+    sectorCode?: string | null;
+    salesRep?: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      assignedSectorCodes: string[];
+    };
+    minDocumentCount?: number | null;
   };
 }
 
@@ -2293,11 +2302,14 @@ export class ReportsService {
     matchMode?: ComplementMatchMode;
     productCode?: string;
     customerCode?: string;
+    sectorCode?: string;
+    salesRepId?: string;
     periodMonths?: number;
     page?: number;
     limit?: number;
+    minDocumentCount?: number;
   }): Promise<ComplementMissingReportResponse> {
-    const { mode, productCode, customerCode } = options;
+    const { mode, productCode, customerCode, sectorCode, salesRepId } = options;
     if (mode !== 'product' && mode !== 'customer') {
       throw new AppError('Rapor modu gecersiz.', 400, ErrorCode.BAD_REQUEST);
     }
@@ -2305,6 +2317,10 @@ export class ReportsService {
     const periodMonths = options.periodMonths === 12 ? 12 : 6;
     const page = options.page && options.page > 0 ? options.page : 1;
     const limit = options.limit && options.limit > 0 ? options.limit : 50;
+    const minDocumentCount =
+      Number.isFinite(options.minDocumentCount) && (options.minDocumentCount as number) > 0
+        ? Math.floor(options.minDocumentCount as number)
+        : null;
 
     const reportEnd = new Date();
     const reportStart = subtractMonthsUtc(reportEnd, periodMonths);
@@ -2409,12 +2425,47 @@ export class ReportsService {
       return map;
     };
 
+    const normalizedSectorCode = normalizeReportCode(sectorCode);
+    let salesRepMeta: ComplementMissingReportResponse['metadata']['salesRep'] = undefined;
+    let salesRepSectorCodes: string[] = [];
+
+    if (salesRepId) {
+      const salesRep = await prisma.user.findUnique({
+        where: { id: salesRepId },
+        select: { id: true, name: true, email: true, assignedSectorCodes: true },
+      });
+      if (salesRep) {
+        salesRepSectorCodes = (salesRep.assignedSectorCodes || [])
+          .map(normalizeReportCode)
+          .filter(Boolean);
+        salesRepMeta = {
+          id: salesRep.id,
+          name: salesRep.name || null,
+          email: salesRep.email || null,
+          assignedSectorCodes: salesRepSectorCodes,
+        };
+      }
+    }
+
+    let allowedSectorCodes: string[] = normalizedSectorCode ? [normalizedSectorCode] : [];
+    if (salesRepSectorCodes.length > 0) {
+      allowedSectorCodes = allowedSectorCodes.length > 0
+        ? allowedSectorCodes.filter((code) => salesRepSectorCodes.includes(code))
+        : salesRepSectorCodes;
+    }
+    const sectorFilterRequested = Boolean(normalizedSectorCode) || Boolean(salesRepId);
+    const sectorFilterImpossible = sectorFilterRequested && allowedSectorCodes.length === 0;
+    const allowedSectorSet = allowedSectorCodes.length > 0 ? new Set(allowedSectorCodes) : null;
+
     const metadata: ComplementMissingReportResponse['metadata'] = {
       mode,
       matchMode,
       periodMonths,
       startDate,
       endDate,
+      sectorCode: normalizedSectorCode || null,
+      salesRep: salesRepMeta,
+      minDocumentCount,
     };
 
     const buildResponse = (rows: ComplementMissingRow[]): ComplementMissingReportResponse => {
@@ -2439,6 +2490,10 @@ export class ReportsService {
         metadata,
       };
     };
+
+    if (sectorFilterImpossible || (salesRepId && !salesRepMeta)) {
+      return buildResponse([]);
+    }
 
     if (mode === 'product') {
       const normalizedProductCode = normalizeReportCode(productCode);
@@ -2531,7 +2586,9 @@ export class ReportsService {
         const customerQuery = `
           SELECT
             RTRIM(sth.sth_cari_kodu) as customerCode,
-            MAX(c.cari_unvan1) as customerName
+            MAX(c.cari_unvan1) as customerName,
+            MAX(c.cari_sektor_kodu) as sectorCode,
+            COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
           FROM STOK_HAREKETLERI sth
           LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
           WHERE ${baseCustomerClause}
@@ -2540,16 +2597,26 @@ export class ReportsService {
 
         const customerRows = await mikroService.executeQuery(customerQuery);
 
-        const customerMap = new Map<string, { customerCode: string; customerName: string | null }>();
+        const customerMap = new Map<string, {
+          customerCode: string;
+          customerName: string | null;
+          sectorCode: string | null;
+          documentCount: number;
+        }>();
         const customerCodes: string[] = [];
         customerRows.forEach((row: any) => {
           const customer = normalizeReportCode(row.customerCode);
           if (!customer) return;
           if (customerMap.has(customer)) return;
+          const sectorValue = normalizeReportCode(row.sectorCode);
+          if (allowedSectorSet && (!sectorValue || !allowedSectorSet.has(sectorValue))) return;
           const rawCode = row.customerCode?.trim() || customer;
+          const documentCountValue = Number(row.documentCount) || 0;
           customerMap.set(customer, {
             customerCode: rawCode,
             customerName: row.customerName || null,
+            sectorCode: sectorValue || null,
+            documentCount: documentCountValue,
           });
           customerCodes.push(rawCode);
         });
@@ -2621,6 +2688,7 @@ export class ReportsService {
 
         const rows: ComplementMissingRow[] = [];
         customerMap.forEach((customerInfo, normalizedCustomer) => {
+          if (minDocumentCount && customerInfo.documentCount < minDocumentCount) return;
           const purchasedCodes = purchaseMap.get(normalizedCustomer);
           if (!purchasedCodes || purchasedCodes.size === 0) return;
 
@@ -2642,6 +2710,7 @@ export class ReportsService {
           rows.push({
             customerCode: customerInfo.customerCode,
             customerName: customerInfo.customerName || '-',
+            documentCount: customerInfo.documentCount,
             missingComplements,
             missingCount: missingComplements.length,
           });
@@ -2688,7 +2757,9 @@ export class ReportsService {
         SELECT
           RTRIM(sth.sth_stok_kod) as productCode,
           MAX(st.sto_isim) as productName,
-          MAX(c.cari_unvan1) as customerName
+          MAX(c.cari_unvan1) as customerName,
+          MAX(c.cari_sektor_kodu) as sectorCode,
+          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
         FROM STOK_HAREKETLERI sth
         LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
         LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
@@ -2698,13 +2769,25 @@ export class ReportsService {
 
       const rawData = await mikroService.executeQuery(query);
       const customerName = rawData.length > 0 ? rawData[0].customerName || null : null;
+      const customerSector = rawData.length > 0 ? normalizeReportCode(rawData[0].sectorCode) : '';
+      if (allowedSectorSet && (!customerSector || !allowedSectorSet.has(customerSector))) {
+        return buildResponse([]);
+      }
       metadata.customer = {
         customerCode: normalizedCustomerCode,
         customerName,
       };
+      metadata.sectorCode = customerSector || null;
 
+      const documentCountMap = new Map<string, number>();
       const purchasedCodes = rawData
-        .map((row: any) => normalizeReportCode(row.productCode))
+        .map((row: any) => {
+          const normalized = normalizeReportCode(row.productCode);
+          if (!normalized) return '';
+          const docCount = Number(row.documentCount) || 0;
+          documentCountMap.set(normalized, docCount);
+          return normalized;
+        })
         .filter(Boolean);
 
       if (purchasedCodes.length === 0) {
@@ -2782,6 +2865,9 @@ export class ReportsService {
 
       const rows: ComplementMissingRow[] = [];
       purchasedProducts.forEach((product) => {
+        const normalized = normalizeReportCode(product.mikroCode);
+        const documentCount = documentCountMap.get(normalized) || 0;
+        if (minDocumentCount && documentCount < minDocumentCount) return;
         const complementIds = complementMap.get(product.id) || [];
         if (complementIds.length === 0) return;
 
@@ -2809,6 +2895,7 @@ export class ReportsService {
         rows.push({
           productCode: product.mikroCode,
           productName: product.name,
+          documentCount,
           missingComplements,
           missingCount: missingComplements.length,
         });
@@ -2825,6 +2912,58 @@ export class ReportsService {
     } finally {
       await mikroService.disconnect();
     }
+  }
+
+  async exportComplementMissingReport(options: {
+    mode: 'product' | 'customer';
+    matchMode?: ComplementMatchMode;
+    productCode?: string;
+    customerCode?: string;
+    sectorCode?: string;
+    salesRepId?: string;
+    periodMonths?: number;
+    minDocumentCount?: number;
+  }): Promise<{ buffer: Buffer; fileName: string }> {
+    const data = await this.getComplementMissingReport({
+      ...options,
+      page: 1,
+      limit: 100000,
+    });
+
+    const header = data.metadata.mode === 'product'
+      ? ['Cari Kodu', 'Cari Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi']
+      : ['Urun Kodu', 'Urun Adi', 'Evrak Sayisi', 'Eksik Tamamlayicilar', 'Eksik Sayisi'];
+
+    const rows = data.rows.map((row) => {
+      const missingList = row.missingComplements
+        .map((item) => `${item.productCode} - ${item.productName}`)
+        .join(', ');
+      return data.metadata.mode === 'product'
+        ? [
+            row.customerCode || '',
+            row.customerName || '',
+            row.documentCount || 0,
+            missingList,
+            row.missingCount,
+          ]
+        : [
+            row.productCode || '',
+            row.productName || '',
+            row.documentCount || 0,
+            missingList,
+            row.missingCount,
+          ];
+    });
+
+    const sheetData = [header, ...rows];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tamamlayici Eksikleri');
+
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
+    const fileName = `tamamlayici-urun-eksikleri-${data.metadata.mode}-${data.metadata.startDate}-${data.metadata.endDate}.xlsx`;
+
+    return { buffer, fileName };
   }
 
   async getProductCustomers(params: {

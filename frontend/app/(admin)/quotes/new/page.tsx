@@ -38,6 +38,7 @@ interface QuoteProduct {
   id: string;
   name: string;
   mikroCode: string;
+  imageUrl?: string | null;
   unit?: string;
   unit2?: string | null;
   unit2Factor?: number | null;
@@ -372,6 +373,7 @@ function AdminQuoteNewPageContent() {
   const isOrderMode = searchParams.get('mode') === 'order';
   const isEditMode = Boolean(editQuoteId) && !isOrderMode;
   const editInitializedRef = useRef(false);
+  const prefillInitializedRef = useRef(false);
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -436,6 +438,8 @@ function AdminQuoteNewPageContent() {
   const [orderCustomerOrderNumber, setOrderCustomerOrderNumber] = useState('');
   const [orderDocumentDescription, setOrderDocumentDescription] = useState('');
   const [bulkResponsibilityCenter, setBulkResponsibilityCenter] = useState('');
+  const [recommendations, setRecommendations] = useState<QuoteProduct[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
 
   useEffect(() => {
     const defaultDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -448,6 +452,60 @@ function AdminQuoteNewPageContent() {
     editInitializedRef.current = true;
     loadQuoteForEdit(editQuoteId);
   }, [editQuoteId]);
+
+  useEffect(() => {
+    if (prefillInitializedRef.current) return;
+    if (isOrderMode || isEditMode) {
+      prefillInitializedRef.current = true;
+      return;
+    }
+
+    const customerParam = searchParams.get('customerCode')?.trim() || '';
+    const productParam = searchParams.get('productCodes') || searchParams.get('productCode') || '';
+    const productCodes = productParam
+      .split(',')
+      .map((code) => code.trim())
+      .filter(Boolean);
+
+    if (!customerParam && productCodes.length === 0) {
+      prefillInitializedRef.current = true;
+      return;
+    }
+
+    if (customerParam && customers.length === 0) {
+      return;
+    }
+
+    prefillInitializedRef.current = true;
+
+    if (customerParam && customers.length > 0) {
+      const matched = customers.find(
+        (customer) => String(customer?.mikroCariCode || '').trim() === customerParam
+      );
+      if (matched) {
+        setSelectedCustomer(matched);
+        setHasManualCustomerChange(true);
+      } else {
+        toast.error('Cari bulunamadi');
+      }
+    }
+
+    if (productCodes.length > 0) {
+      adminApi
+        .getProductsByCodes(productCodes)
+        .then((result) => {
+          if (result.products?.length) {
+            addProductsToQuote(result.products);
+          } else {
+            toast.error('Urun bulunamadi');
+          }
+        })
+        .catch((error) => {
+          console.error('Urunler alinmadi:', error);
+          toast.error('Urunler yuklenemedi');
+        });
+    }
+  }, [customers, searchParams, isEditMode, isOrderMode]);
 
   useEffect(() => {
     if (!isQuoteTableFullscreen) return undefined;
@@ -597,6 +655,8 @@ function AdminQuoteNewPageContent() {
     ));
   }, [quoteItems]);
 
+  const quoteProductCodeSet = useMemo(() => new Set(quoteProductCodes), [quoteProductCodes]);
+
   useEffect(() => {
     if (!showLastQuoteInfo) {
       setLastQuoteMap({});
@@ -625,6 +685,42 @@ function AdminQuoteNewPageContent() {
 
     return () => clearTimeout(timer);
   }, [showLastQuoteInfo, selectedCustomer?.id, quoteProductCodes.join('|'), lastSalesCount, editingQuote?.id]);
+
+  useEffect(() => {
+    if (quoteProductCodes.length === 0) {
+      setRecommendations([]);
+      setRecommendationsLoading(false);
+      return;
+    }
+
+    let active = true;
+    setRecommendationsLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await adminApi.getComplementRecommendations({
+          productCodes: quoteProductCodes,
+          excludeCodes: quoteProductCodes,
+          limit: 10,
+        });
+        if (!active) return;
+        setRecommendations(result.products || []);
+      } catch (error) {
+        console.error('Tamamlayici oneriler alinmadi:', error);
+        if (active) {
+          setRecommendations([]);
+        }
+      } finally {
+        if (active) {
+          setRecommendationsLoading(false);
+        }
+      }
+    }, 400);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [quoteProductCodes.join('|')]);
 
   const loadInitialData = async () => {
     const results = await Promise.allSettled([
@@ -1118,6 +1214,14 @@ function AdminQuoteNewPageContent() {
 
   const addProductToQuote = (product: QuoteProduct) => {
     addProductsToQuote([product]);
+  };
+
+  const handleRecommendationAdd = (product: QuoteProduct) => {
+    if (quoteProductCodeSet.has(product.mikroCode)) {
+      toast.error('Urun zaten ekli');
+      return;
+    }
+    addProductToQuote(product);
   };
 
   const addManualLine = () => {
@@ -2853,6 +2957,53 @@ function AdminQuoteNewPageContent() {
               </div>
             </div>
           )}
+        </Card>
+
+        <Card className={cardShell}>
+          <div className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Tamamlayici Oneriler</h2>
+              <p className="text-xs text-gray-500">Sepetteki urunlere gore otomatik oneriler.</p>
+            </div>
+            {quoteProductCodes.length === 0 ? (
+              <div className="text-sm text-gray-500">Oneri icin once urun ekleyin.</div>
+            ) : recommendationsLoading ? (
+              <div className="text-sm text-gray-500">Oneriler yukleniyor...</div>
+            ) : recommendations.length === 0 ? (
+              <div className="text-sm text-gray-500">Uygun tamamlayici urun bulunamadi.</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {recommendations.map((product) => {
+                  const isAdded = quoteProductCodeSet.has(product.mikroCode);
+                  return (
+                    <div key={product.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                      {product.imageUrl ? (
+                        <img
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="h-12 w-12 rounded-lg border border-slate-200 object-cover"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg border border-dashed border-slate-200 bg-slate-50" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-900 truncate">{product.name}</div>
+                        <div className="text-xs text-gray-500">{product.mikroCode}</div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRecommendationAdd(product)}
+                        disabled={isAdded}
+                      >
+                        {isAdded ? 'Eklendi' : 'Ekle'}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </Card>
 
         <Card className={`${cardShell} border-primary-100 bg-gradient-to-br from-white via-white to-primary-50/60 lg:sticky lg:top-6`}>

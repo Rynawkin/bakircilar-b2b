@@ -132,6 +132,7 @@ function AdminQuotesPageContent() {
   const [downloadPromptOpen, setDownloadPromptOpen] = useState(false);
   const [downloadPromptLoading, setDownloadPromptLoading] = useState(false);
   const [stockPdfLoadingId, setStockPdfLoadingId] = useState<string | null>(null);
+  const [recommendedPdfLoadingId, setRecommendedPdfLoadingId] = useState<string | null>(null);
   const handledDownloadRef = useRef<string | null>(null);
 
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -416,7 +417,11 @@ function AdminQuotesPageContent() {
 
   const buildQuotePdf = async (
     quote: Quote,
-    options?: { includeStockStatus?: boolean; stockStatusMap?: Record<string, string> }
+    options?: {
+      includeStockStatus?: boolean;
+      stockStatusMap?: Record<string, string>;
+      recommendedProducts?: Array<{ mikroCode: string; name: string; imageUrl?: string | null }>;
+    }
   ) => {
     const { default: jsPDF } = await import('jspdf');
     const autoTableModule = await import('jspdf-autotable');
@@ -426,6 +431,7 @@ function AdminQuotesPageContent() {
     }
     const includeStockStatus = options?.includeStockStatus === true;
     const stockStatusMap = options?.stockStatusMap || {};
+    const recommendedProducts = options?.recommendedProducts || [];
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -621,6 +627,21 @@ function AdminQuotesPageContent() {
       const imageDataByIndex = await Promise.all(
         items.map(async (item) => {
           const imageUrl = resolveImageUrl(item.manualImageUrl || item.product?.imageUrl || null);
+          if (!imageUrl) return null;
+          const cached = imageCache.get(imageUrl);
+          if (cached) {
+            return cached;
+          }
+          const dataUrl = await loadImageData(imageUrl);
+          const dimensions = dataUrl ? await getImageDimensions(dataUrl) : null;
+          const entry = { dataUrl, dimensions };
+          imageCache.set(imageUrl, entry);
+          return entry;
+        })
+      );
+      const recommendedImageData = await Promise.all(
+        recommendedProducts.map(async (product) => {
+          const imageUrl = resolveImageUrl(product.imageUrl || null);
           if (!imageUrl) return null;
           const cached = imageCache.get(imageUrl);
           if (cached) {
@@ -851,7 +872,74 @@ function AdminQuotesPageContent() {
         doc.text(cleanPdfText(row.value), summaryX + summaryWidth - 4, y, { align: 'right' });
       });
 
-      const footerStartY = sectionY + sectionHeight + 12;
+      let contentBottomY = sectionY + sectionHeight;
+
+      if (recommendedProducts.length > 0) {
+        const columns = 2;
+        const cardGap = 6;
+        const cardWidth = (pageWidth - marginX * 2 - cardGap) / columns;
+        const cardHeight = 18;
+        const titleGap = 6;
+        const rowGap = 4;
+        const rowsNeeded = Math.ceil(recommendedProducts.length / columns);
+        const sectionHeight = titleGap + rowsNeeded * (cardHeight + rowGap);
+        let recommendedStartY = contentBottomY + 8;
+
+        if (recommendedStartY + sectionHeight + footerHeight > pageHeight - 10) {
+          doc.addPage();
+          recommendedStartY = 20;
+        }
+
+        doc.setFontSize(9);
+        doc.setTextColor(...colors.muted);
+        doc.text(cleanPdfText('ONERILEN URUNLER'), marginX, recommendedStartY);
+
+        const textStartY = recommendedStartY + titleGap;
+        recommendedProducts.forEach((product, index) => {
+          const columnIndex = index % columns;
+          const rowIndex = Math.floor(index / columns);
+          const x = marginX + columnIndex * (cardWidth + cardGap);
+          const y = textStartY + rowIndex * (cardHeight + rowGap);
+          const imageEntry = recommendedImageData[index];
+          const imageSize = 12;
+          const imageX = x + 3;
+          const imageY = y + 3;
+          const textX = imageX + imageSize + 3;
+          const textWidth = cardWidth - (textX - x) - 3;
+
+          doc.setDrawColor(...colors.border);
+          doc.setFillColor(...colors.light);
+          doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'F');
+
+          if (imageEntry?.dataUrl) {
+            const format = getImageFormat(imageEntry.dataUrl);
+            const fitted = imageEntry.dimensions
+              ? fitWithin(imageEntry.dimensions.width, imageEntry.dimensions.height, imageSize, imageSize)
+              : { width: imageSize, height: imageSize };
+            const imgX = imageX + (imageSize - fitted.width) / 2;
+            const imgY = imageY + (imageSize - fitted.height) / 2;
+            doc.addImage(imageEntry.dataUrl, format, imgX, imgY, fitted.width, fitted.height);
+          } else {
+            doc.setDrawColor(...colors.border);
+            doc.rect(imageX, imageY, imageSize, imageSize);
+          }
+
+          doc.setFontSize(8);
+          doc.setTextColor(...colors.dark);
+          const nameLines = doc.splitTextToSize(cleanPdfText(product.name || '-'), textWidth) as string[];
+          const nameLine = nameLines[0] || '-';
+          doc.text(nameLine, textX, y + 7);
+          if (product.mikroCode) {
+            doc.setFontSize(7);
+            doc.setTextColor(...colors.muted);
+            doc.text(cleanPdfText(product.mikroCode), textX, y + 12);
+          }
+        });
+
+        contentBottomY = recommendedStartY + sectionHeight;
+      }
+
+      const footerStartY = contentBottomY + 12;
 
       if (footerStartY + footerHeight > pageHeight - 8) {
         doc.addPage();
@@ -900,6 +988,39 @@ function AdminQuotesPageContent() {
       toast.error('Stoklu PDF olusturulamadi');
     } finally {
       setStockPdfLoadingId(null);
+    }
+  };
+
+  const handleRecommendedPdfExport = async (quote: Quote) => {
+    setRecommendedPdfLoadingId(quote.id);
+    try {
+      const itemCodes = Array.from(
+        new Set(
+          (quote.items || [])
+            .map((item) => String(item.productCode || '').trim())
+            .filter(Boolean)
+        )
+      );
+
+      if (itemCodes.length === 0) {
+        toast.error('Teklifte urun yok');
+        return;
+      }
+
+      const recommendationResult = await adminApi.getComplementRecommendations({
+        productCodes: itemCodes,
+        excludeCodes: itemCodes,
+        limit: 10,
+      });
+      const recommendedProducts = recommendationResult.products || [];
+      const { doc, fileName } = await buildQuotePdf(quote, { recommendedProducts });
+      const recommendedFileName = fileName.replace(/\.pdf$/i, '_onerili.pdf');
+      doc.save(recommendedFileName);
+    } catch (error) {
+      console.error('Onerili PDF olusturma hatasi:', error);
+      toast.error('Onerili PDF olusturulamadi');
+    } finally {
+      setRecommendedPdfLoadingId(null);
     }
   };
 
@@ -1363,6 +1484,14 @@ function AdminQuotesPageContent() {
                       disabled={stockPdfLoadingId === quote.id}
                     >
                       Stoklu PDF Indir
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleRecommendedPdfExport(quote)}
+                      isLoading={recommendedPdfLoadingId === quote.id}
+                      disabled={recommendedPdfLoadingId === quote.id}
+                    >
+                      Onerili PDF Indir
                     </Button>
                     <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
                       WhatsApp Paylaş
