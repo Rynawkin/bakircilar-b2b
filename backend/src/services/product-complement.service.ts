@@ -74,45 +74,40 @@ class ProductComplementService {
     const endDate = getDateOnly(windowEnd);
     const cachedEntries = new Map<string, number>();
 
-    await mikroService.connect();
-    try {
-      for (const chunk of chunkArray(missingCodes, 200)) {
-        if (chunk.length === 0) continue;
-        const codeList = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
-        const query = `
-          SELECT
-            RTRIM(sth.sth_stok_kod) as productCode,
-            COUNT(DISTINCT sth.sth_cari_kodu) as customerCount
-          FROM STOK_HAREKETLERI sth
-          WHERE
-            sth_tip = 1
-            AND sth_cins = 0
-            AND sth_evraktip IN (1, 4)
-            AND sth_tarih >= '${startDate}'
-            AND sth_tarih < '${endDate}'
-            AND sth.sth_stok_kod IN (${codeList})
-            AND (sth_iptal = 0 OR sth_iptal IS NULL)
-          GROUP BY sth.sth_stok_kod
-        `;
-        const rows = await mikroService.executeQuery(query);
-        const returned = new Set<string>();
-        rows.forEach((row: any) => {
-          const code = normalizeCode(row.productCode);
-          if (!code) return;
-          const count = Number(row.customerCount) || 0;
-          result.set(code, count);
-          cachedEntries.set(code, count);
-          returned.add(code);
-        });
-        chunk.forEach((code) => {
-          if (!returned.has(code)) {
-            result.set(code, 0);
-            cachedEntries.set(code, 0);
-          }
-        });
-      }
-    } finally {
-      await mikroService.disconnect();
+    for (const chunk of chunkArray(missingCodes, 200)) {
+      if (chunk.length === 0) continue;
+      const codeList = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+      const query = `
+        SELECT
+          RTRIM(sth.sth_stok_kod) as productCode,
+          COUNT(DISTINCT sth.sth_cari_kodu) as customerCount
+        FROM STOK_HAREKETLERI sth
+        WHERE
+          sth_tip = 1
+          AND sth_cins = 0
+          AND sth_evraktip IN (1, 4)
+          AND sth_tarih >= '${startDate}'
+          AND sth_tarih < '${endDate}'
+          AND sth.sth_stok_kod IN (${codeList})
+          AND (sth_iptal = 0 OR sth_iptal IS NULL)
+        GROUP BY sth.sth_stok_kod
+      `;
+      const rows = await mikroService.executeQuery(query);
+      const returned = new Set<string>();
+      rows.forEach((row: any) => {
+        const code = normalizeCode(row.productCode);
+        if (!code) return;
+        const count = Number(row.customerCount) || 0;
+        result.set(code, count);
+        cachedEntries.set(code, count);
+        returned.add(code);
+      });
+      chunk.forEach((code) => {
+        if (!returned.has(code)) {
+          result.set(code, 0);
+          cachedEntries.set(code, 0);
+        }
+      });
     }
 
     if (cachedEntries.size > 0) {
