@@ -7,6 +7,9 @@ const INITIAL_WINDOW_MONTHS = 24;
 const REGULAR_WINDOW_MONTHS = 6;
 const MANUAL_WEIGHT = 10000;
 const CODE_BATCH_SIZE = 5000;
+const POPULARITY_WINDOW_MONTHS = 12;
+const POPULARITY_CACHE_TTL_SECONDS = 6 * 60 * 60;
+const POPULARITY_CACHE_NAMESPACE = 'recommendations:popularity';
 
 type ComplementEntry = { code: string; count: number };
 
@@ -14,6 +17,8 @@ const normalizeCode = (value: unknown): string => {
   if (typeof value !== 'string') return '';
   return value.trim().toUpperCase();
 };
+
+const escapeSqlLiteral = (value: string): string => value.replace(/'/g, "''");
 
 const buildDocKey = (row: any): string => {
   const docType = row?.docType ?? row?.sth_evraktip ?? '';
@@ -39,6 +44,116 @@ const chunkArray = <T>(items: T[], size: number): T[][] => {
 };
 
 class ProductComplementService {
+
+  private async getPopularityCountsByCodes(
+    productCodes: string[],
+    months: number = POPULARITY_WINDOW_MONTHS
+  ): Promise<Map<string, number>> {
+    const normalizedCodes = Array.from(
+      new Set(productCodes.map(normalizeCode).filter(Boolean))
+    );
+    const result = new Map<string, number>();
+    if (normalizedCodes.length === 0) {
+      return result;
+    }
+
+    const cacheNamespace = `${POPULARITY_CACHE_NAMESPACE}:${months}`;
+    const cached = await cacheService.getMany<number>(cacheNamespace, normalizedCodes);
+    cached.forEach((value, key) => {
+      result.set(key, Number(value) || 0);
+    });
+
+    const missingCodes = normalizedCodes.filter((code) => !cached.has(code));
+    if (missingCodes.length === 0) {
+      return result;
+    }
+
+    const windowEnd = new Date();
+    const windowStart = subtractMonths(windowEnd, months);
+    const startDate = getDateOnly(windowStart);
+    const endDate = getDateOnly(windowEnd);
+    const cachedEntries = new Map<string, number>();
+
+    await mikroService.connect();
+    try {
+      for (const chunk of chunkArray(missingCodes, 200)) {
+        if (chunk.length === 0) continue;
+        const codeList = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+        const query = `
+          SELECT
+            RTRIM(sth.sth_stok_kod) as productCode,
+            COUNT(DISTINCT sth.sth_cari_kodu) as customerCount
+          FROM STOK_HAREKETLERI sth
+          WHERE
+            sth_tip = 1
+            AND sth_cins = 0
+            AND sth_evraktip IN (1, 4)
+            AND sth_tarih >= '${startDate}'
+            AND sth_tarih < '${endDate}'
+            AND sth.sth_stok_kod IN (${codeList})
+            AND (sth_iptal = 0 OR sth_iptal IS NULL)
+          GROUP BY sth.sth_stok_kod
+        `;
+        const rows = await mikroService.executeQuery(query);
+        const returned = new Set<string>();
+        rows.forEach((row: any) => {
+          const code = normalizeCode(row.productCode);
+          if (!code) return;
+          const count = Number(row.customerCount) || 0;
+          result.set(code, count);
+          cachedEntries.set(code, count);
+          returned.add(code);
+        });
+        chunk.forEach((code) => {
+          if (!returned.has(code)) {
+            result.set(code, 0);
+            cachedEntries.set(code, 0);
+          }
+        });
+      }
+    } finally {
+      await mikroService.disconnect();
+    }
+
+    if (cachedEntries.size > 0) {
+      await cacheService.setMany(cacheNamespace, cachedEntries, POPULARITY_CACHE_TTL_SECONDS);
+    }
+
+    return result;
+  }
+
+  async getPopularityByProductIds(
+    productIds: string[],
+    months: number = POPULARITY_WINDOW_MONTHS
+  ): Promise<Map<string, number>> {
+    const uniqueIds = Array.from(new Set(productIds.filter(Boolean)));
+    const result = new Map<string, number>();
+    if (uniqueIds.length === 0) {
+      return result;
+    }
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, mikroCode: true },
+    });
+    const codeById = new Map<string, string>();
+    products.forEach((product) => {
+      const code = normalizeCode(product.mikroCode);
+      if (code) {
+        codeById.set(product.id, code);
+      }
+    });
+
+    const codes = Array.from(new Set(Array.from(codeById.values())));
+    const countsByCode = await this.getPopularityCountsByCodes(codes, months);
+
+    uniqueIds.forEach((id) => {
+      const code = codeById.get(id);
+      result.set(id, code ? countsByCode.get(code) || 0 : 0);
+    });
+
+    return result;
+  }
   async syncAutoRecommendations(params?: { months?: number; limit?: number }) {
     const existing = await prisma.productComplementAuto.findFirst({
       select: { id: true },

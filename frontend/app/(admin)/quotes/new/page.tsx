@@ -52,6 +52,7 @@ interface QuoteProduct {
   mikroPriceLists?: Record<number, number> | Record<string, number>;
   lastSales?: LastSale[];
   lastQuotes?: LastQuote[];
+  recommendationNote?: string | null;
 }
 
 interface QuoteItemForm {
@@ -2989,6 +2990,9 @@ function AdminQuoteNewPageContent() {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold text-gray-900 truncate">{product.name}</div>
                         <div className="text-xs text-gray-500">{product.mikroCode}</div>
+                        {product.recommendationNote && (
+                          <div className="text-[11px] text-gray-500">{product.recommendationNote}</div>
+                        )}
                       </div>
                       <Button
                         variant="outline"

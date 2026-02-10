@@ -3172,8 +3172,9 @@ export class AdminController {
         ? Math.min(20, Math.floor(Number(limit)))
         : 10;
 
+      const sourceIds = sourceProducts.map((item) => item.id);
       const recommendedIds = await productComplementService.getRecommendationIdsForCart(
-        sourceProducts.map((item) => item.id),
+        sourceIds,
         safeLimit
       );
 
@@ -3183,13 +3184,62 @@ export class AdminController {
         return;
       }
 
+      const [autoPairs, manualPairs, popularityMap] = await Promise.all([
+        prisma.productComplementAuto.findMany({
+          where: { productId: { in: sourceIds }, relatedProductId: { in: filteredIds } },
+          select: { relatedProductId: true, pairCount: true },
+        }),
+        prisma.productComplementManual.findMany({
+          where: { productId: { in: sourceIds }, relatedProductId: { in: filteredIds } },
+          select: { relatedProductId: true },
+        }),
+        productComplementService.getPopularityByProductIds(filteredIds),
+      ]);
+
+      const pairCountMap = new Map<string, number>();
+      autoPairs.forEach((row) => {
+        const nextValue = (pairCountMap.get(row.relatedProductId) || 0) + (row.pairCount || 0);
+        pairCountMap.set(row.relatedProductId, nextValue);
+      });
+
+      const manualSet = new Set(manualPairs.map((row) => row.relatedProductId));
+      const orderIndex = new Map(filteredIds.map((id, index) => [id, index]));
+
       const recommendedProducts = await prisma.product.findMany({
         where: { id: { in: filteredIds } },
         select: PRODUCT_SELECT,
       });
       const enriched = await buildProductsWithPriceLists(recommendedProducts);
       const productMap = new Map(enriched.map((product: any) => [product.id, product]));
-      const orderedProducts = filteredIds.map((id) => productMap.get(id)).filter(Boolean);
+      const orderedProducts = filteredIds
+        .map((id) => productMap.get(id))
+        .filter(Boolean)
+        .sort((a: any, b: any) => {
+          const aCount = popularityMap.get(a.id) || 0;
+          const bCount = popularityMap.get(b.id) || 0;
+          if (bCount !== aCount) {
+            return bCount - aCount;
+          }
+          return (orderIndex.get(a.id) || 0) - (orderIndex.get(b.id) || 0);
+        })
+        .map((product: any) => {
+          const popularityCount = popularityMap.get(product.id) || 0;
+          const pairCount = pairCountMap.get(product.id) || 0;
+          const isManual = manualSet.has(product.id);
+          const parts: string[] = [];
+          if (isManual) {
+            parts.push('Manuel tamamlayici');
+          } else if (pairCount > 0) {
+            parts.push(`Birlikte ${pairCount} evrak`);
+          }
+          if (popularityCount > 0) {
+            parts.push(`${popularityCount} musteri`);
+          }
+          return {
+            ...product,
+            recommendationNote: parts.length > 0 ? parts.join(' / ') : null,
+          };
+        });
 
       res.json({ success: true, products: orderedProducts, total: orderedProducts.length });
     } catch (error) {

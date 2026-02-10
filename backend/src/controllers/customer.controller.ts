@@ -1227,8 +1227,19 @@ export class CustomerController {
         return res.json({ products: [] });
       }
 
+      const popularityMap = await productComplementService.getPopularityByProductIds(recommendedIds);
+      const orderIndex = new Map(recommendedIds.map((productId, index) => [productId, index]));
+      const sortedIds = [...recommendedIds].sort((a, b) => {
+        const aCount = popularityMap.get(a) || 0;
+        const bCount = popularityMap.get(b) || 0;
+        if (bCount !== aCount) {
+          return bCount - aCount;
+        }
+        return (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0);
+      });
+
       const products = await prisma.product.findMany({
-        where: { id: { in: recommendedIds }, active: true },
+        where: { id: { in: sortedIds }, active: true },
         select: {
           id: true,
           name: true,
@@ -1256,7 +1267,7 @@ export class CustomerController {
       });
 
       const productMap = new Map(products.map((product) => [product.id, product]));
-      const orderedProducts = recommendedIds
+      const orderedProducts = sortedIds
         .map((productId) => productMap.get(productId))
         .filter(Boolean) as typeof products;
 
@@ -1322,6 +1333,19 @@ export class CustomerController {
         return res.json({ groups: [] });
       }
 
+      const popularityMap = await productComplementService.getPopularityByProductIds(allRecommendedIds);
+      const sortByPopularity = (ids: string[]) => {
+        const orderIndex = new Map(ids.map((id, index) => [id, index]));
+        return [...ids].sort((a, b) => {
+          const aCount = popularityMap.get(a) || 0;
+          const bCount = popularityMap.get(b) || 0;
+          if (bCount !== aCount) {
+            return bCount - aCount;
+          }
+          return (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0);
+        });
+      };
+
       const products = await prisma.product.findMany({
         where: { id: { in: allRecommendedIds }, active: true },
         select: {
@@ -1371,7 +1395,7 @@ export class CustomerController {
         .map((productId) => {
           const baseProduct = baseProductMap.get(productId);
           if (!baseProduct) return null;
-          const recommendedIds = recommendationsByProduct[productId] || [];
+          const recommendedIds = sortByPopularity(recommendationsByProduct[productId] || []);
           const recommendedProducts = recommendedIds
             .map((id) => payloadMap.get(id))
             .filter(Boolean);
