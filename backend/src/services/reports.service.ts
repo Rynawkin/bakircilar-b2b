@@ -3535,13 +3535,17 @@ export class ReportsService {
       where.userId = options.userId;
     }
 
-    const [totalRecords, uniqueUsers, typeCounts, activeAgg] = await Promise.all([
+    const [totalRecords, uniqueUserRows, typeCounts, activeAgg] = await Promise.all([
       prisma.customerActivityEvent.count({ where }),
-      prisma.customerActivityEvent.count({ where, distinct: ['userId'] }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['userId'],
+        where,
+        _count: { id: true },
+      }),
       prisma.customerActivityEvent.groupBy({
         by: ['type'],
         where,
-        _count: { _all: true },
+        _count: { id: true },
       }),
       prisma.customerActivityEvent.aggregate({
         where: { ...where, type: 'ACTIVE_PING' },
@@ -3549,9 +3553,11 @@ export class ReportsService {
       }),
     ]);
 
+    const uniqueUsers = uniqueUserRows.length;
+
     const typeMap = new Map<CustomerActivityType, number>();
     typeCounts.forEach((row) => {
-      typeMap.set(row.type, row._count._all);
+      typeMap.set(row.type, row._count.id);
     });
 
     const summary: CustomerActivitySummary = {
@@ -3570,23 +3576,23 @@ export class ReportsService {
       prisma.customerActivityEvent.groupBy({
         by: ['pagePath'],
         where: { ...where, type: 'PAGE_VIEW', pagePath: { not: null } },
-        _count: { _all: true },
-        orderBy: { _count: { _all: 'desc' } },
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
         take: 10,
       }),
       prisma.customerActivityEvent.groupBy({
         by: ['productId', 'productCode'],
         where: { ...where, type: 'PRODUCT_VIEW', productId: { not: null } },
-        _count: { _all: true },
-        orderBy: { _count: { _all: 'desc' } },
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
         take: 10,
       }),
       prisma.customerActivityEvent.groupBy({
         by: ['userId'],
         where,
-        _count: { _all: true },
+        _count: { id: true },
         _sum: { durationSeconds: true, clickCount: true },
-        orderBy: { _count: { _all: 'desc' } },
+        orderBy: { _count: { id: 'desc' } },
         take: 10,
       }),
     ]);
@@ -3595,7 +3601,7 @@ export class ReportsService {
       .filter((row) => row.pagePath)
       .map((row) => ({
         pagePath: row.pagePath as string,
-        count: row._count._all,
+        count: row._count.id,
       }));
 
     const topProductIds = topProductsRaw
@@ -3617,7 +3623,7 @@ export class ReportsService {
         productId: row.productId ?? null,
         productCode: row.productCode || product?.mikroCode || null,
         productName: product?.name || null,
-        count: row._count._all,
+        count: row._count.id,
       };
     });
 
@@ -3651,7 +3657,7 @@ export class ReportsService {
         userName: user?.displayName || user?.name || null,
         customerCode: customerInfo?.mikroCariCode || null,
         customerName: customerInfo?.displayName || customerInfo?.name || null,
-        eventCount: row._count._all,
+        eventCount: row._count.id,
         activeSeconds: Number(row._sum.durationSeconds || 0),
         clickCount: Number(row._sum.clickCount || 0),
       };
