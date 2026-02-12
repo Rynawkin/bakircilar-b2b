@@ -7,7 +7,7 @@ import adminApi from '@/lib/api/admin';
 import { Quote, QuoteHistory, QuoteStatus } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { ConfirmModal, Modal } from '@/components/ui/Modal';
+import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -131,6 +131,7 @@ function AdminQuotesPageContent() {
   const [downloadPromptQuote, setDownloadPromptQuote] = useState<Quote | null>(null);
   const [downloadPromptOpen, setDownloadPromptOpen] = useState(false);
   const [downloadPromptLoading, setDownloadPromptLoading] = useState(false);
+  const [downloadPromptRecommendedLoading, setDownloadPromptRecommendedLoading] = useState(false);
   const [stockPdfLoadingId, setStockPdfLoadingId] = useState<string | null>(null);
   const [recommendedPdfLoadingId, setRecommendedPdfLoadingId] = useState<string | null>(null);
   const handledDownloadRef = useRef<string | null>(null);
@@ -1089,6 +1090,20 @@ function AdminQuotesPageContent() {
     }
   };
 
+  const handleDownloadPromptRecommended = async () => {
+    if (!downloadPromptQuote) {
+      handleDownloadPromptClose();
+      return;
+    }
+    setDownloadPromptRecommendedLoading(true);
+    try {
+      await handleRecommendedPdfExport(downloadPromptQuote);
+    } finally {
+      setDownloadPromptRecommendedLoading(false);
+      handleDownloadPromptClose();
+    }
+  };
+
   const clearHistoryParam = () => {
     const params = new URLSearchParams(searchParams.toString());
     params.delete('history');
@@ -1585,21 +1600,52 @@ function AdminQuotesPageContent() {
           </div>
         )}
       </div>
-      <ConfirmModal
+      <Modal
         isOpen={downloadPromptOpen}
         onClose={handleDownloadPromptClose}
-        onConfirm={handleDownloadPromptConfirm}
-        title={`PDF İndir`}
-        message={
-          downloadPromptQuote
-            ? `${downloadPromptQuote.quoteNumber} numaralı teklifin PDF'ini indirmek ister misiniz?`
-            : "Teklifin PDF'ini indirmek ister misiniz?"
+        title="PDF İndir"
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={handleDownloadPromptClose}
+              disabled={downloadPromptLoading || downloadPromptRecommendedLoading}
+            >
+              Hayır
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleDownloadPromptConfirm}
+              isLoading={downloadPromptLoading}
+              disabled={downloadPromptRecommendedLoading}
+            >
+              PDF İndir
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleDownloadPromptRecommended}
+              isLoading={downloadPromptRecommendedLoading}
+              disabled={downloadPromptLoading}
+            >
+              Önerili PDF İndir
+            </Button>
+          </>
         }
-        confirmLabel={`İndir`}
-        cancelLabel={`Hayır`}
-        variant="info"
-        isLoading={downloadPromptLoading}
-      />
+      >
+        <div className="text-center">
+          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100">
+            <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="mt-4 text-gray-600">
+            {downloadPromptQuote
+              ? `${downloadPromptQuote.quoteNumber} numaralı teklifin PDF'ini indirmek ister misiniz?`
+              : "Teklifin PDF'ini indirmek ister misiniz?"}
+          </p>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={historyOpen}
