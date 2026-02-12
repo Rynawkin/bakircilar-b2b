@@ -274,6 +274,13 @@ export default function DiscountedProductsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main content */}
           <div className="lg:col-span-3">
+            <div className="mb-6">
+              <CategoryMegaMenu
+                categories={categories}
+                selectedCategoryId={selectedCategory}
+                onSelect={setSelectedCategory}
+              />
+            </div>
             {/* Filters */}
             <Card className="mb-6 bg-white border-2 border-primary-100 shadow-xl">
               <div className="mb-4 pb-4 border-b-2 border-gray-100">
@@ -284,17 +291,11 @@ export default function DiscountedProductsPage() {
               </div>
               <div className="flex flex-wrap gap-4">
                 <div className="flex-1 min-w-[250px]">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <span>📝</span>
-                    Ürün Ara
-                    {search !== debouncedSearch && (
-                      <span className="ml-2 text-xs text-primary-600 font-normal">
-                        (yazıyorsunuz...)
-                      </span>
-                    )}
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Urun Ara
                   </label>
                   <Input
-                    placeholder="Ürün ismi veya kodu..."
+                    placeholder="Urun ismi veya kodu..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
@@ -302,8 +303,7 @@ export default function DiscountedProductsPage() {
                 </div>
 
                 <div className="min-w-[150px]">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <span>🏢</span>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
                     Depo
                   </label>
                   <select
@@ -311,25 +311,13 @@ export default function DiscountedProductsPage() {
                     onChange={(e) => setSelectedWarehouse(e.target.value)}
                     className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
                   >
-                    <option value="">Tüm Depolar</option>
+                    <option value="">Tum Depolar</option>
                     {warehouses.map((warehouse) => (
                       <option key={warehouse} value={warehouse}>
                         {warehouse}
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div className="min-w-[180px]">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <span>📁</span>
-                    Kategori
-                  </label>
-                  <CategoryMegaMenu
-                    categories={categories}
-                    selectedCategoryId={selectedCategory}
-                    onSelect={setSelectedCategory}
-                  />
                 </div>
               </div>
 

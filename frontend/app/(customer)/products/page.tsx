@@ -229,6 +229,13 @@ export default function ProductsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main content */}
           <div className="lg:col-span-3">
+            <div className="mb-6">
+              <CategoryMegaMenu
+                categories={categories}
+                selectedCategoryId={selectedCategory}
+                onSelect={setSelectedCategory}
+              />
+            </div>
             {/* Filters */}
             <Card className="mb-6 bg-white border-2 border-primary-100 shadow-xl">
               <div className="mb-4 pb-4 border-b-2 border-gray-100">
@@ -238,37 +245,7 @@ export default function ProductsPage() {
                 </h3>
               </div>
               <div className="flex flex-wrap gap-4">
-                <div className="flex-1 min-w-[250px]">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <span>📝</span>
-                    Ürün Ara
-                    {search !== debouncedSearch && (
-                      <span className="ml-2 text-xs text-primary-600 font-normal">
-                        (yazıyorsunuz...)
-                      </span>
-                    )}
-                  </label>
-                  <Input
-                    placeholder="Ürün ismi veya kodu..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
-                  />
-                </div>
 
-                
-
-                <div className="w-full">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <span>📁</span>
-                    Kategoriler
-                  </label>
-                  <CategoryMegaMenu
-                    categories={categories}
-                    selectedCategoryId={selectedCategory}
-                    onSelect={setSelectedCategory}
-                  />
-                </div>
               </div>
 
               {(search || selectedCategory) && (

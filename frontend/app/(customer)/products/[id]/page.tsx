@@ -254,6 +254,10 @@ export default function ProductDetailPage() {
     return date.toISOString().slice(0, 10);
   };
 
+  const rawDescription = (product as { description?: string | null }).description;
+  const descriptionText = typeof rawDescription === 'string' ? rawDescription.trim() : '';
+  const packagingInfo = unitLabel || 'Koli ici bilgisi bulunamadi';
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50">
       <div className="container-custom py-6">
@@ -351,6 +355,19 @@ export default function ProductDetailPage() {
                     {unitLabel && (
                       <p className="mt-2 text-xs text-gray-500">{unitLabel}</p>
                     )}
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <div className="text-sm font-semibold text-gray-900 mb-2">Urun aciklamasi</div>
+                    <p className="text-xs text-gray-600">
+                      {descriptionText || 'Aciklama yakinda eklenecek. Simdilik paketleme bilgisi gosteriliyor.'}
+                    </p>
+                    <div className="mt-3 grid gap-2 text-xs text-gray-700">
+                      <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
+                        <span className="font-semibold">Paketleme</span>
+                        <span>{packagingInfo}</span>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
