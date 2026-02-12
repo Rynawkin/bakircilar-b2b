@@ -184,6 +184,7 @@ export default function CustomerActivityReportPage() {
   const [topUsers, setTopUsers] = useState<TopUser[]>([]);
   const [events, setEvents] = useState<ActivityEventRow[]>([]);
   const [eventTypeFilter, setEventTypeFilter] = useState<ActivityType | 'ALL'>('ALL');
+  const [showActivePings, setShowActivePings] = useState(false);
   const [eventSearch, setEventSearch] = useState('');
   const [metadata, setMetadata] = useState<ActivityMetadata | null>(null);
   const [page, setPage] = useState(1);
@@ -287,6 +288,7 @@ export default function CustomerActivityReportPage() {
     const term = eventSearch.trim().toLowerCase();
     return events.filter((event) => {
       if (eventTypeFilter !== 'ALL' && event.type !== eventTypeFilter) return false;
+      if (eventTypeFilter === 'ALL' && !showActivePings && event.type === 'ACTIVE_PING') return false;
       if (!term) return true;
       const metaQuery = typeof event.meta === 'object' && event.meta ? (event.meta as any).query : '';
       const haystack = [
@@ -666,6 +668,17 @@ export default function CustomerActivityReportPage() {
                     value={eventSearch}
                     onChange={(e) => setEventSearch(e.target.value)}
                   />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={showActivePings}
+                      onChange={(e) => setShowActivePings(e.target.checked)}
+                      className="h-4 w-4 accent-primary-600"
+                    />
+                    Aktiflik pinglerini goster
+                  </label>
                 </div>
               </div>
               <Table>

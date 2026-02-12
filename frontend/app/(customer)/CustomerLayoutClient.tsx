@@ -19,7 +19,7 @@ export default function CustomerLayout({
   const searchParams = useSearchParams();
   const activityPathRef = useRef<string>('');
   const lastActivityRef = useRef<number>(Date.now());
-  const lastPingRef = useRef<number>(Date.now());
+  const activeStartRef = useRef<number | null>(null);
   const clickCountRef = useRef<number>(0);
 
   useEffect(() => {
@@ -47,31 +47,46 @@ export default function CustomerLayout({
   useEffect(() => {
     if (!user || user.role !== 'CUSTOMER') return;
 
+    const IDLE_THRESHOLD_MS = 60_000;
+    const MAX_ACTIVE_CHUNK_MS = 5 * 60_000;
+
     const markActive = () => {
-      lastActivityRef.current = Date.now();
+      const now = Date.now();
+      lastActivityRef.current = now;
+      if (activeStartRef.current === null) {
+        activeStartRef.current = now;
+      }
     };
 
     const handleClick = () => {
-      lastActivityRef.current = Date.now();
+      markActive();
       clickCountRef.current += 1;
     };
 
-    const flushPing = () => {
+    const flushPing = (force = false) => {
       const now = Date.now();
-      const elapsedMs = now - lastPingRef.current;
-      if (elapsedMs <= 0) return;
-      const elapsedSeconds = Math.max(1, Math.round(elapsedMs / 1000));
+      if (activeStartRef.current === null) {
+        clickCountRef.current = 0;
+        return;
+      }
+
+      const idleMs = now - lastActivityRef.current;
+      const activeMs = now - activeStartRef.current;
+      const shouldFlush = force || idleMs >= IDLE_THRESHOLD_MS || activeMs >= MAX_ACTIVE_CHUNK_MS;
+      if (!shouldFlush) return;
+
+      const durationSeconds = Math.max(1, Math.round(activeMs / 1000));
 
       trackCustomerActivity({
         type: 'ACTIVE_PING',
         pagePath: activityPathRef.current,
         pageTitle: typeof document !== 'undefined' ? document.title : undefined,
-        durationSeconds: elapsedSeconds,
+        durationSeconds,
         clickCount: clickCountRef.current,
       });
 
       clickCountRef.current = 0;
-      lastPingRef.current = now;
+      activeStartRef.current = null;
     };
 
     window.addEventListener('mousemove', markActive, { passive: true });
@@ -80,11 +95,11 @@ export default function CustomerLayout({
     window.addEventListener('touchstart', markActive, { passive: true });
     window.addEventListener('click', handleClick);
 
-    const intervalId = window.setInterval(flushPing, 30000);
+    const intervalId = window.setInterval(() => flushPing(false), 30000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        flushPing();
+        flushPing(true);
       }
     };
 
@@ -98,6 +113,7 @@ export default function CustomerLayout({
       window.removeEventListener('click', handleClick);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.clearInterval(intervalId);
+      flushPing(true);
     };
   }, [user?.id, user?.role]);
 
