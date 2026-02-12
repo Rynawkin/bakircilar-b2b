@@ -95,6 +95,7 @@ export default function DiscountedProductsPage() {
   };
 
   const resolveValidExcessPrice = (basePrice?: number, excessPrice?: number) => {
+    if (typeof basePrice !== 'number' || typeof excessPrice !== 'number') return undefined;
     if (!Number.isFinite(basePrice) || !Number.isFinite(excessPrice)) return undefined;
     if (excessPrice >= basePrice) return undefined;
     return excessPrice;
