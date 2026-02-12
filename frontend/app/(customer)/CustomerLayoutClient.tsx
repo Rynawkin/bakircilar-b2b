@@ -58,19 +58,17 @@ export default function CustomerLayout({
 
     const flushPing = () => {
       const now = Date.now();
-      const elapsedSeconds = Math.max(0, Math.round((now - lastPingRef.current) / 1000));
-      const idleMs = now - lastActivityRef.current;
-      const shouldSend = elapsedSeconds > 0 && (idleMs < 60000 || clickCountRef.current > 0);
+      const elapsedMs = now - lastPingRef.current;
+      if (elapsedMs <= 0) return;
+      const elapsedSeconds = Math.max(1, Math.round(elapsedMs / 1000));
 
-      if (shouldSend) {
-        trackCustomerActivity({
-          type: 'ACTIVE_PING',
-          pagePath: activityPathRef.current,
-          pageTitle: typeof document !== 'undefined' ? document.title : undefined,
-          durationSeconds: elapsedSeconds,
-          clickCount: clickCountRef.current,
-        });
-      }
+      trackCustomerActivity({
+        type: 'ACTIVE_PING',
+        pagePath: activityPathRef.current,
+        pageTitle: typeof document !== 'undefined' ? document.title : undefined,
+        durationSeconds: elapsedSeconds,
+        clickCount: clickCountRef.current,
+      });
 
       clickCountRef.current = 0;
       lastPingRef.current = now;

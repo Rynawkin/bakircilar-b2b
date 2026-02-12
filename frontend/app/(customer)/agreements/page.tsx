@@ -14,6 +14,7 @@ import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
@@ -37,6 +38,7 @@ export default function AgreementProductsPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
+  const lastSearchRef = useRef('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
@@ -94,6 +96,22 @@ export default function AgreementProductsPage() {
     loadStaticData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const term = debouncedSearch.trim();
+    if (!term) {
+      lastSearchRef.current = '';
+      return;
+    }
+    if (term === lastSearchRef.current) return;
+    lastSearchRef.current = term;
+    trackCustomerActivity({
+      type: 'SEARCH',
+      pagePath: typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : undefined,
+      pageTitle: typeof document !== 'undefined' ? document.title : undefined,
+      meta: { query: term, source: 'agreements' },
+    });
+  }, [debouncedSearch]);
 
   const loadStaticData = useCallback(async () => {
     try {

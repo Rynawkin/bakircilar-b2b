@@ -206,11 +206,18 @@ interface CustomerActivitySummary {
   cartUpdates: number;
   activeSeconds: number;
   clickCount: number;
+  searchCount: number;
 }
 
 interface CustomerActivityTopPage {
   pagePath: string;
   count: number;
+}
+
+interface CustomerActivityTopClickPage {
+  pagePath: string;
+  clickCount: number;
+  eventCount: number;
 }
 
 interface CustomerActivityTopProduct {
@@ -228,6 +235,7 @@ interface CustomerActivityTopUser {
   eventCount: number;
   activeSeconds: number;
   clickCount: number;
+  searchCount: number;
 }
 
 interface CustomerActivityEventRow {
@@ -241,6 +249,7 @@ interface CustomerActivityEventRow {
   quantity: number | null;
   durationSeconds: number | null;
   clickCount: number | null;
+  meta: Prisma.JsonValue | null;
   userId: string;
   userName: string | null;
   customerCode: string | null;
@@ -250,6 +259,7 @@ interface CustomerActivityEventRow {
 interface CustomerActivityReportResponse {
   summary: CustomerActivitySummary;
   topPages: CustomerActivityTopPage[];
+  topClickPages: CustomerActivityTopClickPage[];
   topProducts: CustomerActivityTopProduct[];
   topUsers: CustomerActivityTopUser[];
   events: CustomerActivityEventRow[];
@@ -268,6 +278,44 @@ interface CustomerActivityReportResponse {
       name: string | null;
     } | null;
     userId?: string | null;
+  };
+}
+
+interface CustomerCartItemRow {
+  id: string;
+  productId: string;
+  productCode: string | null;
+  productName: string | null;
+  quantity: number;
+  priceType: string;
+  priceMode: string;
+  unitPrice: number;
+  totalPrice: number;
+  updatedAt: Date;
+}
+
+interface CustomerCartRow {
+  cartId: string;
+  userId: string;
+  userName: string | null;
+  customerCode: string | null;
+  customerName: string | null;
+  isSubUser: boolean;
+  updatedAt: Date;
+  lastItemAt: Date | null;
+  itemCount: number;
+  totalQuantity: number;
+  totalAmount: number;
+  items: CustomerCartItemRow[];
+}
+
+interface CustomerCartsReportResponse {
+  carts: CustomerCartRow[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+    totalRecords: number;
   };
 }
 
@@ -3570,14 +3618,23 @@ export class ReportsService {
       cartUpdates: typeMap.get('CART_UPDATE') || 0,
       activeSeconds: Number(activeAgg._sum.durationSeconds || 0),
       clickCount: Number(activeAgg._sum.clickCount || 0),
+      searchCount: typeMap.get('SEARCH') || 0,
     };
 
-    const [topPagesRaw, topProductsRaw, topUsersRaw] = await Promise.all([
+    const [topPagesRaw, topClickPagesRaw, topProductsRaw, topUsersRaw, searchCountsByUser] = await Promise.all([
       prisma.customerActivityEvent.groupBy({
         by: ['pagePath'],
         where: { ...where, type: 'PAGE_VIEW', pagePath: { not: null } },
         _count: { id: true },
         orderBy: { _count: { id: 'desc' } },
+        take: 10,
+      }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['pagePath'],
+        where: { ...where, type: 'ACTIVE_PING', pagePath: { not: null } },
+        _count: { id: true },
+        _sum: { clickCount: true },
+        orderBy: { _sum: { clickCount: 'desc' } },
         take: 10,
       }),
       prisma.customerActivityEvent.groupBy({
@@ -3595,6 +3652,11 @@ export class ReportsService {
         orderBy: { _count: { id: 'desc' } },
         take: 10,
       }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['userId'],
+        where: { ...where, type: 'SEARCH' },
+        _count: { id: true },
+      }),
     ]);
 
     const topPages: CustomerActivityTopPage[] = topPagesRaw
@@ -3603,6 +3665,18 @@ export class ReportsService {
         pagePath: row.pagePath as string,
         count: row._count.id,
       }));
+
+    const topClickPages: CustomerActivityTopClickPage[] = topClickPagesRaw
+      .filter((row) => row.pagePath)
+      .map((row) => ({
+        pagePath: row.pagePath as string,
+        clickCount: Number(row._sum.clickCount || 0),
+        eventCount: row._count.id,
+      }))
+      .filter((row) => row.clickCount > 0);
+
+    const searchCountMap = new Map(searchCountsByUser.map((row) => [row.userId, row._count.id]));
+
 
     const topProductIds = topProductsRaw
       .map((row) => row.productId)
@@ -3660,6 +3734,7 @@ export class ReportsService {
         eventCount: row._count.id,
         activeSeconds: Number(row._sum.durationSeconds || 0),
         clickCount: Number(row._sum.clickCount || 0),
+        searchCount: searchCountMap.get(row.userId) || 0,
       };
     });
 
@@ -3711,6 +3786,7 @@ export class ReportsService {
         quantity: event.quantity ?? null,
         durationSeconds: event.durationSeconds ?? null,
         clickCount: event.clickCount ?? null,
+        meta: event.meta ?? null,
         userId: event.userId,
         userName: user?.displayName || user?.name || null,
         customerCode: customerInfo?.mikroCariCode || null,
@@ -3721,6 +3797,7 @@ export class ReportsService {
     return {
       summary,
       topPages,
+      topClickPages,
       topProducts,
       topUsers,
       events: eventRows,
@@ -3735,6 +3812,137 @@ export class ReportsService {
         endDate: formatDateKey(parsedEnd),
         customer,
         userId: options.userId || null,
+      },
+    };
+  }
+
+
+  async getCustomerCartsReport(options: {
+    search?: string;
+    includeEmpty?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<CustomerCartsReportResponse> {
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 20;
+    const searchTerm = options.search ? options.search.trim() : '';
+
+    const where: Prisma.CartWhereInput = {
+      user: { role: 'CUSTOMER' },
+    };
+
+    if (!options.includeEmpty) {
+      where.items = { some: {} };
+    }
+
+    if (searchTerm) {
+      where.OR = [
+        { user: { mikroCariCode: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { displayName: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { email: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { parentCustomer: { mikroCariCode: { contains: searchTerm, mode: 'insensitive' } } } },
+        { user: { parentCustomer: { displayName: { contains: searchTerm, mode: 'insensitive' } } } },
+        { user: { parentCustomer: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const totalRecords = await prisma.cart.count({ where });
+    const totalPages = Math.max(1, Math.ceil(totalRecords / limit));
+    const offset = (page - 1) * limit;
+
+    const carts = await prisma.cart.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            mikroCariCode: true,
+            parentCustomer: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                mikroCariCode: true,
+              },
+            },
+          },
+        },
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                mikroCode: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: { updatedAt: 'desc' },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      skip: offset,
+      take: limit,
+    });
+
+    const cartRows: CustomerCartRow[] = carts.map((cart) => {
+      const customerInfo = cart.user.parentCustomer || cart.user;
+      const items: CustomerCartItemRow[] = cart.items.map((item) => {
+        const unitPrice = Number(item.unitPrice || 0);
+        const totalPrice = unitPrice * item.quantity;
+        return {
+          id: item.id,
+          productId: item.productId,
+          productCode: item.product?.mikroCode || null,
+          productName: item.product?.name || null,
+          quantity: item.quantity,
+          priceType: item.priceType,
+          priceMode: item.priceMode,
+          unitPrice,
+          totalPrice,
+          updatedAt: item.updatedAt,
+        };
+      });
+
+      const totals = items.reduce(
+        (acc, item) => {
+          acc.totalQuantity += item.quantity;
+          acc.totalAmount += item.totalPrice;
+          return acc;
+        },
+        { totalQuantity: 0, totalAmount: 0 }
+      );
+
+      const lastItemAt = items.length
+        ? items.reduce((max, item) => (max && max > item.updatedAt ? max : item.updatedAt), items[0].updatedAt)
+        : null;
+
+      return {
+        cartId: cart.id,
+        userId: cart.user.id,
+        userName: cart.user.displayName || cart.user.name || null,
+        customerCode: customerInfo?.mikroCariCode || null,
+        customerName: customerInfo?.displayName || customerInfo?.name || null,
+        isSubUser: Boolean(cart.user.parentCustomer),
+        updatedAt: cart.updatedAt,
+        lastItemAt,
+        itemCount: items.length,
+        totalQuantity: totals.totalQuantity,
+        totalAmount: totals.totalAmount,
+        items,
+      };
+    });
+
+    return {
+      carts: cartRows,
+      pagination: {
+        page,
+        limit,
+        totalPages,
+        totalRecords,
       },
     };
   }

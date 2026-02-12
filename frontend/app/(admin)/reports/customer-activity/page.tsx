@@ -8,12 +8,14 @@ import {
   Eye,
   MousePointerClick,
   RefreshCw,
+  Search,
   ShoppingCart,
   Users,
 } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
@@ -39,11 +41,18 @@ interface ActivitySummary {
   cartUpdates: number;
   activeSeconds: number;
   clickCount: number;
+  searchCount: number;
 }
 
 interface TopPage {
   pagePath: string;
   count: number;
+}
+
+interface TopClickPage {
+  pagePath: string;
+  clickCount: number;
+  eventCount: number;
 }
 
 interface TopProduct {
@@ -61,6 +70,7 @@ interface TopUser {
   eventCount: number;
   activeSeconds: number;
   clickCount: number;
+  searchCount: number;
 }
 
 interface ActivityEventRow {
@@ -74,6 +84,7 @@ interface ActivityEventRow {
   quantity?: number | null;
   durationSeconds?: number | null;
   clickCount?: number | null;
+  meta?: any;
   userId: string;
   userName?: string | null;
   customerCode?: string | null;
@@ -94,6 +105,7 @@ interface ActivityMetadata {
 interface ActivityResponse {
   summary: ActivitySummary;
   topPages: TopPage[];
+  topClickPages: TopClickPage[];
   topProducts: TopProduct[];
   topUsers: TopUser[];
   events: ActivityEventRow[];
@@ -167,9 +179,12 @@ export default function CustomerActivityReportPage() {
   const [submitted, setSubmitted] = useState<ActivityParams | null>(null);
   const [summary, setSummary] = useState<ActivitySummary | null>(null);
   const [topPages, setTopPages] = useState<TopPage[]>([]);
+  const [topClickPages, setTopClickPages] = useState<TopClickPage[]>([]);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [topUsers, setTopUsers] = useState<TopUser[]>([]);
   const [events, setEvents] = useState<ActivityEventRow[]>([]);
+  const [eventTypeFilter, setEventTypeFilter] = useState<ActivityType | 'ALL'>('ALL');
+  const [eventSearch, setEventSearch] = useState('');
   const [metadata, setMetadata] = useState<ActivityMetadata | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -250,6 +265,7 @@ export default function CustomerActivityReportPage() {
       const data = result.data as ActivityResponse;
       setSummary(data.summary);
       setTopPages(data.topPages || []);
+      setTopClickPages(data.topClickPages || []);
       setTopProducts(data.topProducts || []);
       setTopUsers(data.topUsers || []);
       setEvents(data.events || []);
@@ -267,6 +283,29 @@ export default function CustomerActivityReportPage() {
     fetchReport(submitted, page);
   }, [submitted, page]);
 
+  const filteredEvents = useMemo(() => {
+    const term = eventSearch.trim().toLowerCase();
+    return events.filter((event) => {
+      if (eventTypeFilter !== 'ALL' && event.type !== eventTypeFilter) return false;
+      if (!term) return true;
+      const metaQuery = typeof event.meta === 'object' && event.meta ? (event.meta as any).query : '';
+      const haystack = [
+        event.pagePath,
+        event.pageTitle,
+        event.productCode,
+        event.productName,
+        event.userName,
+        event.customerName,
+        event.customerCode,
+        metaQuery,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [events, eventSearch, eventTypeFilter]);
+
   const summaryCards = summary
     ? [
         { label: 'Toplam Olay', value: summary.totalEvents, icon: Activity },
@@ -278,6 +317,7 @@ export default function CustomerActivityReportPage() {
         { label: 'Sepet Guncelleme', value: summary.cartUpdates, icon: ShoppingCart },
         { label: 'Aktif Sure', value: formatDuration(summary.activeSeconds), icon: Activity },
         { label: 'Tiklama', value: summary.clickCount, icon: MousePointerClick },
+        { label: 'Arama', value: summary.searchCount, icon: Search },
       ]
     : [];
 
@@ -287,6 +327,16 @@ export default function CustomerActivityReportPage() {
         <div>
           <div className="font-mono text-xs">{event.productCode}</div>
           <div className="text-xs text-gray-600">{event.productName || '-'}</div>
+        </div>
+      );
+    }
+
+    if (event.type === 'SEARCH') {
+      const query = typeof event.meta === 'object' && event.meta ? (event.meta as any).query : '';
+      return (
+        <div className="text-xs space-y-1">
+          <div className="font-semibold">Arama: {query || '-'}</div>
+          <div className="font-mono text-[10px] text-gray-500">{event.pagePath || '-'}</div>
         </div>
       );
     }
@@ -430,7 +480,7 @@ export default function CustomerActivityReportPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">En Cok Ziyaret Edilen Sayfalar</CardTitle>
@@ -455,6 +505,41 @@ export default function CustomerActivityReportPage() {
                     <TableRow key={item.pagePath}>
                       <TableCell className="font-mono text-xs">{item.pagePath}</TableCell>
                       <TableCell className="text-right font-semibold">{item.count}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">En Cok Tiklanan Sayfalar</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Sayfa</TableHead>
+                  <TableHead className="text-right">Tiklama</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {topClickPages.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={2} className="text-center text-muted-foreground">
+                      Veri yok
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  topClickPages.map((item) => (
+                    <TableRow key={item.pagePath}>
+                      <TableCell className="font-mono text-xs">{item.pagePath}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {item.clickCount}
+                        <div className="text-[10px] text-gray-500">{item.eventCount} ping</div>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -512,12 +597,13 @@ export default function CustomerActivityReportPage() {
                 <TableHead className="text-right">Olay</TableHead>
                 <TableHead className="text-right">Aktif Sure</TableHead>
                 <TableHead className="text-right">Tiklama</TableHead>
+                <TableHead className="text-right">Arama</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {topUsers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     Veri yok
                   </TableCell>
                 </TableRow>
@@ -533,6 +619,7 @@ export default function CustomerActivityReportPage() {
                     <TableCell className="text-right">{item.eventCount}</TableCell>
                     <TableCell className="text-right">{formatDuration(item.activeSeconds)}</TableCell>
                     <TableCell className="text-right">{item.clickCount}</TableCell>
+                    <TableCell className="text-right">{item.searchCount}</TableCell>
                   </TableRow>
                 ))
               )}
@@ -557,6 +644,30 @@ export default function CustomerActivityReportPage() {
             <div className="p-12 text-center text-muted-foreground">Veri bulunamadi</div>
           ) : (
             <>
+              <div className="flex flex-wrap gap-4 p-4 border-b">
+                <div className="min-w-[180px]">
+                  <Select
+                    label="Tip"
+                    value={eventTypeFilter}
+                    onChange={(e) => setEventTypeFilter(e.target.value as ActivityType | 'ALL')}
+                  >
+                    <option value="ALL">Tum Tipler</option>
+                    {Object.entries(typeLabels).map(([key, value]) => (
+                      <option key={key} value={key}>
+                        {value.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="flex-1 min-w-[220px]">
+                  <Input
+                    label="Ara"
+                    placeholder="Sayfa, urun, cari, arama..."
+                    value={eventSearch}
+                    onChange={(e) => setEventSearch(e.target.value)}
+                  />
+                </div>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -571,26 +682,34 @@ export default function CustomerActivityReportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {events.map((event) => {
-                    const badge = typeLabels[event.type];
-                    const customerLabel = event.customerCode
-                      ? `${event.customerCode}${event.customerName ? ` - ${event.customerName}` : ''}`
-                      : '-';
-                    return (
-                      <TableRow key={event.id}>
-                        <TableCell className="text-xs">{formatDateTime(event.createdAt)}</TableCell>
-                        <TableCell>
-                          <Badge variant={badge.variant}>{badge.label}</Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">{event.userName || event.userId}</TableCell>
-                        <TableCell className="text-xs">{customerLabel}</TableCell>
-                        <TableCell>{renderEventTarget(event)}</TableCell>
-                        <TableCell className="text-right">{event.quantity ?? '-'}</TableCell>
-                        <TableCell className="text-right">{formatDuration(event.durationSeconds)}</TableCell>
-                        <TableCell className="text-right">{event.clickCount ?? '-'}</TableCell>
-                      </TableRow>
-                    );
-                  })}
+                  {filteredEvents.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-muted-foreground">
+                        Filtreye uygun veri yok
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredEvents.map((event) => {
+                      const badge = typeLabels[event.type];
+                      const customerLabel = event.customerCode
+                        ? `${event.customerCode}${event.customerName ? ` - ${event.customerName}` : ''}`
+                        : '-';
+                      return (
+                        <TableRow key={event.id}>
+                          <TableCell className="text-xs">{formatDateTime(event.createdAt)}</TableCell>
+                          <TableCell>
+                            <Badge variant={badge.variant}>{badge.label}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{event.userName || event.userId}</TableCell>
+                          <TableCell className="text-xs">{customerLabel}</TableCell>
+                          <TableCell>{renderEventTarget(event)}</TableCell>
+                          <TableCell className="text-right">{event.quantity ?? '-'}</TableCell>
+                          <TableCell className="text-right">{formatDuration(event.durationSeconds)}</TableCell>
+                          <TableCell className="text-right">{event.clickCount ?? '-'}</TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
                 </TableBody>
               </Table>
 

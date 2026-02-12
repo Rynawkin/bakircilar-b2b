@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Product, Category } from '@/types';
@@ -21,6 +21,7 @@ import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 
 export default function DiscountedProductsPage() {
@@ -47,6 +48,7 @@ export default function DiscountedProductsPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
+  const lastSearchRef = useRef('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
@@ -104,6 +106,22 @@ export default function DiscountedProductsPage() {
     loadStaticData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const term = debouncedSearch.trim();
+    if (!term) {
+      lastSearchRef.current = '';
+      return;
+    }
+    if (term === lastSearchRef.current) return;
+    lastSearchRef.current = term;
+    trackCustomerActivity({
+      type: 'SEARCH',
+      pagePath: typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : undefined,
+      pageTitle: typeof document !== 'undefined' ? document.title : undefined,
+      meta: { query: term, source: 'discounted-products' },
+    });
+  }, [debouncedSearch]);
 
   const loadStaticData = useCallback(async () => {
     try {

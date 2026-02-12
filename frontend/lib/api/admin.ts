@@ -1537,6 +1537,23 @@ export const adminApi = {
     return response.data;
   },
 
+
+  getCustomerCartsReport: async (params: {
+    search?: string;
+    includeEmpty?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<{ success: boolean; data: { carts: any[]; pagination: any } }> => {
+    const queryParams = new URLSearchParams();
+    if (params.search) queryParams.append('search', params.search);
+    if (params.includeEmpty) queryParams.append('includeEmpty', '1');
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+
+    const response = await apiClient.get(`/admin/reports/customer-carts?${queryParams.toString()}`);
+    return response.data;
+  },
+
   getProductsByCodes: async (codes: string[]): Promise<{ products: any[]; total: number }> => {
     const response = await apiClient.post('/admin/products/by-codes', { codes });
     return response.data;

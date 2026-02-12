@@ -3149,6 +3149,30 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/customer-carts
+   * Musterilerin guncel sepetlerini listeler
+   */
+  async getCustomerCartsReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { search, includeEmpty, page, limit } = req.query;
+
+      const data = await reportsService.getCustomerCartsReport({
+        search: search as string,
+        includeEmpty: includeEmpty === '1' || includeEmpty === 'true',
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/recommendations/complements
    * Tamamlayici urun onerilerini getirir.
    */

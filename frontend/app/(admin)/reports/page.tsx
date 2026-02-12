@@ -13,6 +13,7 @@ import {
   DollarSign,
   FileText,
   Search,
+  ShoppingCart,
   History
 } from 'lucide-react';
 import Link from 'next/link';
@@ -120,6 +121,16 @@ const reports: ReportCard[] = [
     category: 'customer',
     badge: 'Yeni',
     permission: 'reports:customer-activity',
+  },
+  {
+    id: 'customer-carts',
+    title: 'Musteri Sepetleri',
+    description: 'Musterilerin guncel sepetleri ve kalem detaylari',
+    icon: <ShoppingCart className="h-5 w-5" />,
+    href: '/reports/customer-carts',
+    category: 'customer',
+    badge: 'Yeni',
+    permission: 'reports:customer-carts',
   },
   {
     id: 'overdue-payments',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import customerApi from '@/lib/api/customer';
 import { Card } from '@/components/ui/Card';
@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { formatDate, formatDateShort } from '@/lib/utils/format';
 import {
   TASK_PRIORITY_BADGE,
@@ -49,6 +50,7 @@ export default function CustomerRequestsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<FilterValue>('ALL');
   const debouncedSearch = useDebounce(search, 300);
+  const lastSearchRef = useRef('');
 
   const [newRequest, setNewRequest] = useState(DEFAULT_REQUEST);
   const [creating, setCreating] = useState(false);
@@ -63,6 +65,22 @@ export default function CustomerRequestsPage() {
     loadUserFromStorage();
     fetchPreferences();
   }, [loadUserFromStorage]);
+
+  useEffect(() => {
+    const term = debouncedSearch.trim();
+    if (!term) {
+      lastSearchRef.current = '';
+      return;
+    }
+    if (term === lastSearchRef.current) return;
+    lastSearchRef.current = term;
+    trackCustomerActivity({
+      type: 'SEARCH',
+      pagePath: typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : undefined,
+      pageTitle: typeof document !== 'undefined' ? document.title : undefined,
+      meta: { query: term, source: 'my-requests' },
+    });
+  }, [debouncedSearch]);
 
   useEffect(() => {
     fetchTasks();
