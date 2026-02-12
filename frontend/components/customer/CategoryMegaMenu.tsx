@@ -134,10 +134,6 @@ export function CategoryMegaMenu({
   const [activeRootId, setActiveRootId] = useState<string | null>(null);
   const [activeChildId, setActiveChildId] = useState<string | null>(null);
 
-  const selectedLabel = selectedCategoryId
-    ? nodesById.get(selectedCategoryId)?.name
-    : null;
-
   const clearActive = useCallback(() => {
     setActiveRootId(null);
     setActiveChildId(null);
@@ -190,17 +186,8 @@ export function CategoryMegaMenu({
 
   return (
     <div className="w-full" onMouseLeave={clearActive}>
-      <div className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-gray-500">Kategoriler</div>
-            <div className="text-sm font-semibold text-gray-900">
-              {selectedLabel || 'Tumu'}
-            </div>
-          </div>
-          <span className="text-xs text-gray-500">v</span>
-        </div>
-
+      <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <div className="text-[10px] uppercase tracking-wide text-gray-500">Kategoriler</div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
@@ -240,7 +227,7 @@ export function CategoryMegaMenu({
 
       {activeRootId && (
         <div className="mt-3 w-full rounded-2xl border border-gray-200 bg-white shadow-2xl">
-          <div className="grid grid-cols-[260px_1fr] gap-0">
+          <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-0">
             <div className="border-r border-gray-100 p-4">
               <div className="text-xs font-semibold text-gray-500 mb-2">Alt Kategoriler</div>
               {rootChildren.length === 0 ? (
