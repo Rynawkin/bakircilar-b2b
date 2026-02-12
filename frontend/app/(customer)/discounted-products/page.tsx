@@ -19,6 +19,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
+import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
@@ -324,18 +325,11 @@ export default function DiscountedProductsPage() {
                     <span>📁</span>
                     Kategori
                   </label>
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
-                  >
-                    <option value="">Tüm Kategoriler</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
+                  <CategoryMegaMenu
+                    categories={categories}
+                    selectedCategoryId={selectedCategory}
+                    onSelect={setSelectedCategory}
+                  />
                 </div>
               </div>
 
@@ -423,72 +417,63 @@ export default function DiscountedProductsPage() {
                 )}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredProducts.map((product) => {
-                  const invoicedDiscount = getDiscountPercent(
-                    product.listPrices?.invoiced,
-                    product.prices.invoiced
-                  );
-                  const whiteDiscount = getDiscountPercent(
-                    product.listPrices?.white,
-                    product.prices.white
-                  );
                   const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
-                                    const selectedPriceType = allowedPriceTypes.includes(quickAddPriceTypes[product.id])
+                  const selectedPriceType = allowedPriceTypes.includes(quickAddPriceTypes[product.id])
                     ? quickAddPriceTypes[product.id]
                     : defaultPriceType;
-                  const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
                   const hasAgreement = Boolean(product.agreement);
-                  const excessInvoiced = resolveValidExcessPrice(
-                    product.prices.invoiced,
-                    product.excessPrices?.invoiced
+                  const baseInvoiced = product.listPrices?.invoiced ?? product.prices.invoiced;
+                  const baseWhite = product.listPrices?.white ?? product.prices.white;
+                  const discountInvoiced = resolveValidExcessPrice(
+                    baseInvoiced,
+                    product.excessPrices?.invoiced ?? product.prices.invoiced
                   );
-                  const excessWhite = resolveValidExcessPrice(
-                    product.prices.white,
-                    product.excessPrices?.white
+                  const discountWhite = resolveValidExcessPrice(
+                    baseWhite,
+                    product.excessPrices?.white ?? product.prices.white
                   );
-                  const showExcessPricing =
-                    !hasAgreement &&
-                    product.excessStock > 0 &&
-                    (excessInvoiced !== undefined || excessWhite !== undefined);
-                  const selectedExcessPrice = showExcessPricing
-                    ? (selectedPriceType === 'INVOICED' ? excessInvoiced : excessWhite)
-                    : undefined;
-                  const selectedExcessDiscount = showExcessPricing && selectedExcessPrice
-                    ? getDiscountPercent(
-                        selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white,
-                        selectedExcessPrice
-                      )
+                  const selectedBasePrice = selectedPriceType === 'INVOICED' ? baseInvoiced : baseWhite;
+                  const selectedDiscountPrice = selectedPriceType === 'INVOICED' ? discountInvoiced : discountWhite;
+                  const selectedDiscountPercent = selectedDiscountPrice !== undefined
+                    ? getDiscountPercent(selectedBasePrice, selectedDiscountPrice)
+                    : null;
+                  const invoicedDiscountPercent = discountInvoiced !== undefined
+                    ? getDiscountPercent(baseInvoiced, discountInvoiced)
+                    : null;
+                  const whiteDiscountPercent = discountWhite !== undefined
+                    ? getDiscountPercent(baseWhite, discountWhite)
                     : null;
                   const displaySelectedPrice = getDisplayPrice(
-                    selectedPrice,
+                    selectedDiscountPrice ?? selectedBasePrice,
                     product.vatRate,
                     selectedPriceType,
                     vatDisplayPreference
                   );
-                  const displaySelectedExcessPrice = selectedExcessPrice !== undefined
-                    ? getDisplayPrice(selectedExcessPrice, product.vatRate, selectedPriceType, vatDisplayPreference)
+                  const displaySelectedBasePrice = selectedDiscountPrice !== undefined
+                    ? getDisplayPrice(selectedBasePrice, product.vatRate, selectedPriceType, vatDisplayPreference)
                     : undefined;
                   const displayInvoicedPrice = getDisplayPrice(
-                    product.prices.invoiced,
+                    discountInvoiced ?? baseInvoiced,
                     product.vatRate,
                     'INVOICED',
                     vatDisplayPreference
                   );
                   const displayWhitePrice = getDisplayPrice(
-                    product.prices.white,
+                    discountWhite ?? baseWhite,
                     product.vatRate,
                     'WHITE',
                     vatDisplayPreference
                   );
-                  const displayExcessInvoiced = excessInvoiced !== undefined
-                    ? getDisplayPrice(excessInvoiced, product.vatRate, 'INVOICED', vatDisplayPreference)
+                  const displayBaseInvoiced = discountInvoiced !== undefined
+                    ? getDisplayPrice(baseInvoiced, product.vatRate, 'INVOICED', vatDisplayPreference)
                     : undefined;
-                  const displayExcessWhite = excessWhite !== undefined
-                    ? getDisplayPrice(excessWhite, product.vatRate, 'WHITE', vatDisplayPreference)
+                  const displayBaseWhite = discountWhite !== undefined
+                    ? getDisplayPrice(baseWhite, product.vatRate, 'WHITE', vatDisplayPreference)
                     : undefined;
                   const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
                   const excessStock = product.excessStock ?? getDisplayStock(product);
                   const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
-  return (
+                  return (
                     <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
                       <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
@@ -561,16 +546,18 @@ export default function DiscountedProductsPage() {
                               onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'INVOICED' })}
                             >
                               <div className="opacity-80 mb-0.5">Faturali</div>
-                                <div className="font-bold text-sm">{formatCurrency(displayInvoicedPrice)}</div>
-                                {showExcessPricing && displayExcessInvoiced !== undefined && (
-                                  <div className="text-[10px] text-green-700 font-semibold">
-                                    Fazla: {formatCurrency(displayExcessInvoiced)}
-                                    {getDiscountPercent(product.prices.invoiced, excessInvoiced) && (
-                                      <span> (-%{getDiscountPercent(product.prices.invoiced, excessInvoiced)})</span>
-                                    )}
-                                  </div>
+                              <div className="font-bold text-sm">
+                                {formatCurrency(displayInvoicedPrice)}
+                                {invoicedDiscountPercent && (
+                                  <span className="text-[10px] text-green-700 font-semibold"> (-%{invoicedDiscountPercent})</span>
                                 )}
-                                <div className="text-[10px] opacity-70 mt-0.5">{invoicedVatLabel}</div>
+                              </div>
+                              {displayBaseInvoiced !== undefined && (
+                                <div className="text-[10px] text-gray-500 line-through">
+                                  Normal: {formatCurrency(displayBaseInvoiced)}
+                                </div>
+                              )}
+                              <div className="text-[10px] opacity-70 mt-0.5">{invoicedVatLabel}</div>
                             </button>
                           )}
                           {allowedPriceTypes.includes('WHITE') && (
@@ -583,16 +570,18 @@ export default function DiscountedProductsPage() {
                               onClick={() => setQuickAddPriceTypes({ ...quickAddPriceTypes, [product.id]: 'WHITE' })}
                             >
                               <div className="opacity-80 mb-0.5">Beyaz</div>
-                                <div className="font-bold text-sm">{formatCurrency(displayWhitePrice)}</div>
-                                {showExcessPricing && displayExcessWhite !== undefined && (
-                                  <div className="text-[10px] text-green-700 font-semibold">
-                                    Fazla: {formatCurrency(displayExcessWhite)}
-                                    {getDiscountPercent(product.prices.white, excessWhite) && (
-                                      <span> (-%{getDiscountPercent(product.prices.white, excessWhite)})</span>
-                                    )}
-                                  </div>
+                              <div className="font-bold text-sm">
+                                {formatCurrency(displayWhitePrice)}
+                                {whiteDiscountPercent && (
+                                  <span className="text-[10px] text-green-700 font-semibold"> (-%{whiteDiscountPercent})</span>
                                 )}
-                                <div className="text-[10px] opacity-70 mt-0.5">{getVatLabel('WHITE', vatDisplayPreference)}</div>
+                              </div>
+                              {displayBaseWhite !== undefined && (
+                                <div className="text-[10px] text-gray-500 line-through">
+                                  Normal: {formatCurrency(displayBaseWhite)}
+                                </div>
+                              )}
+                              <div className="text-[10px] opacity-70 mt-0.5">{getVatLabel('WHITE', vatDisplayPreference)}</div>
                             </button>
                           )}
                         </div>
@@ -600,13 +589,15 @@ export default function DiscountedProductsPage() {
                         <div className="px-3">
                           <div className="rounded-lg border-2 border-gray-200 bg-white px-2 py-2 text-xs font-semibold text-gray-700">
                             <div className="opacity-80 mb-0.5">{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
-                            <div className="font-bold text-sm">{formatCurrency(displaySelectedPrice)}</div>
-                            {showExcessPricing && displaySelectedExcessPrice !== undefined && (
-                              <div className="text-[10px] text-green-700 font-semibold">
-                                Fazla: {formatCurrency(displaySelectedExcessPrice)}
-                                {selectedExcessDiscount && (
-                                  <span> (-%{selectedExcessDiscount})</span>
-                                )}
+                            <div className="font-bold text-sm">
+                              {formatCurrency(displaySelectedPrice)}
+                              {selectedDiscountPercent && (
+                                <span className="text-[10px] text-green-700 font-semibold"> (-%{selectedDiscountPercent})</span>
+                              )}
+                            </div>
+                            {displaySelectedBasePrice !== undefined && (
+                              <div className="text-[10px] text-gray-500 line-through">
+                                Normal: {formatCurrency(displaySelectedBasePrice)}
                               </div>
                             )}
                             <div className="text-[10px] opacity-70 mt-0.5">{selectedVatLabel}</div>

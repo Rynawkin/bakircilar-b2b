@@ -19,6 +19,7 @@ import { confirmBackorder } from '@/lib/utils/confirm';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
+import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
@@ -262,33 +263,11 @@ export default function ProductsPage() {
                     <span>📁</span>
                     Kategoriler
                   </label>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCategory('')}
-                      className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-all border ${
-                        selectedCategory === ''
-                          ? 'bg-primary-600 text-white border-primary-600 shadow'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:text-primary-700'
-                      }`}
-                    >
-                      Tumu
-                    </button>
-                    {categories.map((cat) => (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => setSelectedCategory(cat.id)}
-                        className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-all border ${
-                          selectedCategory === cat.id
-                            ? 'bg-primary-600 text-white border-primary-600 shadow'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:text-primary-700'
-                        }`}
-                      >
-                        {cat.name}
-                      </button>
-                    ))}
-                  </div>
+                  <CategoryMegaMenu
+                    categories={categories}
+                    selectedCategoryId={selectedCategory}
+                    onSelect={setSelectedCategory}
+                  />
                 </div>
               </div>
 
