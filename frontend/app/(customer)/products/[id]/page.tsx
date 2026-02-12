@@ -259,7 +259,7 @@ export default function ProductDetailPage() {
       <div className="container-custom py-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <Button variant="ghost" onClick={() => router.push('/products')}>
-            <- Urunlere Don
+            &larr; Urunlere Don
           </Button>
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span className="rounded-full border border-gray-200 bg-white px-3 py-1 font-semibold text-gray-700">
