@@ -68,6 +68,30 @@ const notificationReadSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 });
 
+const customerActivityEventSchema = z.object({
+  type: z.enum([
+    'PAGE_VIEW',
+    'PRODUCT_VIEW',
+    'CART_ADD',
+    'CART_REMOVE',
+    'CART_UPDATE',
+    'ACTIVE_PING',
+    'CLICK',
+    'SEARCH',
+  ]),
+  pagePath: z.string().max(500).optional(),
+  pageTitle: z.string().max(300).optional(),
+  referrer: z.string().max(500).optional(),
+  sessionId: z.string().max(120).optional(),
+  productId: z.string().uuid().optional(),
+  productCode: z.string().max(120).optional(),
+  cartItemId: z.string().uuid().optional(),
+  quantity: z.number().int().min(0).optional(),
+  durationSeconds: z.number().int().min(0).max(86400).optional(),
+  clickCount: z.number().int().min(0).max(10000).optional(),
+  meta: z.any().optional(),
+});
+
 // Products (with cache - 5 minutes TTL)
 router.get(
   '/products',
@@ -182,6 +206,9 @@ router.post('/tasks/:id/attachments', requireCustomer, taskUpload.single('file')
 router.get('/notifications', requireCustomer, notificationController.getNotifications);
 router.post('/notifications/read', requireCustomer, validateBody(notificationReadSchema), notificationController.markRead);
 router.post('/notifications/read-all', requireCustomer, notificationController.markAllRead);
+
+// Customer activity tracking
+router.post('/analytics/events', requireCustomer, validateBody(customerActivityEventSchema), customerController.trackActivityEvent);
 
 export default router;
 

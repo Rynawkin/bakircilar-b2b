@@ -10,6 +10,7 @@ import priceListService from '../services/price-list.service';
 import mikroService from '../services/mikroFactory.service';
 import orderService from '../services/order.service';
 import productComplementService from '../services/product-complement.service';
+import customerActivityService from '../services/customer-activity.service';
 import { splitSearchTokens } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
@@ -1764,6 +1765,8 @@ export class CustomerController {
         },
       });
 
+      let cartItemId: string | undefined;
+
       if (existingItem) {
         const combinedQuantity = existingItem.quantity + quantity;
         if (agreement && isAgreementApplicable(agreement, new Date(), combinedQuantity)) {
@@ -1776,8 +1779,9 @@ export class CustomerController {
             unitPrice,
           },
         });
+        cartItemId = existingItem.id;
       } else {
-        await prisma.cartItem.create({
+        const createdItem = await prisma.cartItem.create({
           data: {
             cartId: cart.id,
             productId,
@@ -1787,6 +1791,26 @@ export class CustomerController {
             unitPrice,
           },
         });
+        cartItemId = createdItem.id;
+      }
+
+      const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
+      try {
+        await customerActivityService.trackEvent({
+          type: 'CART_ADD',
+          userId: user.id,
+          customerId: customer?.id ?? user.id,
+          sessionId,
+          productId: product.id,
+          productCode: product.mikroCode,
+          cartItemId,
+          quantity,
+          meta: { priceType, priceMode: effectivePriceMode },
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (error) {
+        console.error('Customer activity log failed (cart add):', error);
       }
 
       res.json({ message: 'Product added to cart' });
@@ -1988,6 +2012,25 @@ export class CustomerController {
         data: updateData,
       });
 
+      const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
+      try {
+        await customerActivityService.trackEvent({
+          type: 'CART_UPDATE',
+          userId: user.id,
+          customerId: customer?.id ?? user.id,
+          sessionId,
+          productId: cartItem.productId,
+          productCode: cartItem.product.mikroCode,
+          cartItemId: cartItem.id,
+          quantity: hasQuantity ? nextQuantity : undefined,
+          meta: { priceType: cartItem.priceType, priceMode: effectivePriceMode, lineNote: updateData.lineNote ?? undefined },
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (error) {
+        console.error('Customer activity log failed (cart update):', error);
+      }
+
       res.json({ message: 'Cart item updated' });
     } catch (error) {
       next(error);
@@ -2001,9 +2044,39 @@ export class CustomerController {
     try {
       const { itemId } = req.params;
 
+      const cartItem = await prisma.cartItem.findUnique({
+        where: { id: itemId },
+        include: {
+          product: true,
+        },
+      });
+
+      if (!cartItem) {
+        return res.status(404).json({ error: 'Cart item not found' });
+      }
+
       await prisma.cartItem.delete({
         where: { id: itemId },
       });
+
+      const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
+      try {
+        const customerId = await customerActivityService.resolveCustomerId(req.user!.userId);
+        await customerActivityService.trackEvent({
+          type: 'CART_REMOVE',
+          userId: req.user!.userId,
+          customerId: customerId ?? undefined,
+          sessionId,
+          productId: cartItem.productId,
+          productCode: cartItem.product?.mikroCode,
+          cartItemId: cartItem.id,
+          quantity: cartItem.quantity,
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (error) {
+        console.error('Customer activity log failed (cart remove):', error);
+      }
 
       res.json({ message: 'Item removed from cart' });
     } catch (error) {
@@ -2069,6 +2142,56 @@ export class CustomerController {
       }
 
       res.json(order);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/analytics/events
+   */
+  async trackActivityEvent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        type,
+        pagePath,
+        pageTitle,
+        referrer,
+        productId,
+        productCode,
+        cartItemId,
+        quantity,
+        durationSeconds,
+        clickCount,
+        meta,
+        sessionId,
+      } = req.body || {};
+
+      const userId = req.user!.userId;
+      const resolvedCustomerId = await customerActivityService.resolveCustomerId(userId);
+      const fallbackSessionId =
+        typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
+
+      await customerActivityService.trackEvent({
+        type,
+        userId,
+        customerId: resolvedCustomerId ?? undefined,
+        sessionId: sessionId || fallbackSessionId,
+        pagePath,
+        pageTitle,
+        referrer,
+        productId,
+        productCode,
+        cartItemId,
+        quantity,
+        durationSeconds,
+        clickCount,
+        meta,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }

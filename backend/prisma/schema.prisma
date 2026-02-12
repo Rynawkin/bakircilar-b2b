@@ -110,6 +110,19 @@ enum QuotePriceSource {
   MANUAL      // Manuel fiyat
 }
 
+
+
+enum CustomerActivityType {
+  PAGE_VIEW
+  PRODUCT_VIEW
+  CART_ADD
+  CART_REMOVE
+  CART_UPDATE
+  ACTIVE_PING
+  CLICK
+  SEARCH
+}
+
 enum CostCalculationMethod {
   LAST_ENTRY      // Son giriş fiyatı
   CURRENT_COST    // Güncel maliyet
@@ -304,6 +317,8 @@ model User {
 
   quotesUpdated      Quote[]       @relation("QuoteUpdater")
   quoteHistories     QuoteHistory[] @relation("QuoteHistoryActor")
+  activityEvents     CustomerActivityEvent[] @relation("CustomerActivityUser")
+  activityCustomerEvents CustomerActivityEvent[] @relation("CustomerActivityCustomer")
   @@index([email])
   @@index([role])
   @@index([mikroCariCode])
@@ -331,6 +346,39 @@ model UserSearchPreferences {
   updatedAt             DateTime  @updatedAt
 
   @@index([userId])
+}
+
+// ==================== CUSTOMER ACTIVITY ====================
+
+model CustomerActivityEvent {
+  id             String               @id @default(uuid())
+  type           CustomerActivityType
+  userId         String
+  user           User                 @relation("CustomerActivityUser", fields: [userId], references: [id], onDelete: Cascade)
+  customerId     String?
+  customer       User?                @relation("CustomerActivityCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  sessionId      String?
+  pagePath       String?
+  pageTitle      String?
+  referrer       String?
+  productId      String?
+  product        Product?             @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCode    String?
+  cartItemId     String?
+  quantity       Int?
+  durationSeconds Int?
+  clickCount     Int?
+  meta           Json?
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime             @default(now())
+
+  @@index([userId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([type, createdAt])
+  @@index([productId])
+  @@index([pagePath])
+  @@index([sessionId])
 }
 
 // ==================== ROLE PERMISSIONS ====================
@@ -623,6 +671,7 @@ model Product {
   complementManual        ProductComplementManual[]
   complementAutoRelated   ProductComplementAuto[] @relation("ProductComplementAutoRelated")
   complementManualRelated ProductComplementManual[] @relation("ProductComplementManualRelated")
+  activityEvents          CustomerActivityEvent[]
 
   @@index([mikroCode])
   @@index([foreignName])

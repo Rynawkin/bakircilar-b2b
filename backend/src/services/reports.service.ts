@@ -5,6 +5,7 @@
  * Mikro'ya her seferinde bağlanmaya gerek yok, sabah sync'te çekilen veriler kullanılır.
  */
 
+import { CustomerActivityType, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { config } from '../config';
 import { AppError, ErrorCode } from '../types/errors';
@@ -192,6 +193,81 @@ interface ComplementMissingReportResponse {
       assignedSectorCodes: string[];
     };
     minDocumentCount?: number | null;
+  };
+}
+
+interface CustomerActivitySummary {
+  totalEvents: number;
+  uniqueUsers: number;
+  pageViews: number;
+  productViews: number;
+  cartAdds: number;
+  cartRemoves: number;
+  cartUpdates: number;
+  activeSeconds: number;
+  clickCount: number;
+}
+
+interface CustomerActivityTopPage {
+  pagePath: string;
+  count: number;
+}
+
+interface CustomerActivityTopProduct {
+  productId: string | null;
+  productCode: string | null;
+  productName: string | null;
+  count: number;
+}
+
+interface CustomerActivityTopUser {
+  userId: string;
+  userName: string | null;
+  customerCode: string | null;
+  customerName: string | null;
+  eventCount: number;
+  activeSeconds: number;
+  clickCount: number;
+}
+
+interface CustomerActivityEventRow {
+  id: string;
+  type: CustomerActivityType;
+  createdAt: Date;
+  pagePath: string | null;
+  pageTitle: string | null;
+  productCode: string | null;
+  productName: string | null;
+  quantity: number | null;
+  durationSeconds: number | null;
+  clickCount: number | null;
+  userId: string;
+  userName: string | null;
+  customerCode: string | null;
+  customerName: string | null;
+}
+
+interface CustomerActivityReportResponse {
+  summary: CustomerActivitySummary;
+  topPages: CustomerActivityTopPage[];
+  topProducts: CustomerActivityTopProduct[];
+  topUsers: CustomerActivityTopUser[];
+  events: CustomerActivityEventRow[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+    totalRecords: number;
+  };
+  metadata: {
+    startDate: string;
+    endDate: string;
+    customer?: {
+      id: string;
+      code: string;
+      name: string | null;
+    } | null;
+    userId?: string | null;
   };
 }
 
@@ -3386,6 +3462,275 @@ export class ReportsService {
     const fileName = `tamamlayici-urun-eksikleri-${data.metadata.mode}-${data.metadata.startDate}-${data.metadata.endDate}.xlsx`;
 
     return { buffer, fileName };
+  }
+
+  async getCustomerActivityReport(options: {
+    startDate?: string;
+    endDate?: string;
+    customerCode?: string;
+    userId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<CustomerActivityReportResponse> {
+    const now = new Date();
+    const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const parsedEnd = parseDateInput(options.endDate) || defaultEnd;
+    const parsedStart =
+      parseDateInput(options.startDate) ||
+      (() => {
+        const start = new Date(parsedEnd);
+        start.setUTCDate(start.getUTCDate() - 6);
+        return start;
+      })();
+
+    if (parsedStart > parsedEnd) {
+      throw new AppError('Baslangic tarihi bitis tarihinden sonra olamaz.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const endExclusive = new Date(parsedEnd);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 50;
+
+    let customer: { id: string; code: string; name: string | null } | null = null;
+    if (options.customerCode) {
+      const customerUser = await prisma.user.findFirst({
+        where: {
+          mikroCariCode: options.customerCode,
+          role: 'CUSTOMER',
+          parentCustomerId: null,
+        },
+        select: {
+          id: true,
+          mikroCariCode: true,
+          displayName: true,
+          name: true,
+        },
+      });
+
+      if (!customerUser) {
+        throw new AppError('Customer not found.', 404, ErrorCode.NOT_FOUND);
+      }
+
+      customer = {
+        id: customerUser.id,
+        code: customerUser.mikroCariCode || options.customerCode,
+        name: customerUser.displayName || customerUser.name || null,
+      };
+    }
+
+    const where: Prisma.CustomerActivityEventWhereInput = {
+      createdAt: {
+        gte: parsedStart,
+        lt: endExclusive,
+      },
+    };
+
+    if (customer?.id) {
+      where.customerId = customer.id;
+    }
+
+    if (options.userId) {
+      where.userId = options.userId;
+    }
+
+    const [totalRecords, uniqueUsers, typeCounts, activeAgg] = await Promise.all([
+      prisma.customerActivityEvent.count({ where }),
+      prisma.customerActivityEvent.count({ where, distinct: ['userId'] }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['type'],
+        where,
+        _count: { _all: true },
+      }),
+      prisma.customerActivityEvent.aggregate({
+        where: { ...where, type: 'ACTIVE_PING' },
+        _sum: { durationSeconds: true, clickCount: true },
+      }),
+    ]);
+
+    const typeMap = new Map<CustomerActivityType, number>();
+    typeCounts.forEach((row) => {
+      typeMap.set(row.type, row._count._all);
+    });
+
+    const summary: CustomerActivitySummary = {
+      totalEvents: totalRecords,
+      uniqueUsers,
+      pageViews: typeMap.get('PAGE_VIEW') || 0,
+      productViews: typeMap.get('PRODUCT_VIEW') || 0,
+      cartAdds: typeMap.get('CART_ADD') || 0,
+      cartRemoves: typeMap.get('CART_REMOVE') || 0,
+      cartUpdates: typeMap.get('CART_UPDATE') || 0,
+      activeSeconds: Number(activeAgg._sum.durationSeconds || 0),
+      clickCount: Number(activeAgg._sum.clickCount || 0),
+    };
+
+    const [topPagesRaw, topProductsRaw, topUsersRaw] = await Promise.all([
+      prisma.customerActivityEvent.groupBy({
+        by: ['pagePath'],
+        where: { ...where, type: 'PAGE_VIEW', pagePath: { not: null } },
+        _count: { _all: true },
+        orderBy: { _count: { _all: 'desc' } },
+        take: 10,
+      }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['productId', 'productCode'],
+        where: { ...where, type: 'PRODUCT_VIEW', productId: { not: null } },
+        _count: { _all: true },
+        orderBy: { _count: { _all: 'desc' } },
+        take: 10,
+      }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['userId'],
+        where,
+        _count: { _all: true },
+        _sum: { durationSeconds: true, clickCount: true },
+        orderBy: { _count: { _all: 'desc' } },
+        take: 10,
+      }),
+    ]);
+
+    const topPages: CustomerActivityTopPage[] = topPagesRaw
+      .filter((row) => row.pagePath)
+      .map((row) => ({
+        pagePath: row.pagePath as string,
+        count: row._count._all,
+      }));
+
+    const topProductIds = topProductsRaw
+      .map((row) => row.productId)
+      .filter((value): value is string => Boolean(value));
+
+    const productRows = topProductIds.length
+      ? await prisma.product.findMany({
+          where: { id: { in: topProductIds } },
+          select: { id: true, mikroCode: true, name: true },
+        })
+      : [];
+
+    const productMap = new Map(productRows.map((row) => [row.id, row]));
+
+    const topProducts: CustomerActivityTopProduct[] = topProductsRaw.map((row) => {
+      const product = row.productId ? productMap.get(row.productId) : undefined;
+      return {
+        productId: row.productId ?? null,
+        productCode: row.productCode || product?.mikroCode || null,
+        productName: product?.name || null,
+        count: row._count._all,
+      };
+    });
+
+    const topUserIds = topUsersRaw.map((row) => row.userId);
+    const userRows = topUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: topUserIds } },
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            mikroCariCode: true,
+            parentCustomer: {
+              select: {
+                name: true,
+                displayName: true,
+                mikroCariCode: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const userMap = new Map(userRows.map((row) => [row.id, row]));
+
+    const topUsers: CustomerActivityTopUser[] = topUsersRaw.map((row) => {
+      const user = userMap.get(row.userId);
+      const customerInfo = user?.parentCustomer || user;
+      return {
+        userId: row.userId,
+        userName: user?.displayName || user?.name || null,
+        customerCode: customerInfo?.mikroCariCode || null,
+        customerName: customerInfo?.displayName || customerInfo?.name || null,
+        eventCount: row._count._all,
+        activeSeconds: Number(row._sum.durationSeconds || 0),
+        clickCount: Number(row._sum.clickCount || 0),
+      };
+    });
+
+    const totalPages = Math.max(1, Math.ceil(totalRecords / limit));
+    const offset = (page - 1) * limit;
+
+    const events = await prisma.customerActivityEvent.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            mikroCariCode: true,
+            parentCustomer: {
+              select: {
+                name: true,
+                displayName: true,
+                mikroCariCode: true,
+              },
+            },
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            mikroCode: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    const eventRows: CustomerActivityEventRow[] = events.map((event) => {
+      const user = event.user;
+      const customerInfo = user?.parentCustomer || user;
+      return {
+        id: event.id,
+        type: event.type,
+        createdAt: event.createdAt,
+        pagePath: event.pagePath,
+        pageTitle: event.pageTitle,
+        productCode: event.productCode || event.product?.mikroCode || null,
+        productName: event.product?.name || null,
+        quantity: event.quantity ?? null,
+        durationSeconds: event.durationSeconds ?? null,
+        clickCount: event.clickCount ?? null,
+        userId: event.userId,
+        userName: user?.displayName || user?.name || null,
+        customerCode: customerInfo?.mikroCariCode || null,
+        customerName: customerInfo?.displayName || customerInfo?.name || null,
+      };
+    });
+
+    return {
+      summary,
+      topPages,
+      topProducts,
+      topUsers,
+      events: eventRows,
+      pagination: {
+        page,
+        limit,
+        totalPages,
+        totalRecords,
+      },
+      metadata: {
+        startDate: formatDateKey(parsedStart),
+        endDate: formatDateKey(parsedEnd),
+        customer,
+        userId: options.userId || null,
+      },
+    };
   }
 
   async getProductCustomers(params: {

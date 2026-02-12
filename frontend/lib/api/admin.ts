@@ -1517,6 +1517,26 @@ export const adminApi = {
     return response.data;
   },
 
+  getCustomerActivityReport: async (params: {
+    startDate?: string;
+    endDate?: string;
+    customerCode?: string;
+    userId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ success: boolean; data: any }> => {
+    const queryParams = new URLSearchParams();
+    if (params.startDate) queryParams.append('startDate', params.startDate);
+    if (params.endDate) queryParams.append('endDate', params.endDate);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.userId) queryParams.append('userId', params.userId);
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+
+    const response = await apiClient.get(`/admin/reports/customer-activity?${queryParams.toString()}`);
+    return response.data;
+  },
+
   getProductsByCodes: async (codes: string[]): Promise<{ products: any[]; total: number }> => {
     const response = await apiClient.post('/admin/products/by-codes', { codes });
     return response.data;

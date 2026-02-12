@@ -9,6 +9,7 @@ import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { Button } from '@/components/ui/Button';
 import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
 
@@ -76,6 +77,18 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
       document.body.style.overflow = 'unset';
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !product?.id) return;
+    trackCustomerActivity({
+      type: 'PRODUCT_VIEW',
+      productId: product.id,
+      productCode: product.mikroCode,
+      pagePath: typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : undefined,
+      pageTitle: typeof document !== 'undefined' ? document.title : undefined,
+      meta: { productName: product.name },
+    });
+  }, [isOpen, product?.id]);
 
   useEffect(() => {
     if (!isOpen || !product?.id) {

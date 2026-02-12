@@ -3,6 +3,7 @@
  */
 
 import axios from 'axios';
+import { getOrCreateSessionId } from '@/lib/analytics/session';
 
 // Use relative URL to leverage Next.js rewrites (avoids CORS and Mixed Content issues)
 const API_URL = '/api';
@@ -22,9 +23,15 @@ apiClient.interceptors.request.use(
       const authStorage = localStorage.getItem('b2b-auth');
       if (authStorage) {
         try {
-          const { token } = JSON.parse(authStorage);
+          const { token, user } = JSON.parse(authStorage);
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
+          }
+          if (user?.role === 'CUSTOMER') {
+            const sessionId = getOrCreateSessionId();
+            if (sessionId) {
+              config.headers['x-session-id'] = sessionId;
+            }
           }
         } catch (error) {
           console.error('Error parsing auth storage:', error);

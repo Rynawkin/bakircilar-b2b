@@ -19,6 +19,7 @@ import vadeSyncService from './services/vadeSync.service';
 import vadeNotificationService from './services/vadeNotification.service';
 import reportsService from './services/reports.service';
 import productComplementService from './services/product-complement.service';
+import customerActivityService from './services/customer-activity.service';
 import { prisma } from './utils/prisma';
 
 
@@ -223,6 +224,18 @@ if (config.enableCron) {
       console.log('Product complement sync completed:', result);
     } catch (error) {
       console.error('Product complement cron error:', error);
+    }
+  }, cronOptions);
+
+  console.log('Customer activity cleanup schedule:', config.analyticsCleanupCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.analyticsCleanupCronSchedule, async () => {
+    try {
+      const result = await customerActivityService.cleanupOldEvents(config.analyticsRetentionDays);
+      if (result.deleted > 0) {
+        console.log('Customer activity cleanup removed records:', result.deleted);
+      }
+    } catch (error) {
+      console.error('Customer activity cleanup error:', error);
     }
   }, cronOptions);
 

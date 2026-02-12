@@ -112,6 +112,16 @@ const reports: ReportCard[] = [
     permission: 'reports:complement-missing',
   },
   {
+    id: 'customer-activity',
+    title: 'Musteri Aktivite Takibi',
+    description: 'Sayfa, urun, sepet ve aktiflik verilerini loglar',
+    icon: <Clock className="h-5 w-5" />,
+    href: '/reports/customer-activity',
+    category: 'customer',
+    badge: 'Yeni',
+    permission: 'reports:customer-activity',
+  },
+  {
     id: 'overdue-payments',
     title: 'Vade & Alacak Takip Raporu',
     description: 'Vadesi geçmiş alacaklar, aranması gerekenler ve satış durdurma önerileri',
