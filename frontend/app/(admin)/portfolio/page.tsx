@@ -54,13 +54,12 @@ export default function PortfolioPage() {
   }, [customers]);
 
   const filteredCustomers = useMemo(() => {
-    const normalizedSearch = normalizeSearchText(searchTerm);
-    const tokens = buildSearchTokens(normalizedSearch);
+    const tokens = buildSearchTokens(searchTerm);
     return customers.filter((customer) => {
       if (filterActive === 'active' && !customer.active) return false;
       if (filterActive === 'inactive' && customer.active) return false;
       if (tokens.length === 0) return true;
-      return matchesSearchTokens(tokens, [
+      const haystack = normalizeSearchText([
         customer.name,
         customer.mikroCariCode,
         customer.email,
@@ -71,7 +70,8 @@ export default function PortfolioPage() {
         customer.groupCode,
         customer.paymentPlanCode,
         customer.paymentPlanName,
-      ]);
+      ].filter(Boolean).join(' '));
+      return matchesSearchTokens(haystack, tokens);
     });
   }, [customers, searchTerm, filterActive]);
 
