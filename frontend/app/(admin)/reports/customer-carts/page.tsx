@@ -263,12 +263,12 @@ export default function CustomerCartsReportPage() {
                               <>
                                 Gizle
                                 <ChevronUp className="h-4 w-4" />
-                              </Fragment>
+                              </>
                             ) : (
                               <>
                                 Kalemler
                                 <ChevronDown className="h-4 w-4" />
-                              </Fragment>
+                              </>
                             )}
                           </Button>
                         </TableCell>
