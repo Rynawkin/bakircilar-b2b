@@ -1636,7 +1636,11 @@ export class AdminController {
       }
 
       // SALES_REP ise sadece atanan sektörlerdeki müşterilerin siparişlerini göster
-      if (userRole === 'SALES_REP' && assignedSectorCodes.length > 0) {
+      if (userRole === 'SALES_REP') {
+        if (assignedSectorCodes.length === 0) {
+          res.json({ orders: [] });
+          return;
+        }
         where.user = {
           sectorCode: { in: assignedSectorCodes }
         };
@@ -1782,6 +1786,10 @@ export class AdminController {
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
       // SALES_REP ise sektör filtresi uygula
+      if (userRole === 'SALES_REP' && assignedSectorCodes.length === 0) {
+        res.json({ orders: [] });
+        return;
+      }
       const sectorFilter = userRole === 'SALES_REP' ? assignedSectorCodes : undefined;
 
       const orders = await orderService.getPendingOrders(sectorFilter);
@@ -2219,8 +2227,12 @@ export class AdminController {
    */
   async getDashboardStats(req: Request, res: Response, next: NextFunction) {
     try {
+      const userRole = req.user?.role;
+      const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+      const sectorFilter = userRole === 'SALES_REP' ? assignedSectorCodes : undefined;
+
       const [orderStats, customerCount, productCount, lastSync] = await Promise.all([
-        orderService.getOrderStats(),
+        orderService.getOrderStats(sectorFilter),
         prisma.user.count({ where: { role: 'CUSTOMER', active: true } }),
         prisma.product.count({ where: { active: true, excessStock: { gt: 0 } } }),
         prisma.settings.findFirst({ select: { lastSyncAt: true } }),

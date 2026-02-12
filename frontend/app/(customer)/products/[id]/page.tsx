@@ -17,6 +17,7 @@ import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
+import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -53,6 +54,18 @@ export default function ProductDetailPage() {
       fetchProduct(params.id as string);
     }
   }, [params.id]);
+
+  useEffect(() => {
+    if (!product?.id) return;
+    trackCustomerActivity({
+      type: 'PRODUCT_VIEW',
+      productId: product.id,
+      productCode: product.mikroCode,
+      pagePath: typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : undefined,
+      pageTitle: typeof document !== 'undefined' ? document.title : undefined,
+      meta: { productName: product.name },
+    });
+  }, [product?.id]);
 
   useEffect(() => {
     if (params.id) {

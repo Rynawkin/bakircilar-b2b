@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Product, Category } from '@/types';
@@ -17,7 +18,6 @@ import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
-import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
@@ -98,14 +98,16 @@ export default function ProductsPage() {
     });
   }, [allowedPriceTypes.join('|'), defaultPriceType]);
 
-  // Modal state
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
   const getDiscountPercent = (listPrice?: number, salePrice?: number) => {
     if (!listPrice || listPrice <= 0 || !salePrice || salePrice >= listPrice) return null;
     const discount = Math.round(((listPrice - salePrice) / listPrice) * 100);
     return discount > 0 ? discount : null;
+  };
+
+  const resolveValidExcessPrice = (basePrice?: number, excessPrice?: number) => {
+    if (!Number.isFinite(basePrice) || !Number.isFinite(excessPrice)) return undefined;
+    if (excessPrice >= basePrice) return undefined;
+    return excessPrice;
   };
 
   // Apply advanced filters to products
@@ -200,37 +202,6 @@ export default function ProductsPage() {
     }
   };
 
-  const handleModalAddToCart = async (
-    productId: string,
-    quantity: number,
-    priceType: 'INVOICED' | 'WHITE',
-    priceMode: 'LIST' | 'EXCESS' = 'LIST'
-  ) => {
-    try {
-      const safePriceType = allowedPriceTypes.includes(priceType) ? priceType : defaultPriceType;
-      await addToCart({
-        productId,
-        quantity,
-        priceType: safePriceType,
-        priceMode,
-      });
-
-      toast.success('Ürün sepete eklendi! 🛒', {
-        duration: 2000,
-      });
-    } catch (error: any) {
-      console.error('Cart error:', error);
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Sepete eklenemedi';
-      toast.error(errorMessage);
-      throw error; // Re-throw so modal can handle it
-    }
-  };
-
-  const openProductModal = (product: Product) => {
-    setSelectedProduct(product);
-    setIsModalOpen(true);
-  };
-
   // Calculate cart totals
   const invoicedTotal = (cartItems || [])
     .filter(item => item.priceType === 'INVOICED')
@@ -285,23 +256,38 @@ export default function ProductsPage() {
 
                 
 
-                <div className="min-w-[180px]">
+                <div className="w-full">
                   <label className="block text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
                     <span>📁</span>
-                    Kategori
+                    Kategoriler
                   </label>
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="input w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
-                  >
-                    <option value="">Tüm Kategoriler</option>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategory('')}
+                      className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-all border ${
+                        selectedCategory === ''
+                          ? 'bg-primary-600 text-white border-primary-600 shadow'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:text-primary-700'
+                      }`}
+                    >
+                      Tumu
+                    </button>
                     {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setSelectedCategory(cat.id)}
+                        className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-all border ${
+                          selectedCategory === cat.id
+                            ? 'bg-primary-600 text-white border-primary-600 shadow'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:text-primary-700'
+                        }`}
+                      >
                         {cat.name}
-                      </option>
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
               </div>
 
@@ -389,11 +375,20 @@ export default function ProductsPage() {
                     : defaultPriceType;
                   const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
                   const hasAgreement = Boolean(product.agreement);
-                  const showExcessPricing = !hasAgreement && Boolean(product.excessPrices) && product.excessStock > 0;
-                  const excessInvoiced = product.excessPrices?.invoiced;
-                  const excessWhite = product.excessPrices?.white;
+                  const excessInvoiced = resolveValidExcessPrice(
+                    product.prices.invoiced,
+                    product.excessPrices?.invoiced
+                  );
+                  const excessWhite = resolveValidExcessPrice(
+                    product.prices.white,
+                    product.excessPrices?.white
+                  );
+                  const showExcessPricing =
+                    !hasAgreement &&
+                    product.excessStock > 0 &&
+                    (excessInvoiced !== undefined || excessWhite !== undefined);
                   const selectedExcessPrice = showExcessPricing
-                    ? (selectedPriceType === 'INVOICED' ? product.excessPrices?.invoiced : product.excessPrices?.white)
+                    ? (selectedPriceType === 'INVOICED' ? excessInvoiced : excessWhite)
                     : undefined;
                   const selectedExcessDiscount = showExcessPricing && selectedExcessPrice
                     ? getDiscountPercent(
@@ -434,9 +429,11 @@ export default function ProductsPage() {
                   <Card key={product.id} className="group hover:shadow-2xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col h-full p-0 border-2 border-gray-200 hover:border-primary-400 bg-white rounded-xl">
                     <div className="space-y-3 flex flex-col h-full">
                       {/* Product Image */}
-                      <div
-                        className="w-full aspect-square bg-white overflow-hidden relative cursor-pointer"
-                        onClick={() => openProductModal(product)}
+                      <Link
+                        href={`/products/${product.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block w-full aspect-square bg-white overflow-hidden relative cursor-pointer"
                       >
                         {product.imageUrl ? (
                           <img
@@ -468,15 +465,17 @@ export default function ProductsPage() {
                             🔍 Detaylı İncele
                           </div>
                         </div>
-                      </div>
+                      </Link>
 
                       <div className="px-3 min-h-[60px]">
-                        <h3
-                          className="font-bold text-gray-900 text-sm leading-snug break-words cursor-pointer hover:text-primary-600 transition-colors mb-2"
-                          onClick={() => openProductModal(product)}
+                        <Link
+                          href={`/products/${product.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-bold text-gray-900 text-sm leading-snug break-words cursor-pointer hover:text-primary-600 transition-colors mb-2 block"
                         >
                           {product.name}
-                        </h3>
+                        </Link>
                         <div className="flex flex-col gap-1">
                           <span className="text-xs text-gray-500 font-mono">Kod: {product.mikroCode}</span>
                           <span className="bg-gradient-to-r from-primary-100 to-primary-200 text-primary-700 text-xs font-semibold px-2 py-0.5 rounded inline-block">
@@ -785,15 +784,6 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Product Detail Modal */}
-      <ProductDetailModal
-        product={selectedProduct}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onAddToCart={handleModalAddToCart}
-        allowedPriceTypes={allowedPriceTypes}
-        vatDisplayPreference={vatDisplayPreference}
-      />
     </div>
   );
 }

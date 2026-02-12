@@ -180,6 +180,12 @@ export default function AgreementProductsPage() {
     return discount > 0 ? discount : null;
   };
 
+  const resolveValidExcessPrice = (basePrice?: number, excessPrice?: number) => {
+    if (!Number.isFinite(basePrice) || !Number.isFinite(excessPrice)) return undefined;
+    if (excessPrice >= basePrice) return undefined;
+    return excessPrice;
+  };
+
   const handleQuickAdd = async (product: Product) => {
     const productId = product.id;
     const quantity = quickAddQuantities[productId] || 1;
@@ -353,9 +359,20 @@ export default function AgreementProductsPage() {
                 : defaultPriceType;
               const selectedPrice = selectedPriceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
               const hasAgreement = Boolean(product.agreement);
-              const showExcessPricing = !hasAgreement && Boolean(product.excessPrices) && product.excessStock > 0;
+              const excessInvoiced = resolveValidExcessPrice(
+                product.prices.invoiced,
+                product.excessPrices?.invoiced
+              );
+              const excessWhite = resolveValidExcessPrice(
+                product.prices.white,
+                product.excessPrices?.white
+              );
+              const showExcessPricing =
+                !hasAgreement &&
+                product.excessStock > 0 &&
+                (excessInvoiced !== undefined || excessWhite !== undefined);
               const selectedExcessPrice = showExcessPricing
-                ? (selectedPriceType === 'INVOICED' ? product.excessPrices?.invoiced : product.excessPrices?.white)
+                ? (selectedPriceType === 'INVOICED' ? excessInvoiced : excessWhite)
                 : undefined;
                   const selectedExcessDiscount = showExcessPricing && selectedExcessPrice
                     ? getDiscountPercent(

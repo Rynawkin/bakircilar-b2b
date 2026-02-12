@@ -1138,17 +1138,29 @@ class OrderService {
   /**
    * Sipariş istatistikleri (Admin dashboard için)
    */
-  async getOrderStats(): Promise<{
+  async getOrderStats(sectorCodes?: string[]): Promise<{
     pendingCount: number;
     approvedToday: number;
     totalAmount: number;
   }> {
+    if (sectorCodes && sectorCodes.length === 0) {
+      return {
+        pendingCount: 0,
+        approvedToday: 0,
+        totalAmount: 0,
+      };
+    }
+
+    const sectorFilter =
+      sectorCodes && sectorCodes.length > 0
+        ? { user: { sectorCode: { in: sectorCodes } } }
+        : {};
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const [pendingCount, approvedToday, totalAmountResult] = await Promise.all([
       prisma.order.count({
-        where: { status: 'PENDING' },
+        where: { status: 'PENDING', ...sectorFilter },
       }),
       prisma.order.count({
         where: {
@@ -1156,6 +1168,7 @@ class OrderService {
           approvedAt: {
             gte: today,
           },
+          ...sectorFilter,
         },
       }),
       prisma.order.aggregate({
@@ -1164,6 +1177,7 @@ class OrderService {
           approvedAt: {
             gte: today,
           },
+          ...sectorFilter,
         },
         _sum: {
           totalAmount: true,

@@ -18,6 +18,7 @@ import {
   ListTodo,
   ClipboardList,
   Tag,
+  Percent,
   User,
   Settings,
   Bell,
@@ -117,6 +118,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const navItems: NavItem[] = [
     { name: 'Ürünler', href: '/products', icon: ShoppingBag },
     { name: 'Anlasmali Urunler', href: '/agreements', icon: Tag },
+    { name: 'Indirimli Urunler', href: '/discounted-products', icon: Percent },
     { name: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: Clock },
     { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
     { name: 'Siparişlerim', href: '/my-orders', icon: Package },
