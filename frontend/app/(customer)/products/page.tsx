@@ -427,7 +427,7 @@ export default function ProductsPage() {
                         </div>
                         {product.excessStock > 0 && (
                           <div className="absolute top-2 left-2 bg-gradient-to-br from-orange-500 to-orange-600 text-white text-xs font-bold px-2 py-1 rounded-lg shadow-lg">
-                            <div className="text-[10px] uppercase tracking-wide opacity-80">Fazla</div>
+                            <div className="text-[10px] uppercase tracking-wide opacity-80">Indirimli Stok</div>
                             <div>{product.excessStock} {product.unit}</div>
                           </div>
                         )}
