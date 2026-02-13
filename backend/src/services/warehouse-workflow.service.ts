@@ -43,6 +43,7 @@ interface CoverageSummary {
 }
 
 type CoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
+type ImageIssueStatus = 'OPEN' | 'REVIEWED' | 'FIXED';
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -145,6 +146,38 @@ const toItemStatus = (
 };
 
 class WarehouseWorkflowService {
+  private async resolveUserLabel(userId?: string | null): Promise<string | null> {
+    const normalizedUserId = normalizeCode(userId);
+    if (!normalizedUserId) return null;
+
+    const user = await prisma.user.findUnique({
+      where: { id: normalizedUserId },
+      select: {
+        displayName: true,
+        mikroName: true,
+        name: true,
+        email: true,
+      },
+    });
+
+    return (
+      normalizeCode(user?.displayName) ||
+      normalizeCode(user?.mikroName) ||
+      normalizeCode(user?.name) ||
+      normalizeCode(user?.email) ||
+      null
+    );
+  }
+
+  private normalizeImageIssueStatus(value?: string | null): ImageIssueStatus | null {
+    const normalized = normalizeCode(value).toUpperCase();
+    if (!normalized) return null;
+    if (normalized === 'OPEN' || normalized === 'REVIEWED' || normalized === 'FIXED') {
+      return normalized;
+    }
+    return null;
+  }
+
   private async getProductAndShelfMaps(productCodes: string[], warehouseCode?: string | null) {
     const uniqueCodes = Array.from(new Set(productCodes.map((code) => normalizeCode(code)).filter(Boolean)));
 
@@ -924,6 +957,174 @@ class WarehouseWorkflowService {
     });
 
     return this.getOrderDetail(orderNo, false);
+  }
+
+  async reportImageIssue(
+    mikroOrderNumber: string,
+    lineKey: string,
+    payload: { userId?: string; note?: string }
+  ) {
+    const orderNo = normalizeCode(mikroOrderNumber);
+    const normalizedLineKey = normalizeCode(lineKey);
+    const normalizedUserId = normalizeCode(payload.userId);
+    const normalizedNote = normalizeCode(payload.note) || null;
+
+    if (!orderNo || !normalizedLineKey) {
+      throw new Error('Siparis numarasi ve satir anahtari gerekli');
+    }
+
+    const pendingOrder = await prisma.pendingMikroOrder.findUnique({
+      where: { mikroOrderNumber: orderNo },
+    });
+
+    if (!pendingOrder) {
+      throw new Error('Siparis bulunamadi');
+    }
+
+    const workflow = await this.upsertWorkflowFromPendingOrder(pendingOrder, normalizedUserId || undefined);
+    const item = workflow.items.find((entry) => entry.lineKey === normalizedLineKey);
+    if (!item) {
+      throw new Error('Satir bulunamadi');
+    }
+
+    const existingOpenReport = await prisma.warehouseImageIssueReport.findFirst({
+      where: {
+        mikroOrderNumber: orderNo,
+        lineKey: normalizedLineKey,
+        status: 'OPEN',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existingOpenReport) {
+      return {
+        report: existingOpenReport,
+        alreadyReported: true,
+      };
+    }
+
+    const reporterName = await this.resolveUserLabel(normalizedUserId || null);
+
+    const created = await prisma.warehouseImageIssueReport.create({
+      data: {
+        mikroOrderNumber: orderNo,
+        orderSeries: pendingOrder.orderSeries,
+        customerCode: pendingOrder.customerCode,
+        customerName: pendingOrder.customerName,
+        lineKey: normalizedLineKey,
+        rowNumber: item.rowNumber,
+        productCode: item.productCode,
+        productName: item.productName,
+        imageUrl: item.imageUrl || null,
+        note: normalizedNote,
+        status: 'OPEN',
+        reporterUserId: normalizedUserId || null,
+        reporterName,
+      },
+    });
+
+    return {
+      report: created,
+      alreadyReported: false,
+    };
+  }
+
+  async getImageIssueReports(params?: {
+    status?: ImageIssueStatus | 'ALL';
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const status = this.normalizeImageIssueStatus(params?.status || null);
+    const search = normalizeCode(params?.search);
+    const pageRaw = Math.trunc(toNumber(params?.page || 1));
+    const limitRaw = Math.trunc(toNumber(params?.limit || 30));
+    const page = pageRaw > 0 ? pageRaw : 1;
+    const limit = limitRaw > 0 ? Math.min(limitRaw, 200) : 30;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+    if (search) {
+      where.OR = [
+        { mikroOrderNumber: { contains: search, mode: 'insensitive' } },
+        { productCode: { contains: search, mode: 'insensitive' } },
+        { productName: { contains: search, mode: 'insensitive' } },
+        { customerCode: { contains: search, mode: 'insensitive' } },
+        { customerName: { contains: search, mode: 'insensitive' } },
+        { reporterName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, reports, openCount, reviewedCount, fixedCount] = await Promise.all([
+      prisma.warehouseImageIssueReport.count({ where }),
+      prisma.warehouseImageIssueReport.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+        skip,
+        take: limit,
+      }),
+      prisma.warehouseImageIssueReport.count({ where: { status: 'OPEN' } }),
+      prisma.warehouseImageIssueReport.count({ where: { status: 'REVIEWED' } }),
+      prisma.warehouseImageIssueReport.count({ where: { status: 'FIXED' } }),
+    ]);
+
+    return {
+      reports,
+      summary: {
+        total,
+        open: openCount,
+        reviewed: reviewedCount,
+        fixed: fixedCount,
+      },
+      pagination: {
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+        totalRecords: total,
+      },
+    };
+  }
+
+  async updateImageIssueReportStatus(
+    reportId: string,
+    payload: { status: ImageIssueStatus; note?: string; userId?: string }
+  ) {
+    const normalizedReportId = normalizeCode(reportId);
+    if (!normalizedReportId) {
+      throw new Error('Talep kimligi gerekli');
+    }
+
+    const nextStatus = this.normalizeImageIssueStatus(payload.status);
+    if (!nextStatus) {
+      throw new Error('Gecersiz durum');
+    }
+
+    const normalizedUserId = normalizeCode(payload.userId);
+    const normalizedNote = normalizeCode(payload.note) || null;
+    const reviewerName = nextStatus === 'OPEN' ? null : await this.resolveUserLabel(normalizedUserId || null);
+
+    const existing = await prisma.warehouseImageIssueReport.findUnique({
+      where: { id: normalizedReportId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new Error('Talep bulunamadi');
+    }
+
+    return prisma.warehouseImageIssueReport.update({
+      where: { id: normalizedReportId },
+      data: {
+        status: nextStatus,
+        reviewNote: normalizedNote,
+        reviewedByUserId: nextStatus === 'OPEN' ? null : normalizedUserId || null,
+        reviewedByName: nextStatus === 'OPEN' ? null : reviewerName,
+        reviewedAt: nextStatus === 'OPEN' ? null : new Date(),
+      },
+    });
   }
 
   async markLoaded(mikroOrderNumber: string) {

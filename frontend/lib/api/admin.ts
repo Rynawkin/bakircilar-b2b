@@ -612,6 +612,85 @@ export const adminApi = {
     return response.data;
   },
 
+  reportWarehouseImageIssue: async (
+    mikroOrderNumber: string,
+    lineKey: string,
+    data?: { note?: string }
+  ): Promise<{
+    report: {
+      id: string;
+      mikroOrderNumber: string;
+      lineKey: string;
+      productCode: string;
+      productName: string;
+      status: 'OPEN' | 'REVIEWED' | 'FIXED';
+      createdAt: string;
+    };
+    alreadyReported: boolean;
+  }> => {
+    const response = await apiClient.post(
+      `/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/items/${encodeURIComponent(lineKey)}/report-image-issue`,
+      data || {}
+    );
+    return response.data;
+  },
+
+  getWarehouseImageIssues: async (params?: {
+    status?: 'ALL' | 'OPEN' | 'REVIEWED' | 'FIXED';
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    reports: Array<{
+      id: string;
+      mikroOrderNumber: string;
+      orderSeries: string | null;
+      customerCode: string | null;
+      customerName: string | null;
+      lineKey: string;
+      rowNumber: number | null;
+      productCode: string;
+      productName: string;
+      imageUrl: string | null;
+      note: string | null;
+      status: 'OPEN' | 'REVIEWED' | 'FIXED';
+      reporterUserId: string | null;
+      reporterName: string | null;
+      reviewedByUserId: string | null;
+      reviewedByName: string | null;
+      reviewNote: string | null;
+      reviewedAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+    summary: {
+      total: number;
+      open: number;
+      reviewed: number;
+      fixed: number;
+    };
+    pagination: {
+      page: number;
+      limit: number;
+      totalPages: number;
+      totalRecords: number;
+    };
+  }> => {
+    const response = await apiClient.get('/order-tracking/admin/warehouse/image-issues', { params });
+    return response.data;
+  },
+
+  updateWarehouseImageIssue: async (
+    reportId: string,
+    data: { status: 'OPEN' | 'REVIEWED' | 'FIXED'; note?: string }
+  ) => {
+    const response = await apiClient.patch(
+      `/order-tracking/admin/warehouse/image-issues/${encodeURIComponent(reportId)}`,
+      data
+    );
+    return response.data;
+  },
+
   markWarehouseLoaded: async (mikroOrderNumber: string) => {
     const response = await apiClient.post(`/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/loaded`);
     return response.data;

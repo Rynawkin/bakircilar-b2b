@@ -89,6 +89,12 @@ enum WarehouseWorkflowItemStatus {
   EXTRA
 }
 
+enum WarehouseImageIssueStatus {
+  OPEN
+  REVIEWED
+  FIXED
+}
+
 
 
 
@@ -1474,6 +1480,35 @@ model WarehouseShelfLocation {
   updatedAt   DateTime  @updatedAt
 
   @@index([shelfCode])
+}
+
+model WarehouseImageIssueReport {
+  id                String                    @id @default(uuid())
+  mikroOrderNumber  String
+  orderSeries       String?
+  customerCode      String?
+  customerName      String?
+  lineKey           String
+  rowNumber         Int?
+  productCode       String
+  productName       String
+  imageUrl          String?
+  note              String?
+  status            WarehouseImageIssueStatus @default(OPEN)
+  reporterUserId    String?
+  reporterName      String?
+  reviewedByUserId  String?
+  reviewedByName    String?
+  reviewNote        String?
+  reviewedAt        DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([mikroOrderNumber])
+  @@index([lineKey])
+  @@index([productCode])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // Email gönderim logları

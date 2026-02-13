@@ -192,6 +192,8 @@ export default function WarehousePage() {
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+  const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
+  const [reportedImageKeys, setReportedImageKeys] = useState<Record<string, boolean>>({});
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
 
   const layoutClass = isPortrait
@@ -366,6 +368,27 @@ export default function WarehousePage() {
     await updateLine(mikroOrderNumber, line, { shelfCode: draft || null }, 'Raf kodu guncellendi');
   };
 
+  const reportImageIssue = async (
+    mikroOrderNumber: string,
+    line: WarehouseOrderDetail['lines'][number]
+  ) => {
+    const actionKey = getShelfDraftKey(mikroOrderNumber, line.lineKey);
+    setReportingImageKey(actionKey);
+    try {
+      const result = await adminApi.reportWarehouseImageIssue(mikroOrderNumber, line.lineKey);
+      setReportedImageKeys((prev) => ({ ...prev, [actionKey]: true }));
+      if (result.alreadyReported) {
+        toast.success('Bu satir icin acik resim hatasi talebi zaten var');
+      } else {
+        toast.success('Resim hatasi bildirildi');
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Resim hatasi bildirilemedi');
+    } finally {
+      setReportingImageKey((prev) => (prev === actionKey ? null : prev));
+    }
+  };
+
   const toggleSeriesSelection = (seriesCode: string) => {
     setSelectedSeries((prev) =>
       prev.includes(seriesCode) ? prev.filter((value) => value !== seriesCode) : [...prev, seriesCode]
@@ -390,6 +413,16 @@ export default function WarehousePage() {
     });
     setShelfDrafts((prev) => {
       const next: Record<string, string> = {};
+      const prefix = `${mikroOrderNumber}::`;
+      for (const [key, value] of Object.entries(prev)) {
+        if (!key.startsWith(prefix)) {
+          next[key] = value;
+        }
+      }
+      return next;
+    });
+    setReportedImageKeys((prev) => {
+      const next: Record<string, boolean> = {};
       const prefix = `${mikroOrderNumber}::`;
       for (const [key, value] of Object.entries(prev)) {
         if (!key.startsWith(prefix)) {
@@ -717,6 +750,9 @@ export default function WarehousePage() {
                             const remainingQtyClass = getRemainingQtyClass(line);
                             const reservationKey = `${orderNumber}::${line.lineKey}`;
                             const reservationOpen = openReservationKey === reservationKey;
+                            const imageIssueKey = `${orderNumber}::${line.lineKey}`;
+                            const imageIssueReported = Boolean(reportedImageKeys[imageIssueKey]);
+                            const imageIssueReporting = reportingImageKey === imageIssueKey;
                             return (
                               <div
                                 key={line.lineKey}
@@ -784,6 +820,21 @@ export default function WarehousePage() {
                                     </div>
 
                                     <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      <button
+                                        onClick={() => reportImageIssue(orderNumber, line)}
+                                        disabled={imageIssueReported || imageIssueReporting}
+                                        className={`text-[11px] px-2 py-1 rounded-lg border font-bold disabled:opacity-60 ${
+                                          imageIssueReported
+                                            ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                            : 'border-rose-300 bg-rose-100 text-rose-800'
+                                        }`}
+                                      >
+                                        {imageIssueReporting
+                                          ? 'Bildiriliyor...'
+                                          : imageIssueReported
+                                          ? 'Resim Hatasi Bildirildi'
+                                          : 'Resim Hatasi Bildir'}
+                                      </button>
                                       {line.reservedQty > 0 && (
                                         <span className="text-[11px] px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 font-bold">
                                           Satir Rezerve: {line.reservedQty} {line.unit}
