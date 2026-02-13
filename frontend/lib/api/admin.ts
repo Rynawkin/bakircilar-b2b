@@ -479,7 +479,7 @@ export const adminApi = {
 
   // Warehouse Workflow (Depo Dokunmatik Akis)
   getWarehouseOverview: async (params?: {
-    series?: string;
+    series?: string | string[];
     search?: string;
     status?: 'ALL' | 'PENDING' | 'PICKING' | 'READY_FOR_LOADING' | 'PARTIALLY_LOADED' | 'LOADED' | 'DISPATCHED';
   }): Promise<{

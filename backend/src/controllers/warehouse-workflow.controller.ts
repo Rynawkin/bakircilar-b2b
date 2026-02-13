@@ -4,7 +4,12 @@ import warehouseWorkflowService from '../services/warehouse-workflow.service';
 class WarehouseWorkflowController {
   async getOverview(req: Request, res: Response) {
     try {
-      const series = typeof req.query.series === 'string' ? req.query.series : undefined;
+      let series: string | string[] | undefined;
+      if (typeof req.query.series === 'string') {
+        series = req.query.series;
+      } else if (Array.isArray(req.query.series)) {
+        series = req.query.series.filter((value): value is string => typeof value === 'string');
+      }
       const search = typeof req.query.search === 'string' ? req.query.search : undefined;
       const status = typeof req.query.status === 'string' ? req.query.status : undefined;
 

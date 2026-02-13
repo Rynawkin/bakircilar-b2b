@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -129,18 +129,21 @@ export default function WarehousePage() {
 
   const [series, setSeries] = useState<WarehouseSeriesRow[]>([]);
   const [orders, setOrders] = useState<WarehouseOrderRow[]>([]);
-  const [detail, setDetail] = useState<WarehouseOrderDetail | null>(null);
+  const [detailByOrder, setDetailByOrder] = useState<Record<string, WarehouseOrderDetail>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailLoadingOrder, setDetailLoadingOrder] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [lineSavingKey, setLineSavingKey] = useState<string | null>(null);
-  const [selectedSeries, setSelectedSeries] = useState('ALL');
+  const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<'ALL' | WorkflowStatus>('ALL');
   const [searchText, setSearchText] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
-  const [selectedOrderNumber, setSelectedOrderNumber] = useState<string | null>(null);
+  const [openOrderNumbers, setOpenOrderNumbers] = useState<string[]>([]);
+  const [activeOrderNumber, setActiveOrderNumber] = useState<string | null>(null);
   const [shelfDrafts, setShelfDrafts] = useState<Record<string, string>>({});
   const [isPortrait, setIsPortrait] = useState(false);
+  const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
+  const detailContainerRef = useRef<HTMLDivElement | null>(null);
 
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-4'
@@ -166,11 +169,22 @@ export default function WarehousePage() {
   }, []);
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const syncFullscreenState = () => {
+      setIsDetailFullscreen(document.fullscreenElement === detailContainerRef.current);
+    };
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
+
+  useEffect(() => {
     const timeout = setTimeout(() => {
       setSearchDebounced(searchText.trim());
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchText]);
+
+  const selectedSeriesKey = useMemo(() => selectedSeries.slice().sort().join(','), [selectedSeries]);
 
   useEffect(() => {
     if (user === null || permissionsLoading) return;
@@ -182,9 +196,11 @@ export default function WarehousePage() {
     fetchOverview(true);
     const interval = setInterval(() => fetchOverview(false), 15000);
     return () => clearInterval(interval);
-  }, [user, permissionsLoading, selectedSeries, selectedStatus, searchDebounced]);
+  }, [user, permissionsLoading, selectedSeriesKey, selectedStatus, searchDebounced]);
 
   const totalOrdersCount = useMemo(() => orders.length, [orders]);
+  const detail = activeOrderNumber ? detailByOrder[activeOrderNumber] || null : null;
+  const isDetailLoading = Boolean(activeOrderNumber && detailLoadingOrder === activeOrderNumber);
   const detailWorkflowStatus: WorkflowStatus = detail?.workflow?.status || 'PENDING';
   const hasStartedPicking = detail
     ? Boolean(detail.workflow?.startedAt) || detailWorkflowStatus !== 'PENDING'
@@ -197,7 +213,7 @@ export default function WarehousePage() {
     if (showLoader) setIsLoading(true);
     try {
       const response = await adminApi.getWarehouseOverview({
-        series: selectedSeries === 'ALL' ? undefined : selectedSeries,
+        series: selectedSeries.length > 0 ? selectedSeries.join(',') : undefined,
         search: searchDebounced || undefined,
         status: selectedStatus,
       });
@@ -210,27 +226,32 @@ export default function WarehousePage() {
     }
   };
 
+  const getShelfDraftKey = (mikroOrderNumber: string, lineKey: string) => `${mikroOrderNumber}::${lineKey}`;
+
   const loadOrderDetail = async (mikroOrderNumber: string) => {
-    setSelectedOrderNumber(mikroOrderNumber);
-    setDetailLoading(true);
+    setActiveOrderNumber(mikroOrderNumber);
+    setDetailLoadingOrder(mikroOrderNumber);
+    setOpenOrderNumbers((prev) => (prev.includes(mikroOrderNumber) ? prev : [...prev, mikroOrderNumber]));
     try {
       const response = await adminApi.getWarehouseOrderDetail(mikroOrderNumber);
-      setDetail(response);
-      const draftMap: Record<string, string> = {};
-      for (const line of response.lines) {
-        draftMap[line.lineKey] = line.shelfCode || '';
-      }
-      setShelfDrafts(draftMap);
+      setDetailByOrder((prev) => ({ ...prev, [mikroOrderNumber]: response }));
+      setShelfDrafts((prev) => {
+        const next = { ...prev };
+        for (const line of response.lines) {
+          next[getShelfDraftKey(mikroOrderNumber, line.lineKey)] = line.shelfCode || '';
+        }
+        return next;
+      });
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Siparis detayi yuklenemedi');
     } finally {
-      setDetailLoading(false);
+      setDetailLoadingOrder((prev) => (prev === mikroOrderNumber ? null : prev));
     }
   };
 
   const refreshSelectedDetail = async () => {
-    if (!selectedOrderNumber) return;
-    await loadOrderDetail(selectedOrderNumber);
+    if (!activeOrderNumber) return;
+    await loadOrderDetail(activeOrderNumber);
     await fetchOverview(false);
   };
 
@@ -244,9 +265,9 @@ export default function WarehousePage() {
   };
 
   const handleStartPicking = async () => {
-    if (!selectedOrderNumber) return;
+    if (!activeOrderNumber) return;
     await withAction(async () => {
-      await adminApi.startWarehousePicking(selectedOrderNumber);
+      await adminApi.startWarehousePicking(activeOrderNumber);
       await refreshSelectedDetail();
       toast.success('Toplama baslatildi');
     });
@@ -257,10 +278,11 @@ export default function WarehousePage() {
     payload: { pickedQty?: number; extraQty?: number; shelfCode?: string | null },
     successText?: string
   ) => {
-    if (!selectedOrderNumber) return;
-    setLineSavingKey(line.lineKey);
+    if (!activeOrderNumber) return;
+    const actionKey = getShelfDraftKey(activeOrderNumber, line.lineKey);
+    setLineSavingKey(actionKey);
     try {
-      await adminApi.updateWarehouseItem(selectedOrderNumber, line.lineKey, payload);
+      await adminApi.updateWarehouseItem(activeOrderNumber, line.lineKey, payload);
       await refreshSelectedDetail();
       if (successText) toast.success(successText);
     } catch (error: any) {
@@ -281,10 +303,54 @@ export default function WarehousePage() {
   };
 
   const saveShelf = async (line: WarehouseOrderDetail['lines'][number]) => {
-    const draft = (shelfDrafts[line.lineKey] || '').trim();
+    if (!activeOrderNumber) return;
+    const draftKey = getShelfDraftKey(activeOrderNumber, line.lineKey);
+    const draft = (shelfDrafts[draftKey] || '').trim();
     const current = (line.shelfCode || '').trim();
     if (draft === current) return;
     await updateLine(line, { shelfCode: draft || null }, 'Raf kodu guncellendi');
+  };
+
+  const toggleSeriesSelection = (seriesCode: string) => {
+    setSelectedSeries((prev) =>
+      prev.includes(seriesCode) ? prev.filter((value) => value !== seriesCode) : [...prev, seriesCode]
+    );
+  };
+
+  const closeOrderTab = (mikroOrderNumber: string) => {
+    setOpenOrderNumbers((prev) => {
+      const next = prev.filter((value) => value !== mikroOrderNumber);
+      setActiveOrderNumber((current) => (current === mikroOrderNumber ? next[0] || null : current));
+      return next;
+    });
+    setDetailByOrder((prev) => {
+      const next = { ...prev };
+      delete next[mikroOrderNumber];
+      return next;
+    });
+    setShelfDrafts((prev) => {
+      const next: Record<string, string> = {};
+      const prefix = `${mikroOrderNumber}::`;
+      for (const [key, value] of Object.entries(prev)) {
+        if (!key.startsWith(prefix)) {
+          next[key] = value;
+        }
+      }
+      return next;
+    });
+  };
+
+  const toggleDetailFullscreen = async () => {
+    if (!detailContainerRef.current || typeof document === 'undefined') return;
+    try {
+      if (document.fullscreenElement === detailContainerRef.current) {
+        await document.exitFullscreen();
+      } else {
+        await detailContainerRef.current.requestFullscreen();
+      }
+    } catch {
+      toast.error('Tam ekran acilamadi');
+    }
   };
 
   return (
@@ -331,9 +397,9 @@ export default function WarehousePage() {
 
             <div className="flex gap-2 overflow-x-auto pb-1">
               <button
-                onClick={() => setSelectedSeries('ALL')}
+                onClick={() => setSelectedSeries([])}
                 className={`px-4 h-11 rounded-xl border text-sm font-bold whitespace-nowrap ${
-                  selectedSeries === 'ALL'
+                  selectedSeries.length === 0
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-white text-slate-700 border-slate-300'
                 }`}
@@ -343,9 +409,9 @@ export default function WarehousePage() {
               {series.map((item) => (
                 <button
                   key={item.series}
-                  onClick={() => setSelectedSeries(item.series)}
+                  onClick={() => toggleSeriesSelection(item.series)}
                   className={`px-4 h-11 rounded-xl border text-sm font-bold whitespace-nowrap ${
-                    selectedSeries === item.series
+                    selectedSeries.includes(item.series)
                       ? 'bg-cyan-600 text-white border-cyan-600'
                       : 'bg-white text-slate-700 border-slate-300'
                   }`}
@@ -366,7 +432,8 @@ export default function WarehousePage() {
                 <div className="py-16 text-center text-slate-500 font-semibold">Filtreye uygun siparis bulunamadi</div>
               ) : (
                 orders.map((order) => {
-                  const active = selectedOrderNumber === order.mikroOrderNumber;
+                  const active = activeOrderNumber === order.mikroOrderNumber;
+                  const isOpen = openOrderNumbers.includes(order.mikroOrderNumber);
                   const badge = statusBadge[order.workflowStatus];
                   return (
                     <button
@@ -380,7 +447,10 @@ export default function WarehousePage() {
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div>
-                          <p className="text-base font-black text-slate-900">{order.mikroOrderNumber}</p>
+                          <p className="text-base font-black text-slate-900">
+                            {order.mikroOrderNumber}
+                            {isOpen ? ' *' : ''}
+                          </p>
                           <p className="text-xs text-slate-600">{order.customerCode}</p>
                         </div>
                         <span className={`text-[11px] px-2 py-1 rounded-lg border font-bold ${badge.className}`}>
@@ -399,7 +469,7 @@ export default function WarehousePage() {
                         />
                       </div>
                       <div className="mt-2 text-[11px] text-slate-600 flex justify-between">
-                        <span>Karşılama %{order.coverage.coveredPercent}</span>
+                        <span>Karsilama %{order.coverage.coveredPercent}</span>
                         <span>
                           {order.coverage.fullLines} tam / {order.coverage.partialLines} kismi / {order.coverage.missingLines} eksik
                         </span>
@@ -411,189 +481,257 @@ export default function WarehousePage() {
             </div>
           </Card>
 
-          <Card className="border border-slate-200 bg-white/95">
-            {detailLoading ? (
-              <div className="py-20 text-center text-slate-500 font-semibold">Siparis detayi yukleniyor...</div>
-            ) : !detail ? (
-              <div className="py-20 text-center text-slate-500 font-semibold">
-                Sol listeden bir siparis secin
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div>
-                      <h2 className="text-2xl font-black text-slate-900">{detail.order.mikroOrderNumber}</h2>
-                      <p className="text-sm text-slate-700 font-semibold">{detail.order.customerName}</p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {detail.order.customerCode} • {detail.order.itemCount} kalem • {formatCurrency(detail.order.grandTotal)}
-                      </p>
-                    </div>
-                    <span className={`text-sm px-3 py-2 rounded-xl border font-bold ${statusBadge[detail.workflow?.status || 'PENDING'].className}`}>
-                      {statusBadge[detail.workflow?.status || 'PENDING'].label}
-                    </span>
-                  </div>
-                  <div className="mt-3 h-2.5 rounded-full bg-slate-200 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500"
-                      style={{ width: `${detail.coverage.coveredPercent}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-600 mt-2">
-                    Toplam karşılama: %{detail.coverage.coveredPercent} ({detail.coverage.fullLines} tam / {detail.coverage.partialLines} kismi / {detail.coverage.missingLines} eksik)
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                  <Button
-                    onClick={handleStartPicking}
-                    disabled={actionLoading || hasStartedPicking}
-                    className="h-12 text-sm font-bold"
-                  >
-                    {hasStartedPicking ? 'Toplama Basladi' : 'Toplamaya Basla'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={refreshSelectedDetail}
-                    disabled={actionLoading}
-                    className="h-12 text-sm font-bold col-span-1"
-                  >
-                    Detay Yenile
-                  </Button>
-                  <div className="col-span-2 lg:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 flex items-center">
-                    {canEditLines
-                      ? 'Toplama aktif. Satirlarda miktar/raf islemleri yapabilirsiniz.'
-                      : 'Satir islemleri icin once Toplamaya Basla adimini tamamlayin.'}
-                  </div>
-                </div>
-
-                <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
-                  {detail.lines.map((line) => {
-                    const saving = lineSavingKey === line.lineKey;
+          <div
+            ref={detailContainerRef}
+            className={isDetailFullscreen ? 'h-full w-full overflow-y-auto bg-slate-100 p-4' : ''}
+          >
+            <Card className="border border-slate-200 bg-white/95">
+              {openOrderNumbers.length > 0 && (
+                <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                  {openOrderNumbers.map((orderNumber) => {
+                    const tabDetail = detailByOrder[orderNumber];
+                    const active = activeOrderNumber === orderNumber;
                     return (
-                      <div key={line.lineKey} className="rounded-2xl border border-slate-200 bg-white p-3 md:p-4">
-                        <div className="flex gap-3">
-                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
-                            {line.imageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={line.imageUrl} alt={line.productName} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-500">RESIM</div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
-                              <div>
-                                <p className="text-sm md:text-base font-black text-slate-900">{line.productName}</p>
-                                <p className="text-xs text-slate-600">{line.productCode}</p>
-                              </div>
-                              <span className={`text-[11px] px-2 py-1 rounded-lg border font-bold ${stockStatusClass[line.stockCoverageStatus]}`}>
-                                Stok: {line.stockAvailable} {line.unit}
-                              </span>
-                            </div>
-                            <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                              <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                Kalan: <strong>{line.remainingQty}</strong>
-                              </div>
-                              <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                Toplanan: <strong>{line.pickedQty}</strong>
-                              </div>
-                              <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                Eklenen: <strong>{line.extraQty}</strong>
-                              </div>
-                              <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                Eksik: <strong>{line.shortageQty}</strong>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="rounded-xl border border-slate-200 p-2">
-                            <p className="text-[11px] font-bold text-slate-600 mb-1">Toplanan Miktar</p>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => changePicked(line, -1)}
-                                disabled={saving || !canEditLines}
-                                className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
-                              >
-                                -
-                              </button>
-                              <div className="h-11 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-lg font-black text-slate-900">
-                                {line.pickedQty}
-                              </div>
-                              <button
-                                onClick={() => changePicked(line, 1)}
-                                disabled={saving || !canEditLines}
-                                className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
-                              >
-                                +
-                              </button>
-                              <button
-                                onClick={() => updateLine(line, { pickedQty: line.remainingQty })}
-                                disabled={saving || !canEditLines}
-                                className="h-11 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50"
-                              >
-                                Tamami Toplandi
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="rounded-xl border border-slate-200 p-2">
-                            <p className="text-[11px] font-bold text-slate-600 mb-1">Siparissiz Ek Miktar</p>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => changeExtra(line, -1)}
-                                disabled={saving || !canEditLines}
-                                className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
-                              >
-                                -
-                              </button>
-                              <div className="h-11 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-lg font-black text-slate-900">
-                                {line.extraQty}
-                              </div>
-                              <button
-                                onClick={() => changeExtra(line, 1)}
-                                disabled={saving || !canEditLines}
-                                className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
-                              >
-                                +
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-                          <Input
-                            value={shelfDrafts[line.lineKey] || ''}
-                            onChange={(event) =>
-                              setShelfDrafts((prev) => ({ ...prev, [line.lineKey]: event.target.value }))
-                            }
-                            onBlur={() => {
-                              if (canEditLines) saveShelf(line);
-                            }}
-                            placeholder="Raf kodu (ornek: A-03-12)"
-                            className="h-11"
-                            disabled={!canEditLines}
-                          />
-                          <Button
-                            variant="secondary"
-                            onClick={() => saveShelf(line)}
-                            disabled={saving || !canEditLines}
-                            className="h-11 px-4"
-                          >
-                            Raf Kaydet
-                          </Button>
-                        </div>
+                      <div
+                        key={orderNumber}
+                        className={`inline-flex items-center rounded-xl border ${
+                          active ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 bg-slate-50'
+                        }`}
+                      >
+                        <button
+                          onClick={() => setActiveOrderNumber(orderNumber)}
+                          className={`px-3 py-2 text-xs font-bold whitespace-nowrap ${
+                            active ? 'text-cyan-700' : 'text-slate-700'
+                          }`}
+                        >
+                          {orderNumber}
+                          {tabDetail ? '' : ' (Yukleniyor)'}
+                        </button>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            closeOrderTab(orderNumber);
+                          }}
+                          className="px-2 py-2 text-xs font-black text-slate-500 hover:text-rose-600"
+                        >
+                          X
+                        </button>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
-          </Card>
+              )}
+
+              {isDetailLoading ? (
+                <div className="py-20 text-center text-slate-500 font-semibold">Siparis detayi yukleniyor...</div>
+              ) : !detail ? (
+                <div className="py-20 text-center text-slate-500 font-semibold">
+                  Sol listeden bir siparis secin
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div>
+                        <h2 className="text-2xl font-black text-slate-900">{detail.order.mikroOrderNumber}</h2>
+                        <p className="text-sm text-slate-700 font-semibold">{detail.order.customerName}</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {detail.order.customerCode} | {detail.order.itemCount} kalem | {formatCurrency(detail.order.grandTotal)}
+                        </p>
+                      </div>
+                      <span className={`text-sm px-3 py-2 rounded-xl border font-bold ${statusBadge[detailWorkflowStatus].className}`}>
+                        {statusBadge[detailWorkflowStatus].label}
+                      </span>
+                    </div>
+                    <div className="mt-3 h-2.5 rounded-full bg-slate-200 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500"
+                        style={{ width: `${detail.coverage.coveredPercent}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-slate-600 mt-2">
+                      Toplam karsilama: %{detail.coverage.coveredPercent} ({detail.coverage.fullLines} tam / {detail.coverage.partialLines} kismi / {detail.coverage.missingLines} eksik)
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                    <Button
+                      onClick={handleStartPicking}
+                      disabled={actionLoading || hasStartedPicking}
+                      className="h-12 text-sm font-bold"
+                    >
+                      {hasStartedPicking ? 'Toplama Basladi' : 'Toplamaya Basla'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={toggleDetailFullscreen}
+                      disabled={actionLoading}
+                      className="h-12 text-sm font-bold"
+                    >
+                      {isDetailFullscreen ? 'Tam Ekrandan Cik' : 'Tam Ekran'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={refreshSelectedDetail}
+                      disabled={actionLoading}
+                      className="h-12 text-sm font-bold"
+                    >
+                      Detay Yenile
+                    </Button>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 flex items-center">
+                      {canEditLines
+                        ? 'Toplama aktif. Satirlarda miktar/raf islemleri yapabilirsiniz.'
+                        : 'Satir islemleri icin once Toplamaya Basla adimini tamamlayin.'}
+                    </div>
+                  </div>
+
+                  <div
+                    className={
+                      isDetailFullscreen
+                        ? 'space-y-3 max-h-[calc(100vh-340px)] overflow-y-auto pr-1'
+                        : 'space-y-3 max-h-[62vh] overflow-y-auto pr-1'
+                    }
+                  >
+                    {detail.lines.map((line) => {
+                      const draftKey = getShelfDraftKey(detail.order.mikroOrderNumber, line.lineKey);
+                      const saving = lineSavingKey === draftKey;
+                      return (
+                        <div key={line.lineKey} className="rounded-2xl border border-slate-200 bg-white p-3 md:p-4">
+                          <div className="flex gap-3">
+                            <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                              {line.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={line.imageUrl} alt={line.productName} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-500">RESIM</div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
+                                <div>
+                                  <p className="text-sm md:text-base font-black text-slate-900">{line.productName}</p>
+                                  <p className="text-xs text-slate-600">{line.productCode}</p>
+                                </div>
+                                <span className={`text-[11px] px-2 py-1 rounded-lg border font-bold ${stockStatusClass[line.stockCoverageStatus]}`}>
+                                  Stok: {line.stockAvailable} {line.unit}
+                                </span>
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                <div className="rounded-lg bg-slate-100 px-2 py-1">
+                                  Kalan: <strong>{line.remainingQty}</strong>
+                                </div>
+                                <div className="rounded-lg bg-slate-100 px-2 py-1">
+                                  Toplanan: <strong>{line.pickedQty}</strong>
+                                </div>
+                                <div className="rounded-lg bg-slate-100 px-2 py-1">
+                                  Eklenen: <strong>{line.extraQty}</strong>
+                                </div>
+                                <div className="rounded-lg bg-slate-100 px-2 py-1">
+                                  Eksik: <strong>{line.shortageQty}</strong>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-xl border border-slate-200 p-2">
+                              <p className="text-[11px] font-bold text-slate-600 mb-1">Toplanan Miktar</p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => changePicked(line, -1)}
+                                  disabled={saving || !canEditLines}
+                                  className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                >
+                                  -
+                                </button>
+                                <div className="h-11 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-lg font-black text-slate-900">
+                                  {line.pickedQty}
+                                </div>
+                                <button
+                                  onClick={() => changePicked(line, 1)}
+                                  disabled={saving || !canEditLines}
+                                  className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                >
+                                  +
+                                </button>
+                                <button
+                                  onClick={() => updateLine(line, { pickedQty: line.remainingQty })}
+                                  disabled={saving || !canEditLines}
+                                  className="h-11 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50"
+                                >
+                                  Tamami Toplandi
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-200 p-2">
+                              <p className="text-[11px] font-bold text-slate-600 mb-1">Siparissiz Ek Miktar</p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => changeExtra(line, -1)}
+                                  disabled={saving || !canEditLines}
+                                  className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                >
+                                  -
+                                </button>
+                                <div className="h-11 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-lg font-black text-slate-900">
+                                  {line.extraQty}
+                                </div>
+                                <button
+                                  onClick={() => changeExtra(line, 1)}
+                                  disabled={saving || !canEditLines}
+                                  className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-xl border border-slate-200 p-2">
+                              <p className="text-[11px] font-bold text-slate-600 mb-1">Mevcut Raf Kodu</p>
+                              <p className="h-11 rounded-lg bg-slate-100 px-3 flex items-center text-sm font-bold text-slate-800">
+                                {line.shelfCode || '-'}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 p-2">
+                              <p className="text-[11px] font-bold text-slate-600 mb-1">Raf Kodu Guncelle</p>
+                              <div className="grid grid-cols-[1fr_auto] gap-2">
+                                <Input
+                                  value={shelfDrafts[draftKey] || ''}
+                                  onChange={(event) =>
+                                    setShelfDrafts((prev) => ({ ...prev, [draftKey]: event.target.value }))
+                                  }
+                                  onBlur={() => {
+                                    if (canEditLines) saveShelf(line);
+                                  }}
+                                  placeholder="Raf kodu (ornek: A-03-12)"
+                                  className="h-11"
+                                  disabled={!canEditLines}
+                                />
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => saveShelf(line)}
+                                  disabled={saving || !canEditLines}
+                                  className="h-11 px-4"
+                                >
+                                  Kaydet
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
         </div>
       </div>
     </div>
   );
 }
+

@@ -411,13 +411,20 @@ class WarehouseWorkflowService {
   }
 
   async getOverview(params?: {
-    series?: string;
+    series?: string | string[];
     search?: string;
     status?: WorkflowStatus | 'ALL';
   }) {
     const search = normalizeCode(params?.search).toLowerCase();
     const statusFilter = params?.status && params.status !== 'ALL' ? params.status : null;
-    const seriesFilter = normalizeCode(params?.series);
+    const seriesFilterValues = Array.isArray(params?.series)
+      ? params?.series
+      : typeof params?.series === 'string'
+      ? params.series.split(',')
+      : [];
+    const selectedSeries = new Set(
+      seriesFilterValues.map((value) => normalizeCode(value)).filter((value): value is string => Boolean(value))
+    );
 
     const pendingOrders = await prisma.pendingMikroOrder.findMany({
       where: {
@@ -495,8 +502,8 @@ class WarehouseWorkflowService {
       });
 
     const orderRows = preFilteredRows.filter((row) => {
-      if (!seriesFilter) return true;
-      return row.orderSeries === seriesFilter;
+      if (selectedSeries.size === 0) return true;
+      return selectedSeries.has(row.orderSeries);
     });
 
     const seriesMap = new Map<
