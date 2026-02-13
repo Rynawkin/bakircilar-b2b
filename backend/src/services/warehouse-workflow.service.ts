@@ -1,4 +1,6 @@
 import { prisma } from '../utils/prisma';
+import mikroService from './mikroFactory.service';
+import { MIKRO_TABLES } from '../config/mikro-tables';
 
 type WorkflowStatus =
   | 'PENDING'
@@ -309,7 +311,7 @@ class WarehouseWorkflowService {
     return 'PARTIAL';
   }
 
-  private async getActiveReservationsByProduct(productCodes: string[]) {
+  private async getActiveReservationsByProductFromPendingCache(productCodes: string[]) {
     const targetCodes = new Set(productCodes.map((code) => normalizeProductCode(code)).filter(Boolean));
     const reservationsByCode = new Map<string, ProductReservationEntry[]>();
 
@@ -350,6 +352,75 @@ class WarehouseWorkflowService {
     }
 
     return reservationsByCode;
+  }
+
+  private async getActiveReservationsByProduct(productCodes: string[]) {
+    const targetCodes = Array.from(new Set(productCodes.map((code) => normalizeProductCode(code)).filter(Boolean)));
+    const targetCodeSet = new Set(targetCodes);
+    const reservationsByCode = new Map<string, ProductReservationEntry[]>();
+
+    if (targetCodes.length === 0) {
+      return reservationsByCode;
+    }
+
+    try {
+      const inClause = targetCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(', ');
+      const rows = await mikroService.executeQuery(`
+        SELECT
+          s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} as order_series,
+          s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} as order_sequence,
+          s.${MIKRO_TABLES.ORDERS_COLUMNS.LINE_NO} as row_number,
+          s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE} as product_code,
+          s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} as customer_code,
+          c.${MIKRO_TABLES.CARI_COLUMNS.NAME} as customer_name,
+          s.${MIKRO_TABLES.ORDERS_COLUMNS.DATE} as order_date,
+          ISNULL(s.sip_rezervasyon_miktari, 0) as reserve_qty,
+          ISNULL(s.sip_rezerveden_teslim_edilen, 0) as reserve_delivered_qty
+        FROM ${MIKRO_TABLES.ORDERS} s
+        LEFT JOIN ${MIKRO_TABLES.CARI} c
+          ON s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} = c.${MIKRO_TABLES.CARI_COLUMNS.CODE}
+        WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = 0
+          AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED} = 0
+          AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 0
+          AND UPPER(LTRIM(RTRIM(s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE}))) IN (${inClause})
+          AND ISNULL(s.sip_rezervasyon_miktari, 0) > ISNULL(s.sip_rezerveden_teslim_edilen, 0)
+          AND (
+            c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} IS NULL
+            OR c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} NOT LIKE 'SATICI%'
+          )
+      `);
+
+      for (const row of rows as any[]) {
+        const code = normalizeProductCode(row.product_code);
+        if (!code || !targetCodeSet.has(code)) continue;
+
+        const reserveQty = Math.max(
+          toNumber(row.reserve_qty) - toNumber(row.reserve_delivered_qty),
+          0
+        );
+        if (reserveQty <= 0) continue;
+
+        const orderSeries = normalizeCode(row.order_series);
+        const orderSequence = Number.isFinite(Number(row.order_sequence)) ? Number(row.order_sequence) : null;
+        if (!orderSeries || orderSequence === null) continue;
+
+        const list = reservationsByCode.get(code) || [];
+        list.push({
+          mikroOrderNumber: `${orderSeries}-${orderSequence}`,
+          customerCode: normalizeCode(row.customer_code),
+          customerName: normalizeCode(row.customer_name) || normalizeCode(row.customer_code) || 'Bilinmeyen Musteri',
+          orderDate: row.order_date ? new Date(row.order_date) : new Date(),
+          reservedQty: reserveQty,
+          rowNumber: Number.isFinite(Number(row.row_number)) ? Number(row.row_number) : null,
+        });
+        reservationsByCode.set(code, list);
+      }
+
+      return reservationsByCode;
+    } catch (error) {
+      console.error('Mikro rezerve sorgu hatasi, cache fallback kullaniliyor:', error);
+      return this.getActiveReservationsByProductFromPendingCache(targetCodes);
+    }
   }
 
   private determineWorkflowStatusFromItems(
