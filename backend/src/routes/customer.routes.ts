@@ -8,6 +8,7 @@ import quoteController from '../controllers/quote.controller';
 import taskController from '../controllers/task.controller';
 import notificationController from '../controllers/notification.controller';
 import orderRequestController from '../controllers/order-request.controller';
+import eInvoiceController from '../controllers/einvoice.controller';
 import { authenticate, requireCustomer } from '../middleware/auth.middleware';
 import { taskUpload } from '../middleware/upload.middleware';
 import { validateBody } from '../middleware/validation.middleware';
@@ -206,6 +207,10 @@ router.post('/tasks/:id/attachments', requireCustomer, taskUpload.single('file')
 router.get('/notifications', requireCustomer, notificationController.getNotifications);
 router.post('/notifications/read', requireCustomer, validateBody(notificationReadSchema), notificationController.markRead);
 router.post('/notifications/read-all', requireCustomer, notificationController.markAllRead);
+
+// E-Invoices (customer)
+router.get('/invoices', requireCustomer, eInvoiceController.getMyDocuments);
+router.get('/invoices/:id/download', requireCustomer, eInvoiceController.downloadMyDocument);
 
 // Customer activity tracking
 router.post('/analytics/events', requireCustomer, validateBody(customerActivityEventSchema), customerController.trackActivityEvent);

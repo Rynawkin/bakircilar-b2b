@@ -40,6 +40,26 @@ class EInvoiceController {
     }
   }
 
+  async getMyDocuments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { search, invoicePrefix, fromDate, toDate, page, limit } = req.query;
+      const result = await eInvoiceService.getDocumentsForCustomer(
+        req.user!.userId,
+        {
+          search: search as string | undefined,
+          invoicePrefix: invoicePrefix as string | undefined,
+          fromDate: fromDate as string | undefined,
+          toDate: toDate as string | undefined,
+          page: page ? parseInt(page as string, 10) : undefined,
+          limit: limit ? parseInt(limit as string, 10) : undefined,
+        }
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async downloadDocument(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
@@ -106,6 +126,20 @@ class EInvoiceController {
       }
 
       await archive.finalize();
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async downloadMyDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { document, absolutePath } = await eInvoiceService.getDocumentForCustomerDownload(
+        id,
+        req.user!.userId
+      );
+      res.setHeader('Content-Type', document.mimeType || 'application/pdf');
+      res.download(absolutePath, `${document.invoiceNo}.pdf`);
     } catch (error) {
       next(error);
     }

@@ -110,6 +110,33 @@ const currencyFromCode = (code?: number | null) => {
 };
 
 class EInvoiceService {
+  private async resolveCustomerScope(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        mikroCariCode: true,
+        parentCustomerId: true,
+        parentCustomer: {
+          select: {
+            id: true,
+            mikroCariCode: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw ErrorFactory.notFound('Kullanici');
+    }
+
+    const customer = user.parentCustomer || user;
+    const customerId = customer.id;
+    const customerCode = customer.mikroCariCode ? String(customer.mikroCariCode).trim() : '';
+
+    return { customerId, customerCode };
+  }
+
   private async resolveExistingDocumentPath(document: {
     id: string;
     storagePath: string;
@@ -389,6 +416,108 @@ class EInvoiceService {
       storagePath: document.storagePath,
       fileName: document.fileName,
     });
+    if (!resolved) {
+      throw ErrorFactory.notFound('PDF dosyasi');
+    }
+
+    return {
+      document,
+      absolutePath: resolved.absolutePath,
+    };
+  }
+
+  async getDocumentsForCustomer(userId: string, query: {
+    search?: string;
+    invoicePrefix?: string;
+    fromDate?: string;
+    toDate?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const scope = await this.resolveCustomerScope(userId);
+    const scopedOr: any[] = [];
+
+    if (scope.customerId) scopedOr.push({ customerId: scope.customerId });
+    if (scope.customerCode) scopedOr.push({ customerCode: scope.customerCode });
+
+    if (scopedOr.length === 0) {
+      return { documents: [], pagination: { page: 1, limit: 0, total: 0, totalPages: 0 } };
+    }
+
+    const where: any = {
+      AND: [
+        { OR: scopedOr },
+      ],
+    };
+
+    if (query.invoicePrefix) {
+      where.AND.push({
+        invoiceNo: { startsWith: query.invoicePrefix, mode: 'insensitive' as const },
+      });
+    }
+
+    if (query.fromDate || query.toDate) {
+      const issueDate: Record<string, Date> = {};
+      if (query.fromDate) issueDate.gte = new Date(query.fromDate);
+      if (query.toDate) issueDate.lte = new Date(query.toDate);
+      where.AND.push({ issueDate });
+    }
+
+    const searchClauses = buildSearchClauses(query.search);
+    if (searchClauses.length > 0) {
+      where.AND.push(...searchClauses);
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+    const skip = (page - 1) * limit;
+
+    const [total, documents] = await prisma.$transaction([
+      prisma.eInvoiceDocument.count({ where }),
+      prisma.eInvoiceDocument.findMany({
+        where,
+        orderBy: [{ issueDate: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: limit,
+        include: {
+          uploadedBy: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
+    return {
+      documents,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
+  async getDocumentForCustomerDownload(documentId: string, userId: string) {
+    const scope = await this.resolveCustomerScope(userId);
+    const document = await prisma.eInvoiceDocument.findUnique({
+      where: { id: documentId },
+    });
+
+    if (!document) {
+      throw ErrorFactory.notFound('Fatura');
+    }
+
+    const matchesCustomerId = Boolean(scope.customerId && document.customerId === scope.customerId);
+    const matchesCustomerCode = Boolean(scope.customerCode && document.customerCode === scope.customerCode);
+    if (!matchesCustomerId && !matchesCustomerCode) {
+      throw ErrorFactory.forbidden('Bu faturaya erisemezsiniz');
+    }
+
+    const resolved = await this.resolveExistingDocumentPath({
+      id: document.id,
+      storagePath: document.storagePath,
+      fileName: document.fileName,
+    });
+
     if (!resolved) {
       throw ErrorFactory.notFound('PDF dosyasi');
     }

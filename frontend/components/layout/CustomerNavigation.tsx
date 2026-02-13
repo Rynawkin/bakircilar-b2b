@@ -122,6 +122,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     { name: 'Daha Once Aldiklarim', href: '/previously-purchased', icon: Clock },
     { name: 'Sepetim', href: '/cart', icon: ShoppingCart, badge: cartItemCount },
     { name: 'Siparişlerim', href: '/my-orders', icon: Package },
+    { name: 'Faturalarim', href: '/invoices', icon: FileText },
     { name: 'Siparis Talepleri', href: '/order-requests', icon: ClipboardList, badge: user?.parentCustomerId ? undefined : pendingRequestCount },
     { name: 'Tekliflerim', href: '/my-quotes', icon: FileText },
     { name: 'Taleplerim', href: '/my-requests', icon: ListTodo },

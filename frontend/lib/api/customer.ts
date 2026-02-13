@@ -17,6 +17,7 @@ import {
   TaskComment,
   TaskAttachment,
   Notification,
+  EInvoiceDocument,
 } from '@/types';
 
 export const customerApi = {
@@ -217,6 +218,29 @@ export const customerApi = {
 
   markNotificationsReadAll: async (): Promise<{ updated: number }> => {
     const response = await apiClient.post('/notifications/read-all');
+    return response.data;
+  },
+
+  // E-Invoices (customer)
+  getInvoices: async (params?: {
+    search?: string;
+    invoicePrefix?: string;
+    fromDate?: string;
+    toDate?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    documents: EInvoiceDocument[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> => {
+    const response = await apiClient.get('/invoices', { params });
+    return response.data;
+  },
+
+  downloadInvoice: async (id: string): Promise<Blob> => {
+    const response = await apiClient.get(`/invoices/${id}/download`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 };
