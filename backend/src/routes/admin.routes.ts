@@ -178,6 +178,7 @@ router.get('/cari-list', requireAnyPermission(['admin:customers', 'admin:einvoic
 // E-Invoice documents - Staff
 router.get('/einvoices', requirePermission('admin:einvoices'), eInvoiceController.getDocuments);
 router.post('/einvoices/upload', requirePermission('admin:einvoices'), invoiceUpload.array('files', 50), eInvoiceController.uploadDocuments);
+router.post('/einvoices/auto-import', requirePermission('admin:einvoices'), eInvoiceController.autoImportDocuments);
 router.post('/einvoices/bulk-download', requirePermission('admin:einvoices'), eInvoiceController.bulkDownloadDocuments);
 router.get('/einvoices/:id/download', requirePermission('admin:einvoices'), eInvoiceController.downloadDocument);
 

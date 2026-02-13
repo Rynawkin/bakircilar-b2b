@@ -41,6 +41,15 @@ FRONTEND_URL=http://localhost:3000
 # Cron Job
 ENABLE_CRON=false
 SYNC_CRON_SCHEDULE="0 * * * *"
+
+# E-Invoice Auto Import (DEF26 + DAR26)
+EINVOICE_UPLOAD_DIR=/var/www/b2b/backend/private-uploads/einvoices
+EINVOICE_AUTO_IMPORT_ENABLED=true
+EINVOICE_AUTO_IMPORT_CRON_SCHEDULE="*/20 * * * *"
+EINVOICE_AUTO_IMPORT_SOURCE_DIR=/var/www/b2b/backend/auto-import/einvoices
+EINVOICE_AUTO_IMPORT_ARCHIVE_DIR=/var/www/b2b/backend/auto-import/einvoices/_processed
+EINVOICE_AUTO_IMPORT_PREFIXES=DEF26,DAR26
+EINVOICE_AUTO_IMPORT_SKIP_EXISTING=true
 ```
 
 3. **Backup your .env file:**

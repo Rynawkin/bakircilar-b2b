@@ -20,6 +20,7 @@ import vadeNotificationService from './services/vadeNotification.service';
 import reportsService from './services/reports.service';
 import productComplementService from './services/product-complement.service';
 import customerActivityService from './services/customer-activity.service';
+import eInvoiceService from './services/einvoice.service';
 import { prisma } from './utils/prisma';
 
 
@@ -311,6 +312,27 @@ if (config.enableCron) {
       console.error('❌ Sipariş takip settings yükleme hatası:', error);
     }
   })();
+}
+
+if (config.einvoiceAutoImportEnabled) {
+  const cronOptions = { timezone: config.cronTimezone };
+  console.log('E-invoice auto import cron schedule:', config.einvoiceAutoImportCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.einvoiceAutoImportCronSchedule, async () => {
+    console.log('E-invoice auto import started...');
+    try {
+      const result = await eInvoiceService.importDocumentsFromDirectory();
+      console.log('E-invoice auto import completed:', {
+        scanned: result.scanned,
+        processed: result.processed,
+        uploaded: result.uploaded,
+        updated: result.updated,
+        skippedExisting: result.skippedExisting,
+        failed: result.failed,
+      });
+    } catch (error) {
+      console.error('E-invoice auto import cron error:', error);
+    }
+  }, cronOptions);
 }
 
 // ==================== SERVER START ====================

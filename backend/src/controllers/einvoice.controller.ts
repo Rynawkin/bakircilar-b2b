@@ -17,6 +17,35 @@ class EInvoiceController {
     }
   }
 
+  async autoImportDocuments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = (req.body || {}) as {
+        sourceDir?: string;
+        prefixes?: string[];
+        recursive?: boolean;
+        skipIfExists?: boolean;
+        archiveDir?: string | null;
+        deleteAfterImport?: boolean;
+        maxFiles?: number;
+      };
+
+      const result = await eInvoiceService.importDocumentsFromDirectory({
+        sourceDir: body.sourceDir,
+        prefixes: Array.isArray(body.prefixes) ? body.prefixes : undefined,
+        recursive: typeof body.recursive === 'boolean' ? body.recursive : undefined,
+        skipIfExists: typeof body.skipIfExists === 'boolean' ? body.skipIfExists : undefined,
+        archiveDir: body.archiveDir,
+        deleteAfterImport: typeof body.deleteAfterImport === 'boolean' ? body.deleteAfterImport : undefined,
+        maxFiles: Number.isFinite(Number(body.maxFiles)) ? Number(body.maxFiles) : undefined,
+        userId: req.user!.userId,
+      });
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getDocuments(req: Request, res: Response, next: NextFunction) {
     try {
       const { search, invoicePrefix, customerId, customerCode, fromDate, toDate, page, limit } = req.query;

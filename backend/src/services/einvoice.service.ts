@@ -109,6 +109,41 @@ const currencyFromCode = (code?: number | null) => {
   return 'TRY';
 };
 
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+};
+
+const normalizeInvoicePrefixes = (values?: string[]) =>
+  Array.from(
+    new Set(
+      (values || [])
+        .map((value) => normalizeInvoiceNo(value || ''))
+        .filter(Boolean)
+    )
+  );
+
+const randomSuffix = () => `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+
+const sanitizeFileName = (value: string) =>
+  value.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+type InvoiceUploadFile = Pick<Express.Multer.File, 'path' | 'filename' | 'originalname' | 'mimetype' | 'size'>;
+
+type AutoImportOptions = {
+  sourceDir?: string;
+  prefixes?: string[];
+  recursive?: boolean;
+  skipIfExists?: boolean;
+  archiveDir?: string | null;
+  deleteAfterImport?: boolean;
+  maxFiles?: number;
+  userId?: string;
+};
+
 class EInvoiceService {
   private async resolveCustomerScope(userId: string) {
     const user = await prisma.user.findUnique({
@@ -179,6 +214,173 @@ class EInvoiceService {
     return null;
   }
 
+  private getManagedUploadDir() {
+    return EINVOICE_UPLOAD_DIR || path.resolve(STORAGE_ROOT, 'private-uploads', 'einvoices');
+  }
+
+  private ensureDirExists(dirPath: string) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+
+  private collectPdfFilePaths(sourceDir: string, recursive: boolean): string[] {
+    if (!fs.existsSync(sourceDir)) {
+      return [];
+    }
+
+    const queue = [sourceDir];
+    const files: string[] = [];
+
+    while (queue.length > 0) {
+      const currentDir = queue.shift();
+      if (!currentDir) continue;
+
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const absolutePath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (recursive) {
+            queue.push(absolutePath);
+          }
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        if (path.extname(entry.name).toLowerCase() !== '.pdf') continue;
+        files.push(absolutePath);
+      }
+    }
+
+    return files;
+  }
+
+  private async resolveUploaderUserId(userId?: string) {
+    if (userId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (user) {
+        return user.id;
+      }
+    }
+
+    const fallback = await prisma.user.findFirst({
+      where: {
+        active: true,
+        role: { in: ['HEAD_ADMIN', 'ADMIN', 'MANAGER'] },
+      },
+      orderBy: [
+        { role: 'asc' },
+        { createdAt: 'asc' },
+      ],
+      select: { id: true },
+    });
+
+    if (!fallback) {
+      throw new Error('Auto import icin aktif bir yetkili kullanici bulunamadi');
+    }
+
+    return fallback.id;
+  }
+
+  private async saveDocumentFromFile(file: InvoiceUploadFile, userId: string) {
+    const invoiceNo = extractInvoiceNo(file.originalname);
+    const absolutePath = path.isAbsolute(file.path)
+      ? file.path
+      : path.resolve(process.cwd(), file.path);
+    const root = findRootForPath(absolutePath) || process.cwd();
+    const storagePath = toRelativePath(absolutePath, root);
+
+    const existing = await prisma.eInvoiceDocument.findUnique({
+      where: { invoiceNo },
+      select: { id: true, storagePath: true },
+    });
+
+    const metadata = await mikroService.getEInvoiceMetadataByGibNo(invoiceNo);
+
+    let matchStatus: EInvoiceMatchStatus = EInvoiceMatchStatus.MATCHED;
+    let matchError: string | null = null;
+
+    if (!metadata) {
+      matchStatus = EInvoiceMatchStatus.NOT_FOUND;
+      matchError = 'Mikro match not found';
+    }
+
+    let totals: { subtotal?: number | null; total?: number | null; currency?: string | null; issueDate?: Date | null } | null = null;
+    if (metadata?.evrakSeri && metadata?.evrakSira) {
+      totals = await mikroService.getInvoiceTotalsByEvrak(metadata.evrakSeri, metadata.evrakSira);
+      if (!totals || totals.total === null || totals.total === undefined) {
+        matchStatus = metadata ? EInvoiceMatchStatus.PARTIAL : EInvoiceMatchStatus.NOT_FOUND;
+        matchError = matchError || 'Invoice totals not found';
+      }
+    } else if (metadata) {
+      matchStatus = EInvoiceMatchStatus.PARTIAL;
+      matchError = matchError || 'Invoice evrak not found';
+    }
+
+    let customerId: string | null = null;
+    let customerName: string | null = metadata?.cariName || null;
+
+    if (metadata?.cariCode) {
+      const customer = await prisma.user.findUnique({
+        where: { mikroCariCode: metadata.cariCode },
+        select: { id: true, name: true, displayName: true, mikroName: true },
+      });
+      if (customer) {
+        customerId = customer.id;
+        customerName = customer.displayName || customer.mikroName || customer.name || customerName;
+      }
+    }
+
+    const data = {
+      invoiceNo,
+      evrakSeri: metadata?.evrakSeri || null,
+      evrakSira: metadata?.evrakSira ?? null,
+      eInvoiceUuid: metadata?.uuid || null,
+      customerCode: metadata?.cariCode || null,
+      customerName,
+      customerId,
+      issueDate: metadata?.issueDate || totals?.issueDate || null,
+      sentAt: metadata?.sentAt || null,
+      subtotalAmount: totals?.subtotal ?? null,
+      totalAmount: totals?.total ?? null,
+      currency: totals?.currency || currencyFromCode(metadata?.currencyCode),
+      fileName: file.filename,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      storagePath,
+      uploadedById: userId,
+      matchStatus,
+      matchError,
+    };
+
+    const document = await prisma.eInvoiceDocument.upsert({
+      where: { invoiceNo },
+      create: data,
+      update: data,
+    });
+
+    if (existing && existing.storagePath && existing.storagePath !== storagePath) {
+      const oldPath = resolveStoragePath(existing.storagePath);
+      fs.unlink(oldPath, () => undefined);
+    }
+
+    return {
+      invoiceNo,
+      documentId: document.id,
+      status: matchStatus,
+      message: matchError || undefined,
+      isUpdate: Boolean(existing),
+      storagePath,
+    };
+  }
+
   async uploadDocuments(files: Express.Multer.File[], userId: string) {
     if (!files || files.length === 0) {
       return { uploaded: 0, updated: 0, failed: 0, results: [] as any[] };
@@ -197,99 +399,18 @@ class EInvoiceService {
 
     for (const file of files) {
       const invoiceNo = extractInvoiceNo(file.originalname);
-      const absolutePath = path.isAbsolute(file.path)
-        ? file.path
-        : path.resolve(process.cwd(), file.path);
-      const root = findRootForPath(absolutePath) || process.cwd();
-      const storagePath = toRelativePath(absolutePath, root);
-
       try {
-        const existing = await prisma.eInvoiceDocument.findUnique({
-          where: { invoiceNo },
-          select: { id: true, storagePath: true },
-        });
-
-        const metadata = await mikroService.getEInvoiceMetadataByGibNo(invoiceNo);
-
-        let matchStatus: EInvoiceMatchStatus = EInvoiceMatchStatus.MATCHED;
-        let matchError: string | null = null;
-
-        if (!metadata) {
-          matchStatus = EInvoiceMatchStatus.NOT_FOUND;
-          matchError = 'Mikro match not found';
-        }
-
-        let totals: { subtotal?: number | null; total?: number | null; currency?: string | null; issueDate?: Date | null } | null = null;
-        if (metadata?.evrakSeri && metadata?.evrakSira) {
-          totals = await mikroService.getInvoiceTotalsByEvrak(metadata.evrakSeri, metadata.evrakSira);
-          if (!totals || totals.total === null || totals.total === undefined) {
-            matchStatus = metadata ? EInvoiceMatchStatus.PARTIAL : EInvoiceMatchStatus.NOT_FOUND;
-            matchError = matchError || 'Invoice totals not found';
-          }
-        } else if (metadata) {
-          matchStatus = EInvoiceMatchStatus.PARTIAL;
-          matchError = matchError || 'Invoice evrak not found';
-        }
-
-        let customerId: string | null = null;
-        let customerName: string | null = metadata?.cariName || null;
-
-        if (metadata?.cariCode) {
-          const customer = await prisma.user.findUnique({
-            where: { mikroCariCode: metadata.cariCode },
-            select: { id: true, name: true, displayName: true, mikroName: true },
-          });
-          if (customer) {
-            customerId = customer.id;
-            customerName = customer.displayName || customer.mikroName || customer.name || customerName;
-          }
-        }
-
-        const data = {
-          invoiceNo,
-          evrakSeri: metadata?.evrakSeri || null,
-          evrakSira: metadata?.evrakSira ?? null,
-          eInvoiceUuid: metadata?.uuid || null,
-          customerCode: metadata?.cariCode || null,
-          customerName,
-          customerId,
-          issueDate: metadata?.issueDate || totals?.issueDate || null,
-          sentAt: metadata?.sentAt || null,
-          subtotalAmount: totals?.subtotal ?? null,
-          totalAmount: totals?.total ?? null,
-          currency: totals?.currency || currencyFromCode(metadata?.currencyCode),
-          fileName: file.filename,
-          originalName: file.originalname,
-          mimeType: file.mimetype,
-          size: file.size,
-          storagePath,
-          uploadedById: userId,
-          matchStatus,
-          matchError,
-        };
-
-        const document = await prisma.eInvoiceDocument.upsert({
-          where: { invoiceNo },
-          create: data,
-          update: data,
-        });
-
-        if (existing && existing.storagePath && existing.storagePath !== storagePath) {
-          const oldPath = resolveStoragePath(existing.storagePath);
-          fs.unlink(oldPath, () => undefined);
-        }
-
-        if (existing) {
+        const result = await this.saveDocumentFromFile(file, userId);
+        if (result.isUpdate) {
           updated += 1;
         } else {
           uploaded += 1;
         }
-
         results.push({
-          invoiceNo,
-          documentId: document.id,
-          status: matchStatus,
-          message: matchError || undefined,
+          invoiceNo: result.invoiceNo,
+          documentId: result.documentId,
+          status: result.status,
+          message: result.message,
         });
       } catch (error) {
         failed += 1;
@@ -302,6 +423,194 @@ class EInvoiceService {
     }
 
     return { uploaded, updated, failed, results };
+  }
+
+  async importDocumentsFromDirectory(options: AutoImportOptions = {}) {
+    const sourceDir = path.resolve(
+      options.sourceDir ||
+      process.env.EINVOICE_AUTO_IMPORT_SOURCE_DIR ||
+      path.join(STORAGE_ROOT, 'auto-import', 'einvoices')
+    );
+    const recursive = options.recursive ?? parseBoolean(process.env.EINVOICE_AUTO_IMPORT_RECURSIVE, true);
+    const skipIfExists = options.skipIfExists ?? parseBoolean(process.env.EINVOICE_AUTO_IMPORT_SKIP_EXISTING, true);
+    const deleteAfterImport = options.deleteAfterImport ?? parseBoolean(process.env.EINVOICE_AUTO_IMPORT_DELETE_AFTER_IMPORT, false);
+    const maxFilesRaw = Number(options.maxFiles ?? process.env.EINVOICE_AUTO_IMPORT_MAX_FILES ?? 500);
+    const maxFiles = Number.isFinite(maxFilesRaw)
+      ? Math.max(1, Math.min(5000, Math.trunc(maxFilesRaw)))
+      : 500;
+    const envPrefixes = (process.env.EINVOICE_AUTO_IMPORT_PREFIXES || 'DEF26,DAR26')
+      .split(/[,\s;]+/g)
+      .filter(Boolean);
+    const prefixes = normalizeInvoicePrefixes(
+      options.prefixes && options.prefixes.length > 0 ? options.prefixes : envPrefixes
+    );
+    const rawArchiveDir = options.archiveDir === undefined
+      ? process.env.EINVOICE_AUTO_IMPORT_ARCHIVE_DIR || path.join(sourceDir, '_processed')
+      : options.archiveDir;
+    const archiveDir = rawArchiveDir ? path.resolve(rawArchiveDir) : null;
+
+    const results: Array<{
+      invoiceNo: string;
+      sourceFile: string;
+      documentId?: string;
+      status: EInvoiceMatchStatus;
+      message?: string;
+    }> = [];
+
+    if (!fs.existsSync(sourceDir)) {
+      return {
+        sourceDir,
+        prefixes,
+        scanned: 0,
+        uploaded: 0,
+        updated: 0,
+        skippedPrefix: 0,
+        skippedExisting: 0,
+        failed: 0,
+        results,
+        message: 'Source directory not found',
+      };
+    }
+
+    const uploaderUserId = await this.resolveUploaderUserId(options.userId);
+    const allPdfPaths = this.collectPdfFilePaths(sourceDir, recursive);
+    const filteredArchivePaths = archiveDir
+      ? allPdfPaths.filter((filePath) => !isPathInside(archiveDir, filePath))
+      : allPdfPaths;
+
+    filteredArchivePaths.sort((a, b) => {
+      try {
+        return fs.statSync(a).mtimeMs - fs.statSync(b).mtimeMs;
+      } catch {
+        return 0;
+      }
+    });
+
+    const prepared = filteredArchivePaths.map((absolutePath) => {
+      const originalName = path.basename(absolutePath);
+      const invoiceNo = extractInvoiceNo(originalName);
+      return { absolutePath, originalName, invoiceNo };
+    });
+
+    const prefixCandidates = prepared.filter((item) =>
+      prefixes.length === 0 || prefixes.some((prefix) => item.invoiceNo.startsWith(prefix))
+    );
+    const limitedCandidates = prefixCandidates.slice(0, maxFiles);
+
+    const existingSet = new Set<string>();
+    if (skipIfExists && limitedCandidates.length > 0) {
+      const existingDocs = await prisma.eInvoiceDocument.findMany({
+        where: {
+          invoiceNo: {
+            in: Array.from(new Set(limitedCandidates.map((item) => item.invoiceNo))),
+          },
+        },
+        select: { invoiceNo: true },
+      });
+      existingDocs.forEach((doc) => existingSet.add(normalizeInvoiceNo(doc.invoiceNo)));
+    }
+
+    let uploaded = 0;
+    let updated = 0;
+    let failed = 0;
+    let skippedExisting = 0;
+    const skippedPrefix = prepared.length - prefixCandidates.length;
+
+    const managedUploadDir = this.getManagedUploadDir();
+    this.ensureDirExists(managedUploadDir);
+    if (!deleteAfterImport && archiveDir) {
+      this.ensureDirExists(archiveDir);
+    }
+
+    for (const candidate of limitedCandidates) {
+      if (skipIfExists && existingSet.has(candidate.invoiceNo)) {
+        skippedExisting += 1;
+        continue;
+      }
+
+      const extension = path.extname(candidate.originalName) || '.pdf';
+      const tempFileName = `einvoice-auto-${randomSuffix()}${extension.toLowerCase()}`;
+      const tempAbsolutePath = path.join(managedUploadDir, tempFileName);
+
+      try {
+        fs.copyFileSync(candidate.absolutePath, tempAbsolutePath);
+        const stat = fs.statSync(tempAbsolutePath);
+
+        const result = await this.saveDocumentFromFile({
+          path: tempAbsolutePath,
+          filename: tempFileName,
+          originalname: candidate.originalName,
+          mimetype: 'application/pdf',
+          size: stat.size,
+        }, uploaderUserId);
+
+        if (result.isUpdate) {
+          updated += 1;
+        } else {
+          uploaded += 1;
+        }
+
+        if (deleteAfterImport) {
+          fs.unlinkSync(candidate.absolutePath);
+        } else if (archiveDir) {
+          const baseName = sanitizeFileName(candidate.originalName);
+          const archiveBasePath = path.join(archiveDir, baseName);
+          let archiveTargetPath = archiveBasePath;
+          if (fs.existsSync(archiveTargetPath)) {
+            const parsed = path.parse(baseName);
+            archiveTargetPath = path.join(
+              archiveDir,
+              `${parsed.name}-${randomSuffix()}${parsed.ext || '.pdf'}`
+            );
+          }
+          try {
+            fs.renameSync(candidate.absolutePath, archiveTargetPath);
+          } catch {
+            fs.copyFileSync(candidate.absolutePath, archiveTargetPath);
+            fs.unlinkSync(candidate.absolutePath);
+          }
+        }
+
+        results.push({
+          invoiceNo: result.invoiceNo,
+          sourceFile: candidate.absolutePath,
+          documentId: result.documentId,
+          status: result.status,
+          message: result.message,
+        });
+      } catch (error) {
+        failed += 1;
+        try {
+          if (fs.existsSync(tempAbsolutePath)) {
+            fs.unlinkSync(tempAbsolutePath);
+          }
+        } catch {
+          // noop
+        }
+        results.push({
+          invoiceNo: candidate.invoiceNo,
+          sourceFile: candidate.absolutePath,
+          status: EInvoiceMatchStatus.NOT_FOUND,
+          message: error instanceof Error ? error.message : 'Auto import failed',
+        });
+      }
+    }
+
+    return {
+      sourceDir,
+      archiveDir,
+      prefixes,
+      recursive,
+      maxFiles,
+      scanned: prepared.length,
+      processed: limitedCandidates.length,
+      uploaded,
+      updated,
+      skippedPrefix,
+      skippedExisting,
+      failed,
+      results,
+    };
   }
 
   async getDocumentsForStaff(userId: string, role: UserRole, query: {
