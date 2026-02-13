@@ -78,6 +78,7 @@ interface QuoteItemForm {
   lineDescription?: string;
   manualImageUrl?: string | null;
   responsibilityCenter?: string;
+  reserveQty?: number;
   lastSales?: LastSale[];
   lastQuotes?: LastQuote[];
   selectedSaleIndex?: number;
@@ -1113,6 +1114,7 @@ function AdminQuoteNewPageContent() {
       vatZeroed: false,
       priceType: 'INVOICED',
       isManualLine: false,
+      reserveQty: 0,
       manualImageUrl: null,
       lastSales: sourceProduct.lastSales || [],
       lastQuotes: sourceProduct.lastQuotes || [],
@@ -1190,6 +1192,7 @@ function AdminQuoteNewPageContent() {
       isManualLine,
       manualVatRate: isManualLine ? item.vatRate : undefined,
       lineDescription: item.lineDescription || '',
+      reserveQty: 0,
       manualImageUrl: item.manualImageUrl ?? null,
       lastSales,
       lastQuotes: item.lastQuotes || [],
@@ -1244,6 +1247,7 @@ function AdminQuoteNewPageContent() {
       isManualLine: true,
       manualVatRate: 0.2,
       lineDescription: '',
+      reserveQty: 0,
       manualImageUrl: null,
     };
 
@@ -1902,6 +1906,10 @@ function AdminQuoteNewPageContent() {
         toast.error(`Miktar girilmeli (Satir ${i + 1}).`);
         return false;
       }
+      if (isOrderMode && Number(item.reserveQty || 0) > Number(item.quantity || 0)) {
+        toast.error(`Rezerve miktar, satir miktarini gecemez (Satir ${i + 1}).`);
+        return false;
+      }
       if (item.isManualLine) {
         if (isOrderMode) {
           toast.error(`Siparis icin manuel satir kullanilamaz (Satir ${i + 1}).`);
@@ -1971,6 +1979,7 @@ function AdminQuoteNewPageContent() {
             manualVatRate: item.isManualLine ? item.manualVatRate : undefined,
             lineDescription: item.lineDescription || undefined,
             responsibilityCenter: item.responsibilityCenter || undefined,
+            reserveQty: Math.max(Number(item.reserveQty || 0), 0),
           })),
         };
 
@@ -2873,13 +2882,27 @@ function AdminQuoteNewPageContent() {
                                     className="w-full"
                                   />
                                   {isOrderMode && (
-                                    <Input
-                                      placeholder="Sorumluluk merkezi"
-                                      value={item.responsibilityCenter || ''}
-                                      onChange={(e) => updateItem(item.id, { responsibilityCenter: e.target.value })}
-                                      maxLength={25}
-                                      className="w-full mt-1"
-                                    />
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mt-1">
+                                      <Input
+                                        placeholder="Sorumluluk merkezi"
+                                        value={item.responsibilityCenter || ''}
+                                        onChange={(e) => updateItem(item.id, { responsibilityCenter: e.target.value })}
+                                        maxLength={25}
+                                        className="w-full"
+                                      />
+                                      <Input
+                                        placeholder="Rezerve miktar"
+                                        type="number"
+                                        min={0}
+                                        value={item.reserveQty ?? 0}
+                                        onChange={(e) =>
+                                          updateItem(item.id, {
+                                            reserveQty: Math.max(0, Math.trunc(Number(e.target.value) || 0)),
+                                          })
+                                        }
+                                        className="w-full"
+                                      />
+                                    </div>
                                   )}
                                 </td>
                               );

@@ -18,10 +18,21 @@ interface PendingOrderItemRow {
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
+  reservedQty?: number;
+  reservedDeliveredQty?: number;
   unitPrice: number;
   lineTotal: number;
   vat: number;
   rowNumber?: number;
+}
+
+interface ProductReservationEntry {
+  mikroOrderNumber: string;
+  customerCode: string;
+  customerName: string;
+  orderDate: Date;
+  reservedQty: number;
+  rowNumber: number | null;
 }
 
 interface CoverageSummary {
@@ -32,14 +43,6 @@ interface CoverageSummary {
 }
 
 type CoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
-
-interface WorkflowCoverageItem {
-  lineKey: string;
-  remainingQty: number;
-  pickedQty: number;
-  shortageQty: number;
-  extraQty: number;
-}
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -52,6 +55,25 @@ const normalizeLineKey = (productCode: string, rowNumber?: number, index = 0): s
   const code = normalizeCode(productCode) || `UNKNOWN-${index + 1}`;
   const row = Number.isFinite(Number(rowNumber)) ? Number(rowNumber) : index + 1;
   return `${code}#${row}`;
+};
+
+const resolveWarehouseStockValue = (warehouseStocks: unknown, warehouseCode: string): number | null => {
+  const target = normalizeCode(warehouseCode);
+  if (!target) return null;
+  if (!warehouseStocks || typeof warehouseStocks !== 'object' || Array.isArray(warehouseStocks)) {
+    return null;
+  }
+
+  const record = warehouseStocks as Record<string, unknown>;
+  for (const [rawKey, rawValue] of Object.entries(record)) {
+    const key = normalizeCode(rawKey);
+    if (!key) continue;
+    if (key === target) return Math.max(toNumber(rawValue), 0);
+    const keyDigits = key.match(/\d+/)?.[0];
+    if (keyDigits && keyDigits === target) return Math.max(toNumber(rawValue), 0);
+  }
+
+  return null;
 };
 
 const sumWarehouseStocks = (warehouseStocks: unknown): number => {
@@ -68,18 +90,18 @@ const getStockByWarehouse = (warehouseStocks: unknown, warehouseCode?: string | 
     return sumWarehouseStocks(warehouseStocks);
   }
 
-  if (!warehouseStocks || typeof warehouseStocks !== 'object' || Array.isArray(warehouseStocks)) {
-    return 0;
-  }
-
-  const normalizedWarehouseCode = normalizeCode(warehouseCode);
-  const record = warehouseStocks as Record<string, unknown>;
-  if (Object.prototype.hasOwnProperty.call(record, normalizedWarehouseCode)) {
-    return Math.max(toNumber(record[normalizedWarehouseCode]), 0);
+  const directMatch = resolveWarehouseStockValue(warehouseStocks, warehouseCode);
+  if (directMatch !== null) {
+    return directMatch;
   }
 
   return sumWarehouseStocks(warehouseStocks);
 };
+
+const getWarehouseBreakdown = (warehouseStocks: unknown): { merkez: number; topca: number } => ({
+  merkez: Math.max(resolveWarehouseStockValue(warehouseStocks, '1') || 0, 0),
+  topca: Math.max(resolveWarehouseStockValue(warehouseStocks, '6') || 0, 0),
+});
 
 const parsePendingItems = (itemsJson: unknown): PendingOrderItemRow[] => {
   if (!Array.isArray(itemsJson)) return [];
@@ -92,6 +114,8 @@ const parsePendingItems = (itemsJson: unknown): PendingOrderItemRow[] => {
     quantity: toNumber(raw?.quantity),
     deliveredQty: toNumber(raw?.deliveredQty),
     remainingQty: toNumber(raw?.remainingQty),
+    reservedQty: Math.max(toNumber(raw?.reservedQty), 0),
+    reservedDeliveredQty: Math.max(toNumber(raw?.reservedDeliveredQty), 0),
     unitPrice: toNumber(raw?.unitPrice),
     lineTotal: toNumber(raw?.lineTotal),
     vat: toNumber(raw?.vat),
@@ -125,6 +149,7 @@ class WarehouseWorkflowService {
     if (uniqueCodes.length === 0) {
       return {
         stockMap: new Map<string, number>(),
+        warehouseBreakdownMap: new Map<string, { merkez: number; topca: number }>(),
         imageMap: new Map<string, string | null>(),
         shelfMap: new Map<string, string | null>(),
       };
@@ -146,12 +171,14 @@ class WarehouseWorkflowService {
     ]);
 
     const stockMap = new Map<string, number>();
+    const warehouseBreakdownMap = new Map<string, { merkez: number; topca: number }>();
     const imageMap = new Map<string, string | null>();
     const shelfMap = new Map<string, string | null>();
 
     for (const product of products) {
       const code = normalizeCode(product.mikroCode);
       stockMap.set(code, getStockByWarehouse(product.warehouseStocks, warehouseCode));
+      warehouseBreakdownMap.set(code, getWarehouseBreakdown(product.warehouseStocks));
       imageMap.set(code, product.imageUrl || null);
     }
 
@@ -159,13 +186,12 @@ class WarehouseWorkflowService {
       shelfMap.set(normalizeCode(shelfLocation.productCode), normalizeCode(shelfLocation.shelfCode) || null);
     }
 
-    return { stockMap, imageMap, shelfMap };
+    return { stockMap, warehouseBreakdownMap, imageMap, shelfMap };
   }
 
   private computeCoverageForPendingItems(
     pendingItems: PendingOrderItemRow[],
-    stockMap: Map<string, number>,
-    workflowItems?: WorkflowCoverageItem[]
+    stockMap: Map<string, number>
   ): CoverageSummary {
     let fullLines = 0;
     let partialLines = 0;
@@ -173,34 +199,14 @@ class WarehouseWorkflowService {
     let totalRemaining = 0;
     let totalCovered = 0;
 
-    const workflowByLine = new Map<string, WorkflowCoverageItem>();
-    if (workflowItems?.length) {
-      for (const item of workflowItems) {
-        workflowByLine.set(item.lineKey, item);
-      }
-    }
-
     const remainingStockByCode = new Map<string, number>();
 
-    pendingItems.forEach((item, index) => {
-      const lineKey = normalizeLineKey(item.productCode, item.rowNumber, index);
+    pendingItems.forEach((item) => {
       const remaining = Math.max(item.remainingQty, 0);
       totalRemaining += remaining;
 
-      const workflowItem = workflowByLine.get(lineKey);
-
-      if (workflowItem) {
-        const covered = Math.min(Math.max(workflowItem.pickedQty, 0), remaining);
-        const shortage = Math.max(workflowItem.shortageQty, Math.max(remaining - covered, 0));
-        totalCovered += Math.max(covered, 0);
-
-        if (shortage <= 0) {
-          fullLines += 1;
-        } else if (covered > 0) {
-          partialLines += 1;
-        } else {
-          missingLines += 1;
-        }
+      if (remaining <= 0) {
+        fullLines += 1;
         return;
       }
 
@@ -211,7 +217,7 @@ class WarehouseWorkflowService {
 
       const available = Math.max(remainingStockByCode.get(code) || 0, 0);
       const covered = Math.min(available, remaining);
-      remainingStockByCode.set(code, Math.max(available - remaining, 0));
+      remainingStockByCode.set(code, Math.max(available - covered, 0));
 
       totalCovered += covered;
       if (covered >= remaining) {
@@ -244,6 +250,49 @@ class WarehouseWorkflowService {
     if (coverage.partialLines === 0 && coverage.missingLines === 0) return 'FULL';
     if (coverage.fullLines === 0 && coverage.partialLines === 0) return 'NONE';
     return 'PARTIAL';
+  }
+
+  private async getActiveReservationsByProduct(productCodes: string[]) {
+    const targetCodes = new Set(productCodes.map((code) => normalizeCode(code)).filter(Boolean));
+    const reservationsByCode = new Map<string, ProductReservationEntry[]>();
+
+    if (targetCodes.size === 0) {
+      return reservationsByCode;
+    }
+
+    const pendingOrders = await prisma.pendingMikroOrder.findMany({
+      select: {
+        mikroOrderNumber: true,
+        customerCode: true,
+        customerName: true,
+        orderDate: true,
+        items: true,
+      },
+    });
+
+    for (const order of pendingOrders) {
+      const orderItems = parsePendingItems(order.items);
+      for (const item of orderItems) {
+        const code = normalizeCode(item.productCode);
+        if (!targetCodes.has(code)) continue;
+
+        const reservedQty = Math.max(toNumber(item.reservedQty), 0);
+        if (reservedQty <= 0) continue;
+
+        const list = reservationsByCode.get(code) || [];
+        list.push({
+          mikroOrderNumber: order.mikroOrderNumber,
+          customerCode: order.customerCode,
+          customerName: order.customerName,
+          orderDate: order.orderDate,
+          reservedQty,
+          rowNumber: Number.isFinite(Number(item.rowNumber)) ? Number(item.rowNumber) : null,
+        });
+        reservationsByCode.set(code, list);
+      }
+    }
+
+    return reservationsByCode;
   }
 
   private determineWorkflowStatusFromItems(
@@ -525,11 +574,7 @@ class WarehouseWorkflowService {
       .map(({ order, pendingItems, warehouseCode }) => {
         const workflow = workflowMap.get(order.mikroOrderNumber);
         const stockMap = stockMapByWarehouse.get(warehouseCode || '__ALL__') || new Map<string, number>();
-        const coverage = this.computeCoverageForPendingItems(
-          pendingItems,
-          stockMap,
-          workflow?.items
-        );
+        const coverage = this.computeCoverageForPendingItems(pendingItems, stockMap);
         const coverageStatus = this.resolveCoverageStatus(coverage);
         const workflowStatus = (workflow?.status as WorkflowStatus) || 'PENDING';
         return {
@@ -635,9 +680,13 @@ class WarehouseWorkflowService {
     const workflowItemMap = new Map((workflow?.items || []).map((item) => [item.lineKey, item]));
 
     const productCodes = pendingItems.map((item) => item.productCode);
-    const { stockMap, imageMap, shelfMap } = await this.getProductAndShelfMaps(productCodes, orderWarehouseCode);
-    const coverage = this.computeCoverageForPendingItems(pendingItems, stockMap, workflow?.items);
+    const { stockMap, warehouseBreakdownMap, imageMap, shelfMap } = await this.getProductAndShelfMaps(
+      productCodes,
+      orderWarehouseCode
+    );
+    const coverage = this.computeCoverageForPendingItems(pendingItems, stockMap);
     const coverageStatus = this.resolveCoverageStatus(coverage);
+    const activeReservationsByProduct = await this.getActiveReservationsByProduct(productCodes);
 
     const lines = pendingItems.map((item, index) => {
       const lineKey = lineKeys[index];
@@ -646,8 +695,32 @@ class WarehouseWorkflowService {
       const extraQty = Math.max(workflowItem?.extraQty ?? 0, 0);
       const shortageQty = Math.max(workflowItem?.shortageQty ?? Math.max(item.remainingQty - pickedQty, 0), 0);
       const status = (workflowItem?.status as WorkflowItemStatus) || toItemStatus(pickedQty, extraQty, shortageQty, item.remainingQty);
-      const stockAvailable = stockMap.get(item.productCode) || 0;
-      const shelfCode = workflowItem?.shelfCode || shelfMap.get(item.productCode) || null;
+      const normalizedCode = normalizeCode(item.productCode);
+      const stockAvailable = stockMap.get(normalizedCode) || 0;
+      const shelfCode = workflowItem?.shelfCode || shelfMap.get(normalizedCode) || null;
+      const warehouseStocks = warehouseBreakdownMap.get(normalizedCode) || { merkez: 0, topca: 0 };
+      const reservationsForProduct = activeReservationsByProduct.get(normalizedCode) || [];
+      const lineRowNumber = Number.isFinite(Number(item.rowNumber)) ? Number(item.rowNumber) : null;
+      const reservationDetails = reservationsForProduct.map((reservation) => {
+        const isCurrentOrder = reservation.mikroOrderNumber === pendingOrder.mikroOrderNumber;
+        const matchesCurrentLine =
+          isCurrentOrder &&
+          lineRowNumber !== null &&
+          reservation.rowNumber !== null &&
+          lineRowNumber === reservation.rowNumber;
+        return {
+          mikroOrderNumber: reservation.mikroOrderNumber,
+          customerCode: reservation.customerCode,
+          customerName: reservation.customerName,
+          orderDate: reservation.orderDate,
+          reservedQty: reservation.reservedQty,
+          rowNumber: reservation.rowNumber,
+          isCurrentOrder,
+          matchesCurrentLine,
+        };
+      });
+      const hasOwnReservation = reservationDetails.some((reservation) => reservation.isCurrentOrder);
+      const hasOtherReservation = reservationDetails.some((reservation) => !reservation.isCurrentOrder);
 
       const stockCoverageStatus =
         stockAvailable >= item.remainingQty ? 'FULL' : stockAvailable > 0 ? 'PARTIAL' : 'NONE';
@@ -668,9 +741,14 @@ class WarehouseWorkflowService {
         lineTotal: item.lineTotal,
         vat: item.vat,
         stockAvailable,
+        warehouseStocks,
         stockCoverageStatus,
-        imageUrl: workflowItem?.imageUrl || imageMap.get(item.productCode) || null,
+        imageUrl: workflowItem?.imageUrl || imageMap.get(normalizedCode) || null,
         shelfCode,
+        reservedQty: Math.max(toNumber(item.reservedQty), 0),
+        hasOwnReservation,
+        hasOtherReservation,
+        reservations: reservationDetails,
         status,
       };
     });

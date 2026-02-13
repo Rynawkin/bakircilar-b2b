@@ -1155,6 +1155,7 @@ class MikroService {
       lineDescription?: string;
       quoteLineGuid?: string;
       responsibilityCenter?: string;
+      reserveQty?: number;
     }>;
     applyVAT: boolean;
     description: string;
@@ -1295,6 +1296,7 @@ class MikroService {
         const tutar = item.quantity * item.unitPrice;
         const vergiTutari = applyVAT ? tutar * vatRate : 0;
         const vatCode = applyVAT ? this.convertVatRateToCode(vatRate) : 0;
+        const reserveQty = Math.max(Number(item.reserveQty || 0), 0);
 
         console.log(`🔧 Satır ${satirNo} hazırlanıyor:`, {
           productCode: item.productCode,
@@ -1319,6 +1321,7 @@ class MikroService {
           'sip_stok_kod',
           ...(includeQuoteGuid ? ['sip_teklif_uid'] : []),
           'sip_miktar',
+          'sip_rezervasyon_miktari',
           'sip_teslim_miktar',
           'sip_b_fiyat',
           'sip_tutar',
@@ -1368,6 +1371,7 @@ class MikroService {
           '@stokKod',
           ...(includeQuoteGuid ? ['@teklifUid'] : []),
           '@miktar',
+          '@reserveQty',
           '0',
           '@fiyat',
           '@tutar',
@@ -1422,6 +1426,7 @@ class MikroService {
           .input('cariKod', sql.NVarChar(25), cariCode)
           .input('stokKod', sql.NVarChar(25), item.productCode)
           .input('miktar', sql.Float, item.quantity)
+          .input('reserveQty', sql.Float, reserveQty)
           .input('depoNo', sql.Int, warehouseValue)
           .input('fiyat', sql.Float, item.unitPrice)
           .input('tutar', sql.Float, tutar)

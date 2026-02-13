@@ -58,6 +58,7 @@ export default function QuoteConvertPage() {
   const [submitting, setSubmitting] = useState(false);
   const [itemQuantities, setItemQuantities] = useState<Record<string, number>>({});
   const [itemResponsibilityCenters, setItemResponsibilityCenters] = useState<Record<string, string>>({});
+  const [itemReserveQuantities, setItemReserveQuantities] = useState<Record<string, number>>({});
   const [bulkResponsibilityCenter, setBulkResponsibilityCenter] = useState('');
 
   useEffect(() => {
@@ -77,6 +78,7 @@ export default function QuoteConvertPage() {
         );
         setSelectedIds(openIds);
         setCloseReasons({});
+        setItemReserveQuantities({});
 
         let warehouses: string[] = [];
         try {
@@ -110,6 +112,15 @@ export default function QuoteConvertPage() {
 
   const resolveItemResponsibility = (item: Quote['items'][number]) => {
     return itemResponsibilityCenters[item.id] || '';
+  };
+
+  const resolveItemReserveQty = (item: Quote['items'][number]) => {
+    const raw = itemReserveQuantities[item.id];
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.max(0, Math.trunc(parsed));
+    }
+    return 0;
   };
 
   const selectedItems = useMemo(() => {
@@ -170,6 +181,13 @@ export default function QuoteConvertPage() {
     setItemResponsibilityCenters((prev) => ({
       ...prev,
       [itemId]: value,
+    }));
+  };
+
+  const updateItemReserveQty = (itemId: string, reserveQty: number) => {
+    setItemReserveQuantities((prev) => ({
+      ...prev,
+      [itemId]: Math.max(0, Math.trunc(reserveQty || 0)),
     }));
   };
 
@@ -236,6 +254,7 @@ export default function QuoteConvertPage() {
           id: item.id,
           quantity: resolveItemQuantity(item),
           responsibilityCenter: resolveItemResponsibility(item).trim() || undefined,
+          reserveQty: resolveItemReserveQty(item),
         })),
       });
 
@@ -327,6 +346,7 @@ export default function QuoteConvertPage() {
                       <th className="text-right">Birim</th>
                       <th className="text-right">Toplam</th>
                       <th>Tip</th>
+                      <th className="text-right">Rezerve</th>
                       <th>Sorumluluk</th>
                       <th>Kapatma Nedeni</th>
                     </tr>
@@ -391,6 +411,36 @@ export default function QuoteConvertPage() {
                             <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-gray-600">
                               {item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali'}
                             </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            {isSelected ? (
+                              <div className="inline-flex items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  className="h-6 w-6 rounded border border-slate-200 text-xs text-gray-600 hover:bg-slate-50 disabled:opacity-40"
+                                  onClick={() => updateItemReserveQty(item.id, resolveItemReserveQty(item) - 1)}
+                                  disabled={resolveItemReserveQty(item) <= 0}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="w-16 rounded border border-slate-200 px-2 py-1 text-right text-xs"
+                                  value={resolveItemReserveQty(item)}
+                                  onChange={(e) => updateItemReserveQty(item.id, Number(e.target.value))}
+                                  min={0}
+                                />
+                                <button
+                                  type="button"
+                                  className="h-6 w-6 rounded border border-slate-200 text-xs text-gray-600 hover:bg-slate-50"
+                                  onClick={() => updateItemReserveQty(item.id, resolveItemReserveQty(item) + 1)}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
                           </td>
                           <td className="py-3">
                             {isSelected ? (

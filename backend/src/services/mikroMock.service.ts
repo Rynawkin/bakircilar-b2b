@@ -613,6 +613,8 @@ export class MikroMockService {
       vatRate: number;
       lineDescription?: string;
       quoteLineGuid?: string;
+      responsibilityCenter?: string;
+      reserveQty?: number;
     }>;
     applyVAT: boolean;
     description: string;

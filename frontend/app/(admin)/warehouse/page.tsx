@@ -105,9 +105,26 @@ interface WarehouseOrderDetail {
     lineTotal: number;
     vat: number;
     stockAvailable: number;
+    warehouseStocks: {
+      merkez: number;
+      topca: number;
+    };
     stockCoverageStatus: CoverageStatus;
     imageUrl: string | null;
     shelfCode: string | null;
+    reservedQty: number;
+    hasOwnReservation: boolean;
+    hasOtherReservation: boolean;
+    reservations: Array<{
+      mikroOrderNumber: string;
+      customerCode: string;
+      customerName: string;
+      orderDate: string;
+      reservedQty: number;
+      rowNumber: number | null;
+      isCurrentOrder: boolean;
+      matchesCurrentLine: boolean;
+    }>;
     status: WorkflowItemStatus;
   }>;
 }
@@ -145,6 +162,12 @@ const orderCoverageBadge: Record<OrderCoverageStatus, { label: string; className
   },
 };
 
+const getRemainingQtyClass = (line: WarehouseOrderDetail['lines'][number]) => {
+  if (line.shortageQty > 0 && line.pickedQty <= 0) return 'bg-rose-100 text-rose-800 border-rose-300';
+  if (line.shortageQty > 0 && line.pickedQty > 0) return 'bg-amber-100 text-amber-800 border-amber-300';
+  return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+};
+
 export default function WarehousePage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -167,6 +190,7 @@ export default function WarehousePage() {
   const [isPortrait, setIsPortrait] = useState(false);
   const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
+  const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
 
   const layoutClass = isPortrait
@@ -251,6 +275,7 @@ export default function WarehousePage() {
 
   const loadOrderDetail = async (mikroOrderNumber: string) => {
     setActiveOrderNumber(mikroOrderNumber);
+    setOpenReservationKey(null);
     setDetailLoadingOrder(mikroOrderNumber);
     setOpenOrderNumbers((prev) => (prev.includes(mikroOrderNumber) ? prev : [...prev, mikroOrderNumber]));
     try {
@@ -346,6 +371,7 @@ export default function WarehousePage() {
   };
 
   const closeOrderTab = (mikroOrderNumber: string) => {
+    setOpenReservationKey(null);
     setOpenOrderNumbers((prev) => {
       const next = prev.filter((value) => value !== mikroOrderNumber);
       setActiveOrderNumber((current) => (current === mikroOrderNumber ? next[0] || null : current));
@@ -685,8 +711,20 @@ export default function WarehousePage() {
                           {panelDetail.lines.map((line) => {
                             const draftKey = getShelfDraftKey(orderNumber, line.lineKey);
                             const saving = lineSavingKey === draftKey;
+                            const remainingQtyClass = getRemainingQtyClass(line);
+                            const reservationKey = `${orderNumber}::${line.lineKey}`;
+                            const reservationOpen = openReservationKey === reservationKey;
                             return (
-                              <div key={line.lineKey} className="rounded-2xl border border-slate-200 bg-white p-3 md:p-4">
+                              <div
+                                key={line.lineKey}
+                                className={`rounded-2xl border bg-white p-3 md:p-4 shadow-sm ${
+                                  line.stockCoverageStatus === 'NONE'
+                                    ? 'border-rose-200'
+                                    : line.stockCoverageStatus === 'PARTIAL'
+                                    ? 'border-amber-200'
+                                    : 'border-emerald-200'
+                                }`}
+                              >
                                 <div className="flex gap-3">
                                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
                                     {line.imageUrl ? (
@@ -698,28 +736,108 @@ export default function WarehousePage() {
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
-                                      <div>
-                                        <p className="text-sm md:text-base font-black text-slate-900">{line.productName}</p>
-                                        <p className="text-xs text-slate-600">{line.productCode}</p>
+                                      <div className="min-w-0">
+                                        <p className="text-sm md:text-base font-black text-slate-900 line-clamp-2">{line.productName}</p>
+                                        <p className="text-xs text-slate-600">
+                                          Satir #{line.rowNumber} | {line.productCode}
+                                        </p>
                                       </div>
-                                      <span className={`text-[11px] px-2 py-1 rounded-lg border font-bold ${stockStatusClass[line.stockCoverageStatus]}`}>
-                                        Stok: {line.stockAvailable} {line.unit}
-                                      </span>
+                                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                        <span className={`text-[11px] px-2 py-1 rounded-lg border font-bold ${stockStatusClass[line.stockCoverageStatus]}`}>
+                                          Siparis Depo Stok: {line.stockAvailable} {line.unit}
+                                        </span>
+                                        <span className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700">
+                                          Merkez: {line.warehouseStocks.merkez}
+                                        </span>
+                                        <span className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700">
+                                          Topca: {line.warehouseStocks.topca}
+                                        </span>
+                                      </div>
                                     </div>
+
                                     <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                                      <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                        Kalan: <strong>{line.remainingQty}</strong>
+                                      <div className={`rounded-xl border px-3 py-2 ${remainingQtyClass}`}>
+                                        <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
+                                        <p className="text-2xl leading-none font-black mt-1">{line.remainingQty}</p>
                                       </div>
-                                      <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                        Toplanan: <strong>{line.pickedQty}</strong>
+                                      <div className="rounded-xl border border-slate-200 bg-sky-50 px-3 py-2">
+                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Toplanan</p>
+                                        <p className="text-lg leading-none font-black mt-1 text-slate-900">{line.pickedQty}</p>
                                       </div>
-                                      <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                        Eklenen: <strong>{line.extraQty}</strong>
+                                      <div className="rounded-xl border border-slate-200 bg-violet-50 px-3 py-2">
+                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Siparissiz Ek</p>
+                                        <p className="text-lg leading-none font-black mt-1 text-slate-900">{line.extraQty}</p>
                                       </div>
-                                      <div className="rounded-lg bg-slate-100 px-2 py-1">
-                                        Eksik: <strong>{line.shortageQty}</strong>
+                                      <div className="rounded-xl border border-slate-200 bg-amber-50 px-3 py-2">
+                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Eksik</p>
+                                        <p className="text-lg leading-none font-black mt-1 text-slate-900">{line.shortageQty}</p>
                                       </div>
                                     </div>
+
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      {line.reservedQty > 0 && (
+                                        <span className="text-[11px] px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 font-bold">
+                                          Satir Rezerve: {line.reservedQty} {line.unit}
+                                        </span>
+                                      )}
+                                      {line.hasOwnReservation && (
+                                        <button
+                                          onClick={() =>
+                                            setOpenReservationKey((prev) => (prev === reservationKey ? null : reservationKey))
+                                          }
+                                          className="text-[11px] px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 font-bold"
+                                        >
+                                          Rezerve Siparis
+                                        </button>
+                                      )}
+                                      {line.hasOtherReservation && (
+                                        <button
+                                          onClick={() =>
+                                            setOpenReservationKey((prev) => (prev === reservationKey ? null : reservationKey))
+                                          }
+                                          className="text-[11px] px-2 py-1 rounded-lg border border-rose-300 bg-rose-100 text-rose-800 font-bold"
+                                        >
+                                          Baska Sipariste Rezerve
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {reservationOpen && line.reservations.length > 0 && (
+                                      <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                        <div className="flex items-center justify-between">
+                                          <p className="text-xs font-black text-slate-700">Rezerve Detaylari</p>
+                                          <button
+                                            onClick={() => setOpenReservationKey(null)}
+                                            className="text-[11px] font-bold text-slate-500 hover:text-slate-800"
+                                          >
+                                            Kapat
+                                          </button>
+                                        </div>
+                                        <div className="mt-2 max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                                          {line.reservations.map((reservation, index) => (
+                                            <div
+                                              key={`${reservation.mikroOrderNumber}-${reservation.rowNumber || 'x'}-${index}`}
+                                              className={`rounded-lg border px-2 py-1.5 ${
+                                                reservation.isCurrentOrder
+                                                  ? 'border-emerald-200 bg-emerald-50'
+                                                  : 'border-rose-200 bg-rose-50'
+                                              }`}
+                                            >
+                                              <p className="text-[11px] font-bold text-slate-800">
+                                                {reservation.mikroOrderNumber}
+                                                {reservation.rowNumber ? ` (Satir #${reservation.rowNumber})` : ''}
+                                              </p>
+                                              <p className="text-[11px] text-slate-700">
+                                                {reservation.customerCode} | {reservation.customerName}
+                                              </p>
+                                              <p className="text-[11px] text-slate-700">
+                                                {formatDateShort(reservation.orderDate)} | Rezerve: {reservation.reservedQty} {line.unit}
+                                              </p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
 

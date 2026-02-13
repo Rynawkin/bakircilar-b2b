@@ -463,6 +463,7 @@ export const adminApi = {
       manualVatRate?: number;
       lineDescription?: string;
       responsibilityCenter?: string;
+      reserveQty?: number;
     }>;
     warehouseNo: number;
     description?: string;
@@ -567,9 +568,26 @@ export const adminApi = {
       lineTotal: number;
       vat: number;
       stockAvailable: number;
+      warehouseStocks: {
+        merkez: number;
+        topca: number;
+      };
       stockCoverageStatus: 'FULL' | 'PARTIAL' | 'NONE';
       imageUrl: string | null;
       shelfCode: string | null;
+      reservedQty: number;
+      hasOwnReservation: boolean;
+      hasOtherReservation: boolean;
+      reservations: Array<{
+        mikroOrderNumber: string;
+        customerCode: string;
+        customerName: string;
+        orderDate: string;
+        reservedQty: number;
+        rowNumber: number | null;
+        isCurrentOrder: boolean;
+        matchesCurrentLine: boolean;
+      }>;
       status: 'PENDING' | 'PICKED' | 'PARTIAL' | 'MISSING' | 'EXTRA';
     }>;
   }> => {
@@ -739,7 +757,7 @@ export const adminApi = {
       whiteSira?: number;
       documentNo?: string;
       documentDescription?: string;
-      itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string }>;
+      itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string; reserveQty?: number }>;
     }
   ): Promise<{ mikroOrderIds: string[]; closedCount: number; orderId: string; orderNumber: string }> => {
     const response = await apiClient.post(`/admin/quotes/${id}/convert-to-order`, payload);

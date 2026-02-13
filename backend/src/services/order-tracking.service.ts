@@ -18,9 +18,12 @@ interface PendingOrderItem {
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
+  reservedQty?: number;
+  reservedDeliveredQty?: number;
   unitPrice: number;
   lineTotal: number;
   vat: number;
+  rowNumber?: number;
 }
 
 interface PendingOrder {
@@ -191,6 +194,8 @@ class OrderTrackingService {
         s.sip_miktar,
         ISNULL(s.sip_teslim_miktar, 0) as teslim_miktar,
         (s.sip_miktar - ISNULL(s.sip_teslim_miktar, 0)) as kalan_miktar,
+        ISNULL(s.sip_rezervasyon_miktari, 0) as rezerve_miktar,
+        ISNULL(s.sip_rezerveden_teslim_edilen, 0) as rezerve_teslim_miktar,
         s.sip_b_fiyat as birim_fiyat,
         s.sip_tutar as tutar,
         s.sip_vergi as kdv
@@ -273,6 +278,9 @@ class OrderTrackingService {
       // Kalan KDV'yi oransal olarak hesapla
       const kdvRate = row.tutar > 0 ? row.kdv / row.tutar : 0;
       const remainingVat = remainingTotal * kdvRate;
+      const reserveQty = Math.max(Number(row.rezerve_miktar || 0), 0);
+      const reserveDeliveredQty = Math.max(Number(row.rezerve_teslim_miktar || 0), 0);
+      const activeReserveQty = Math.max(reserveQty - reserveDeliveredQty, 0);
 
       // Satır detayını ekle
       const item: any = {
@@ -283,6 +291,8 @@ class OrderTrackingService {
         quantity: row.sip_miktar,
         deliveredQty: row.teslim_miktar,
         remainingQty: row.kalan_miktar,
+        reservedQty: activeReserveQty,
+        reservedDeliveredQty: reserveDeliveredQty,
         unitPrice: row.birim_fiyat,
         lineTotal: remainingTotal,  // KALAN TUTAR
         vat: remainingVat,  // KALAN KDV

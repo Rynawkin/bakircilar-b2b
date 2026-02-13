@@ -109,6 +109,7 @@ class OrderService {
       manualVatRate?: number;
       lineDescription?: string;
       responsibilityCenter?: string;
+      reserveQty?: number;
     }>;
     warehouseNo: number;
     description?: string;
@@ -232,6 +233,11 @@ class OrderService {
         item.productName?.trim() ||
         product.name ||
         '';
+      const reserveQtyRaw = Number(item.reserveQty);
+      const reserveQty =
+        Number.isFinite(reserveQtyRaw) && reserveQtyRaw > 0
+          ? Math.min(reserveQtyRaw, quantity)
+          : 0;
 
       return {
         productId: product.id,
@@ -243,6 +249,7 @@ class OrderService {
         priceType,
         lineDescription,
         responsibilityCenter: item.responsibilityCenter?.trim() || undefined,
+        reserveQty,
       };
     });
 
@@ -266,6 +273,7 @@ class OrderService {
           vatRate: item.vatRate,
           lineDescription: item.lineDescription || undefined,
           responsibilityCenter: item.responsibilityCenter || undefined,
+          reserveQty: item.reserveQty || 0,
         })),
         applyVAT: true,
         description: description?.trim() || 'B2B Manuel Siparis',
@@ -293,6 +301,7 @@ class OrderService {
           vatRate: 0,
           lineDescription: item.lineDescription || undefined,
           responsibilityCenter: item.responsibilityCenter || undefined,
+          reserveQty: item.reserveQty || 0,
         })),
         applyVAT: false,
         description: description?.trim() || 'B2B Manuel Siparis',
