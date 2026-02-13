@@ -185,6 +185,13 @@ export default function WarehousePage() {
   }, [user, permissionsLoading, selectedSeries, selectedStatus, searchDebounced]);
 
   const totalOrdersCount = useMemo(() => orders.length, [orders]);
+  const detailWorkflowStatus: WorkflowStatus = detail?.workflow?.status || 'PENDING';
+  const hasStartedPicking = detail
+    ? Boolean(detail.workflow?.startedAt) || detailWorkflowStatus !== 'PENDING'
+    : false;
+  const canEditLines = detail
+    ? hasStartedPicking && detailWorkflowStatus !== 'DISPATCHED'
+    : false;
 
   const fetchOverview = async (showLoader: boolean) => {
     if (showLoader) setIsLoading(true);
@@ -242,24 +249,6 @@ export default function WarehousePage() {
       await adminApi.startWarehousePicking(selectedOrderNumber);
       await refreshSelectedDetail();
       toast.success('Toplama baslatildi');
-    });
-  };
-
-  const handleMarkLoaded = async () => {
-    if (!selectedOrderNumber) return;
-    await withAction(async () => {
-      await adminApi.markWarehouseLoaded(selectedOrderNumber);
-      await refreshSelectedDetail();
-      toast.success('Yukleme durumu guncellendi');
-    });
-  };
-
-  const handleMarkDispatched = async () => {
-    if (!selectedOrderNumber) return;
-    await withAction(async () => {
-      await adminApi.markWarehouseDispatched(selectedOrderNumber);
-      await refreshSelectedDetail();
-      toast.success('Siparis sevk edildi olarak isaretlendi');
     });
   };
 
@@ -458,35 +447,24 @@ export default function WarehousePage() {
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                   <Button
                     onClick={handleStartPicking}
-                    disabled={actionLoading || detail.workflow?.status === 'DISPATCHED'}
+                    disabled={actionLoading || hasStartedPicking}
                     className="h-12 text-sm font-bold"
                   >
-                    Toplamaya Basla
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={handleMarkLoaded}
-                    disabled={actionLoading || detail.workflow?.status === 'DISPATCHED'}
-                    className="h-12 text-sm font-bold"
-                  >
-                    Yuklendi
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={handleMarkDispatched}
-                    disabled={actionLoading || detail.workflow?.status === 'DISPATCHED'}
-                    className="h-12 text-sm font-bold"
-                  >
-                    Sevk Edildi
+                    {hasStartedPicking ? 'Toplama Basladi' : 'Toplamaya Basla'}
                   </Button>
                   <Button
                     variant="secondary"
                     onClick={refreshSelectedDetail}
                     disabled={actionLoading}
-                    className="h-12 text-sm font-bold"
+                    className="h-12 text-sm font-bold col-span-1"
                   >
                     Detay Yenile
                   </Button>
+                  <div className="col-span-2 lg:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 flex items-center">
+                    {canEditLines
+                      ? 'Toplama aktif. Satirlarda miktar/raf islemleri yapabilirsiniz.'
+                      : 'Satir islemleri icin once Toplamaya Basla adimini tamamlayin.'}
+                  </div>
                 </div>
 
                 <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
@@ -536,7 +514,7 @@ export default function WarehousePage() {
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => changePicked(line, -1)}
-                                disabled={saving}
+                                disabled={saving || !canEditLines}
                                 className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
                               >
                                 -
@@ -546,17 +524,17 @@ export default function WarehousePage() {
                               </div>
                               <button
                                 onClick={() => changePicked(line, 1)}
-                                disabled={saving}
+                                disabled={saving || !canEditLines}
                                 className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
                               >
                                 +
                               </button>
                               <button
                                 onClick={() => updateLine(line, { pickedQty: line.remainingQty })}
-                                disabled={saving}
+                                disabled={saving || !canEditLines}
                                 className="h-11 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50"
                               >
-                                Tamam
+                                Tamami Toplandi
                               </button>
                             </div>
                           </div>
@@ -566,7 +544,7 @@ export default function WarehousePage() {
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => changeExtra(line, -1)}
-                                disabled={saving}
+                                disabled={saving || !canEditLines}
                                 className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
                               >
                                 -
@@ -576,7 +554,7 @@ export default function WarehousePage() {
                               </div>
                               <button
                                 onClick={() => changeExtra(line, 1)}
-                                disabled={saving}
+                                disabled={saving || !canEditLines}
                                 className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
                               >
                                 +
@@ -591,14 +569,17 @@ export default function WarehousePage() {
                             onChange={(event) =>
                               setShelfDrafts((prev) => ({ ...prev, [line.lineKey]: event.target.value }))
                             }
-                            onBlur={() => saveShelf(line)}
+                            onBlur={() => {
+                              if (canEditLines) saveShelf(line);
+                            }}
                             placeholder="Raf kodu (ornek: A-03-12)"
                             className="h-11"
+                            disabled={!canEditLines}
                           />
                           <Button
                             variant="secondary"
                             onClick={() => saveShelf(line)}
-                            disabled={saving}
+                            disabled={saving || !canEditLines}
                             className="h-11 px-4"
                           >
                             Raf Kaydet

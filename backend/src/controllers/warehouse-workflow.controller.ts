@@ -75,7 +75,12 @@ class WarehouseWorkflowController {
       res.json(result);
     } catch (error: any) {
       console.error('Depo satir guncelleme hatasi:', error);
-      const status = error.message?.includes('bulunamadi') ? 404 : 500;
+      const status =
+        error.message?.includes('bulunamadi')
+          ? 404
+          : error.message?.includes('baslatilmadan') || error.message?.includes('degistirilemez')
+          ? 400
+          : 500;
       res.status(status).json({ error: error.message || 'Satir guncellenemedi' });
     }
   }
@@ -91,7 +96,7 @@ class WarehouseWorkflowController {
       res.json(result);
     } catch (error: any) {
       console.error('Yuklendi isaretleme hatasi:', error);
-      const status = error.message?.includes('bulunamadi') ? 404 : 500;
+      const status = error.message?.includes('manuel') ? 400 : error.message?.includes('bulunamadi') ? 404 : 500;
       res.status(status).json({ error: error.message || 'Siparis yukleme durumu guncellenemedi' });
     }
   }
@@ -107,7 +112,7 @@ class WarehouseWorkflowController {
       res.json(result);
     } catch (error: any) {
       console.error('Sevk edildi isaretleme hatasi:', error);
-      const status = error.message?.includes('bulunamadi') ? 404 : 500;
+      const status = error.message?.includes('manuel') ? 400 : error.message?.includes('bulunamadi') ? 404 : 500;
       res.status(status).json({ error: error.message || 'Siparis sevk durumu guncellenemedi' });
     }
   }

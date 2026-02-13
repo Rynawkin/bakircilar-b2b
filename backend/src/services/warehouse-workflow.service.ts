@@ -213,20 +213,31 @@ class WarehouseWorkflowService {
 
   private determineWorkflowStatusFromItems(
     currentStatus: WorkflowStatus,
-    items: Array<{ pickedQty: number; shortageQty: number; remainingQty: number; extraQty: number }>
+    items: Array<{ pickedQty: number; shortageQty: number; remainingQty: number; extraQty: number }>,
+    hasStarted: boolean
   ): WorkflowStatus {
-    if (currentStatus === 'DISPATCHED' || currentStatus === 'LOADED' || currentStatus === 'PARTIALLY_LOADED') {
+    if (currentStatus === 'DISPATCHED') {
       return currentStatus;
     }
 
-    if (items.length === 0) return 'PENDING';
+    if (!hasStarted) return 'PENDING';
+    if (items.length === 0) return 'PICKING';
 
-    const hasAnyProgress = items.some((item) => item.pickedQty > 0 || item.extraQty > 0);
-    const hasAnyShortage = items.some((item) => Math.max(item.shortageQty, item.remainingQty - item.pickedQty, 0) > 0);
+    const hasAnyProgress = items.some(
+      (item) =>
+        Math.max(item.pickedQty, 0) > 0 ||
+        Math.max(item.extraQty, 0) > 0 ||
+        Math.max(item.shortageQty, 0) > 0
+    );
+    const hasAnyShortage = items.some((item) => Math.max(item.shortageQty, 0) > 0);
+    const allLinesHandled = items.every((item) => {
+      const remaining = Math.max(item.remainingQty, 0);
+      const handled = Math.max(item.pickedQty, 0) + Math.max(item.shortageQty, 0);
+      return handled >= remaining;
+    });
 
-    if (!hasAnyProgress) return 'PENDING';
-    if (!hasAnyShortage) return 'READY_FOR_LOADING';
-    return 'PICKING';
+    if (!hasAnyProgress || !allLinesHandled) return 'PICKING';
+    return hasAnyShortage ? 'PARTIALLY_LOADED' : 'LOADED';
   }
 
   private async upsertWorkflowFromPendingOrder(
@@ -376,7 +387,8 @@ class WarehouseWorkflowService {
 
     const nextStatus = this.determineWorkflowStatusFromItems(
       existingWorkflow.status as WorkflowStatus,
-      refreshedItems
+      refreshedItems,
+      Boolean(existingWorkflow.startedAt || assignedPickerUserId)
     );
 
     return prisma.warehouseOrderWorkflow.update({
@@ -406,7 +418,16 @@ class WarehouseWorkflowService {
 
     const pendingOrders = await prisma.pendingMikroOrder.findMany({
       where: {
-        ...(seriesFilter ? { orderSeries: seriesFilter } : {}),
+        OR: [
+          { sectorCode: null },
+          {
+            NOT: {
+              sectorCode: {
+                startsWith: 'SATICI',
+              },
+            },
+          },
+        ],
       },
       orderBy: [{ orderSeries: 'asc' }, { orderDate: 'desc' }, { orderSequence: 'desc' }],
     });
@@ -435,7 +456,7 @@ class WarehouseWorkflowService {
     );
     const { stockMap } = await this.getProductAndShelfMaps(allProductCodes);
 
-    const orderRows = pendingOrders
+    const preFilteredRows = pendingOrders
       .map((order) => {
         const pendingItems = parsePendingItems(order.items);
         const workflow = workflowMap.get(order.mikroOrderNumber);
@@ -470,6 +491,11 @@ class WarehouseWorkflowService {
         return text.includes(search);
       });
 
+    const orderRows = preFilteredRows.filter((row) => {
+      if (!seriesFilter) return true;
+      return row.orderSeries === seriesFilter;
+    });
+
     const seriesMap = new Map<
       string,
       {
@@ -483,7 +509,7 @@ class WarehouseWorkflowService {
       }
     >();
 
-    for (const row of orderRows) {
+    for (const row of preFilteredRows) {
       const key = row.orderSeries || 'DIGER';
       if (!seriesMap.has(key)) {
         seriesMap.set(key, {
@@ -657,6 +683,15 @@ class WarehouseWorkflowService {
     }
 
     const workflow = await this.upsertWorkflowFromPendingOrder(pendingOrder, payload.userId);
+
+    if (!workflow.startedAt || workflow.status === 'PENDING') {
+      throw new Error('Toplama baslatilmadan satir guncellenemez');
+    }
+
+    if (workflow.status === 'DISPATCHED') {
+      throw new Error('Sevk edilen siparis degistirilemez');
+    }
+
     const item = workflow.items.find((entry) => entry.lineKey === normalizedLineKey);
 
     if (!item) {
@@ -722,7 +757,8 @@ class WarehouseWorkflowService {
 
     const nextWorkflowStatus = this.determineWorkflowStatusFromItems(
       (workflow.status as WorkflowStatus) || 'PENDING',
-      refreshed?.items || []
+      refreshed?.items || [],
+      Boolean(workflow.startedAt || payload.userId)
     );
 
     await prisma.warehouseOrderWorkflow.update({
@@ -739,41 +775,11 @@ class WarehouseWorkflowService {
   }
 
   async markLoaded(mikroOrderNumber: string) {
-    const detail = await this.getOrderDetail(mikroOrderNumber, true);
-    if (!detail.workflow) throw new Error('Workflow bulunamadi');
-
-    const hasShortage = detail.lines.some((line) => line.shortageQty > 0);
-    const now = new Date();
-
-    await prisma.warehouseOrderWorkflow.update({
-      where: { id: detail.workflow.id },
-      data: {
-        status: hasShortage ? 'PARTIALLY_LOADED' : 'LOADED',
-        loadingStartedAt: detail.workflow.loadingStartedAt || now,
-        loadedAt: now,
-        lastActionAt: now,
-      },
-    });
-
-    return this.getOrderDetail(mikroOrderNumber, false);
+    throw new Error('Durum manuel guncellenemez');
   }
 
   async markDispatched(mikroOrderNumber: string) {
-    const detail = await this.getOrderDetail(mikroOrderNumber, true);
-    if (!detail.workflow) throw new Error('Workflow bulunamadi');
-
-    const now = new Date();
-
-    await prisma.warehouseOrderWorkflow.update({
-      where: { id: detail.workflow.id },
-      data: {
-        status: 'DISPATCHED',
-        dispatchedAt: now,
-        lastActionAt: now,
-      },
-    });
-
-    return this.getOrderDetail(mikroOrderNumber, false);
+    throw new Error('Durum manuel guncellenemez');
   }
 
   async getWorkflowStatusMap(mikroOrderNumbers: string[]) {
