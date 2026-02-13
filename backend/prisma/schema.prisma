@@ -72,6 +72,23 @@ enum OrderItemStatus {
   REJECTED  // Reddedildi
 }
 
+enum WarehouseWorkflowStatus {
+  PENDING
+  PICKING
+  READY_FOR_LOADING
+  PARTIALLY_LOADED
+  LOADED
+  DISPATCHED
+}
+
+enum WarehouseWorkflowItemStatus {
+  PENDING
+  PICKED
+  PARTIAL
+  MISSING
+  EXTRA
+}
+
 
 
 
@@ -1392,6 +1409,71 @@ model PendingMikroOrder {
   @@index([syncedAt])
   @@index([emailSent])
   @@index([sectorCode])
+}
+
+model WarehouseOrderWorkflow {
+  id                    String                  @id @default(uuid())
+  mikroOrderNumber      String                  @unique
+  orderSeries           String
+  orderSequence         Int
+  customerCode          String
+  customerName          String
+  status                WarehouseWorkflowStatus @default(PENDING)
+  assignedPickerUserId  String?
+  startedAt             DateTime?
+  loadingStartedAt      DateTime?
+  loadedAt              DateTime?
+  dispatchedAt          DateTime?
+  lastActionAt          DateTime?
+  notes                 String?
+  items                 WarehouseOrderWorkflowItem[]
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@index([orderSeries])
+  @@index([status])
+  @@index([customerCode])
+}
+
+model WarehouseOrderWorkflowItem {
+  id              String                      @id @default(uuid())
+  workflowId      String
+  workflow        WarehouseOrderWorkflow      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  lineKey         String
+  rowNumber       Int?
+  productCode     String
+  productName     String
+  unit            String
+  requestedQty    Float
+  deliveredQty    Float                       @default(0)
+  remainingQty    Float
+  pickedQty       Float                       @default(0)
+  extraQty        Float                       @default(0)
+  shortageQty     Float                       @default(0)
+  unitPrice       Float                       @default(0)
+  vat             Float                       @default(0)
+  stockSnapshot   Float?
+  imageUrl        String?
+  shelfCode       String?
+  status          WarehouseWorkflowItemStatus @default(PENDING)
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  @@unique([workflowId, lineKey])
+  @@index([workflowId, status])
+  @@index([productCode])
+}
+
+model WarehouseShelfLocation {
+  id          String    @id @default(uuid())
+  productCode String    @unique
+  shelfCode   String
+  note        String?
+  updatedBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([shelfCode])
 }
 
 // Email gönderim logları

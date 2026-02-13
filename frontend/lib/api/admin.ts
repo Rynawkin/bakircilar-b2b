@@ -477,6 +477,129 @@ export const adminApi = {
     return response.data;
   },
 
+  // Warehouse Workflow (Depo Dokunmatik Akis)
+  getWarehouseOverview: async (params?: {
+    series?: string;
+    search?: string;
+    status?: 'ALL' | 'PENDING' | 'PICKING' | 'READY_FOR_LOADING' | 'PARTIALLY_LOADED' | 'LOADED' | 'DISPATCHED';
+  }): Promise<{
+    series: Array<{
+      series: string;
+      total: number;
+      pending: number;
+      picking: number;
+      ready: number;
+      loaded: number;
+      dispatched: number;
+    }>;
+    orders: Array<{
+      mikroOrderNumber: string;
+      orderSeries: string;
+      orderSequence: number;
+      customerCode: string;
+      customerName: string;
+      orderDate: string;
+      deliveryDate: string | null;
+      itemCount: number;
+      grandTotal: number;
+      workflowStatus: 'PENDING' | 'PICKING' | 'READY_FOR_LOADING' | 'PARTIALLY_LOADED' | 'LOADED' | 'DISPATCHED';
+      assignedPickerUserId: string | null;
+      startedAt: string | null;
+      loadedAt: string | null;
+      dispatchedAt: string | null;
+      coverage: {
+        fullLines: number;
+        partialLines: number;
+        missingLines: number;
+        coveredPercent: number;
+      };
+    }>;
+  }> => {
+    const response = await apiClient.get('/order-tracking/admin/warehouse/overview', { params });
+    return response.data;
+  },
+
+  getWarehouseOrderDetail: async (mikroOrderNumber: string): Promise<{
+    order: {
+      mikroOrderNumber: string;
+      orderSeries: string;
+      orderSequence: number;
+      customerCode: string;
+      customerName: string;
+      orderDate: string;
+      deliveryDate: string | null;
+      itemCount: number;
+      grandTotal: number;
+    };
+    workflow: {
+      id: string;
+      status: 'PENDING' | 'PICKING' | 'READY_FOR_LOADING' | 'PARTIALLY_LOADED' | 'LOADED' | 'DISPATCHED';
+      assignedPickerUserId: string | null;
+      startedAt: string | null;
+      loadingStartedAt: string | null;
+      loadedAt: string | null;
+      dispatchedAt: string | null;
+      lastActionAt: string | null;
+    } | null;
+    coverage: {
+      fullLines: number;
+      partialLines: number;
+      missingLines: number;
+      coveredPercent: number;
+    };
+    lines: Array<{
+      lineKey: string;
+      rowNumber: number;
+      productCode: string;
+      productName: string;
+      unit: string;
+      requestedQty: number;
+      deliveredQty: number;
+      remainingQty: number;
+      pickedQty: number;
+      extraQty: number;
+      shortageQty: number;
+      unitPrice: number;
+      lineTotal: number;
+      vat: number;
+      stockAvailable: number;
+      stockCoverageStatus: 'FULL' | 'PARTIAL' | 'NONE';
+      imageUrl: string | null;
+      shelfCode: string | null;
+      status: 'PENDING' | 'PICKED' | 'PARTIAL' | 'MISSING' | 'EXTRA';
+    }>;
+  }> => {
+    const response = await apiClient.get(`/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}`);
+    return response.data;
+  },
+
+  startWarehousePicking: async (mikroOrderNumber: string) => {
+    const response = await apiClient.post(`/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/start`);
+    return response.data;
+  },
+
+  updateWarehouseItem: async (
+    mikroOrderNumber: string,
+    lineKey: string,
+    data: { pickedQty?: number; extraQty?: number; shelfCode?: string | null }
+  ) => {
+    const response = await apiClient.patch(
+      `/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/items/${encodeURIComponent(lineKey)}`,
+      data
+    );
+    return response.data;
+  },
+
+  markWarehouseLoaded: async (mikroOrderNumber: string) => {
+    const response = await apiClient.post(`/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/loaded`);
+    return response.data;
+  },
+
+  markWarehouseDispatched: async (mikroOrderNumber: string) => {
+    const response = await apiClient.post(`/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/dispatched`);
+    return response.data;
+  },
+
   // Quotes (Teklifler)
   getQuotePreferences: async (): Promise<{
     preferences: {

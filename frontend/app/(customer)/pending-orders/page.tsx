@@ -28,6 +28,8 @@ interface PendingOrder {
   totalAmount: number;
   totalVAT: number;
   grandTotal: number;
+  warehouseStatus?: 'PENDING' | 'PICKING' | 'READY_FOR_LOADING' | 'PARTIALLY_LOADED' | 'LOADED' | 'DISPATCHED';
+  warehouseStatusUpdatedAt?: string | null;
 }
 
 export default function CustomerPendingOrdersPage() {
@@ -84,6 +86,16 @@ export default function CustomerPendingOrdersPage() {
       month: 'long',
       year: 'numeric',
     }).format(new Date(date));
+  };
+
+  const getWarehouseStatusText = (status?: PendingOrder['warehouseStatus']) => {
+    const current = status || 'PENDING';
+    if (current === 'PICKING') return 'Toplaniyor';
+    if (current === 'READY_FOR_LOADING') return 'Yuklemeye Hazir';
+    if (current === 'PARTIALLY_LOADED') return 'Kismi Yuklendi';
+    if (current === 'LOADED') return 'Yuklendi';
+    if (current === 'DISPATCHED') return 'Sevk Edildi';
+    return 'Beklemede';
   };
 
   if (!user || isLoading) {
@@ -143,6 +155,7 @@ export default function CustomerPendingOrdersPage() {
                         <span>📅 Tarih: {formatDate(order.orderDate)}</span>
                         <span>🚚 Teslimat: {formatDate(order.deliveryDate)}</span>
                         <span>📦 {order.itemCount} kalem</span>
+                        <span>Depo: {getWarehouseStatusText(order.warehouseStatus)}</span>
                       </div>
                     </div>
                     <div className="text-right ml-4">

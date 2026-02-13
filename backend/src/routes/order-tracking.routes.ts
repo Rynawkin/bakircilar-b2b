@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import orderTrackingController from '../controllers/order-tracking.controller';
+import warehouseWorkflowController from '../controllers/warehouse-workflow.controller';
 import { authenticate, requirePermission } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -27,6 +28,12 @@ router.get('/admin/pending-orders', authenticate, requirePermission('admin:order
 router.get('/admin/summary', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getCustomerSummary);
 router.get('/admin/supplier-summary', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getSupplierSummary);
 router.get('/admin/email-logs', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getEmailLogs);
+router.get('/admin/warehouse/overview', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getOverview);
+router.get('/admin/warehouse/orders/:mikroOrderNumber', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getOrderDetail);
+router.post('/admin/warehouse/orders/:mikroOrderNumber/start', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.startPicking);
+router.patch('/admin/warehouse/orders/:mikroOrderNumber/items/:lineKey', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.updateItem);
+router.post('/admin/warehouse/orders/:mikroOrderNumber/loaded', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.markLoaded);
+router.post('/admin/warehouse/orders/:mikroOrderNumber/dispatched', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.markDispatched);
 
 // Test - Only ADMIN/HEAD_ADMIN
 router.post('/admin/test-email', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.sendTestEmail);

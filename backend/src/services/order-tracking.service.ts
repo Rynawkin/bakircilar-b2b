@@ -8,6 +8,7 @@
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import { MIKRO_TABLES } from '../config/mikro-tables';
+import warehouseWorkflowService from './warehouse-workflow.service';
 
 interface PendingOrderItem {
   productCode: string;
@@ -36,6 +37,8 @@ interface PendingOrder {
   totalAmount: number;
   totalVAT: number;
   grandTotal: number;
+  warehouseStatus?: string;
+  warehouseStatusUpdatedAt?: Date | null;
 }
 
 class OrderTrackingService {
@@ -296,6 +299,10 @@ class OrderTrackingService {
       orderBy: { orderDate: 'desc' },
     });
 
+    const workflowMap = await warehouseWorkflowService.getWorkflowStatusMap(
+      orders.map((order) => order.mikroOrderNumber)
+    );
+
     return orders.map((order) => ({
       mikroOrderNumber: order.mikroOrderNumber,
       orderSeries: order.orderSeries,
@@ -309,6 +316,8 @@ class OrderTrackingService {
       totalAmount: order.totalAmount,
       totalVAT: order.totalVAT,
       grandTotal: order.grandTotal,
+      warehouseStatus: workflowMap.get(order.mikroOrderNumber)?.status || 'PENDING',
+      warehouseStatusUpdatedAt: workflowMap.get(order.mikroOrderNumber)?.updatedAt || null,
     }));
   }
 
@@ -320,6 +329,10 @@ class OrderTrackingService {
       orderBy: [{ orderDate: 'desc' }, { mikroOrderNumber: 'asc' }],
     });
 
+    const workflowMap = await warehouseWorkflowService.getWorkflowStatusMap(
+      orders.map((order) => order.mikroOrderNumber)
+    );
+
     return orders.map((order) => ({
       mikroOrderNumber: order.mikroOrderNumber,
       orderSeries: order.orderSeries,
@@ -333,6 +346,8 @@ class OrderTrackingService {
       totalAmount: order.totalAmount,
       totalVAT: order.totalVAT,
       grandTotal: order.grandTotal,
+      warehouseStatus: workflowMap.get(order.mikroOrderNumber)?.status || 'PENDING',
+      warehouseStatusUpdatedAt: workflowMap.get(order.mikroOrderNumber)?.updatedAt || null,
     }));
   }
 
