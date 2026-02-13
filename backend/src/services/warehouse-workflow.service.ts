@@ -1071,8 +1071,27 @@ class WarehouseWorkflowService {
       prisma.warehouseImageIssueReport.count({ where: { status: 'FIXED' } }),
     ]);
 
+    const productCodes = Array.from(new Set(reports.map((report) => normalizeCode(report.productCode)).filter(Boolean)));
+    const products = productCodes.length
+      ? await prisma.product.findMany({
+          where: { mikroCode: { in: productCodes } },
+          select: { id: true, mikroCode: true, imageUrl: true },
+        })
+      : [];
+    const productMap = new Map(
+      products.map((product) => [normalizeCode(product.mikroCode), { id: product.id, imageUrl: product.imageUrl || null }])
+    );
+    const reportsWithProduct = reports.map((report) => {
+      const product = productMap.get(normalizeCode(report.productCode));
+      return {
+        ...report,
+        productId: product?.id || null,
+        currentProductImageUrl: product?.imageUrl || null,
+      };
+    });
+
     return {
-      reports,
+      reports: reportsWithProduct,
       summary: {
         total,
         open: openCount,

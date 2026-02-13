@@ -784,10 +784,13 @@ export default function WarehousePage() {
                                       <div className="min-w-0">
                                         <p className="text-sm md:text-base font-black text-slate-900 line-clamp-2">{line.productName}</p>
                                         <p className="text-xs text-slate-600">
-                                          Satir #{line.rowNumber} | {line.productCode}
+                                          Satir #{line.rowNumber} | {line.productCode} | Birim: {line.unit}
                                         </p>
                                       </div>
                                       <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                        <span className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700">
+                                          Birim: {line.unit}
+                                        </span>
                                         <span className={`text-[11px] px-2 py-1 rounded-lg border font-bold ${stockStatusClass[line.stockCoverageStatus]}`}>
                                           Siparis Depo Stok: {line.stockAvailable} {line.unit}
                                         </span>

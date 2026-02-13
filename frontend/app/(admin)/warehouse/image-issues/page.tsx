@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -23,6 +23,8 @@ interface ImageIssueReport {
   rowNumber: number | null;
   productCode: string;
   productName: string;
+  productId: string | null;
+  currentProductImageUrl: string | null;
   imageUrl: string | null;
   note: string | null;
   status: ImageIssueStatus;
@@ -72,7 +74,9 @@ export default function WarehouseImageIssuesPage() {
     fixed: 0,
   });
   const [actionKey, setActionKey] = useState<string | null>(null);
+  const [uploadingReportId, setUploadingReportId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     loadUserFromStorage();
@@ -135,6 +139,46 @@ export default function WarehouseImageIssuesPage() {
     [summary]
   );
 
+  const openUploadPicker = (reportId: string) => {
+    const ref = fileInputRefs.current[reportId];
+    if (ref) {
+      ref.click();
+    }
+  };
+
+  const handleUploadImage = async (report: ImageIssueReport, file: File | null) => {
+    if (!file) return;
+    if (!report.productId) {
+      toast.error('Bu urun sistemde bulunamadi, once urun kartini kontrol edin');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Lutfen sadece resim dosyasi yukleyin');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Dosya boyutu 5MB altinda olmali');
+      return;
+    }
+
+    setUploadingReportId(report.id);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      await adminApi.uploadProductImage(report.productId, formData);
+      await adminApi.updateWarehouseImageIssue(report.id, {
+        status: 'FIXED',
+        note: 'Resim hata talepleri ekranindan guncellendi',
+      });
+      await fetchReports(false);
+      toast.success('Resim yuklendi ve talep duzeltildi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Resim yuklenemedi');
+    } finally {
+      setUploadingReportId((prev) => (prev === report.id ? null : prev));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
       <div className="w-full px-2 md:px-4 xl:px-6 py-5 space-y-4">
@@ -190,14 +234,23 @@ export default function WarehouseImageIssuesPage() {
                   <div key={report.id} className="rounded-2xl border border-slate-200 bg-white p-3 md:p-4">
                     <div className="flex flex-col lg:flex-row gap-3">
                       <div className="w-28 h-28 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
-                        {report.imageUrl ? (
+                        {(report.currentProductImageUrl || report.imageUrl) ? (
                           <button
                             type="button"
-                            onClick={() => setPreviewImage({ url: report.imageUrl as string, name: report.productName })}
+                            onClick={() =>
+                              setPreviewImage({
+                                url: (report.currentProductImageUrl || report.imageUrl) as string,
+                                name: report.productName,
+                              })
+                            }
                             className="block w-full h-full"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={report.imageUrl} alt={report.productName} className="w-full h-full object-cover" />
+                            <img
+                              src={(report.currentProductImageUrl || report.imageUrl) as string}
+                              alt={report.productName}
+                              className="w-full h-full object-cover"
+                            />
                           </button>
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-[11px] font-bold text-slate-500">RESIM YOK</div>
@@ -265,6 +318,27 @@ export default function WarehouseImageIssuesPage() {
                         )}
 
                         <div className="flex flex-wrap gap-2 pt-1">
+                          <input
+                            ref={(node) => {
+                              fileInputRefs.current[report.id] = node;
+                            }}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(event) => {
+                              const selectedFile = event.target.files?.[0] || null;
+                              void handleUploadImage(report, selectedFile);
+                              event.target.value = '';
+                            }}
+                          />
+                          <Button
+                            variant="outline"
+                            onClick={() => openUploadPicker(report.id)}
+                            disabled={!report.productId || uploadingReportId === report.id}
+                            className="h-9 text-xs"
+                          >
+                            {uploadingReportId === report.id ? 'Resim Yukleniyor...' : 'Yeni Resim Yukle'}
+                          </Button>
                           <Button
                             variant={report.status === 'OPEN' ? 'danger' : 'secondary'}
                             onClick={() => handleStatusChange(report, 'OPEN')}

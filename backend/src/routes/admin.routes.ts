@@ -201,7 +201,7 @@ router.post(
   adminController.getProductsByCodes
 );
 router.post('/products/image-sync', requirePermission('admin:products'), adminController.triggerSelectedImageSync);
-router.post('/products/:id/image', requirePermission('admin:products'), upload.single('image'), adminController.uploadProductImage);
+router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admin:order-tracking']), upload.single('image'), adminController.uploadProductImage);
 router.delete('/products/:id/image', requirePermission('admin:products'), adminController.deleteProductImage);
 router.get('/products/:id/complements', requirePermission('admin:products'), productComplementController.getComplements);
 router.put(

@@ -651,6 +651,8 @@ export const adminApi = {
       rowNumber: number | null;
       productCode: string;
       productName: string;
+      productId: string | null;
+      currentProductImageUrl: string | null;
       imageUrl: string | null;
       note: string | null;
       status: 'OPEN' | 'REVIEWED' | 'FIXED';
