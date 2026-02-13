@@ -436,19 +436,22 @@ export default function PreviouslyPurchasedPage() {
 
                     return (
                       <Card key={product.id} className="flex flex-col gap-4 p-4">
-                        <div className="flex gap-4">
+                        <div className="space-y-3">
                           <button
                             onClick={() => openProductModal(product)}
-                            className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white"
+                            className="relative block w-full aspect-square overflow-hidden rounded-xl border border-gray-200 bg-white"
                           >
                             {product.imageUrl ? (
                               <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain" />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">Gorsel yok</div>
                             )}
+                            <div className="absolute right-2 top-2 rounded-md bg-green-600 px-2 py-1 text-[11px] font-semibold text-white shadow">
+                              Stok: {getDisplayStock(product)} {product.unit}
+                            </div>
                           </button>
 
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0">
                             <button
                               className="text-left text-sm font-semibold text-gray-900 hover:text-primary-700"
                               onClick={() => openProductModal(product)}
@@ -458,9 +461,6 @@ export default function PreviouslyPurchasedPage() {
                             <div className="mt-1 text-xs text-gray-500">Kod: {product.mikroCode}</div>
                             <div className="mt-1 text-xs text-gray-500">Kategori: {product.category.name}</div>
                             {unitLabel && <div className="mt-1 text-xs text-gray-500">{unitLabel}</div>}
-                            <div className="mt-1 text-xs text-gray-600">
-                              Stok: {getDisplayStock(product)} {product.unit}
-                            </div>
                             {product.agreement && (
                               <div className="mt-2 inline-flex rounded bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
                                 Anlasma min miktar: {product.agreement.minQuantity} {product.unit}
