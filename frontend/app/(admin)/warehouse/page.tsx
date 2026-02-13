@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
+import { getUnitConversionLabel } from '@/lib/utils/unit';
 
 type WorkflowStatus =
   | 'PENDING'
@@ -95,6 +96,8 @@ interface WarehouseOrderDetail {
     productCode: string;
     productName: string;
     unit: string;
+    unit2: string | null;
+    unit2Factor: number | null;
     requestedQty: number;
     deliveredQty: number;
     remainingQty: number;
@@ -753,6 +756,7 @@ export default function WarehousePage() {
                             const imageIssueKey = `${orderNumber}::${line.lineKey}`;
                             const imageIssueReported = Boolean(reportedImageKeys[imageIssueKey]);
                             const imageIssueReporting = reportingImageKey === imageIssueKey;
+                            const unitLabel = getUnitConversionLabel(line.unit, line.unit2, line.unit2Factor);
                             return (
                               <div
                                 key={line.lineKey}
@@ -786,6 +790,9 @@ export default function WarehousePage() {
                                         <p className="text-xs text-slate-600">
                                           Satir #{line.rowNumber} | {line.productCode} | Birim: {line.unit}
                                         </p>
+                                        {unitLabel && (
+                                          <p className="text-xs font-semibold text-cyan-700">{unitLabel}</p>
+                                        )}
                                       </div>
                                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                                         <span className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700">

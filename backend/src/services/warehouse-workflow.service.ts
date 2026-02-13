@@ -51,6 +51,7 @@ const toNumber = (value: unknown): number => {
 };
 
 const normalizeCode = (value: unknown): string => String(value ?? '').trim();
+const normalizeProductCode = (value: unknown): string => normalizeCode(value).toUpperCase();
 
 const normalizeLineKey = (productCode: string, rowNumber?: number, index = 0): string => {
   const code = normalizeCode(productCode) || `UNKNOWN-${index + 1}`;
@@ -104,10 +105,15 @@ const getWarehouseBreakdown = (warehouseStocks: unknown): { merkez: number; topc
   topca: Math.max(resolveWarehouseStockValue(warehouseStocks, '6') || 0, 0),
 });
 
-const parsePendingItems = (itemsJson: unknown): PendingOrderItemRow[] => {
+const parsePendingItems = (
+  itemsJson: unknown,
+  options?: {
+    includeNonRemaining?: boolean;
+  }
+): PendingOrderItemRow[] => {
   if (!Array.isArray(itemsJson)) return [];
 
-  return itemsJson
+  const parsed = itemsJson
     .map((raw: any, index) => ({
       productCode: normalizeCode(raw?.productCode) || `UNKNOWN-${index + 1}`,
       productName: normalizeCode(raw?.productName) || normalizeCode(raw?.productCode) || 'Bilinmeyen Urun',
@@ -122,8 +128,13 @@ const parsePendingItems = (itemsJson: unknown): PendingOrderItemRow[] => {
       lineTotal: toNumber(raw?.lineTotal),
       vat: toNumber(raw?.vat),
       rowNumber: Number.isFinite(Number(raw?.rowNumber)) ? Number(raw?.rowNumber) : undefined,
-    }))
-    .filter((item) => item.remainingQty > 0);
+    }));
+
+  if (options?.includeNonRemaining) {
+    return parsed;
+  }
+
+  return parsed.filter((item) => item.remainingQty > 0);
 };
 
 const toItemStatus = (
@@ -187,6 +198,7 @@ class WarehouseWorkflowService {
         warehouseBreakdownMap: new Map<string, { merkez: number; topca: number }>(),
         imageMap: new Map<string, string | null>(),
         shelfMap: new Map<string, string | null>(),
+        unitInfoMap: new Map<string, { unit2: string | null; unit2Factor: number | null }>(),
       };
     }
 
@@ -197,6 +209,8 @@ class WarehouseWorkflowService {
           mikroCode: true,
           imageUrl: true,
           warehouseStocks: true,
+          unit2: true,
+          unit2Factor: true,
         },
       }),
       prisma.warehouseShelfLocation.findMany({
@@ -209,19 +223,27 @@ class WarehouseWorkflowService {
     const warehouseBreakdownMap = new Map<string, { merkez: number; topca: number }>();
     const imageMap = new Map<string, string | null>();
     const shelfMap = new Map<string, string | null>();
+    const unitInfoMap = new Map<string, { unit2: string | null; unit2Factor: number | null }>();
 
     for (const product of products) {
       const code = normalizeCode(product.mikroCode);
       stockMap.set(code, getStockByWarehouse(product.warehouseStocks, warehouseCode));
       warehouseBreakdownMap.set(code, getWarehouseBreakdown(product.warehouseStocks));
       imageMap.set(code, product.imageUrl || null);
+      unitInfoMap.set(code, {
+        unit2: normalizeCode(product.unit2) || null,
+        unit2Factor:
+          Number.isFinite(Number(product.unit2Factor)) && Number(product.unit2Factor) !== 0
+            ? Number(product.unit2Factor)
+            : null,
+      });
     }
 
     for (const shelfLocation of shelfLocations) {
       shelfMap.set(normalizeCode(shelfLocation.productCode), normalizeCode(shelfLocation.shelfCode) || null);
     }
 
-    return { stockMap, warehouseBreakdownMap, imageMap, shelfMap };
+    return { stockMap, warehouseBreakdownMap, imageMap, shelfMap, unitInfoMap };
   }
 
   private computeCoverageForPendingItems(
@@ -288,7 +310,7 @@ class WarehouseWorkflowService {
   }
 
   private async getActiveReservationsByProduct(productCodes: string[]) {
-    const targetCodes = new Set(productCodes.map((code) => normalizeCode(code)).filter(Boolean));
+    const targetCodes = new Set(productCodes.map((code) => normalizeProductCode(code)).filter(Boolean));
     const reservationsByCode = new Map<string, ProductReservationEntry[]>();
 
     if (targetCodes.size === 0) {
@@ -306,9 +328,9 @@ class WarehouseWorkflowService {
     });
 
     for (const order of pendingOrders) {
-      const orderItems = parsePendingItems(order.items);
+      const orderItems = parsePendingItems(order.items, { includeNonRemaining: true });
       for (const item of orderItems) {
-        const code = normalizeCode(item.productCode);
+        const code = normalizeProductCode(item.productCode);
         if (!targetCodes.has(code)) continue;
 
         const reservedQty = Math.max(toNumber(item.reservedQty), 0);
@@ -715,7 +737,7 @@ class WarehouseWorkflowService {
     const workflowItemMap = new Map((workflow?.items || []).map((item) => [item.lineKey, item]));
 
     const productCodes = pendingItems.map((item) => item.productCode);
-    const { stockMap, warehouseBreakdownMap, imageMap, shelfMap } = await this.getProductAndShelfMaps(
+    const { stockMap, warehouseBreakdownMap, imageMap, shelfMap, unitInfoMap } = await this.getProductAndShelfMaps(
       productCodes,
       orderWarehouseCode
     );
@@ -733,8 +755,9 @@ class WarehouseWorkflowService {
       const normalizedCode = normalizeCode(item.productCode);
       const stockAvailable = stockMap.get(normalizedCode) || 0;
       const shelfCode = workflowItem?.shelfCode || shelfMap.get(normalizedCode) || null;
+      const unitInfo = unitInfoMap.get(normalizedCode) || { unit2: null, unit2Factor: null };
       const warehouseStocks = warehouseBreakdownMap.get(normalizedCode) || { merkez: 0, topca: 0 };
-      const reservationsForProduct = activeReservationsByProduct.get(normalizedCode) || [];
+      const reservationsForProduct = activeReservationsByProduct.get(normalizeProductCode(normalizedCode)) || [];
       const lineRowNumber = Number.isFinite(Number(item.rowNumber)) ? Number(item.rowNumber) : null;
       const reservationDetails = reservationsForProduct.map((reservation) => {
         const isCurrentOrder = reservation.mikroOrderNumber === pendingOrder.mikroOrderNumber;
@@ -766,6 +789,8 @@ class WarehouseWorkflowService {
         productCode: item.productCode,
         productName: item.productName,
         unit: item.unit,
+        unit2: unitInfo.unit2,
+        unit2Factor: unitInfo.unit2Factor,
         requestedQty: item.quantity,
         deliveredQty: item.deliveredQty,
         remainingQty: item.remainingQty,

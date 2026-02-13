@@ -558,6 +558,8 @@ export const adminApi = {
       productCode: string;
       productName: string;
       unit: string;
+      unit2: string | null;
+      unit2Factor: number | null;
       requestedQty: number;
       deliveredQty: number;
       remainingQty: number;
