@@ -385,7 +385,7 @@ export default function PreviouslyPurchasedPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                   {filteredProducts.map((product) => {
                     const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
                     const selectedPriceType = allowedPriceTypes.includes(quickAddPriceTypes[product.id])
@@ -435,8 +435,8 @@ export default function PreviouslyPurchasedPage() {
                     const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
 
                     return (
-                      <Card key={product.id} className="flex flex-col gap-4 p-4">
-                        <div className="space-y-3">
+                      <Card key={product.id} className="group overflow-hidden flex h-full flex-col rounded-xl border-2 border-gray-200 bg-white p-0">
+                        <div className="flex h-full flex-col space-y-3">
                           <button
                             onClick={() => openProductModal(product)}
                             className="relative block w-full aspect-square overflow-hidden rounded-xl border border-gray-200 bg-white"
@@ -451,9 +451,9 @@ export default function PreviouslyPurchasedPage() {
                             </div>
                           </button>
 
-                          <div className="min-w-0">
+                          <div className="min-h-[60px] px-3">
                             <button
-                              className="text-left text-sm font-semibold text-gray-900 hover:text-primary-700"
+                              className="line-clamp-2 text-left text-sm font-semibold text-gray-900 hover:text-primary-700"
                               onClick={() => openProductModal(product)}
                             >
                               {product.name}
@@ -469,8 +469,10 @@ export default function PreviouslyPurchasedPage() {
                           </div>
                         </div>
 
+                        <div className="flex-1" />
+
                         {showPriceTypeSelector ? (
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-2 gap-2 px-3">
                             {allowedPriceTypes.includes('INVOICED') && (
                               <button
                                 className={`rounded-lg border-2 px-3 py-2 text-left text-xs font-semibold ${
@@ -511,20 +513,22 @@ export default function PreviouslyPurchasedPage() {
                             )}
                           </div>
                         ) : (
-                          <div className="rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
-                            <div>{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
-                            <div className="font-bold">{formatCurrency(displaySelectedPrice)}</div>
-                            {showExcessPricing && displaySelectedExcessPrice !== undefined && (
-                              <div className="text-[10px] font-semibold text-green-700">
-                                Fazla stok fiyati: {formatCurrency(displaySelectedExcessPrice)}
-                                {selectedExcessDiscount && <span> (-%{selectedExcessDiscount})</span>}
-                              </div>
-                            )}
-                            <div className="mt-1 text-[10px] opacity-70">{selectedVatLabel}</div>
+                          <div className="px-3">
+                            <div className="rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
+                              <div>{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
+                              <div className="font-bold">{formatCurrency(displaySelectedPrice)}</div>
+                              {showExcessPricing && displaySelectedExcessPrice !== undefined && (
+                                <div className="text-[10px] font-semibold text-green-700">
+                                  Fazla stok fiyati: {formatCurrency(displaySelectedExcessPrice)}
+                                  {selectedExcessDiscount && <span> (-%{selectedExcessDiscount})</span>}
+                                </div>
+                              )}
+                              <div className="mt-1 text-[10px] opacity-70">{selectedVatLabel}</div>
+                            </div>
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 px-3 pb-3">
                           <Input
                             type="text"
                             inputMode="numeric"
