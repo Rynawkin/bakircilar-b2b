@@ -63,6 +63,7 @@ export const MIKRO_TABLES = {
     // Müşteri ve ürün
     CUSTOMER_CODE: 'sip_musteri_kod', // "120.05.125"
     PRODUCT_CODE: 'sip_stok_kod', // "B108195"
+    WAREHOUSE_NO: 'sip_depono', // Sipariş satırının depo numarası
 
     // Miktar bilgileri
     QUANTITY: 'sip_miktar', // Sipariş miktarı

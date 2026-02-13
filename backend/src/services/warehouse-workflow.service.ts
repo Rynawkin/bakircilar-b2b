@@ -14,6 +14,7 @@ interface PendingOrderItemRow {
   productCode: string;
   productName: string;
   unit: string;
+  warehouseCode?: string | null;
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
@@ -29,6 +30,8 @@ interface CoverageSummary {
   missingLines: number;
   coveredPercent: number;
 }
+
+type CoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
 
 interface WorkflowCoverageItem {
   lineKey: string;
@@ -60,6 +63,24 @@ const sumWarehouseStocks = (warehouseStocks: unknown): number => {
   return values.reduce<number>((sum, value) => sum + toNumber(value), 0);
 };
 
+const getStockByWarehouse = (warehouseStocks: unknown, warehouseCode?: string | null): number => {
+  if (!warehouseCode) {
+    return sumWarehouseStocks(warehouseStocks);
+  }
+
+  if (!warehouseStocks || typeof warehouseStocks !== 'object' || Array.isArray(warehouseStocks)) {
+    return 0;
+  }
+
+  const normalizedWarehouseCode = normalizeCode(warehouseCode);
+  const record = warehouseStocks as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(record, normalizedWarehouseCode)) {
+    return Math.max(toNumber(record[normalizedWarehouseCode]), 0);
+  }
+
+  return sumWarehouseStocks(warehouseStocks);
+};
+
 const parsePendingItems = (itemsJson: unknown): PendingOrderItemRow[] => {
   if (!Array.isArray(itemsJson)) return [];
 
@@ -67,6 +88,7 @@ const parsePendingItems = (itemsJson: unknown): PendingOrderItemRow[] => {
     productCode: normalizeCode(raw?.productCode) || `UNKNOWN-${index + 1}`,
     productName: normalizeCode(raw?.productName) || normalizeCode(raw?.productCode) || 'Bilinmeyen Urun',
     unit: normalizeCode(raw?.unit) || 'ADET',
+    warehouseCode: normalizeCode(raw?.warehouseCode) || null,
     quantity: toNumber(raw?.quantity),
     deliveredQty: toNumber(raw?.deliveredQty),
     remainingQty: toNumber(raw?.remainingQty),
@@ -97,7 +119,7 @@ const toItemStatus = (
 };
 
 class WarehouseWorkflowService {
-  private async getProductAndShelfMaps(productCodes: string[]) {
+  private async getProductAndShelfMaps(productCodes: string[], warehouseCode?: string | null) {
     const uniqueCodes = Array.from(new Set(productCodes.map((code) => normalizeCode(code)).filter(Boolean)));
 
     if (uniqueCodes.length === 0) {
@@ -129,7 +151,7 @@ class WarehouseWorkflowService {
 
     for (const product of products) {
       const code = normalizeCode(product.mikroCode);
-      stockMap.set(code, sumWarehouseStocks(product.warehouseStocks));
+      stockMap.set(code, getStockByWarehouse(product.warehouseStocks, warehouseCode));
       imageMap.set(code, product.imageUrl || null);
     }
 
@@ -211,6 +233,19 @@ class WarehouseWorkflowService {
     };
   }
 
+  private resolveOrderWarehouseCode(pendingItems: PendingOrderItemRow[]): string | null {
+    const candidates = pendingItems
+      .map((item) => normalizeCode(item.warehouseCode))
+      .filter((code): code is string => Boolean(code));
+    return candidates[0] || null;
+  }
+
+  private resolveCoverageStatus(coverage: CoverageSummary): CoverageStatus {
+    if (coverage.partialLines === 0 && coverage.missingLines === 0) return 'FULL';
+    if (coverage.fullLines === 0 && coverage.partialLines === 0) return 'NONE';
+    return 'PARTIAL';
+  }
+
   private determineWorkflowStatusFromItems(
     currentStatus: WorkflowStatus,
     items: Array<{ pickedQty: number; shortageQty: number; remainingQty: number; extraQty: number }>,
@@ -255,8 +290,9 @@ class WarehouseWorkflowService {
     assignedPickerUserId?: string
   ) {
     const pendingItems = parsePendingItems(pendingOrder.items);
+    const orderWarehouseCode = this.resolveOrderWarehouseCode(pendingItems);
     const productCodes = pendingItems.map((item) => item.productCode);
-    const { stockMap, imageMap, shelfMap } = await this.getProductAndShelfMaps(productCodes);
+    const { stockMap, imageMap, shelfMap } = await this.getProductAndShelfMaps(productCodes, orderWarehouseCode);
 
     const existingWorkflow = await prisma.warehouseOrderWorkflow.findUnique({
       where: { mikroOrderNumber: pendingOrder.mikroOrderNumber },
@@ -461,20 +497,40 @@ class WarehouseWorkflowService {
       : [];
 
     const workflowMap = new Map(workflows.map((workflow) => [workflow.mikroOrderNumber, workflow]));
-    const allProductCodes = pendingOrders.flatMap((order) =>
-      parsePendingItems(order.items).map((item) => item.productCode)
+    const parsedOrders = pendingOrders.map((order) => {
+      const pendingItems = parsePendingItems(order.items);
+      const warehouseCode = this.resolveOrderWarehouseCode(pendingItems);
+      return {
+        order,
+        pendingItems,
+        warehouseCode,
+      };
+    });
+    const allProductCodes = parsedOrders.flatMap((entry) => entry.pendingItems.map((item) => item.productCode));
+    const warehouseKeys = Array.from(
+      new Set(parsedOrders.map((entry) => entry.warehouseCode || '__ALL__'))
     );
-    const { stockMap } = await this.getProductAndShelfMaps(allProductCodes);
+    const stockMapByWarehouse = new Map<string, Map<string, number>>();
+    await Promise.all(
+      warehouseKeys.map(async (warehouseKey) => {
+        const { stockMap } = await this.getProductAndShelfMaps(
+          allProductCodes,
+          warehouseKey === '__ALL__' ? null : warehouseKey
+        );
+        stockMapByWarehouse.set(warehouseKey, stockMap);
+      })
+    );
 
-    const preFilteredRows = pendingOrders
-      .map((order) => {
-        const pendingItems = parsePendingItems(order.items);
+    const preFilteredRows = parsedOrders
+      .map(({ order, pendingItems, warehouseCode }) => {
         const workflow = workflowMap.get(order.mikroOrderNumber);
+        const stockMap = stockMapByWarehouse.get(warehouseCode || '__ALL__') || new Map<string, number>();
         const coverage = this.computeCoverageForPendingItems(
           pendingItems,
           stockMap,
           workflow?.items
         );
+        const coverageStatus = this.resolveCoverageStatus(coverage);
         const workflowStatus = (workflow?.status as WorkflowStatus) || 'PENDING';
         return {
           mikroOrderNumber: order.mikroOrderNumber,
@@ -491,7 +547,9 @@ class WarehouseWorkflowService {
           startedAt: workflow?.startedAt || null,
           loadedAt: workflow?.loadedAt || null,
           dispatchedAt: workflow?.dispatchedAt || null,
+          warehouseCode,
           coverage,
+          coverageStatus,
         };
       })
       .filter((row) => {
@@ -572,12 +630,14 @@ class WarehouseWorkflowService {
     }
 
     const pendingItems = parsePendingItems(pendingOrder.items);
+    const orderWarehouseCode = this.resolveOrderWarehouseCode(pendingItems);
     const lineKeys = pendingItems.map((item, index) => normalizeLineKey(item.productCode, item.rowNumber, index));
     const workflowItemMap = new Map((workflow?.items || []).map((item) => [item.lineKey, item]));
 
     const productCodes = pendingItems.map((item) => item.productCode);
-    const { stockMap, imageMap, shelfMap } = await this.getProductAndShelfMaps(productCodes);
+    const { stockMap, imageMap, shelfMap } = await this.getProductAndShelfMaps(productCodes, orderWarehouseCode);
     const coverage = this.computeCoverageForPendingItems(pendingItems, stockMap, workflow?.items);
+    const coverageStatus = this.resolveCoverageStatus(coverage);
 
     const lines = pendingItems.map((item, index) => {
       const lineKey = lineKeys[index];
@@ -622,6 +682,7 @@ class WarehouseWorkflowService {
         orderSequence: pendingOrder.orderSequence,
         customerCode: pendingOrder.customerCode,
         customerName: pendingOrder.customerName,
+        warehouseCode: orderWarehouseCode,
         orderDate: pendingOrder.orderDate,
         deliveryDate: pendingOrder.deliveryDate,
         itemCount: pendingOrder.itemCount,
@@ -640,6 +701,7 @@ class WarehouseWorkflowService {
           }
         : null,
       coverage,
+      coverageStatus,
       lines,
     };
   }

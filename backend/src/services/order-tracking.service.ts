@@ -14,6 +14,7 @@ interface PendingOrderItem {
   productCode: string;
   productName: string;
   unit: string;
+  warehouseCode?: string | null;
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
@@ -180,6 +181,7 @@ class OrderTrackingService {
         s.sip_tarih,
         s.sip_teslim_tarih,
         s.sip_musteri_kod,
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.WAREHOUSE_NO} as depo_kodu,
         c.cari_unvan1 as musteri_adi,
         c.${MIKRO_TABLES.CARI_COLUMNS.EMAIL} as musteri_email,
         c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} as sektor_kodu,
@@ -277,6 +279,7 @@ class OrderTrackingService {
         productCode: row.sip_stok_kod,
         productName: row.urun_adi || row.sip_stok_kod,
         unit: row.birim || 'ADET',
+        warehouseCode: row.depo_kodu !== undefined && row.depo_kodu !== null ? String(row.depo_kodu) : null,
         quantity: row.sip_miktar,
         deliveredQty: row.teslim_miktar,
         remainingQty: row.kalan_miktar,

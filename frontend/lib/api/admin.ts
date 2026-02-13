@@ -498,6 +498,7 @@ export const adminApi = {
       orderSequence: number;
       customerCode: string;
       customerName: string;
+      warehouseCode: string | null;
       orderDate: string;
       deliveryDate: string | null;
       itemCount: number;
@@ -513,6 +514,7 @@ export const adminApi = {
         missingLines: number;
         coveredPercent: number;
       };
+      coverageStatus: 'FULL' | 'PARTIAL' | 'NONE';
     }>;
   }> => {
     const response = await apiClient.get('/order-tracking/admin/warehouse/overview', { params });
@@ -526,6 +528,7 @@ export const adminApi = {
       orderSequence: number;
       customerCode: string;
       customerName: string;
+      warehouseCode: string | null;
       orderDate: string;
       deliveryDate: string | null;
       itemCount: number;
@@ -547,6 +550,7 @@ export const adminApi = {
       missingLines: number;
       coveredPercent: number;
     };
+    coverageStatus: 'FULL' | 'PARTIAL' | 'NONE';
     lines: Array<{
       lineKey: string;
       rowNumber: number;
