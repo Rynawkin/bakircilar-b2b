@@ -489,8 +489,8 @@ export default function DiscountedProductsPage() {
                                 -%{effectiveDiscountPercent}
                               </div>
                             ) : null}
-                            <div className="absolute right-2 top-2 rounded-md bg-orange-600 px-2 py-1 text-[11px] font-semibold text-white shadow">
-                              Fazla stok: {excessStock} {product.unit}
+                            <div className="absolute bottom-2 right-2 rounded-md bg-orange-600 px-2 py-1 text-[11px] font-semibold text-white shadow">
+                              Indirimli stok: {excessStock} {product.unit}
                             </div>
                           </button>
 
