@@ -117,14 +117,22 @@ const parseBoolean = (value: string | undefined, fallback: boolean) => {
   return fallback;
 };
 
-const normalizeInvoicePrefixes = (values?: string[]) =>
-  Array.from(
-    new Set(
-      (values || [])
-        .map((value) => normalizeInvoiceNo(value || ''))
-        .filter(Boolean)
-    )
-  );
+const normalizeInvoicePrefixes = (values?: string[]) => {
+  const normalized = (values || [])
+    .map((value) => normalizeInvoiceNo(value || ''))
+    .filter(Boolean);
+
+  const expanded = normalized.flatMap((prefix) => {
+    if (/^[A-Z]{3}\d{2}$/.test(prefix)) {
+      const series = prefix.slice(0, 3);
+      const shortYear = prefix.slice(3);
+      return [prefix, `${series}20${shortYear}`];
+    }
+    return [prefix];
+  });
+
+  return Array.from(new Set(expanded));
+};
 
 const randomSuffix = () => `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
 
