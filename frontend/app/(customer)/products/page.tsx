@@ -245,7 +245,22 @@ export default function ProductsPage() {
                 </h3>
               </div>
               <div className="flex flex-wrap gap-4">
-
+                <div className="flex-1 min-w-[250px]">
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Urun Ara
+                    {search !== debouncedSearch && (
+                      <span className="ml-2 text-xs text-primary-600 font-normal">
+                        (yaziliyor...)
+                      </span>
+                    )}
+                  </label>
+                  <Input
+                    placeholder="Urun ismi veya kodu..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full h-11 text-sm border-2 border-gray-200 focus:border-primary-500 rounded-lg shadow-sm"
+                  />
+                </div>
               </div>
 
               {(search || selectedCategory) && (
