@@ -191,6 +191,7 @@ export default function WarehousePage() {
   const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
 
   const layoutClass = isPortrait
@@ -276,6 +277,7 @@ export default function WarehousePage() {
   const loadOrderDetail = async (mikroOrderNumber: string) => {
     setActiveOrderNumber(mikroOrderNumber);
     setOpenReservationKey(null);
+    setPreviewImage(null);
     setDetailLoadingOrder(mikroOrderNumber);
     setOpenOrderNumbers((prev) => (prev.includes(mikroOrderNumber) ? prev : [...prev, mikroOrderNumber]));
     try {
@@ -372,6 +374,7 @@ export default function WarehousePage() {
 
   const closeOrderTab = (mikroOrderNumber: string) => {
     setOpenReservationKey(null);
+    setPreviewImage(null);
     setOpenOrderNumbers((prev) => {
       const next = prev.filter((value) => value !== mikroOrderNumber);
       setActiveOrderNumber((current) => (current === mikroOrderNumber ? next[0] || null : current));
@@ -726,10 +729,16 @@ export default function WarehousePage() {
                                 }`}
                               >
                                 <div className="flex gap-3">
-                                  <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                                  <div className="w-24 h-24 md:w-28 md:h-28 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
                                     {line.imageUrl ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={line.imageUrl} alt={line.productName} className="w-full h-full object-cover" />
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewImage({ url: line.imageUrl as string, name: line.productName })}
+                                        className="block w-full h-full"
+                                      >
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={line.imageUrl} alt={line.productName} className="w-full h-full object-cover" />
+                                      </button>
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-500">RESIM</div>
                                     )}
@@ -848,24 +857,24 @@ export default function WarehousePage() {
                                       <button
                                         onClick={() => changePicked(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         -
                                       </button>
-                                      <div className="h-11 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-lg font-black text-slate-900">
+                                      <div className="h-9 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-base font-black text-slate-900">
                                         {line.pickedQty}
                                       </div>
                                       <button
                                         onClick={() => changePicked(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         +
                                       </button>
                                       <button
                                         onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-11 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50"
+                                        className="h-9 px-3 rounded-lg bg-emerald-600 text-white text-[11px] font-bold disabled:opacity-50"
                                       >
                                         Tamami Toplandi
                                       </button>
@@ -878,17 +887,17 @@ export default function WarehousePage() {
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         -
                                       </button>
-                                      <div className="h-11 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-lg font-black text-slate-900">
+                                      <div className="h-9 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-base font-black text-slate-900">
                                         {line.extraQty}
                                       </div>
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-11 w-11 rounded-lg border border-slate-300 text-lg font-black text-slate-700 disabled:opacity-50"
+                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         +
                                       </button>
@@ -899,7 +908,7 @@ export default function WarehousePage() {
                                 <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                                   <div className="rounded-xl border border-slate-200 p-2">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Mevcut Raf Kodu</p>
-                                    <p className="h-11 rounded-lg bg-slate-100 px-3 flex items-center text-sm font-bold text-slate-800">
+                                    <p className="h-9 rounded-lg bg-slate-100 px-3 flex items-center text-sm font-bold text-slate-800">
                                       {line.shelfCode || '-'}
                                     </p>
                                   </div>
@@ -915,14 +924,14 @@ export default function WarehousePage() {
                                           if (panelCanEditLines) saveShelf(orderNumber, line);
                                         }}
                                         placeholder="Raf kodu (ornek: A-03-12)"
-                                        className="h-11"
+                                        className="h-9"
                                         disabled={!panelCanEditLines}
                                       />
                                       <Button
                                         variant="secondary"
                                         onClick={() => saveShelf(orderNumber, line)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-11 px-4"
+                                        className="h-9 px-4"
                                       >
                                         Kaydet
                                       </Button>
@@ -942,6 +951,30 @@ export default function WarehousePage() {
           </div>
         </div>
       </div>
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-slate-900/85 flex items-center justify-center p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            className="relative max-w-6xl w-full max-h-[90vh] flex items-center justify-center"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-2 right-2 z-10 h-9 w-9 rounded-full bg-white/90 text-slate-900 font-black"
+            >
+              X
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewImage.url}
+              alt={previewImage.name}
+              className="max-w-full max-h-[88vh] rounded-2xl border-2 border-white/50 object-contain bg-slate-950/40"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

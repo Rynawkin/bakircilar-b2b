@@ -106,21 +106,23 @@ const getWarehouseBreakdown = (warehouseStocks: unknown): { merkez: number; topc
 const parsePendingItems = (itemsJson: unknown): PendingOrderItemRow[] => {
   if (!Array.isArray(itemsJson)) return [];
 
-  return itemsJson.map((raw: any, index) => ({
-    productCode: normalizeCode(raw?.productCode) || `UNKNOWN-${index + 1}`,
-    productName: normalizeCode(raw?.productName) || normalizeCode(raw?.productCode) || 'Bilinmeyen Urun',
-    unit: normalizeCode(raw?.unit) || 'ADET',
-    warehouseCode: normalizeCode(raw?.warehouseCode) || null,
-    quantity: toNumber(raw?.quantity),
-    deliveredQty: toNumber(raw?.deliveredQty),
-    remainingQty: toNumber(raw?.remainingQty),
-    reservedQty: Math.max(toNumber(raw?.reservedQty), 0),
-    reservedDeliveredQty: Math.max(toNumber(raw?.reservedDeliveredQty), 0),
-    unitPrice: toNumber(raw?.unitPrice),
-    lineTotal: toNumber(raw?.lineTotal),
-    vat: toNumber(raw?.vat),
-    rowNumber: Number.isFinite(Number(raw?.rowNumber)) ? Number(raw?.rowNumber) : undefined,
-  }));
+  return itemsJson
+    .map((raw: any, index) => ({
+      productCode: normalizeCode(raw?.productCode) || `UNKNOWN-${index + 1}`,
+      productName: normalizeCode(raw?.productName) || normalizeCode(raw?.productCode) || 'Bilinmeyen Urun',
+      unit: normalizeCode(raw?.unit) || 'ADET',
+      warehouseCode: normalizeCode(raw?.warehouseCode) || null,
+      quantity: toNumber(raw?.quantity),
+      deliveredQty: toNumber(raw?.deliveredQty),
+      remainingQty: toNumber(raw?.remainingQty),
+      reservedQty: Math.max(toNumber(raw?.reservedQty), 0),
+      reservedDeliveredQty: Math.max(toNumber(raw?.reservedDeliveredQty), 0),
+      unitPrice: toNumber(raw?.unitPrice),
+      lineTotal: toNumber(raw?.lineTotal),
+      vat: toNumber(raw?.vat),
+      rowNumber: Number.isFinite(Number(raw?.rowNumber)) ? Number(raw?.rowNumber) : undefined,
+    }))
+    .filter((item) => item.remainingQty > 0);
 };
 
 const toItemStatus = (
@@ -585,8 +587,8 @@ class WarehouseWorkflowService {
           customerName: order.customerName,
           orderDate: order.orderDate,
           deliveryDate: order.deliveryDate,
-          itemCount: order.itemCount,
-          grandTotal: order.grandTotal,
+          itemCount: pendingItems.length,
+          grandTotal: pendingItems.reduce((sum, item) => sum + Math.max(item.lineTotal + item.vat, 0), 0),
           workflowStatus,
           assignedPickerUserId: workflow?.assignedPickerUserId || null,
           startedAt: workflow?.startedAt || null,
@@ -763,8 +765,8 @@ class WarehouseWorkflowService {
         warehouseCode: orderWarehouseCode,
         orderDate: pendingOrder.orderDate,
         deliveryDate: pendingOrder.deliveryDate,
-        itemCount: pendingOrder.itemCount,
-        grandTotal: pendingOrder.grandTotal,
+        itemCount: pendingItems.length,
+        grandTotal: pendingItems.reduce((sum, item) => sum + Math.max(item.lineTotal + item.vat, 0), 0),
       },
       workflow: workflow
         ? {

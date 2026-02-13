@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Order Tracking Service
  *
- * Mikro'dan bekleyen müşteri siparişlerini çeker,
- * PostgreSQL'e kaydeder ve müşterilere mail gönderir.
+ * Mikro'dan bekleyen mÃ¼ÅŸteri sipariÅŸlerini Ã§eker,
+ * PostgreSQL'e kaydeder ve mÃ¼ÅŸterilere mail gÃ¶nderir.
  */
 
 import { prisma } from '../utils/prisma';
@@ -47,7 +47,7 @@ interface PendingOrder {
 
 class OrderTrackingService {
   /**
-   * Mikro'dan bekleyen siparişleri çek ve PostgreSQL'e kaydet
+   * Mikro'dan bekleyen sipariÅŸleri Ã§ek ve PostgreSQL'e kaydet
    */
   async syncPendingOrders(): Promise<{
     success: boolean;
@@ -56,17 +56,17 @@ class OrderTrackingService {
     message: string;
   }> {
     try {
-      console.log('🔄 Bekleyen siparişler sync başladı...');
+      console.log('ğŸ”„ Bekleyen sipariÅŸler sync baÅŸladÄ±...');
 
-      // 1. Mikro'dan bekleyen siparişleri çek
+      // 1. Mikro'dan bekleyen sipariÅŸleri Ã§ek
       const pendingOrders = await this.fetchPendingOrdersFromMikro();
-      console.log(`✅ ${pendingOrders.length} adet bekleyen sipariş satırı çekildi`);
+      console.log(`âœ… ${pendingOrders.length} adet bekleyen sipariÅŸ satÄ±rÄ± Ã§ekildi`);
 
-      // 2. Müşteri bazında grupla
+      // 2. MÃ¼ÅŸteri bazÄ±nda grupla
       const groupedOrders = this.groupOrdersByCustomer(pendingOrders);
-      console.log(`✅ ${groupedOrders.length} müşteri için sipariş gruplanı`);
+      console.log(`âœ… ${groupedOrders.length} mÃ¼ÅŸteri iÃ§in sipariÅŸ gruplanÄ±`);
 
-      // 3. Mevcut kayıtların emailSent durumunu sakla
+      // 3. Mevcut kayÄ±tlarÄ±n emailSent durumunu sakla
       const existingOrders = await prisma.pendingMikroOrder.findMany({
         select: {
           mikroOrderNumber: true,
@@ -80,9 +80,9 @@ class OrderTrackingService {
 
       // 4. Mevcut cache'i temizle
       await prisma.pendingMikroOrder.deleteMany({});
-      console.log('✅ Eski cache temizlendi');
+      console.log('âœ… Eski cache temizlendi');
 
-      // 5. Yeni verileri kaydet (emailSent durumunu koru) - upsert kullan (unique constraint için)
+      // 5. Yeni verileri kaydet (emailSent durumunu koru) - upsert kullan (unique constraint iÃ§in)
       for (const order of groupedOrders) {
         const previousEmailStatus = emailSentMap.get(order.mikroOrderNumber);
 
@@ -128,7 +128,7 @@ class OrderTrackingService {
         });
       }
 
-      // 6. Settings'e son sync zamanını kaydet
+      // 6. Settings'e son sync zamanÄ±nÄ± kaydet
       const settings = await prisma.orderTrackingSettings.findFirst();
       if (settings) {
         await prisma.orderTrackingSettings.update({
@@ -137,18 +137,18 @@ class OrderTrackingService {
         });
       }
 
-      console.log('✅ Bekleyen siparişler sync tamamlandı');
+      console.log('âœ… Bekleyen sipariÅŸler sync tamamlandÄ±');
 
       return {
         success: true,
         ordersCount: groupedOrders.length,
         customersCount: new Set(groupedOrders.map((o) => o.customerCode)).size,
-        message: `${groupedOrders.length} sipariş, ${
+        message: `${groupedOrders.length} sipariÅŸ, ${
           new Set(groupedOrders.map((o) => o.customerCode)).size
-        } müşteri sync edildi`,
+        } mÃ¼ÅŸteri sync edildi`,
       };
     } catch (error: any) {
-      console.error('❌ Sync hatası:', error);
+      console.error('âŒ Sync hatasÄ±:', error);
       return {
         success: false,
         ordersCount: 0,
@@ -159,12 +159,12 @@ class OrderTrackingService {
   }
 
   /**
-   * Mikro'dan bekleyen siparişleri çek (ham veri)
+   * Mikro'dan bekleyen sipariÅŸleri Ã§ek (ham veri)
    */
   private async fetchPendingOrdersFromMikro(): Promise<any[]> {
-    // İki aşamalı yaklaşım:
-    // 1. Sadece en az 1 kalemi bekleyen SİPARİŞLERİ bul (WITH kullanarak)
-    // 2. O siparişlerin TÜM satırlarını getir (hem delivered hem pending)
+    // Ä°ki aÅŸamalÄ± yaklaÅŸÄ±m:
+    // 1. Sadece en az 1 kalemi bekleyen SÄ°PARÄ°ÅLERÄ° bul (WITH kullanarak)
+    // 2. O sipariÅŸlerin TÃœM satÄ±rlarÄ±nÄ± getir (hem delivered hem pending)
     const query = `
       WITH PendingOrderNumbers AS (
         SELECT DISTINCT
@@ -225,10 +225,10 @@ class OrderTrackingService {
   }
 
   /**
-   * Siparişleri müşteri bazında grupla
+   * SipariÅŸleri mÃ¼ÅŸteri bazÄ±nda grupla
    *
-   * Her müşteri için siparişler tek bir kayıtta birleştirilir.
-   * Aynı sipariş numarasındaki satırlar items array'ine eklenir.
+   * Her mÃ¼ÅŸteri iÃ§in sipariÅŸler tek bir kayÄ±tta birleÅŸtirilir.
+   * AynÄ± sipariÅŸ numarasÄ±ndaki satÄ±rlar items array'ine eklenir.
    */
   private groupOrdersByCustomer(rawOrders: any[]): PendingOrder[] {
     const orderMap = new Map<string, PendingOrder>();
@@ -236,17 +236,17 @@ class OrderTrackingService {
     for (const row of rawOrders) {
       const orderNumber = `${row.sip_evrakno_seri}-${row.sip_evrakno_sira}`;
 
-      // Bu sipariş daha önce işlendi mi?
+      // Bu sipariÅŸ daha Ã¶nce iÅŸlendi mi?
       let order = orderMap.get(orderNumber);
 
       if (!order) {
-        // Yeni sipariş oluştur
+        // Yeni sipariÅŸ oluÅŸtur
         order = {
           mikroOrderNumber: orderNumber,
           orderSeries: row.sip_evrakno_seri,
           orderSequence: row.sip_evrakno_sira,
           customerCode: row.sip_musteri_kod,
-          customerName: row.musteri_adi || 'Bilinmeyen Müşteri',
+          customerName: row.musteri_adi || 'Bilinmeyen MÃ¼ÅŸteri',
           customerEmail: row.musteri_email || null,
           sectorCode: row.sektor_kodu || null,
           orderDate: new Date(row.sip_tarih),
@@ -260,20 +260,24 @@ class OrderTrackingService {
         orderMap.set(orderNumber, order);
       }
 
-      // Aynı satır numarası daha önce eklendi mi? (Duplicate kontrolü)
-      const itemKey = `${row.sip_stok_kod}-${row.sip_satirno}`;
+      const remainingQty = Number(row.kalan_miktar) || 0;
+      if (remainingQty <= 0) {
+        continue;
+      }
+
+      // AynÄ± satÄ±r numarasÄ± daha Ã¶nce eklendi mi? (Duplicate kontrolÃ¼)
       const isDuplicate = order.items.some(
         (item) => item.productCode === row.sip_stok_kod &&
                   (item as any).rowNumber === row.sip_satirno
       );
 
       if (isDuplicate) {
-        console.warn(`⚠️ Duplicate satır atlandı: Sipariş ${orderNumber}, Satır ${row.sip_satirno}, Ürün ${row.sip_stok_kod}`);
+        console.warn(`âš ï¸ Duplicate satÄ±r atlandÄ±: SipariÅŸ ${orderNumber}, SatÄ±r ${row.sip_satirno}, ÃœrÃ¼n ${row.sip_stok_kod}`);
         continue;
       }
 
-      // Kalan sipariş tutarını hesapla (kalan_miktar × birim_fiyat)
-      const remainingTotal = row.kalan_miktar * row.birim_fiyat;
+      // Kalan sipariÅŸ tutarÄ±nÄ± hesapla (kalan_miktar Ã— birim_fiyat)
+      const remainingTotal = remainingQty * row.birim_fiyat;
 
       // Kalan KDV'yi oransal olarak hesapla
       const kdvRate = row.tutar > 0 ? row.kdv / row.tutar : 0;
@@ -282,7 +286,7 @@ class OrderTrackingService {
       const reserveDeliveredQty = Math.max(Number(row.rezerve_teslim_miktar || 0), 0);
       const activeReserveQty = Math.max(reserveQty - reserveDeliveredQty, 0);
 
-      // Satır detayını ekle
+      // SatÄ±r detayÄ±nÄ± ekle
       const item: any = {
         productCode: row.sip_stok_kod,
         productName: row.urun_adi || row.sip_stok_kod,
@@ -290,27 +294,27 @@ class OrderTrackingService {
         warehouseCode: row.depo_kodu !== undefined && row.depo_kodu !== null ? String(row.depo_kodu) : null,
         quantity: row.sip_miktar,
         deliveredQty: row.teslim_miktar,
-        remainingQty: row.kalan_miktar,
+        remainingQty,
         reservedQty: activeReserveQty,
         reservedDeliveredQty: reserveDeliveredQty,
         unitPrice: row.birim_fiyat,
         lineTotal: remainingTotal,  // KALAN TUTAR
         vat: remainingVat,  // KALAN KDV
-        rowNumber: row.sip_satirno,  // Satır numarasını sakla (duplicate kontrolü için)
+        rowNumber: row.sip_satirno,  // SatÄ±r numarasÄ±nÄ± sakla (duplicate kontrolÃ¼ iÃ§in)
       };
 
       order.items.push(item);
       order.itemCount++;
       order.totalAmount += remainingTotal;  // KALAN TUTARI TOPLA
-      order.totalVAT += remainingVat;  // KALAN KDV'Yİ TOPLA
+      order.totalVAT += remainingVat;  // KALAN KDV'YÄ° TOPLA
       order.grandTotal = order.totalAmount + order.totalVAT;
     }
 
-    return Array.from(orderMap.values());
+    return Array.from(orderMap.values()).filter((order) => order.itemCount > 0);
   }
 
   /**
-   * Belirli bir müşterinin bekleyen siparişlerini getir
+   * Belirli bir mÃ¼ÅŸterinin bekleyen sipariÅŸlerini getir
    */
   async getCustomerPendingOrders(customerCode: string): Promise<PendingOrder[]> {
     const orders = await prisma.pendingMikroOrder.findMany({
@@ -341,7 +345,7 @@ class OrderTrackingService {
   }
 
   /**
-   * Tüm bekleyen siparişleri getir (admin için)
+   * TÃ¼m bekleyen sipariÅŸleri getir (admin iÃ§in)
    */
   async getAllPendingOrders(): Promise<PendingOrder[]> {
     const orders = await prisma.pendingMikroOrder.findMany({
@@ -371,19 +375,19 @@ class OrderTrackingService {
   }
 
   /**
-   * Sipariş takip ayarlarını getir
+   * SipariÅŸ takip ayarlarÄ±nÄ± getir
    */
   async getSettings() {
     let settings = await prisma.orderTrackingSettings.findFirst();
 
-    // Ayar yoksa oluştur
+    // Ayar yoksa oluÅŸtur
     if (!settings) {
       settings = await prisma.orderTrackingSettings.create({
         data: {
           syncEnabled: true,
-          syncSchedule: '0 8 * * 2,5', // Salı + Cuma, 08:00
+          syncSchedule: '0 8 * * 2,5', // SalÄ± + Cuma, 08:00
           emailEnabled: true,
-          emailSubject: 'Bekleyen Siparişleriniz',
+          emailSubject: 'Bekleyen SipariÅŸleriniz',
           emailTemplate: 'default',
         },
       });
@@ -393,7 +397,7 @@ class OrderTrackingService {
   }
 
   /**
-   * Sipariş takip ayarlarını güncelle
+   * SipariÅŸ takip ayarlarÄ±nÄ± gÃ¼ncelle
    */
   async updateSettings(data: {
     syncEnabled?: boolean;
@@ -415,13 +419,13 @@ class OrderTrackingService {
   }
 
   /**
-   * Müşteri bazında sipariş özetini getir
-   * Sektör kodu "satıcı" olanları filtreler (bunlar tedarikçi/satıcı siparişleridir)
+   * MÃ¼ÅŸteri bazÄ±nda sipariÅŸ Ã¶zetini getir
+   * SektÃ¶r kodu "satÄ±cÄ±" olanlarÄ± filtreler (bunlar tedarikÃ§i/satÄ±cÄ± sipariÅŸleridir)
    */
   async getCustomerSummary() {
     const orders = await prisma.pendingMikroOrder.findMany({
       where: {
-        // Sektör kodu "SATICI" olanları hariç tut (SATICI, SATICI BARTIR vb.)
+        // SektÃ¶r kodu "SATICI" olanlarÄ± hariÃ§ tut (SATICI, SATICI BARTIR vb.)
         OR: [
           { sectorCode: null },
           {
@@ -452,7 +456,7 @@ class OrderTrackingService {
       orderBy: [{ customerCode: 'asc' }, { orderDate: 'desc' }],
     });
 
-    // Müşteri bazında grupla
+    // MÃ¼ÅŸteri bazÄ±nda grupla
     const summary = new Map<
       string,
       {
@@ -507,7 +511,7 @@ class OrderTrackingService {
   }
 
   /**
-   * Satıcı/tedarikçi siparişlerini getir (sektör kodu "SATICI" olanlar)
+   * SatÄ±cÄ±/tedarikÃ§i sipariÅŸlerini getir (sektÃ¶r kodu "SATICI" olanlar)
    */
   async getSupplierSummary() {
     const orders = await prisma.pendingMikroOrder.findMany({
@@ -535,7 +539,7 @@ class OrderTrackingService {
       orderBy: [{ customerCode: 'asc' }, { orderDate: 'desc' }],
     });
 
-    // Satıcı bazında grupla
+    // SatÄ±cÄ± bazÄ±nda grupla
     const summary = new Map<
       string,
       {
