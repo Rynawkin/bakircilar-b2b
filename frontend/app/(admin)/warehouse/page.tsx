@@ -795,6 +795,31 @@ export default function WarehousePage() {
                                         )}
                                       </div>
                                       <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                        {line.hasOwnReservation && (
+                                          <button
+                                            onClick={() =>
+                                              setOpenReservationKey((prev) => (prev === reservationKey ? null : reservationKey))
+                                            }
+                                            className="text-[12px] md:text-sm px-3 py-1.5 rounded-xl border-2 border-emerald-700 bg-emerald-600 text-white font-black tracking-wide shadow-sm"
+                                          >
+                                            REZERVE SIPARIS
+                                          </button>
+                                        )}
+                                        {line.hasOtherReservation && (
+                                          <button
+                                            onClick={() =>
+                                              setOpenReservationKey((prev) => (prev === reservationKey ? null : reservationKey))
+                                            }
+                                            className="text-[12px] md:text-sm px-3 py-1.5 rounded-xl border-2 border-rose-700 bg-rose-600 text-white font-black tracking-wide shadow-sm"
+                                          >
+                                            BASKA SIPARISTE REZERVE
+                                          </button>
+                                        )}
+                                        {line.reservedQty > 0 && (
+                                          <span className="text-[12px] md:text-sm px-3 py-1.5 rounded-xl border-2 border-emerald-300 bg-emerald-100 text-emerald-900 font-black tracking-wide">
+                                            SATIR REZERVE: {line.reservedQty} {line.unit}
+                                          </span>
+                                        )}
                                         <span className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700">
                                           Birim: {line.unit}
                                         </span>
@@ -845,31 +870,6 @@ export default function WarehousePage() {
                                           ? 'Resim Hatasi Bildirildi'
                                           : 'Resim Hatasi Bildir'}
                                       </button>
-                                      {line.reservedQty > 0 && (
-                                        <span className="text-[11px] px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 font-bold">
-                                          Satir Rezerve: {line.reservedQty} {line.unit}
-                                        </span>
-                                      )}
-                                      {line.hasOwnReservation && (
-                                        <button
-                                          onClick={() =>
-                                            setOpenReservationKey((prev) => (prev === reservationKey ? null : reservationKey))
-                                          }
-                                          className="text-[11px] px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 font-bold"
-                                        >
-                                          Rezerve Siparis
-                                        </button>
-                                      )}
-                                      {line.hasOtherReservation && (
-                                        <button
-                                          onClick={() =>
-                                            setOpenReservationKey((prev) => (prev === reservationKey ? null : reservationKey))
-                                          }
-                                          className="text-[11px] px-2 py-1 rounded-lg border border-rose-300 bg-rose-100 text-rose-800 font-bold"
-                                        >
-                                          Baska Sipariste Rezerve
-                                        </button>
-                                      )}
                                     </div>
 
                                     {reservationOpen && line.reservations.length > 0 && (

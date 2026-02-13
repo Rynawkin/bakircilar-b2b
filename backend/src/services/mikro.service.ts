@@ -1170,8 +1170,8 @@ class MikroService {
     const { cariCode, items, applyVAT, description, documentDescription, documentNo, evrakSeri: evrakSeriInput, evrakSira: evrakSiraInput, warehouseNo } = orderData;
     const descriptionValue = String((documentDescription ?? description) || '').trim();
     const documentDescriptionValue = descriptionValue ? descriptionValue.slice(0, 127) : null;
-    const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : null;
-    const belgeTarih = documentNoValue ? new Date() : null;
+    const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : '';
+    const belgeTarih = new Date();
     const sipBelgeColumns = await this.resolveSipBelgeColumns();
     const belgeNoColumn = sipBelgeColumns.no;
     const includeBelgeNo = Boolean(belgeNoColumn);
@@ -1183,6 +1183,11 @@ class MikroService {
     const warehouseValue = Number.isFinite(warehouseValueRaw) && warehouseValueRaw > 0 ? Math.trunc(warehouseValueRaw) : 1;
     const evrakSeriValue = evrakSeriInput ? String(evrakSeriInput).trim().slice(0, 20) : '';
     const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
+    const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+    const mikroUserNo =
+      Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0
+        ? Math.trunc(mikroUserNoRaw)
+        : 1;
     const projeKodu = String(process.env.MIKRO_PROJE_KODU || 'R').trim().slice(0, 25);
     const hareketTipi = 0;
     const vergiSizFlag = applyVAT ? 0 : 1;
@@ -1341,6 +1346,9 @@ class MikroService {
           ...(belgeNoColumn ? [belgeNoColumn] : []),
           ...(includeBelgeTarih ? ['sip_belge_tarih'] : []),
           'sip_create_date',
+          'sip_create_user',
+          'sip_lastup_date',
+          'sip_lastup_user',
           'sip_DBCno',
           'sip_firmano',
           'sip_subeno',
@@ -1391,6 +1399,9 @@ class MikroService {
           ...(belgeNoColumn ? ['@belgeNo'] : []),
           ...(includeBelgeTarih ? ['@belgeTarih'] : []),
           'GETDATE()',
+          '@createUser',
+          'GETDATE()',
+          '@lastupUser',
           '0',
           '0',
           '0',
@@ -1437,6 +1448,8 @@ class MikroService {
           .input('hareketTipi', sql.TinyInt, hareketTipi)
           .input('stokSorMerkez', sql.NVarChar(25), lineSorMerkez)
           .input('cariSorMerkez', sql.NVarChar(25), lineSorMerkez)
+          .input('createUser', sql.SmallInt, mikroUserNo)
+          .input('lastupUser', sql.SmallInt, mikroUserNo)
           .input('projeKodu', sql.NVarChar(25), projeKodu);
 
         if (includeQuoteGuid) {
@@ -1714,6 +1727,8 @@ class MikroService {
           .input('sira', sql.Int, evrakSira)
           .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
           .input('vergiSiz', sql.Bit, vergiSizFlag)
+          .input('createUser', sql.SmallInt, mikroUserNo)
+          .input('lastupUser', sql.SmallInt, mikroUserNo)
           .query(`
             UPDATE SIPARISLER
             SET
@@ -1725,7 +1740,11 @@ class MikroService {
               sip_special1 = ISNULL(sip_special1, ''),
               sip_special2 = ISNULL(sip_special2, ''),
               sip_special3 = ISNULL(sip_special3, ''),
+              sip_create_user = ISNULL(sip_create_user, @createUser),
+              sip_lastup_user = ISNULL(sip_lastup_user, @lastupUser),
+              sip_lastup_date = ISNULL(sip_lastup_date, GETDATE()),
               sip_satici_kod = ISNULL(sip_satici_kod, ''),
+              sip_belgeno = ISNULL(sip_belgeno, ''),
               sip_birim_pntr = ISNULL(sip_birim_pntr, 1),
               sip_masvergi_pntr = ISNULL(sip_masvergi_pntr, 0),
               sip_opno = ISNULL(sip_opno, 8),
