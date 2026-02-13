@@ -2706,6 +2706,22 @@ function AdminQuoteNewPageContent() {
                               ) : item.unit ? (
                                 <span className="text-[11px] text-gray-500">{item.unit}</span>
                               ) : null}
+                              {isOrderMode && (
+                                <div className="mt-1">
+                                  <label className="block text-[11px] text-gray-500 mb-0.5">Rezerve</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={item.reserveQty ?? 0}
+                                    onChange={(e) =>
+                                      updateItem(item.id, {
+                                        reserveQty: Math.max(0, Math.trunc(Number(e.target.value) || 0)),
+                                      })
+                                    }
+                                    className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-xs"
+                                  />
+                                </div>
+                              )}
                             </div>
                           </td>
                           <td className="px-3 py-2">
@@ -2882,24 +2898,12 @@ function AdminQuoteNewPageContent() {
                                     className="w-full"
                                   />
                                   {isOrderMode && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1 mt-1">
+                                    <div className="grid grid-cols-1 mt-1">
                                       <Input
                                         placeholder="Sorumluluk merkezi"
                                         value={item.responsibilityCenter || ''}
                                         onChange={(e) => updateItem(item.id, { responsibilityCenter: e.target.value })}
                                         maxLength={25}
-                                        className="w-full"
-                                      />
-                                      <Input
-                                        placeholder="Rezerve miktar"
-                                        type="number"
-                                        min={0}
-                                        value={item.reserveQty ?? 0}
-                                        onChange={(e) =>
-                                          updateItem(item.id, {
-                                            reserveQty: Math.max(0, Math.trunc(Number(e.target.value) || 0)),
-                                          })
-                                        }
                                         className="w-full"
                                       />
                                     </div>

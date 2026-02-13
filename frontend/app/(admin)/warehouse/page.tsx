@@ -163,9 +163,9 @@ const orderCoverageBadge: Record<OrderCoverageStatus, { label: string; className
 };
 
 const getRemainingQtyClass = (line: WarehouseOrderDetail['lines'][number]) => {
-  if (line.shortageQty > 0 && line.pickedQty <= 0) return 'bg-rose-100 text-rose-800 border-rose-300';
-  if (line.shortageQty > 0 && line.pickedQty > 0) return 'bg-amber-100 text-amber-800 border-amber-300';
-  return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+  if (line.stockCoverageStatus === 'FULL') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+  if (line.stockCoverageStatus === 'PARTIAL') return 'bg-amber-100 text-amber-800 border-amber-300';
+  return 'bg-rose-100 text-rose-800 border-rose-300';
 };
 
 export default function WarehousePage() {
