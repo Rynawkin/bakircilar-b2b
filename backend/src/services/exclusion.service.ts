@@ -121,6 +121,20 @@ class ExclusionService {
   }
 
   /**
+   * Get active product code exclusions as normalized unique list
+   */
+  async getActiveProductCodeExclusions(): Promise<string[]> {
+    const { productCodes } = await this.getActiveExclusions();
+    return Array.from(
+      new Set(
+        productCodes
+          .map((code) => String(code || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+  }
+
+  /**
    * Build SQL WHERE clause conditions for excluding items from reports
    * Returns array of SQL conditions to be added to WHERE clause
    */

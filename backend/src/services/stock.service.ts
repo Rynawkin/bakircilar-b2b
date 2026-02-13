@@ -263,11 +263,23 @@ class StockService {
     minStock?: number;
     limit?: number;
     offset?: number;
+    excludeProductCodes?: string[];
   }): Promise<any[]> {
     const where: any = {
       excessStock: { gt: 0 },
       active: true,
     };
+
+    const excludedCodes = Array.from(
+      new Set(
+        (filters?.excludeProductCodes || [])
+          .map((code) => String(code || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+    if (excludedCodes.length > 0) {
+      where.mikroCode = { notIn: excludedCodes };
+    }
 
     if (filters?.categoryId) {
       where.categoryId = filters.categoryId;

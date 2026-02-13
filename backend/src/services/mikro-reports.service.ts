@@ -6,6 +6,7 @@
 
 import * as sql from 'mssql';
 import { config } from '../config';
+import exclusionService from './exclusion.service';
 
 interface CostUpdateAlert {
   productCode: string;
@@ -112,6 +113,33 @@ export class MikroReportsService {
     } = options;
 
     const offset = (page - 1) * limit;
+    const exclusions = await exclusionService.getActiveExclusions();
+    const excludedProductCodes = Array.from(
+      new Set(
+        exclusions.productCodes
+          .map((code) => String(code || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+    const excludedProductNames = Array.from(
+      new Set(
+        exclusions.productNames
+          .map((name) => String(name || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const productCodeExclusionSql =
+      excludedProductCodes.length > 0
+        ? `AND RTRIM(sto_kod) NOT IN (${excludedProductCodes
+            .map((code) => `'${code.replace(/'/g, "''")}'`)
+            .join(', ')})`
+        : '';
+    const productNameExclusionSql =
+      excludedProductNames.length > 0
+        ? `AND ${excludedProductNames
+            .map((name) => `sto_isim NOT LIKE '%${name.replace(/'/g, "''")}%'`)
+            .join(' AND ')}`
+        : '';
 
     // Ana sorgu - CTE kullanarak optimize edilmiş
     const query = `
@@ -177,6 +205,8 @@ export class MikroReportsService {
         FROM STOKLAR
         WHERE sto_pasif_fl = 0
           ${category ? `AND sto_kategori_kodu = @category` : ''}
+          ${productCodeExclusionSql}
+          ${productNameExclusionSql}
       ),
       FilteredProducts AS (
         SELECT

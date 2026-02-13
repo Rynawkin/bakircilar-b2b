@@ -11,6 +11,7 @@ import mikroService from '../services/mikroFactory.service';
 import orderService from '../services/order.service';
 import productComplementService from '../services/product-complement.service';
 import customerActivityService from '../services/customer-activity.service';
+import exclusionService from '../services/exclusion.service';
 import { splitSearchTokens } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
@@ -75,6 +76,9 @@ const buildLastSalesMap = (sales: MikroCustomerSaleMovement[]) => {
   });
   return map;
 };
+
+const normalizeMikroCode = (value: string | null | undefined): string =>
+  String(value || '').trim().toUpperCase();
 
 const loadCustomerContext = async (userId: string) => {
   const user = await prisma.user.findUnique({
@@ -416,13 +420,20 @@ export class CustomerController {
         return res.status(400).json({ error: 'User has no customer type' });
       }
 
+      const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
+      const excludedProductCodeSet = new Set(excludedProductCodes);
+      lap('exclusions');
+
       if (isPurchased && !customer.mikroCariCode) {
         return res.status(400).json({ error: 'User has no Mikro cari code' });
       }
 
       let purchasedCodes: string[] = [];
       if (isPurchased) {
-        purchasedCodes = await mikroService.getPurchasedProductCodes(customer.mikroCariCode as string);
+        const allPurchasedCodes = await mikroService.getPurchasedProductCodes(customer.mikroCariCode as string);
+        purchasedCodes = allPurchasedCodes.filter(
+          (code) => !excludedProductCodeSet.has(normalizeMikroCode(code))
+        );
         lap('purchasedCodes');
         if (purchasedCodes.length === 0) {
           logTiming({ counts: { purchasedCodes: 0 }, reason: 'no-purchases' });
@@ -468,6 +479,7 @@ export class CustomerController {
           OR: [{ validTo: null }, { validTo: { gte: now } }],
           product: {
             active: true,
+            ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
             ...(categoryId ? { categoryId: categoryId as string } : {}),
           },
         };
@@ -662,6 +674,7 @@ export class CustomerController {
             search: search as string,
             limit,
             offset,
+            excludeProductCodes: excludedProductCodes,
           })
         : isPurchased
           ? await prisma.product.findMany({
@@ -735,6 +748,7 @@ export class CustomerController {
           : await prisma.product.findMany({
               where: {
                 active: true,
+                ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
                 ...(categoryId ? { categoryId: categoryId as string } : {}),
                 ...(searchTokens.length > 0
                   ? {
@@ -1015,6 +1029,8 @@ export class CustomerController {
         return res.status(400).json({ error: 'User has no customer type' });
       }
 
+      const excludedProductCodeSet = new Set(await exclusionService.getActiveProductCodeExclusions());
+
       const [settings, priceListRules] = await Promise.all([
         prisma.settings.findFirst({
           select: {
@@ -1086,6 +1102,10 @@ export class CustomerController {
       });
 
       if (!product || !product.active) {
+        return res.status(404).json({ error: 'Product not found' });
+      }
+
+      if (excludedProductCodeSet.has(normalizeMikroCode(product.mikroCode))) {
         return res.status(404).json({ error: 'Product not found' });
       }
 
@@ -1227,6 +1247,7 @@ export class CustomerController {
       if (recommendedIds.length === 0) {
         return res.json({ products: [] });
       }
+      const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
 
       const popularityMap = await productComplementService.getPopularityByProductIds(recommendedIds);
       const orderIndex = new Map(recommendedIds.map((productId, index) => [productId, index]));
@@ -1240,7 +1261,11 @@ export class CustomerController {
       });
 
       const products = await prisma.product.findMany({
-        where: { id: { in: sortedIds }, active: true },
+        where: {
+          id: { in: sortedIds },
+          active: true,
+          ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+        },
         select: {
           id: true,
           name: true,
@@ -1313,17 +1338,26 @@ export class CustomerController {
       if (cartProductIds.length === 0) {
         return res.json({ groups: [] });
       }
+      const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
 
       const baseProducts = await prisma.product.findMany({
-        where: { id: { in: cartProductIds } },
+        where: {
+          id: { in: cartProductIds },
+          ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+        },
         select: { id: true, name: true, mikroCode: true },
       });
       const baseProductMap = new Map(baseProducts.map((product) => [product.id, product]));
+      const visibleCartProductIds = baseProducts.map((product) => product.id);
+
+      if (visibleCartProductIds.length === 0) {
+        return res.json({ groups: [] });
+      }
 
       const recommendationsByProduct = await productComplementService.getRecommendationIdsByProduct(
-        cartProductIds,
+        visibleCartProductIds,
         5,
-        cartProductIds
+        visibleCartProductIds
       );
 
       const allRecommendedIds = Array.from(
@@ -1348,7 +1382,11 @@ export class CustomerController {
       };
 
       const products = await prisma.product.findMany({
-        where: { id: { in: allRecommendedIds }, active: true },
+        where: {
+          id: { in: allRecommendedIds },
+          active: true,
+          ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+        },
         select: {
           id: true,
           name: true,
@@ -1392,7 +1430,7 @@ export class CustomerController {
 
       const payloadMap = new Map(payload.map((product) => [product.id, product]));
 
-      const groups = cartProductIds
+      const groups = visibleCartProductIds
         .map((productId) => {
           const baseProduct = baseProductMap.get(productId);
           if (!baseProduct) return null;
@@ -1506,10 +1544,14 @@ export class CustomerController {
    */
   async getCart(req: Request, res: Response, next: NextFunction) {
     try {
+      const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
       const cart = await prisma.cart.findUnique({
         where: { userId: req.user!.userId },
         include: {
           items: {
+            ...(excludedProductCodes.length > 0
+              ? { where: { product: { mikroCode: { notIn: excludedProductCodes } } } }
+              : {}),
             include: {
               product: {
                 select: {
@@ -1635,6 +1677,11 @@ export class CustomerController {
         });
 
       if (!product) {
+        return res.status(404).json({ error: 'Product not found' });
+      }
+
+      const excludedProductCodeSet = new Set(await exclusionService.getActiveProductCodeExclusions());
+      if (excludedProductCodeSet.has(normalizeMikroCode(product.mikroCode))) {
         return res.status(404).json({ error: 'Product not found' });
       }
 
