@@ -225,19 +225,22 @@ class WarehouseWorkflowService {
 
     const hasAnyProgress = items.some(
       (item) =>
-        Math.max(item.pickedQty, 0) > 0 ||
-        Math.max(item.extraQty, 0) > 0 ||
-        Math.max(item.shortageQty, 0) > 0
+        Math.max(item.pickedQty, 0) > 0 || Math.max(item.extraQty, 0) > 0
     );
-    const hasAnyShortage = items.some((item) => Math.max(item.shortageQty, 0) > 0);
-    const allLinesHandled = items.every((item) => {
+    const hasAnyShortage = items.some((item) => {
       const remaining = Math.max(item.remainingQty, 0);
-      const handled = Math.max(item.pickedQty, 0) + Math.max(item.shortageQty, 0);
-      return handled >= remaining;
+      const picked = Math.max(item.pickedQty, 0);
+      return picked < remaining;
+    });
+    const allLinesFullyPicked = items.every((item) => {
+      const remaining = Math.max(item.remainingQty, 0);
+      const picked = Math.max(item.pickedQty, 0);
+      return picked >= remaining;
     });
 
-    if (!hasAnyProgress || !allLinesHandled) return 'PICKING';
-    return hasAnyShortage ? 'PARTIALLY_LOADED' : 'LOADED';
+    if (!hasAnyProgress) return 'PICKING';
+    if (!hasAnyShortage && allLinesFullyPicked) return 'LOADED';
+    return 'PICKING';
   }
 
   private async upsertWorkflowFromPendingOrder(
