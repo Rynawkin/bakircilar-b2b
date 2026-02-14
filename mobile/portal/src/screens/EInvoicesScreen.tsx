@@ -306,6 +306,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     color: colors.text,
   },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
   loading: {
     paddingVertical: spacing.xl,
     alignItems: 'center',

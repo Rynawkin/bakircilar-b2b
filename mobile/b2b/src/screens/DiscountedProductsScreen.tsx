@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Category, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { trackCustomerActivity } from '../utils/activity';
 import { resolveImageUrl } from '../utils/image';
 import { getDisplayPrice } from '../utils/vat';
 
@@ -42,6 +43,7 @@ export function DiscountedProductsScreen() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'price-asc' | 'price-desc' | 'stock-desc' | 'stock-asc'>('name-asc');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const lastSearchRef = useRef('');
 
   const visibility = user?.priceVisibility ?? 'INVOICED_ONLY';
 
@@ -92,6 +94,18 @@ export function DiscountedProductsScreen() {
     }, 300);
     return () => clearTimeout(handler);
   }, [search, selectedCategory, selectedWarehouse]);
+
+  useEffect(() => {
+    const term = search.trim();
+    if (!term || term === lastSearchRef.current) return;
+    lastSearchRef.current = term;
+    trackCustomerActivity({
+      type: 'SEARCH',
+      pagePath: 'DiscountedProducts',
+      pageTitle: 'Indirimli Urunler',
+      meta: { query: term, source: 'discounted-products' },
+    });
+  }, [search]);
 
   const getWarehouseTotal = (product: Product) => {
     const warehouseStocks = product.warehouseStocks || {};
@@ -171,6 +185,13 @@ export function DiscountedProductsScreen() {
         priceType,
         priceMode: product.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST',
       });
+      trackCustomerActivity({
+        type: 'CART_ADD',
+        productId: product.id,
+        productCode: product.mikroCode,
+        quantity,
+        meta: { source: 'discounted-products-grid' },
+      });
       Alert.alert('Sepete Eklendi', `${product.name} sepete eklendi.`);
     } catch (err: any) {
       Alert.alert('Hata', err?.response?.data?.error || 'Sepete eklenemedi.');
@@ -179,36 +200,87 @@ export function DiscountedProductsScreen() {
 
   const renderPrices = (product: Product) => {
     const agreed = product.agreement;
-    const base = agreed
-      ? { invoiced: agreed.priceInvoiced, white: agreed.priceWhite }
-      : product.prices;
+    const baseInvoiced = agreed
+      ? agreed.priceInvoiced
+      : product.listPrices?.invoiced ?? product.prices.invoiced;
+    const baseWhite = agreed
+      ? agreed.priceWhite
+      : product.listPrices?.white ?? product.prices.white;
+    const rawSaleInvoiced = product.excessPrices?.invoiced ?? product.prices.invoiced;
+    const rawSaleWhite = product.excessPrices?.white ?? product.prices.white;
+    const saleInvoiced = !agreed && rawSaleInvoiced < baseInvoiced ? rawSaleInvoiced : baseInvoiced;
+    const saleWhite = !agreed && rawSaleWhite < baseWhite ? rawSaleWhite : baseWhite;
     const displayInvoiced = getDisplayPrice(
-      base.invoiced,
+      saleInvoiced,
       product.vatRate,
       'INVOICED',
       user?.vatDisplayPreference
     );
     const displayWhite = getDisplayPrice(
-      base.white,
+      saleWhite,
       product.vatRate,
       'WHITE',
       user?.vatDisplayPreference
     );
+    const displayBaseInvoiced = getDisplayPrice(
+      baseInvoiced,
+      product.vatRate,
+      'INVOICED',
+      user?.vatDisplayPreference
+    );
+    const displayBaseWhite = getDisplayPrice(
+      baseWhite,
+      product.vatRate,
+      'WHITE',
+      user?.vatDisplayPreference
+    );
+    const getDiscountPercent = (base: number, sale: number) => {
+      if (!Number.isFinite(base) || !Number.isFinite(sale) || base <= 0 || sale >= base) return null;
+      const percent = Math.round(((base - sale) / base) * 100);
+      return percent > 0 ? percent : null;
+    };
+    const discountInvoiced = agreed ? null : getDiscountPercent(displayBaseInvoiced, displayInvoiced);
+    const discountWhite = agreed ? null : getDiscountPercent(displayBaseWhite, displayWhite);
 
-    const lines: Array<{ label: string; value: number; active: boolean }> = [];
+    const lines: Array<{
+      label: string;
+      value: number;
+      baseValue?: number;
+      discount?: number | null;
+      active: boolean;
+    }> = [];
     if (visibility === 'INVOICED_ONLY' || visibility === 'BOTH') {
-      lines.push({ label: 'Faturali', value: displayInvoiced, active: priceType === 'INVOICED' });
+      lines.push({
+        label: 'Faturali',
+        value: displayInvoiced,
+        baseValue: discountInvoiced ? displayBaseInvoiced : undefined,
+        discount: discountInvoiced,
+        active: priceType === 'INVOICED',
+      });
     }
     if (visibility === 'WHITE_ONLY' || visibility === 'BOTH') {
-      lines.push({ label: 'Beyaz', value: displayWhite, active: priceType === 'WHITE' });
+      lines.push({
+        label: 'Beyaz',
+        value: displayWhite,
+        baseValue: discountWhite ? displayBaseWhite : undefined,
+        discount: discountWhite,
+        active: priceType === 'WHITE',
+      });
     }
 
     return (
       <View style={styles.priceStack}>
         {lines.map((line) => (
-          <Text key={line.label} style={line.active ? styles.priceActive : styles.priceText}>
-            {line.label}: {line.value.toFixed(2)} TL
-          </Text>
+          <View key={line.label}>
+            <Text style={line.active ? styles.priceActive : styles.priceText}>
+              {line.label}: {line.value.toFixed(2)} TL
+            </Text>
+            {line.baseValue !== undefined && line.discount ? (
+              <Text style={styles.priceNote}>
+                Normal: {line.baseValue.toFixed(2)} TL (-%{line.discount})
+              </Text>
+            ) : null}
+          </View>
         ))}
       </View>
     );
@@ -752,6 +824,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: fontSizes.sm,
     color: colors.text,
+  },
+  priceNote: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.accent,
   },
   cartRow: {
     marginTop: spacing.md,

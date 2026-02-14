@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma';
+import mobilePushService from './mobile-push.service';
 
 type NotificationPayload = {
   title: string;
@@ -61,6 +62,12 @@ class NotificationService {
         linkUrl: payload.linkUrl || null,
       })),
     });
+
+    try {
+      await mobilePushService.sendToUsers(uniqueIds, payload);
+    } catch (error) {
+      console.error('Push notification dispatch failed', { error });
+    }
   }
 }
 

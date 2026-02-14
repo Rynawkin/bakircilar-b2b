@@ -17,6 +17,7 @@ import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Quote } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { shareQuotePdf } from '../utils/quotePdf';
+import { hapticLight, hapticSuccess } from '../utils/haptics';
 
 export function QuoteDetailScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
@@ -28,6 +29,7 @@ export function QuoteDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [recommendedPdfLoading, setRecommendedPdfLoading] = useState(false);
 
   const fetchQuote = async () => {
     setLoading(true);
@@ -50,6 +52,7 @@ export function QuoteDetailScreen() {
     if (!quote) return;
     try {
       await adminApi.approveQuote(quote.id);
+      hapticSuccess();
       await fetchQuote();
     } catch (err: any) {
       Alert.alert('Hata', err?.response?.data?.error || 'Onay basarisiz.');
@@ -66,6 +69,7 @@ export function QuoteDetailScreen() {
         onPress: async () => {
           try {
             await adminApi.rejectQuote(quote.id, 'Mobil reddedildi');
+            hapticSuccess();
             await fetchQuote();
           } catch (err: any) {
             Alert.alert('Hata', err?.response?.data?.error || 'Red basarisiz.');
@@ -100,7 +104,41 @@ export function QuoteDetailScreen() {
     }
   };
 
+  const handleRecommendedPdf = async () => {
+    if (!quote) return;
+    setRecommendedPdfLoading(true);
+    try {
+      const productCodes = Array.from(
+        new Set(
+          (quote.items || [])
+            .map((item) => item.productCode?.trim())
+            .filter((code): code is string => Boolean(code))
+        )
+      );
+
+      if (productCodes.length === 0) {
+        Alert.alert('Bilgi', 'Teklifte urun kodu olmadigi icin onerili PDF olusturulamadi.');
+        return;
+      }
+
+      const recommendationResult = await adminApi.getComplementRecommendations({
+        productCodes,
+        excludeCodes: productCodes,
+        limit: 20,
+      });
+
+      await shareQuotePdf(quote, {
+        recommendedProducts: recommendationResult.products || [],
+      });
+    } catch (err: any) {
+      Alert.alert('Hata', err?.response?.data?.error || 'Onerili PDF hazirlanamadi.');
+    } finally {
+      setRecommendedPdfLoading(false);
+    }
+  };
+
   const canEdit = quote && ['PENDING_APPROVAL', 'SENT_TO_MIKRO'].includes(quote.status);
+  const canConvert = quote && Boolean(quote.mikroNumber) && quote.status !== 'REJECTED';
 
   if (loading) {
     return (
@@ -196,9 +234,29 @@ export function QuoteDetailScreen() {
                 <Text style={styles.secondaryButtonText}>Duzenle</Text>
               </TouchableOpacity>
             )}
+            {canConvert && (
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() => {
+                  hapticLight();
+                  navigation.navigate('QuoteConvert', { quoteId: quote.id });
+                }}
+              >
+                <Text style={styles.primaryButtonText}>Siparise Cevir</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.secondaryWideButton} onPress={handlePdf} disabled={pdfLoading}>
               <Text style={styles.secondaryButtonText}>
                 {pdfLoading ? 'PDF Hazirlaniyor...' : 'PDF Indir'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.secondaryWideButton}
+              onPress={handleRecommendedPdf}
+              disabled={recommendedPdfLoading}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {recommendedPdfLoading ? 'Onerili PDF Hazirlaniyor...' : 'Onerili PDF Indir'}
               </Text>
             </TouchableOpacity>
           </View>

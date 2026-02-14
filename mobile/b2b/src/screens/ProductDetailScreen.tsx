@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -10,12 +11,15 @@ import {
   View,
 } from 'react-native';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { customerApi } from '../api/customer';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { resolveImageUrl } from '../utils/image';
+import { trackCustomerActivity } from '../utils/activity';
 import { getDisplayPrice, getVatLabel } from '../utils/vat';
 import { getUnitConversionLabel } from '../utils/unit';
 
@@ -24,10 +28,12 @@ type PriceType = 'INVOICED' | 'WHITE';
 type ProductDetailRoute = RouteProp<RootStackParamList, 'ProductDetail'>;
 
 export function ProductDetailScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<ProductDetailRoute>();
   const { user } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
+  const [recommendations, setRecommendations] = useState<Product[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -65,9 +71,34 @@ export function ProductDetailScreen() {
     }
   };
 
+  const fetchRecommendations = async () => {
+    setRecommendationsLoading(true);
+    try {
+      const response = await customerApi.getProductRecommendations(route.params.productId);
+      setRecommendations(response.products || []);
+    } catch {
+      setRecommendations([]);
+    } finally {
+      setRecommendationsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchProduct();
+    fetchRecommendations();
   }, []);
+
+  useEffect(() => {
+    if (!product?.id) return;
+    trackCustomerActivity({
+      type: 'PRODUCT_VIEW',
+      productId: product.id,
+      productCode: product.mikroCode,
+      pagePath: `ProductDetail?productId=${product.id}`,
+      pageTitle: product.name,
+      meta: { source: 'mobile' },
+    });
+  }, [product?.id]);
 
   const getWarehouseTotal = (item: Product) => {
     const warehouseStocks = item.warehouseStocks || {};
@@ -120,7 +151,35 @@ export function ProductDetailScreen() {
         priceType,
         priceMode: product.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST',
       });
+      trackCustomerActivity({
+        type: 'CART_ADD',
+        productId: product.id,
+        productCode: product.mikroCode,
+        quantity,
+        meta: { source: 'product-detail' },
+      });
       Alert.alert('Sepete Eklendi', `${product.name} sepete eklendi.`);
+    } catch (err: any) {
+      Alert.alert('Hata', err?.response?.data?.error || 'Sepete eklenemedi.');
+    }
+  };
+
+  const addRecommendationToCart = async (item: Product) => {
+    try {
+      await customerApi.addToCart({
+        productId: item.id,
+        quantity: 1,
+        priceType,
+        priceMode: item.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST',
+      });
+      trackCustomerActivity({
+        type: 'CART_ADD',
+        productId: item.id,
+        productCode: item.mikroCode,
+        quantity: 1,
+        meta: { source: 'product-recommendations' },
+      });
+      Alert.alert('Sepete Eklendi', `${item.name} sepete eklendi.`);
     } catch (err: any) {
       Alert.alert('Hata', err?.response?.data?.error || 'Sepete eklenemedi.');
     }
@@ -168,6 +227,8 @@ export function ProductDetailScreen() {
   const isDiscounted = product.pricingMode === 'EXCESS';
   const displayStock = isDiscounted ? product.excessStock ?? totalStock : totalStock;
   const stockLabel = isDiscounted ? 'Fazla Stok' : 'Stok';
+  const imageUrl = resolveImageUrl(product.imageUrl);
+  const description = product.description?.trim() || 'Aciklama bulunamadi.';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -177,15 +238,33 @@ export function ProductDetailScreen() {
         </TouchableOpacity>
 
         <View style={styles.card}>
+          <View style={styles.imageWrap}>
+            {imageUrl ? (
+              <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="contain" />
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <Text style={styles.imagePlaceholderText}>
+                  {product.name?.trim()?.charAt(0)?.toUpperCase() || '?'}
+                </Text>
+              </View>
+            )}
+            <View style={styles.stockBadge}>
+              <Text style={styles.stockBadgeLabel}>{stockLabel}</Text>
+              <Text style={styles.stockBadgeValue}>{displayStock}</Text>
+            </View>
+          </View>
           <Text style={styles.title}>{product.name}</Text>
           <Text style={styles.meta}>Kod: {product.mikroCode}</Text>
           {product.category?.name && <Text style={styles.meta}>Kategori: {product.category.name}</Text>}
           {unitLabel && <Text style={styles.meta}>{unitLabel}</Text>}
-
-            <View style={styles.stockRow}>
-              <Text style={styles.stockLabel}>{stockLabel}</Text>
-              <Text style={styles.stockValue}>{displayStock}</Text>
+          <View style={styles.infoBlock}>
+            <Text style={styles.infoTitle}>Urun Aciklamasi</Text>
+            <Text style={styles.infoText}>{description}</Text>
+            <View style={styles.infoLine}>
+              <Text style={styles.infoLineLabel}>Paketleme</Text>
+              <Text style={styles.infoLineValue}>{unitLabel || '-'}</Text>
             </View>
+          </View>
 
           {product.agreement && (
             <View style={styles.agreementBox}>
@@ -239,6 +318,72 @@ export function ProductDetailScreen() {
             <Text style={styles.primaryButtonText}>Sepete Ekle</Text>
           </TouchableOpacity>
         </View>
+
+        {recommendationsLoading ? (
+          <View style={styles.recommendationLoading}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : recommendations.length > 0 ? (
+          <View style={styles.recommendationBlock}>
+            <Text style={styles.recommendationTitle}>Tamamlayici Oneriler</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recommendationRow}>
+              {recommendations.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.recommendationCard}
+                  activeOpacity={0.9}
+                  onPress={() => navigation.push('ProductDetail', { productId: item.id })}
+                >
+                  <View style={styles.recommendationImageWrap}>
+                    {resolveImageUrl(item.imageUrl) ? (
+                      <Image
+                        source={{ uri: resolveImageUrl(item.imageUrl) as string }}
+                        style={styles.recommendationImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.recommendationImagePlaceholder}>
+                        <Text style={styles.recommendationPlaceholderText}>
+                          {item.name?.trim()?.charAt(0)?.toUpperCase() || '?'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                          <Text style={styles.recommendationName} numberOfLines={2}>
+                            {item.name}
+                          </Text>
+                          <Text style={styles.recommendationCode}>{item.mikroCode}</Text>
+                          {(() => {
+                            const recommendationPrice = priceType === 'INVOICED'
+                              ? item.prices.invoiced
+                              : item.prices.white;
+                            return (
+                              <Text style={styles.recommendationPrice}>
+                                {getDisplayPrice(
+                                  recommendationPrice,
+                                  item.vatRate,
+                                  priceType,
+                                  user?.vatDisplayPreference
+                                ).toFixed(2)} TL
+                              </Text>
+                            );
+                          })()}
+                          {item.recommendationNote && (
+                            <Text style={styles.recommendationNote} numberOfLines={2}>
+                              {item.recommendationNote}
+                            </Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.recommendationButton}
+                    onPress={() => addRecommendationToCart(item)}
+                  >
+                    <Text style={styles.recommendationButtonText}>Sepete Ekle</Text>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -275,6 +420,48 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.sm,
   },
+  imageWrap: {
+    position: 'relative',
+    height: 220,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceAlt,
+  },
+  image: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePlaceholderText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.display,
+    color: colors.textMuted,
+  },
+  stockBadge: {
+    position: 'absolute',
+    right: spacing.sm,
+    top: spacing.sm,
+    backgroundColor: '#FFFFFF',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  stockBadgeLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  stockBadgeValue: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
@@ -285,20 +472,41 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: colors.textMuted,
   },
-  stockRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surfaceAlt,
-    padding: spacing.sm,
+  infoBlock: {
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+    backgroundColor: colors.surfaceAlt,
   },
-  stockLabel: {
-    fontFamily: fonts.medium,
+  infoTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  infoText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.sm,
     color: colors.textMuted,
   },
-  stockValue: {
-    fontFamily: fonts.bold,
+  infoLine: {
+    marginTop: spacing.xs,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  infoLineLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  infoLineValue: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
     color: colors.text,
+    flex: 1,
+    textAlign: 'right',
   },
   agreementBox: {
     borderWidth: 1,
@@ -395,6 +603,82 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     fontFamily: fonts.semibold,
+    color: '#FFFFFF',
+  },
+  recommendationLoading: {
+    paddingVertical: spacing.md,
+  },
+  recommendationBlock: {
+    gap: spacing.sm,
+  },
+  recommendationTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: colors.text,
+  },
+  recommendationRow: {
+    gap: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  recommendationCard: {
+    width: 185,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.sm,
+    gap: spacing.xs,
+  },
+  recommendationImageWrap: {
+    height: 100,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceAlt,
+  },
+  recommendationImage: {
+    width: '100%',
+    height: '100%',
+  },
+  recommendationImagePlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recommendationPlaceholderText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.lg,
+    color: colors.textMuted,
+  },
+  recommendationName: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  recommendationCode: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  recommendationPrice: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  recommendationNote: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  recommendationButton: {
+    marginTop: spacing.xs,
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    alignItems: 'center',
+  },
+  recommendationButtonText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.xs,
     color: '#FFFFFF',
   },
   error: {

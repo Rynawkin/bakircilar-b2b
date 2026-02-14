@@ -1,5 +1,7 @@
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { AppState } from 'react-native';
+import { useEffect, useRef } from 'react';
 
 import { CustomerTabs } from './CustomerTabs';
 import { AgreementsScreen } from '../screens/AgreementsScreen';
@@ -18,6 +20,7 @@ import { QuoteDetailScreen } from '../screens/QuoteDetailScreen';
 import { QuotesScreen } from '../screens/QuotesScreen';
 import { RequestDetailScreen } from '../screens/RequestDetailScreen';
 import { RequestsScreen } from '../screens/RequestsScreen';
+import { flushActivePing, setActivityPage, trackCustomerActivity } from '../utils/activity';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -39,11 +42,60 @@ export type RootStackParamList = {
   Notifications: undefined;
 };
 
+const serializeParams = (params?: Record<string, unknown>) => {
+  if (!params) return '';
+  return Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join('&');
+};
+
+const formatRoutePath = (route?: { name?: string; params?: Record<string, unknown> }) => {
+  if (!route?.name) return '';
+  const query = serializeParams(route.params);
+  return query ? `${route.name}?${query}` : route.name;
+};
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function AppNavigator() {
+  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+  const lastPathRef = useRef<string>('');
+
+  useEffect(() => {
+    const intervalId = setInterval(() => flushActivePing(false), 30000);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') {
+        flushActivePing(true);
+      }
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      subscription.remove();
+      flushActivePing(true);
+    };
+  }, []);
+
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={() => {
+        const route = navigationRef.getCurrentRoute();
+        const pagePath = formatRoutePath(route as any);
+        lastPathRef.current = pagePath;
+        setActivityPage(pagePath, route?.name);
+        trackCustomerActivity({ type: 'PAGE_VIEW', pagePath, pageTitle: route?.name });
+      }}
+      onStateChange={() => {
+        const route = navigationRef.getCurrentRoute();
+        const pagePath = formatRoutePath(route as any);
+        if (!pagePath || pagePath === lastPathRef.current) return;
+        lastPathRef.current = pagePath;
+        setActivityPage(pagePath, route?.name);
+        trackCustomerActivity({ type: 'PAGE_VIEW', pagePath, pageTitle: route?.name });
+      }}
+    >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Tabs" component={CustomerTabs} />
         <Stack.Screen name="Orders" component={OrdersScreen} />

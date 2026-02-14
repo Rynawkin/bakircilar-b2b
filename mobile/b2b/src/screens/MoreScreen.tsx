@@ -36,7 +36,7 @@ export function MoreScreen() {
             <TouchableOpacity
               key={link.label}
               style={styles.card}
-              onPress={() => navigation.navigate(link.route)}
+              onPress={() => navigation.navigate(link.route as never)}
             >
               <Text style={styles.cardTitle}>{link.label}</Text>
               <Text style={styles.cardBody}>{link.description}</Text>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Category, Product } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { trackCustomerActivity } from '../utils/activity';
 import { resolveImageUrl } from '../utils/image';
 import { getDisplayPrice } from '../utils/vat';
 
@@ -42,6 +43,7 @@ export function PurchasedProductsScreen() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'price-asc' | 'price-desc' | 'stock-desc' | 'stock-asc'>('name-asc');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const lastSearchRef = useRef('');
 
   const visibility = user?.priceVisibility ?? 'INVOICED_ONLY';
 
@@ -92,6 +94,18 @@ export function PurchasedProductsScreen() {
     }, 300);
     return () => clearTimeout(handler);
   }, [search, selectedCategory, selectedWarehouse]);
+
+  useEffect(() => {
+    const term = search.trim();
+    if (!term || term === lastSearchRef.current) return;
+    lastSearchRef.current = term;
+    trackCustomerActivity({
+      type: 'SEARCH',
+      pagePath: 'PurchasedProducts',
+      pageTitle: 'Daha Once Aldiklarim',
+      meta: { query: term, source: 'previously-purchased' },
+    });
+  }, [search]);
 
   const getWarehouseTotal = (product: Product) => {
     const warehouseStocks = product.warehouseStocks || {};
@@ -170,6 +184,13 @@ export function PurchasedProductsScreen() {
         quantity,
         priceType,
         priceMode: product.pricingMode === 'EXCESS' ? 'EXCESS' : 'LIST',
+      });
+      trackCustomerActivity({
+        type: 'CART_ADD',
+        productId: product.id,
+        productCode: product.mikroCode,
+        quantity,
+        meta: { source: 'purchased-products-grid' },
       });
       Alert.alert('Sepete Eklendi', `${product.name} sepete eklendi.`);
     } catch (err: any) {

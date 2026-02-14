@@ -16,6 +16,7 @@ import { adminApi } from '../api/admin';
 import { Order } from '../types';
 import { PortalStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { hapticLight, hapticSuccess } from '../utils/haptics';
 
 export function OrdersScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
@@ -43,6 +44,7 @@ export function OrdersScreen() {
   const approve = async (orderId: string) => {
     try {
       await adminApi.approveOrder(orderId);
+      hapticSuccess();
       await fetchOrders();
     } catch (err: any) {
       Alert.alert('Hata', err?.response?.data?.error || 'Onay basarisiz.');
@@ -58,6 +60,7 @@ export function OrdersScreen() {
         onPress: async () => {
           try {
             await adminApi.rejectOrder(orderId, 'Mobil reddedildi');
+            hapticSuccess();
             await fetchOrders();
           } catch (err: any) {
             Alert.alert('Hata', err?.response?.data?.error || 'Red basarisiz.');
@@ -82,6 +85,20 @@ export function OrdersScreen() {
             <View style={styles.header}>
               <Text style={styles.title}>Siparisler</Text>
               <Text style={styles.subtitle}>Onay surecleri ve durumlar.</Text>
+              <View style={styles.headerActions}>
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={() => {
+                    hapticLight();
+                    navigation.navigate('OrderCreate');
+                  }}
+                >
+                  <Text style={styles.primaryButtonText}>Manuel Siparis</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryButton} onPress={fetchOrders}>
+                  <Text style={styles.secondaryButtonText}>Yenile</Text>
+                </TouchableOpacity>
+              </View>
               {error && <Text style={styles.error}>{error}</Text>}
             </View>
           }
@@ -137,6 +154,10 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   header: {
+    gap: spacing.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
     gap: spacing.sm,
   },
   title: {

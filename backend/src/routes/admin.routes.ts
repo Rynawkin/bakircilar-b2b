@@ -137,6 +137,13 @@ const notificationReadSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 });
 
+const pushTokenSchema = z.object({
+  token: z.string().min(1),
+  platform: z.string().optional(),
+  appName: z.string().optional(),
+  deviceName: z.string().optional(),
+});
+
 const complementUpdateSchema = z.object({
   mode: z.enum(['AUTO', 'MANUAL']).optional(),
   manualProductIds: z.array(z.string().uuid()).optional(),
@@ -371,6 +378,8 @@ router.delete('/tasks/:id/links/:linkId', requirePermission('admin:requests'), t
 router.get('/notifications', requirePermission('admin:notifications'), notificationController.getNotifications);
 router.post('/notifications/read', requirePermission('admin:notifications'), validateBody(notificationReadSchema), notificationController.markRead);
 router.post('/notifications/read-all', requirePermission('admin:notifications'), notificationController.markAllRead);
+router.post('/notifications/push/register', validateBody(pushTokenSchema), notificationController.registerPushToken);
+router.post('/notifications/push/unregister', validateBody(z.object({ token: z.string().min(1) })), notificationController.unregisterPushToken);
 
 // Exchange rates
 router.get('/exchange/usd', requirePermission('admin:quotes'), adminController.getUsdSellingRate);

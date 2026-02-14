@@ -26,6 +26,8 @@ export interface Product {
   name: string;
   mikroCode: string;
   imageUrl?: string | null;
+  description?: string | null;
+  recommendationNote?: string | null;
   unit?: string | null;
   unit2?: string | null;
   unit2Factor?: number | null;
@@ -98,6 +100,7 @@ export interface CartItem {
   unitPrice: number;
   totalPrice: number;
   vatRate: number;
+  lineNote?: string | null;
 }
 
 export interface Cart {
@@ -106,6 +109,15 @@ export interface Cart {
   subtotal: number;
   totalVat: number;
   total: number;
+}
+
+export interface RecommendationGroup {
+  baseProduct: {
+    id: string;
+    name: string;
+    mikroCode: string;
+  };
+  products: Product[];
 }
 
 export interface OrderRequest {

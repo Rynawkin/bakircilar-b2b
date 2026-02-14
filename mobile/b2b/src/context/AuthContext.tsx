@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import { login as loginApi, getMe } from '../api/auth';
+import { setActivityUser } from '../utils/activity';
 import { clearAuth, getAuthToken, getAuthUser, saveAuth } from '../storage/auth';
 import { User } from '../types';
 
@@ -41,6 +42,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     bootstrap();
   }, []);
+
+  useEffect(() => {
+    setActivityUser(user);
+  }, [user]);
 
   const signIn = async (email: string, password: string) => {
     setLoading(true);

@@ -12,18 +12,25 @@ import { EInvoicesScreen } from '../screens/EInvoicesScreen';
 import { ExclusionsScreen } from '../screens/ExclusionsScreen';
 import { OrderTrackingScreen } from '../screens/OrderTrackingScreen';
 import { OrderDetailScreen } from '../screens/OrderDetailScreen';
+import { OrderCreateScreen } from '../screens/OrderCreateScreen';
 import { ProductOverridesScreen } from '../screens/ProductOverridesScreen';
+import { PortfolioScreen } from '../screens/PortfolioScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { RolePermissionsScreen } from '../screens/RolePermissionsScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { StaffScreen } from '../screens/StaffScreen';
 import { SyncScreen } from '../screens/SyncScreen';
+import { SupplierPriceListSettingsScreen } from '../screens/SupplierPriceListSettingsScreen';
+import { SupplierPriceListsScreen } from '../screens/SupplierPriceListsScreen';
 import { TaskCreateScreen } from '../screens/TaskCreateScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
 import { QuoteCreateScreen } from '../screens/QuoteCreateScreen';
 import { QuoteDetailScreen } from '../screens/QuoteDetailScreen';
+import { QuoteConvertScreen } from '../screens/QuoteConvertScreen';
+import { QuoteLinesScreen } from '../screens/QuoteLinesScreen';
 import { ProductsScreen } from '../screens/ProductsScreen';
+import { ComplementManagementScreen } from '../screens/ComplementManagementScreen';
 import { VadeCustomerScreen } from '../screens/VadeCustomerScreen';
 import { VadeScreen } from '../screens/VadeScreen';
 
@@ -39,12 +46,19 @@ export type PortalStackParamList = {
   Sync: undefined;
   Products: undefined;
   OrderDetail: { orderId: string };
+  OrderCreate: undefined;
   QuoteDetail: { quoteId: string };
+  QuoteConvert: { quoteId: string };
   QuoteCreate: { quoteId?: string } | undefined;
   OrderTracking: undefined;
   TaskDetail: { taskId: string };
   TaskCreate: undefined;
   ProductOverrides: undefined;
+  Portfolio: undefined;
+  SupplierPriceListSettings: undefined;
+  SupplierPriceLists: undefined;
+  QuoteLines: undefined;
+  ComplementManagement: undefined;
   Categories: undefined;
   Campaigns: undefined;
   Exclusions: undefined;
@@ -72,12 +86,19 @@ export function AppNavigator() {
         <Stack.Screen name="Sync" component={SyncScreen} />
         <Stack.Screen name="Products" component={ProductsScreen} />
         <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
+        <Stack.Screen name="OrderCreate" component={OrderCreateScreen} />
         <Stack.Screen name="QuoteDetail" component={QuoteDetailScreen} />
+        <Stack.Screen name="QuoteConvert" component={QuoteConvertScreen} />
         <Stack.Screen name="QuoteCreate" component={QuoteCreateScreen} />
         <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} />
         <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
         <Stack.Screen name="TaskCreate" component={TaskCreateScreen} />
         <Stack.Screen name="ProductOverrides" component={ProductOverridesScreen} />
+        <Stack.Screen name="Portfolio" component={PortfolioScreen} />
+        <Stack.Screen name="SupplierPriceListSettings" component={SupplierPriceListSettingsScreen} />
+        <Stack.Screen name="SupplierPriceLists" component={SupplierPriceListsScreen} />
+        <Stack.Screen name="QuoteLines" component={QuoteLinesScreen} />
+        <Stack.Screen name="ComplementManagement" component={ComplementManagementScreen} />
         <Stack.Screen name="Categories" component={CategoriesScreen} />
         <Stack.Screen name="Campaigns" component={CampaignsScreen} />
         <Stack.Screen name="Exclusions" component={ExclusionsScreen} />

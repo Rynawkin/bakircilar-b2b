@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   SafeAreaView,
   ScrollView,
@@ -225,6 +226,8 @@ export function QuoteCreateScreen() {
   const [searchingProducts, setSearchingProducts] = useState(false);
 
   const [quoteItems, setQuoteItems] = useState<QuoteItemForm[]>([]);
+  const [complementRecommendations, setComplementRecommendations] = useState<Product[]>([]);
+  const [loadingComplementRecommendations, setLoadingComplementRecommendations] = useState(false);
   const [validityDate, setValidityDate] = useState(buildDefaultValidityDate());
   const [note, setNote] = useState('');
   const [documentNo, setDocumentNo] = useState('');
@@ -462,6 +465,47 @@ export function QuoteCreateScreen() {
     [filteredSearchResults, poolSort]
   );
 
+  const quoteProductCodes = useMemo(() => {
+    const unique = new Set<string>();
+    quoteItems.forEach((item) => {
+      const code = item.productCode?.trim();
+      if (code) unique.add(code);
+    });
+    return Array.from(unique);
+  }, [quoteItems]);
+
+  useEffect(() => {
+    if (quoteProductCodes.length === 0) {
+      setComplementRecommendations([]);
+      return;
+    }
+
+    let active = true;
+    setLoadingComplementRecommendations(true);
+    adminApi
+      .getComplementRecommendations({
+        productCodes: quoteProductCodes,
+        excludeCodes: quoteProductCodes,
+        limit: 20,
+      })
+      .then((response) => {
+        if (!active) return;
+        setComplementRecommendations((response?.products || []) as Product[]);
+      })
+      .catch(() => {
+        if (!active) return;
+        setComplementRecommendations([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoadingComplementRecommendations(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [quoteProductCodes.join('|')]);
+
   const selectedPurchasedCount = selectedPurchasedCodes.size;
   const selectedSearchCount = selectedSearchCodes.size;
 
@@ -596,6 +640,10 @@ export function QuoteCreateScreen() {
   };
 
   const addProduct = (product: Product) => {
+    addProductsToQuote([product]);
+  };
+
+  const addComplementProduct = (product: Product) => {
     addProductsToQuote([product]);
   };
 
@@ -1658,6 +1706,36 @@ export function QuoteCreateScreen() {
           )}
         </View>
 
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Tamamlayici Oneriler</Text>
+          {loadingComplementRecommendations ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : complementRecommendations.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.complementRow}
+            >
+              {complementRecommendations.map((item) => (
+                <View key={`complement-${item.id}`} style={styles.complementCard}>
+                  <Text style={styles.complementName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.complementCode}>{item.mikroCode}</Text>
+                  <TouchableOpacity
+                    style={styles.secondaryAction}
+                    onPress={() => addComplementProduct(item)}
+                  >
+                    <Text style={styles.secondaryActionText}>Kaleme Ekle</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.helper}>Kalem secildikce tamamlayici oneriler burada listelenir.</Text>
+          )}
+        </View>
+
         <TouchableOpacity
           style={styles.primaryButton}
           onPress={handleCreate}
@@ -1940,6 +2018,29 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   poolSaleEmpty: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  complementRow: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  complementCard: {
+    width: 180,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+    padding: spacing.sm,
+    gap: spacing.xs,
+  },
+  complementName: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSizes.sm,
+    color: colors.text,
+  },
+  complementCode: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.xs,
     color: colors.textMuted,

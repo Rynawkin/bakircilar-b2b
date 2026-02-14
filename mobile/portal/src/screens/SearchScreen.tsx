@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,14 +12,62 @@ import {
 
 import { adminApi } from '../api/admin';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
+import { hapticLight, hapticSuccess } from '../utils/haptics';
 
 type SearchMode = 'stocks' | 'customers';
+
+const STOCK_TITLE_KEY = 'msg_S_0870';
+const STOCK_CODE_KEY = 'msg_S_0078';
+const CUSTOMER_TITLE_KEY = 'msg_S_1033';
+const CUSTOMER_CODE_KEY = 'msg_S_1032';
+
+const toText = (value: any) => {
+  if (value === null || value === undefined || value === '') return '-';
+  return String(value);
+};
 
 export function SearchScreen() {
   const [mode, setMode] = useState<SearchMode>('stocks');
   const [term, setTerm] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const [stockColumns, setStockColumns] = useState<string[]>([]);
+  const [customerColumns, setCustomerColumns] = useState<string[]>([]);
+  const [selectedStockColumns, setSelectedStockColumns] = useState<string[]>([]);
+  const [selectedCustomerColumns, setSelectedCustomerColumns] = useState<string[]>([]);
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [savingColumns, setSavingColumns] = useState(false);
+
+  useEffect(() => {
+    const loadMeta = async () => {
+      const [stockResp, customerResp, prefResp] = await Promise.all([
+        adminApi.getStockColumns().catch(() => ({ columns: [] as string[] })),
+        adminApi.getCustomerColumns().catch(() => ({ columns: [] as string[] })),
+        adminApi.getSearchPreferences().catch(() => null),
+      ]);
+
+      const stocks = stockResp.columns || [];
+      const customers = customerResp.columns || [];
+      const prefStocks = prefResp?.preferences?.stockColumns || [];
+      const prefCustomers = prefResp?.preferences?.customerColumns || [];
+
+      setStockColumns(stocks);
+      setCustomerColumns(customers);
+      setSelectedStockColumns(
+        prefStocks.filter((item: string) => stocks.includes(item)).length > 0
+          ? prefStocks.filter((item: string) => stocks.includes(item))
+          : stocks.slice(0, Math.min(5, stocks.length))
+      );
+      setSelectedCustomerColumns(
+        prefCustomers.filter((item: string) => customers.includes(item)).length > 0
+          ? prefCustomers.filter((item: string) => customers.includes(item))
+          : customers.slice(0, Math.min(5, customers.length))
+      );
+    };
+
+    loadMeta();
+  }, []);
 
   const runSearch = async () => {
     setLoading(true);
@@ -31,10 +79,51 @@ export function SearchScreen() {
         const response = await adminApi.searchCustomers({ searchTerm: term, limit: 50, offset: 0 });
         setResults(response.data || []);
       }
-    } catch (err) {
+      hapticLight();
+    } catch {
       setResults([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const selectedColumns = useMemo(
+    () => (mode === 'stocks' ? selectedStockColumns : selectedCustomerColumns),
+    [mode, selectedStockColumns, selectedCustomerColumns]
+  );
+
+  const availableColumns = useMemo(
+    () => (mode === 'stocks' ? stockColumns : customerColumns),
+    [mode, stockColumns, customerColumns]
+  );
+
+  const visibleColumns = useMemo(() => {
+    if (mode === 'stocks') {
+      return selectedColumns.filter((column) => ![STOCK_TITLE_KEY, STOCK_CODE_KEY].includes(column));
+    }
+    return selectedColumns.filter((column) => ![CUSTOMER_TITLE_KEY, CUSTOMER_CODE_KEY].includes(column));
+  }, [mode, selectedColumns]);
+
+  const toggleColumn = async (column: string) => {
+    const source = mode === 'stocks' ? selectedStockColumns : selectedCustomerColumns;
+    const exists = source.includes(column);
+    const next = exists ? source.filter((item) => item !== column) : [...source, column];
+    if (next.length === 0) return;
+
+    if (mode === 'stocks') {
+      setSelectedStockColumns(next);
+    } else {
+      setSelectedCustomerColumns(next);
+    }
+
+    setSavingColumns(true);
+    try {
+      await adminApi.updateSearchPreferences(
+        mode === 'stocks' ? { stockColumns: next } : { customerColumns: next }
+      );
+      hapticSuccess();
+    } finally {
+      setSavingColumns(false);
     }
   };
 
@@ -47,7 +136,7 @@ export function SearchScreen() {
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={styles.title}>Arama</Text>
-            <Text style={styles.subtitle}>Stok ve cari arama.</Text>
+            <Text style={styles.subtitle}>Kullanici bazli alan secimi ile stok/cari arama.</Text>
             <View style={styles.segment}>
               {(['stocks', 'customers'] as const).map((item) => (
                 <TouchableOpacity
@@ -61,6 +150,31 @@ export function SearchScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            <TouchableOpacity style={styles.columnsToggle} onPress={() => setColumnPickerOpen((prev) => !prev)}>
+              <Text style={styles.columnsToggleText}>
+                {columnPickerOpen ? 'Alan secimini gizle' : 'Alan secimini ac'}
+              </Text>
+            </TouchableOpacity>
+
+            {columnPickerOpen && (
+              <View style={styles.columnsWrap}>
+                {availableColumns.map((column) => {
+                  const selected = selectedColumns.includes(column);
+                  return (
+                    <TouchableOpacity
+                      key={column}
+                      style={[styles.columnChip, selected && styles.columnChipActive]}
+                      onPress={() => toggleColumn(column)}
+                      disabled={savingColumns}
+                    >
+                      <Text style={selected ? styles.columnTextActive : styles.columnText}>{column}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
             <View style={styles.row}>
               <TextInput
                 style={[styles.input, styles.flex]}
@@ -77,12 +191,22 @@ export function SearchScreen() {
             </View>
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{item.name || item.stok_adi || item.cari_unvan || '-'}</Text>
-            <Text style={styles.cardMeta}>{item.code || item.stok_kod || item.cari_kod || '-'}</Text>
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const title = mode === 'stocks' ? item[STOCK_TITLE_KEY] : item[CUSTOMER_TITLE_KEY];
+          const code = mode === 'stocks' ? item[STOCK_CODE_KEY] : item[CUSTOMER_CODE_KEY];
+          return (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>{toText(title)}</Text>
+              <Text style={styles.cardMeta}>{toText(code)}</Text>
+              {visibleColumns.map((column) => (
+                <View key={`${code}-${column}`} style={styles.fieldRow}>
+                  <Text style={styles.fieldLabel}>{column}</Text>
+                  <Text style={styles.fieldValue}>{toText(item[column])}</Text>
+                </View>
+              ))}
+            </View>
+          );
+        }}
         ListEmptyComponent={
           loading ? (
             <View style={styles.loading}>
@@ -149,6 +273,41 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.sm,
     color: '#FFFFFF',
   },
+  columnsToggle: {
+    alignSelf: 'flex-start',
+  },
+  columnsToggleText: {
+    fontFamily: fonts.medium,
+    color: colors.primary,
+    fontSize: fontSizes.sm,
+  },
+  columnsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  columnChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.surface,
+  },
+  columnChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  columnText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  columnTextActive: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: '#FFFFFF',
+  },
   row: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -184,6 +343,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: spacing.xs,
   },
   cardTitle: {
     fontFamily: fonts.semibold,
@@ -193,7 +353,25 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
     color: colors.textMuted,
-    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  fieldRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  fieldLabel: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.xs,
+    color: colors.textMuted,
+  },
+  fieldValue: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.xs,
+    color: colors.text,
+    textAlign: 'right',
   },
   loading: {
     paddingVertical: spacing.xl,

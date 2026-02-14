@@ -69,6 +69,13 @@ const notificationReadSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 });
 
+const pushTokenSchema = z.object({
+  token: z.string().min(1),
+  platform: z.string().optional(),
+  appName: z.string().optional(),
+  deviceName: z.string().optional(),
+});
+
 const customerActivityEventSchema = z.object({
   type: z.enum([
     'PAGE_VIEW',
@@ -207,6 +214,8 @@ router.post('/tasks/:id/attachments', requireCustomer, taskUpload.single('file')
 router.get('/notifications', requireCustomer, notificationController.getNotifications);
 router.post('/notifications/read', requireCustomer, validateBody(notificationReadSchema), notificationController.markRead);
 router.post('/notifications/read-all', requireCustomer, notificationController.markAllRead);
+router.post('/notifications/push/register', requireCustomer, validateBody(pushTokenSchema), notificationController.registerPushToken);
+router.post('/notifications/push/unregister', requireCustomer, validateBody(z.object({ token: z.string().min(1) })), notificationController.unregisterPushToken);
 
 // E-Invoices (customer)
 router.get('/invoices', requireCustomer, eInvoiceController.getMyDocuments);

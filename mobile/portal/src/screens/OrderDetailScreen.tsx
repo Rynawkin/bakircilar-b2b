@@ -39,12 +39,12 @@ export function OrderDetailScreen() {
     setLoading(true);
     setError(null);
     try {
-      const response = await adminApi.getOrders();
-      const found = response.orders.find((item: Order) => item.id === orderId) || null;
+      const response = await adminApi.getOrderById(orderId);
+      const found = (response.order as Order) || null;
       setOrder(found);
       if (found?.items) {
         const nextSelected: Record<string, boolean> = {};
-        found.items.forEach((item) => {
+        found.items.forEach((item: OrderItem) => {
           if (getItemStatus(item) === 'PENDING') {
             nextSelected[item.id] = true;
           }

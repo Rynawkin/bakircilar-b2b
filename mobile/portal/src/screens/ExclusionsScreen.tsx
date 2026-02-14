@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   SafeAreaView,
   ScrollView,
@@ -22,18 +23,60 @@ const EXCLUSION_TYPES: Exclusion['type'][] = [
   'SECTOR_CODE',
 ];
 
+const normalizeCode = (value: string | undefined | null) => String(value || '').trim().toUpperCase();
+
 export function ExclusionsScreen() {
   const [exclusions, setExclusions] = useState<Exclusion[]>([]);
   const [type, setType] = useState<Exclusion['type']>('PRODUCT_CODE');
   const [value, setValue] = useState('');
   const [description, setDescription] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const exclusionByCode = useMemo(() => {
+    const map = new Map<string, Exclusion[]>();
+    exclusions
+      .filter((item) => item.type === 'PRODUCT_CODE')
+      .forEach((item) => {
+        const key = normalizeCode(item.value);
+        const list = map.get(key) || [];
+        list.push(item);
+        map.set(key, list);
+      });
+    return map;
+  }, [exclusions]);
+
+  const activeProductExclusionCount = useMemo(
+    () => exclusions.filter((item) => item.type === 'PRODUCT_CODE' && item.active).length,
+    [exclusions]
+  );
 
   const fetchExclusions = async () => {
     try {
       const response = await adminApi.getExclusions();
       setExclusions(response.data || []);
-    } catch (err) {
+    } catch (_err) {
       Alert.alert('Hata', 'Exclusion listesi yuklenemedi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const searchProducts = async (term: string) => {
+    setSearching(true);
+    try {
+      const response = await adminApi.searchStocks({
+        searchTerm: term.trim() || undefined,
+        limit: 20,
+        offset: 0,
+      });
+      setSearchResults(response.data || []);
+    } catch (_err) {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -41,13 +84,26 @@ export function ExclusionsScreen() {
     fetchExclusions();
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      searchProducts(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const addExclusion = async () => {
-    if (!value.trim()) {
+    const rawValue = value.trim();
+    if (!rawValue) {
       Alert.alert('Eksik Bilgi', 'Deger girin.');
       return;
     }
+    const normalizedValue = type === 'PRODUCT_CODE' ? normalizeCode(rawValue) : rawValue;
     try {
-      await adminApi.createExclusion({ type, value: value.trim(), description: description.trim() || undefined });
+      await adminApi.createExclusion({
+        type,
+        value: normalizedValue,
+        description: description.trim() || undefined,
+      });
       setValue('');
       setDescription('');
       await fetchExclusions();
@@ -74,27 +130,125 @@ export function ExclusionsScreen() {
     }
   };
 
+  const quickExclude = async (stock: any) => {
+    const code = normalizeCode(stock?.code || stock?.stok_kod);
+    if (!code) {
+      return;
+    }
+
+    const existing = exclusionByCode.get(code) || [];
+    const activeRule = existing.find((item) => item.active);
+    if (activeRule) {
+      Alert.alert('Bilgi', `${code} zaten dislama listesinde.`);
+      return;
+    }
+
+    try {
+      const inactiveRule = existing.find((item) => !item.active);
+      if (inactiveRule) {
+        await adminApi.updateExclusion(inactiveRule.id, { active: true });
+      } else {
+        await adminApi.createExclusion({
+          type: 'PRODUCT_CODE',
+          value: code,
+          description: 'Mobil panelden urun dislama',
+        });
+      }
+      await fetchExclusions();
+    } catch (err: any) {
+      Alert.alert('Hata', err?.response?.data?.error || 'Urun dislanamadi.');
+    }
+  };
+
+  const quickUnexclude = async (code: string) => {
+    const normalized = normalizeCode(code);
+    const existing = exclusionByCode.get(normalized) || [];
+    const activeRule = existing.find((item) => item.active);
+    if (!activeRule) {
+      Alert.alert('Bilgi', `${normalized} aktif dislama listesinde degil.`);
+      return;
+    }
+
+    try {
+      await adminApi.updateExclusion(activeRule.id, { active: false });
+      await fetchExclusions();
+    } catch (err: any) {
+      Alert.alert('Hata', err?.response?.data?.error || 'Guncelleme basarisiz.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Exclusions</Text>
-        <Text style={styles.subtitle}>Stok ve cari dislama listesi.</Text>
+        <Text style={styles.subtitle}>Dislanan urunler musteri tarafinda ve raporlarda gizlenir.</Text>
 
-        {exclusions.map((item) => (
-          <View key={item.id} style={styles.card}>
-            <Text style={styles.cardTitle}>{item.type}</Text>
-            <Text style={styles.cardMeta}>{item.value}</Text>
-            {item.description && <Text style={styles.cardMeta}>{item.description}</Text>}
-            <View style={styles.row}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => toggleActive(item)}>
-                <Text style={styles.secondaryButtonText}>{item.active ? 'Pasif Et' : 'Aktif Et'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => remove(item.id)}>
-                <Text style={styles.secondaryButtonText}>Sil</Text>
-              </TouchableOpacity>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Hizli Urun Dislama</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Urun ara (kod veya ad)"
+            placeholderTextColor={colors.textMuted}
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+          />
+          <Text style={styles.cardMeta}>Aktif dislanan urun sayisi: {activeProductExclusionCount}</Text>
+          {searching ? (
+            <View style={styles.searchLoading}>
+              <ActivityIndicator color={colors.primary} />
             </View>
+          ) : (
+            <View style={styles.searchList}>
+              {searchResults.map((item, index) => {
+                const code = normalizeCode(item?.code || item?.stok_kod);
+                const name = String(item?.name || item?.stok_adi || '-');
+                const isExcluded = (exclusionByCode.get(code) || []).some((rule) => rule.active);
+
+                return (
+                  <View key={`${code}-${index}`} style={styles.searchItem}>
+                    <View style={styles.searchItemContent}>
+                      <Text style={styles.searchItemTitle} numberOfLines={2}>
+                        {name}
+                      </Text>
+                      <Text style={styles.cardMeta}>{code || '-'}</Text>
+                    </View>
+                    {isExcluded ? (
+                      <TouchableOpacity style={styles.secondaryButton} onPress={() => quickUnexclude(code)}>
+                        <Text style={styles.secondaryButtonText}>Geri Al</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.dangerButton} onPress={() => quickExclude(item)}>
+                        <Text style={styles.dangerButtonText}>Disla</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        {loading ? (
+          <View style={styles.card}>
+            <ActivityIndicator color={colors.primary} />
           </View>
-        ))}
+        ) : (
+          exclusions.map((item) => (
+            <View key={item.id} style={styles.card}>
+              <Text style={styles.cardTitle}>{item.type}</Text>
+              <Text style={styles.cardMeta}>{item.value}</Text>
+              {item.description ? <Text style={styles.cardMeta}>{item.description}</Text> : null}
+              <View style={styles.row}>
+                <TouchableOpacity style={styles.secondaryButton} onPress={() => toggleActive(item)}>
+                  <Text style={styles.secondaryButtonText}>{item.active ? 'Pasif Et' : 'Aktif Et'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryButton} onPress={() => remove(item.id)}>
+                  <Text style={styles.secondaryButtonText}>Sil</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )}
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Yeni Exclusion</Text>
@@ -220,10 +374,49 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
     alignItems: 'center',
   },
   secondaryButtonText: {
     fontFamily: fonts.semibold,
     color: colors.text,
+  },
+  dangerButton: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    backgroundColor: '#8E1F1F',
+  },
+  dangerButtonText: {
+    fontFamily: fonts.semibold,
+    color: '#FFFFFF',
+  },
+  searchLoading: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchList: {
+    gap: spacing.sm,
+  },
+  searchItem: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  searchItemContent: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  searchItemTitle: {
+    fontFamily: fonts.semibold,
+    color: colors.text,
+    fontSize: fontSizes.sm,
   },
 });

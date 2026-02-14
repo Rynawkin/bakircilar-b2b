@@ -11,9 +11,12 @@ import {
   EInvoiceDocument,
   Exclusion,
   MarginComplianceRow,
+  Notification,
   PriceHistoryChange,
   Product,
   Quote,
+  QuoteLineItem,
+  Order,
   SetPriceRuleRequest,
   Settings,
   StaffMember,
@@ -32,6 +35,36 @@ import {
   VadeSyncLog,
 } from '../types';
 import { apiClient } from './client';
+
+type SupplierPriceListOverrides = {
+  excelSheetName?: string | null;
+  excelHeaderRow?: number | null;
+  excelCodeHeader?: string | null;
+  excelNameHeader?: string | null;
+  excelPriceHeader?: string | null;
+  pdfPriceIndex?: number | null;
+  pdfCodePattern?: string | null;
+  pdfColumnRoles?: Record<string, string> | null;
+};
+
+const appendSupplierPriceListOverrides = (formData: FormData, overrides?: SupplierPriceListOverrides) => {
+  if (!overrides) return;
+  const appendValue = (key: string, value?: string | number | null) => {
+    if (value === undefined || value === null || value === '') return;
+    formData.append(key, String(value));
+  };
+
+  appendValue('excelSheetName', overrides.excelSheetName);
+  appendValue('excelHeaderRow', overrides.excelHeaderRow);
+  appendValue('excelCodeHeader', overrides.excelCodeHeader);
+  appendValue('excelNameHeader', overrides.excelNameHeader);
+  appendValue('excelPriceHeader', overrides.excelPriceHeader);
+  appendValue('pdfPriceIndex', overrides.pdfPriceIndex);
+  appendValue('pdfCodePattern', overrides.pdfCodePattern);
+  if (overrides.pdfColumnRoles && Object.keys(overrides.pdfColumnRoles).length > 0) {
+    formData.append('pdfColumnRoles', JSON.stringify(overrides.pdfColumnRoles));
+  }
+};
 
 export const adminApi = {
   // Settings
@@ -80,6 +113,45 @@ export const adminApi = {
   rejectQuote: async (id: string, adminNote: string) => {
     const response = await apiClient.post(`/admin/quotes/${id}/reject`, { adminNote });
     return response.data;
+  },
+  convertQuoteToOrder: async (
+    id: string,
+    payload: {
+      selectedItemIds: string[];
+      closeReasons?: Record<string, string>;
+      closeUnselected?: boolean;
+      warehouseNo: number;
+      invoicedSeries?: string;
+      invoicedSira?: number;
+      whiteSeries?: string;
+      whiteSira?: number;
+      itemUpdates?: Array<{ id: string; quantity?: number; responsibilityCenter?: string; reserveQty?: number }>;
+      documentNo?: string;
+      documentDescription?: string;
+    }
+  ) => {
+    const response = await apiClient.post(`/admin/quotes/${id}/convert-to-order`, payload);
+    return response.data as { mikroOrderIds: string[]; closedCount: number; orderId: string; orderNumber: string };
+  },
+  getQuoteLineItems: async (params?: {
+    status?: string;
+    search?: string;
+    closeReason?: string;
+    minDays?: number;
+    maxDays?: number;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const response = await apiClient.get('/admin/quotes/line-items', { params });
+    return response.data as { items: QuoteLineItem[]; total: number };
+  },
+  closeQuoteLineItems: async (items: Array<{ id: string; reason: string }>) => {
+    const response = await apiClient.post('/admin/quotes/line-items/close', { items });
+    return response.data as { closedCount: number; mikroClosedCount: number };
+  },
+  reopenQuoteLineItems: async (itemIds: string[]) => {
+    const response = await apiClient.post('/admin/quotes/line-items/reopen', { itemIds });
+    return response.data as { reopenedCount: number; mikroReopenCount: number };
   },
   getQuotePreferences: async () => {
     const response = await apiClient.get('/admin/quotes/preferences');
@@ -137,9 +209,40 @@ export const adminApi = {
     const response = await apiClient.get<{ orders: any[] }>('/admin/orders');
     return response.data;
   },
+  getOrderById: async (id: string) => {
+    const response = await apiClient.get<{ order: Order }>(`/admin/orders/${id}`);
+    return response.data;
+  },
   getPendingOrders: async () => {
     const response = await apiClient.get<{ orders: any[] }>('/admin/orders/pending');
     return response.data;
+  },
+  createManualOrder: async (payload: {
+    customerId: string;
+    items: Array<{
+      productId?: string;
+      productCode?: string;
+      productName?: string;
+      quantity: number;
+      unitPrice: number;
+      priceType?: 'INVOICED' | 'WHITE';
+      vatZeroed?: boolean;
+      manualVatRate?: number;
+      lineDescription?: string;
+      responsibilityCenter?: string;
+      reserveQty?: number;
+    }>;
+    warehouseNo: number;
+    description?: string;
+    documentDescription?: string;
+    documentNo?: string;
+    invoicedSeries?: string;
+    invoicedSira?: number;
+    whiteSeries?: string;
+    whiteSira?: number;
+  }) => {
+    const response = await apiClient.post('/admin/orders/manual', payload);
+    return response.data as { message: string; mikroOrderIds: string[]; orderId: string; orderNumber: string };
   },
   approveOrder: async (id: string, adminNote?: string) => {
     const response = await apiClient.post(`/admin/orders/${id}/approve`, { adminNote });
@@ -431,6 +534,56 @@ export const adminApi = {
     const response = await apiClient.post('/admin/products/image-sync', { productIds });
     return response.data as { message: string; syncLogId: string };
   },
+  getProductComplements: async (productId: string) => {
+    const response = await apiClient.get(`/admin/products/${productId}/complements`);
+    return response.data as {
+      mode: 'AUTO' | 'MANUAL';
+      limit: number;
+      complementGroupCode?: string | null;
+      auto: Array<{
+        productId: string;
+        productCode: string;
+        productName: string;
+        imageUrl?: string | null;
+        pairCount: number;
+        rank: number;
+      }>;
+      manual: Array<{
+        productId: string;
+        productCode: string;
+        productName: string;
+        imageUrl?: string | null;
+        sortOrder: number;
+      }>;
+    };
+  },
+  updateProductComplements: async (
+    productId: string,
+    data: {
+      manualProductIds: string[];
+      mode?: 'AUTO' | 'MANUAL';
+      complementGroupCode?: string | null;
+    }
+  ) => {
+    const response = await apiClient.put(`/admin/products/${productId}/complements`, data);
+    return response.data as { mode: 'AUTO' | 'MANUAL'; manual: string[] };
+  },
+  syncProductComplements: async (params?: { months?: number; limit?: number }) => {
+    const response = await apiClient.post('/admin/product-complements/sync', params || {});
+    return response.data as { success: boolean; result: any };
+  },
+  getProductsByCodes: async (codes: string[]) => {
+    const response = await apiClient.post('/admin/products/by-codes', { codes });
+    return response.data as { products: any[]; total: number };
+  },
+  getComplementRecommendations: async (params: {
+    productCodes: string[];
+    excludeCodes?: string[];
+    limit?: number;
+  }) => {
+    const response = await apiClient.post('/admin/recommendations/complements', params);
+    return response.data as { success: boolean; products: any[]; total: number };
+  },
   uploadProductImage: async (productId: string, formData: FormData) => {
     const response = await apiClient.post(`/admin/products/${productId}/image`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -532,6 +685,28 @@ export const adminApi = {
   getMyPermissions: async () => {
     const response = await apiClient.get('/role-permissions/my-permissions');
     return response.data as { role: string; permissions: Record<string, boolean> };
+  },
+
+  // Notifications
+  getNotifications: async (params?: { unreadOnly?: boolean; limit?: number; offset?: number }) => {
+    const response = await apiClient.get('/admin/notifications', { params });
+    return response.data as { notifications: Notification[]; unreadCount: number };
+  },
+  markNotificationsRead: async (ids: string[]) => {
+    const response = await apiClient.post('/admin/notifications/read', { ids });
+    return response.data as { updated: number };
+  },
+  markAllNotificationsRead: async () => {
+    const response = await apiClient.post('/admin/notifications/read-all');
+    return response.data as { updated: number };
+  },
+  registerPushToken: async (data: { token: string; platform?: string; appName?: string; deviceName?: string }) => {
+    const response = await apiClient.post('/admin/notifications/push/register', data);
+    return response.data as { success: boolean };
+  },
+  unregisterPushToken: async (token: string) => {
+    const response = await apiClient.post('/admin/notifications/push/unregister', { token });
+    return response.data as { success: boolean };
   },
 
   // Search
@@ -689,6 +864,187 @@ export const adminApi = {
   getPriceSummaryStats: async () => {
     const response = await apiClient.get('/admin/reports/price-summary-stats');
     return response.data as { success: boolean; data: any };
+  },
+  getComplementMissingReport: async (params: {
+    mode: 'product' | 'customer';
+    matchMode?: 'product' | 'category' | 'group';
+    productCode?: string;
+    customerCode?: string;
+    sectorCode?: string;
+    salesRepId?: string;
+    periodMonths?: number;
+    page?: number;
+    limit?: number;
+    minDocumentCount?: number;
+  }) => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('mode', params.mode);
+    if (params.matchMode) queryParams.append('matchMode', params.matchMode);
+    if (params.productCode) queryParams.append('productCode', params.productCode);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
+    if (params.salesRepId) queryParams.append('salesRepId', params.salesRepId);
+    if (params.periodMonths) queryParams.append('periodMonths', params.periodMonths.toString());
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.minDocumentCount) queryParams.append('minDocumentCount', params.minDocumentCount.toString());
+    const response = await apiClient.get(`/admin/reports/complement-missing?${queryParams.toString()}`);
+    return response.data as { success: boolean; data: any };
+  },
+  getCustomerActivityReport: async (params: {
+    startDate?: string;
+    endDate?: string;
+    customerCode?: string;
+    userId?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const queryParams = new URLSearchParams();
+    if (params.startDate) queryParams.append('startDate', params.startDate);
+    if (params.endDate) queryParams.append('endDate', params.endDate);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.userId) queryParams.append('userId', params.userId);
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    const response = await apiClient.get(`/admin/reports/customer-activity?${queryParams.toString()}`);
+    return response.data as { success: boolean; data: any };
+  },
+  getCustomerCartsReport: async (params: {
+    search?: string;
+    includeEmpty?: boolean;
+    page?: number;
+    limit?: number;
+  }) => {
+    const queryParams = new URLSearchParams();
+    if (params.search) queryParams.append('search', params.search);
+    if (params.includeEmpty) queryParams.append('includeEmpty', '1');
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    const response = await apiClient.get(`/admin/reports/customer-carts?${queryParams.toString()}`);
+    return response.data as { success: boolean; data: any };
+  },
+  getSupplierPriceListSuppliers: async () => {
+    const response = await apiClient.get('/admin/supplier-price-lists/suppliers');
+    return response.data as { suppliers: any[] };
+  },
+  createSupplierPriceListSupplier: async (data: {
+    name: string;
+    active?: boolean;
+    discount1?: number | null;
+    discount2?: number | null;
+    discount3?: number | null;
+    discount4?: number | null;
+    discount5?: number | null;
+    priceIsNet?: boolean;
+    priceIncludesVat?: boolean;
+    priceByColor?: boolean;
+    defaultVatRate?: number | null;
+    excelSheetName?: string | null;
+    excelHeaderRow?: number | null;
+    excelCodeHeader?: string | null;
+    excelNameHeader?: string | null;
+    excelPriceHeader?: string | null;
+    pdfPriceIndex?: number | null;
+    pdfCodePattern?: string | null;
+    discountRules?: Array<{ keywords: string[]; discounts: number[] }>;
+  }) => {
+    const response = await apiClient.post('/admin/supplier-price-lists/suppliers', data);
+    return response.data as { supplier: any };
+  },
+  updateSupplierPriceListSupplier: async (id: string, data: {
+    name?: string;
+    active?: boolean;
+    discount1?: number | null;
+    discount2?: number | null;
+    discount3?: number | null;
+    discount4?: number | null;
+    discount5?: number | null;
+    priceIsNet?: boolean;
+    priceIncludesVat?: boolean;
+    priceByColor?: boolean;
+    defaultVatRate?: number | null;
+    excelSheetName?: string | null;
+    excelHeaderRow?: number | null;
+    excelCodeHeader?: string | null;
+    excelNameHeader?: string | null;
+    excelPriceHeader?: string | null;
+    pdfPriceIndex?: number | null;
+    pdfCodePattern?: string | null;
+    discountRules?: Array<{ keywords: string[]; discounts: number[] }>;
+  }) => {
+    const response = await apiClient.put(`/admin/supplier-price-lists/suppliers/${id}`, data);
+    return response.data as { supplier: any };
+  },
+  previewSupplierPriceLists: async (params: {
+    supplierId: string;
+    files: Array<{ uri: string; name?: string; mimeType?: string }>;
+    overrides?: SupplierPriceListOverrides;
+  }) => {
+    const formData = new FormData();
+    formData.append('supplierId', params.supplierId);
+    params.files.forEach((file) => {
+      formData.append('files', {
+        uri: file.uri,
+        name: file.name || 'price-list',
+        type: file.mimeType || 'application/octet-stream',
+      } as any);
+    });
+    appendSupplierPriceListOverrides(formData, params.overrides);
+
+    const response = await apiClient.post('/admin/supplier-price-lists/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data as { excel?: any; pdf?: any };
+  },
+  uploadSupplierPriceLists: async (params: {
+    supplierId: string;
+    files: Array<{ uri: string; name?: string; mimeType?: string }>;
+    overrides?: SupplierPriceListOverrides;
+  }) => {
+    const formData = new FormData();
+    formData.append('supplierId', params.supplierId);
+    params.files.forEach((file) => {
+      formData.append('files', {
+        uri: file.uri,
+        name: file.name || 'price-list',
+        type: file.mimeType || 'application/octet-stream',
+      } as any);
+    });
+    appendSupplierPriceListOverrides(formData, params.overrides);
+
+    const response = await apiClient.post('/admin/supplier-price-lists/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data as { uploadId: string; summary: any };
+  },
+  getSupplierPriceListUploads: async (params: {
+    supplierId?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const queryParams = new URLSearchParams();
+    if (params.supplierId) queryParams.append('supplierId', params.supplierId);
+    if (params.page !== undefined) queryParams.append('page', params.page.toString());
+    if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    const response = await apiClient.get(`/admin/supplier-price-lists?${queryParams.toString()}`);
+    return response.data as { uploads: any[]; pagination: any };
+  },
+  getSupplierPriceListUpload: async (id: string) => {
+    const response = await apiClient.get(`/admin/supplier-price-lists/${id}`);
+    return response.data as { upload: any };
+  },
+  getSupplierPriceListItems: async (params: {
+    uploadId: string;
+    status?: 'matched' | 'unmatched' | 'multiple' | 'suspicious';
+    page?: number;
+    limit?: number;
+  }) => {
+    const queryParams = new URLSearchParams();
+    if (params.status) queryParams.append('status', params.status);
+    if (params.page !== undefined) queryParams.append('page', params.page.toString());
+    if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    const response = await apiClient.get(`/admin/supplier-price-lists/${params.uploadId}/items?${queryParams.toString()}`);
+    return response.data as { items: any[]; pagination: any };
   },
 
   // Sync

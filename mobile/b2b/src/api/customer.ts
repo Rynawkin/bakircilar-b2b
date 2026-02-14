@@ -6,6 +6,7 @@ import {
   OrderRequest,
   Product,
   Quote,
+  RecommendationGroup,
 } from '../types';
 import { apiClient } from './client';
 
@@ -31,6 +32,14 @@ export const customerApi = {
     const response = await apiClient.get<Product>(`/products/${id}`, { params });
     return response.data;
   },
+  getProductRecommendations: async (id: string) => {
+    const response = await apiClient.get<{ products: Product[] }>(`/products/${id}/recommendations`);
+    return response.data;
+  },
+  getCartRecommendations: async () => {
+    const response = await apiClient.get<{ groups: RecommendationGroup[] }>('/recommendations/cart');
+    return response.data;
+  },
   getCart: async () => {
     const response = await apiClient.get<Cart>('/cart');
     return response.data;
@@ -39,16 +48,16 @@ export const customerApi = {
     const response = await apiClient.post('/cart', data);
     return response.data;
   },
-  updateCartItem: async (itemId: string, quantity: number) => {
-    const response = await apiClient.put(`/cart/${itemId}`, { quantity });
+  updateCartItem: async (itemId: string, data: { quantity?: number; lineNote?: string | null }) => {
+    const response = await apiClient.put(`/cart/${itemId}`, data);
     return response.data;
   },
   removeFromCart: async (itemId: string) => {
     const response = await apiClient.delete(`/cart/${itemId}`);
     return response.data;
   },
-  createOrder: async () => {
-    const response = await apiClient.post('/orders');
+  createOrder: async (data?: { customerOrderNumber?: string; deliveryLocation?: string }) => {
+    const response = await apiClient.post('/orders', data);
     return response.data;
   },
   getOrderById: async (id: string) => {
@@ -73,7 +82,12 @@ export const customerApi = {
   },
   convertOrderRequest: async (
     id: string,
-    data: { items: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE' }>; note?: string }
+    data: {
+      items: Array<{ id: string; priceType?: 'INVOICED' | 'WHITE'; quantity?: number }>;
+      note?: string;
+      customerOrderNumber?: string;
+      deliveryLocation?: string;
+    }
   ) => {
     const response = await apiClient.post(`/order-requests/${id}/convert`, data);
     return response.data;

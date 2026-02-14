@@ -57,6 +57,15 @@ export interface DashboardStats {
   lastSyncAt?: string;
 }
 
+export interface Notification {
+  id: string;
+  title: string;
+  body?: string | null;
+  linkUrl?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
 export interface QuoteItem {
   id: string;
   productId?: string | null;
@@ -78,6 +87,9 @@ export interface QuoteItem {
   lastEntryPrice?: number | null;
   currentCost?: number | null;
   mikroPriceLists?: Record<string, number>;
+  status?: 'OPEN' | 'CLOSED' | 'CONVERTED';
+  closedReason?: string | null;
+  lineOrder?: number;
 }
 
 export interface LastSale {
@@ -117,6 +129,32 @@ export interface Quote {
     id?: string;
     name?: string;
     email?: string;
+  };
+}
+
+export interface QuoteLineItem {
+  id: string;
+  quoteId: string;
+  productId?: string | null;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  status?: 'OPEN' | 'CLOSED' | 'CONVERTED';
+  closeReason?: string | null;
+  waitingDays?: number | null;
+  quote?: {
+    id: string;
+    quoteNumber: string;
+    documentNo?: string | null;
+    createdAt?: string;
+    customer?: {
+      id?: string;
+      name?: string;
+      displayName?: string;
+      mikroCariCode?: string;
+    };
   };
 }
 
@@ -330,6 +368,7 @@ export interface Product {
   id: string;
   name: string;
   mikroCode: string;
+  recommendationNote?: string | null;
   unit?: string | null;
   unit2?: string | null;
   unit2Factor?: number | null;

@@ -22,7 +22,10 @@ type ReportType =
   | 'priceNew'
   | 'topProducts'
   | 'topCustomers'
-  | 'productCustomers';
+  | 'productCustomers'
+  | 'complementMissing'
+  | 'customerActivity'
+  | 'customerCarts';
 
 export function ReportsScreen() {
   const [reportType, setReportType] = useState<ReportType>('cost');
@@ -75,6 +78,31 @@ export function ReportsScreen() {
   const [productCustomersLoading, setProductCustomersLoading] = useState(false);
   const [productCustomersError, setProductCustomersError] = useState<string | null>(null);
   const [productCustomerCode, setProductCustomerCode] = useState('');
+
+  const [complementRows, setComplementRows] = useState<any[]>([]);
+  const [complementSummary, setComplementSummary] = useState<any>(null);
+  const [complementLoading, setComplementLoading] = useState(false);
+  const [complementError, setComplementError] = useState<string | null>(null);
+  const [complementMode, setComplementMode] = useState<'product' | 'customer'>('product');
+  const [complementMatchMode, setComplementMatchMode] = useState<'product' | 'category' | 'group'>('product');
+  const [complementProductCode, setComplementProductCode] = useState('');
+  const [complementCustomerCode, setComplementCustomerCode] = useState('');
+
+  const [activityRows, setActivityRows] = useState<any[]>([]);
+  const [activitySummary, setActivitySummary] = useState<any>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityStartDate, setActivityStartDate] = useState('');
+  const [activityEndDate, setActivityEndDate] = useState('');
+  const [activityCustomerCode, setActivityCustomerCode] = useState('');
+  const [activityUserId, setActivityUserId] = useState('');
+
+  const [cartRows, setCartRows] = useState<any[]>([]);
+  const [cartSummary, setCartSummary] = useState<any>(null);
+  const [cartLoading, setCartLoading] = useState(false);
+  const [cartError, setCartError] = useState<string | null>(null);
+  const [cartSearch, setCartSearch] = useState('');
+  const [cartIncludeEmpty, setCartIncludeEmpty] = useState(false);
 
   const fetchCost = async () => {
     setCostLoading(true);
@@ -232,6 +260,77 @@ export function ReportsScreen() {
     }
   };
 
+  const fetchComplementMissing = async () => {
+    setComplementLoading(true);
+    setComplementError(null);
+    try {
+      const response = await adminApi.getComplementMissingReport({
+        mode: complementMode,
+        matchMode: complementMatchMode,
+        productCode: complementMode === 'product' ? complementProductCode.trim() || undefined : undefined,
+        customerCode: complementMode === 'customer' ? complementCustomerCode.trim() || undefined : undefined,
+        periodMonths: 6,
+        page: 1,
+        limit: 50,
+      });
+      if (response.success) {
+        setComplementRows(response.data.rows || []);
+        setComplementSummary(response.data.summary || null);
+      }
+    } catch (err: any) {
+      setComplementError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+    } finally {
+      setComplementLoading(false);
+    }
+  };
+
+  const fetchCustomerActivity = async () => {
+    setActivityLoading(true);
+    setActivityError(null);
+    try {
+      const response = await adminApi.getCustomerActivityReport({
+        startDate: activityStartDate || undefined,
+        endDate: activityEndDate || undefined,
+        customerCode: activityCustomerCode.trim() || undefined,
+        userId: activityUserId.trim() || undefined,
+        page: 1,
+        limit: 50,
+      });
+      if (response.success) {
+        setActivityRows(response.data.events || []);
+        setActivitySummary(response.data.summary || null);
+      }
+    } catch (err: any) {
+      setActivityError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
+  const fetchCustomerCarts = async () => {
+    setCartLoading(true);
+    setCartError(null);
+    try {
+      const response = await adminApi.getCustomerCartsReport({
+        search: cartSearch.trim() || undefined,
+        includeEmpty: cartIncludeEmpty,
+        page: 1,
+        limit: 50,
+      });
+      if (response.success) {
+        const carts = response.data?.carts || [];
+        setCartRows(carts);
+        setCartSummary({
+          total: response.data?.pagination?.totalRecords ?? carts.length,
+        });
+      }
+    } catch (err: any) {
+      setCartError(err?.response?.data?.error || 'Rapor yuklenemedi.');
+    } finally {
+      setCartLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (reportType === 'cost' && costData.length === 0 && !costLoading) {
       fetchCost();
@@ -251,6 +350,15 @@ export function ReportsScreen() {
     if (reportType === 'topCustomers' && topCustomers.length === 0 && !topCustomersLoading) {
       fetchTopCustomers();
     }
+    if (reportType === 'complementMissing' && complementRows.length === 0 && !complementLoading) {
+      fetchComplementMissing();
+    }
+    if (reportType === 'customerActivity' && activityRows.length === 0 && !activityLoading) {
+      fetchCustomerActivity();
+    }
+    if (reportType === 'customerCarts' && cartRows.length === 0 && !cartLoading) {
+      fetchCustomerCarts();
+    }
   }, [reportType]);
 
   const data =
@@ -262,11 +370,17 @@ export function ReportsScreen() {
           ? priceData
           : reportType === 'priceNew'
             ? priceNewData
-            : reportType === 'topProducts'
-              ? topProducts
-              : reportType === 'topCustomers'
-                ? topCustomers
-                : productCustomers;
+          : reportType === 'topProducts'
+            ? topProducts
+            : reportType === 'topCustomers'
+              ? topCustomers
+              : reportType === 'productCustomers'
+                ? productCustomers
+                : reportType === 'complementMissing'
+                  ? complementRows
+                  : reportType === 'customerActivity'
+                    ? activityRows
+                    : cartRows;
 
   const headerContent = useMemo(() => {
     if (reportType === 'cost') {
@@ -491,6 +605,154 @@ export function ReportsScreen() {
       );
     }
 
+    if (reportType === 'complementMissing') {
+      return (
+        <View style={styles.headerSection}>
+          <Text style={styles.sectionTitle}>Tamamlayici Eksikler</Text>
+          <Text style={styles.sectionSubtitle}>Eksik tamamlayici urun analizi.</Text>
+          <View style={styles.filterRow}>
+            <TouchableOpacity
+              style={[styles.segmentButton, complementMode === 'product' && styles.segmentButtonActive]}
+              onPress={() => setComplementMode('product')}
+            >
+              <Text style={complementMode === 'product' ? styles.segmentTextActive : styles.segmentText}>
+                Urun
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentButton, complementMode === 'customer' && styles.segmentButtonActive]}
+              onPress={() => setComplementMode('customer')}
+            >
+              <Text style={complementMode === 'customer' ? styles.segmentTextActive : styles.segmentText}>
+                Cari
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.filterRow}>
+            <TextInput
+              style={styles.input}
+              placeholder={complementMode === 'product' ? 'Urun kodu' : 'Cari kodu'}
+              placeholderTextColor={colors.textMuted}
+              value={complementMode === 'product' ? complementProductCode : complementCustomerCode}
+              onChangeText={complementMode === 'product' ? setComplementProductCode : setComplementCustomerCode}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Eslesme (product/category/group)"
+              placeholderTextColor={colors.textMuted}
+              value={complementMatchMode}
+              onChangeText={(value) => {
+                if (value === 'product' || value === 'category' || value === 'group') {
+                  setComplementMatchMode(value);
+                }
+              }}
+            />
+          </View>
+          <TouchableOpacity style={styles.primaryButton} onPress={fetchComplementMissing}>
+            <Text style={styles.primaryButtonText}>Raporu Yenile</Text>
+          </TouchableOpacity>
+          {complementSummary && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryText}>Kayit: {complementSummary.totalRows}</Text>
+              <Text style={styles.summaryText}>Eksik: {complementSummary.totalMissing}</Text>
+            </View>
+          )}
+          {complementError && <Text style={styles.error}>{complementError}</Text>}
+        </View>
+      );
+    }
+
+    if (reportType === 'customerActivity') {
+      return (
+        <View style={styles.headerSection}>
+          <Text style={styles.sectionTitle}>Musteri Aktivitesi</Text>
+          <Text style={styles.sectionSubtitle}>Sayfa/urun/sepet davranislari.</Text>
+          <View style={styles.filterRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="Baslangic (YYYY-MM-DD)"
+              placeholderTextColor={colors.textMuted}
+              value={activityStartDate}
+              onChangeText={setActivityStartDate}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Bitis (YYYY-MM-DD)"
+              placeholderTextColor={colors.textMuted}
+              value={activityEndDate}
+              onChangeText={setActivityEndDate}
+            />
+          </View>
+          <View style={styles.filterRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="Cari kodu (opsiyonel)"
+              placeholderTextColor={colors.textMuted}
+              value={activityCustomerCode}
+              onChangeText={setActivityCustomerCode}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Kullanici ID (opsiyonel)"
+              placeholderTextColor={colors.textMuted}
+              value={activityUserId}
+              onChangeText={setActivityUserId}
+            />
+          </View>
+          <TouchableOpacity style={styles.primaryButton} onPress={fetchCustomerActivity}>
+            <Text style={styles.primaryButtonText}>Raporu Yenile</Text>
+          </TouchableOpacity>
+          {activitySummary && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryText}>Olay: {activitySummary.totalEvents}</Text>
+              <Text style={styles.summaryText}>Tekil: {activitySummary.uniqueUsers}</Text>
+              <Text style={styles.summaryText}>Arama: {activitySummary.searchCount}</Text>
+            </View>
+          )}
+          {activityError && <Text style={styles.error}>{activityError}</Text>}
+        </View>
+      );
+    }
+
+    if (reportType === 'customerCarts') {
+      return (
+        <View style={styles.headerSection}>
+          <Text style={styles.sectionTitle}>Musteri Sepetleri</Text>
+          <Text style={styles.sectionSubtitle}>Sepette bekleyen urunleri inceleyin.</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Cari/kullanici ara"
+            placeholderTextColor={colors.textMuted}
+            value={cartSearch}
+            onChangeText={setCartSearch}
+          />
+          <View style={styles.filterRow}>
+            <TouchableOpacity
+              style={[styles.segmentButton, !cartIncludeEmpty && styles.segmentButtonActive]}
+              onPress={() => setCartIncludeEmpty(false)}
+            >
+              <Text style={!cartIncludeEmpty ? styles.segmentTextActive : styles.segmentText}>Boslari Gizle</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentButton, cartIncludeEmpty && styles.segmentButtonActive]}
+              onPress={() => setCartIncludeEmpty(true)}
+            >
+              <Text style={cartIncludeEmpty ? styles.segmentTextActive : styles.segmentText}>Boslari Goster</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.primaryButton} onPress={fetchCustomerCarts}>
+            <Text style={styles.primaryButtonText}>Raporu Yenile</Text>
+          </TouchableOpacity>
+          {cartSummary && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryText}>Toplam Sepet: {cartSummary.total}</Text>
+            </View>
+          )}
+          {cartError && <Text style={styles.error}>{cartError}</Text>}
+        </View>
+      );
+    }
+
     return (
       <View style={styles.headerSection}>
         <Text style={styles.sectionTitle}>Urun Musterileri</Text>
@@ -544,6 +806,22 @@ export function ReportsScreen() {
     productCustomerCode,
     productCustomersSummary,
     productCustomersError,
+    complementMode,
+    complementMatchMode,
+    complementProductCode,
+    complementCustomerCode,
+    complementSummary,
+    complementError,
+    activityStartDate,
+    activityEndDate,
+    activityCustomerCode,
+    activityUserId,
+    activitySummary,
+    activityError,
+    cartSearch,
+    cartIncludeEmpty,
+    cartSummary,
+    cartError,
   ]);
 
   return (
@@ -568,6 +846,9 @@ export function ReportsScreen() {
                   { key: 'topProducts', label: 'TopUrun' },
                   { key: 'topCustomers', label: 'TopCari' },
                   { key: 'productCustomers', label: 'UrunCari' },
+                  { key: 'complementMissing', label: 'Tamamlayici' },
+                  { key: 'customerActivity', label: 'Aktivite' },
+                  { key: 'customerCarts', label: 'Sepetler' },
                 ] as const
               ).map((item) => (
                 <TouchableOpacity
@@ -661,6 +942,49 @@ export function ReportsScreen() {
             );
           }
 
+          if (reportType === 'complementMissing') {
+            return (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {(item.customerCode || item.productCode || '-').toString()}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  {item.customerName || item.productName || '-'}
+                </Text>
+                <Text style={styles.cardMeta}>Evrak: {item.documentCount ?? '-'}</Text>
+                <Text style={styles.cardMeta}>Eksik: {item.missingCount ?? '-'}</Text>
+              </View>
+            );
+          }
+
+          if (reportType === 'customerActivity') {
+            return (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>{item.type || '-'}</Text>
+                <Text style={styles.cardMeta}>Kullanici: {item.userName || item.userId || '-'}</Text>
+                <Text style={styles.cardMeta}>
+                  Cari: {item.customerCode || '-'} {item.customerName ? `- ${item.customerName}` : ''}
+                </Text>
+                <Text style={styles.cardMeta}>Sayfa: {item.pagePath || '-'}</Text>
+                <Text style={styles.cardMeta}>Urun: {item.productCode || '-'}</Text>
+                <Text style={styles.cardMeta}>Tiklama: {item.clickCount ?? '-'}</Text>
+              </View>
+            );
+          }
+
+          if (reportType === 'customerCarts') {
+            return (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>{item.customerCode || '-'}</Text>
+                <Text style={styles.cardMeta}>{item.customerName || '-'}</Text>
+                <Text style={styles.cardMeta}>Kullanici: {item.userName || '-'}</Text>
+                <Text style={styles.cardMeta}>Kalem: {item.itemCount ?? 0}</Text>
+                <Text style={styles.cardMeta}>Miktar: {item.totalQuantity ?? 0}</Text>
+                <Text style={styles.cardMeta}>Tutar: {Number(item.totalAmount || 0).toFixed(2)} TL</Text>
+              </View>
+            );
+          }
+
           return (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{item.customerName}</Text>
@@ -676,7 +1000,10 @@ export function ReportsScreen() {
           priceNewLoading ||
           topProductsLoading ||
           topCustomersLoading ||
-          productCustomersLoading ? (
+          productCustomersLoading ||
+          complementLoading ||
+          activityLoading ||
+          cartLoading ? (
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
             </View>

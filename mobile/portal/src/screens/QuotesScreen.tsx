@@ -18,6 +18,7 @@ import { PortalStackParamList } from '../navigation/AppNavigator';
 import { Quote } from '../types';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { shareQuotePdf } from '../utils/quotePdf';
+import { hapticLight, hapticSuccess } from '../utils/haptics';
 
 export function QuotesScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
@@ -26,6 +27,7 @@ export function QuotesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
+  const [recommendedPdfLoadingId, setRecommendedPdfLoadingId] = useState<string | null>(null);
 
   const fetchQuotes = async () => {
     setLoading(true);
@@ -65,6 +67,7 @@ export function QuotesScreen() {
   const approve = async (quoteId: string) => {
     try {
       await adminApi.approveQuote(quoteId);
+      hapticSuccess();
       await fetchQuotes();
     } catch (err: any) {
       Alert.alert('Hata', err?.response?.data?.error || 'Onay basarisiz.');
@@ -80,6 +83,7 @@ export function QuotesScreen() {
         onPress: async () => {
           try {
             await adminApi.rejectQuote(quoteId, 'Mobil reddedildi');
+            hapticSuccess();
             await fetchQuotes();
           } catch (err: any) {
             Alert.alert('Hata', err?.response?.data?.error || 'Red basarisiz.');
@@ -98,6 +102,40 @@ export function QuotesScreen() {
       Alert.alert('Hata', err?.response?.data?.error || 'PDF hazirlanamadi.');
     } finally {
       setPdfLoadingId(null);
+    }
+  };
+
+  const handleRecommendedPdf = async (quoteId: string) => {
+    setRecommendedPdfLoadingId(quoteId);
+    try {
+      const response = await adminApi.getQuoteById(quoteId);
+      const quote = response.quote;
+      const productCodes = Array.from(
+        new Set(
+          (quote.items || [])
+            .map((item) => item.productCode?.trim())
+            .filter((code): code is string => Boolean(code))
+        )
+      );
+
+      if (productCodes.length === 0) {
+        Alert.alert('Bilgi', 'Teklifte urun kodu olmadigi icin onerili PDF olusturulamadi.');
+        return;
+      }
+
+      const recommendationResult = await adminApi.getComplementRecommendations({
+        productCodes,
+        excludeCodes: productCodes,
+        limit: 20,
+      });
+
+      await shareQuotePdf(quote, {
+        recommendedProducts: recommendationResult.products || [],
+      });
+    } catch (err: any) {
+      Alert.alert('Hata', err?.response?.data?.error || 'Onerili PDF hazirlanamadi.');
+    } finally {
+      setRecommendedPdfLoadingId(null);
     }
   };
 
@@ -125,7 +163,13 @@ export function QuotesScreen() {
                 returnKeyType="search"
               />
               <View style={styles.headerActions}>
-                <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('QuoteCreate')}>
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={() => {
+                    hapticLight();
+                    navigation.navigate('QuoteCreate');
+                  }}
+                >
                   <Text style={styles.primaryButtonText}>Yeni Teklif</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.secondaryButton} onPress={fetchQuotes}>
@@ -137,6 +181,7 @@ export function QuotesScreen() {
           }
           renderItem={({ item }) => {
             const canEdit = ['PENDING_APPROVAL', 'SENT_TO_MIKRO'].includes(item.status);
+            const canConvert = Boolean(item.mikroNumber) && item.status !== 'REJECTED';
             return (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{item.quoteNumber}</Text>
@@ -171,6 +216,21 @@ export function QuotesScreen() {
                     <Text style={styles.secondaryButtonText}>Duzenle</Text>
                   </TouchableOpacity>
                 )}
+              </View>
+              {canConvert && (
+                <View style={styles.actions}>
+                  <TouchableOpacity
+                    style={styles.primaryButton}
+                    onPress={() => {
+                      hapticLight();
+                      navigation.navigate('QuoteConvert', { quoteId: item.id });
+                    }}
+                  >
+                    <Text style={styles.primaryButtonText}>Siparise Cevir</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <View style={styles.actions}>
                 <TouchableOpacity
                   style={styles.secondaryButton}
                   onPress={() => handlePdf(item.id)}
@@ -178,6 +238,15 @@ export function QuotesScreen() {
                 >
                   <Text style={styles.secondaryButtonText}>
                     {pdfLoadingId === item.id ? 'PDF...' : 'PDF'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => handleRecommendedPdf(item.id)}
+                  disabled={recommendedPdfLoadingId === item.id}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {recommendedPdfLoadingId === item.id ? 'Onerili...' : 'Onerili PDF'}
                   </Text>
                 </TouchableOpacity>
               </View>

@@ -8,6 +8,8 @@ import { QuotesScreen } from '../screens/QuotesScreen';
 import { TasksScreen } from '../screens/TasksScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { colors } from '../theme';
+import { hapticLight } from '../utils/haptics';
+import { useNotifications } from '../context/NotificationContext';
 
 export type PortalTabParamList = {
   Dashboard: undefined;
@@ -22,9 +24,15 @@ const Tab = createBottomTabNavigator<PortalTabParamList>();
 export function PortalTabs() {
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 8);
+  const { unreadCount } = useNotifications();
 
   return (
     <Tab.Navigator
+      screenListeners={{
+        tabPress: () => {
+          hapticLight();
+        },
+      }}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -56,7 +64,14 @@ export function PortalTabs() {
       <Tab.Screen name="Quotes" component={QuotesScreen} options={{ title: 'Teklifler' }} />
       <Tab.Screen name="Orders" component={OrdersScreen} options={{ title: 'Siparisler' }} />
       <Tab.Screen name="Tasks" component={TasksScreen} options={{ title: 'Talepler' }} />
-      <Tab.Screen name="More" component={MoreScreen} options={{ title: 'Daha Fazla' }} />
+      <Tab.Screen
+        name="More"
+        component={MoreScreen}
+        options={{
+          title: 'Daha Fazla',
+          tabBarBadge: unreadCount > 0 ? Math.min(unreadCount, 99) : undefined,
+        }}
+      />
     </Tab.Navigator>
   );
 }
