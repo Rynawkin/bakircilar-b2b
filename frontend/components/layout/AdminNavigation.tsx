@@ -94,6 +94,14 @@ const navItems: NavItem[] = [
   },
 ];
 
+navItems.splice(6, 0, {
+  name: 'Operasyon Merkezi',
+  href: '/operations',
+  icon: BarChart3,
+  description: 'ATP, risk, ikame ve data quality',
+  permission: ['admin:order-tracking', 'admin:orders', 'reports:customer-activity', 'admin:vade'],
+});
+
 
 const settingsItems: NavItem[] = [
   { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandirma ayarlari', permission: 'admin:price-rules' },

@@ -1227,6 +1227,23 @@ export const adminApi = {
     return response.data;
   },
 
+  getOperationsCommandCenter: async (params?: {
+    series?: string[];
+    orderLimit?: number;
+    customerLimit?: number;
+  }): Promise<{ success: boolean; data: any }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.series && params.series.length > 0) queryParams.append('series', params.series.join(','));
+    if (params?.orderLimit) queryParams.append('orderLimit', String(params.orderLimit));
+    if (params?.customerLimit) queryParams.append('customerLimit', String(params.customerLimit));
+
+    const path = queryParams.toString()
+      ? `/admin/operations/command-center?${queryParams.toString()}`
+      : '/admin/operations/command-center';
+    const response = await apiClient.get(path);
+    return response.data;
+  },
+
   // Product Images
   uploadProductImage: async (productId: string, formData: FormData): Promise<{ success: boolean; imageUrl: string; imageChecksum?: string | null; imageSyncUpdatedAt?: string | null; message: string }> => {
     const response = await apiClient.post(`/admin/products/${productId}/image`, formData, {

@@ -11,6 +11,7 @@ import eInvoiceController from '../controllers/einvoice.controller';
 import agreementController from '../controllers/agreement.controller';
 import supplierPriceListController from '../controllers/supplier-price-list.controller';
 import productComplementController from '../controllers/product-complement.controller';
+import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
 import {
   authenticate,
   requirePermission,
@@ -417,6 +418,16 @@ router.post(
 
 // Dashboard stats - Staff (all can see their relevant data)
 router.get('/dashboard/stats', requireAnyPermission(['dashboard:orders', 'dashboard:customers', 'dashboard:excess-stock', 'dashboard:sync', 'dashboard:stok-ara', 'dashboard:cari-ara', 'dashboard:ekstre', 'dashboard:diversey-stok']), adminController.getDashboardStats);
+
+// Operations Intelligence - Command Center (A2, A3, A5, A7 + Ikame + Data Quality Firewall)
+const operationsPermissions = ['admin:order-tracking', 'admin:orders', 'reports:customer-activity', 'admin:vade'];
+router.get('/operations/command-center', requireAnyPermission(operationsPermissions), operationsIntelligenceController.getCommandCenter);
+router.get('/operations/atp', requireAnyPermission(operationsPermissions), operationsIntelligenceController.getAtp);
+router.get('/operations/orchestration', requireAnyPermission(operationsPermissions), operationsIntelligenceController.getOrchestration);
+router.get('/operations/customer-intent', requireAnyPermission(operationsPermissions), operationsIntelligenceController.getCustomerIntent);
+router.get('/operations/risk', requireAnyPermission(operationsPermissions), operationsIntelligenceController.getRisk);
+router.get('/operations/substitution', requireAnyPermission(operationsPermissions), operationsIntelligenceController.getSubstitution);
+router.get('/operations/data-quality', requireAnyPermission(operationsPermissions), operationsIntelligenceController.getDataQuality);
 
 // Staff management
 router.get('/sector-codes', requirePermission('admin:staff'), adminController.getSectorCodes);
