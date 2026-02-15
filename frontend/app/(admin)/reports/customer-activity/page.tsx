@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -167,7 +167,7 @@ const typeLabels: Record<ActivityType, { label: string; variant: 'default' | 'in
   SEARCH: { label: 'Arama', variant: 'info' },
 };
 
-export default function CustomerActivityReportPage() {
+function CustomerActivityReportPageInner() {
   const searchParams = useSearchParams();
   const appliedQueryRef = useRef(false);
   const defaults = useMemo(buildDefaultDates, []);
@@ -778,5 +778,19 @@ export default function CustomerActivityReportPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function CustomerActivityReportPage() {
+  return (
+    <Suspense
+      fallback={(
+        <div className="container mx-auto p-6">
+          <div className="text-gray-500">Rapor yukleniyor...</div>
+        </div>
+      )}
+    >
+      <CustomerActivityReportPageInner />
+    </Suspense>
   );
 }
