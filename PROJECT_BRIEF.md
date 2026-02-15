@@ -742,6 +742,78 @@ npm install --platform=linux --arch=x64 sharp
 npm rebuild sharp
 ```
 
+### 9. Mobile APK Build - Java 17 yok
+**Sorun:** Gradle derleme `Java 17` bulunamadığı için başlatılamıyor.
+
+**Çözüm:**
+```powershell
+# JDK 17 kurulu olmalı (örnek):
+# C:\Program Files\Eclipse Adoptium\jdk-17.x
+
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+$env:PATH="$env:JAVA_HOME\bin;$env:PATH"
+java -version
+```
+
+### 10. Mobile APK Build - Android SDK yolu tanımsız
+**Sorun:** `SDK location not found` hatası.
+
+**Çözüm:**
+```powershell
+$env:ANDROID_HOME="C:\Android\Sdk"
+$env:ANDROID_SDK_ROOT="C:\Android\Sdk"
+$env:PATH="$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:PATH"
+```
+
+### 11. Mobile APK Build - Türkçe karakterli path problemi
+**Sorun:** `Masaüstü` gibi Türkçe karakter içeren klasörlerde Gradle/Node plugin yolu bozulabiliyor (`MasaÃ¼stÃ¼` gibi).
+
+**Çözüm:**
+```text
+APK build'i ASCII path'te al:
+C:\bakircilar-b2b-build-YYYYMMDD
+```
+Gerekirse repo bu klasöre klonlanıp build oradan çalıştırılır.
+
+### 12. Mobile APK Build - Geçici DNS/Maven hataları
+**Sorun:** `dl.google.com` veya `repo.maven.apache.org` çözümlenemiyor.
+
+**Çözüm:**
+```powershell
+$env:GRADLE_OPTS="-Djava.net.preferIPv4Stack=true -Dsun.net.inetaddr.ttl=0"
+./gradlew.bat assembleDebug
+```
+Not: Bu hata çoğunlukla ağ/DNS kaynaklı geçici durumdur, tekrar denemede düzelebilir.
+
+### 13. Mobile APK Build - İlk build'in uzun sürmesi
+**Sorun:** İlk derleme çok uzun sürer.
+
+**Sebep:** NDK/CMake/native bağımlılıkları ve Gradle cache ilk kez indirilir.
+
+**Çözüm:** İlk build sonrası aynı makinede sonraki build'ler belirgin şekilde hızlanır.
+
+### 14. Mobile APK Build - Stabil runbook (Portal + B2B)
+```powershell
+# 1) ASCII path kullan (örn: C:\bakircilar-b2b-build-YYYYMMDD)
+# 2) Mobile app klasörlerinde dependency kur:
+#    npm ci
+# 3) Gerekirse android klasörü üret:
+#    npx expo prebuild --platform android
+# 4) Env set et:
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+$env:ANDROID_HOME="C:\Android\Sdk"
+$env:ANDROID_SDK_ROOT="C:\Android\Sdk"
+$env:GRADLE_OPTS="-Djava.net.preferIPv4Stack=true -Dsun.net.inetaddr.ttl=0"
+$env:PATH="$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:PATH"
+
+# 5) APK build:
+cd mobile\portal\android; .\gradlew.bat assembleDebug
+cd mobile\b2b\android; .\gradlew.bat assembleDebug
+```
+Output:
+- `mobile\portal\android\app\build\outputs\apk\debug\app-debug.apk`
+- `mobile\b2b\android\app\build\outputs\apk\debug\app-debug.apk`
+
 ---
 
 ## 🔐 GÜVENLİK

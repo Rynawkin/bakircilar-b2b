@@ -1,2 +1,4 @@
 node_modules/
 mobile/_template-*/
+mobile/.gradle-portal/
+mobile/builds/
