@@ -807,12 +807,15 @@ $env:GRADLE_OPTS="-Djava.net.preferIPv4Stack=true -Dsun.net.inetaddr.ttl=0"
 $env:PATH="$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:PATH"
 
 # 5) APK build:
-cd mobile\portal\android; .\gradlew.bat assembleDebug
-cd mobile\b2b\android; .\gradlew.bat assembleDebug
+cd mobile\portal\android; .\gradlew.bat assembleRelease
+cd mobile\b2b\android; .\gradlew.bat assembleRelease
 ```
 Output:
-- `mobile\portal\android\app\build\outputs\apk\debug\app-debug.apk`
-- `mobile\b2b\android\app\build\outputs\apk\debug\app-debug.apk`
+- (release) `mobile\portal\android\app\build\outputs\apk\release\app-release.apk`
+- (release) `mobile\b2b\android\app\build\outputs\apk\release\app-release.apk`
+
+Not:
+- Debug APK (assembleDebug) Metro ister; Metro calismiyorsa uygulama acilirken `Unable to load script` gorursun.
 
 ---
 

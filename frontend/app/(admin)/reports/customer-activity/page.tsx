@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Activity,
   ArrowLeft,
@@ -167,6 +168,8 @@ const typeLabels: Record<ActivityType, { label: string; variant: 'default' | 'in
 };
 
 export default function CustomerActivityReportPage() {
+  const searchParams = useSearchParams();
+  const appliedQueryRef = useRef(false);
   const defaults = useMemo(buildDefaultDates, []);
   const [startDate, setStartDate] = useState(defaults.start);
   const [endDate, setEndDate] = useState(defaults.end);
@@ -207,6 +210,25 @@ export default function CustomerActivityReportPage() {
     setCustomerSearch(parsed.label || parsed.code);
     setCustomerOptions([]);
   };
+
+  useEffect(() => {
+    if (appliedQueryRef.current) return;
+    const queryCustomerCode = String(searchParams.get('customerCode') || '').trim();
+    if (!queryCustomerCode) return;
+
+    appliedQueryRef.current = true;
+    setCustomerCode(queryCustomerCode);
+    setCustomerName('');
+    setCustomerSearch(queryCustomerCode);
+    setCustomerOptions([]);
+    setPage(1);
+    setSubmitted({
+      startDate,
+      endDate,
+      customerCode: queryCustomerCode,
+      userId: undefined,
+    });
+  }, [searchParams, startDate, endDate]);
 
   useEffect(() => {
     const term = customerSearch.trim();
