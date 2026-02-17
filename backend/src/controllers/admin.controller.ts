@@ -2292,28 +2292,31 @@ export class AdminController {
               sectorCodes
                 .map((raw) => String(raw || '').trim())
                 .filter(Boolean)
-                .flatMap((value) => {
-                  const upper = value.toUpperCase();
-                  const asciiUpper = upper
+                .map((value) =>
+                  value
+                    .toUpperCase()
                     .replace(/İ/g, 'I')
                     .replace(/Ş/g, 'S')
                     .replace(/Ğ/g, 'G')
                     .replace(/Ü/g, 'U')
                     .replace(/Ö/g, 'O')
-                    .replace(/Ç/g, 'C');
-                  return [value, upper, asciiUpper];
-                })
+                    .replace(/Ç/g, 'C')
+                )
             )
           )
         : [];
       const sectorInSql = normalizedSectorTokens.length > 0
         ? normalizedSectorTokens.map((code) => `'${escapeSqlString(code)}'`).join(', ')
         : '';
+      const normalizedSectorSqlExpr = (columnName: string) =>
+        `UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(${columnName}, ''))), 'İ', 'I'), 'İ', 'I'), 'Ş', 'S'), 'Ğ', 'G'), 'Ü', 'U'), 'Ö', 'O'))`;
       const sectorConditionSql = hasSectorScope
-        ? ` AND (
-          LTRIM(RTRIM(ISNULL(c.cari_sektor, ''))) IN (${sectorInSql})
-          OR LTRIM(RTRIM(ISNULL(c.cari_sektor_kodu, ''))) IN (${sectorInSql})
-        )`
+        ? isSalesRep
+          ? ` AND (
+              ${normalizedSectorSqlExpr('c.cari_sektor')} IN (${sectorInSql})
+              OR ${normalizedSectorSqlExpr('c.cari_sektor_kodu')} IN (${sectorInSql})
+            )`
+          : ` AND ${normalizedSectorSqlExpr('c.cari_sektor')} LIKE 'SATIS%'`
         : '';
       const fetchMikroSalesSummary = async () => {
         const sqlQuery = `
@@ -2323,7 +2326,6 @@ export class AdminController {
           FROM STOK_HAREKETLERI sth WITH (NOLOCK)
           LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = sth.sth_cari_kodu
           WHERE sth.sth_cins = 0
-            AND sth.sth_tip = 1
             AND sth.sth_tarih >= '${startDateSql}'
             AND sth.sth_tarih < DATEADD(DAY, 1, '${endDateSql}')
             ${sectorConditionSql}
