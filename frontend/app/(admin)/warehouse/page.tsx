@@ -202,6 +202,7 @@ export default function WarehousePage() {
   const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
   const [reportedImageKeys, setReportedImageKeys] = useState<Record<string, boolean>>({});
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
+  const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
 
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-4'
@@ -314,8 +315,16 @@ export default function WarehousePage() {
 
   const getShelfDraftKey = (mikroOrderNumber: string, lineKey: string) => `${mikroOrderNumber}::${lineKey}`;
 
-  const loadOrderDetail = async (mikroOrderNumber: string) => {
-    setActiveOrderNumber(mikroOrderNumber);
+  const loadOrderDetail = async (
+    mikroOrderNumber: string,
+    options?: { makeActive?: boolean; silent?: boolean }
+  ) => {
+    const makeActive = options?.makeActive !== false;
+    const silent = options?.silent === true;
+
+    if (makeActive) {
+      setActiveOrderNumber(mikroOrderNumber);
+    }
     setOpenReservationKey(null);
     setPreviewImage(null);
     setDetailLoadingOrder(mikroOrderNumber);
@@ -330,8 +339,54 @@ export default function WarehousePage() {
         }
         return next;
       });
+      const selectedOrder = orders.find((order) => order.mikroOrderNumber === mikroOrderNumber);
+      if (selectedOrder && !suggestedCustomerCodesRef.current.has(selectedOrder.customerCode)) {
+        const siblingOrders = orders.filter(
+          (order) =>
+            order.customerCode === selectedOrder.customerCode &&
+            order.mikroOrderNumber !== mikroOrderNumber &&
+            order.workflowStatus !== 'DISPATCHED' &&
+            !openOrderNumbers.includes(order.mikroOrderNumber)
+        );
+
+        if (siblingOrders.length > 0) {
+          suggestedCustomerCodesRef.current.add(selectedOrder.customerCode);
+          toast((t) => (
+            <div className="flex flex-col gap-2">
+              <p className="font-semibold text-sm">
+                {selectedOrder.customerName} icin {siblingOrders.length} ek siparis daha var.
+              </p>
+              <p className="text-xs text-slate-600">
+                Ayni noktaya tekrar gitmemek icin diger siparisleri de acmak ister misiniz?
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold"
+                  onClick={() => toast.dismiss(t.id)}
+                >
+                  Simdilik Hayir
+                </button>
+                <button
+                  className="px-3 py-1.5 rounded-lg bg-cyan-600 text-white text-xs font-semibold"
+                  onClick={async () => {
+                    toast.dismiss(t.id);
+                    for (const sibling of siblingOrders) {
+                      await loadOrderDetail(sibling.mikroOrderNumber, { makeActive: false, silent: true });
+                    }
+                    toast.success('Ayni musteriye ait diger siparisler de acildi');
+                  }}
+                >
+                  Hepsini Ac
+                </button>
+              </div>
+            </div>
+          ), { duration: 9000 });
+        }
+      }
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Siparis detayi yuklenemedi');
+      if (!silent) {
+        toast.error(error.response?.data?.error || 'Siparis detayi yuklenemedi');
+      }
     } finally {
       setDetailLoadingOrder((prev) => (prev === mikroOrderNumber ? null : prev));
     }
