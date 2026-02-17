@@ -126,6 +126,7 @@ const parseReportDateInput = (value: unknown): Date | null => {
 };
 
 type DashboardPeriod = 'daily' | 'weekly' | 'monthly';
+const DASHBOARD_SALES_SECTOR_CODES = ['SATIS', 'SATIŞ'] as const;
 
 const getDashboardPeriod = (value: unknown): DashboardPeriod => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -2268,12 +2269,16 @@ export class AdminController {
       const period = getDashboardPeriod(req.query?.period);
       const periodRange = getPeriodRange(period);
 
-      const sectorCodes =
-        assignedSectorCodes.length > 0
-          ? assignedSectorCodes
-          : ownSectorCode
-            ? [ownSectorCode]
-            : [];
+      const isSalesRep = userRole === 'SALES_REP';
+      const sectorCodes = isSalesRep
+        ? (
+          assignedSectorCodes.length > 0
+            ? assignedSectorCodes
+            : ownSectorCode
+              ? [ownSectorCode]
+              : []
+        )
+        : [...DASHBOARD_SALES_SECTOR_CODES];
       const hasSectorScope = sectorCodes.length > 0;
       const sectorFilter = hasSectorScope ? sectorCodes : undefined;
       const customerWhere = hasSectorScope
@@ -2287,45 +2292,40 @@ export class AdminController {
       const sectorConditionSql = hasSectorScope
         ? ` AND c.cari_sektor_kodu IN (${sectorInSql})`
         : '';
-      const fetchSalesSummary = async (sector?: string) => {
-        const report = await reportsService.getTopCustomers({
-          startDate: toIsoDate(periodRange.start),
-          endDate: toIsoDate(periodRange.end),
-          ...(sector ? { sector } : {}),
-          page: 1,
-          limit: 1,
-        });
+      const fetchMikroSalesSummary = async () => {
+        const sqlQuery = `
+          SELECT
+            COUNT(DISTINCT CONCAT(sth.sth_evrakno_seri, '-', CAST(sth.sth_evrakno_sira AS VARCHAR(30)))) AS salesCount,
+            ISNULL(SUM(ISNULL(sth.sth_tutar, 0)), 0) AS totalAmount
+          FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+          LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = sth.sth_cari_kodu
+          WHERE sth.sth_cins = 0
+            AND sth.sth_tip = 1
+            AND sth.sth_tarih >= '${startDateSql}'
+            AND sth.sth_tarih < DATEADD(DAY, 1, '${endDateSql}')
+            ${sectorConditionSql}
+        `;
+        const rows = await mikroService.executeQuery(sqlQuery);
+        const row = rows?.[0] || {};
         return {
-          count: Number(report?.summary?.totalOrders || 0),
-          amount: Number(report?.summary?.totalRevenue || 0),
+          count: Number(row.salesCount || 0),
+          amount: Number(row.totalAmount || 0),
         };
       };
-      const salesSummaryPromise = hasSectorScope
-        ? Promise.all(
-            sectorCodes.map((sectorCode) =>
-              fetchSalesSummary(sectorCode).catch(() => ({ count: 0, amount: 0 }))
-            )
-          ).then((rows) =>
-            rows.reduce(
-              (acc, row) => {
-                acc.count += Number(row.count || 0);
-                acc.amount += Number(row.amount || 0);
-                return acc;
-              },
-              { count: 0, amount: 0 }
-            )
-          )
-        : fetchSalesSummary().catch(() => ({ count: 0, amount: 0 }));
       const fetchMikroOrderSummary = async () => {
         const sqlQuery = `
           SELECT
             COUNT(DISTINCT CONCAT(s.sip_evrakno_seri, '-', CAST(s.sip_evrakno_sira AS VARCHAR(30)))) AS orderCount,
-            ISNULL(SUM(ISNULL(s.sip_tutar, 0)), 0) AS totalAmount
+            ISNULL(SUM(
+              CASE
+                WHEN ISNULL(s.sip_tutar, 0) = 0 THEN ISNULL(s.sip_miktar, 0) * ISNULL(s.sip_b_fiyat, 0)
+                ELSE ISNULL(s.sip_tutar, 0)
+              END
+            ), 0) AS totalAmount
           FROM SIPARISLER s WITH (NOLOCK)
           LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = s.sip_musteri_kod
           WHERE s.sip_tip = 0
             AND ISNULL(s.sip_iptal, 0) = 0
-            AND ISNULL(s.sip_kapat_fl, 0) = 0
             AND s.sip_tarih >= '${startDateSql}'
             AND s.sip_tarih < DATEADD(DAY, 1, '${endDateSql}')
             ${sectorConditionSql}
@@ -2345,7 +2345,6 @@ export class AdminController {
           FROM VERILEN_TEKLIFLER t WITH (NOLOCK)
           LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = t.tkl_cari_kod
           WHERE ISNULL(t.tkl_iptal, 0) = 0
-            AND ISNULL(t.TKL_KAPAT_FL, 0) = 0
             AND t.tkl_evrak_tarihi >= '${startDateSql}'
             AND t.tkl_evrak_tarihi < DATEADD(DAY, 1, '${endDateSql}')
             ${sectorConditionSql}
@@ -2371,7 +2370,7 @@ export class AdminController {
         prisma.user.count({ where: customerWhere }),
         prisma.product.count({ where: { active: true, excessStock: { gt: 0 } } }),
         prisma.settings.findFirst({ select: { lastSyncAt: true } }),
-        salesSummaryPromise,
+        fetchMikroSalesSummary().catch(() => ({ count: 0, amount: 0 })),
         fetchMikroOrderSummary().catch(() => ({ count: 0, amount: 0 })),
         fetchMikroQuoteSummary().catch(() => ({ count: 0, amount: 0 })),
       ]);
@@ -2387,7 +2386,7 @@ export class AdminController {
           endAt: periodRange.end.toISOString(),
         },
         sectorScope: {
-          mode: assignedSectorCodes.length > 0 ? 'assigned' : ownSectorCode ? 'self' : 'all',
+          mode: isSalesRep ? (assignedSectorCodes.length > 0 ? 'assigned' : ownSectorCode ? 'self' : 'all') : 'all',
           codes: sectorCodes,
         },
         summary: {
