@@ -21,6 +21,7 @@ import { PortalStackParamList } from '../navigation/AppNavigator';
 import {
   DashboardPrefs,
   DashboardQuickActionKey,
+  DashboardReportCardKey,
   DashboardWidgetKey,
   getDashboardPrefs,
   saveDashboardPrefs,
@@ -37,6 +38,17 @@ const CUSTOMER_TITLE_KEY = 'msg_S_1033';
 const CUSTOMER_CODE_KEY = 'msg_S_1032';
 
 const ALL_WIDGETS: DashboardWidgetKey[] = ['stats', 'quickActions', 'notifications', 'stockSearch', 'customerSearch'];
+const PERIOD_OPTIONS: Array<{ key: 'daily' | 'weekly' | 'monthly'; label: string }> = [
+  { key: 'daily', label: 'Gunluk' },
+  { key: 'weekly', label: 'Haftalik' },
+  { key: 'monthly', label: 'Aylik' },
+];
+const REPORT_CARD_LABELS: Record<DashboardReportCardKey, string> = {
+  sales: 'Satis',
+  quotes: 'Teklif',
+  orders: 'Siparis',
+};
+const ALL_REPORT_CARDS: DashboardReportCardKey[] = ['sales', 'quotes', 'orders'];
 const WIDGET_LABELS: Record<DashboardWidgetKey, string> = {
   stats: 'Istatistik',
   quickActions: 'Hizli Aksiyonlar',
@@ -86,6 +98,39 @@ const formatNotificationTime = (value: string) => {
     return value;
   }
 };
+const formatCurrencyShort = (amount: number) =>
+  Number(amount || 0).toLocaleString('tr-TR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+
+const toIsoDate = (value: Date) => {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const getPeriodRange = (period: 'daily' | 'weekly' | 'monthly') => {
+  const now = new Date();
+  const start = new Date(now);
+  if (period === 'weekly') {
+    const day = start.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    start.setDate(start.getDate() - diffToMonday);
+  } else if (period === 'monthly') {
+    start.setDate(1);
+  }
+  start.setHours(0, 0, 0, 0);
+  return { start, end: now };
+};
+
+const withinRange = (value: string | undefined, start: Date, end: Date) => {
+  if (!value) return false;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return false;
+  return d >= start && d <= end;
+};
 
 export function DashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PortalStackParamList>>();
@@ -99,6 +144,8 @@ export function DashboardScreen() {
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [visibleWidgets, setVisibleWidgets] = useState<DashboardWidgetKey[]>(ALL_WIDGETS);
   const [quickActions, setQuickActions] = useState<DashboardQuickActionKey[]>(DEFAULT_QUICK_ACTIONS);
+  const [selectedPeriod, setSelectedPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [reportCards, setReportCards] = useState<DashboardReportCardKey[]>(ALL_REPORT_CARDS);
 
   const [stockColumns, setStockColumns] = useState<string[]>([]);
   const [customerColumns, setCustomerColumns] = useState<string[]>([]);
@@ -116,6 +163,83 @@ export function DashboardScreen() {
   const [customerResults, setCustomerResults] = useState<any[]>([]);
   const [customerLoading, setCustomerLoading] = useState(false);
   const [customerColumnsOpen, setCustomerColumnsOpen] = useState(false);
+
+  const buildFallbackSummary = async (period: 'daily' | 'weekly' | 'monthly') => {
+    const { start, end } = getPeriodRange(period);
+    const [ordersResp, quotesResp] = await Promise.all([
+      adminApi.getOrders().catch(() => ({ orders: [] as any[] })),
+      adminApi.getQuotes().catch(() => ({ quotes: [] as any[] })),
+    ]);
+
+    const orders = (ordersResp as any)?.orders || [];
+    const quotes = (quotesResp as any)?.quotes || [];
+    const scopedOrders = orders.filter((item: any) => withinRange(item?.createdAt, start, end));
+    const scopedQuotes = quotes.filter((item: any) => withinRange(item?.createdAt, start, end));
+
+    const orderSummary = {
+      count: scopedOrders.length,
+      amount: scopedOrders.reduce((sum: number, item: any) => sum + Number(item?.totalAmount || 0), 0),
+    };
+    const quoteSummary = {
+      count: scopedQuotes.length,
+      amount: scopedQuotes.reduce((sum: number, item: any) => sum + Number(item?.grandTotal ?? item?.totalAmount ?? 0), 0),
+    };
+
+    const userAny = user as any;
+    const sectorCodes = Array.isArray(userAny?.assignedSectorCodes) && userAny.assignedSectorCodes.length > 0
+      ? userAny.assignedSectorCodes
+      : userAny?.sectorCode
+        ? [String(userAny.sectorCode)]
+        : [];
+
+    const salesResponses = sectorCodes.length > 0
+      ? await Promise.all(
+          sectorCodes.map((sector: string) =>
+            adminApi.getTopCustomers({
+              startDate: toIsoDate(start),
+              endDate: toIsoDate(end),
+              sector,
+              page: 1,
+              limit: 1,
+            }).catch(() => null)
+          )
+        )
+      : [
+          await adminApi.getTopCustomers({
+            startDate: toIsoDate(start),
+            endDate: toIsoDate(end),
+            page: 1,
+            limit: 1,
+          }).catch(() => null),
+        ];
+
+    const salesSummary = salesResponses.reduce(
+      (acc, response: any) => {
+        const summary = response?.data?.summary || {};
+        const count =
+          Number(summary?.totalOrders ?? summary?.orderCount ?? summary?.totalSalesCount ?? 0) || 0;
+        const amount = Number(summary?.totalRevenue ?? summary?.revenue ?? summary?.totalAmount ?? 0) || 0;
+        acc.count += count;
+        acc.amount += amount;
+        return acc;
+      },
+      { count: 0, amount: 0 }
+    );
+
+    return {
+      period,
+      periodRange: { startAt: start.toISOString(), endAt: end.toISOString() },
+      sectorScope: {
+        mode: sectorCodes.length > 0 ? 'assigned' : 'all',
+        codes: sectorCodes,
+      },
+      summary: {
+        sales: salesSummary,
+        orders: orderSummary,
+        quotes: quoteSummary,
+      },
+    };
+  };
 
   const can = (permission: string) => !permissions || permissions[permission] !== false;
   const canUseSearch = can('dashboard:stok-ara') || can('dashboard:cari-ara');
@@ -162,13 +286,18 @@ export function DashboardScreen() {
     if (!stored) {
       setVisibleWidgets(allowedWidgets);
       setQuickActions(DEFAULT_QUICK_ACTIONS.filter(allowedAction));
+      setReportCards(ALL_REPORT_CARDS);
       return;
     }
 
     const widgets = stored.visibleWidgets.filter((widget) => allowedWidgets.includes(widget));
     const actions = stored.quickActions.filter(allowedAction);
+    const cards = (stored.reportCards || ALL_REPORT_CARDS).filter((card) => ALL_REPORT_CARDS.includes(card));
+    const period = stored.period && PERIOD_OPTIONS.some((item) => item.key === stored.period) ? stored.period : 'daily';
     setVisibleWidgets(widgets.length > 0 ? widgets : allowedWidgets);
     setQuickActions(actions.length > 0 ? actions : DEFAULT_QUICK_ACTIONS.filter(allowedAction));
+    setReportCards(cards.length > 0 ? cards : ALL_REPORT_CARDS);
+    setSelectedPeriod(period);
   };
 
   const loadDashboardData = async () => {
@@ -176,7 +305,7 @@ export function DashboardScreen() {
     setError(null);
     try {
       const [statsData, permsData, stockData, customerData, prefsData] = await Promise.all([
-        adminApi.getDashboardStats(),
+        adminApi.getDashboardStats({ period: selectedPeriod }),
         adminApi.getMyPermissions().catch(() => null),
         adminApi.getStockColumns().catch(() => ({ columns: [] as string[] })),
         adminApi.getCustomerColumns().catch(() => ({ columns: [] as string[] })),
@@ -184,7 +313,11 @@ export function DashboardScreen() {
       ]);
 
       const nextPermissions = permsData?.permissions || null;
-      setStats(statsData);
+      const statsHasSummary =
+        Boolean((statsData as any)?.summary) &&
+        typeof (statsData as any)?.summary?.sales?.count === 'number';
+      const fallback = statsHasSummary ? null : await buildFallbackSummary(selectedPeriod);
+      setStats(fallback ? ({ ...statsData, ...fallback } as DashboardStats) : statsData);
       setPermissions(nextPermissions);
       setStockColumns(stockData.columns || []);
       setCustomerColumns(customerData.columns || []);
@@ -203,7 +336,7 @@ export function DashboardScreen() {
 
   useEffect(() => {
     loadDashboardData();
-  }, [user?.id]);
+  }, [user?.id, selectedPeriod]);
 
   const toggleWidget = async (widget: DashboardWidgetKey) => {
     if (!isWidgetAllowed(widget)) return;
@@ -212,7 +345,7 @@ export function DashboardScreen() {
       : [...visibleWidgets, widget];
     if (next.length === 0) return;
     setVisibleWidgets(next);
-    await persistPrefs({ visibleWidgets: next, quickActions });
+    await persistPrefs({ visibleWidgets: next, quickActions, reportCards, period: selectedPeriod });
     hapticLight();
   };
 
@@ -224,7 +357,17 @@ export function DashboardScreen() {
       : [...quickActions, key];
     if (next.length === 0) return;
     setQuickActions(next);
-    await persistPrefs({ visibleWidgets, quickActions: next });
+    await persistPrefs({ visibleWidgets, quickActions: next, reportCards, period: selectedPeriod });
+    hapticLight();
+  };
+
+  const toggleReportCard = async (key: DashboardReportCardKey) => {
+    const next = reportCards.includes(key)
+      ? reportCards.filter((item) => item !== key)
+      : [...reportCards, key];
+    if (next.length === 0) return;
+    setReportCards(next);
+    await persistPrefs({ visibleWidgets, quickActions, reportCards: next, period: selectedPeriod });
     hapticLight();
   };
 
@@ -271,31 +414,21 @@ export function DashboardScreen() {
   };
 
   const searchStocks = async () => {
-    setStockLoading(true);
-    try {
-      const response = await adminApi.searchStocks({ searchTerm: stockTerm.trim(), limit: 10, offset: 0 });
-      setStockResults(response.data || []);
-      hapticLight();
-    } catch {
-      setStockResults([]);
-      Alert.alert('Hata', 'Stok aramasi basarisiz.');
-    } finally {
-      setStockLoading(false);
-    }
+    hapticLight();
+    navigation.navigate('Search', {
+      mode: 'stocks',
+      term: stockTerm.trim(),
+      autoRun: true,
+    });
   };
 
   const searchCustomers = async () => {
-    setCustomerLoading(true);
-    try {
-      const response = await adminApi.searchCustomers({ searchTerm: customerTerm.trim(), limit: 10, offset: 0 });
-      setCustomerResults(response.data || []);
-      hapticLight();
-    } catch {
-      setCustomerResults([]);
-      Alert.alert('Hata', 'Cari aramasi basarisiz.');
-    } finally {
-      setCustomerLoading(false);
-    }
+    hapticLight();
+    navigation.navigate('Search', {
+      mode: 'customers',
+      term: customerTerm.trim(),
+      autoRun: true,
+    });
   };
 
   const stockVisibleColumns = useMemo(
@@ -371,6 +504,45 @@ export function DashboardScreen() {
                   );
                 })}
               </View>
+              <Text style={styles.sectionLabel}>Dashboard Donemi</Text>
+              <View style={styles.chipWrap}>
+                {PERIOD_OPTIONS.map((option) => {
+                  const selected = selectedPeriod === option.key;
+                  return (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[styles.chip, selected && styles.chipActive]}
+                      onPress={async () => {
+                        setSelectedPeriod(option.key);
+                        await persistPrefs({
+                          visibleWidgets,
+                          quickActions,
+                          reportCards,
+                          period: option.key,
+                        });
+                        hapticLight();
+                      }}
+                    >
+                      <Text style={selected ? styles.chipTextActive : styles.chipText}>{option.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.sectionLabel}>Rapor Kartlari</Text>
+              <View style={styles.chipWrap}>
+                {ALL_REPORT_CARDS.map((card) => {
+                  const selected = reportCards.includes(card);
+                  return (
+                    <TouchableOpacity
+                      key={card}
+                      style={[styles.chip, selected && styles.chipActive]}
+                      onPress={() => toggleReportCard(card)}
+                    >
+                      <Text style={selected ? styles.chipTextActive : styles.chipText}>{REPORT_CARD_LABELS[card]}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </>
           )}
         </View>
@@ -383,6 +555,31 @@ export function DashboardScreen() {
 
             {hasWidget('stats') && (
               <View style={styles.section}>
+                <Text style={styles.metaText}>
+                  Donem: {PERIOD_OPTIONS.find((item) => item.key === selectedPeriod)?.label || 'Gunluk'}
+                  {stats?.sectorScope?.codes?.length ? ` | Sektor: ${stats.sectorScope.codes.join(', ')}` : ''}
+                </Text>
+                {reportCards.includes('sales') && (
+                  <View style={styles.statCard}>
+                    <Text style={styles.statLabel}>Satis (Onayli)</Text>
+                    <Text style={styles.statValue}>{stats?.summary?.sales?.count ?? 0}</Text>
+                    <Text style={styles.resultMeta}>{formatCurrencyShort(stats?.summary?.sales?.amount || 0)} TL</Text>
+                  </View>
+                )}
+                {reportCards.includes('quotes') && (
+                  <View style={styles.statCard}>
+                    <Text style={styles.statLabel}>Teklif</Text>
+                    <Text style={styles.statValue}>{stats?.summary?.quotes?.count ?? 0}</Text>
+                    <Text style={styles.resultMeta}>{formatCurrencyShort(stats?.summary?.quotes?.amount || 0)} TL</Text>
+                  </View>
+                )}
+                {reportCards.includes('orders') && (
+                  <View style={styles.statCard}>
+                    <Text style={styles.statLabel}>Siparis</Text>
+                    <Text style={styles.statValue}>{stats?.summary?.orders?.count ?? 0}</Text>
+                    <Text style={styles.resultMeta}>{formatCurrencyShort(stats?.summary?.orders?.amount || 0)} TL</Text>
+                  </View>
+                )}
                 <View style={styles.statCard}><Text style={styles.statLabel}>Bekleyen Siparis</Text><Text style={styles.statValue}>{stats?.orders?.pendingCount ?? 0}</Text></View>
                 <View style={styles.statCard}><Text style={styles.statLabel}>Bugun Onay</Text><Text style={styles.statValue}>{stats?.orders?.approvedToday ?? 0}</Text></View>
                 <View style={styles.statCard}><Text style={styles.statLabel}>Musteri</Text><Text style={styles.statValue}>{stats?.customerCount ?? 0}</Text></View>
@@ -449,41 +646,26 @@ export function DashboardScreen() {
               <View style={styles.card}>
                 <View style={styles.rowBetween}>
                   <Text style={styles.cardTitle}>Stok Ara</Text>
-                  <TouchableOpacity onPress={() => setStockColumnsOpen((prev) => !prev)}><Text style={styles.linkText}>{stockColumnsOpen ? 'Alanlari Gizle' : 'Alanlari Sec'}</Text></TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate('Search', { mode: 'stocks', term: stockTerm.trim(), openColumns: true })}
+                  >
+                    <Text style={styles.linkText}>Alanlari Sec</Text>
+                  </TouchableOpacity>
                 </View>
-                {stockColumnsOpen && (
-                  <View style={styles.chipWrap}>
-                    {stockColumns.map((column) => {
-                      const selected = selectedStockColumns.includes(column);
-                      return (
-                        <TouchableOpacity key={column} style={[styles.chip, selected && styles.chipActive]} onPress={() => toggleStockColumn(column)} disabled={savingStockColumns}>
-                          <Text style={selected ? styles.chipTextActive : styles.chipText}>{getLabel(column)}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
                 <View style={styles.searchRow}>
-                  <TextInput style={[styles.input, styles.flex]} placeholder="Stok kodu veya adi" placeholderTextColor={colors.textMuted} value={stockTerm} onChangeText={setStockTerm} onSubmitEditing={searchStocks} />
-                  <TouchableOpacity style={styles.primaryBtn} onPress={searchStocks}><Text style={styles.primaryBtnText}>Ara</Text></TouchableOpacity>
+                  <TextInput
+                    style={[styles.input, styles.flex]}
+                    placeholder="Stok kodu veya adi"
+                    placeholderTextColor={colors.textMuted}
+                    value={stockTerm}
+                    onChangeText={setStockTerm}
+                    onSubmitEditing={searchStocks}
+                  />
+                  <TouchableOpacity style={styles.primaryBtn} onPress={searchStocks}>
+                    <Text style={styles.primaryBtnText}>Detayli Ara</Text>
+                  </TouchableOpacity>
                 </View>
-                {stockLoading ? <ActivityIndicator color={colors.primary} /> : (
-                  <View style={styles.section}>
-                    {stockResults.map((row, index) => (
-                      <View key={`${row[STOCK_CODE_KEY] || index}`} style={styles.resultCard}>
-                        <Text style={styles.resultTitle}>{toText(row[STOCK_TITLE_KEY])}</Text>
-                        <Text style={styles.resultMeta}>{toText(row[STOCK_CODE_KEY])}</Text>
-                        {stockVisibleColumns.map((column) => (
-                          <View key={`${row[STOCK_CODE_KEY]}-${column}`} style={styles.fieldRow}>
-                            <Text style={styles.fieldLabel}>{getLabel(column)}</Text>
-                            <Text style={styles.fieldValue}>{toText(row[column])}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ))}
-                    {stockResults.length === 0 && <Text style={styles.emptyText}>Arama sonucu yok.</Text>}
-                  </View>
-                )}
+                <Text style={styles.metaText}>Sonuclar ve kolon secimi arama ekraninda acilir.</Text>
               </View>
             )}
 
@@ -491,41 +673,26 @@ export function DashboardScreen() {
               <View style={styles.card}>
                 <View style={styles.rowBetween}>
                   <Text style={styles.cardTitle}>Cari Ara</Text>
-                  <TouchableOpacity onPress={() => setCustomerColumnsOpen((prev) => !prev)}><Text style={styles.linkText}>{customerColumnsOpen ? 'Alanlari Gizle' : 'Alanlari Sec'}</Text></TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate('Search', { mode: 'customers', term: customerTerm.trim(), openColumns: true })}
+                  >
+                    <Text style={styles.linkText}>Alanlari Sec</Text>
+                  </TouchableOpacity>
                 </View>
-                {customerColumnsOpen && (
-                  <View style={styles.chipWrap}>
-                    {customerColumns.map((column) => {
-                      const selected = selectedCustomerColumns.includes(column);
-                      return (
-                        <TouchableOpacity key={column} style={[styles.chip, selected && styles.chipActive]} onPress={() => toggleCustomerColumn(column)} disabled={savingCustomerColumns}>
-                          <Text style={selected ? styles.chipTextActive : styles.chipText}>{getLabel(column)}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
                 <View style={styles.searchRow}>
-                  <TextInput style={[styles.input, styles.flex]} placeholder="Cari kodu veya unvan" placeholderTextColor={colors.textMuted} value={customerTerm} onChangeText={setCustomerTerm} onSubmitEditing={searchCustomers} />
-                  <TouchableOpacity style={styles.primaryBtn} onPress={searchCustomers}><Text style={styles.primaryBtnText}>Ara</Text></TouchableOpacity>
+                  <TextInput
+                    style={[styles.input, styles.flex]}
+                    placeholder="Cari kodu veya unvan"
+                    placeholderTextColor={colors.textMuted}
+                    value={customerTerm}
+                    onChangeText={setCustomerTerm}
+                    onSubmitEditing={searchCustomers}
+                  />
+                  <TouchableOpacity style={styles.primaryBtn} onPress={searchCustomers}>
+                    <Text style={styles.primaryBtnText}>Detayli Ara</Text>
+                  </TouchableOpacity>
                 </View>
-                {customerLoading ? <ActivityIndicator color={colors.primary} /> : (
-                  <View style={styles.section}>
-                    {customerResults.map((row, index) => (
-                      <View key={`${row[CUSTOMER_CODE_KEY] || index}`} style={styles.resultCard}>
-                        <Text style={styles.resultTitle}>{toText(row[CUSTOMER_TITLE_KEY])}</Text>
-                        <Text style={styles.resultMeta}>{toText(row[CUSTOMER_CODE_KEY])}</Text>
-                        {customerVisibleColumns.map((column) => (
-                          <View key={`${row[CUSTOMER_CODE_KEY]}-${column}`} style={styles.fieldRow}>
-                            <Text style={styles.fieldLabel}>{getLabel(column)}</Text>
-                            <Text style={styles.fieldValue}>{toText(row[column])}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ))}
-                    {customerResults.length === 0 && <Text style={styles.emptyText}>Arama sonucu yok.</Text>}
-                  </View>
-                )}
+                <Text style={styles.metaText}>Sonuclar ve kolon secimi arama ekraninda acilir.</Text>
               </View>
             )}
 
@@ -544,15 +711,46 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   container: { padding: spacing.xl, gap: spacing.md },
   loading: { alignItems: 'center', paddingVertical: spacing.xl },
-  kicker: { fontFamily: fonts.medium, fontSize: fontSizes.sm, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
+  kicker: { fontFamily: fonts.medium, fontSize: fontSizes.sm, color: colors.primarySoft, textTransform: 'uppercase', letterSpacing: 1 },
   title: { fontFamily: fonts.bold, fontSize: fontSizes.xl, color: colors.text },
-  subtitle: { fontFamily: fonts.regular, fontSize: fontSizes.sm, color: colors.textMuted },
-  customizeCard: { backgroundColor: '#EAF1FF', borderRadius: radius.lg, borderWidth: 1, borderColor: '#C7D7F8', padding: spacing.md, gap: spacing.sm },
+  subtitle: { fontFamily: fonts.regular, fontSize: fontSizes.sm, color: colors.textMuted, marginBottom: spacing.xs },
+  customizeCard: {
+    backgroundColor: '#E3EDFF',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: '#B8CCF5',
+    padding: spacing.md,
+    gap: spacing.sm,
+    shadowColor: '#0A2A57',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
   customizeTitle: { fontFamily: fonts.semibold, fontSize: fontSizes.md, color: colors.primary },
   sectionLabel: { fontFamily: fonts.medium, fontSize: fontSizes.sm, color: colors.textMuted },
   section: { gap: spacing.sm },
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, gap: spacing.sm },
-  statCard: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, gap: spacing.xs },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    shadowColor: '#0A2A57',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  statCard: {
+    backgroundColor: '#F3F8FF',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: '#CCDCF5',
+    padding: spacing.lg,
+    gap: spacing.xs,
+  },
   statLabel: { fontFamily: fonts.medium, fontSize: fontSizes.sm, color: colors.textMuted },
   statValue: { fontFamily: fonts.bold, fontSize: fontSizes.xl, color: colors.text },
   cardTitle: { fontFamily: fonts.semibold, fontSize: fontSizes.md, color: colors.text },
@@ -570,7 +768,17 @@ const styles = StyleSheet.create({
   primaryBtn: { backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   primaryBtnText: { fontFamily: fonts.semibold, color: '#FFFFFF', fontSize: fontSizes.sm },
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  quickCard: { width: '48%', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.surfaceAlt, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  quickCard: {
+    width: '48%',
+    borderWidth: 1,
+    borderColor: '#C5D5F2',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    backgroundColor: '#EAF2FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   quickLabel: { flex: 1, fontFamily: fonts.medium, fontSize: fontSizes.sm, color: colors.text },
   resultCard: { backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md, gap: spacing.xs },
   resultCardUnread: { borderColor: colors.primarySoft, backgroundColor: '#EBF2FF' },

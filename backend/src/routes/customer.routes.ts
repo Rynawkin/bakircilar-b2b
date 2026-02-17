@@ -76,6 +76,12 @@ const pushTokenSchema = z.object({
   deviceName: z.string().optional(),
 });
 
+const testPushSchema = z.object({
+  title: z.string().min(1).max(120).optional(),
+  body: z.string().max(500).optional(),
+  linkUrl: z.string().max(500).optional(),
+});
+
 const customerActivityEventSchema = z.object({
   type: z.enum([
     'PAGE_VIEW',
@@ -216,6 +222,7 @@ router.post('/notifications/read', requireCustomer, validateBody(notificationRea
 router.post('/notifications/read-all', requireCustomer, notificationController.markAllRead);
 router.post('/notifications/push/register', requireCustomer, validateBody(pushTokenSchema), notificationController.registerPushToken);
 router.post('/notifications/push/unregister', requireCustomer, validateBody(z.object({ token: z.string().min(1) })), notificationController.unregisterPushToken);
+router.post('/notifications/push/test', requireCustomer, validateBody(testPushSchema), notificationController.sendTestPush);
 
 // E-Invoices (customer)
 router.get('/invoices', requireCustomer, eInvoiceController.getMyDocuments);

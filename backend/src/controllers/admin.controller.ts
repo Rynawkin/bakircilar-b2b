@@ -125,6 +125,41 @@ const parseReportDateInput = (value: unknown): Date | null => {
   return new Date(Date.UTC(year, month - 1, day));
 };
 
+type DashboardPeriod = 'daily' | 'weekly' | 'monthly';
+
+const getDashboardPeriod = (value: unknown): DashboardPeriod => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'weekly') return 'weekly';
+  if (normalized === 'monthly') return 'monthly';
+  return 'daily';
+};
+
+const getPeriodRange = (period: DashboardPeriod) => {
+  const now = new Date();
+  const start = new Date(now);
+
+  if (period === 'weekly') {
+    // Monday-start week for TR business reporting.
+    const day = start.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    start.setDate(start.getDate() - diffToMonday);
+  } else if (period === 'monthly') {
+    start.setDate(1);
+  }
+
+  start.setHours(0, 0, 0, 0);
+  return { start, end: now };
+};
+
+const toIsoDate = (value: Date) => {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const escapeSqlString = (value: string) => String(value || '').replace(/'/g, "''");
+
 const applyPendingOrdersToStocks = (
   warehouseStocks: Record<string, number>,
   pendingByWarehouse: Record<string, number>
@@ -2229,13 +2264,116 @@ export class AdminController {
     try {
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
-      const sectorFilter = userRole === 'SALES_REP' ? assignedSectorCodes : undefined;
+      const ownSectorCode = (req.user as any)?.sectorCode || null;
+      const period = getDashboardPeriod(req.query?.period);
+      const periodRange = getPeriodRange(period);
 
-      const [orderStats, customerCount, productCount, lastSync] = await Promise.all([
+      const sectorCodes =
+        assignedSectorCodes.length > 0
+          ? assignedSectorCodes
+          : ownSectorCode
+            ? [ownSectorCode]
+            : [];
+      const hasSectorScope = sectorCodes.length > 0;
+      const sectorFilter = hasSectorScope ? sectorCodes : undefined;
+      const customerWhere = hasSectorScope
+        ? { role: 'CUSTOMER' as const, active: true, sectorCode: { in: sectorCodes } }
+        : { role: 'CUSTOMER' as const, active: true };
+      const startDateSql = toIsoDate(periodRange.start);
+      const endDateSql = toIsoDate(periodRange.end);
+      const sectorInSql = hasSectorScope
+        ? sectorCodes.map((code) => `'${escapeSqlString(code)}'`).join(', ')
+        : '';
+      const sectorConditionSql = hasSectorScope
+        ? ` AND c.cari_sektor_kodu IN (${sectorInSql})`
+        : '';
+      const fetchSalesSummary = async (sector?: string) => {
+        const report = await reportsService.getTopCustomers({
+          startDate: toIsoDate(periodRange.start),
+          endDate: toIsoDate(periodRange.end),
+          ...(sector ? { sector } : {}),
+          page: 1,
+          limit: 1,
+        });
+        return {
+          count: Number(report?.summary?.totalOrders || 0),
+          amount: Number(report?.summary?.totalRevenue || 0),
+        };
+      };
+      const salesSummaryPromise = hasSectorScope
+        ? Promise.all(
+            sectorCodes.map((sectorCode) =>
+              fetchSalesSummary(sectorCode).catch(() => ({ count: 0, amount: 0 }))
+            )
+          ).then((rows) =>
+            rows.reduce(
+              (acc, row) => {
+                acc.count += Number(row.count || 0);
+                acc.amount += Number(row.amount || 0);
+                return acc;
+              },
+              { count: 0, amount: 0 }
+            )
+          )
+        : fetchSalesSummary().catch(() => ({ count: 0, amount: 0 }));
+      const fetchMikroOrderSummary = async () => {
+        const sqlQuery = `
+          SELECT
+            COUNT(DISTINCT CONCAT(s.sip_evrakno_seri, '-', CAST(s.sip_evrakno_sira AS VARCHAR(30)))) AS orderCount,
+            ISNULL(SUM(ISNULL(s.sip_tutar, 0)), 0) AS totalAmount
+          FROM SIPARISLER s WITH (NOLOCK)
+          LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = s.sip_musteri_kod
+          WHERE s.sip_tip = 0
+            AND ISNULL(s.sip_iptal, 0) = 0
+            AND ISNULL(s.sip_kapat_fl, 0) = 0
+            AND s.sip_tarih >= '${startDateSql}'
+            AND s.sip_tarih < DATEADD(DAY, 1, '${endDateSql}')
+            ${sectorConditionSql}
+        `;
+        const rows = await mikroService.executeQuery(sqlQuery);
+        const row = rows?.[0] || {};
+        return {
+          count: Number(row.orderCount || 0),
+          amount: Number(row.totalAmount || 0),
+        };
+      };
+      const fetchMikroQuoteSummary = async () => {
+        const sqlQuery = `
+          SELECT
+            COUNT(DISTINCT CONCAT(t.tkl_evrakno_seri, '-', CAST(t.tkl_evrakno_sira AS VARCHAR(30)))) AS quoteCount,
+            ISNULL(SUM(ISNULL(t.tkl_Brut_fiyat, 0)), 0) AS totalAmount
+          FROM VERILEN_TEKLIFLER t WITH (NOLOCK)
+          LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = t.tkl_cari_kod
+          WHERE ISNULL(t.tkl_iptal, 0) = 0
+            AND ISNULL(t.TKL_KAPAT_FL, 0) = 0
+            AND t.tkl_evrak_tarihi >= '${startDateSql}'
+            AND t.tkl_evrak_tarihi < DATEADD(DAY, 1, '${endDateSql}')
+            ${sectorConditionSql}
+        `;
+        const rows = await mikroService.executeQuery(sqlQuery);
+        const row = rows?.[0] || {};
+        return {
+          count: Number(row.quoteCount || 0),
+          amount: Number(row.totalAmount || 0),
+        };
+      };
+
+      const [
+        orderStats,
+        customerCount,
+        productCount,
+        lastSync,
+        salesSummary,
+        mikroOrderSummary,
+        mikroQuoteSummary,
+      ] = await Promise.all([
         orderService.getOrderStats(sectorFilter),
-        prisma.user.count({ where: { role: 'CUSTOMER', active: true } }),
+        prisma.user.count({ where: customerWhere }),
         prisma.product.count({ where: { active: true, excessStock: { gt: 0 } } }),
         prisma.settings.findFirst({ select: { lastSyncAt: true } }),
+        salesSummaryPromise,
+        fetchMikroOrderSummary().catch(() => ({ count: 0, amount: 0 })),
+        fetchMikroQuoteSummary().catch(() => ({ count: 0, amount: 0 })),
       ]);
 
       res.json({
@@ -2243,6 +2381,29 @@ export class AdminController {
         customerCount,
         excessProductCount: productCount,
         lastSyncAt: lastSync?.lastSyncAt,
+        period,
+        periodRange: {
+          startAt: periodRange.start.toISOString(),
+          endAt: periodRange.end.toISOString(),
+        },
+        sectorScope: {
+          mode: assignedSectorCodes.length > 0 ? 'assigned' : ownSectorCode ? 'self' : 'all',
+          codes: sectorCodes,
+        },
+        summary: {
+          sales: {
+            count: salesSummary.count,
+            amount: salesSummary.amount,
+          },
+          orders: {
+            count: mikroOrderSummary.count,
+            amount: mikroOrderSummary.amount,
+          },
+          quotes: {
+            count: mikroQuoteSummary.count,
+            amount: mikroQuoteSummary.amount,
+          },
+        },
       });
     } catch (error) {
       next(error);

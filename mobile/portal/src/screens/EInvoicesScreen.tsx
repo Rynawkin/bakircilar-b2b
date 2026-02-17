@@ -92,20 +92,29 @@ export function EInvoicesScreen() {
       const directory = `${FileSystem.documentDirectory}einvoices/`;
       await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
       const target = `${directory}${fileName}`;
-      const result = await FileSystem.downloadAsync(
-        `${baseUrl}/admin/einvoices/${doc.id}/download`,
-        target,
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      const response = await fetch(`${baseUrl}/admin/einvoices/${doc.id}/download`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const data = await response.json();
+          detail = data?.error || data?.message || '';
+        } catch {
+          detail = '';
         }
-      );
+        throw new Error(detail || 'PDF bulunamadi veya indirilemedi.');
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      await FileSystem.writeAsStringAsync(target, base64, { encoding: FileSystem.EncodingType.Base64 });
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(result.uri);
+        await Sharing.shareAsync(target, { mimeType: 'application/pdf', dialogTitle: fileName });
       } else {
-        Alert.alert('Indirildi', `Dosya kaydedildi: ${result.uri}`);
+        Alert.alert('Indirildi', `Dosya kaydedildi: ${target}`);
       }
     } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.error || 'PDF indirilemedi.');
+      Alert.alert('Hata', err?.message || err?.response?.data?.error || 'PDF indirilemedi.');
     }
   };
 
@@ -154,7 +163,7 @@ export function EInvoicesScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>E-Faturalar</Text>
-        <Text style={styles.subtitle}>PDF listesi ve yukleme.</Text>
+        <Text style={styles.subtitle}>PDF listesi, secili indirme ve arsiv paylasimi.</Text>
 
         <View style={styles.row}>
           <TextInput
@@ -220,6 +229,7 @@ export function EInvoicesScreen() {
                     Toplam: {doc.totalAmount.toFixed(2)} {doc.currency || 'TRY'}
                   </Text>
                 )}
+                <Text style={styles.cardMeta}>Dosya: {doc.fileName ? 'Hazir' : 'Bulunamadi'}</Text>
                 <View style={styles.cardActions}>
                   <TouchableOpacity
                     style={[styles.secondaryButton, !canDownload && styles.buttonDisabled]}

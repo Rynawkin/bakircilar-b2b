@@ -1,7 +1,7 @@
-import { NavigationContainer } from '@react-navigation/native';
+import { createNavigationContainerRef, NavigationContainer, NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { PortalTabs } from './PortalTabs';
+import { PortalTabs, PortalTabParamList } from './PortalTabs';
 import { CampaignsScreen } from '../screens/CampaignsScreen';
 import { CategoriesScreen } from '../screens/CategoriesScreen';
 import { CustomerAgreementsScreen } from '../screens/CustomerAgreementsScreen';
@@ -35,7 +35,7 @@ import { VadeCustomerScreen } from '../screens/VadeCustomerScreen';
 import { VadeScreen } from '../screens/VadeScreen';
 
 export type PortalStackParamList = {
-  Tabs: undefined;
+  Tabs: NavigatorScreenParams<PortalTabParamList> | undefined;
   Customers: undefined;
   CustomerAgreements: undefined;
   CustomerDetail: { customerId: string };
@@ -65,16 +65,24 @@ export type PortalStackParamList = {
   Staff: undefined;
   RolePermissions: undefined;
   Settings: undefined;
-  Search: undefined;
+  Search:
+    | {
+        mode?: 'stocks' | 'customers';
+        term?: string;
+        autoRun?: boolean;
+        openColumns?: boolean;
+      }
+    | undefined;
   EInvoices: undefined;
 };
 
 const Stack = createNativeStackNavigator<PortalStackParamList>();
+export const navigationRef = createNavigationContainerRef<PortalStackParamList>();
 
 export function AppNavigator() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <NavigationContainer ref={navigationRef}>
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'none' }}>
         <Stack.Screen name="Tabs" component={PortalTabs} />
         <Stack.Screen name="Customers" component={CustomersScreen} />
         <Stack.Screen name="CustomerAgreements" component={CustomerAgreementsScreen} />

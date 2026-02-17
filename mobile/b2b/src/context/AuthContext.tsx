@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import { login as loginApi, getMe } from '../api/auth';
+import { customerApi } from '../api/customer';
 import { setActivityUser } from '../utils/activity';
 import { clearAuth, getAuthToken, getAuthUser, saveAuth } from '../storage/auth';
+import { clearPushToken, getPushToken } from '../storage/push';
 import { User } from '../types';
 
 interface AuthContextValue {
@@ -59,6 +61,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    try {
+      const pushToken = await getPushToken();
+      if (pushToken) {
+        await customerApi.unregisterPushToken(pushToken);
+      }
+    } catch {
+      // Best-effort cleanup.
+    }
+    await clearPushToken();
     await clearAuth();
     setUser(null);
   };

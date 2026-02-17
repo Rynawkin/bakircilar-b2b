@@ -1,4 +1,4 @@
-import mikroFactory from './mikroFactory.service';
+﻿import mikroFactory from './mikroFactory.service';
 
 interface CariHareketParams {
   cariKod: string;
@@ -22,17 +22,17 @@ const buildSqlSearchTokens = (value?: string) => {
 
 class CariHareketService {
   /**
-   * Cari Hareket Föyü (041410) - Mikro'daki gibi tam detaylı hareket listesi
+   * Cari Hareket FÃ¶yÃ¼ (041410) - Mikro'daki gibi tam detaylÄ± hareket listesi
    */
   async getCariHareketFoyu(params: CariHareketParams): Promise<any> {
     const { cariKod, startDate, endDate } = params;
 
-    // Eğer tarih verilmemişse, bu yılın ilk ve son günü
+    // EÄŸer tarih verilmemiÅŸse, bu yÄ±lÄ±n ilk ve son gÃ¼nÃ¼
     const currentYear = new Date().getFullYear();
     const defaultStartDate = startDate || `${currentYear}-01-01`;
     const defaultEndDate = endDate || `${currentYear}-12-31`;
 
-    // SQL injection'dan korunmak için parametreleri escape et
+    // SQL injection'dan korunmak iÃ§in parametreleri escape et
     const escapedCariKod = cariKod.replace(/'/g, "''");
 
     const openingQuery = `
@@ -48,11 +48,11 @@ class CariHareketService {
     const openingBorc = Number(openingResult?.[0]?.borc) || 0;
     const openingAlacak = Number(openingResult?.[0]?.alacak) || 0;
 
-    // Sadece gerekli kolonları Türkçe başlıklarla getir
+    // Sadece gerekli kolonlarÄ± TÃ¼rkÃ§e baÅŸlÄ±klarla getir
     const query = `
       SELECT
         cha_evrakno_seri AS [Seri],
-        cha_evrakno_sira AS [Sıra],
+        cha_evrakno_sira AS [SÄ±ra],
         cha_tarihi AS [Tarih],
         cha_belge_no AS [Belge No],
         COALESCE(evrak.CHEvrUzunIsim, evrak.CHEvrKisaIsim) AS [Evrak Tipi],
@@ -82,13 +82,13 @@ class CariHareketService {
   }
 
   /**
-   * Ekstre için basitleştirilmiş cari arama
-   * Sadece gerekli kolonlar: Kod, Ad, Sektör, Grup, Bakiye
+   * Ekstre iÃ§in basitleÅŸtirilmiÅŸ cari arama
+   * Sadece gerekli kolonlar: Kod, Ad, SektÃ¶r, Grup, Bakiye
    */
   async searchCariForEkstre(params: CariSearchParams = {}): Promise<any> {
     const { searchTerm, limit = 100 } = params;
 
-    let whereClause = "cari_grup_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'DİĞER' and cari_grup_kodu NOT LIKE 'DİĞER'";
+    let whereClause = "cari_grup_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'FATURA' and cari_sektor_kodu NOT LIKE 'DÄ°ÄER' and cari_grup_kodu NOT LIKE 'DÄ°ÄER'";
 
     if (searchTerm && searchTerm.trim()) {
       const tokens = buildSqlSearchTokens(searchTerm);
@@ -104,8 +104,9 @@ class CariHareketService {
     const query = `
       SELECT TOP ${limit}
         cari_kod AS [Cari Kodu],
-        cari_unvan1 AS [Cari Adı],
-        cari_sektor_kodu AS [Sektör Kodu],
+        cari_unvan1 AS [Cari AdÄ±],
+        cari_vdaire_no AS [Vergi No],
+        cari_sektor_kodu AS [SektÃ¶r Kodu],
         cari_grup_kodu AS [Grup Kodu],
         CAST(0 AS DECIMAL(18,2)) AS [Bakiye]
       FROM
@@ -121,7 +122,7 @@ class CariHareketService {
   }
 
   /**
-   * Cari bilgilerini getir (ekstre başlığı için)
+   * Cari bilgilerini getir (ekstre baÅŸlÄ±ÄŸÄ± iÃ§in)
    */
   async getCariInfo(cariKod: string): Promise<any> {
     const escapedCariKod = cariKod.replace(/'/g, "''");
@@ -129,9 +130,9 @@ class CariHareketService {
     const query = `
       SELECT
         cari_kod AS [Cari Kodu],
-        cari_unvan1 AS [Cari Adı],
-        cari_unvan2 AS [Cari Adı 2],
-        cari_sektor_kodu AS [Sektör Kodu],
+        cari_unvan1 AS [Cari AdÄ±],
+        cari_unvan2 AS [Cari AdÄ± 2],
+        cari_sektor_kodu AS [SektÃ¶r Kodu],
         cari_grup_kodu AS [Grup Kodu],
         cari_vdaire_adi AS [Vergi Dairesi],
         cari_vdaire_no AS [Vergi No],

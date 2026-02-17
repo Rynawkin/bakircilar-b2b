@@ -193,6 +193,8 @@ class MobilePushService {
     const messages = tokens.map((token) => ({
       to: token,
       sound: 'default',
+      priority: 'high',
+      channelId: 'default',
       title: payload.title,
       body: payload.body || '',
       data: {

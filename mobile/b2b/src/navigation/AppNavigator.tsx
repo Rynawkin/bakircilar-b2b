@@ -1,9 +1,9 @@
-import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
+import { createNavigationContainerRef, NavigationContainer, NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AppState } from 'react-native';
 import { useEffect, useRef } from 'react';
 
-import { CustomerTabs } from './CustomerTabs';
+import { CustomerTabParamList, CustomerTabs } from './CustomerTabs';
 import { AgreementsScreen } from '../screens/AgreementsScreen';
 import { CustomerTaskDetailScreen } from '../screens/CustomerTaskDetailScreen';
 import { CustomerTasksScreen } from '../screens/CustomerTasksScreen';
@@ -23,7 +23,7 @@ import { RequestsScreen } from '../screens/RequestsScreen';
 import { flushActivePing, setActivityPage, trackCustomerActivity } from '../utils/activity';
 
 export type RootStackParamList = {
-  Tabs: undefined;
+  Tabs: NavigatorScreenParams<CustomerTabParamList> | undefined;
   Orders: undefined;
   OrderDetail: { orderId: string };
   ProductDetail: { productId: string };
@@ -57,9 +57,9 @@ const formatRoutePath = (route?: { name?: string; params?: Record<string, unknow
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 export function AppNavigator() {
-  const navigationRef = useNavigationContainerRef<RootStackParamList>();
   const lastPathRef = useRef<string>('');
 
   useEffect(() => {

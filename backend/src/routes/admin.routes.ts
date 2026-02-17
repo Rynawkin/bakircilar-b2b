@@ -145,6 +145,12 @@ const pushTokenSchema = z.object({
   deviceName: z.string().optional(),
 });
 
+const testPushSchema = z.object({
+  title: z.string().min(1).max(120).optional(),
+  body: z.string().max(500).optional(),
+  linkUrl: z.string().max(500).optional(),
+});
+
 const complementUpdateSchema = z.object({
   mode: z.enum(['AUTO', 'MANUAL']).optional(),
   manualProductIds: z.array(z.string().uuid()).optional(),
@@ -381,6 +387,7 @@ router.post('/notifications/read', requirePermission('admin:notifications'), val
 router.post('/notifications/read-all', requirePermission('admin:notifications'), notificationController.markAllRead);
 router.post('/notifications/push/register', validateBody(pushTokenSchema), notificationController.registerPushToken);
 router.post('/notifications/push/unregister', validateBody(z.object({ token: z.string().min(1) })), notificationController.unregisterPushToken);
+router.post('/notifications/push/test', requirePermission('admin:notifications'), validateBody(testPushSchema), notificationController.sendTestPush);
 
 // Exchange rates
 router.get('/exchange/usd', requirePermission('admin:quotes'), adminController.getUsdSellingRate);

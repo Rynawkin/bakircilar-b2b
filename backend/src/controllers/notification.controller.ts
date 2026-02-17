@@ -78,6 +78,24 @@ export class NotificationController {
       next(error);
     }
   }
+
+  async sendTestPush(req: Request, res: Response, next: NextFunction) {
+    try {
+      const title = String(req.body?.title || '').trim() || 'Test bildirimi';
+      const body = String(req.body?.body || '').trim() || 'Push bildirimi test edildi.';
+      const linkUrl = req.body?.linkUrl ? String(req.body.linkUrl).trim() : '/notifications';
+
+      await notificationService.createForUsers([req.user!.userId], {
+        title,
+        body,
+        linkUrl: linkUrl || '/notifications',
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new NotificationController();

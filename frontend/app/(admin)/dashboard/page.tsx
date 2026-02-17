@@ -408,6 +408,15 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const summaryPeriodLabel =
+    stats?.period === 'daily'
+      ? 'Gunluk'
+      : stats?.period === 'weekly'
+        ? 'Haftalik'
+        : stats?.period === 'monthly'
+          ? 'Aylik'
+          : null;
+
   if (!user || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -425,8 +434,64 @@ export default function AdminDashboardPage() {
       <div className="container-custom py-8">
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {hasPermission('dashboard:orders') && (
+          <>
+            {stats.summary && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-6">
+                <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200 shadow-lg hover:shadow-xl transition-shadow">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-emerald-800">Satis Ozeti</p>
+                      {summaryPeriodLabel && (
+                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-200 px-2 py-1 rounded">
+                          {summaryPeriodLabel}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-4xl font-bold text-emerald-700">{stats.summary.sales.count}</p>
+                    <p className="text-sm font-semibold text-emerald-800 bg-emerald-200 px-2 py-1 rounded">
+                      {formatCurrency(stats.summary.sales.amount)}
+                    </p>
+                  </div>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200 shadow-lg hover:shadow-xl transition-shadow">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-indigo-800">Teklif Ozeti</p>
+                      {summaryPeriodLabel && (
+                        <span className="text-xs font-semibold text-indigo-700 bg-indigo-200 px-2 py-1 rounded">
+                          {summaryPeriodLabel}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-4xl font-bold text-indigo-700">{stats.summary.quotes.count}</p>
+                    <p className="text-sm font-semibold text-indigo-800 bg-indigo-200 px-2 py-1 rounded">
+                      {formatCurrency(stats.summary.quotes.amount)}
+                    </p>
+                  </div>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 shadow-lg hover:shadow-xl transition-shadow">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-orange-800">Siparis Ozeti</p>
+                      {summaryPeriodLabel && (
+                        <span className="text-xs font-semibold text-orange-700 bg-orange-200 px-2 py-1 rounded">
+                          {summaryPeriodLabel}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-4xl font-bold text-orange-700">{stats.summary.orders.count}</p>
+                    <p className="text-sm font-semibold text-orange-800 bg-orange-200 px-2 py-1 rounded">
+                      {formatCurrency(stats.summary.orders.amount)}
+                    </p>
+                  </div>
+                </Card>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              {hasPermission('dashboard:orders') && (
               <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 shadow-lg hover:shadow-xl transition-shadow">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -501,7 +566,8 @@ export default function AdminDashboardPage() {
                 </div>
               </Card>
             )}
-          </div>
+            </div>
+          </>
         )}
 
         {/* Hızlı Arama Widgetları */}

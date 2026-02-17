@@ -1874,6 +1874,7 @@ export class ReportsService {
       customerCode: string;
       customerName: string;
       sector: string;
+      sectorCode: string;
       orderCount: number;
       revenue: number;
       cost: number;
@@ -1888,6 +1889,7 @@ export class ReportsService {
       totalProfit: number;
       avgProfitMargin: number;
       totalCustomers: number;
+      totalOrders: number;
     };
     pagination: {
       page: number;
@@ -1933,6 +1935,7 @@ export class ReportsService {
         sth.sth_cari_kodu as customerCode,
         MAX(c.cari_unvan1) as customerName,
         MAX(c.cari_sektor) as sector,
+        MAX(c.cari_sektor_kodu) as sectorCode,
         COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as orderCount,
         SUM(sth.sth_tutar) as revenue,
         SUM(sth.sth_miktar * st.sto_standartmaliyet) as totalCost,
@@ -1962,7 +1965,7 @@ export class ReportsService {
     const sectorTokens = buildSearchTokens(sector);
     if (sectorTokens.length > 0) {
       filteredData = filteredData.filter((c: any) => {
-        const haystack = normalizeSearchText(c.sector || '');
+        const haystack = normalizeSearchText(`${c.sector || ''} ${c.sectorCode || ''}`);
         return matchesSearchTokens(haystack, sectorTokens);
       });
     }
@@ -1979,6 +1982,7 @@ export class ReportsService {
         customerCode: c.customerCode,
         customerName: c.customerName || 'Bilinmiyor',
         sector: c.sector || 'Belirtilmemiş',
+        sectorCode: c.sectorCode || '',
         orderCount: c.orderCount,
         revenue,
         cost,
@@ -2008,6 +2012,7 @@ export class ReportsService {
     // Summary
     const totalRevenue = customers.reduce((sum, c) => sum + c.revenue, 0);
     const totalProfit = customers.reduce((sum, c) => sum + c.profit, 0);
+    const totalOrders = customers.reduce((sum, c) => sum + c.orderCount, 0);
     const avgProfitMargin = customers.length > 0
       ? customers.reduce((sum, c) => sum + c.profitMargin, 0) / customers.length
       : 0;
@@ -2025,6 +2030,7 @@ export class ReportsService {
         totalProfit,
         avgProfitMargin,
         totalCustomers: totalRecords,
+        totalOrders,
       },
       pagination: {
         page,

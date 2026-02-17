@@ -150,6 +150,7 @@ export interface Notification {
   id: string;
   title: string;
   body?: string | null;
+  linkUrl?: string | null;
   isRead: boolean;
   createdAt: string;
 }

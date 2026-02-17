@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Modal,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { RouteProp, useRoute } from '@react-navigation/native';
 
 import { adminApi } from '../api/admin';
+import { PortalStackParamList } from '../navigation/AppNavigator';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 import { hapticLight, hapticSuccess } from '../utils/haptics';
 
@@ -26,9 +30,41 @@ const toText = (value: any) => {
   return String(value);
 };
 
+const normalizeKey = (value: string) =>
+  String(value || '')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+const getCustomerCode = (item: any) =>
+  String(item?.[CUSTOMER_CODE_KEY] || item?.['Cari Kodu'] || item?.['cari_kod'] || '').trim();
+
+const extractTaxNo = (item: any) => {
+  if (!item || typeof item !== 'object') return '';
+  const entries = Object.entries(item as Record<string, any>);
+  for (const [key, value] of entries) {
+    const k = normalizeKey(key);
+    if (
+      k.includes('vergino') ||
+      k.includes('vergidaireno') ||
+      k.includes('taxnumber') ||
+      k.includes('vdaireno') ||
+      k === 'vkn' ||
+      k.includes('tckn')
+    ) {
+      const text = String(value || '').trim();
+      if (text) return text;
+    }
+  }
+  return '';
+};
+
 export function SearchScreen() {
-  const [mode, setMode] = useState<SearchMode>('stocks');
-  const [term, setTerm] = useState('');
+  const route = useRoute<RouteProp<PortalStackParamList, 'Search'>>();
+  const autoRunDoneRef = useRef(false);
+  const [mode, setMode] = useState<SearchMode>(route.params?.mode || 'stocks');
+  const [term, setTerm] = useState(route.params?.term || '');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -36,8 +72,9 @@ export function SearchScreen() {
   const [customerColumns, setCustomerColumns] = useState<string[]>([]);
   const [selectedStockColumns, setSelectedStockColumns] = useState<string[]>([]);
   const [selectedCustomerColumns, setSelectedCustomerColumns] = useState<string[]>([]);
-  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [columnPickerOpen, setColumnPickerOpen] = useState(Boolean(route.params?.openColumns));
   const [savingColumns, setSavingColumns] = useState(false);
+  const [selectedStockItem, setSelectedStockItem] = useState<any | null>(null);
 
   useEffect(() => {
     const loadMeta = async () => {
@@ -69,15 +106,36 @@ export function SearchScreen() {
     loadMeta();
   }, []);
 
-  const runSearch = async () => {
+  const doSearch = useCallback(async (searchMode: SearchMode, searchTerm: string) => {
     setLoading(true);
     try {
-      if (mode === 'stocks') {
-        const response = await adminApi.searchStocks({ searchTerm: term, limit: 50, offset: 0 });
+      if (searchMode === 'stocks') {
+        const response = await adminApi.searchStocks({ searchTerm, limit: 50, offset: 0 });
         setResults(response.data || []);
       } else {
-        const response = await adminApi.searchCustomers({ searchTerm: term, limit: 50, offset: 0 });
-        setResults(response.data || []);
+        const response = await adminApi.searchCustomers({ searchTerm, limit: 50, offset: 0 });
+        const raw = response.data || [];
+        const codesToFetch = raw
+          .map((item: any) => getCustomerCode(item))
+          .filter(Boolean)
+          .slice(0, 20);
+        const infoList = await Promise.all(
+          codesToFetch.map((code: string) =>
+            adminApi
+              .getCariInfo(code)
+              .then((payload) => ({ code, taxNo: extractTaxNo(payload?.data || payload) }))
+              .catch(() => ({ code, taxNo: '' }))
+          )
+        );
+        const taxMap = new Map(infoList.map((item: any) => [item.code, item.taxNo]));
+        const enriched = raw.map((item: any) => {
+          const direct = extractTaxNo(item);
+          if (direct) return item;
+          const code = getCustomerCode(item);
+          const mapped = code ? taxMap.get(code) : '';
+          return mapped ? { ...item, 'Vergi No': mapped } : item;
+        });
+        setResults(enriched);
       }
       hapticLight();
     } catch {
@@ -85,7 +143,25 @@ export function SearchScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const runSearch = useCallback(async () => {
+    await doSearch(mode, term.trim());
+  }, [doSearch, mode, term]);
+
+  useEffect(() => {
+    if (!route.params) return;
+    if (route.params.mode) setMode(route.params.mode);
+    if (typeof route.params.term === 'string') setTerm(route.params.term);
+    if (typeof route.params.openColumns === 'boolean') setColumnPickerOpen(route.params.openColumns);
+
+    if (route.params.autoRun && !autoRunDoneRef.current) {
+      autoRunDoneRef.current = true;
+      const nextMode = route.params.mode || mode;
+      const nextTerm = (route.params.term || term).trim();
+      doSearch(nextMode, nextTerm);
+    }
+  }, [doSearch, mode, route.params, term]);
 
   const selectedColumns = useMemo(
     () => (mode === 'stocks' ? selectedStockColumns : selectedCustomerColumns),
@@ -101,7 +177,9 @@ export function SearchScreen() {
     if (mode === 'stocks') {
       return selectedColumns.filter((column) => ![STOCK_TITLE_KEY, STOCK_CODE_KEY].includes(column));
     }
-    return selectedColumns.filter((column) => ![CUSTOMER_TITLE_KEY, CUSTOMER_CODE_KEY].includes(column));
+    return selectedColumns.filter(
+      (column) => ![CUSTOMER_TITLE_KEY, CUSTOMER_CODE_KEY, 'Vergi No'].includes(column)
+    );
   }, [mode, selectedColumns]);
 
   const toggleColumn = async (column: string) => {
@@ -133,6 +211,7 @@ export function SearchScreen() {
         data={results}
         keyExtractor={(_, index) => `${mode}-${index}`}
         contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={styles.title}>Arama</Text>
@@ -178,7 +257,7 @@ export function SearchScreen() {
             <View style={styles.row}>
               <TextInput
                 style={[styles.input, styles.flex]}
-                placeholder="Ara"
+                placeholder={mode === 'stocks' ? 'Stok kodu veya adi ara' : 'Cari kodu veya unvan ara'}
                 placeholderTextColor={colors.textMuted}
                 value={term}
                 onChangeText={setTerm}
@@ -194,16 +273,36 @@ export function SearchScreen() {
         renderItem={({ item }) => {
           const title = mode === 'stocks' ? item[STOCK_TITLE_KEY] : item[CUSTOMER_TITLE_KEY];
           const code = mode === 'stocks' ? item[STOCK_CODE_KEY] : item[CUSTOMER_CODE_KEY];
-          return (
-            <View style={styles.card}>
+          const taxNo = extractTaxNo(item);
+          const card = (
+            <>
               <Text style={styles.cardTitle}>{toText(title)}</Text>
               <Text style={styles.cardMeta}>{toText(code)}</Text>
+              {mode === 'customers' && (
+                <View style={styles.fieldRow}>
+                  <Text style={styles.fieldLabel}>Vergi No</Text>
+                  <Text style={styles.fieldValue}>{toText(taxNo || '-')}</Text>
+                </View>
+              )}
               {visibleColumns.map((column) => (
                 <View key={`${code}-${column}`} style={styles.fieldRow}>
                   <Text style={styles.fieldLabel}>{column}</Text>
                   <Text style={styles.fieldValue}>{toText(item[column])}</Text>
                 </View>
               ))}
+            </>
+          );
+
+          if (mode === 'stocks') {
+            return (
+              <TouchableOpacity style={styles.card} onPress={() => setSelectedStockItem(item)}>
+                {card}
+              </TouchableOpacity>
+            );
+          }
+          return (
+            <View style={styles.card}>
+              {card}
             </View>
           );
         }}
@@ -219,6 +318,27 @@ export function SearchScreen() {
           )
         }
       />
+      <Modal visible={Boolean(selectedStockItem)} transparent animationType="slide" onRequestClose={() => setSelectedStockItem(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.row}>
+              <Text style={styles.title}>Stok Detayi</Text>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => setSelectedStockItem(null)}>
+                <Text style={styles.primaryButtonText}>Kapat</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody} contentContainerStyle={styles.modalBodyContent}>
+              {selectedStockItem &&
+                Object.keys(selectedStockItem).map((key) => (
+                  <View key={key} style={styles.fieldRow}>
+                    <Text style={styles.fieldLabel}>{key}</Text>
+                    <Text style={styles.fieldValue}>{toText((selectedStockItem as any)[key])}</Text>
+                  </View>
+                ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -385,4 +505,25 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.textMuted,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    maxHeight: '78%',
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  modalBody: {
+    flex: 1,
+  },
+  modalBodyContent: {
+    gap: spacing.xs,
+    paddingBottom: spacing.lg,
+  },
 });
+

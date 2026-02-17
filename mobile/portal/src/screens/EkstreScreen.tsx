@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Platform,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -9,11 +11,43 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
+import * as XLSX from 'xlsx';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 
 import { adminApi } from '../api/admin';
 import { colors, fontSizes, fonts, radius, spacing } from '../theme';
 
 type CariResult = Record<string, any>;
+
+const normalizeKey = (value: string) =>
+  String(value || '')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+const extractTaxNo = (item: any) => {
+  if (!item || typeof item !== 'object') return '';
+  for (const [key, value] of Object.entries(item as Record<string, any>)) {
+    const k = normalizeKey(key);
+    if (
+      k.includes('vergino') ||
+      k.includes('vergidaireno') ||
+      k.includes('taxnumber') ||
+      k.includes('vdaireno') ||
+      k === 'vkn' ||
+      k.includes('tckn')
+    ) {
+      const text = String(value || '').trim();
+      if (text) return text;
+    }
+  }
+  return '';
+};
 
 export function EkstreScreen() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,6 +60,279 @@ export function EkstreScreen() {
   const [foyuData, setFoyuData] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [openingTotals, setOpeningTotals] = useState({ borc: 0, alacak: 0, bakiye: 0 });
+  const [activeDateField, setActiveDateField] = useState<'start' | 'end' | null>(null);
+  const [pickerDate, setPickerDate] = useState(new Date());
+
+  const toDateString = (value: Date) => {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const parseDate = (value: string) => {
+    if (!value) return null;
+    const [year, month, day] = value.split('-').map((item) => Number(item));
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+    const parsed = new Date(year, month - 1, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const openDatePicker = (field: 'start' | 'end') => {
+    const current = parseDate(field === 'start' ? startDate : endDate) || new Date();
+    setPickerDate(current);
+    setActiveDateField(field);
+  };
+
+  const onDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      if (event.type === 'dismissed') {
+        setActiveDateField(null);
+        return;
+      }
+      if (event.type === 'set' && selectedDate && activeDateField) {
+        const nextDate = toDateString(selectedDate);
+        if (activeDateField === 'start') setStartDate(nextDate);
+        if (activeDateField === 'end') setEndDate(nextDate);
+      }
+      setActiveDateField(null);
+      return;
+    }
+
+    if (selectedDate) {
+      setPickerDate(selectedDate);
+      if (activeDateField === 'start') setStartDate(toDateString(selectedDate));
+      if (activeDateField === 'end') setEndDate(toDateString(selectedDate));
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!selectedCari || foyuData.length === 0) {
+      Alert.alert('Bilgi', 'Once cari secip ekstreyi getiriniz.');
+      return;
+    }
+
+    try {
+      const escapeHtml = (value: string | number | null | undefined) =>
+        String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      const formatCurrencyTR = (value: number) =>
+        `${Number(value || 0).toLocaleString('tr-TR', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} TL`;
+
+      const cariName =
+        selectedCari['Cari Ad\u0131'] ||
+        selectedCari['Cari Adi'] ||
+        selectedCari['Cari Ad\u0131 2'] ||
+        selectedCari['Cari Adi 2'] ||
+        'Cari';
+
+      const rows = foyuData
+        .map((row) => {
+          const tutar = Number(row?.Tutar ?? 0) || 0;
+          return `
+            <tr>
+              <td>${escapeHtml(String(row?.Tarih || '-'))}</td>
+              <td>${escapeHtml(String(row?.['Evrak Tipi'] || '-'))}</td>
+              <td>${escapeHtml(String(row?.['Belge No'] || '-'))}</td>
+              <td>${escapeHtml(String(row?.['Hareket Tipi'] || '-'))}</td>
+              <td style="text-align:right;">${formatCurrencyTR(tutar)}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://www.bakircilarkampanya.com/api';
+      const webBase = apiBase.replace(/\/api\/?$/, '');
+      const logoUrl = `${webBase}/quote-logo.png`;
+
+      const html = `
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 14px; color: #0F172A; }
+              .header { height: 28px; display: flex; justify-content: center; align-items: center; margin-bottom: 10px; }
+              .header img { max-width: 70mm; max-height: 20mm; object-fit: contain; }
+              .info { display: flex; gap: 10px; margin-bottom: 12px; }
+              .box {
+                flex: 1;
+                border: 1px solid #E2E8F0;
+                background: #F8FAFC;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 11px;
+                line-height: 1.35;
+              }
+              .box-title { color: #64748B; font-size: 10px; font-weight: 700; margin-bottom: 4px; }
+              table { width: 100%; border-collapse: collapse; font-size: 10px; }
+              th, td { border: 1px solid #E2E8F0; padding: 5px; vertical-align: top; }
+              th { background: #2563EB; color: #FFFFFF; text-align: left; }
+              .bottom { display: flex; gap: 10px; margin-top: 12px; }
+              .terms {
+                flex: 1;
+                border: 1px solid #E2E8F0;
+                background: #F8FAFC;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 10px;
+                line-height: 1.4;
+              }
+              .summary {
+                width: 62mm;
+                border: 1px solid #E2E8F0;
+                background: #F8FAFC;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 10px;
+              }
+              .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+              .row.total { font-weight: 700; color: #0F172A; margin-top: 6px; }
+              .footer {
+                margin-top: 12px;
+                border-top: 1px solid #CBD5E1;
+                padding-top: 7px;
+                text-align: center;
+                font-size: 9px;
+                line-height: 1.35;
+                color: #334155;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <img src="${logoUrl}" alt="Bakircilar Logo" />
+            </div>
+            <div class="info">
+              <div class="box">
+                <div class="box-title">FIRMA BILGILERI</div>
+                <div><b>Firma:</b> ${escapeHtml(String(cariName))}</div>
+                <div><b>Cari Kodu:</b> ${escapeHtml(String(selectedCari['Cari Kodu'] || '-'))}</div>
+                <div><b>Rapor:</b> Cari Ekstre</div>
+              </div>
+              <div class="box">
+                <div class="box-title">EKSTRE BILGILERI</div>
+                <div><b>Tarih:</b> ${escapeHtml(new Date().toLocaleDateString('tr-TR'))}</div>
+                <div><b>Baslangic:</b> ${escapeHtml(startDate || '-')}</div>
+                <div><b>Bitis:</b> ${escapeHtml(endDate || '-')}</div>
+                <div><b>Kayit:</b> ${foyuData.length}</div>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Tarih</th>
+                  <th>Evrak Tipi</th>
+                  <th>Belge No</th>
+                  <th>Hareket Tipi</th>
+                  <th>Tutar (TL)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+            <div class="bottom">
+              <div class="terms">
+                <div class="box-title">RAPOR NOTLARI</div>
+                <div>- Bu rapor secilen tarih araligindaki cari hareketlerini icerir.</div>
+                <div>- Tutarlar TL bazinda listelenmistir.</div>
+                <div>- Devir, donem disi onceki hareketlerden hesaplanir.</div>
+              </div>
+              <div class="summary">
+                <div class="box-title">OZET</div>
+                <div class="row"><span>Devir Bakiye</span><span>${formatCurrencyTR(openingTotals.bakiye)}</span></div>
+                <div class="row"><span>Donem Bakiye</span><span>${formatCurrencyTR(periodTotals.bakiye)}</span></div>
+                <div class="row total"><span>Genel Bakiye</span><span>${formatCurrencyTR(grandTotals.bakiye)}</span></div>
+              </div>
+            </div>
+            <div class="footer">
+              <div>BAKIRCILAR AMBALAJ END.-TEM VE KIRTASIYE</div>
+              <div>MERKEZ: RASIMPASA MAH. ATATURK BLV. NO:69/A HENDEK/SAKARYA</div>
+              <div>SUBE 1: TOPCA TOPTANCILAR CARSISI A BLOK NO: 20 - ERENLER/SAKARYA</div>
+              <div>TEL: 0264 614 67 77  FAX: 0264 614 66 60 - info@bakircilarambalaj.com</div>
+              <div>www.bakircilargrup.com</div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Ekstre PDF' });
+      } else {
+        Alert.alert('Bilgi', `PDF olusturuldu: ${uri}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Hata', err?.message || 'PDF olusturulamadi.');
+    }
+  };
+
+  const exportExcel = async () => {
+    if (!selectedCari || foyuData.length === 0) {
+      Alert.alert('Bilgi', 'Once cari secip ekstreyi getiriniz.');
+      return;
+    }
+
+    try {
+      const cariName =
+        selectedCari['Cari Ad\u0131'] ||
+        selectedCari['Cari Adi'] ||
+        selectedCari['Cari Ad\u0131 2'] ||
+        selectedCari['Cari Adi 2'] ||
+        'Cari';
+      const headerRows: any[][] = [
+        ['Rapor', 'Cari Ekstre'],
+        ['Cari', String(cariName)],
+        ['Cari Kodu', String(selectedCari['Cari Kodu'] || '-')],
+        ['Baslangic', startDate || '-'],
+        ['Bitis', endDate || '-'],
+      ];
+
+      const tableHeader = ['Tarih', 'Evrak Tipi', 'Belge No', 'Odeme Tipi', 'Hareket Tipi', 'Tip Kodu', 'Tutar TL'];
+      const itemRows = foyuData.map((row) => ([
+        String(row?.Tarih || ''),
+        String(row?.['Evrak Tipi'] || ''),
+        String(row?.['Belge No'] || ''),
+        String(row?.['Odeme Tipi'] || ''),
+        String(row?.['Hareket Tipi'] || ''),
+        Number(row?.['Tip Kodu'] ?? 0),
+        Number(row?.Tutar ?? 0) || 0,
+      ]));
+
+      const summaryRows = [
+        [],
+        ['Devir Bakiye', Number(openingTotals.bakiye.toFixed(2))],
+        ['Donem Bakiye', Number(periodTotals.bakiye.toFixed(2))],
+        ['Genel Bakiye', Number(grandTotals.bakiye.toFixed(2))],
+      ];
+      const rows = [...headerRows, [], tableHeader, ...itemRows, ...summaryRows];
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Ekstre');
+      const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+      const dir = `${FileSystem.documentDirectory}ekstre/`;
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const target = `${dir}ekstre_${selectedCari['Cari Kodu'] || 'cari'}_${stamp}.xlsx`;
+      await FileSystem.writeAsStringAsync(target, base64, { encoding: FileSystem.EncodingType.Base64 });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(target, {
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          dialogTitle: 'Ekstre Excel',
+        });
+      } else {
+        Alert.alert('Bilgi', `Excel olusturuldu: ${target}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Hata', err?.message || 'Excel olusturulamadi.');
+    }
+  };
 
   const onSearch = async () => {
     if (!searchTerm.trim()) return;
@@ -144,13 +451,23 @@ export function EkstreScreen() {
                   <TouchableOpacity
                     key={item['Cari Kodu']}
                     style={styles.resultItem}
-                    onPress={() => {
-                      setSelectedCari(item);
+                    onPress={async () => {
+                      const code = String(item?.['Cari Kodu'] || '').trim();
+                      let merged = item;
+                      if (code && !extractTaxNo(item)) {
+                        try {
+                          const info = await adminApi.getCariInfo(code);
+                          const taxNo = extractTaxNo(info?.data || info);
+                          if (taxNo) merged = { ...item, 'Vergi No': taxNo };
+                        } catch {}
+                      }
+                      setSelectedCari(merged);
                       setSearchResults([]);
                     }}
                   >
                     <Text style={styles.resultTitle}>{cariName}</Text>
                     <Text style={styles.resultMeta}>Kod: {item['Cari Kodu']}</Text>
+                    <Text style={styles.resultMeta}>Vergi No: {extractTaxNo(item) || '-'}</Text>
                   </TouchableOpacity>
                   );
                 })}
@@ -167,6 +484,7 @@ export function EkstreScreen() {
                     'Cari'}
                 </Text>
                 <Text style={styles.selectedMeta}>Kod: {selectedCari['Cari Kodu']}</Text>
+                <Text style={styles.selectedMeta}>Vergi No: {extractTaxNo(selectedCari) || '-'}</Text>
                 <TouchableOpacity
                   onPress={() => {
                     setSelectedCari(null);
@@ -179,21 +497,46 @@ export function EkstreScreen() {
             )}
 
             <View style={styles.dateRow}>
-              <TextInput
-                style={styles.dateInput}
-                placeholder="Baslangic (YYYY-MM-DD)"
-                placeholderTextColor={colors.textMuted}
-                value={startDate}
-                onChangeText={setStartDate}
-              />
-              <TextInput
-                style={styles.dateInput}
-                placeholder="Bitis (YYYY-MM-DD)"
-                placeholderTextColor={colors.textMuted}
-                value={endDate}
-                onChangeText={setEndDate}
-              />
+              <View style={styles.dateInputWrap}>
+                <TextInput
+                  style={styles.dateInput}
+                  placeholder="Baslangic (YYYY-MM-DD)"
+                  placeholderTextColor={colors.textMuted}
+                  value={startDate}
+                  onChangeText={setStartDate}
+                />
+                <TouchableOpacity style={styles.dateIconButton} onPress={() => openDatePicker('start')}>
+                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.dateInputWrap}>
+                <TextInput
+                  style={styles.dateInput}
+                  placeholder="Bitis (YYYY-MM-DD)"
+                  placeholderTextColor={colors.textMuted}
+                  value={endDate}
+                  onChangeText={setEndDate}
+                />
+                <TouchableOpacity style={styles.dateIconButton} onPress={() => openDatePicker('end')}>
+                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                </TouchableOpacity>
+              </View>
             </View>
+            {activeDateField && (
+              <DateTimePicker
+                value={pickerDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onDateChange}
+                maximumDate={new Date(2100, 11, 31)}
+                minimumDate={new Date(2000, 0, 1)}
+              />
+            )}
+            {Platform.OS === 'ios' && activeDateField && (
+              <TouchableOpacity style={styles.doneButton} onPress={() => setActiveDateField(null)}>
+                <Text style={styles.doneButtonText}>Tarih Secimini Tamamla</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={[styles.primaryButton, !selectedCari && styles.buttonDisabled]}
@@ -206,6 +549,23 @@ export function EkstreScreen() {
                 <Text style={styles.primaryButtonText}>Ekstre Getir</Text>
               )}
             </TouchableOpacity>
+
+            <View style={styles.exportRow}>
+              <TouchableOpacity
+                style={[styles.secondaryButton, foyuData.length === 0 && styles.buttonDisabled]}
+                onPress={exportPdf}
+                disabled={foyuData.length === 0}
+              >
+                <Text style={styles.secondaryButtonText}>PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.secondaryButton, foyuData.length === 0 && styles.buttonDisabled]}
+                onPress={exportExcel}
+                disabled={foyuData.length === 0}
+              >
+                <Text style={styles.secondaryButtonText}>Excel</Text>
+              </TouchableOpacity>
+            </View>
 
             {error && <Text style={styles.error}>{error}</Text>}
 
@@ -337,17 +697,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  dateInput: {
+  dateInputWrap: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingRight: spacing.xs,
+  },
+  dateInput: {
+    flex: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     fontFamily: fonts.regular,
     fontSize: fontSizes.sm,
     color: colors.text,
+  },
+  dateIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+  },
+  doneButton: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  doneButtonText: {
+    fontFamily: fonts.semibold,
+    color: colors.primary,
+    fontSize: fontSizes.sm,
   },
   primaryButton: {
     backgroundColor: colors.primary,
@@ -361,6 +746,24 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontFamily: fonts.semibold,
     color: '#FFFFFF',
+    fontSize: fontSizes.sm,
+  },
+  exportRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontFamily: fonts.semibold,
+    color: colors.text,
     fontSize: fontSizes.sm,
   },
   error: {
@@ -410,3 +813,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
 });
+

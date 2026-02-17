@@ -7,6 +7,7 @@ import { Notification } from '../types';
 import { savePushToken } from '../storage/push';
 import { hapticMedium, hapticSuccess } from '../utils/haptics';
 import { inferDeviceName, inferPlatform, registerPushToken } from '../utils/pushNotifications';
+import { navigateFromNotificationLink } from '../navigation/notificationLinking';
 
 type NotificationContextValue = {
   notifications: Notification[];
@@ -27,6 +28,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [enabled, setEnabled] = useState(false);
   const initializedRef = useRef(false);
   const knownUnreadIdsRef = useRef<Set<string>>(new Set());
+  const handledResponseIdsRef = useRef<Set<string>>(new Set());
 
   const loadNotifications = async (showLoading = false) => {
     if (!user || !enabled) {
@@ -154,14 +156,32 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       loadNotifications(false);
     });
 
-    const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const onNotificationResponse = (response: Notifications.NotificationResponse) => {
+      const notificationId = String(response.notification?.request?.identifier || '');
+      if (notificationId && handledResponseIdsRef.current.has(notificationId)) {
+        return;
+      }
+      if (notificationId) {
+        handledResponseIdsRef.current.add(notificationId);
+      }
+
       hapticSuccess();
       const maybeLink = response.notification.request.content.data?.linkUrl;
       if (typeof maybeLink === 'string' && maybeLink.length > 0) {
-        // Link routing can be added later if needed.
+        navigateFromNotificationLink(maybeLink);
       }
       loadNotifications(false);
-    });
+    };
+
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(onNotificationResponse);
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((lastResponse) => {
+        if (lastResponse) {
+          onNotificationResponse(lastResponse);
+        }
+      })
+      .catch(() => undefined);
 
     return () => {
       receivedSubscription.remove();

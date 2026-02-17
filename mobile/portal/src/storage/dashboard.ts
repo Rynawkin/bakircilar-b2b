@@ -17,9 +17,13 @@ export type DashboardQuickActionKey =
   | 'orderTracking'
   | 'eInvoices';
 
+export type DashboardReportCardKey = 'sales' | 'quotes' | 'orders';
+
 export type DashboardPrefs = {
   visibleWidgets: DashboardWidgetKey[];
   quickActions: DashboardQuickActionKey[];
+  reportCards?: DashboardReportCardKey[];
+  period?: 'daily' | 'weekly' | 'monthly';
 };
 
 const keyForUser = (userId: string) => `portal-dashboard-prefs-${userId}`;

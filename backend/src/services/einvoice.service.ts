@@ -61,6 +61,9 @@ const normalizeInvoiceNo = (value: string) =>
     .replace(/\s+/g, '')
     .toUpperCase();
 
+const normalizeInvoiceToken = (value: string) =>
+  normalizeInvoiceNo(value).replace(/[^A-Z0-9]/g, '');
+
 const extractInvoiceNo = (originalName: string) => {
   const baseName = path.basename(originalName, path.extname(originalName));
   const raw = baseName.split('_')[0] || baseName;
@@ -153,6 +156,57 @@ type AutoImportOptions = {
 };
 
 class EInvoiceService {
+  private findPdfInDirectoryTree(
+    roots: string[],
+    predicate: (absolutePath: string, fileName: string) => boolean,
+    options?: { maxDepth?: number; maxVisitedDirs?: number }
+  ) {
+    const maxDepth = options?.maxDepth ?? 4;
+    const maxVisitedDirs = options?.maxVisitedDirs ?? 2000;
+    const queue: Array<{ dir: string; depth: number }> = [];
+    const visited = new Set<string>();
+
+    for (const root of roots) {
+      if (!root) continue;
+      const absoluteRoot = path.resolve(root);
+      if (!fs.existsSync(absoluteRoot)) continue;
+      queue.push({ dir: absoluteRoot, depth: 0 });
+    }
+
+    while (queue.length > 0 && visited.size < maxVisitedDirs) {
+      const current = queue.shift();
+      if (!current) continue;
+      const resolvedDir = path.resolve(current.dir);
+      if (visited.has(resolvedDir)) continue;
+      visited.add(resolvedDir);
+
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(resolvedDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const absolutePath = path.join(resolvedDir, entry.name);
+        if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase();
+          if (ext !== '.pdf') continue;
+          if (predicate(absolutePath, entry.name)) {
+            return absolutePath;
+          }
+          continue;
+        }
+
+        if (entry.isDirectory() && current.depth < maxDepth) {
+          queue.push({ dir: absolutePath, depth: current.depth + 1 });
+        }
+      }
+    }
+
+    return null;
+  }
+
   private async resolveCustomerScope(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -184,6 +238,7 @@ class EInvoiceService {
     id: string;
     storagePath: string;
     fileName?: string;
+    invoiceNo?: string;
   }) {
     const candidates = new Set<string>();
     if (document.storagePath) {
@@ -215,6 +270,70 @@ class EInvoiceService {
             console.warn('Failed to update e-invoice storage path', { id: document.id, error });
           }
         }
+        return { absolutePath, storagePath: relativePath };
+      }
+    }
+
+    // Fallback: storagePath/fileName guncel degilse invoice no ile fiziksel dosya ara.
+    const invoiceNo = normalizeInvoiceNo(document.invoiceNo || '');
+    const invoiceToken = normalizeInvoiceToken(document.invoiceNo || '');
+    if (invoiceNo) {
+      const searchDirs = Array.from(new Set([
+        this.getManagedUploadDir(),
+        path.resolve(STORAGE_ROOT, 'private-uploads', 'einvoices'),
+        path.resolve(STORAGE_ROOT, 'uploads', 'einvoices'),
+        path.resolve(STORAGE_ROOT, 'uploads'),
+        ...(EINVOICE_UPLOAD_DIR ? [EINVOICE_UPLOAD_DIR] : []),
+      ]));
+
+      // First try exact filename match recursively (handles moved subfolders).
+      const expectedFileName = fileName ? path.basename(fileName) : '';
+      const exactMatch = expectedFileName
+        ? this.findPdfInDirectoryTree(
+            searchDirs,
+            (_absolutePath, currentFileName) =>
+              currentFileName.toLowerCase() === expectedFileName.toLowerCase(),
+            { maxDepth: 6, maxVisitedDirs: 5000 }
+          )
+        : null;
+
+      // Then try normalized invoice number match recursively.
+      const fuzzyMatch = exactMatch
+        ? null
+        : this.findPdfInDirectoryTree(
+            searchDirs,
+            (absolutePath) => {
+              const baseName = path.basename(absolutePath, path.extname(absolutePath));
+              const normalizedBase = normalizeInvoiceNo(baseName);
+              if (normalizedBase === invoiceNo || normalizedBase.startsWith(invoiceNo)) {
+                return true;
+              }
+              const normalizedToken = normalizeInvoiceToken(baseName);
+              if (!invoiceToken || !normalizedToken) return false;
+              return normalizedToken === invoiceToken || normalizedToken.includes(invoiceToken);
+            },
+            { maxDepth: 6, maxVisitedDirs: 5000 }
+          );
+
+      const absolutePath = exactMatch || fuzzyMatch;
+      if (absolutePath && fs.existsSync(absolutePath)) {
+        const matchedName = path.basename(absolutePath);
+
+        const root = findRootForPath(absolutePath);
+        const relativePath = root ? toRelativePath(absolutePath, root) : document.storagePath;
+
+        try {
+          await prisma.eInvoiceDocument.update({
+            where: { id: document.id },
+            data: {
+              storagePath: relativePath,
+              fileName: matchedName,
+            },
+          });
+        } catch (error) {
+          console.warn('Failed to update e-invoice path from fallback search', { id: document.id, error });
+        }
+
         return { absolutePath, storagePath: relativePath };
       }
     }
@@ -732,6 +851,7 @@ class EInvoiceService {
       id: document.id,
       storagePath: document.storagePath,
       fileName: document.fileName,
+      invoiceNo: document.invoiceNo,
     });
     if (!resolved) {
       throw ErrorFactory.notFound('PDF dosyasi');
@@ -833,6 +953,7 @@ class EInvoiceService {
       id: document.id,
       storagePath: document.storagePath,
       fileName: document.fileName,
+      invoiceNo: document.invoiceNo,
     });
 
     if (!resolved) {
@@ -898,6 +1019,7 @@ class EInvoiceService {
         id: document.id,
         storagePath: document.storagePath,
         fileName: document.fileName,
+        invoiceNo: document.invoiceNo,
       });
       if (!found) {
         missing.push({ id: document.id, invoiceNo: document.invoiceNo });

@@ -167,7 +167,7 @@ export const getSearchPreferences = async (req: Request, res: Response) => {
         data: {
           userId,
           stockColumns: ['msg_S_0078', 'msg_S_0870', 'KDV Oranı', 'Güncel Maliyet + Kdv.', 'Merkez Depo', 'Toplam Satılabilir'],
-          customerColumns: ['msg_S_1032', 'msg_S_1033', 'IL', 'ILCE', 'Telefon', 'SEKTOR KODU', 'msg_S_1530']
+          customerColumns: ['msg_S_1032', 'msg_S_1033', 'IL', 'ILCE', 'Telefon', 'Vergi No', 'SEKTOR KODU', 'msg_S_1530']
         }
       });
     }

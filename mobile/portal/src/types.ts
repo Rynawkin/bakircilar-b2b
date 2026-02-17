@@ -55,6 +55,20 @@ export interface DashboardStats {
   customerCount: number;
   excessProductCount: number;
   lastSyncAt?: string;
+  period?: 'daily' | 'weekly' | 'monthly';
+  periodRange?: {
+    startAt: string;
+    endAt: string;
+  };
+  sectorScope?: {
+    mode: 'assigned' | 'self' | 'all';
+    codes: string[];
+  };
+  summary?: {
+    sales: { count: number; amount: number };
+    quotes: { count: number; amount: number };
+    orders: { count: number; amount: number };
+  };
 }
 
 export interface Notification {

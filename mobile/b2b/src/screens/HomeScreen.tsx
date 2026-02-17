@@ -46,9 +46,11 @@ export function HomeScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        <Text style={styles.kicker}>Hos geldin</Text>
-        <Text style={styles.title}>{user?.name || 'B2B Musterisi'}</Text>
-        <Text style={styles.subtitle}>Siparis ve fiyatlariniz tek panelde.</Text>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>Hos geldin</Text>
+          <Text style={styles.title}>{user?.name || 'B2B Musterisi'}</Text>
+          <Text style={styles.subtitle}>Siparis ve fiyatlariniz tek panelde.</Text>
+        </View>
 
         {loading ? (
           <ActivityIndicator color={colors.primary} />
@@ -58,11 +60,11 @@ export function HomeScreen() {
               <Text style={styles.cardLabel}>Siparisler</Text>
               <Text style={styles.cardValue}>{summary.orders}</Text>
             </View>
-            <View style={styles.card}>
+            <View style={[styles.card, styles.cardTintBlue]}>
               <Text style={styles.cardLabel}>Talepler</Text>
               <Text style={styles.cardValue}>{summary.requests}</Text>
             </View>
-            <View style={styles.card}>
+            <View style={[styles.card, styles.cardTintAmber]}>
               <Text style={styles.cardLabel}>Sepette</Text>
               <Text style={styles.cardValue}>{summary.cartItems}</Text>
             </View>
@@ -94,22 +96,35 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.lg,
   },
+  hero: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.primarySoft,
+    shadowColor: '#0A2A57',
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
   kicker: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.sm,
-    color: colors.textMuted,
+    color: '#DDE8FF',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
   },
   title: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.xl,
-    color: colors.text,
+    color: '#FFFFFF',
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.md,
-    color: colors.textMuted,
+    color: '#DDE8FF',
+    marginTop: spacing.xs,
   },
   statGrid: {
     gap: spacing.md,
@@ -120,6 +135,17 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: '#0A2A57',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  cardTintBlue: {
+    backgroundColor: '#ECF3FF',
+  },
+  cardTintAmber: {
+    backgroundColor: '#FFF4DF',
   },
   cardLabel: {
     fontFamily: fonts.medium,
@@ -139,6 +165,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.lg,
     padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: '#BFD2FF',
   },
   actionTitle: {
     fontFamily: fonts.semibold,

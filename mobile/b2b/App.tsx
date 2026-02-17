@@ -12,6 +12,7 @@ import {
 } from '@expo-google-fonts/sora';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { PushNotificationBridge } from './src/context/PushNotificationBridge';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RoleMismatchScreen } from './src/screens/RoleMismatchScreen';
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -69,6 +70,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <AuthProvider>
+        <PushNotificationBridge />
         <StatusBar style="dark" />
         <AuthGate />
       </AuthProvider>

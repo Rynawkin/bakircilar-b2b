@@ -78,8 +78,8 @@ export const adminApi = {
   },
 
   // Dashboard
-  getDashboardStats: async () => {
-    const response = await apiClient.get<DashboardStats>('/admin/dashboard/stats');
+  getDashboardStats: async (params?: { period?: 'daily' | 'weekly' | 'monthly' }) => {
+    const response = await apiClient.get<DashboardStats>('/admin/dashboard/stats', { params });
     return response.data;
   },
 
@@ -440,6 +440,27 @@ export const adminApi = {
     const response = await apiClient.get<{ customers: Customer[] }>('/admin/customers');
     return response.data;
   },
+  getCariList: async () => {
+    const response = await apiClient.get('/admin/cari-list');
+    return response.data as {
+      cariList: Array<{
+        code: string;
+        name: string;
+        city?: string;
+        district?: string;
+        phone?: string;
+        isLocked?: boolean;
+        groupCode?: string;
+        sectorCode?: string;
+        paymentTerm?: number;
+        paymentPlanNo?: number | null;
+        paymentPlanCode?: string | null;
+        paymentPlanName?: string | null;
+        hasEInvoice?: boolean;
+        balance?: number;
+      }>;
+    };
+  },
   createCustomer: async (data: {
     email: string;
     password: string;
@@ -706,6 +727,10 @@ export const adminApi = {
   },
   unregisterPushToken: async (token: string) => {
     const response = await apiClient.post('/admin/notifications/push/unregister', { token });
+    return response.data as { success: boolean };
+  },
+  sendTestPush: async (data?: { title?: string; body?: string; linkUrl?: string }) => {
+    const response = await apiClient.post('/admin/notifications/push/test', data || {});
     return response.data as { success: boolean };
   },
 

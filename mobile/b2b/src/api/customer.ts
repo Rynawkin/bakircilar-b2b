@@ -120,6 +120,18 @@ export const customerApi = {
     const response = await apiClient.post('/notifications/read-all');
     return response.data;
   },
+  registerPushToken: async (data: { token: string; platform?: string; appName?: string; deviceName?: string }) => {
+    const response = await apiClient.post('/notifications/push/register', data);
+    return response.data as { success: boolean };
+  },
+  unregisterPushToken: async (token: string) => {
+    const response = await apiClient.post('/notifications/push/unregister', { token });
+    return response.data as { success: boolean };
+  },
+  sendTestPush: async (data?: { title?: string; body?: string; linkUrl?: string }) => {
+    const response = await apiClient.post('/notifications/push/test', data || {});
+    return response.data as { success: boolean };
+  },
   updateSettings: async (data: { vatDisplayPreference: 'WITH_VAT' | 'WITHOUT_VAT' }) => {
     const response = await apiClient.put('/customer/settings', data);
     return response.data;
