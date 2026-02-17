@@ -24,6 +24,8 @@ type WorkflowItemStatus = 'PENDING' | 'PICKED' | 'PARTIAL' | 'MISSING' | 'EXTRA'
 
 type CoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
 type OrderCoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
+type OrderSortField = 'orderDate' | 'customerName' | 'grandTotal' | 'coveredPercent';
+type OrderSortDirection = 'asc' | 'desc';
 
 interface WarehouseSeriesRow {
   series: string;
@@ -185,6 +187,8 @@ export default function WarehousePage() {
   const [lineSavingKey, setLineSavingKey] = useState<string | null>(null);
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<'ALL' | WorkflowStatus>('ALL');
+  const [sortField, setSortField] = useState<OrderSortField>('orderDate');
+  const [sortDirection, setSortDirection] = useState<OrderSortDirection>('desc');
   const [searchText, setSearchText] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [openOrderNumbers, setOpenOrderNumbers] = useState<string[]>([]);
@@ -252,7 +256,38 @@ export default function WarehousePage() {
     return () => clearInterval(interval);
   }, [user, permissionsLoading, selectedSeriesKey, selectedStatus, searchDebounced]);
 
-  const totalOrdersCount = useMemo(() => orders.length, [orders]);
+  const sortedOrders = useMemo(() => {
+    const sorted = [...orders];
+    sorted.sort((a, b) => {
+      let aValue: string | number;
+      let bValue: string | number;
+
+      if (sortField === 'orderDate') {
+        aValue = new Date(a.orderDate).getTime();
+        bValue = new Date(b.orderDate).getTime();
+      } else if (sortField === 'customerName') {
+        aValue = a.customerName || '';
+        bValue = b.customerName || '';
+      } else if (sortField === 'grandTotal') {
+        aValue = Number(a.grandTotal) || 0;
+        bValue = Number(b.grandTotal) || 0;
+      } else {
+        aValue = Number(a.coverage?.coveredPercent) || 0;
+        bValue = Number(b.coverage?.coveredPercent) || 0;
+      }
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        const compare = aValue.localeCompare(bValue, 'tr');
+        return sortDirection === 'asc' ? compare : -compare;
+      }
+
+      const compare = Number(aValue) - Number(bValue);
+      return sortDirection === 'asc' ? compare : -compare;
+    });
+    return sorted;
+  }, [orders, sortField, sortDirection]);
+
+  const totalOrdersCount = useMemo(() => sortedOrders.length, [sortedOrders]);
   const detail = activeOrderNumber ? detailByOrder[activeOrderNumber] || null : null;
   const isDetailLoading = Boolean(activeOrderNumber && detailLoadingOrder === activeOrderNumber);
   const visibleOrderNumbers = useMemo(() => {
@@ -466,7 +501,7 @@ export default function WarehousePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <Input
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
@@ -485,6 +520,24 @@ export default function WarehousePage() {
                 <option value="PARTIALLY_LOADED">Kismi Yuklendi</option>
                 <option value="LOADED">Yuklendi</option>
                 <option value="DISPATCHED">Sevk Edildi</option>
+              </select>
+              <select
+                value={sortField}
+                onChange={(event) => setSortField(event.target.value as OrderSortField)}
+                className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-semibold text-slate-700"
+              >
+                <option value="orderDate">Tarih</option>
+                <option value="customerName">Musteri (A-Z)</option>
+                <option value="grandTotal">Tutar</option>
+                <option value="coveredPercent">Karsilama %</option>
+              </select>
+              <select
+                value={sortDirection}
+                onChange={(event) => setSortDirection(event.target.value as OrderSortDirection)}
+                className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-semibold text-slate-700"
+              >
+                <option value="desc">Azalan</option>
+                <option value="asc">Artan</option>
               </select>
               <Button variant="secondary" onClick={() => fetchOverview(true)} className="h-12 text-base">
                 Yenile
@@ -527,7 +580,7 @@ export default function WarehousePage() {
               ) : orders.length === 0 ? (
                 <div className="py-16 text-center text-slate-500 font-semibold">Filtreye uygun siparis bulunamadi</div>
               ) : (
-                orders.map((order) => {
+                sortedOrders.map((order) => {
                   const active = activeOrderNumber === order.mikroOrderNumber;
                   const isOpen = openOrderNumbers.includes(order.mikroOrderNumber);
                   const badge = statusBadge[order.workflowStatus];
