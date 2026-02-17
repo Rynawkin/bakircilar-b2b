@@ -126,7 +126,7 @@ const parseReportDateInput = (value: unknown): Date | null => {
 };
 
 type DashboardPeriod = 'daily' | 'weekly' | 'monthly';
-const DASHBOARD_SALES_SECTOR_CODES = ['SATIS', 'SATIŞ'] as const;
+const DASHBOARD_SALES_SECTOR_NAMES = ['SATIS', 'SATIŞ'] as const;
 
 const getDashboardPeriod = (value: unknown): DashboardPeriod => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -2278,7 +2278,7 @@ export class AdminController {
               ? [ownSectorCode]
               : []
         )
-        : [...DASHBOARD_SALES_SECTOR_CODES];
+        : [...DASHBOARD_SALES_SECTOR_NAMES];
       const hasSectorScope = sectorCodes.length > 0;
       const sectorFilter = hasSectorScope ? sectorCodes : undefined;
       const customerWhere = hasSectorScope
@@ -2286,11 +2286,34 @@ export class AdminController {
         : { role: 'CUSTOMER' as const, active: true };
       const startDateSql = toIsoDate(periodRange.start);
       const endDateSql = toIsoDate(periodRange.end);
-      const sectorInSql = hasSectorScope
-        ? sectorCodes.map((code) => `'${escapeSqlString(code)}'`).join(', ')
+      const normalizedSectorTokens = hasSectorScope
+        ? Array.from(
+            new Set(
+              sectorCodes
+                .map((raw) => String(raw || '').trim())
+                .filter(Boolean)
+                .flatMap((value) => {
+                  const upper = value.toUpperCase();
+                  const asciiUpper = upper
+                    .replace(/İ/g, 'I')
+                    .replace(/Ş/g, 'S')
+                    .replace(/Ğ/g, 'G')
+                    .replace(/Ü/g, 'U')
+                    .replace(/Ö/g, 'O')
+                    .replace(/Ç/g, 'C');
+                  return [value, upper, asciiUpper];
+                })
+            )
+          )
+        : [];
+      const sectorInSql = normalizedSectorTokens.length > 0
+        ? normalizedSectorTokens.map((code) => `'${escapeSqlString(code)}'`).join(', ')
         : '';
       const sectorConditionSql = hasSectorScope
-        ? ` AND c.cari_sektor_kodu IN (${sectorInSql})`
+        ? ` AND (
+          LTRIM(RTRIM(ISNULL(c.cari_sektor, ''))) IN (${sectorInSql})
+          OR LTRIM(RTRIM(ISNULL(c.cari_sektor_kodu, ''))) IN (${sectorInSql})
+        )`
         : '';
       const fetchMikroSalesSummary = async () => {
         const sqlQuery = `
