@@ -2271,15 +2271,19 @@ export class AdminController {
       const isSalesRep = userRole === 'SALES_REP';
       const salesRepScopeCodes = isSalesRep
         ? []
-        : await prisma.user.findMany({
-            where: { role: 'SALES_REP', active: true },
-            select: { assignedSectorCodes: true },
-          }).then((rows) =>
+        : await mikroService.executeQuery(`
+            SELECT DISTINCT LTRIM(RTRIM(ISNULL(sktr_kod, ''))) AS sectorCode
+            FROM STOK_SEKTORLERI
+            WHERE ISNULL(sktr_iptal, 0) = 0
+              AND LTRIM(RTRIM(ISNULL(sktr_kod, ''))) <> ''
+              AND UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                LTRIM(RTRIM(ISNULL(sktr_ismi, ''))),
+                'İ','I'),'İ','I'),'Ş','S'),'Ğ','G'),'Ü','U'),'Ö','O'),'Ç','C')) = 'SATIS'
+          `).then((rows: any[]) =>
             Array.from(
               new Set(
                 rows
-                  .flatMap((row) => row.assignedSectorCodes || [])
-                  .map((value) => String(value || '').trim())
+                  .map((row) => String(row?.sectorCode || '').trim())
                   .filter(Boolean)
               )
             )
