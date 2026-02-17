@@ -126,7 +126,6 @@ const parseReportDateInput = (value: unknown): Date | null => {
 };
 
 type DashboardPeriod = 'daily' | 'weekly' | 'monthly';
-const DASHBOARD_SALES_SECTOR_NAMES = ['SATIS', 'SATIŞ'] as const;
 
 const getDashboardPeriod = (value: unknown): DashboardPeriod => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -2270,15 +2269,30 @@ export class AdminController {
       const periodRange = getPeriodRange(period);
 
       const isSalesRep = userRole === 'SALES_REP';
+      const salesRepScopeCodes = isSalesRep
+        ? []
+        : await prisma.user.findMany({
+            where: { role: 'SALES_REP', active: true },
+            select: { assignedSectorCodes: true },
+          }).then((rows) =>
+            Array.from(
+              new Set(
+                rows
+                  .flatMap((row) => row.assignedSectorCodes || [])
+                  .map((value) => String(value || '').trim())
+                  .filter(Boolean)
+              )
+            )
+          );
       const sectorCodes = isSalesRep
         ? (
-          assignedSectorCodes.length > 0
-            ? assignedSectorCodes
-            : ownSectorCode
-              ? [ownSectorCode]
-              : []
-        )
-        : [...DASHBOARD_SALES_SECTOR_NAMES];
+            assignedSectorCodes.length > 0
+              ? assignedSectorCodes
+              : ownSectorCode
+                ? [ownSectorCode]
+                : []
+          )
+        : salesRepScopeCodes;
       const hasSectorScope = sectorCodes.length > 0;
       const sectorFilter = hasSectorScope ? sectorCodes : undefined;
       const customerWhere = hasSectorScope
@@ -2309,14 +2323,9 @@ export class AdminController {
         ? normalizedSectorTokens.map((code) => `'${escapeSqlString(code)}'`).join(', ')
         : '';
       const normalizedSectorSqlExpr = (columnName: string) =>
-        `UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(${columnName}, ''))), 'İ', 'I'), 'İ', 'I'), 'Ş', 'S'), 'Ğ', 'G'), 'Ü', 'U'), 'Ö', 'O'))`;
+        `UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(${columnName}, ''))), 'İ', 'I'), 'İ', 'I'), 'Ş', 'S'), 'Ğ', 'G'), 'Ü', 'U'), 'Ö', 'O'), 'Ç', 'C'))`;
       const sectorConditionSql = hasSectorScope
-        ? isSalesRep
-          ? ` AND (
-              ${normalizedSectorSqlExpr('c.cari_sektor')} IN (${sectorInSql})
-              OR ${normalizedSectorSqlExpr('c.cari_sektor_kodu')} IN (${sectorInSql})
-            )`
-          : ` AND ${normalizedSectorSqlExpr('c.cari_sektor')} LIKE 'SATIS%'`
+        ? ` AND ${normalizedSectorSqlExpr('c.cari_sektor_kodu')} IN (${sectorInSql})`
         : '';
       const fetchMikroSalesSummary = async () => {
         const sqlQuery = `
