@@ -29,6 +29,7 @@ router.get('/admin/summary', authenticate, requirePermission('admin:order-tracki
 router.get('/admin/supplier-summary', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getSupplierSummary);
 router.get('/admin/email-logs', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getEmailLogs);
 router.get('/admin/warehouse/overview', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getOverview);
+router.post('/admin/warehouse/sync', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.syncPendingOrders);
 router.get('/admin/warehouse/image-issues', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getImageIssueReports);
 router.patch('/admin/warehouse/image-issues/:reportId', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.updateImageIssueReport);
 router.get('/admin/warehouse/orders/:mikroOrderNumber', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getOrderDetail);

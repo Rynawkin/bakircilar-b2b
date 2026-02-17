@@ -110,6 +110,7 @@ app.use(errorHandler);
 
 if (config.enableCron) {
   const cronOptions = { timezone: config.cronTimezone };
+  let kioskSyncInProgress = false;
   console.log('🕐 Cron job aktif - Senkronizasyon planı:', config.syncCronSchedule);
 
   // B2B Stok Senkronizasyonu
@@ -312,6 +313,49 @@ if (config.enableCron) {
       console.error('❌ Sipariş takip settings yükleme hatası:', error);
     }
   })();
+
+  if (config.orderTrackingKioskSyncEnabled) {
+    const runKioskPendingOrderSync = async (source: 'CRON' | 'BOOT') => {
+      if (kioskSyncInProgress) {
+        console.log(`⏭️ Kiosk siparis sync atlandi (${source}) - onceki islem devam ediyor`);
+        return;
+      }
+
+      kioskSyncInProgress = true;
+      try {
+        console.log(`🧭 Kiosk siparis sync basladi (${source})...`);
+        const result = await orderTrackingService.syncPendingOrders();
+        if (result.success) {
+          console.log(
+            `✅ Kiosk siparis sync tamamlandi (${source}) - Siparis: ${result.ordersCount}, Musteri: ${result.customersCount}`
+          );
+        } else {
+          console.error(`❌ Kiosk siparis sync basarisiz (${source}):`, result.message);
+        }
+      } catch (error) {
+        console.error(`❌ Kiosk siparis sync hatasi (${source}):`, error);
+      } finally {
+        kioskSyncInProgress = false;
+      }
+    };
+
+    console.log(
+      'Kiosk pending-orders sync cron schedule:',
+      config.orderTrackingKioskSyncCronSchedule,
+      'Timezone:',
+      config.cronTimezone
+    );
+    cron.schedule(config.orderTrackingKioskSyncCronSchedule, async () => {
+      await runKioskPendingOrderSync('CRON');
+    }, cronOptions);
+
+    // Ensure kiosk data is warmed right after process start.
+    runKioskPendingOrderSync('BOOT').catch((error) => {
+      console.error('❌ Kiosk siparis boot sync hatasi:', error);
+    });
+  } else {
+    console.log('⏸️  Kiosk pending-orders sync cron job devre disi');
+  }
 }
 
 if (config.einvoiceAutoImportEnabled) {

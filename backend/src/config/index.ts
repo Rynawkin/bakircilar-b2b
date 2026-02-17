@@ -50,6 +50,8 @@ export const config = {
   analyticsRetentionDays: parseInt(process.env.ANALYTICS_RETENTION_DAYS || '180', 10),
   einvoiceAutoImportEnabled: process.env.EINVOICE_AUTO_IMPORT_ENABLED === 'true',
   einvoiceAutoImportCronSchedule: process.env.EINVOICE_AUTO_IMPORT_CRON_SCHEDULE || '*/20 * * * *',
+  orderTrackingKioskSyncEnabled: process.env.ORDER_TRACKING_KIOSK_SYNC_ENABLED !== 'false',
+  orderTrackingKioskSyncCronSchedule: process.env.ORDER_TRACKING_KIOSK_SYNC_CRON_SCHEDULE || '*/10 * * * *',
 
   // App
   isDevelopment: process.env.NODE_ENV === 'development',
