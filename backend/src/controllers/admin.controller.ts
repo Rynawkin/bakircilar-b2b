@@ -2339,6 +2339,7 @@ export class AdminController {
           FROM STOK_HAREKETLERI sth WITH (NOLOCK)
           LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = sth.sth_cari_kodu
           WHERE sth.sth_cins = 0
+            AND sth.sth_tip = 1
             AND sth.sth_tarih >= '${startDateSql}'
             AND sth.sth_tarih < DATEADD(DAY, 1, '${endDateSql}')
             ${sectorConditionSql}
