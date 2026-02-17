@@ -13,10 +13,22 @@ import { formatCurrency, formatDate } from '@/lib/utils/format';
 import { EkstreModal } from '@/components/admin/EkstreModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
+type DashboardFilterPeriod = 'daily' | 'weekly' | 'monthly' | 'custom';
+
+const toDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, '0');
+  const day = `${value.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const [selectedPeriod, setSelectedPeriod] = useState<DashboardFilterPeriod>('daily');
+  const [customStartDate, setCustomStartDate] = useState<string>(toDateInputValue(new Date()));
+  const [customEndDate, setCustomEndDate] = useState<string>(toDateInputValue(new Date()));
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -90,13 +102,25 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    if (selectedPeriod === 'custom' && (!customStartDate || !customEndDate)) {
+      return;
+    }
+
     fetchStats();
-  }, [user, router]);
+  }, [user, router, selectedPeriod, customStartDate, customEndDate]);
 
   const fetchStats = async () => {
     setIsLoading(true);
     try {
-      const data = await adminApi.getDashboardStats();
+      const data = await adminApi.getDashboardStats(
+        selectedPeriod === 'custom'
+          ? {
+              period: 'custom',
+              startDate: customStartDate,
+              endDate: customEndDate,
+            }
+          : { period: selectedPeriod }
+      );
       setStats(data);
     } catch (error) {
       console.error('Stats yüklenemedi:', error);
@@ -415,6 +439,8 @@ export default function AdminDashboardPage() {
         ? 'Haftalik'
         : stats?.period === 'monthly'
           ? 'Aylik'
+          : stats?.period === 'custom'
+            ? 'Tarih Araligi'
           : null;
 
   if (!user || isLoading) {
@@ -432,6 +458,47 @@ export default function AdminDashboardPage() {
 
       {/* Main Content */}
       <div className="container-custom py-8">
+        <Card className="mb-6 shadow-sm">
+          <div className="flex flex-col xl:flex-row xl:items-end gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700">Donem</label>
+              <select
+                value={selectedPeriod}
+                onChange={(event) => setSelectedPeriod(event.target.value as DashboardFilterPeriod)}
+                className="px-3 py-2 border rounded-lg bg-white text-sm"
+              >
+                <option value="daily">Gunluk</option>
+                <option value="weekly">Haftalik</option>
+                <option value="monthly">Ay basindan beri</option>
+                <option value="custom">Tarih araligi</option>
+              </select>
+            </div>
+
+            {selectedPeriod === 'custom' && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-gray-700">Baslangic</label>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(event) => setCustomStartDate(event.target.value)}
+                    className="px-3 py-2 border rounded-lg bg-white text-sm"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-gray-700">Bitis</label>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(event) => setCustomEndDate(event.target.value)}
+                    className="px-3 py-2 border rounded-lg bg-white text-sm"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+
         {/* Stats Cards */}
         {stats && (
           <>

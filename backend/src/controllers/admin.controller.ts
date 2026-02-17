@@ -125,30 +125,56 @@ const parseReportDateInput = (value: unknown): Date | null => {
   return new Date(Date.UTC(year, month - 1, day));
 };
 
-type DashboardPeriod = 'daily' | 'weekly' | 'monthly';
+type DashboardPeriod = 'daily' | 'weekly' | 'monthly' | 'custom';
+
+const parseDashboardDate = (value: unknown): Date | null => {
+  if (!value || typeof value !== 'string') return null;
+  const cleaned = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return null;
+  const parsed = new Date(`${cleaned}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
 
 const getDashboardPeriod = (value: unknown): DashboardPeriod => {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'weekly') return 'weekly';
   if (normalized === 'monthly') return 'monthly';
+  if (normalized === 'custom') return 'custom';
   return 'daily';
 };
 
-const getPeriodRange = (period: DashboardPeriod) => {
+const getPeriodRange = (
+  period: DashboardPeriod,
+  customStartDate?: unknown,
+  customEndDate?: unknown
+) => {
   const now = new Date();
   const start = new Date(now);
+  let resolvedPeriod: DashboardPeriod = period;
 
-  if (period === 'weekly') {
+  if (period === 'custom') {
+    const parsedStart = parseDashboardDate(customStartDate);
+    const parsedEnd = parseDashboardDate(customEndDate);
+    if (parsedStart && parsedEnd && parsedStart <= parsedEnd) {
+      parsedStart.setHours(0, 0, 0, 0);
+      parsedEnd.setHours(23, 59, 59, 999);
+      return { start: parsedStart, end: parsedEnd, resolvedPeriod };
+    }
+    resolvedPeriod = 'daily';
+  }
+
+  if (resolvedPeriod === 'weekly') {
     // Monday-start week for TR business reporting.
     const day = start.getDay();
     const diffToMonday = day === 0 ? 6 : day - 1;
     start.setDate(start.getDate() - diffToMonday);
-  } else if (period === 'monthly') {
+  } else if (resolvedPeriod === 'monthly') {
     start.setDate(1);
   }
 
   start.setHours(0, 0, 0, 0);
-  return { start, end: now };
+  return { start, end: now, resolvedPeriod };
 };
 
 const toIsoDate = (value: Date) => {
@@ -2265,8 +2291,13 @@ export class AdminController {
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
       const ownSectorCode = (req.user as any)?.sectorCode || null;
-      const period = getDashboardPeriod(req.query?.period);
-      const periodRange = getPeriodRange(period);
+      const requestedPeriod = getDashboardPeriod(req.query?.period);
+      const periodRange = getPeriodRange(
+        requestedPeriod,
+        req.query?.startDate,
+        req.query?.endDate
+      );
+      const period = periodRange.resolvedPeriod;
 
       const isSalesRep = userRole === 'SALES_REP';
       const salesRepScopeCodes = isSalesRep

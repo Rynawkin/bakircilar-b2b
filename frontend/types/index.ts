@@ -785,7 +785,7 @@ export interface SetPriceRuleRequest {
 // ==================== DASHBOARD STATS ====================
 
 export interface DashboardStats {
-  period?: 'daily' | 'weekly' | 'monthly';
+  period?: 'daily' | 'weekly' | 'monthly' | 'custom';
   periodRange?: {
     startAt: string;
     endAt: string;

@@ -1222,8 +1222,12 @@ export const adminApi = {
   },
 
   // Dashboard
-  getDashboardStats: async (): Promise<DashboardStats> => {
-    const response = await apiClient.get('/admin/dashboard/stats');
+  getDashboardStats: async (params?: {
+    period?: 'daily' | 'weekly' | 'monthly' | 'custom';
+    startDate?: string;
+    endDate?: string;
+  }): Promise<DashboardStats> => {
+    const response = await apiClient.get('/admin/dashboard/stats', { params });
     return response.data;
   },
 
