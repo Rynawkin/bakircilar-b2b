@@ -26,6 +26,7 @@ type CoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
 type OrderCoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
 type OrderSortField = 'orderDate' | 'customerName' | 'grandTotal' | 'coveredPercent';
 type OrderSortDirection = 'asc' | 'desc';
+type OrderViewMode = 'order' | 'customer';
 
 interface WarehouseSeriesRow {
   series: string;
@@ -189,6 +190,7 @@ export default function WarehousePage() {
   const [selectedStatus, setSelectedStatus] = useState<'ALL' | WorkflowStatus>('ALL');
   const [sortField, setSortField] = useState<OrderSortField>('orderDate');
   const [sortDirection, setSortDirection] = useState<OrderSortDirection>('desc');
+  const [viewMode, setViewMode] = useState<OrderViewMode>('order');
   const [searchText, setSearchText] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [openOrderNumbers, setOpenOrderNumbers] = useState<string[]>([]);
@@ -288,7 +290,59 @@ export default function WarehousePage() {
     return sorted;
   }, [orders, sortField, sortDirection]);
 
-  const totalOrdersCount = useMemo(() => sortedOrders.length, [sortedOrders]);
+  const groupedCustomerOrders = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        customerCode: string;
+        customerName: string;
+        totalOrders: number;
+        totalAmount: number;
+        avgCoveredPercent: number;
+        fullCount: number;
+        partialCount: number;
+        noneCount: number;
+        orders: WarehouseOrderRow[];
+      }
+    >();
+
+    for (const order of sortedOrders) {
+      const key = order.customerCode || order.customerName;
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, {
+          customerCode: order.customerCode,
+          customerName: order.customerName,
+          totalOrders: 1,
+          totalAmount: Number(order.grandTotal) || 0,
+          avgCoveredPercent: Number(order.coverage?.coveredPercent) || 0,
+          fullCount: order.coverageStatus === 'FULL' ? 1 : 0,
+          partialCount: order.coverageStatus === 'PARTIAL' ? 1 : 0,
+          noneCount: order.coverageStatus === 'NONE' ? 1 : 0,
+          orders: [order],
+        });
+      } else {
+        existing.totalOrders += 1;
+        existing.totalAmount += Number(order.grandTotal) || 0;
+        existing.avgCoveredPercent += Number(order.coverage?.coveredPercent) || 0;
+        existing.fullCount += order.coverageStatus === 'FULL' ? 1 : 0;
+        existing.partialCount += order.coverageStatus === 'PARTIAL' ? 1 : 0;
+        existing.noneCount += order.coverageStatus === 'NONE' ? 1 : 0;
+        existing.orders.push(order);
+      }
+    }
+
+    return Array.from(grouped.values()).map((group) => ({
+      ...group,
+      avgCoveredPercent:
+        group.totalOrders > 0 ? Math.round(group.avgCoveredPercent / group.totalOrders) : 0,
+    }));
+  }, [sortedOrders]);
+
+  const totalOrdersCount = useMemo(
+    () => (viewMode === 'customer' ? groupedCustomerOrders.length : sortedOrders.length),
+    [viewMode, groupedCustomerOrders, sortedOrders]
+  );
   const detail = activeOrderNumber ? detailByOrder[activeOrderNumber] || null : null;
   const isDetailLoading = Boolean(activeOrderNumber && detailLoadingOrder === activeOrderNumber);
   const visibleOrderNumbers = useMemo(() => {
@@ -345,6 +399,7 @@ export default function WarehousePage() {
           (order) =>
             order.customerCode === selectedOrder.customerCode &&
             order.mikroOrderNumber !== mikroOrderNumber &&
+            (order.coverageStatus === 'FULL' || order.coverageStatus === 'PARTIAL') &&
             order.workflowStatus !== 'DISPATCHED' &&
             !openOrderNumbers.includes(order.mikroOrderNumber)
         );
@@ -556,7 +611,7 @@ export default function WarehousePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
               <Input
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
@@ -593,6 +648,14 @@ export default function WarehousePage() {
               >
                 <option value="desc">Azalan</option>
                 <option value="asc">Artan</option>
+              </select>
+              <select
+                value={viewMode}
+                onChange={(event) => setViewMode(event.target.value as OrderViewMode)}
+                className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-semibold text-slate-700"
+              >
+                <option value="order">Siparis bazli</option>
+                <option value="customer">Musteriye gore grupla</option>
               </select>
               <Button variant="secondary" onClick={() => fetchOverview(true)} className="h-12 text-base">
                 Yenile
@@ -632,9 +695,70 @@ export default function WarehousePage() {
             <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
               {isLoading ? (
                 <div className="py-16 text-center text-slate-500 font-semibold">Yukleniyor...</div>
-              ) : orders.length === 0 ? (
+              ) : sortedOrders.length === 0 ? (
                 <div className="py-16 text-center text-slate-500 font-semibold">Filtreye uygun siparis bulunamadi</div>
               ) : (
+                viewMode === 'customer' ? (
+                  groupedCustomerOrders.map((group) => (
+                    <div key={group.customerCode} className="rounded-2xl border border-slate-200 bg-white p-3 md:p-4 space-y-3">
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-black text-slate-900">{group.customerName}</p>
+                          <p className="text-xs text-slate-600">
+                            {group.customerCode} | {group.totalOrders} siparis | Ortalama karsilama %{group.avgCoveredPercent}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] px-2 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold">
+                            Tam: {group.fullCount}
+                          </span>
+                          <span className="text-[11px] px-2 py-1 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-bold">
+                            Kismi: {group.partialCount}
+                          </span>
+                          <span className="text-[11px] px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-bold">
+                            Eksik: {group.noneCount}
+                          </span>
+                          <button
+                            onClick={async () => {
+                              for (let i = 0; i < group.orders.length; i += 1) {
+                                const order = group.orders[i];
+                                await loadOrderDetail(order.mikroOrderNumber, { makeActive: i === 0, silent: true });
+                              }
+                              toast.success(`${group.customerName} icin tum siparisler acildi`);
+                            }}
+                            className="text-xs px-3 py-2 rounded-xl bg-cyan-600 text-white font-bold"
+                          >
+                            Tumunu Ac
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {group.orders.map((order) => {
+                          const active = activeOrderNumber === order.mikroOrderNumber;
+                          const isOpen = openOrderNumbers.includes(order.mikroOrderNumber);
+                          const coverageBadge = orderCoverageBadge[order.coverageStatus];
+                          return (
+                            <button
+                              key={order.mikroOrderNumber}
+                              onClick={() => loadOrderDetail(order.mikroOrderNumber)}
+                              className={`text-left rounded-xl border p-3 transition ${
+                                active
+                                  ? 'border-cyan-500 bg-cyan-50 shadow-sm'
+                                  : isOpen
+                                  ? 'border-cyan-300 bg-cyan-50/50'
+                                  : `${coverageBadge.cardClass} hover:border-cyan-300`
+                              }`}
+                            >
+                              <p className="text-sm font-black text-slate-900">{order.mikroOrderNumber}</p>
+                              <p className="text-xs text-slate-600">{formatDateShort(order.orderDate)} | {formatCurrency(order.grandTotal)}</p>
+                              <p className="text-xs text-slate-600">Karsilama %{order.coverage.coveredPercent}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                ) : (
                 sortedOrders.map((order) => {
                   const active = activeOrderNumber === order.mikroOrderNumber;
                   const isOpen = openOrderNumbers.includes(order.mikroOrderNumber);
@@ -690,6 +814,7 @@ export default function WarehousePage() {
                     </button>
                   );
                 })
+                )
               )}
             </div>
           </Card>
