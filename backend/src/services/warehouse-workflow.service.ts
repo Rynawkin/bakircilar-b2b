@@ -1337,6 +1337,7 @@ class WarehouseWorkflowService {
       WHERE sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
         AND ISNULL(sth_tip, 1) = 1
         AND ISNULL(sth_cins, 0) = 0
+        AND ISNULL(sth_evraktip, 0) = 1
       ORDER BY sth_evrakno_sira DESC, sth_satirno DESC
     `);
     let templateRow = (templateRows as any[])[0];
@@ -1346,7 +1347,7 @@ class WarehouseWorkflowService {
         FROM STOK_HAREKETLERI
         WHERE ISNULL(sth_tip, 1) = 1
           AND ISNULL(sth_cins, 0) = 0
-          AND ISNULL(sth_evraktip, 0) IN (1, 4)
+          AND ISNULL(sth_evraktip, 0) = 1
         ORDER BY sth_tarih DESC, sth_evrakno_sira DESC, sth_satirno DESC
       `);
       templateRow = (templateRows as any[])[0];
@@ -1354,7 +1355,7 @@ class WarehouseWorkflowService {
     if (!templateRow) {
       throw new Error('Irsaliye olusturma icin Mikroda uygun ornek kayit bulunamadi');
     }
-    const templateDocType = Math.max(Math.trunc(toNumber(templateRow.sth_evraktip)), 0);
+    const templateDocType = 1;
 
     const nextRows = await mikroService.executeQuery(`
       SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 as next_sira
