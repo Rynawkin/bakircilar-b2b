@@ -1321,10 +1321,24 @@ class WarehouseWorkflowService {
       throw new Error('Irsaliye serisi gerekli');
     }
 
+    const templateRows = await mikroService.executeQuery(`
+      SELECT TOP 1 *
+      FROM STOK_HAREKETLERI
+      WHERE sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
+        AND ISNULL(sth_tip, 1) = 1
+        AND ISNULL(sth_cins, 0) = 0
+      ORDER BY sth_evrakno_sira DESC, sth_satirno DESC
+    `);
+    const templateRow = (templateRows as any[])[0];
+    if (!templateRow) {
+      throw new Error(`Irsaliye serisi icin ornek kayit bulunamadi: ${deliverySeries}`);
+    }
+    const templateDocType = Math.max(Math.trunc(toNumber(templateRow.sth_evraktip)), 0);
+
     const nextRows = await mikroService.executeQuery(`
       SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 as next_sira
       FROM STOK_HAREKETLERI
-      WHERE sth_evraktip = 4
+      WHERE sth_evraktip = ${templateDocType}
         AND sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
     `);
     const deliverySequence = Number((nextRows as any[])?.[0]?.next_sira || 0);
@@ -1387,42 +1401,46 @@ class WarehouseWorkflowService {
       const rowGuid = randomUUID();
       const values: Record<string, unknown> = {
         sth_Guid: this.raw(`CAST('${rowGuid}' as uniqueidentifier)`),
-        sth_DBCno: 0,
-        sth_SpecRECno: 0,
+        sth_DBCno: toNumber(templateRow.sth_DBCno) || 0,
+        sth_SpecRECno: toNumber(templateRow.sth_SpecRECno) || 0,
         sth_iptal: 0,
-        sth_fileid: 4,
-        sth_hidden: 0,
-        sth_kilitli: 0,
+        sth_fileid: Math.max(Math.trunc(toNumber(templateRow.sth_fileid)), 0),
+        sth_hidden: toNumber(templateRow.sth_hidden) ? 1 : 0,
+        sth_kilitli: toNumber(templateRow.sth_kilitli) ? 1 : 0,
         sth_degisti: 0,
-        sth_checksum: 0,
-        sth_create_user: mikroUserNo,
+        sth_checksum: toNumber(templateRow.sth_checksum) || 0,
+        sth_create_user: Math.max(Math.trunc(toNumber(templateRow.sth_create_user)), mikroUserNo),
         sth_create_date: this.raw('GETDATE()'),
-        sth_lastup_user: mikroUserNo,
+        sth_lastup_user: Math.max(Math.trunc(toNumber(templateRow.sth_lastup_user)), mikroUserNo),
         sth_lastup_date: this.raw('GETDATE()'),
-        sth_special1: '',
-        sth_special2: '',
-        sth_special3: '',
-        sth_firmano: 0,
-        sth_subeno: 0,
+        sth_special1: normalizeCode(templateRow.sth_special1 || ''),
+        sth_special2: normalizeCode(templateRow.sth_special2 || ''),
+        sth_special3: normalizeCode(templateRow.sth_special3 || ''),
+        sth_firmano: toNumber(templateRow.sth_firmano) || 0,
+        sth_subeno: toNumber(templateRow.sth_subeno) || 0,
         sth_tarih: this.raw('GETDATE()'),
-        sth_tip: 1,
-        sth_cins: 0,
-        sth_evraktip: 4,
+        sth_tip: Math.max(Math.trunc(toNumber(templateRow.sth_tip)), 0),
+        sth_cins: Math.max(Math.trunc(toNumber(templateRow.sth_cins)), 0),
+        sth_normal_iade: Math.max(Math.trunc(toNumber(templateRow.sth_normal_iade)), 0),
+        sth_evraktip: templateDocType,
         sth_evrakno_seri: deliverySeries,
         sth_evrakno_sira: deliverySequence,
         sth_satirno: index,
         sth_belge_no: deliveryNoteNo,
+        sth_belge_tarih: this.raw('GETDATE()'),
         sth_stok_kod: safeProductCode,
         sth_miktar: line.deliverQty,
-        sth_birim_pntr: 1,
+        sth_miktar2: 0,
+        sth_birim_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_birim_pntr)), 1),
         sth_cari_kodu: params.customerCode,
-        sth_cari_cinsi: 0,
-        sth_plasiyer_kodu: '',
-        sth_har_doviz_cinsi: 0,
-        sth_har_doviz_kuru: 1,
-        sth_alt_doviz_kuru: 1,
-        sth_stok_doviz_cinsi: 0,
-        sth_stok_doviz_kuru: 1,
+        sth_cari_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_cari_cinsi)), 0),
+        sth_cari_grup_no: Math.max(Math.trunc(toNumber(templateRow.sth_cari_grup_no)), 0),
+        sth_plasiyer_kodu: normalizeCode(templateRow.sth_plasiyer_kodu || ''),
+        sth_har_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_har_doviz_cinsi)), 0),
+        sth_har_doviz_kuru: toNumber(templateRow.sth_har_doviz_kuru) || 1,
+        sth_alt_doviz_kuru: toNumber(templateRow.sth_alt_doviz_kuru) || 1,
+        sth_stok_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_stok_doviz_cinsi)), 0),
+        sth_stok_doviz_kuru: toNumber(templateRow.sth_stok_doviz_kuru) || 1,
         sth_iskonto1: 0,
         sth_iskonto2: 0,
         sth_iskonto3: 0,
@@ -1436,15 +1454,43 @@ class WarehouseWorkflowService {
         sth_tutar: lineTotal,
         sth_vergi: vatAmount,
         sth_vergi_pntr: vatCode,
-        sth_depo_no: depoNo,
-        sth_stok_sormerk: stokSormerk,
-        sth_cari_sormerk: cariSormerk,
-        sth_projekodu: projeKodu,
+        sth_masraf_vergi_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_masraf_vergi_pntr)), 0),
+        sth_masraf_vergi: 0,
+        sth_odeme_op: Math.max(Math.trunc(toNumber(templateRow.sth_odeme_op)), 1),
+        sth_adres_no: Math.max(Math.trunc(toNumber(templateRow.sth_adres_no)), 1),
+        sth_giris_depo_no: depoNo,
+        sth_cikis_depo_no: depoNo,
+        sth_malkbl_sevk_tarihi: this.raw('GETDATE()'),
+        sth_cari_srm_merkezi: cariSormerk,
+        sth_stok_srm_merkezi: stokSormerk,
+        sth_fis_tarihi: this.raw(`CAST('1899-12-30' as datetime)`),
+        sth_fis_sirano: Math.max(Math.trunc(toNumber(templateRow.sth_fis_sirano)), 0),
+        sth_vergisiz_fl: toNumber(templateRow.sth_vergisiz_fl) ? 1 : 0,
+        sth_proje_kodu: projeKodu,
+        sth_otv_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_otv_pntr)), 0),
+        sth_otv_vergi: 0,
+        sth_otvtutari: 0,
+        sth_oiv_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_oiv_pntr)), 0),
+        sth_oiv_vergi: 0,
+        sth_oivtutari: 0,
+        sth_fiyat_liste_no: Math.max(Math.trunc(toNumber(templateRow.sth_fiyat_liste_no)), 0),
+        sth_Tevkifat_turu: Math.max(Math.trunc(toNumber(templateRow.sth_Tevkifat_turu)), 0),
+        sth_nakliyedeposu: Math.max(Math.trunc(toNumber(templateRow.sth_nakliyedeposu)), 0),
+        sth_nakliyedurumu: Math.max(Math.trunc(toNumber(templateRow.sth_nakliyedurumu)), 0),
         sth_sip_uid: this.raw(`CAST('${sipGuid}' as uniqueidentifier)`),
         sth_fat_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
         sth_har_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
         sth_evrakuid: this.raw(`CAST('${docGuid}' as uniqueidentifier)`),
         sth_irs_tes_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_kons_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_yetkili_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_eirs_senaryo: Math.max(Math.trunc(toNumber(templateRow.sth_eirs_senaryo)), 0),
+        sth_eirs_tipi: Math.max(Math.trunc(toNumber(templateRow.sth_eirs_tipi)), 0),
+        sth_teslim_tarihi: this.raw('GETDATE()'),
+        sth_matbu_fl: toNumber(templateRow.sth_matbu_fl) ? 1 : 0,
+        sth_satis_fiyat_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_satis_fiyat_doviz_cinsi)), 0),
+        sth_satis_fiyat_doviz_kuru: toNumber(templateRow.sth_satis_fiyat_doviz_kuru) || 0,
+        sth_tevkifat_sifirlandi_fl: toNumber(templateRow.sth_tevkifat_sifirlandi_fl) ? 1 : 0,
       };
 
       const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
