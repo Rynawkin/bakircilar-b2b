@@ -197,7 +197,11 @@ class WarehouseWorkflowController {
     } catch (error: any) {
       console.error('Irsaliyelestirme hatasi:', error);
       const status =
-        error.message?.includes('gerekli') || error.message?.includes('baslatilmadan') || error.message?.includes('zaten')
+        error.message?.includes('gerekli') ||
+        error.message?.includes('baslatilmadan') ||
+        error.message?.includes('zaten') ||
+        error.message?.includes('ornek kayit') ||
+        error.message?.includes('uygun ornek')
           ? 400
           : error.message?.includes('bulunamadi')
           ? 404

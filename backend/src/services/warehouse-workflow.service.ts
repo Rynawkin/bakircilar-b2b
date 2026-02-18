@@ -1331,7 +1331,7 @@ class WarehouseWorkflowService {
       throw new Error('Irsaliye serisi gerekli');
     }
 
-    const templateRows = await mikroService.executeQuery(`
+    let templateRows = await mikroService.executeQuery(`
       SELECT TOP 1 *
       FROM STOK_HAREKETLERI
       WHERE sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
@@ -1339,9 +1339,20 @@ class WarehouseWorkflowService {
         AND ISNULL(sth_cins, 0) = 0
       ORDER BY sth_evrakno_sira DESC, sth_satirno DESC
     `);
-    const templateRow = (templateRows as any[])[0];
+    let templateRow = (templateRows as any[])[0];
     if (!templateRow) {
-      throw new Error(`Irsaliye serisi icin ornek kayit bulunamadi: ${deliverySeries}`);
+      templateRows = await mikroService.executeQuery(`
+        SELECT TOP 1 *
+        FROM STOK_HAREKETLERI
+        WHERE ISNULL(sth_tip, 1) = 1
+          AND ISNULL(sth_cins, 0) = 0
+          AND ISNULL(sth_evraktip, 0) IN (1, 4)
+        ORDER BY sth_tarih DESC, sth_evrakno_sira DESC, sth_satirno DESC
+      `);
+      templateRow = (templateRows as any[])[0];
+    }
+    if (!templateRow) {
+      throw new Error('Irsaliye olusturma icin Mikroda uygun ornek kayit bulunamadi');
     }
     const templateDocType = Math.max(Math.trunc(toNumber(templateRow.sth_evraktip)), 0);
 

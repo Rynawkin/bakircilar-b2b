@@ -547,18 +547,22 @@ export default function WarehousePage() {
       return;
     }
 
-    await withAction(async () => {
-      const result = await adminApi.markWarehouseDispatched(mikroOrderNumber, { deliverySeries });
-      const resolvedNo =
-        result?.workflow?.mikroDeliveryNoteNo ||
-        result?.mikroDeliveryNoteNo ||
-        '';
-      await refreshOrderDetail(mikroOrderNumber);
-      if (resolvedNo) {
-        setDeliveryNoteDrafts((prev) => ({ ...prev, [mikroOrderNumber]: deliverySeries }));
-      }
-      toast.success(`Irsaliyelestirildi: ${resolvedNo}`);
-    });
+    try {
+      await withAction(async () => {
+        const result = await adminApi.markWarehouseDispatched(mikroOrderNumber, { deliverySeries });
+        const resolvedNo =
+          result?.workflow?.mikroDeliveryNoteNo ||
+          result?.mikroDeliveryNoteNo ||
+          '';
+        await refreshOrderDetail(mikroOrderNumber);
+        if (resolvedNo) {
+          setDeliveryNoteDrafts((prev) => ({ ...prev, [mikroOrderNumber]: deliverySeries }));
+        }
+        toast.success(`Irsaliyelestirildi: ${resolvedNo}`);
+      });
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Irsaliyelestirme basarisiz');
+    }
   };
 
   const reportImageIssue = async (
