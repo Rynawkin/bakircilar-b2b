@@ -1360,8 +1360,7 @@ class WarehouseWorkflowService {
     const nextRows = await mikroService.executeQuery(`
       SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 as next_sira
       FROM STOK_HAREKETLERI
-      WHERE sth_evraktip = ${templateDocType}
-        AND sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
+      WHERE sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
     `);
     const deliverySequence = Number((nextRows as any[])?.[0]?.next_sira || 0);
     if (!Number.isFinite(deliverySequence) || deliverySequence <= 0) {
