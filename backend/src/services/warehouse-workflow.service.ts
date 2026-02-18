@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import { MIKRO_TABLES } from '../config/mikro-tables';
+import { randomUUID } from 'crypto';
 
 type WorkflowStatus =
   | 'PENDING'
@@ -46,6 +47,7 @@ interface CoverageSummary {
 
 type CoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
 type ImageIssueStatus = 'OPEN' | 'REVIEWED' | 'FIXED';
+type SqlRawValue = { raw: string };
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -54,6 +56,15 @@ const toNumber = (value: unknown): number => {
 
 const normalizeCode = (value: unknown): string => String(value ?? '').trim();
 const normalizeProductCode = (value: unknown): string => normalizeCode(value).toUpperCase();
+const parseMikroOrderNumber = (value: string): { series: string; sequence: number } | null => {
+  const normalized = normalizeCode(value);
+  const lastDash = normalized.lastIndexOf('-');
+  if (lastDash <= 0 || lastDash >= normalized.length - 1) return null;
+  const series = normalized.slice(0, lastDash);
+  const sequence = Number(normalized.slice(lastDash + 1));
+  if (!series || !Number.isFinite(sequence) || sequence <= 0) return null;
+  return { series, sequence };
+};
 
 const normalizeLineKey = (productCode: string, rowNumber?: number, index = 0): string => {
   const code = normalizeCode(productCode) || `UNKNOWN-${index + 1}`;
@@ -720,6 +731,7 @@ class WarehouseWorkflowService {
           startedAt: workflow?.startedAt || null,
           loadedAt: workflow?.loadedAt || null,
           dispatchedAt: workflow?.dispatchedAt || null,
+          mikroDeliveryNoteNo: workflow?.mikroDeliveryNoteNo || null,
           warehouseCode,
           coverage,
           coverageStatus,
@@ -906,6 +918,7 @@ class WarehouseWorkflowService {
             loadingStartedAt: workflow.loadingStartedAt,
             loadedAt: workflow.loadedAt,
             dispatchedAt: workflow.dispatchedAt,
+            mikroDeliveryNoteNo: workflow.mikroDeliveryNoteNo || null,
             lastActionAt: workflow.lastActionAt,
           }
         : null,
@@ -1247,7 +1260,389 @@ class WarehouseWorkflowService {
   }
 
   async markDispatched(mikroOrderNumber: string) {
-    throw new Error('Durum manuel guncellenemez');
+    throw new Error('Sevk icin irsaliye serisi ile irsaliyelestirme adimini kullanin');
+  }
+
+  private raw(value: string): SqlRawValue {
+    return { raw: value };
+  }
+
+  private toSqlLiteral(value: unknown): string {
+    if (value && typeof value === 'object' && 'raw' in (value as Record<string, unknown>)) {
+      return String((value as SqlRawValue).raw);
+    }
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '0';
+    if (typeof value === 'boolean') return value ? '1' : '0';
+    return `'${String(value).replace(/'/g, "''")}'`;
+  }
+
+  private vatCodeToRate(vatCode: number): number {
+    const vatMap: Record<number, number> = {
+      0: 0,
+      1: 0,
+      2: 0.01,
+      4: 0.18,
+      5: 0.2,
+      7: 0.1,
+    };
+    return vatMap[vatCode] ?? 0.2;
+  }
+
+  private async getTableColumns(tableName: string): Promise<Set<string>> {
+    const rows = await mikroService.executeQuery(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = '${String(tableName).replace(/'/g, "''")}'
+    `);
+    return new Set((rows as any[]).map((row) => String(row.COLUMN_NAME || row.column_name || '').trim()));
+  }
+
+  private buildInsertSql(tableName: string, values: Record<string, unknown>, allowedColumns: Set<string>) {
+    const entries = Object.entries(values).filter(([column, value]) => allowedColumns.has(column) && value !== undefined);
+    if (entries.length === 0) {
+      throw new Error(`${tableName} insert kolonlari olusturulamadi`);
+    }
+    const columnSql = entries.map(([column]) => column).join(', ');
+    const valueSql = entries.map(([, value]) => this.toSqlLiteral(value)).join(', ');
+    return `INSERT INTO ${tableName} (${columnSql}) VALUES (${valueSql})`;
+  }
+
+  private async createMikroDeliveryNote(params: {
+    orderNo: string;
+    orderSeries: string;
+    orderSequence: number;
+    customerCode: string;
+    deliverySeries: string;
+    lines: Array<{ rowNumber: number | null; productCode: string; deliverQty: number }>;
+  }): Promise<{ deliveryNoteNo: string; deliverySequence: number }> {
+    const deliverySeries = normalizeCode(params.deliverySeries);
+    if (!deliverySeries) {
+      throw new Error('Irsaliye serisi gerekli');
+    }
+
+    const nextRows = await mikroService.executeQuery(`
+      SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 as next_sira
+      FROM STOK_HAREKETLERI
+      WHERE sth_evraktip = 4
+        AND sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
+    `);
+    const deliverySequence = Number((nextRows as any[])?.[0]?.next_sira || 0);
+    if (!Number.isFinite(deliverySequence) || deliverySequence <= 0) {
+      throw new Error('Irsaliye sira numarasi alinamadi');
+    }
+
+    const sthColumns = await this.getTableColumns('STOK_HAREKETLERI');
+    const sipColumns = await this.getTableColumns('SIPARISLER');
+    const belgeNoColumn = sipColumns.has('sip_belge_no') ? 'sip_belge_no' : sipColumns.has('sip_belgeno') ? 'sip_belgeno' : null;
+    const hasBelgeTarih = sipColumns.has('sip_belge_tarih');
+    const zeroGuid = '00000000-0000-0000-0000-000000000000';
+    const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+    const mikroUserNo = Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0 ? Math.trunc(mikroUserNoRaw) : 1;
+    const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
+    const docGuid = randomUUID();
+    const deliveryNoteNo = `${deliverySeries}-${deliverySequence}`;
+
+    for (let index = 0; index < params.lines.length; index += 1) {
+      const line = params.lines[index];
+      const safeProductCode = normalizeCode(line.productCode);
+      const rowFilter =
+        line.rowNumber !== null && Number.isFinite(Number(line.rowNumber))
+          ? ` AND sip_satirno = ${Number(line.rowNumber)}`
+          : '';
+
+      const sipRows = await mikroService.executeQuery(`
+        SELECT TOP 1
+          sip_Guid as sip_guid,
+          sip_stok_kod as stok_kod,
+          ISNULL(sip_b_fiyat, 0) as unit_price,
+          ISNULL(sip_vergi_pntr, 0) as vat_code,
+          ISNULL(sip_depono, 1) as depo_no,
+          ISNULL(sip_stok_sormerk, '') as stok_sormerk,
+          ISNULL(sip_cari_sormerk, '') as cari_sormerk,
+          ISNULL(sip_projekodu, '') as proje_kodu
+        FROM SIPARISLER
+        WHERE sip_evrakno_seri = '${params.orderSeries.replace(/'/g, "''")}'
+          AND sip_evrakno_sira = ${params.orderSequence}
+          AND sip_stok_kod = '${safeProductCode.replace(/'/g, "''")}'
+          ${rowFilter}
+          AND ISNULL(sip_iptal, 0) = 0
+      `);
+      const sipRow = (sipRows as any[])[0];
+      if (!sipRow) {
+        throw new Error(`Siparis satiri bulunamadi: ${safeProductCode}`);
+      }
+
+      const unitPrice = Math.max(toNumber(sipRow.unit_price), 0);
+      const vatCode = Math.max(Math.trunc(toNumber(sipRow.vat_code)), 0);
+      const vatRate = this.vatCodeToRate(vatCode);
+      const lineTotal = Math.max(unitPrice * line.deliverQty, 0);
+      const vatAmount = Math.max(lineTotal * vatRate, 0);
+      const depoNo = Math.max(Math.trunc(toNumber(sipRow.depo_no || 1)), 1);
+      const sipGuid = normalizeCode(sipRow.sip_guid) || zeroGuid;
+      const stokSormerk = normalizeCode(sipRow.stok_sormerk) || defaultSorMerkez;
+      const cariSormerk = normalizeCode(sipRow.cari_sormerk) || stokSormerk;
+      const projeKodu = normalizeCode(sipRow.proje_kodu) || '';
+
+      const rowGuid = randomUUID();
+      const values: Record<string, unknown> = {
+        sth_Guid: this.raw(`CAST('${rowGuid}' as uniqueidentifier)`),
+        sth_DBCno: 0,
+        sth_SpecRECno: 0,
+        sth_iptal: 0,
+        sth_fileid: 4,
+        sth_hidden: 0,
+        sth_kilitli: 0,
+        sth_degisti: 0,
+        sth_checksum: 0,
+        sth_create_user: mikroUserNo,
+        sth_create_date: this.raw('GETDATE()'),
+        sth_lastup_user: mikroUserNo,
+        sth_lastup_date: this.raw('GETDATE()'),
+        sth_special1: '',
+        sth_special2: '',
+        sth_special3: '',
+        sth_firmano: 0,
+        sth_subeno: 0,
+        sth_tarih: this.raw('GETDATE()'),
+        sth_tip: 1,
+        sth_cins: 0,
+        sth_evraktip: 4,
+        sth_evrakno_seri: deliverySeries,
+        sth_evrakno_sira: deliverySequence,
+        sth_satirno: index,
+        sth_belge_no: deliveryNoteNo,
+        sth_stok_kod: safeProductCode,
+        sth_miktar: line.deliverQty,
+        sth_birim_pntr: 1,
+        sth_cari_kodu: params.customerCode,
+        sth_cari_cinsi: 0,
+        sth_plasiyer_kodu: '',
+        sth_har_doviz_cinsi: 0,
+        sth_har_doviz_kuru: 1,
+        sth_alt_doviz_kuru: 1,
+        sth_stok_doviz_cinsi: 0,
+        sth_stok_doviz_kuru: 1,
+        sth_iskonto1: 0,
+        sth_iskonto2: 0,
+        sth_iskonto3: 0,
+        sth_iskonto4: 0,
+        sth_iskonto5: 0,
+        sth_iskonto6: 0,
+        sth_masraf1: 0,
+        sth_masraf2: 0,
+        sth_masraf3: 0,
+        sth_masraf4: 0,
+        sth_tutar: lineTotal,
+        sth_vergi: vatAmount,
+        sth_vergi_pntr: vatCode,
+        sth_depo_no: depoNo,
+        sth_stok_sormerk: stokSormerk,
+        sth_cari_sormerk: cariSormerk,
+        sth_projekodu: projeKodu,
+        sth_sip_uid: this.raw(`CAST('${sipGuid}' as uniqueidentifier)`),
+        sth_fat_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_har_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_evrakuid: this.raw(`CAST('${docGuid}' as uniqueidentifier)`),
+        sth_irs_tes_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+      };
+
+      const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
+      await mikroService.executeQuery(insertSql);
+    }
+
+    const setBelgeNo = belgeNoColumn ? `${belgeNoColumn} = '${deliveryNoteNo.replace(/'/g, "''")}',` : '';
+    const setBelgeTarih = hasBelgeTarih ? 'sip_belge_tarih = GETDATE(),' : '';
+    await mikroService.executeQuery(`
+      UPDATE SIPARISLER
+      SET
+        ${setBelgeNo}
+        ${setBelgeTarih}
+        sip_lastup_date = GETDATE()
+      WHERE sip_evrakno_seri = '${params.orderSeries.replace(/'/g, "''")}'
+        AND sip_evrakno_sira = ${params.orderSequence}
+        AND ISNULL(sip_iptal, 0) = 0
+    `);
+
+    return {
+      deliveryNoteNo,
+      deliverySequence,
+    };
+  }
+
+  async dispatchOrderWithDeliveryNote(
+    mikroOrderNumber: string,
+    payload: {
+      deliverySeries: string;
+      userId?: string;
+    }
+  ) {
+    const orderNo = normalizeCode(mikroOrderNumber);
+    if (!orderNo) {
+      throw new Error('Siparis numarasi gerekli');
+    }
+
+    const deliverySeries = normalizeCode(payload.deliverySeries);
+    if (!deliverySeries) {
+      throw new Error('Irsaliye serisi gerekli');
+    }
+
+    const parsedOrder = parseMikroOrderNumber(orderNo);
+    if (!parsedOrder) {
+      throw new Error('Gecersiz siparis numarasi');
+    }
+
+    const pendingOrder = await prisma.pendingMikroOrder.findUnique({
+      where: { mikroOrderNumber: orderNo },
+      select: {
+        mikroOrderNumber: true,
+        orderSeries: true,
+        orderSequence: true,
+        customerCode: true,
+        customerName: true,
+        items: true,
+      },
+    });
+
+    if (!pendingOrder) {
+      throw new Error('Bekleyen siparis bulunamadi');
+    }
+
+    const workflow = await this.upsertWorkflowFromPendingOrder(pendingOrder);
+    if (!workflow.startedAt || workflow.status === 'PENDING') {
+      throw new Error('Toplama baslatilmadan irsaliyelestirme yapilamaz');
+    }
+    if (workflow.status === 'DISPATCHED' && normalizeCode(workflow.mikroDeliveryNoteNo)) {
+      throw new Error('Siparis zaten irsaliyelestirilmis');
+    }
+
+    const workflowItems = await prisma.warehouseOrderWorkflowItem.findMany({
+      where: { workflowId: workflow.id },
+      select: {
+        id: true,
+        rowNumber: true,
+        lineKey: true,
+        productCode: true,
+        unit: true,
+        remainingQty: true,
+        pickedQty: true,
+        deliveredQty: true,
+        extraQty: true,
+      },
+    });
+
+    const linesToDispatch = workflowItems
+      .map((item) => {
+        const remainingQty = Math.max(toNumber(item.remainingQty), 0);
+        const pickedQty = Math.max(toNumber(item.pickedQty), 0);
+        const deliverQty = Math.min(remainingQty, pickedQty);
+        return {
+          ...item,
+          deliverQty,
+        };
+      })
+      .filter((item) => item.deliverQty > 0);
+
+    if (linesToDispatch.length === 0) {
+      throw new Error('Irsaliyelestirme icin toplanan miktar bulunamadi');
+    }
+
+    const createdDelivery = await this.createMikroDeliveryNote({
+      orderNo,
+      orderSeries: parsedOrder.series,
+      orderSequence: parsedOrder.sequence,
+      customerCode: pendingOrder.customerCode,
+      deliverySeries,
+      lines: linesToDispatch.map((line) => ({
+        rowNumber: Number.isFinite(Number(line.rowNumber)) ? Number(line.rowNumber) : null,
+        productCode: line.productCode,
+        deliverQty: line.deliverQty,
+      })),
+    });
+    const deliveryNoteNo = createdDelivery.deliveryNoteNo;
+
+    await Promise.all(
+      linesToDispatch.map((line) => {
+        const safeProductCode = normalizeCode(line.productCode).replace(/'/g, "''");
+        const rowClause = Number.isFinite(Number(line.rowNumber))
+          ? ` AND sip_satirno = ${Number(line.rowNumber)}`
+          : '';
+
+        const sqlQuery = `
+          UPDATE SIPARISLER
+          SET
+            sip_teslim_miktar = CASE
+              WHEN ISNULL(sip_teslim_miktar, 0) + ${line.deliverQty} > ISNULL(sip_miktar, 0) THEN ISNULL(sip_miktar, 0)
+              ELSE ISNULL(sip_teslim_miktar, 0) + ${line.deliverQty}
+            END,
+            sip_rezerveden_teslim_edilen = CASE
+              WHEN ISNULL(sip_rezervasyon_miktari, 0) <= 0 THEN ISNULL(sip_rezerveden_teslim_edilen, 0)
+              WHEN ISNULL(sip_rezerveden_teslim_edilen, 0) + ${line.deliverQty} > ISNULL(sip_rezervasyon_miktari, 0)
+                THEN ISNULL(sip_rezervasyon_miktari, 0)
+              ELSE ISNULL(sip_rezerveden_teslim_edilen, 0) + ${line.deliverQty}
+            END,
+            sip_kapat_fl = CASE
+              WHEN CASE
+                WHEN ISNULL(sip_teslim_miktar, 0) + ${line.deliverQty} > ISNULL(sip_miktar, 0) THEN ISNULL(sip_miktar, 0)
+                ELSE ISNULL(sip_teslim_miktar, 0) + ${line.deliverQty}
+              END >= ISNULL(sip_miktar, 0)
+                THEN 1
+              ELSE ISNULL(sip_kapat_fl, 0)
+            END,
+            sip_lastup_date = GETDATE()
+          WHERE sip_evrakno_seri = '${parsedOrder.series.replace(/'/g, "''")}'
+            AND sip_evrakno_sira = ${parsedOrder.sequence}
+            AND sip_stok_kod = '${safeProductCode}'
+            ${rowClause}
+            AND ISNULL(sip_iptal, 0) = 0
+        `;
+        return mikroService.executeQuery(sqlQuery);
+      })
+    );
+
+    await mikroService.executeQuery(`
+      UPDATE SIPARISLER
+      SET sip_kapat_fl = CASE
+        WHEN ISNULL(sip_miktar, 0) <= ISNULL(sip_teslim_miktar, 0) THEN 1
+        ELSE ISNULL(sip_kapat_fl, 0)
+      END
+      WHERE sip_evrakno_seri = '${parsedOrder.series.replace(/'/g, "''")}'
+        AND sip_evrakno_sira = ${parsedOrder.sequence}
+        AND ISNULL(sip_iptal, 0) = 0
+    `);
+
+    const now = new Date();
+    await prisma.$transaction([
+      ...linesToDispatch.map((line) => {
+        const nextDelivered = Math.max(toNumber(line.deliveredQty), 0) + line.deliverQty;
+        const nextRemaining = Math.max(toNumber(line.remainingQty) - line.deliverQty, 0);
+        const nextPicked = Math.max(toNumber(line.pickedQty) - line.deliverQty, 0);
+        const nextShortage = Math.max(nextRemaining - nextPicked, 0);
+        return prisma.warehouseOrderWorkflowItem.update({
+          where: { id: line.id },
+          data: {
+            deliveredQty: nextDelivered,
+            remainingQty: nextRemaining,
+            pickedQty: nextPicked,
+            shortageQty: nextShortage,
+            status: toItemStatus(nextPicked, Math.max(toNumber(line.extraQty), 0), nextShortage, nextRemaining),
+          },
+        });
+      }),
+      prisma.warehouseOrderWorkflow.update({
+        where: { id: workflow.id },
+        data: {
+          status: 'DISPATCHED',
+          loadedAt: workflow.loadedAt || now,
+          dispatchedAt: now,
+          dispatchedByUserId: normalizeCode(payload.userId) || null,
+          mikroDeliveryNoteNo: deliveryNoteNo,
+          lastActionAt: now,
+        },
+      }),
+    ]);
+
+    return this.getOrderDetail(orderNo, false);
   }
 
   async getWorkflowStatusMap(mikroOrderNumbers: string[]) {

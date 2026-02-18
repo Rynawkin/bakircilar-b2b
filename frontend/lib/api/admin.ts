@@ -509,6 +509,7 @@ export const adminApi = {
       startedAt: string | null;
       loadedAt: string | null;
       dispatchedAt: string | null;
+      mikroDeliveryNoteNo: string | null;
       coverage: {
         fullLines: number;
         partialLines: number;
@@ -543,6 +544,7 @@ export const adminApi = {
       loadingStartedAt: string | null;
       loadedAt: string | null;
       dispatchedAt: string | null;
+      mikroDeliveryNoteNo: string | null;
       lastActionAt: string | null;
     } | null;
     coverage: {
@@ -700,8 +702,14 @@ export const adminApi = {
     return response.data;
   },
 
-  markWarehouseDispatched: async (mikroOrderNumber: string) => {
-    const response = await apiClient.post(`/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/dispatched`);
+  markWarehouseDispatched: async (
+    mikroOrderNumber: string,
+    data: { deliverySeries: string }
+  ) => {
+    const response = await apiClient.post(
+      `/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/dispatched`,
+      data
+    );
     return response.data;
   },
 

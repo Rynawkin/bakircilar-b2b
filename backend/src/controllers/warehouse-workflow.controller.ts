@@ -180,16 +180,29 @@ class WarehouseWorkflowController {
   async markDispatched(req: Request, res: Response) {
     try {
       const mikroOrderNumber = req.params.mikroOrderNumber;
+      const deliverySeries =
+        typeof req.body?.deliverySeries === 'string' ? req.body.deliverySeries : '';
       if (!mikroOrderNumber) {
         return res.status(400).json({ error: 'Siparis numarasi gerekli' });
       }
+      if (!deliverySeries.trim()) {
+        return res.status(400).json({ error: 'Irsaliye serisi gerekli' });
+      }
 
-      const result = await warehouseWorkflowService.markDispatched(mikroOrderNumber);
+      const result = await warehouseWorkflowService.dispatchOrderWithDeliveryNote(mikroOrderNumber, {
+        deliverySeries,
+        userId: req.user?.userId,
+      });
       res.json(result);
     } catch (error: any) {
-      console.error('Sevk edildi isaretleme hatasi:', error);
-      const status = error.message?.includes('manuel') ? 400 : error.message?.includes('bulunamadi') ? 404 : 500;
-      res.status(status).json({ error: error.message || 'Siparis sevk durumu guncellenemedi' });
+      console.error('Irsaliyelestirme hatasi:', error);
+      const status =
+        error.message?.includes('gerekli') || error.message?.includes('baslatilmadan') || error.message?.includes('zaten')
+          ? 400
+          : error.message?.includes('bulunamadi')
+          ? 404
+          : 500;
+      res.status(status).json({ error: error.message || 'Siparis irsaliyelestirilemedi' });
     }
   }
 }

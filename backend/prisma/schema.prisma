@@ -1430,6 +1430,8 @@ model WarehouseOrderWorkflow {
   loadingStartedAt      DateTime?
   loadedAt              DateTime?
   dispatchedAt          DateTime?
+  mikroDeliveryNoteNo   String?
+  dispatchedByUserId    String?
   lastActionAt          DateTime?
   notes                 String?
   items                 WarehouseOrderWorkflowItem[]
@@ -1439,6 +1441,7 @@ model WarehouseOrderWorkflow {
   @@index([orderSeries])
   @@index([status])
   @@index([customerCode])
+  @@index([mikroDeliveryNoteNo])
 }
 
 model WarehouseOrderWorkflowItem {

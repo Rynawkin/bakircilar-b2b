@@ -54,6 +54,7 @@ interface WarehouseOrderRow {
   startedAt: string | null;
   loadedAt: string | null;
   dispatchedAt: string | null;
+  mikroDeliveryNoteNo: string | null;
   coverage: {
     fullLines: number;
     partialLines: number;
@@ -76,16 +77,17 @@ interface WarehouseOrderDetail {
     itemCount: number;
     grandTotal: number;
   };
-  workflow: {
+    workflow: {
     id: string;
     status: WorkflowStatus;
     assignedPickerUserId: string | null;
     startedAt: string | null;
     loadingStartedAt: string | null;
-    loadedAt: string | null;
-    dispatchedAt: string | null;
-    lastActionAt: string | null;
-  } | null;
+      loadedAt: string | null;
+      dispatchedAt: string | null;
+      mikroDeliveryNoteNo: string | null;
+      lastActionAt: string | null;
+    } | null;
   coverage: {
     fullLines: number;
     partialLines: number;
@@ -197,18 +199,21 @@ export default function WarehousePage() {
   const [activeOrderNumber, setActiveOrderNumber] = useState<string | null>(null);
   const [shelfDrafts, setShelfDrafts] = useState<Record<string, string>>({});
   const [isPortrait, setIsPortrait] = useState(false);
+  const [isKioskTouchMode, setIsKioskTouchMode] = useState(true);
   const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
   const [reportedImageKeys, setReportedImageKeys] = useState<Record<string, boolean>>({});
+  const [deliveryNoteDrafts, setDeliveryNoteDrafts] = useState<Record<string, string>>({});
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
   const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
 
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-4'
     : 'grid grid-cols-1 xl:grid-cols-[560px_minmax(0,1fr)] gap-4';
+  const actionButtonClass = isKioskTouchMode ? 'h-14 text-base font-bold' : 'h-12 text-sm font-bold';
 
   useEffect(() => {
     loadUserFromStorage();
@@ -368,6 +373,7 @@ export default function WarehousePage() {
   };
 
   const getShelfDraftKey = (mikroOrderNumber: string, lineKey: string) => `${mikroOrderNumber}::${lineKey}`;
+  const getDeliveryDraft = (mikroOrderNumber: string) => (deliveryNoteDrafts[mikroOrderNumber] || '').trim();
 
   const loadOrderDetail = async (
     mikroOrderNumber: string,
@@ -386,6 +392,13 @@ export default function WarehousePage() {
     try {
       const response = await adminApi.getWarehouseOrderDetail(mikroOrderNumber);
       setDetailByOrder((prev) => ({ ...prev, [mikroOrderNumber]: response }));
+      setDeliveryNoteDrafts((prev) => ({
+        ...prev,
+        [mikroOrderNumber]:
+          prev[mikroOrderNumber] ??
+          response.workflow?.mikroDeliveryNoteNo ??
+          '',
+      }));
       setShelfDrafts((prev) => {
         const next = { ...prev };
         for (const line of response.lines) {
@@ -516,6 +529,27 @@ export default function WarehousePage() {
     await updateLine(mikroOrderNumber, line, { shelfCode: draft || null }, 'Raf kodu guncellendi');
   };
 
+  const handleDispatchWithDeliveryNote = async (mikroOrderNumber: string) => {
+    const deliverySeries = getDeliveryDraft(mikroOrderNumber);
+    if (!deliverySeries) {
+      toast.error('Irsaliye serisi gerekli');
+      return;
+    }
+
+    await withAction(async () => {
+      const result = await adminApi.markWarehouseDispatched(mikroOrderNumber, { deliverySeries });
+      const resolvedNo =
+        result?.workflow?.mikroDeliveryNoteNo ||
+        result?.mikroDeliveryNoteNo ||
+        '';
+      await refreshOrderDetail(mikroOrderNumber);
+      if (resolvedNo) {
+        setDeliveryNoteDrafts((prev) => ({ ...prev, [mikroOrderNumber]: deliverySeries }));
+      }
+      toast.success(`Irsaliyelestirildi: ${resolvedNo}`);
+    });
+  };
+
   const reportImageIssue = async (
     mikroOrderNumber: string,
     line: WarehouseOrderDetail['lines'][number]
@@ -579,6 +613,11 @@ export default function WarehousePage() {
       }
       return next;
     });
+    setDeliveryNoteDrafts((prev) => {
+      const next = { ...prev };
+      delete next[mikroOrderNumber];
+      return next;
+    });
   };
 
   const toggleDetailFullscreen = async () => {
@@ -609,6 +648,13 @@ export default function WarehousePage() {
               <div className="text-xs md:text-sm text-slate-600 bg-slate-100 rounded-lg px-3 py-2 inline-flex">
                 Gorunen siparis: <strong className="ml-1">{totalOrdersCount}</strong>
               </div>
+              <Button
+                variant={isKioskTouchMode ? 'primary' : 'secondary'}
+                onClick={() => setIsKioskTouchMode((prev) => !prev)}
+                className="h-11 text-sm font-bold"
+              >
+                {isKioskTouchMode ? '32\" Dokunmatik Modu Acik' : '32\" Dokunmatik Modu Kapali'}
+              </Button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
@@ -794,6 +840,11 @@ export default function WarehousePage() {
                           Depo: {order.warehouseCode || 'Tum Depolar'}
                         </span>
                       </div>
+                      {order.mikroDeliveryNoteNo && (
+                        <p className="text-[11px] text-indigo-700 font-bold mb-2">
+                          Irsaliye: {order.mikroDeliveryNoteNo}
+                        </p>
+                      )}
                       <p className="text-sm font-semibold text-slate-800 line-clamp-1 mb-2">{order.customerName}</p>
                       <div className="flex justify-between text-xs text-slate-600 mb-2">
                         <span>{formatDateShort(order.orderDate)}</span>
@@ -936,6 +987,11 @@ export default function WarehousePage() {
                               <span className={`text-sm px-3 py-2 rounded-xl border font-bold ${panelCoverageBadge.className}`}>
                                 {panelCoverageBadge.label}
                               </span>
+                              {panelDetail.workflow?.mikroDeliveryNoteNo && (
+                                <span className="text-sm px-3 py-2 rounded-xl border font-bold border-indigo-200 bg-indigo-100 text-indigo-700">
+                                  Irsaliye: {panelDetail.workflow.mikroDeliveryNoteNo}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="mt-3 h-2.5 rounded-full bg-slate-200 overflow-hidden">
@@ -953,14 +1009,14 @@ export default function WarehousePage() {
                           <Button
                             onClick={() => handleStartPicking(orderNumber)}
                             disabled={actionLoading || panelHasStarted}
-                            className="h-12 text-sm font-bold"
+                            className={actionButtonClass}
                           >
                             {panelHasStarted ? 'Toplama Basladi' : 'Toplamaya Basla'}
                           </Button>
                           <Button
                             variant={panelIsActive ? 'primary' : 'secondary'}
                             onClick={() => setActiveOrderNumber(orderNumber)}
-                            className="h-12 text-sm font-bold"
+                            className={actionButtonClass}
                           >
                             {panelIsActive ? 'Aktif Siparis' : 'Aktif Et'}
                           </Button>
@@ -968,7 +1024,7 @@ export default function WarehousePage() {
                             variant="secondary"
                             onClick={() => refreshOrderDetail(orderNumber)}
                             disabled={actionLoading}
-                            className="h-12 text-sm font-bold"
+                            className={actionButtonClass}
                           >
                             Detay Yenile
                           </Button>
@@ -976,6 +1032,35 @@ export default function WarehousePage() {
                             {panelCanEditLines
                               ? 'Toplama aktif. Satirlarda miktar/raf islemleri yapabilirsiniz.'
                               : 'Satir islemleri icin once Toplamaya Basla adimini tamamlayin.'}
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3">
+                          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-2 items-end">
+                            <div>
+                              <p className="text-xs font-bold text-slate-600 mb-1">Irsaliye Serisi</p>
+                              <Input
+                                value={deliveryNoteDrafts[orderNumber] || ''}
+                                onChange={(event) =>
+                                  setDeliveryNoteDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
+                                }
+                                placeholder="Ornek: BKR"
+                                className={isKioskTouchMode ? 'h-14 text-lg font-bold' : 'h-11 text-base'}
+                                disabled={panelWorkflowStatus === 'DISPATCHED'}
+                              />
+                              <p className="text-[11px] text-slate-600 mt-1">
+                                Seri girince sira otomatik atanir, Mikro'da irsaliye olusur, siparis kapatilarak baglanir.
+                              </p>
+                            </div>
+                            <Button
+                              onClick={() => handleDispatchWithDeliveryNote(orderNumber)}
+                              disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
+                              className={actionButtonClass}
+                            >
+                              {panelWorkflowStatus === 'DISPATCHED'
+                                ? `Irsaliyelestirildi (${panelDetail.workflow?.mikroDeliveryNoteNo || '-'})`
+                                : 'Siparisi Kapat ve Irsaliyelestir'}
+                            </Button>
                           </div>
                         </div>
 
@@ -1151,24 +1236,24 @@ export default function WarehousePage() {
                                       <button
                                         onClick={() => changePicked(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
+                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         -
                                       </button>
-                                      <div className="h-9 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-base font-black text-slate-900">
+                                      <div className={`${isKioskTouchMode ? 'h-12 text-xl' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
                                         {line.pickedQty}
                                       </div>
                                       <button
                                         onClick={() => changePicked(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
+                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         +
                                       </button>
                                       <button
                                         onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-9 px-3 rounded-lg bg-emerald-600 text-white text-[11px] font-bold disabled:opacity-50"
+                                        className={`${isKioskTouchMode ? 'h-12 px-4 text-sm' : 'h-9 px-3 text-[11px]'} rounded-lg bg-emerald-600 text-white font-bold disabled:opacity-50`}
                                       >
                                         Tamami Toplandi
                                       </button>
@@ -1181,17 +1266,17 @@ export default function WarehousePage() {
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
+                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         -
                                       </button>
-                                      <div className="h-9 flex-1 rounded-lg bg-slate-100 flex items-center justify-center text-base font-black text-slate-900">
+                                      <div className={`${isKioskTouchMode ? 'h-12 text-xl' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
                                         {line.extraQty}
                                       </div>
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-9 w-9 rounded-lg border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
+                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         +
                                       </button>
