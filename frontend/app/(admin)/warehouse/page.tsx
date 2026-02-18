@@ -460,6 +460,17 @@ export default function WarehousePage() {
     }
   };
 
+  const refreshWithSync = async () => {
+    await withAction(async () => {
+      const result = await adminApi.syncWarehouseOrders();
+      await fetchOverview(true);
+      if (activeOrderNumber) {
+        await loadOrderDetail(activeOrderNumber, { makeActive: false, silent: true });
+      }
+      toast.success(`Senkron tamamlandi: ${result.ordersCount} siparis`);
+    });
+  };
+
   const refreshOrderDetail = async (mikroOrderNumber: string) => {
     await loadOrderDetail(mikroOrderNumber);
     await fetchOverview(false);
@@ -703,8 +714,8 @@ export default function WarehousePage() {
                 <option value="order">Siparis bazli</option>
                 <option value="customer">Musteriye gore grupla</option>
               </select>
-              <Button variant="secondary" onClick={() => fetchOverview(true)} className="h-12 text-base">
-                Yenile
+              <Button variant="secondary" onClick={refreshWithSync} className="h-12 text-base" disabled={actionLoading}>
+                Senkron + Yenile
               </Button>
             </div>
 

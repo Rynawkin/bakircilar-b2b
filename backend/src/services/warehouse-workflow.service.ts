@@ -545,7 +545,13 @@ class WarehouseWorkflowService {
       const existingItem = existingItemMap.get(lineKey);
       const pickedQty = Math.max(existingItem?.pickedQty ?? 0, 0);
       const extraQty = Math.max(existingItem?.extraQty ?? 0, 0);
-      const shortageQty = Math.max(item.remainingQty - pickedQty, 0);
+      const deliveredQtyBase = existingItem
+        ? Math.max(toNumber(existingItem.deliveredQty), toNumber(item.deliveredQty), 0)
+        : Math.max(toNumber(item.deliveredQty), 0);
+      const remainingQtyBase = existingItem
+        ? Math.min(Math.max(toNumber(existingItem.remainingQty), 0), Math.max(toNumber(item.remainingQty), 0))
+        : Math.max(toNumber(item.remainingQty), 0);
+      const shortageQty = Math.max(remainingQtyBase - pickedQty, 0);
 
       return prisma.warehouseOrderWorkflowItem.upsert({
         where: {
@@ -562,8 +568,8 @@ class WarehouseWorkflowService {
           productName: item.productName,
           unit: item.unit,
           requestedQty: item.quantity,
-          deliveredQty: item.deliveredQty,
-          remainingQty: item.remainingQty,
+          deliveredQty: deliveredQtyBase,
+          remainingQty: remainingQtyBase,
           pickedQty,
           extraQty,
           shortageQty,
@@ -580,8 +586,8 @@ class WarehouseWorkflowService {
           productName: item.productName,
           unit: item.unit,
           requestedQty: item.quantity,
-          deliveredQty: item.deliveredQty,
-          remainingQty: item.remainingQty,
+          deliveredQty: deliveredQtyBase,
+          remainingQty: remainingQtyBase,
           shortageQty,
           unitPrice: item.unitPrice,
           vat: item.vat,
@@ -831,10 +837,14 @@ class WarehouseWorkflowService {
     const lines = pendingItems.map((item, index) => {
       const lineKey = lineKeys[index];
       const workflowItem = workflowItemMap.get(lineKey);
+      const effectiveDeliveredQty = Math.max(workflowItem?.deliveredQty ?? item.deliveredQty, 0);
+      const effectiveRemainingQty = Math.max(workflowItem?.remainingQty ?? item.remainingQty, 0);
       const pickedQty = Math.max(workflowItem?.pickedQty ?? 0, 0);
       const extraQty = Math.max(workflowItem?.extraQty ?? 0, 0);
-      const shortageQty = Math.max(workflowItem?.shortageQty ?? Math.max(item.remainingQty - pickedQty, 0), 0);
-      const status = (workflowItem?.status as WorkflowItemStatus) || toItemStatus(pickedQty, extraQty, shortageQty, item.remainingQty);
+      const shortageQty = Math.max(workflowItem?.shortageQty ?? Math.max(effectiveRemainingQty - pickedQty, 0), 0);
+      const status =
+        (workflowItem?.status as WorkflowItemStatus) ||
+        toItemStatus(pickedQty, extraQty, shortageQty, effectiveRemainingQty);
       const normalizedCode = normalizeCode(item.productCode);
       const stockAvailable = stockMap.get(normalizedCode) || 0;
       const shelfCode = workflowItem?.shelfCode || shelfMap.get(normalizedCode) || null;
@@ -864,7 +874,7 @@ class WarehouseWorkflowService {
       const hasOtherReservation = reservationDetails.some((reservation) => !reservation.isCurrentOrder);
 
       const stockCoverageStatus =
-        stockAvailable >= item.remainingQty ? 'FULL' : stockAvailable > 0 ? 'PARTIAL' : 'NONE';
+        stockAvailable >= effectiveRemainingQty ? 'FULL' : stockAvailable > 0 ? 'PARTIAL' : 'NONE';
 
       return {
         lineKey,
@@ -875,8 +885,8 @@ class WarehouseWorkflowService {
         unit2: unitInfo.unit2,
         unit2Factor: unitInfo.unit2Factor,
         requestedQty: item.quantity,
-        deliveredQty: item.deliveredQty,
-        remainingQty: item.remainingQty,
+        deliveredQty: effectiveDeliveredQty,
+        remainingQty: effectiveRemainingQty,
         pickedQty,
         extraQty,
         shortageQty,
@@ -1558,10 +1568,6 @@ class WarehouseWorkflowService {
     if (!workflow.startedAt || workflow.status === 'PENDING') {
       throw new Error('Toplama baslatilmadan irsaliyelestirme yapilamaz');
     }
-    if (workflow.status === 'DISPATCHED' && normalizeCode(workflow.mikroDeliveryNoteNo)) {
-      throw new Error('Siparis zaten irsaliyelestirilmis');
-    }
-
     const workflowItems = await prisma.warehouseOrderWorkflowItem.findMany({
       where: { workflowId: workflow.id },
       select: {
@@ -1658,27 +1664,40 @@ class WarehouseWorkflowService {
     `);
 
     const now = new Date();
+    const lineUpdates = linesToDispatch.map((line) => {
+      const nextDelivered = Math.max(toNumber(line.deliveredQty), 0) + line.deliverQty;
+      const nextRemaining = Math.max(toNumber(line.remainingQty) - line.deliverQty, 0);
+      const nextPicked = Math.max(toNumber(line.pickedQty) - line.deliverQty, 0);
+      const nextShortage = Math.max(nextRemaining - nextPicked, 0);
+      return {
+        id: line.id,
+        nextDelivered,
+        nextRemaining,
+        nextPicked,
+        nextShortage,
+        extraQty: Math.max(toNumber(line.extraQty), 0),
+      };
+    });
+    const hasRemainingAfterDispatch = lineUpdates.some((line) => line.nextRemaining > 0);
+    const nextWorkflowStatus: WorkflowStatus = hasRemainingAfterDispatch ? 'PARTIALLY_LOADED' : 'DISPATCHED';
+
     await prisma.$transaction([
-      ...linesToDispatch.map((line) => {
-        const nextDelivered = Math.max(toNumber(line.deliveredQty), 0) + line.deliverQty;
-        const nextRemaining = Math.max(toNumber(line.remainingQty) - line.deliverQty, 0);
-        const nextPicked = Math.max(toNumber(line.pickedQty) - line.deliverQty, 0);
-        const nextShortage = Math.max(nextRemaining - nextPicked, 0);
+      ...lineUpdates.map((line) => {
         return prisma.warehouseOrderWorkflowItem.update({
           where: { id: line.id },
           data: {
-            deliveredQty: nextDelivered,
-            remainingQty: nextRemaining,
-            pickedQty: nextPicked,
-            shortageQty: nextShortage,
-            status: toItemStatus(nextPicked, Math.max(toNumber(line.extraQty), 0), nextShortage, nextRemaining),
+            deliveredQty: line.nextDelivered,
+            remainingQty: line.nextRemaining,
+            pickedQty: line.nextPicked,
+            shortageQty: line.nextShortage,
+            status: toItemStatus(line.nextPicked, line.extraQty, line.nextShortage, line.nextRemaining),
           },
         });
       }),
       prisma.warehouseOrderWorkflow.update({
         where: { id: workflow.id },
         data: {
-          status: 'DISPATCHED',
+          status: nextWorkflowStatus,
           loadedAt: workflow.loadedAt || now,
           dispatchedAt: now,
           dispatchedByUserId: normalizeCode(payload.userId) || null,

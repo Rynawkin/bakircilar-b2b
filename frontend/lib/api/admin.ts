@@ -523,6 +523,16 @@ export const adminApi = {
     return response.data;
   },
 
+  syncWarehouseOrders: async (): Promise<{
+    success: boolean;
+    ordersCount: number;
+    customersCount: number;
+    message: string;
+  }> => {
+    const response = await apiClient.post('/order-tracking/admin/warehouse/sync');
+    return response.data;
+  },
+
   getWarehouseOrderDetail: async (mikroOrderNumber: string): Promise<{
     order: {
       mikroOrderNumber: string;
