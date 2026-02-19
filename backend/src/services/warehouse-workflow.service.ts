@@ -55,6 +55,10 @@ type DispatchTransportInfo = {
   vehicleName: string;
   vehiclePlate: string;
 };
+type OrderContext = {
+  documentNo: string | null;
+  orderNote: string | null;
+};
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -987,7 +991,7 @@ class WarehouseWorkflowService {
     const coverage = this.computeCoverageForPendingItems(pendingItems, stockMap);
     const coverageStatus = this.resolveCoverageStatus(coverage);
     const activeReservationsByProduct = await this.getActiveReservationsByProduct(productCodes);
-    const orderDocumentNo = await this.getOrderDocumentNo(pendingOrder.orderSeries, pendingOrder.orderSequence);
+    const orderContext = await this.getOrderContext(pendingOrder.orderSeries, pendingOrder.orderSequence);
 
     const lines = pendingItems.map((item, index) => {
       const lineKey = lineKeys[index];
@@ -1068,7 +1072,8 @@ class WarehouseWorkflowService {
         orderSequence: pendingOrder.orderSequence,
         customerCode: pendingOrder.customerCode,
         customerName: pendingOrder.customerName,
-        documentNo: orderDocumentNo,
+        documentNo: orderContext.documentNo,
+        orderNote: orderContext.orderNote,
         warehouseCode: orderWarehouseCode,
         orderDate: pendingOrder.orderDate,
         deliveryDate: pendingOrder.deliveryDate,
@@ -1509,6 +1514,21 @@ class WarehouseWorkflowService {
     assign(['sth_arac_plaka', 'sth_aracplaka', 'sth_plaka'], transport.vehiclePlate);
   }
 
+  private applyDispatchDocumentFields(values: Record<string, unknown>, columns: Set<string>, documentNo: string) {
+    const normalizedDocumentNo = normalizeCode(documentNo);
+    if (!normalizedDocumentNo) return;
+
+    const assign = (candidateColumns: string[], value: unknown) => {
+      const column = this.pickFirstColumn(columns, candidateColumns);
+      if (column) {
+        values[column] = value;
+      }
+    };
+
+    assign(['sth_belge_no', 'sth_belgeno', 'sth_matbu_belgeno'], normalizedDocumentNo);
+    assign(['sth_belge_tarih', 'sth_belgetarih'], this.raw('GETDATE()'));
+  }
+
   private async updateEInvoiceTransportDetails(params: {
     deliverySeries: string;
     deliverySequence: number;
@@ -1662,21 +1682,68 @@ class WarehouseWorkflowService {
     await mikroService.executeQuery(insertSql);
   }
 
-  private async getOrderDocumentNo(orderSeries: string, orderSequence: number): Promise<string | null> {
+  private async getOrderContext(orderSeries: string, orderSequence: number): Promise<OrderContext> {
     const sipColumns = await this.getTableColumns('SIPARISLER');
-    const belgeNoColumn = sipColumns.has('sip_belge_no') ? 'sip_belge_no' : sipColumns.has('sip_belgeno') ? 'sip_belgeno' : null;
-    if (!belgeNoColumn) return null;
+    const belgeNoColumn = this.pickFirstColumn(sipColumns, ['sip_belge_no', 'sip_belgeno']);
+    const sipOrderNoteColumn = this.pickFirstColumn(sipColumns, ['sip_aciklama2', 'sip_aciklama']);
 
     const rows = await mikroService.executeQuery(`
-      SELECT TOP 1 ISNULL(${belgeNoColumn}, '') as order_document_no
+      SELECT TOP 1
+        ${belgeNoColumn ? `ISNULL(${belgeNoColumn}, '')` : `''`} as order_document_no,
+        ${sipOrderNoteColumn ? `ISNULL(${sipOrderNoteColumn}, '')` : `''`} as order_note
       FROM SIPARISLER
       WHERE sip_evrakno_seri = '${orderSeries.replace(/'/g, "''")}'
         AND sip_evrakno_sira = ${orderSequence}
         AND ISNULL(sip_iptal, 0) = 0
       ORDER BY sip_satirno
     `);
-    const value = normalizeCode((rows as any[])?.[0]?.order_document_no);
-    return value || null;
+    const row = (rows as any[])?.[0] || {};
+    const documentNo = normalizeCode(row.order_document_no) || null;
+    let orderNote = normalizeCode(row.order_note) || null;
+
+    try {
+      const evrakColumns = await this.getTableColumns('EVRAK_ACIKLAMALARI');
+      if (evrakColumns.size > 0) {
+        const evrakSeriesColumn = this.pickFirstColumn(evrakColumns, ['egk_evr_seri']);
+        const evrakSequenceColumn = this.pickFirstColumn(evrakColumns, ['egk_evr_sira']);
+        const evrakAciklamaColumn = this.pickFirstColumn(evrakColumns, ['egk_evracik1']);
+        const evrakHareketTipColumn = this.pickFirstColumn(evrakColumns, ['egk_hareket_tip']);
+        const evrakTipColumn = this.pickFirstColumn(evrakColumns, ['egk_evr_tip']);
+        if (evrakSeriesColumn && evrakSequenceColumn && evrakAciklamaColumn) {
+          const hereketFilter = evrakHareketTipColumn ? `AND ISNULL(${evrakHareketTipColumn}, 0) = 0` : '';
+          const tipFilter = evrakTipColumn ? `AND ISNULL(${evrakTipColumn}, 0) = 0` : '';
+          const evrakRows = await mikroService.executeQuery(`
+            SELECT TOP 1 ISNULL(${evrakAciklamaColumn}, '') as order_note
+            FROM EVRAK_ACIKLAMALARI
+            WHERE ${evrakSeriesColumn} = '${orderSeries.replace(/'/g, "''")}'
+              AND ${evrakSequenceColumn} = ${orderSequence}
+              ${hereketFilter}
+              ${tipFilter}
+            ORDER BY ${
+              this.pickFirstColumn(evrakColumns, ['egk_lastup_date']) ||
+              this.pickFirstColumn(evrakColumns, ['egk_create_date']) ||
+              evrakSequenceColumn
+            } DESC
+          `);
+          const evrakNote = normalizeCode((evrakRows as any[])?.[0]?.order_note);
+          if (evrakNote) {
+            orderNote = evrakNote;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Evrak aciklama bilgisi okunamadi:', { orderSeries, orderSequence, error });
+    }
+
+    return {
+      documentNo,
+      orderNote,
+    };
+  }
+
+  private async getOrderDocumentNo(orderSeries: string, orderSequence: number): Promise<string | null> {
+    const context = await this.getOrderContext(orderSeries, orderSequence);
+    return context.documentNo;
   }
 
   private async createMikroDeliveryNote(params: {
@@ -1744,7 +1811,8 @@ class WarehouseWorkflowService {
     const docGuid = randomUUID();
     const deliveryNoteNo = `${deliverySeries}-${deliverySequence}`;
     const lineLinks: Array<{ sipGuid: string; deliverQty: number }> = [];
-    const orderDocumentNo = await this.getOrderDocumentNo(params.orderSeries, params.orderSequence);
+    const orderContext = await this.getOrderContext(params.orderSeries, params.orderSequence);
+    const dispatchDocumentNo = orderContext.documentNo || deliveryNoteNo;
 
     for (let index = 0; index < params.lines.length; index += 1) {
       const line = params.lines[index];
@@ -1842,8 +1910,6 @@ class WarehouseWorkflowService {
         sth_evrakno_seri: deliverySeries,
         sth_evrakno_sira: deliverySequence,
         sth_satirno: index,
-        sth_belge_no: orderDocumentNo || deliveryNoteNo,
-        sth_belge_tarih: this.raw('GETDATE()'),
         sth_stok_kod: safeProductCode,
         sth_miktar: line.deliverQty,
         sth_miktar2: 0,
@@ -1908,6 +1974,7 @@ class WarehouseWorkflowService {
         sth_satis_fiyat_doviz_kuru: toNumber(templateRow.sth_satis_fiyat_doviz_kuru) || 0,
         sth_tevkifat_sifirlandi_fl: toNumber(templateRow.sth_tevkifat_sifirlandi_fl) ? 1 : 0,
       };
+      this.applyDispatchDocumentFields(values, sthColumns, dispatchDocumentNo);
       this.applyDispatchTransportFields(values, sthColumns, params.transport);
 
       const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
@@ -1939,7 +2006,7 @@ class WarehouseWorkflowService {
       deliverySeries,
       deliverySequence,
       transport: params.transport,
-      documentNo: orderDocumentNo || deliveryNoteNo,
+      documentNo: dispatchDocumentNo,
     });
 
     return {

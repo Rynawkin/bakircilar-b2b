@@ -72,6 +72,7 @@ interface WarehouseOrderDetail {
     customerCode: string;
     customerName: string;
     documentNo?: string | null;
+    orderNote?: string | null;
     warehouseCode: string | null;
     orderDate: string;
     deliveryDate: string | null;
@@ -1226,6 +1227,11 @@ export default function WarehousePage() {
                             <div>
                               <h2 className="text-2xl font-black text-slate-900">{panelDetail.order.mikroOrderNumber}</h2>
                               <p className="text-sm text-slate-700 font-semibold">{panelDetail.order.customerName}</p>
+                              {panelDetail.order.orderNote && (
+                                <p className="mt-1 inline-flex max-w-full rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-sm font-black text-amber-900">
+                                  {panelDetail.order.orderNote}
+                                </p>
+                              )}
                               <p className="text-xs text-slate-500 mt-1">
                                 {panelDetail.order.customerCode} | Depo: {panelDetail.order.warehouseCode || 'Tum Depolar'} | {panelDetail.order.itemCount} kalem
                               </p>

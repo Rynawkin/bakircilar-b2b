@@ -609,6 +609,7 @@ export const adminApi = {
       customerCode: string;
       customerName: string;
       documentNo?: string | null;
+      orderNote?: string | null;
       warehouseCode: string | null;
       orderDate: string;
       deliveryDate: string | null;
