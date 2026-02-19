@@ -1539,6 +1539,19 @@ class WarehouseWorkflowService {
     `);
     const existingRow = (existingRows as any[])[0];
 
+    let eirsTemplateRow: Record<string, any> = {};
+    try {
+      const templateRows = await mikroService.executeQuery(`
+        SELECT TOP 1 *
+        FROM E_IRSALIYE_DETAYLARI
+        WHERE ISNULL(eir_evrak_tip, 1) = 1
+        ORDER BY eir_lastup_date DESC, eir_evrakno_sira DESC
+      `);
+      eirsTemplateRow = ((templateRows as any[])[0] || {}) as Record<string, any>;
+    } catch {
+      eirsTemplateRow = {};
+    }
+
     const updateValues: Record<string, unknown> = {};
     const assign = (candidateColumns: string[], value: string) => {
       const column = this.pickFirstColumn(eirsColumns, candidateColumns);
@@ -1551,23 +1564,40 @@ class WarehouseWorkflowService {
       updateValues[evrakTipColumn] = 1;
     }
     const tipColumn = this.pickFirstColumn(eirsColumns, ['eir_tipi']);
-    if (tipColumn) updateValues[tipColumn] = 3;
+    if (tipColumn) updateValues[tipColumn] = toNumber(eirsTemplateRow.eir_tipi) || 3;
     const pozisyonColumn = this.pickFirstColumn(eirsColumns, ['eir_pozisyon']);
-    if (pozisyonColumn) updateValues[pozisyonColumn] = 0;
+    if (pozisyonColumn) updateValues[pozisyonColumn] = toNumber(eirsTemplateRow.eir_pozisyon) || 0;
     const gibSeriColumn = this.pickFirstColumn(eirsColumns, ['eir_gib_seri']);
     if (gibSeriColumn) updateValues[gibSeriColumn] = '';
     const gibSiraColumn = this.pickFirstColumn(eirsColumns, ['eir_gib_sira']);
-    if (gibSiraColumn) updateValues[gibSiraColumn] = 0;
+    if (gibSiraColumn) updateValues[gibSiraColumn] = toNumber(eirsTemplateRow.eir_gib_sira) || 0;
     const olrkColumn = this.pickFirstColumn(eirsColumns, ['eir_eirs_olrk_gonderilsin']);
     if (olrkColumn) updateValues[olrkColumn] = 0;
     const gonderildiColumn = this.pickFirstColumn(eirsColumns, ['eir_gonderildi_fl']);
-    if (gonderildiColumn) updateValues[gonderildiColumn] = 0;
+    if (gonderildiColumn) updateValues[gonderildiColumn] = toNumber(eirsTemplateRow.eir_gonderildi_fl) ? 1 : 0;
     const soforUidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor_uid']);
     if (soforUidColumn) updateValues[soforUidColumn] = this.raw(`CAST('00000000-0000-0000-0000-000000000000' as uniqueidentifier)`);
     const sofor2UidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor2_uid']);
     if (sofor2UidColumn) updateValues[sofor2UidColumn] = this.raw(`CAST('00000000-0000-0000-0000-000000000000' as uniqueidentifier)`);
     const matbuTarihColumn = this.pickFirstColumn(eirsColumns, ['eir_matbu_tarih']);
     if (matbuTarihColumn) updateValues[matbuTarihColumn] = this.raw('GETDATE()');
+    const uuidColumn = this.pickFirstColumn(eirsColumns, ['eir_uuid']);
+    if (uuidColumn) {
+      const uuidTemplate = normalizeCode(eirsTemplateRow.eir_uuid);
+      updateValues[uuidColumn] = uuidTemplate || this.raw('CONVERT(nvarchar(50), NEWID())');
+    }
+    const tasiyiciFirmaKoduColumn = this.pickFirstColumn(eirsColumns, ['eir_tasiyici_firma_kodu']);
+    if (tasiyiciFirmaKoduColumn) updateValues[tasiyiciFirmaKoduColumn] = normalizeCode(eirsTemplateRow.eir_tasiyici_firma_kodu || '');
+    const createUserColumn = this.pickFirstColumn(eirsColumns, ['eir_create_user']);
+    if (createUserColumn) updateValues[createUserColumn] = toNumber(eirsTemplateRow.eir_create_user) || 1;
+    const lastupUserColumn = this.pickFirstColumn(eirsColumns, ['eir_lastup_user']);
+    if (lastupUserColumn) updateValues[lastupUserColumn] = toNumber(eirsTemplateRow.eir_lastup_user) || toNumber(eirsTemplateRow.eir_create_user) || 1;
+    const fileIdColumn = this.pickFirstColumn(eirsColumns, ['eir_fileid']);
+    if (fileIdColumn) updateValues[fileIdColumn] = toNumber(eirsTemplateRow.eir_fileid) || 0;
+    const firmaNoColumn = this.pickFirstColumn(eirsColumns, ['eir_firma_no']);
+    if (firmaNoColumn) updateValues[firmaNoColumn] = toNumber(eirsTemplateRow.eir_firma_no) || 0;
+    const dbcNoColumn = this.pickFirstColumn(eirsColumns, ['eir_DBCno']);
+    if (dbcNoColumn) updateValues[dbcNoColumn] = toNumber(eirsTemplateRow.eir_DBCno) || 0;
     assign(['eir_sofor_adi', 'eir_surucu_adi'], params.transport.driverFirstName);
     assign(['eir_sofor_soyadi', 'eir_surucu_soyadi'], params.transport.driverLastName);
     assign(['eir_sofor_tckn', 'eir_sofor_tc', 'eir_sofor_tcno'], params.transport.driverTcNo);
