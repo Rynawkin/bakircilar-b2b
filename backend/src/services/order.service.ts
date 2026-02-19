@@ -162,10 +162,7 @@ class OrderService {
                   ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satirno DESC
                 ) as rn
               FROM SIPARISLER WITH (NOLOCK)
-              WHERE (
-                  LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))) = '${safeCari}'
-                  OR LTRIM(RTRIM(ISNULL(sip_cari_kod, ''))) = '${safeCari}'
-                )
+              WHERE LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))) = '${safeCari}'
                 AND sip_stok_kod IN (${safeCodes})
             )
             SELECT
