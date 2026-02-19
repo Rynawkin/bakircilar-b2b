@@ -829,7 +829,7 @@ class MikroService {
       .createHash('sha1')
       .update(normalizedCodes.slice().sort().join('|'))
       .digest('hex');
-    const cacheKey = `${cariCode}:${limit}:${codesHash}`;
+    const cacheKey = `${cariCode}:${limit}:${codesHash}:v2`;
     const redisCached = await cacheService.get<MikroCustomerSaleMovement[]>('mikro-last-sales', cacheKey);
     if (redisCached) {
       return redisCached;
@@ -849,25 +849,16 @@ class MikroService {
     request.input('cariCode', sql.NVarChar, cariCode);
     request.input('limit', sql.Int, limit);
 
+    const sipBelgeColumns = await this.resolveSipBelgeColumns();
+    const sipBelgeExpr = sipBelgeColumns.no ? `NULLIF(LTRIM(RTRIM(s.${sipBelgeColumns.no})), '')` : 'NULL';
+
     const query = `
       WITH RankedSales AS (
         SELECT
           sth_stok_kod as productCode,
           sth_tarih as saleDate,
           sth_miktar as quantity,
-          NULLIF(
-            LTRIM(RTRIM(
-              CONCAT(
-                ISNULL(NULLIF(LTRIM(RTRIM(sth_evrakno_seri)), ''), ''),
-                CASE
-                  WHEN ISNULL(sth_evrakno_sira, 0) > 0
-                    THEN CONCAT('-', CONVERT(VARCHAR(20), CONVERT(INT, sth_evrakno_sira)))
-                  ELSE ''
-                END
-              )
-            )),
-            ''
-          ) as documentNo,
+          ${sipBelgeExpr} as documentNo,
           CASE
             WHEN sth_miktar = 0 THEN 0
             ELSE sth_tutar / NULLIF(sth_miktar, 0)
@@ -880,6 +871,9 @@ class MikroService {
           END as vatRate,
           ROW_NUMBER() OVER (PARTITION BY sth_stok_kod ORDER BY sth_tarih DESC) as rn
         FROM STOK_HAREKETLERI
+        LEFT JOIN SIPARISLER s WITH (NOLOCK)
+          ON s.sip_Guid = sth_sip_uid
+          AND ISNULL(s.sip_iptal, 0) = 0
         WHERE
           sth_tip = 1
           AND sth_cari_kodu = @cariCode
