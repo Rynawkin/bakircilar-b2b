@@ -1848,6 +1848,12 @@ export class AdminController {
 
       const normalizedCodes = productCodes.map((code: any) => String(code)).filter(Boolean);
       const safeLimit = Math.max(1, Math.min(10, Number(limit) || 1));
+      console.log('LastOrders request', {
+        customerId: customerId ? String(customerId) : null,
+        customerCode: customerCode ? String(customerCode).trim() : null,
+        productCodeCount: normalizedCodes.length,
+        limit: safeLimit,
+      });
       const lastOrders = await orderService.getCustomerLastOrderItems(
         customerId ? String(customerId) : '',
         normalizedCodes,
@@ -1855,6 +1861,9 @@ export class AdminController {
         excludeOrderId ? String(excludeOrderId) : undefined,
         customerCode ? String(customerCode).trim() : undefined
       );
+
+      const totalRows = Object.values(lastOrders).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
+      console.log('LastOrders response', { totalRows, productCount: Object.keys(lastOrders).length });
 
       res.json({ lastOrders });
     } catch (error) {

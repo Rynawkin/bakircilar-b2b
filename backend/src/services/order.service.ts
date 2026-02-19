@@ -29,7 +29,7 @@ class OrderService {
     orderNumber?: string | null;
   }>>> {
     const codes = productCodes.map((code) => String(code || '').trim()).filter(Boolean);
-    if (!customerId || codes.length === 0 || limit <= 0) {
+    if ((!customerId && !customerCodeOverride) || codes.length === 0 || limit <= 0) {
       return {};
     }
 
@@ -155,10 +155,8 @@ class OrderService {
                   ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satirno DESC
                 ) as rn
               FROM SIPARISLER WITH (NOLOCK)
-              WHERE sip_tip = 0
-                AND sip_musteri_kod = '${safeCari}'
+              WHERE sip_musteri_kod = '${safeCari}'
                 AND sip_stok_kod IN (${safeCodes})
-                AND ISNULL(sip_iptal, 0) = 0
             )
             SELECT
               productCode,
