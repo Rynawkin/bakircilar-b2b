@@ -1644,7 +1644,7 @@ class WarehouseWorkflowService {
     deliverySequence: number;
     lineLinks: Array<{ sipGuid: string; deliverQty: number }>;
   }> {
-    const deliverySeries = normalizeCode(params.deliverySeries);
+    const deliverySeries = normalizeCode(params.deliverySeries).toUpperCase();
     if (!deliverySeries) {
       throw new Error('Irsaliye serisi gerekli');
     }
@@ -1914,7 +1914,7 @@ class WarehouseWorkflowService {
       throw new Error('Siparis numarasi gerekli');
     }
 
-    const deliverySeries = normalizeCode(payload.deliverySeries);
+    const deliverySeries = normalizeCode(payload.deliverySeries).toUpperCase();
     if (!deliverySeries) {
       throw new Error('Irsaliye serisi gerekli');
     }
