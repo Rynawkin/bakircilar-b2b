@@ -48,6 +48,13 @@ interface CoverageSummary {
 type CoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
 type ImageIssueStatus = 'OPEN' | 'REVIEWED' | 'FIXED';
 type SqlRawValue = { raw: string };
+type DispatchTransportInfo = {
+  driverFirstName: string;
+  driverLastName: string;
+  driverTcNo: string;
+  vehicleName: string;
+  vehiclePlate: string;
+};
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -833,6 +840,7 @@ class WarehouseWorkflowService {
     const coverage = this.computeCoverageForPendingItems(pendingItems, stockMap);
     const coverageStatus = this.resolveCoverageStatus(coverage);
     const activeReservationsByProduct = await this.getActiveReservationsByProduct(productCodes);
+    const orderDocumentNo = await this.getOrderDocumentNo(pendingOrder.orderSeries, pendingOrder.orderSequence);
 
     const lines = pendingItems.map((item, index) => {
       const lineKey = lineKeys[index];
@@ -913,6 +921,7 @@ class WarehouseWorkflowService {
         orderSequence: pendingOrder.orderSequence,
         customerCode: pendingOrder.customerCode,
         customerName: pendingOrder.customerName,
+        documentNo: orderDocumentNo,
         warehouseCode: orderWarehouseCode,
         orderDate: pendingOrder.orderDate,
         deliveryDate: pendingOrder.deliveryDate,
@@ -1327,14 +1336,62 @@ class WarehouseWorkflowService {
     return `INSERT INTO ${tableName} (${columnSql}) VALUES (${valueSql})`;
   }
 
+  private pickFirstColumn(columns: Set<string>, candidates: string[]): string | null {
+    for (const candidate of candidates) {
+      if (columns.has(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  private applyDispatchTransportFields(
+    values: Record<string, unknown>,
+    columns: Set<string>,
+    transport: DispatchTransportInfo
+  ) {
+    const assign = (candidateColumns: string[], value: string) => {
+      const column = this.pickFirstColumn(columns, candidateColumns);
+      if (column) {
+        values[column] = value;
+      }
+    };
+
+    assign(['sth_sofor_adi', 'sth_soforadi', 'sth_sofor_ad', 'sth_surucu_adi', 'sth_surucuadi'], transport.driverFirstName);
+    assign(['sth_sofor_soyadi', 'sth_soforsoyadi', 'sth_sofor_soyad', 'sth_surucu_soyadi', 'sth_surucusoyadi'], transport.driverLastName);
+    assign(['sth_sofor_tcno', 'sth_sofor_tc_no', 'sth_sofor_tc', 'sth_surucu_tcno', 'sth_surucu_tc_no'], transport.driverTcNo);
+    assign(['sth_arac_adi', 'sth_aracadi', 'sth_tasiyici_adi', 'sth_tasiyiciadi'], transport.vehicleName);
+    assign(['sth_arac_plaka', 'sth_aracplaka', 'sth_plaka'], transport.vehiclePlate);
+  }
+
+  private async getOrderDocumentNo(orderSeries: string, orderSequence: number): Promise<string | null> {
+    const sipColumns = await this.getTableColumns('SIPARISLER');
+    const belgeNoColumn = sipColumns.has('sip_belge_no') ? 'sip_belge_no' : sipColumns.has('sip_belgeno') ? 'sip_belgeno' : null;
+    if (!belgeNoColumn) return null;
+
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1 ISNULL(${belgeNoColumn}, '') as order_document_no
+      FROM SIPARISLER
+      WHERE sip_evrakno_seri = '${orderSeries.replace(/'/g, "''")}'
+        AND sip_evrakno_sira = ${orderSequence}
+        AND ISNULL(sip_iptal, 0) = 0
+      ORDER BY sip_satirno
+    `);
+    const value = normalizeCode((rows as any[])?.[0]?.order_document_no);
+    return value || null;
+  }
+
   private async createMikroDeliveryNote(params: {
     orderNo: string;
     orderSeries: string;
     orderSequence: number;
     customerCode: string;
     deliverySeries: string;
+    transport: DispatchTransportInfo;
     lines: Array<{ rowNumber: number | null; productCode: string; deliverQty: number }>;
-  }): Promise<{ deliveryNoteNo: string; deliverySequence: number }> {
+  }): Promise<{
+    deliveryNoteNo: string;
+    deliverySequence: number;
+    lineLinks: Array<{ sipGuid: string; deliverQty: number }>;
+  }> {
     const deliverySeries = normalizeCode(params.deliverySeries);
     if (!deliverySeries) {
       throw new Error('Irsaliye serisi gerekli');
@@ -1386,6 +1443,8 @@ class WarehouseWorkflowService {
     const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
     const docGuid = randomUUID();
     const deliveryNoteNo = `${deliverySeries}-${deliverySequence}`;
+    const lineLinks: Array<{ sipGuid: string; deliverQty: number }> = [];
+    const orderDocumentNo = await this.getOrderDocumentNo(params.orderSeries, params.orderSequence);
 
     for (let index = 0; index < params.lines.length; index += 1) {
       const line = params.lines[index];
@@ -1483,7 +1542,7 @@ class WarehouseWorkflowService {
         sth_evrakno_seri: deliverySeries,
         sth_evrakno_sira: deliverySequence,
         sth_satirno: index,
-        sth_belge_no: deliveryNoteNo,
+        sth_belge_no: orderDocumentNo || deliveryNoteNo,
         sth_belge_tarih: this.raw('GETDATE()'),
         sth_stok_kod: safeProductCode,
         sth_miktar: line.deliverQty,
@@ -1549,12 +1608,21 @@ class WarehouseWorkflowService {
         sth_satis_fiyat_doviz_kuru: toNumber(templateRow.sth_satis_fiyat_doviz_kuru) || 0,
         sth_tevkifat_sifirlandi_fl: toNumber(templateRow.sth_tevkifat_sifirlandi_fl) ? 1 : 0,
       };
+      this.applyDispatchTransportFields(values, sthColumns, params.transport);
 
       const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
       await mikroService.executeQuery(insertSql);
+      if (sipGuid && sipGuid !== zeroGuid) {
+        lineLinks.push({ sipGuid, deliverQty: line.deliverQty });
+      }
     }
 
-    const setBelgeNo = belgeNoColumn ? `${belgeNoColumn} = '${deliveryNoteNo.replace(/'/g, "''")}',` : '';
+    const setBelgeNo = belgeNoColumn
+      ? `${belgeNoColumn} = CASE
+            WHEN NULLIF(LTRIM(RTRIM(${belgeNoColumn})), '') IS NULL THEN '${deliveryNoteNo.replace(/'/g, "''")}'
+            ELSE ${belgeNoColumn}
+          END,`
+      : '';
     const setBelgeTarih = hasBelgeTarih ? 'sip_belge_tarih = GETDATE(),' : '';
     await mikroService.executeQuery(`
       UPDATE SIPARISLER
@@ -1570,6 +1638,7 @@ class WarehouseWorkflowService {
     return {
       deliveryNoteNo,
       deliverySequence,
+      lineLinks,
     };
   }
 
@@ -1577,6 +1646,7 @@ class WarehouseWorkflowService {
     mikroOrderNumber: string,
     payload: {
       deliverySeries: string;
+      transport: DispatchTransportInfo;
       userId?: string;
     }
   ) {
@@ -1588,6 +1658,17 @@ class WarehouseWorkflowService {
     const deliverySeries = normalizeCode(payload.deliverySeries);
     if (!deliverySeries) {
       throw new Error('Irsaliye serisi gerekli');
+    }
+    const transport = payload.transport;
+    if (
+      !transport ||
+      !normalizeCode(transport.driverFirstName) ||
+      !normalizeCode(transport.driverLastName) ||
+      !normalizeCode(transport.driverTcNo) ||
+      !normalizeCode(transport.vehicleName) ||
+      !normalizeCode(transport.vehiclePlate)
+    ) {
+      throw new Error('Sofor ve arac bilgileri gerekli');
     }
 
     const parsedOrder = parseMikroOrderNumber(orderNo);
@@ -1652,6 +1733,7 @@ class WarehouseWorkflowService {
       orderSequence: parsedOrder.sequence,
       customerCode: pendingOrder.customerCode,
       deliverySeries,
+      transport,
       lines: linesToDispatch.map((line) => ({
         rowNumber: Number.isFinite(Number(line.rowNumber)) ? Number(line.rowNumber) : null,
         productCode: line.productCode,
@@ -1660,13 +1742,13 @@ class WarehouseWorkflowService {
     });
     const deliveryNoteNo = createdDelivery.deliveryNoteNo;
 
+    const lineLinks = createdDelivery.lineLinks.length > 0
+      ? createdDelivery.lineLinks
+      : linesToDispatch.map((line) => ({ sipGuid: '', deliverQty: line.deliverQty }));
     await Promise.all(
-      linesToDispatch.map((line) => {
-        const safeProductCode = normalizeCode(line.productCode).replace(/'/g, "''");
-        const rowClause = Number.isFinite(Number(line.rowNumber))
-          ? ` AND sip_satirno = ${Number(line.rowNumber)}`
-          : '';
-
+      lineLinks.map((line) => {
+        if (!line.sipGuid) return Promise.resolve();
+        const safeSipGuid = normalizeCode(line.sipGuid).replace(/'/g, "''");
         const sqlQuery = `
           UPDATE SIPARISLER
           SET
@@ -1689,10 +1771,7 @@ class WarehouseWorkflowService {
               ELSE ISNULL(sip_kapat_fl, 0)
             END,
             sip_lastup_date = GETDATE()
-          WHERE sip_evrakno_seri = '${parsedOrder.series.replace(/'/g, "''")}'
-            AND sip_evrakno_sira = ${parsedOrder.sequence}
-            AND sip_stok_kod = '${safeProductCode}'
-            ${rowClause}
+          WHERE sip_Guid = CAST('${safeSipGuid}' as uniqueidentifier)
             AND ISNULL(sip_iptal, 0) = 0
         `;
         return mikroService.executeQuery(sqlQuery);

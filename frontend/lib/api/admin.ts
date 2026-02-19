@@ -540,6 +540,7 @@ export const adminApi = {
       orderSequence: number;
       customerCode: string;
       customerName: string;
+      documentNo?: string | null;
       warehouseCode: string | null;
       orderDate: string;
       deliveryDate: string | null;
@@ -714,7 +715,16 @@ export const adminApi = {
 
   markWarehouseDispatched: async (
     mikroOrderNumber: string,
-    data: { deliverySeries: string }
+    data: {
+      deliverySeries: string;
+      transport: {
+        driverFirstName: string;
+        driverLastName: string;
+        driverTcNo: string;
+        vehicleName: string;
+        vehiclePlate: string;
+      };
+    }
   ) => {
     const response = await apiClient.post(
       `/order-tracking/admin/warehouse/orders/${encodeURIComponent(mikroOrderNumber)}/dispatched`,

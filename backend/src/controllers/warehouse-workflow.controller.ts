@@ -182,15 +182,37 @@ class WarehouseWorkflowController {
       const mikroOrderNumber = req.params.mikroOrderNumber;
       const deliverySeries =
         typeof req.body?.deliverySeries === 'string' ? req.body.deliverySeries : '';
+      const transport = req.body?.transport || {};
       if (!mikroOrderNumber) {
         return res.status(400).json({ error: 'Siparis numarasi gerekli' });
       }
       if (!deliverySeries.trim()) {
         return res.status(400).json({ error: 'Irsaliye serisi gerekli' });
       }
+      if (
+        typeof transport.driverFirstName !== 'string' ||
+        typeof transport.driverLastName !== 'string' ||
+        typeof transport.driverTcNo !== 'string' ||
+        typeof transport.vehicleName !== 'string' ||
+        typeof transport.vehiclePlate !== 'string' ||
+        !transport.driverFirstName.trim() ||
+        !transport.driverLastName.trim() ||
+        !transport.driverTcNo.trim() ||
+        !transport.vehicleName.trim() ||
+        !transport.vehiclePlate.trim()
+      ) {
+        return res.status(400).json({ error: 'Sofor ve arac bilgileri gerekli' });
+      }
 
       const result = await warehouseWorkflowService.dispatchOrderWithDeliveryNote(mikroOrderNumber, {
         deliverySeries,
+        transport: {
+          driverFirstName: transport.driverFirstName,
+          driverLastName: transport.driverLastName,
+          driverTcNo: transport.driverTcNo,
+          vehicleName: transport.vehicleName,
+          vehiclePlate: transport.vehiclePlate,
+        },
         userId: req.user?.userId,
       });
       res.json(result);

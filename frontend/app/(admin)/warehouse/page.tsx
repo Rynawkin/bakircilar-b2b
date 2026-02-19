@@ -71,6 +71,7 @@ interface WarehouseOrderDetail {
     orderSequence: number;
     customerCode: string;
     customerName: string;
+    documentNo?: string | null;
     warehouseCode: string | null;
     orderDate: string;
     deliveryDate: string | null;
@@ -176,6 +177,31 @@ const getRemainingQtyClass = (line: WarehouseOrderDetail['lines'][number]) => {
   return 'bg-rose-100 text-rose-800 border-rose-300';
 };
 
+type DriverOption = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  tcNo: string;
+};
+
+type VehicleOption = {
+  id: string;
+  name: string;
+  plate: string;
+};
+
+const DRIVER_OPTIONS: DriverOption[] = [
+  { id: 'DVR-1', firstName: 'AHMET', lastName: 'YILMAZ', tcNo: '11111111111' },
+  { id: 'DVR-2', firstName: 'MEHMET', lastName: 'KAYA', tcNo: '22222222222' },
+  { id: 'DVR-3', firstName: 'MUSTAFA', lastName: 'DEMIR', tcNo: '33333333333' },
+];
+
+const VEHICLE_OPTIONS: VehicleOption[] = [
+  { id: 'VHC-1', name: 'KAMYON 1', plate: '54 ABC 123' },
+  { id: 'VHC-2', name: 'KAMYON 2', plate: '54 DEF 456' },
+  { id: 'VHC-3', name: 'KAMYONET 1', plate: '54 GHI 789' },
+];
+
 export default function WarehousePage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -207,6 +233,8 @@ export default function WarehousePage() {
   const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
   const [reportedImageKeys, setReportedImageKeys] = useState<Record<string, boolean>>({});
   const [deliveryNoteDrafts, setDeliveryNoteDrafts] = useState<Record<string, string>>({});
+  const [dispatchDriverDrafts, setDispatchDriverDrafts] = useState<Record<string, string>>({});
+  const [dispatchVehicleDrafts, setDispatchVehicleDrafts] = useState<Record<string, string>>({});
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
   const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
 
@@ -374,6 +402,8 @@ export default function WarehousePage() {
 
   const getShelfDraftKey = (mikroOrderNumber: string, lineKey: string) => `${mikroOrderNumber}::${lineKey}`;
   const getDeliveryDraft = (mikroOrderNumber: string) => (deliveryNoteDrafts[mikroOrderNumber] || '').trim();
+  const getDriverDraft = (mikroOrderNumber: string) => (dispatchDriverDrafts[mikroOrderNumber] || '').trim();
+  const getVehicleDraft = (mikroOrderNumber: string) => (dispatchVehicleDrafts[mikroOrderNumber] || '').trim();
 
   const loadOrderDetail = async (
     mikroOrderNumber: string,
@@ -542,14 +572,29 @@ export default function WarehousePage() {
 
   const handleDispatchWithDeliveryNote = async (mikroOrderNumber: string) => {
     const deliverySeries = getDeliveryDraft(mikroOrderNumber);
+    const selectedDriver = DRIVER_OPTIONS.find((item) => item.id === getDriverDraft(mikroOrderNumber));
+    const selectedVehicle = VEHICLE_OPTIONS.find((item) => item.id === getVehicleDraft(mikroOrderNumber));
     if (!deliverySeries) {
       toast.error('Irsaliye serisi gerekli');
+      return;
+    }
+    if (!selectedDriver || !selectedVehicle) {
+      toast.error('Sofor ve arac secimi zorunlu');
       return;
     }
 
     try {
       await withAction(async () => {
-        const result = await adminApi.markWarehouseDispatched(mikroOrderNumber, { deliverySeries });
+        const result = await adminApi.markWarehouseDispatched(mikroOrderNumber, {
+          deliverySeries,
+          transport: {
+            driverFirstName: selectedDriver.firstName,
+            driverLastName: selectedDriver.lastName,
+            driverTcNo: selectedDriver.tcNo,
+            vehicleName: selectedVehicle.name,
+            vehiclePlate: selectedVehicle.plate,
+          },
+        });
         const resolvedNo =
           result?.workflow?.mikroDeliveryNoteNo ||
           result?.mikroDeliveryNoteNo ||
@@ -629,6 +674,16 @@ export default function WarehousePage() {
       return next;
     });
     setDeliveryNoteDrafts((prev) => {
+      const next = { ...prev };
+      delete next[mikroOrderNumber];
+      return next;
+    });
+    setDispatchDriverDrafts((prev) => {
+      const next = { ...prev };
+      delete next[mikroOrderNumber];
+      return next;
+    });
+    setDispatchVehicleDrafts((prev) => {
       const next = { ...prev };
       delete next[mikroOrderNumber];
       return next;
@@ -1051,7 +1106,7 @@ export default function WarehousePage() {
                         </div>
 
                         <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3">
-                          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-2 items-end">
+                          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-2 items-end mb-2">
                             <div>
                               <p className="text-xs font-bold text-slate-600 mb-1">Irsaliye Serisi</p>
                               <Input
@@ -1067,9 +1122,80 @@ export default function WarehousePage() {
                                 Seri girince sira otomatik atanir, Mikro'da irsaliye olusur, siparis kapatilarak baglanir.
                               </p>
                             </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              <div>
+                                <p className="text-xs font-bold text-slate-600 mb-1">Sofor</p>
+                                <select
+                                  value={dispatchDriverDrafts[orderNumber] || ''}
+                                  onChange={(event) =>
+                                    setDispatchDriverDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
+                                  }
+                                  className={`${isKioskTouchMode ? 'h-14 text-lg' : 'h-11 text-base'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
+                                  disabled={panelWorkflowStatus === 'DISPATCHED'}
+                                >
+                                  <option value="">Sofor secin</option>
+                                  {DRIVER_OPTIONS.map((driver) => (
+                                    <option key={driver.id} value={driver.id}>
+                                      {driver.firstName} {driver.lastName}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-slate-600 mb-1">Arac</p>
+                                <select
+                                  value={dispatchVehicleDrafts[orderNumber] || ''}
+                                  onChange={(event) =>
+                                    setDispatchVehicleDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
+                                  }
+                                  className={`${isKioskTouchMode ? 'h-14 text-lg' : 'h-11 text-base'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
+                                  disabled={panelWorkflowStatus === 'DISPATCHED'}
+                                >
+                                  <option value="">Arac secin</option>
+                                  {VEHICLE_OPTIONS.map((vehicle) => (
+                                    <option key={vehicle.id} value={vehicle.id}>
+                                      {vehicle.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-2 items-end">
+                            <div className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-700">
+                              {(() => {
+                                const selectedDriver = DRIVER_OPTIONS.find((item) => item.id === getDriverDraft(orderNumber));
+                                const selectedVehicle = VEHICLE_OPTIONS.find((item) => item.id === getVehicleDraft(orderNumber));
+                                return (
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                    {panelDetail.order.documentNo && (
+                                      <span><strong>Siparis Belge:</strong> {panelDetail.order.documentNo}</span>
+                                    )}
+                                    {selectedDriver && (
+                                      <>
+                                        <span><strong>Sofor:</strong> {selectedDriver.firstName} {selectedDriver.lastName}</span>
+                                        <span><strong>TC:</strong> {selectedDriver.tcNo}</span>
+                                      </>
+                                    )}
+                                    {selectedVehicle && (
+                                      <>
+                                        <span><strong>Arac:</strong> {selectedVehicle.name}</span>
+                                        <span><strong>Plaka:</strong> {selectedVehicle.plate}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                             <Button
                               onClick={() => handleDispatchWithDeliveryNote(orderNumber)}
-                              disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
+                              disabled={
+                                actionLoading ||
+                                panelWorkflowStatus === 'DISPATCHED' ||
+                                !panelHasStarted ||
+                                !getDriverDraft(orderNumber) ||
+                                !getVehicleDraft(orderNumber)
+                              }
                               className={actionButtonClass}
                             >
                               {panelWorkflowStatus === 'DISPATCHED'
