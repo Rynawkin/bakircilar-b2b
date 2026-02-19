@@ -1841,18 +1841,19 @@ export class AdminController {
    */
   async getLastOrdersForCustomer(req: Request, res: Response, next: NextFunction) {
     try {
-      const { customerId, productCodes, limit, excludeOrderId } = req.body || {};
-      if (!customerId || !Array.isArray(productCodes) || productCodes.length === 0) {
+      const { customerId, customerCode, productCodes, limit, excludeOrderId } = req.body || {};
+      if ((!customerId && !customerCode) || !Array.isArray(productCodes) || productCodes.length === 0) {
         return res.json({ lastOrders: {} });
       }
 
       const normalizedCodes = productCodes.map((code: any) => String(code)).filter(Boolean);
       const safeLimit = Math.max(1, Math.min(10, Number(limit) || 1));
       const lastOrders = await orderService.getCustomerLastOrderItems(
-        String(customerId),
+        customerId ? String(customerId) : '',
         normalizedCodes,
         safeLimit,
-        excludeOrderId ? String(excludeOrderId) : undefined
+        excludeOrderId ? String(excludeOrderId) : undefined,
+        customerCode ? String(customerCode).trim() : undefined
       );
 
       res.json({ lastOrders });

@@ -18,7 +18,8 @@ class OrderService {
     customerId: string,
     productCodes: string[],
     limit: number,
-    excludeOrderId?: string
+    excludeOrderId?: string,
+    customerCodeOverride?: string
   ): Promise<Record<string, Array<{
     orderDate: string;
     quantity: number;
@@ -32,11 +33,14 @@ class OrderService {
       return {};
     }
 
-    const customer = await prisma.user.findUnique({
-      where: { id: customerId },
-      select: { mikroCariCode: true },
-    });
-    const mikroCariCode = String(customer?.mikroCariCode || '').trim();
+    let mikroCariCode = String(customerCodeOverride || '').trim();
+    if (!mikroCariCode) {
+      const customer = await prisma.user.findUnique({
+        where: { id: customerId },
+        select: { mikroCariCode: true },
+      });
+      mikroCariCode = String(customer?.mikroCariCode || '').trim();
+    }
     if (!mikroCariCode) {
       return {};
     }

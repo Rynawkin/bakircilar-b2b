@@ -753,7 +753,10 @@ function AdminQuoteNewPageContent() {
       return;
     }
 
-    if (!selectedCustomer || quoteProductCodes.length === 0) {
+    const resolvedCustomerCode = String(
+      selectedCustomer?.mikroCariCode || editingOrderCustomerCode || ''
+    ).trim();
+    if (!resolvedCustomerCode || quoteProductCodes.length === 0) {
       setLastOrderMap({});
       return;
     }
@@ -761,7 +764,8 @@ function AdminQuoteNewPageContent() {
     const timer = setTimeout(async () => {
       try {
         const result = await adminApi.getLastOrderItems({
-          customerId: selectedCustomer.id,
+          customerId: selectedCustomer?.id || undefined,
+          customerCode: resolvedCustomerCode,
           productCodes: quoteProductCodes,
           limit: Math.max(5, lastSalesCount || 1),
           excludeOrderId: isOrderEditMode ? editOrderId || undefined : undefined,
@@ -774,7 +778,7 @@ function AdminQuoteNewPageContent() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [isOrderMode, showLastOrderInfo, selectedCustomer?.id, quoteProductCodes.join('|'), lastSalesCount, isOrderEditMode, editOrderId]);
+  }, [isOrderMode, showLastOrderInfo, selectedCustomer?.id, selectedCustomer?.mikroCariCode, editingOrderCustomerCode, quoteProductCodes.join('|'), lastSalesCount, isOrderEditMode, editOrderId]);
 
   useEffect(() => {
     if (quoteProductCodes.length === 0) {

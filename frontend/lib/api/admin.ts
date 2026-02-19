@@ -793,7 +793,8 @@ export const adminApi = {
   },
 
   getLastOrderItems: async (payload: {
-    customerId: string;
+    customerId?: string;
+    customerCode?: string;
     productCodes: string[];
     limit?: number;
     excludeOrderId?: string;
