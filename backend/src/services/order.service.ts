@@ -133,6 +133,12 @@ class OrderService {
     if (missingAfterB2b.length > 0) {
       try {
         const safeCari = mikroCariCode.replace(/'/g, "''");
+        const sipBelgeColumns = typeof (mikroService as any).resolveSipBelgeColumns === 'function'
+          ? await (mikroService as any).resolveSipBelgeColumns()
+          : { no: null };
+        const belgeSelectExpr = sipBelgeColumns.no
+          ? `NULLIF(LTRIM(RTRIM(${sipBelgeColumns.no})), '')`
+          : 'NULL';
         const safeCodes = missingAfterB2b
           .map((code) => String(code).trim())
           .filter(Boolean)
@@ -150,12 +156,16 @@ class OrderService {
                 sip_vergi as vatAmount,
                 sip_evrakno_seri as orderSeries,
                 sip_evrakno_sira as orderSequence,
+                ${belgeSelectExpr} as belgeNo,
                 ROW_NUMBER() OVER (
-                  PARTITION BY sip_stok_kod
+                  PARTITION BY LTRIM(RTRIM(sip_stok_kod))
                   ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satirno DESC
                 ) as rn
               FROM SIPARISLER WITH (NOLOCK)
-              WHERE sip_musteri_kod = '${safeCari}'
+              WHERE (
+                  LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))) = '${safeCari}'
+                  OR LTRIM(RTRIM(ISNULL(sip_cari_kod, ''))) = '${safeCari}'
+                )
                 AND sip_stok_kod IN (${safeCodes})
             )
             SELECT
@@ -165,7 +175,8 @@ class OrderService {
               unitPrice,
               vatAmount,
               orderSeries,
-              orderSequence
+              orderSequence,
+              belgeNo
             FROM RankedOrders
             WHERE rn <= ${Math.max(3, limit)}
             ORDER BY productCode, orderDate DESC
@@ -183,12 +194,13 @@ class OrderService {
               row.orderSeries && Number.isFinite(sequence)
                 ? `${String(row.orderSeries).trim()}-${sequence}`
                 : null;
+            const belgeNo = String(row.belgeNo || '').trim() || orderNo;
             const entry = {
               orderDate: row.orderDate ? new Date(row.orderDate).toISOString() : new Date().toISOString(),
               quantity: Number(row.quantity) || 0,
               unitPrice: Number(row.unitPrice) || 0,
               priceType: Number(row.vatAmount || 0) === 0 ? 'WHITE' as const : 'INVOICED' as const,
-              documentNo: orderNo,
+              documentNo: belgeNo,
               orderNumber: orderNo,
             };
 
