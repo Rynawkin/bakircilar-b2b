@@ -14,6 +14,110 @@ import { generateOrderNumber } from '../utils/orderNumber';
 import mikroService from './mikroFactory.service';
 
 class OrderService {
+  async getCustomerLastOrderItems(
+    customerId: string,
+    productCodes: string[],
+    limit: number,
+    excludeOrderId?: string
+  ): Promise<Record<string, Array<{
+    orderDate: string;
+    quantity: number;
+    unitPrice: number;
+    priceType: 'INVOICED' | 'WHITE';
+    documentNo?: string | null;
+    orderNumber?: string | null;
+  }>>> {
+    const codes = productCodes.map((code) => String(code || '').trim()).filter(Boolean);
+    if (!customerId || codes.length === 0 || limit <= 0) {
+      return {};
+    }
+
+    const takeCount = Math.min(codes.length * limit * 6, 2500);
+    const rows = await prisma.orderItem.findMany({
+      where: {
+        mikroCode: { in: codes },
+        order: {
+          userId: customerId,
+          status: { not: 'REJECTED' },
+          ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
+        },
+      },
+      orderBy: [
+        { order: { createdAt: 'desc' } },
+        { createdAt: 'desc' },
+      ],
+      take: takeCount,
+      select: {
+        mikroCode: true,
+        quantity: true,
+        unitPrice: true,
+        priceType: true,
+        order: {
+          select: {
+            createdAt: true,
+            customerOrderNumber: true,
+            orderNumber: true,
+          },
+        },
+      },
+    });
+
+    const result = new Map<string, Array<{
+      orderDate: string;
+      quantity: number;
+      unitPrice: number;
+      priceType: 'INVOICED' | 'WHITE';
+      documentNo?: string | null;
+      orderNumber?: string | null;
+    }>>();
+    const dedupe = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      const code = String(row.mikroCode || '').trim();
+      if (!code) continue;
+      const list = result.get(code) || [];
+      if (list.length >= limit) continue;
+
+      const entry = {
+        orderDate: row.order?.createdAt
+          ? row.order.createdAt.toISOString()
+          : new Date().toISOString(),
+        quantity: Number(row.quantity) || 0,
+        unitPrice: Number(row.unitPrice) || 0,
+        priceType: row.priceType === 'WHITE' ? 'WHITE' as const : 'INVOICED' as const,
+        documentNo: row.order?.customerOrderNumber ?? null,
+        orderNumber: row.order?.orderNumber ?? null,
+      };
+
+      const key = `${entry.orderNumber || ''}|${entry.documentNo || ''}|${entry.unitPrice}|${entry.quantity}|${entry.priceType}`;
+      const keySet = dedupe.get(code) || new Set<string>();
+      if (keySet.has(key)) continue;
+
+      list.push(entry);
+      keySet.add(key);
+      result.set(code, list);
+      dedupe.set(code, keySet);
+    }
+
+    const output: Record<string, Array<{
+      orderDate: string;
+      quantity: number;
+      unitPrice: number;
+      priceType: 'INVOICED' | 'WHITE';
+      documentNo?: string | null;
+      orderNumber?: string | null;
+    }>> = {};
+
+    for (const code of codes) {
+      const list = result.get(code) || [];
+      list.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
+      if (list.length > 0) {
+        output[code] = list.slice(0, limit);
+      }
+    }
+
+    return output;
+  }
   /**
    * Sepetten sipariş oluştur
    */

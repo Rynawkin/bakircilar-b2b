@@ -1837,6 +1837,31 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/orders/last-orders
+   */
+  async getLastOrdersForCustomer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { customerId, productCodes, limit, excludeOrderId } = req.body || {};
+      if (!customerId || !Array.isArray(productCodes) || productCodes.length === 0) {
+        return res.json({ lastOrders: {} });
+      }
+
+      const normalizedCodes = productCodes.map((code: any) => String(code)).filter(Boolean);
+      const safeLimit = Math.max(1, Math.min(10, Number(limit) || 1));
+      const lastOrders = await orderService.getCustomerLastOrderItems(
+        String(customerId),
+        normalizedCodes,
+        safeLimit,
+        excludeOrderId ? String(excludeOrderId) : undefined
+      );
+
+      res.json({ lastOrders });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/orders/pending
    * ADMIN/MANAGER: Tüm bekleyen siparişler
    * SALES_REP: Sadece atanan sektör kodlarındaki müşterilerin bekleyen siparişleri

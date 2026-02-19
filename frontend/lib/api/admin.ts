@@ -792,6 +792,16 @@ export const adminApi = {
     return response.data;
   },
 
+  getLastOrderItems: async (payload: {
+    customerId: string;
+    productCodes: string[];
+    limit?: number;
+    excludeOrderId?: string;
+  }): Promise<{ lastOrders: Record<string, any[]> }> => {
+    const response = await apiClient.post('/admin/orders/last-orders', payload);
+    return response.data;
+  },
+
   createQuote: async (data: any): Promise<{ quote: Quote }> => {
     const response = await apiClient.post('/admin/quotes', data);
     return response.data;

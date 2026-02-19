@@ -34,6 +34,15 @@ interface LastQuote {
   quoteNumber?: string | null;
 }
 
+interface LastOrder {
+  orderDate: string;
+  quantity: number;
+  unitPrice: number;
+  priceType?: 'INVOICED' | 'WHITE';
+  documentNo?: string | null;
+  orderNumber?: string | null;
+}
+
 interface QuoteProduct {
   id: string;
   name: string;
@@ -81,6 +90,7 @@ interface QuoteItemForm {
   reserveQty?: number;
   lastSales?: LastSale[];
   lastQuotes?: LastQuote[];
+  lastOrders?: LastOrder[];
   selectedSaleIndex?: number;
   lastEntryPrice?: number | null;
   lastEntryDate?: string | null;
@@ -343,6 +353,11 @@ const getQuoteDocumentLabel = (quote?: LastQuote) => {
   return quote.documentNo;
 };
 
+const getOrderDocumentLabel = (order?: LastOrder) => {
+  if (!order?.documentNo) return '-';
+  return order.documentNo;
+};
+
 const roundUp2 = (value: number) => {
   if (!Number.isFinite(value)) return 0;
   return Math.ceil((value + Number.EPSILON) * 100) / 100;
@@ -406,8 +421,10 @@ function AdminQuoteNewPageContent() {
   const [vatZeroed, setVatZeroed] = useState(false);
   const [lastSalesCount, setLastSalesCount] = useState(1);
   const [showLastQuoteInfo, setShowLastQuoteInfo] = useState(false);
+  const [showLastOrderInfo, setShowLastOrderInfo] = useState(false);
   const [expandedQuoteHistory, setExpandedQuoteHistory] = useState<Record<string, boolean>>({});
   const [lastQuoteMap, setLastQuoteMap] = useState<Record<string, LastQuote[]>>({});
+  const [lastOrderMap, setLastOrderMap] = useState<Record<string, LastOrder[]>>({});
   const [manualImageUploading, setManualImageUploading] = useState<Record<string, boolean>>({});
   const [whatsappTemplate, setWhatsappTemplate] = useState('');
   const [responsibles, setResponsibles] = useState<Array<{ code: string; name: string; surname: string }>>([]);
@@ -542,10 +559,20 @@ function AdminQuoteNewPageContent() {
   }, [isQuoteTableFullscreen]);
 
   useEffect(() => {
-    if (!showLastQuoteInfo) {
+    if (!showLastQuoteInfo && !showLastOrderInfo) {
       setExpandedQuoteHistory({});
     }
-  }, [showLastQuoteInfo]);
+  }, [showLastQuoteInfo, showLastOrderInfo]);
+
+  useEffect(() => {
+    if (isOrderMode) {
+      setShowLastQuoteInfo(false);
+      setLastQuoteMap({});
+      return;
+    }
+    setShowLastOrderInfo(false);
+    setLastOrderMap({});
+  }, [isOrderMode]);
 
   useEffect(() => {
     setSelectedPurchasedCodes(new Set());
@@ -682,6 +709,11 @@ function AdminQuoteNewPageContent() {
   const quoteProductCodeSet = useMemo(() => new Set(quoteProductCodes), [quoteProductCodes]);
 
   useEffect(() => {
+    if (isOrderMode) {
+      setLastQuoteMap({});
+      return;
+    }
+
     if (!showLastQuoteInfo) {
       setLastQuoteMap({});
       return;
@@ -708,7 +740,41 @@ function AdminQuoteNewPageContent() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [showLastQuoteInfo, selectedCustomer?.id, quoteProductCodes.join('|'), lastSalesCount, editingQuote?.id]);
+  }, [showLastQuoteInfo, selectedCustomer?.id, quoteProductCodes.join('|'), lastSalesCount, editingQuote?.id, isOrderMode]);
+
+  useEffect(() => {
+    if (!isOrderMode) {
+      setLastOrderMap({});
+      return;
+    }
+
+    if (!showLastOrderInfo) {
+      setLastOrderMap({});
+      return;
+    }
+
+    if (!selectedCustomer || quoteProductCodes.length === 0) {
+      setLastOrderMap({});
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await adminApi.getLastOrderItems({
+          customerId: selectedCustomer.id,
+          productCodes: quoteProductCodes,
+          limit: Math.max(5, lastSalesCount || 1),
+          excludeOrderId: isOrderEditMode ? editOrderId || undefined : undefined,
+        });
+        setLastOrderMap(result.lastOrders || {});
+      } catch (error) {
+        console.error('Son siparisler alinmadi:', error);
+        setLastOrderMap({});
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [isOrderMode, showLastOrderInfo, selectedCustomer?.id, quoteProductCodes.join('|'), lastSalesCount, isOrderEditMode, editOrderId]);
 
   useEffect(() => {
     if (quoteProductCodes.length === 0) {
@@ -2523,12 +2589,20 @@ function AdminQuoteNewPageContent() {
                 Son Satisi Uygula
               </Button>
               <Button
-                variant={showLastQuoteInfo ? 'primary' : 'secondary'}
+                variant={isOrderMode ? (showLastOrderInfo ? 'primary' : 'secondary') : (showLastQuoteInfo ? 'primary' : 'secondary')}
                 size="sm"
-                onClick={() => setShowLastQuoteInfo((prev) => !prev)}
+                onClick={() => {
+                  if (isOrderMode) {
+                    setShowLastOrderInfo((prev) => !prev);
+                  } else {
+                    setShowLastQuoteInfo((prev) => !prev);
+                  }
+                }}
                 className="rounded-full"
               >
-                {showLastQuoteInfo ? 'Son Teklifi Gizle' : 'Son Teklifi Goster'}
+                {isOrderMode
+                  ? (showLastOrderInfo ? 'Son Siparisleri Gizle' : 'Son Siparisleri Goster')
+                  : (showLastQuoteInfo ? 'Son Teklifi Gizle' : 'Son Teklifi Goster')}
               </Button>
               {isOrderMode && (
                 <>
@@ -2659,11 +2733,14 @@ function AdminQuoteNewPageContent() {
                 <tbody className="divide-y">
                   {quoteItems.map((item, index) => {
                     const marginInfo = getMarginInfo(item);
-                    const itemLastQuotes = !item.isManualLine
-                      ? (lastQuoteMap[item.productCode] || item.lastQuotes || [])
+                    const showHistory = isOrderMode ? showLastOrderInfo : showLastQuoteInfo;
+                    const itemHistory = !item.isManualLine
+                      ? (isOrderMode
+                        ? (lastOrderMap[item.productCode] || item.lastOrders || [])
+                        : (lastQuoteMap[item.productCode] || item.lastQuotes || []))
                       : [];
-                    const hasLastQuoteHistory = showLastQuoteInfo && itemLastQuotes.length > 0;
-                    const canToggleQuoteHistory = showLastQuoteInfo && itemLastQuotes.length > 1;
+                    const hasItemHistory = showHistory && itemHistory.length > 0;
+                    const canToggleHistory = showHistory && itemHistory.length > 1;
                     const isQuoteHistoryExpanded = Boolean(expandedQuoteHistory[item.id]);
                     const roundedUnitPrice = roundUp2(item.unitPrice || 0);
                     const lineTotal = roundedUnitPrice * (item.quantity || 0);
@@ -2750,18 +2827,18 @@ function AdminQuoteNewPageContent() {
                                     {marginInfo?.blocked && (
                                       <Badge variant="danger" className="text-xs mt-1">Blok</Badge>
                                     )}
-                                    {showLastQuoteInfo && (
+                                    {showHistory && (
                                       <div className="mt-2 text-[11px] text-gray-500">
-                                        {hasLastQuoteHistory ? (
+                                        {hasItemHistory ? (
                                           <div className="space-y-1">
                                             <div
-                                              className={`flex flex-wrap items-center gap-2${canToggleQuoteHistory ? ' cursor-pointer' : ''}`}
-                                              onClick={canToggleQuoteHistory ? () => toggleQuoteHistory(item.id) : undefined}
-                                              role={canToggleQuoteHistory ? 'button' : undefined}
-                                              tabIndex={canToggleQuoteHistory ? 0 : undefined}
-                                              title={canToggleQuoteHistory ? 'Gecmis teklifleri goster' : undefined}
+                                              className={`flex flex-wrap items-center gap-2${canToggleHistory ? ' cursor-pointer' : ''}`}
+                                              onClick={canToggleHistory ? () => toggleQuoteHistory(item.id) : undefined}
+                                              role={canToggleHistory ? 'button' : undefined}
+                                              tabIndex={canToggleHistory ? 0 : undefined}
+                                              title={canToggleHistory ? (isOrderMode ? 'Gecmis siparisleri goster' : 'Gecmis teklifleri goster') : undefined}
                                               onKeyDown={
-                                                canToggleQuoteHistory
+                                                canToggleHistory
                                                   ? (event) => {
                                                       if (event.key === 'Enter' || event.key === ' ') {
                                                         event.preventDefault();
@@ -2771,32 +2848,44 @@ function AdminQuoteNewPageContent() {
                                                   : undefined
                                               }
                                             >
-                                              <span className="font-semibold text-gray-700">Son Teklif:</span>
-                                              <span>{formatDateShort(itemLastQuotes[0].quoteDate)}</span>
-                                              <span className="font-semibold text-gray-900">{formatCurrency(itemLastQuotes[0].unitPrice)}</span>
-                                              <span className="text-gray-500">Belge: {getQuoteDocumentLabel(itemLastQuotes[0])}</span>
-                                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                                                {formatQuotePriceType(itemLastQuotes[0].priceType)}
+                                              <span className="font-semibold text-gray-700">{isOrderMode ? 'Son Siparis:' : 'Son Teklif:'}</span>
+                                              <span>{formatDateShort(isOrderMode ? (itemHistory[0] as LastOrder).orderDate : (itemHistory[0] as LastQuote).quoteDate)}</span>
+                                              <span className="font-semibold text-gray-900">{formatCurrency(itemHistory[0].unitPrice)}</span>
+                                              <span className="text-gray-500">
+                                                Belge: {isOrderMode ? getOrderDocumentLabel(itemHistory[0] as LastOrder) : getQuoteDocumentLabel(itemHistory[0] as LastQuote)}
                                               </span>
-                                              {itemLastQuotes.length > 1 && (
+                                              {isOrderMode && (
+                                                <span className="text-gray-500">Siparis: {(itemHistory[0] as LastOrder).orderNumber || '-'}</span>
+                                              )}
+                                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                                {formatQuotePriceType(itemHistory[0].priceType)}
+                                              </span>
+                                              {itemHistory.length > 1 && (
                                                 <button
                                                   type="button"
                                                   onClick={() => toggleQuoteHistory(item.id)}
                                                   className="text-primary-600 hover:text-primary-700 underline"
                                                 >
-                                                  {isQuoteHistoryExpanded ? 'Gecmisi Gizle' : `Gecmis (${itemLastQuotes.length - 1})`}
+                                                  {isQuoteHistoryExpanded ? 'Gecmisi Gizle' : `Gecmis (${itemHistory.length - 1})`}
                                                 </button>
                                               )}
                                             </div>
-                                            {isQuoteHistoryExpanded && itemLastQuotes.length > 1 && (
+                                            {isQuoteHistoryExpanded && itemHistory.length > 1 && (
                                               <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
-                                                {itemLastQuotes.slice(1).map((quote, idx) => (
+                                                {itemHistory.slice(1).map((historyRow, idx) => (
                                                   <div key={`${item.id}-quote-${idx}`} className="flex flex-wrap items-center gap-2 py-0.5 text-[11px] text-gray-600">
-                                                    <span className="font-medium text-gray-700">{formatDateShort(quote.quoteDate)}</span>
-                                                    <span className="font-semibold text-gray-900">{formatCurrency(quote.unitPrice)}</span>
-                                                    <span className="text-gray-500">Belge: {getQuoteDocumentLabel(quote)}</span>
+                                                    <span className="font-medium text-gray-700">
+                                                      {formatDateShort(isOrderMode ? (historyRow as LastOrder).orderDate : (historyRow as LastQuote).quoteDate)}
+                                                    </span>
+                                                    <span className="font-semibold text-gray-900">{formatCurrency(historyRow.unitPrice)}</span>
+                                                    <span className="text-gray-500">
+                                                      Belge: {isOrderMode ? getOrderDocumentLabel(historyRow as LastOrder) : getQuoteDocumentLabel(historyRow as LastQuote)}
+                                                    </span>
+                                                    {isOrderMode && (
+                                                      <span className="text-gray-500">Siparis: {(historyRow as LastOrder).orderNumber || '-'}</span>
+                                                    )}
                                                     <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 border border-slate-200">
-                                                      {formatQuotePriceType(quote.priceType)}
+                                                      {formatQuotePriceType(historyRow.priceType)}
                                                     </span>
                                                   </div>
                                                 ))}
@@ -2804,7 +2893,7 @@ function AdminQuoteNewPageContent() {
                                             )}
                                           </div>
                                         ) : (
-                                          <span className="text-gray-400">Son teklif yok</span>
+                                          <span className="text-gray-400">{isOrderMode ? 'Son siparis yok' : 'Son teklif yok'}</span>
                                         )}
                                       </div>
                                     )}

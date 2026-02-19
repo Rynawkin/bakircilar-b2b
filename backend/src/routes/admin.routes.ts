@@ -337,6 +337,7 @@ router.delete('/customers/:id/contacts/:contactId', requirePermission('admin:cus
 // Orders - Staff for GET (filtered by sector), OrderApprover (ADMIN/SALES_REP) for approval
 router.get('/orders', requirePermission('admin:orders'), adminController.getAllOrders);
 router.get('/orders/pending', requirePermission('admin:orders'), adminController.getPendingOrders);
+router.post('/orders/last-orders', requirePermission('admin:orders'), adminController.getLastOrdersForCustomer);
 router.get('/orders/:id', requirePermission('admin:orders'), adminController.getOrderById);
 router.put('/orders/:id', requirePermission('admin:orders'), adminController.updateOrder);
 router.post('/orders/manual', requirePermission('admin:orders'), adminController.createManualOrder);
