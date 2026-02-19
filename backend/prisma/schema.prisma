@@ -1485,6 +1485,33 @@ model WarehouseShelfLocation {
   @@index([shelfCode])
 }
 
+model WarehouseDispatchDriver {
+  id         String   @id @default(uuid())
+  firstName  String
+  lastName   String
+  tcNo       String   @unique
+  active     Boolean  @default(true)
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([active])
+  @@index([lastName, firstName])
+}
+
+model WarehouseDispatchVehicle {
+  id         String   @id @default(uuid())
+  name       String
+  plate      String   @unique
+  active     Boolean  @default(true)
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([active])
+  @@index([name])
+}
+
 model WarehouseImageIssueReport {
   id                String                    @id @default(uuid())
   mikroOrderNumber  String

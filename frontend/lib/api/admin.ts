@@ -533,6 +533,74 @@ export const adminApi = {
     return response.data;
   },
 
+  getWarehouseDispatchCatalog: async (): Promise<{
+    drivers: Array<{ id: string; firstName: string; lastName: string; tcNo: string; note?: string | null; active: boolean }>;
+    vehicles: Array<{ id: string; name: string; plate: string; note?: string | null; active: boolean }>;
+  }> => {
+    const response = await apiClient.get('/order-tracking/admin/warehouse/dispatch-catalog');
+    return response.data;
+  },
+
+  getWarehouseDispatchCatalogAdmin: async (): Promise<{
+    drivers: Array<{ id: string; firstName: string; lastName: string; tcNo: string; note?: string | null; active: boolean }>;
+    vehicles: Array<{ id: string; name: string; plate: string; note?: string | null; active: boolean }>;
+  }> => {
+    const response = await apiClient.get('/order-tracking/admin/warehouse/dispatch-catalog/admin');
+    return response.data;
+  },
+
+  createWarehouseDriver: async (data: {
+    firstName: string;
+    lastName: string;
+    tcNo: string;
+    note?: string;
+    active?: boolean;
+  }) => {
+    const response = await apiClient.post('/order-tracking/admin/warehouse/dispatch-catalog/drivers', data);
+    return response.data;
+  },
+
+  updateWarehouseDriver: async (
+    driverId: string,
+    data: { firstName?: string; lastName?: string; tcNo?: string; note?: string | null; active?: boolean }
+  ) => {
+    const response = await apiClient.patch(
+      `/order-tracking/admin/warehouse/dispatch-catalog/drivers/${encodeURIComponent(driverId)}`,
+      data
+    );
+    return response.data;
+  },
+
+  deleteWarehouseDriver: async (driverId: string) => {
+    const response = await apiClient.delete(
+      `/order-tracking/admin/warehouse/dispatch-catalog/drivers/${encodeURIComponent(driverId)}`
+    );
+    return response.data;
+  },
+
+  createWarehouseVehicle: async (data: { name: string; plate: string; note?: string; active?: boolean }) => {
+    const response = await apiClient.post('/order-tracking/admin/warehouse/dispatch-catalog/vehicles', data);
+    return response.data;
+  },
+
+  updateWarehouseVehicle: async (
+    vehicleId: string,
+    data: { name?: string; plate?: string; note?: string | null; active?: boolean }
+  ) => {
+    const response = await apiClient.patch(
+      `/order-tracking/admin/warehouse/dispatch-catalog/vehicles/${encodeURIComponent(vehicleId)}`,
+      data
+    );
+    return response.data;
+  },
+
+  deleteWarehouseVehicle: async (vehicleId: string) => {
+    const response = await apiClient.delete(
+      `/order-tracking/admin/warehouse/dispatch-catalog/vehicles/${encodeURIComponent(vehicleId)}`
+    );
+    return response.data;
+  },
+
   getWarehouseOrderDetail: async (mikroOrderNumber: string): Promise<{
     order: {
       mikroOrderNumber: string;

@@ -177,6 +177,153 @@ const toItemStatus = (
 };
 
 class WarehouseWorkflowService {
+  private sanitizeTcNo(value: unknown): string {
+    return String(value || '').replace(/\D/g, '').slice(0, 11);
+  }
+
+  private sanitizePlate(value: unknown): string {
+    return normalizeCode(value).toUpperCase().slice(0, 20);
+  }
+
+  async getDispatchCatalog() {
+    const [drivers, vehicles] = await Promise.all([
+      prisma.warehouseDispatchDriver.findMany({
+        where: { active: true },
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          tcNo: true,
+          note: true,
+          active: true,
+        },
+      }),
+      prisma.warehouseDispatchVehicle.findMany({
+        where: { active: true },
+        orderBy: [{ name: 'asc' }, { plate: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          plate: true,
+          note: true,
+          active: true,
+        },
+      }),
+    ]);
+    return { drivers, vehicles };
+  }
+
+  async getDispatchCatalogAdmin() {
+    const [drivers, vehicles] = await Promise.all([
+      prisma.warehouseDispatchDriver.findMany({
+        orderBy: [{ active: 'desc' }, { lastName: 'asc' }, { firstName: 'asc' }],
+      }),
+      prisma.warehouseDispatchVehicle.findMany({
+        orderBy: [{ active: 'desc' }, { name: 'asc' }, { plate: 'asc' }],
+      }),
+    ]);
+    return { drivers, vehicles };
+  }
+
+  async createDispatchDriver(payload: {
+    firstName: string;
+    lastName: string;
+    tcNo: string;
+    note?: string;
+    active?: boolean;
+  }) {
+    const firstName = normalizeCode(payload.firstName).toUpperCase().slice(0, 50);
+    const lastName = normalizeCode(payload.lastName).toUpperCase().slice(0, 50);
+    const tcNo = this.sanitizeTcNo(payload.tcNo);
+    const note = normalizeCode(payload.note).slice(0, 250) || null;
+    const active = payload.active !== false;
+
+    if (!firstName || !lastName || tcNo.length !== 11) {
+      throw new Error('Sofor bilgileri gecersiz');
+    }
+
+    return prisma.warehouseDispatchDriver.create({
+      data: { firstName, lastName, tcNo, note, active },
+    });
+  }
+
+  async updateDispatchDriver(
+    id: string,
+    payload: { firstName?: string; lastName?: string; tcNo?: string; note?: string | null; active?: boolean }
+  ) {
+    const driver = await prisma.warehouseDispatchDriver.findUnique({ where: { id } });
+    if (!driver) throw new Error('Sofor bulunamadi');
+
+    const firstName =
+      payload.firstName !== undefined ? normalizeCode(payload.firstName).toUpperCase().slice(0, 50) : driver.firstName;
+    const lastName =
+      payload.lastName !== undefined ? normalizeCode(payload.lastName).toUpperCase().slice(0, 50) : driver.lastName;
+    const tcNo = payload.tcNo !== undefined ? this.sanitizeTcNo(payload.tcNo) : driver.tcNo;
+    const note = payload.note !== undefined ? normalizeCode(payload.note).slice(0, 250) || null : driver.note;
+    const active = payload.active !== undefined ? Boolean(payload.active) : driver.active;
+
+    if (!firstName || !lastName || tcNo.length !== 11) {
+      throw new Error('Sofor bilgileri gecersiz');
+    }
+
+    return prisma.warehouseDispatchDriver.update({
+      where: { id },
+      data: { firstName, lastName, tcNo, note, active },
+    });
+  }
+
+  async deleteDispatchDriver(id: string) {
+    const driver = await prisma.warehouseDispatchDriver.findUnique({ where: { id } });
+    if (!driver) throw new Error('Sofor bulunamadi');
+    await prisma.warehouseDispatchDriver.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async createDispatchVehicle(payload: { name: string; plate: string; note?: string; active?: boolean }) {
+    const name = normalizeCode(payload.name).toUpperCase().slice(0, 80);
+    const plate = this.sanitizePlate(payload.plate);
+    const note = normalizeCode(payload.note).slice(0, 250) || null;
+    const active = payload.active !== false;
+
+    if (!name || !plate) {
+      throw new Error('Arac bilgileri gecersiz');
+    }
+
+    return prisma.warehouseDispatchVehicle.create({
+      data: { name, plate, note, active },
+    });
+  }
+
+  async updateDispatchVehicle(
+    id: string,
+    payload: { name?: string; plate?: string; note?: string | null; active?: boolean }
+  ) {
+    const vehicle = await prisma.warehouseDispatchVehicle.findUnique({ where: { id } });
+    if (!vehicle) throw new Error('Arac bulunamadi');
+
+    const name = payload.name !== undefined ? normalizeCode(payload.name).toUpperCase().slice(0, 80) : vehicle.name;
+    const plate = payload.plate !== undefined ? this.sanitizePlate(payload.plate) : vehicle.plate;
+    const note = payload.note !== undefined ? normalizeCode(payload.note).slice(0, 250) || null : vehicle.note;
+    const active = payload.active !== undefined ? Boolean(payload.active) : vehicle.active;
+
+    if (!name || !plate) {
+      throw new Error('Arac bilgileri gecersiz');
+    }
+
+    return prisma.warehouseDispatchVehicle.update({
+      where: { id },
+      data: { name, plate, note, active },
+    });
+  }
+
+  async deleteDispatchVehicle(id: string) {
+    const vehicle = await prisma.warehouseDispatchVehicle.findUnique({ where: { id } });
+    if (!vehicle) throw new Error('Arac bulunamadi');
+    await prisma.warehouseDispatchVehicle.delete({ where: { id } });
+    return { success: true };
+  }
+
   private async resolveUserLabel(userId?: string | null): Promise<string | null> {
     const normalizedUserId = normalizeCode(userId);
     if (!normalizedUserId) return null;

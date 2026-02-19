@@ -29,6 +29,14 @@ router.get('/admin/summary', authenticate, requirePermission('admin:order-tracki
 router.get('/admin/supplier-summary', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getSupplierSummary);
 router.get('/admin/email-logs', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.getEmailLogs);
 router.get('/admin/warehouse/overview', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getOverview);
+router.get('/admin/warehouse/dispatch-catalog', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getDispatchCatalog);
+router.get('/admin/warehouse/dispatch-catalog/admin', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getDispatchCatalogAdmin);
+router.post('/admin/warehouse/dispatch-catalog/drivers', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.createDispatchDriver);
+router.patch('/admin/warehouse/dispatch-catalog/drivers/:driverId', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.updateDispatchDriver);
+router.delete('/admin/warehouse/dispatch-catalog/drivers/:driverId', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.deleteDispatchDriver);
+router.post('/admin/warehouse/dispatch-catalog/vehicles', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.createDispatchVehicle);
+router.patch('/admin/warehouse/dispatch-catalog/vehicles/:vehicleId', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.updateDispatchVehicle);
+router.delete('/admin/warehouse/dispatch-catalog/vehicles/:vehicleId', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.deleteDispatchVehicle);
 router.post('/admin/warehouse/sync', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.syncPendingOrders);
 router.get('/admin/warehouse/image-issues', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.getImageIssueReports);
 router.patch('/admin/warehouse/image-issues/:reportId', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.updateImageIssueReport);

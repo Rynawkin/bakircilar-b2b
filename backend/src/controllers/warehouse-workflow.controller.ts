@@ -2,6 +2,122 @@ import { Request, Response } from 'express';
 import warehouseWorkflowService from '../services/warehouse-workflow.service';
 
 class WarehouseWorkflowController {
+  async getDispatchCatalog(req: Request, res: Response) {
+    try {
+      const result = await warehouseWorkflowService.getDispatchCatalog();
+      res.json(result);
+    } catch (error: any) {
+      console.error('Depo dispatch katalog hatasi:', error);
+      res.status(500).json({ error: error.message || 'Dispatch katalog alinamadi' });
+    }
+  }
+
+  async getDispatchCatalogAdmin(req: Request, res: Response) {
+    try {
+      const result = await warehouseWorkflowService.getDispatchCatalogAdmin();
+      res.json(result);
+    } catch (error: any) {
+      console.error('Depo dispatch admin katalog hatasi:', error);
+      res.status(500).json({ error: error.message || 'Dispatch admin katalog alinamadi' });
+    }
+  }
+
+  async createDispatchDriver(req: Request, res: Response) {
+    try {
+      const result = await warehouseWorkflowService.createDispatchDriver({
+        firstName: req.body?.firstName,
+        lastName: req.body?.lastName,
+        tcNo: req.body?.tcNo,
+        note: req.body?.note,
+        active: req.body?.active,
+      });
+      res.json({ driver: result });
+    } catch (error: any) {
+      console.error('Sofor olusturma hatasi:', error);
+      const status = error.message?.includes('gecersiz') ? 400 : 500;
+      res.status(status).json({ error: error.message || 'Sofor olusturulamadi' });
+    }
+  }
+
+  async updateDispatchDriver(req: Request, res: Response) {
+    try {
+      const id = req.params.driverId;
+      if (!id) return res.status(400).json({ error: 'Sofor kimligi gerekli' });
+      const result = await warehouseWorkflowService.updateDispatchDriver(id, {
+        firstName: req.body?.firstName,
+        lastName: req.body?.lastName,
+        tcNo: req.body?.tcNo,
+        note: req.body?.note,
+        active: req.body?.active,
+      });
+      res.json({ driver: result });
+    } catch (error: any) {
+      console.error('Sofor guncelleme hatasi:', error);
+      const status = error.message?.includes('bulunamadi') ? 404 : error.message?.includes('gecersiz') ? 400 : 500;
+      res.status(status).json({ error: error.message || 'Sofor guncellenemedi' });
+    }
+  }
+
+  async deleteDispatchDriver(req: Request, res: Response) {
+    try {
+      const id = req.params.driverId;
+      if (!id) return res.status(400).json({ error: 'Sofor kimligi gerekli' });
+      const result = await warehouseWorkflowService.deleteDispatchDriver(id);
+      res.json(result);
+    } catch (error: any) {
+      console.error('Sofor silme hatasi:', error);
+      const status = error.message?.includes('bulunamadi') ? 404 : 500;
+      res.status(status).json({ error: error.message || 'Sofor silinemedi' });
+    }
+  }
+
+  async createDispatchVehicle(req: Request, res: Response) {
+    try {
+      const result = await warehouseWorkflowService.createDispatchVehicle({
+        name: req.body?.name,
+        plate: req.body?.plate,
+        note: req.body?.note,
+        active: req.body?.active,
+      });
+      res.json({ vehicle: result });
+    } catch (error: any) {
+      console.error('Arac olusturma hatasi:', error);
+      const status = error.message?.includes('gecersiz') ? 400 : 500;
+      res.status(status).json({ error: error.message || 'Arac olusturulamadi' });
+    }
+  }
+
+  async updateDispatchVehicle(req: Request, res: Response) {
+    try {
+      const id = req.params.vehicleId;
+      if (!id) return res.status(400).json({ error: 'Arac kimligi gerekli' });
+      const result = await warehouseWorkflowService.updateDispatchVehicle(id, {
+        name: req.body?.name,
+        plate: req.body?.plate,
+        note: req.body?.note,
+        active: req.body?.active,
+      });
+      res.json({ vehicle: result });
+    } catch (error: any) {
+      console.error('Arac guncelleme hatasi:', error);
+      const status = error.message?.includes('bulunamadi') ? 404 : error.message?.includes('gecersiz') ? 400 : 500;
+      res.status(status).json({ error: error.message || 'Arac guncellenemedi' });
+    }
+  }
+
+  async deleteDispatchVehicle(req: Request, res: Response) {
+    try {
+      const id = req.params.vehicleId;
+      if (!id) return res.status(400).json({ error: 'Arac kimligi gerekli' });
+      const result = await warehouseWorkflowService.deleteDispatchVehicle(id);
+      res.json(result);
+    } catch (error: any) {
+      console.error('Arac silme hatasi:', error);
+      const status = error.message?.includes('bulunamadi') ? 404 : 500;
+      res.status(status).json({ error: error.message || 'Arac silinemedi' });
+    }
+  }
+
   async getOverview(req: Request, res: Response) {
     try {
       let series: string | string[] | undefined;

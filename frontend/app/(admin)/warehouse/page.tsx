@@ -182,25 +182,17 @@ type DriverOption = {
   firstName: string;
   lastName: string;
   tcNo: string;
+  note?: string | null;
+  active: boolean;
 };
 
 type VehicleOption = {
   id: string;
   name: string;
   plate: string;
+  note?: string | null;
+  active: boolean;
 };
-
-const DRIVER_OPTIONS: DriverOption[] = [
-  { id: 'DVR-1', firstName: 'AHMET', lastName: 'YILMAZ', tcNo: '11111111111' },
-  { id: 'DVR-2', firstName: 'MEHMET', lastName: 'KAYA', tcNo: '22222222222' },
-  { id: 'DVR-3', firstName: 'MUSTAFA', lastName: 'DEMIR', tcNo: '33333333333' },
-];
-
-const VEHICLE_OPTIONS: VehicleOption[] = [
-  { id: 'VHC-1', name: 'KAMYON 1', plate: '54 ABC 123' },
-  { id: 'VHC-2', name: 'KAMYON 2', plate: '54 DEF 456' },
-  { id: 'VHC-3', name: 'KAMYONET 1', plate: '54 GHI 789' },
-];
 
 export default function WarehousePage() {
   const router = useRouter();
@@ -235,6 +227,14 @@ export default function WarehousePage() {
   const [deliveryNoteDrafts, setDeliveryNoteDrafts] = useState<Record<string, string>>({});
   const [dispatchDriverDrafts, setDispatchDriverDrafts] = useState<Record<string, string>>({});
   const [dispatchVehicleDrafts, setDispatchVehicleDrafts] = useState<Record<string, string>>({});
+  const [dispatchDrivers, setDispatchDrivers] = useState<DriverOption[]>([]);
+  const [dispatchVehicles, setDispatchVehicles] = useState<VehicleOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [newDriverFirstName, setNewDriverFirstName] = useState('');
+  const [newDriverLastName, setNewDriverLastName] = useState('');
+  const [newDriverTcNo, setNewDriverTcNo] = useState('');
+  const [newVehicleName, setNewVehicleName] = useState('');
+  const [newVehiclePlate, setNewVehiclePlate] = useState('');
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
   const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
 
@@ -242,6 +242,8 @@ export default function WarehousePage() {
     ? 'grid grid-cols-1 gap-4'
     : 'grid grid-cols-1 xl:grid-cols-[560px_minmax(0,1fr)] gap-4';
   const actionButtonClass = isKioskTouchMode ? 'h-14 text-base font-bold' : 'h-12 text-sm font-bold';
+  const activeDrivers = useMemo(() => dispatchDrivers.filter((item) => item.active), [dispatchDrivers]);
+  const activeVehicles = useMemo(() => dispatchVehicles.filter((item) => item.active), [dispatchVehicles]);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -288,6 +290,7 @@ export default function WarehousePage() {
     }
 
     fetchOverview(true);
+    fetchDispatchCatalog();
     const interval = setInterval(() => fetchOverview(false), 15000);
     return () => clearInterval(interval);
   }, [user, permissionsLoading, selectedSeriesKey, selectedStatus, searchDebounced]);
@@ -382,6 +385,19 @@ export default function WarehousePage() {
     if (showAllOpenOrders) return openOrderNumbers;
     return activeOrderNumber ? [activeOrderNumber] : [];
   }, [showAllOpenOrders, openOrderNumbers, activeOrderNumber]);
+
+  const fetchDispatchCatalog = async () => {
+    setCatalogLoading(true);
+    try {
+      const result = await adminApi.getWarehouseDispatchCatalogAdmin();
+      setDispatchDrivers(result.drivers || []);
+      setDispatchVehicles(result.vehicles || []);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Sofor/arac katalogu alinamadi');
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
 
   const fetchOverview = async (showLoader: boolean) => {
     if (showLoader) setIsLoading(true);
@@ -501,6 +517,72 @@ export default function WarehousePage() {
     });
   };
 
+  const createDriver = async () => {
+    const firstName = newDriverFirstName.trim();
+    const lastName = newDriverLastName.trim();
+    const tcNo = newDriverTcNo.replace(/\D/g, '');
+    if (!firstName || !lastName || tcNo.length !== 11) {
+      toast.error('Sofor adi, soyadi ve 11 haneli TC gerekli');
+      return;
+    }
+    await withAction(async () => {
+      await adminApi.createWarehouseDriver({ firstName, lastName, tcNo, active: true });
+      setNewDriverFirstName('');
+      setNewDriverLastName('');
+      setNewDriverTcNo('');
+      await fetchDispatchCatalog();
+      toast.success('Sofor eklendi');
+    });
+  };
+
+  const toggleDriverActive = async (driver: DriverOption) => {
+    await withAction(async () => {
+      await adminApi.updateWarehouseDriver(driver.id, { active: !driver.active });
+      await fetchDispatchCatalog();
+      toast.success(driver.active ? 'Sofor pasife alindi' : 'Sofor aktive edildi');
+    });
+  };
+
+  const removeDriver = async (driver: DriverOption) => {
+    await withAction(async () => {
+      await adminApi.deleteWarehouseDriver(driver.id);
+      await fetchDispatchCatalog();
+      toast.success('Sofor silindi');
+    });
+  };
+
+  const createVehicle = async () => {
+    const name = newVehicleName.trim();
+    const plate = newVehiclePlate.trim().toUpperCase();
+    if (!name || !plate) {
+      toast.error('Arac adi ve plaka gerekli');
+      return;
+    }
+    await withAction(async () => {
+      await adminApi.createWarehouseVehicle({ name, plate, active: true });
+      setNewVehicleName('');
+      setNewVehiclePlate('');
+      await fetchDispatchCatalog();
+      toast.success('Arac eklendi');
+    });
+  };
+
+  const toggleVehicleActive = async (vehicle: VehicleOption) => {
+    await withAction(async () => {
+      await adminApi.updateWarehouseVehicle(vehicle.id, { active: !vehicle.active });
+      await fetchDispatchCatalog();
+      toast.success(vehicle.active ? 'Arac pasife alindi' : 'Arac aktive edildi');
+    });
+  };
+
+  const removeVehicle = async (vehicle: VehicleOption) => {
+    await withAction(async () => {
+      await adminApi.deleteWarehouseVehicle(vehicle.id);
+      await fetchDispatchCatalog();
+      toast.success('Arac silindi');
+    });
+  };
+
   const refreshOrderDetail = async (mikroOrderNumber: string) => {
     await loadOrderDetail(mikroOrderNumber);
     await fetchOverview(false);
@@ -572,8 +654,8 @@ export default function WarehousePage() {
 
   const handleDispatchWithDeliveryNote = async (mikroOrderNumber: string) => {
     const deliverySeries = getDeliveryDraft(mikroOrderNumber);
-    const selectedDriver = DRIVER_OPTIONS.find((item) => item.id === getDriverDraft(mikroOrderNumber));
-    const selectedVehicle = VEHICLE_OPTIONS.find((item) => item.id === getVehicleDraft(mikroOrderNumber));
+    const selectedDriver = activeDrivers.find((item) => item.id === getDriverDraft(mikroOrderNumber));
+    const selectedVehicle = activeVehicles.find((item) => item.id === getVehicleDraft(mikroOrderNumber));
     if (!deliverySeries) {
       toast.error('Irsaliye serisi gerekli');
       return;
@@ -776,6 +858,104 @@ export default function WarehousePage() {
               <Button variant="secondary" onClick={refreshWithSync} className="h-12 text-base" disabled={actionLoading}>
                 Senkron + Yenile
               </Button>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-2">
+                <p className="text-sm font-black text-slate-800">Sofor Tanimlari</p>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                  <Input
+                    value={newDriverFirstName}
+                    onChange={(event) => setNewDriverFirstName(event.target.value)}
+                    placeholder="Ad"
+                    className="h-11 text-sm"
+                  />
+                  <Input
+                    value={newDriverLastName}
+                    onChange={(event) => setNewDriverLastName(event.target.value)}
+                    placeholder="Soyad"
+                    className="h-11 text-sm"
+                  />
+                  <Input
+                    value={newDriverTcNo}
+                    onChange={(event) => setNewDriverTcNo(event.target.value)}
+                    placeholder="TC No"
+                    className="h-11 text-sm"
+                  />
+                  <Button onClick={createDriver} disabled={actionLoading || catalogLoading} className="h-11 text-sm font-bold">
+                    Sofor Ekle
+                  </Button>
+                </div>
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {dispatchDrivers.map((driver) => (
+                    <div key={driver.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1.5">
+                      <div className="text-xs text-slate-700">
+                        <strong>{driver.firstName} {driver.lastName}</strong> | {driver.tcNo}
+                        {!driver.active && <span className="ml-2 text-rose-600 font-bold">(PASIF)</span>}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => toggleDriverActive(driver)}
+                          className="px-2 py-1 text-[11px] rounded-md border border-slate-300 font-bold text-slate-700"
+                        >
+                          {driver.active ? 'Pasif Yap' : 'Aktif Yap'}
+                        </button>
+                        <button
+                          onClick={() => removeDriver(driver)}
+                          className="px-2 py-1 text-[11px] rounded-md border border-rose-300 font-bold text-rose-700"
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-2">
+                <p className="text-sm font-black text-slate-800">Arac Tanimlari</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <Input
+                    value={newVehicleName}
+                    onChange={(event) => setNewVehicleName(event.target.value)}
+                    placeholder="Arac adi"
+                    className="h-11 text-sm"
+                  />
+                  <Input
+                    value={newVehiclePlate}
+                    onChange={(event) => setNewVehiclePlate(event.target.value)}
+                    placeholder="Plaka"
+                    className="h-11 text-sm"
+                  />
+                  <Button onClick={createVehicle} disabled={actionLoading || catalogLoading} className="h-11 text-sm font-bold">
+                    Arac Ekle
+                  </Button>
+                </div>
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {dispatchVehicles.map((vehicle) => (
+                    <div key={vehicle.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1.5">
+                      <div className="text-xs text-slate-700">
+                        <strong>{vehicle.name}</strong> | {vehicle.plate}
+                        {!vehicle.active && <span className="ml-2 text-rose-600 font-bold">(PASIF)</span>}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => toggleVehicleActive(vehicle)}
+                          className="px-2 py-1 text-[11px] rounded-md border border-slate-300 font-bold text-slate-700"
+                        >
+                          {vehicle.active ? 'Pasif Yap' : 'Aktif Yap'}
+                        </button>
+                        <button
+                          onClick={() => removeVehicle(vehicle)}
+                          className="px-2 py-1 text-[11px] rounded-md border border-rose-300 font-bold text-rose-700"
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -1134,7 +1314,7 @@ export default function WarehousePage() {
                                   disabled={panelWorkflowStatus === 'DISPATCHED'}
                                 >
                                   <option value="">Sofor secin</option>
-                                  {DRIVER_OPTIONS.map((driver) => (
+                                  {activeDrivers.map((driver) => (
                                     <option key={driver.id} value={driver.id}>
                                       {driver.firstName} {driver.lastName}
                                     </option>
@@ -1152,7 +1332,7 @@ export default function WarehousePage() {
                                   disabled={panelWorkflowStatus === 'DISPATCHED'}
                                 >
                                   <option value="">Arac secin</option>
-                                  {VEHICLE_OPTIONS.map((vehicle) => (
+                                  {activeVehicles.map((vehicle) => (
                                     <option key={vehicle.id} value={vehicle.id}>
                                       {vehicle.name}
                                     </option>
@@ -1164,8 +1344,8 @@ export default function WarehousePage() {
                           <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-2 items-end">
                             <div className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-700">
                               {(() => {
-                                const selectedDriver = DRIVER_OPTIONS.find((item) => item.id === getDriverDraft(orderNumber));
-                                const selectedVehicle = VEHICLE_OPTIONS.find((item) => item.id === getVehicleDraft(orderNumber));
+                                const selectedDriver = activeDrivers.find((item) => item.id === getDriverDraft(orderNumber));
+                                const selectedVehicle = activeVehicles.find((item) => item.id === getVehicleDraft(orderNumber));
                                 return (
                                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                                     {panelDetail.order.documentNo && (
