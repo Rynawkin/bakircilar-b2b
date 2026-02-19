@@ -158,11 +158,11 @@ class OrderService {
                 sip_evrakno_sira as orderSequence,
                 ${belgeSelectExpr} as belgeNo,
                 ROW_NUMBER() OVER (
-                  PARTITION BY LTRIM(RTRIM(sip_stok_kod))
+                  PARTITION BY sip_stok_kod
                   ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satirno DESC
                 ) as rn
               FROM SIPARISLER WITH (NOLOCK)
-              WHERE LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))) = '${safeCari}'
+              WHERE sip_musteri_kod = '${safeCari}'
                 AND sip_stok_kod IN (${safeCodes})
             )
             SELECT
