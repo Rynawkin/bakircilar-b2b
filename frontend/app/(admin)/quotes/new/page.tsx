@@ -21,6 +21,7 @@ interface LastSale {
   saleDate: string;
   quantity: number;
   unitPrice: number;
+  documentNo?: string | null;
   vatRate?: number;
   vatZeroed?: boolean;
 }
@@ -3586,11 +3587,18 @@ function AdminQuoteNewPageContent() {
                               return (
                               <div
                                 key={idx}
-                                className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs"
+                                className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs"
                               >
-                                <span className="font-medium text-gray-700">{formatDateShort(sale.saleDate)}</span>
-                                <span className="text-gray-500">{sale.quantity} adet</span>
-                                <span className="font-semibold text-gray-900">{formatCurrency(sale.unitPrice)}</span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-gray-700">{formatDateShort(sale.saleDate)}</span>
+                                  <span className="text-gray-500">{sale.quantity} adet</span>
+                                  <span className="font-semibold text-gray-900">{formatCurrency(sale.unitPrice)}</span>
+                                </div>
+                                {sale.documentNo && (
+                                  <div className="mt-0.5 text-[11px] text-gray-500">
+                                    Belge No: <span className="font-medium text-gray-700">{sale.documentNo}</span>
+                                  </div>
+                                )}
                                 {listLabel && (
                                   <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
                                     {listLabel}

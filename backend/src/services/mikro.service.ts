@@ -855,6 +855,19 @@ class MikroService {
           sth_stok_kod as productCode,
           sth_tarih as saleDate,
           sth_miktar as quantity,
+          NULLIF(
+            LTRIM(RTRIM(
+              CONCAT(
+                ISNULL(NULLIF(LTRIM(RTRIM(sth_evrakno_seri)), ''), ''),
+                CASE
+                  WHEN ISNULL(sth_evrakno_sira, 0) > 0
+                    THEN CONCAT('-', CONVERT(VARCHAR(20), CONVERT(INT, sth_evrakno_sira)))
+                  ELSE ''
+                END
+              )
+            )),
+            ''
+          ) as documentNo,
           CASE
             WHEN sth_miktar = 0 THEN 0
             ELSE sth_tutar / NULLIF(sth_miktar, 0)
@@ -883,6 +896,7 @@ class MikroService {
         productCode,
         saleDate,
         quantity,
+        documentNo,
         unitPrice,
         lineTotal,
         vatAmount,
@@ -897,6 +911,7 @@ class MikroService {
         productCode: row.productCode,
         saleDate: row.saleDate,
         quantity: row.quantity,
+        documentNo: row.documentNo ? String(row.documentNo).trim() : null,
         unitPrice: row.unitPrice,
         lineTotal: row.lineTotal,
         vatAmount: row.vatAmount,
