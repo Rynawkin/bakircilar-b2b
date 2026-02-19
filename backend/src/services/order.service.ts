@@ -226,7 +226,7 @@ class OrderService {
           ? 0
           : Number.isFinite(manualVatRate)
             ? manualVatRate
-            : Number(product.vatRate || 0.18);
+            : Number(product.vatRate || 0.2);
 
       const lineDescription =
         item.lineDescription?.trim() ||
@@ -614,7 +614,7 @@ class OrderService {
         const vatRate =
           item.priceType === 'WHITE'
             ? 0
-            : Number(existing.product?.vatRate || 0.18);
+            : Number(existing.product?.vatRate || 0.2);
         const payload = {
           productCode: item.mikroCode,
           quantity: item.quantity,
@@ -634,7 +634,7 @@ class OrderService {
           const vatRate =
             item.priceType === 'WHITE'
               ? 0
-              : Number(item.product?.vatRate || 0.18);
+              : Number(item.product?.vatRate || 0.2);
           const payload = {
             productCode: item.mikroCode,
             quantity: 0,
@@ -811,7 +811,7 @@ class OrderService {
             productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            vatRate: item.product?.vatRate || 0.18,
+            vatRate: item.product?.vatRate || 0.2,
             lineDescription: item.lineNote || undefined,
           })),
           documentNo: order.customerOrderNumber || undefined,
@@ -929,7 +929,7 @@ class OrderService {
             productCode: item.product.mikroCode,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            vatRate: item.product?.vatRate || 0.18,
+            vatRate: item.product?.vatRate || 0.2,
             lineDescription: item.lineNote || undefined,
           })),
           documentNo: order.customerOrderNumber || undefined,

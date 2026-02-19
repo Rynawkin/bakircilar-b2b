@@ -1292,7 +1292,7 @@ class WarehouseWorkflowService {
       0: 0,
       1: 0,
       2: 0.01,
-      4: 0.18,
+      4: 0,
       5: 0.2,
       7: 0.1,
     };
@@ -1304,7 +1304,7 @@ class WarehouseWorkflowService {
     if (normalized <= 0.0001) return 0;
     if (normalized <= 0.011) return 2;
     if (normalized <= 0.11) return 7;
-    if (normalized <= 0.185) return 4;
+    if (normalized <= 0.205) return 5;
     return 5;
   }
 
@@ -1424,14 +1424,14 @@ class WarehouseWorkflowService {
       let vatRate = this.vatCodeToRate(vatCode);
       const sipVatAmount = Math.max(toNumber(sipRow.vat_amount), 0);
       const sipLineTotal = Math.max(toNumber(sipRow.line_total), 0);
-      if (vatCode <= 0 && sipVatAmount > 0 && sipLineTotal > 0) {
+      if (vatRate <= 0 && sipVatAmount > 0 && sipLineTotal > 0) {
         const derivedRate = sipVatAmount / sipLineTotal;
         if (Number.isFinite(derivedRate) && derivedRate > 0) {
           vatRate = derivedRate;
           vatCode = this.vatRateToCode(derivedRate);
         }
       }
-      if (vatCode <= 0) {
+      if (vatRate <= 0) {
         try {
           const stockVatRows = await mikroService.executeQuery(`
             SELECT TOP 1 ISNULL(sto_toptan_vergi, 0) as stock_vat_code

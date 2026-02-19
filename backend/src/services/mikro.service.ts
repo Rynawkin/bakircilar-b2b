@@ -41,7 +41,7 @@ class MikroService {
       1: 0.00,  // İstisna
       2: 0.01,  // %1
       3: 0.00,  // Kullanılmıyor
-      4: 0.18,  // %18
+      4: 0.00,  // Bu kurulumda pasif
       5: 0.20,  // %20
       6: 0.00,  // Kullanılmıyor
       7: 0.10,  // %10
@@ -55,7 +55,7 @@ class MikroService {
     const normalized = Math.round(rate * 100) / 100;
     if (!normalized) return 0;
     if (Math.abs(normalized - 0.01) < 0.001) return 2;
-    if (Math.abs(normalized - 0.18) < 0.001) return 4;
+    if (Math.abs(normalized - 0.18) < 0.001) return 5;
     if (Math.abs(normalized - 0.2) < 0.001) return 5;
     if (Math.abs(normalized - 0.1) < 0.001) return 7;
     return 0;
