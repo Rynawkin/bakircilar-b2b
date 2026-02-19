@@ -1550,6 +1550,24 @@ class WarehouseWorkflowService {
     if (evrakTipColumn) {
       updateValues[evrakTipColumn] = 1;
     }
+    const tipColumn = this.pickFirstColumn(eirsColumns, ['eir_tipi']);
+    if (tipColumn) updateValues[tipColumn] = 3;
+    const pozisyonColumn = this.pickFirstColumn(eirsColumns, ['eir_pozisyon']);
+    if (pozisyonColumn) updateValues[pozisyonColumn] = 0;
+    const gibSeriColumn = this.pickFirstColumn(eirsColumns, ['eir_gib_seri']);
+    if (gibSeriColumn) updateValues[gibSeriColumn] = '';
+    const gibSiraColumn = this.pickFirstColumn(eirsColumns, ['eir_gib_sira']);
+    if (gibSiraColumn) updateValues[gibSiraColumn] = 0;
+    const olrkColumn = this.pickFirstColumn(eirsColumns, ['eir_eirs_olrk_gonderilsin']);
+    if (olrkColumn) updateValues[olrkColumn] = 0;
+    const gonderildiColumn = this.pickFirstColumn(eirsColumns, ['eir_gonderildi_fl']);
+    if (gonderildiColumn) updateValues[gonderildiColumn] = 0;
+    const soforUidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor_uid']);
+    if (soforUidColumn) updateValues[soforUidColumn] = this.raw(`CAST('00000000-0000-0000-0000-000000000000' as uniqueidentifier)`);
+    const sofor2UidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor2_uid']);
+    if (sofor2UidColumn) updateValues[sofor2UidColumn] = this.raw(`CAST('00000000-0000-0000-0000-000000000000' as uniqueidentifier)`);
+    const matbuTarihColumn = this.pickFirstColumn(eirsColumns, ['eir_matbu_tarih']);
+    if (matbuTarihColumn) updateValues[matbuTarihColumn] = this.raw('GETDATE()');
     assign(['eir_sofor_adi', 'eir_surucu_adi'], params.transport.driverFirstName);
     assign(['eir_sofor_soyadi', 'eir_surucu_soyadi'], params.transport.driverLastName);
     assign(['eir_sofor_tckn', 'eir_sofor_tc', 'eir_sofor_tcno'], params.transport.driverTcNo);
