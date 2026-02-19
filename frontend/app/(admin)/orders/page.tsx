@@ -7,8 +7,6 @@ import { PendingOrderForAdmin } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { OrderCardSkeleton } from '@/components/ui/Skeleton';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
@@ -17,18 +15,6 @@ import * as XLSX from 'xlsx';
 
 type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 type OrderSource = 'ALL' | 'CUSTOMER' | 'B2B';
-
-
-type EditableOrderItem = {
-  id: string;
-  productCode: string;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-  priceType: 'INVOICED' | 'WHITE';
-  lineNote?: string | null;
-  responsibilityCenter?: string | null;
-};
 
 export default function AdminOrdersPage() {
   const router = useRouter();
@@ -39,12 +25,6 @@ export default function AdminOrdersPage() {
   const [sourceTab, setSourceTab] = useState<OrderSource>('ALL');
 
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
-  const [editOrder, setEditOrder] = useState<PendingOrderForAdmin | null>(null);
-  const [editItems, setEditItems] = useState<EditableOrderItem[]>([]);
-  const [editCustomerOrderNumber, setEditCustomerOrderNumber] = useState('');
-  const [editDeliveryLocation, setEditDeliveryLocation] = useState('');
-  const [editSaving, setEditSaving] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     fetchOrders();
@@ -91,93 +71,7 @@ export default function AdminOrdersPage() {
   };
 
   const openEdit = (order: PendingOrderForAdmin) => {
-    setEditOrder(order);
-    setEditCustomerOrderNumber(order.customerOrderNumber || '');
-    setEditDeliveryLocation(order.deliveryLocation || '');
-    setEditItems((order.items || []).map((item) => ({
-      id: item.id,
-      productCode: item.mikroCode,
-      productName: item.productName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
-      lineNote: item.lineNote || '',
-      responsibilityCenter: item.responsibilityCenter || '',
-    })));
-    setEditOpen(true);
-  };
-
-  const closeEdit = () => {
-    setEditOpen(false);
-    setEditOrder(null);
-    setEditItems([]);
-  };
-
-  const updateEditItem = (id: string, patch: Partial<EditableOrderItem>) => {
-    setEditItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
-  };
-
-  const removeEditItem = (id: string) => {
-    setEditItems((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  const editTotal = useMemo(() => {
-    return editItems.reduce((sum, item) => {
-      const qty = Number(item.quantity) || 0;
-      const price = Number(item.unitPrice) || 0;
-      return sum + qty * price;
-    }, 0);
-  }, [editItems]);
-
-  const handleSaveEdit = async () => {
-    if (!editOrder) return;
-    if (editItems.length === 0) {
-      toast.error('En az bir kalem olmali.');
-      return;
-    }
-    for (let i = 0; i < editItems.length; i += 1) {
-      const item = editItems[i];
-      if (!item.productCode) {
-        toast.error(`Urun kodu eksik (Satir ${i + 1}).`);
-        return;
-      }
-      if (!item.productName) {
-        toast.error(`Urun adi eksik (Satir ${i + 1}).`);
-        return;
-      }
-      if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) {
-        toast.error(`Miktar gecersiz (Satir ${i + 1}).`);
-        return;
-      }
-      if (!Number.isFinite(Number(item.unitPrice)) || Number(item.unitPrice) < 0) {
-        toast.error(`Birim fiyat gecersiz (Satir ${i + 1}).`);
-        return;
-      }
-    }
-
-    setEditSaving(true);
-    try {
-      await adminApi.updateOrder(editOrder.id, {
-        customerOrderNumber: editCustomerOrderNumber.trim() || undefined,
-        deliveryLocation: editDeliveryLocation.trim() || undefined,
-        items: editItems.map((item) => ({
-          productCode: item.productCode,
-          productName: item.productName,
-          quantity: Number(item.quantity),
-          unitPrice: Number(item.unitPrice),
-          priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
-          lineNote: item.lineNote?.trim() || undefined,
-          responsibilityCenter: item.responsibilityCenter?.trim() || undefined,
-        })),
-      });
-      toast.success('Siparis guncellendi.');
-      closeEdit();
-      fetchOrders();
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Siparis guncellenemedi.');
-    } finally {
-      setEditSaving(false);
-    }
+    router.push(`/quotes/new?mode=order&orderId=${encodeURIComponent(order.id)}`);
   };
 
 
@@ -987,118 +881,6 @@ export default function AdminOrdersPage() {
           </div>
         )}
 
-      <Modal
-        isOpen={editOpen}
-        onClose={closeEdit}
-        title={editOrder ? `Siparis Duzenle - ${editOrder.orderNumber}` : 'Siparis Duzenle'}
-        size="xl"
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeEdit} disabled={editSaving}>
-              Iptal
-            </Button>
-            <Button variant="primary" onClick={handleSaveEdit} isLoading={editSaving}>
-              Kaydet
-            </Button>
-          </>
-        }
-      >
-        {!editOrder ? (
-          <p className="text-sm text-gray-500">Siparis secilmedi.</p>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label="Belge No (Musteri Siparis No)"
-                value={editCustomerOrderNumber}
-                onChange={(e) => setEditCustomerOrderNumber(e.target.value)}
-                placeholder="Orn: HENDEK-8915"
-              />
-              <Input
-                label="Teslimat"
-                value={editDeliveryLocation}
-                onChange={(e) => setEditDeliveryLocation(e.target.value)}
-                placeholder="Teslimat yeri"
-              />
-            </div>
-
-            <div className="space-y-3">
-              {editItems.map((item) => (
-                <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="text-sm font-semibold text-gray-900">{item.productName}</div>
-                      <div className="text-xs text-gray-500">{item.productCode}</div>
-                    </div>
-                    <Button variant="danger" size="sm" onClick={() => removeEditItem(item.id)}>
-                      Sil
-                    </Button>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Miktar</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={item.quantity}
-                        onChange={(e) => updateEditItem(item.id, { quantity: Number(e.target.value) })}
-                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Birim Fiyat</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={item.unitPrice}
-                        onChange={(e) => updateEditItem(item.id, { unitPrice: Number(e.target.value) })}
-                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Fiyat Tipi</label>
-                      <select
-                        value={item.priceType}
-                        onChange={(e) => updateEditItem(item.id, { priceType: e.target.value === 'WHITE' ? 'WHITE' : 'INVOICED' })}
-                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                      >
-                        <option value="INVOICED">Faturali</option>
-                        <option value="WHITE">Beyaz</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Sorumluluk</label>
-                      <input
-                        type="text"
-                        value={item.responsibilityCenter || ''}
-                        onChange={(e) => updateEditItem(item.id, { responsibilityCenter: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Not</label>
-                    <input
-                      type="text"
-                      value={item.lineNote || ''}
-                      onChange={(e) => updateEditItem(item.id, { lineNote: e.target.value })}
-                      className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-end text-sm font-semibold text-gray-900">
-              Toplam: {formatCurrency(editTotal)}
-            </div>
-          </div>
-        )}
-      </Modal>
       </div>
     </div>
   );

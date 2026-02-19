@@ -373,11 +373,16 @@ function AdminQuoteNewPageContent() {
   const searchParams = useSearchParams();
   const editQuoteId = searchParams.get('edit');
   const isOrderMode = searchParams.get('mode') === 'order';
+  const editOrderId = isOrderMode ? searchParams.get('orderId') : null;
+  const isOrderEditMode = isOrderMode && Boolean(editOrderId);
   const isEditMode = Boolean(editQuoteId) && !isOrderMode;
   const editInitializedRef = useRef(false);
+  const editOrderInitializedRef = useRef(false);
   const prefillInitializedRef = useRef(false);
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
+  const [loadingOrder, setLoadingOrder] = useState(false);
+  const [editingOrderCustomerCode, setEditingOrderCustomerCode] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [hasManualCustomerChange, setHasManualCustomerChange] = useState(false);
@@ -454,6 +459,12 @@ function AdminQuoteNewPageContent() {
     editInitializedRef.current = true;
     loadQuoteForEdit(editQuoteId);
   }, [editQuoteId]);
+
+  useEffect(() => {
+    if (!isOrderEditMode || !editOrderId || editOrderInitializedRef.current) return;
+    editOrderInitializedRef.current = true;
+    loadOrderForEdit(editOrderId);
+  }, [isOrderEditMode, editOrderId]);
 
   useEffect(() => {
     if (prefillInitializedRef.current) return;
@@ -576,6 +587,17 @@ function AdminQuoteNewPageContent() {
       setSelectedCustomer(matched);
     }
   }, [customers, editingQuote, hasManualCustomerChange, selectedCustomer?.id]);
+
+  useEffect(() => {
+    if (!isOrderEditMode || !editingOrderCustomerCode || customers.length === 0) return;
+    const matched = customers.find(
+      (item) => String(item?.mikroCariCode || '').trim() === editingOrderCustomerCode
+    );
+    if (matched && matched.id !== selectedCustomer?.id) {
+      setSelectedCustomer(matched);
+      setHasManualCustomerChange(true);
+    }
+  }, [isOrderEditMode, editingOrderCustomerCode, customers, selectedCustomer?.id]);
 
   useEffect(() => {
     if (selectedColumns.length === 0) return;
@@ -1059,6 +1081,78 @@ function AdminQuoteNewPageContent() {
       toast.error('Teklif yuklenemedi');
     } finally {
       setLoadingQuote(false);
+    }
+  };
+
+  const loadOrderForEdit = async (orderId: string) => {
+    setLoadingOrder(true);
+    try {
+      const { order } = await adminApi.getOrderById(orderId);
+      setEditingOrderCustomerCode(String(order.user?.mikroCariCode || '').trim());
+      setOrderCustomerOrderNumber(order.customerOrderNumber || '');
+      setOrderDocumentDescription(order.adminNote || '');
+      setNote(order.adminNote || '');
+
+      const productCodes = Array.from(
+        new Set((order.items || []).map((item) => String(item.mikroCode || '').trim()).filter(Boolean))
+      );
+      const productMap = new Map<string, any>();
+      if (productCodes.length > 0) {
+        const productResult = await adminApi.getProductsByCodes(productCodes);
+        (productResult.products || []).forEach((product: any) => {
+          const code = String(product?.mikroCode || '').trim();
+          if (code) {
+            productMap.set(code, product);
+          }
+        });
+      }
+
+      const mappedItems: QuoteItemForm[] = (order.items || []).map((item) => {
+        const product = productMap.get(String(item.mikroCode || '').trim());
+        const priceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+        const vatRate = priceType === 'WHITE'
+          ? 0
+          : Number(product?.vatRate ?? 0.2);
+
+        return {
+          id: item.id,
+          productId: product?.id,
+          productCode: item.mikroCode,
+          productName: item.productName || product?.name || item.mikroCode,
+          unit: product?.unit || 'ADET',
+          unit2: product?.unit2 || null,
+          unit2Factor: product?.unit2Factor ?? null,
+          quantity: Number(item.quantity) || 1,
+          priceSource: 'MANUAL',
+          unitPrice: Number(item.unitPrice) || 0,
+          manualPriceInput: formatManualPriceInput(item.unitPrice),
+          vatRate,
+          vatZeroed: priceType === 'WHITE',
+          priceType,
+          isManualLine: false,
+          manualVatRate: undefined,
+          lineDescription: item.lineNote || '',
+          manualImageUrl: null,
+          responsibilityCenter: item.responsibilityCenter || '',
+          reserveQty: 0,
+          lastSales: product?.lastSales || [],
+          lastQuotes: product?.lastQuotes || [],
+          selectedSaleIndex: undefined,
+          lastEntryPrice: product?.lastEntryPrice ?? null,
+          lastEntryDate: product?.lastEntryDate ?? null,
+          currentCost: product?.currentCost ?? null,
+          currentCostDate: product?.currentCostDate ?? null,
+          mikroPriceLists: product?.mikroPriceLists,
+        };
+      });
+
+      setQuoteItems(mappedItems);
+      setVatZeroed(mappedItems.length > 0 && mappedItems.every((item) => item.vatRate <= 0));
+    } catch (error) {
+      console.error('Siparis yuklenemedi:', error);
+      toast.error('Siparis yuklenemedi');
+    } finally {
+      setLoadingOrder(false);
     }
   };
 
@@ -1875,7 +1969,7 @@ function AdminQuoteNewPageContent() {
       return false;
     }
 
-    if (isOrderMode) {
+    if (isOrderMode && !isOrderEditMode) {
       const resolvedWarehouse = Number(resolveWarehouseValue(orderWarehouse));
       if (!Number.isFinite(resolvedWarehouse) || resolvedWarehouse <= 0) {
         toast.error('Depo secmelisiniz.');
@@ -1960,6 +2054,25 @@ function AdminQuoteNewPageContent() {
     setSubmitting(true);
     try {
       if (isOrderMode) {
+        if (isOrderEditMode && editOrderId) {
+          await adminApi.updateOrder(editOrderId, {
+            customerOrderNumber: orderCustomerOrderNumber.trim() || undefined,
+            items: quoteItems.map((item) => ({
+              productId: item.isManualLine ? undefined : item.productId,
+              productCode: item.productCode,
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: roundUp2(item.unitPrice || 0),
+              priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
+              lineNote: item.lineDescription || undefined,
+              responsibilityCenter: item.responsibilityCenter || undefined,
+            })),
+          });
+          toast.success('Siparis guncellendi.');
+          router.push('/orders');
+          return;
+        }
+
         const orderPayload: Parameters<typeof adminApi.createManualOrder>[0] = {
           customerId: selectedCustomer.id,
           warehouseNo: Number(resolveWarehouseValue(orderWarehouse)),
@@ -2046,7 +2159,9 @@ function AdminQuoteNewPageContent() {
       const downloadParam = savedQuote?.id ? `&download=${savedQuote.id}` : '';
       router.push(`/quotes?tab=sent${downloadParam}`);
     } catch (error: any) {
-      const fallback = isOrderMode ? 'Siparis olusturulamadi.' : 'Teklif olusturulamadi.';
+      const fallback = isOrderMode
+        ? (isOrderEditMode ? 'Siparis guncellenemedi.' : 'Siparis olusturulamadi.')
+        : 'Teklif olusturulamadi.';
       toast.error(error.response?.data?.error || fallback);
     } finally {
       setSubmitting(false);
@@ -2064,12 +2179,12 @@ function AdminQuoteNewPageContent() {
     ? 'sticky bottom-0 z-20 bg-white/90 backdrop-blur'
     : '';
 
-  if (isEditMode && loadingQuote) {
+  if ((isEditMode && loadingQuote) || (isOrderEditMode && loadingOrder)) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3 text-sm text-gray-600">
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-          Teklif yukleniyor...
+          {isOrderEditMode ? 'Siparis yukleniyor...' : 'Teklif yukleniyor...'}
         </div>
       </div>
     );
@@ -2086,10 +2201,18 @@ function AdminQuoteNewPageContent() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
-              {isOrderMode ? 'Siparis Olustur' : isEditMode ? 'Teklif Duzenle' : 'Teklif Olustur'}
+              {isOrderMode
+                ? (isOrderEditMode ? 'Siparis Duzenle' : 'Siparis Olustur')
+                : isEditMode
+                  ? 'Teklif Duzenle'
+                  : 'Teklif Olustur'}
             </h1>
             <p className="text-sm text-gray-600">
-              {isOrderMode ? 'Mikro satis siparisi yazilir' : isEditMode ? 'Mikro teklif guncellenir' : 'Mikro teklif fisine aktarilir'}
+              {isOrderMode
+                ? (isOrderEditMode ? 'Mevcut siparis kalemleri guncellenir' : 'Mikro satis siparisi yazilir')
+                : isEditMode
+                  ? 'Mikro teklif guncellenir'
+                  : 'Mikro teklif fisine aktarilir'}
             </p>
           </div>
           <Button variant="secondary" onClick={() => router.push(isOrderMode ? '/orders' : '/quotes')}>
@@ -2230,7 +2353,11 @@ function AdminQuoteNewPageContent() {
               <div className="flex flex-col gap-4">
                 <div>
                   <h2 className="text-lg font-semibold">{isOrderMode ? 'Siparis Bilgileri' : 'Teklif Bilgileri'}</h2>
-                  <p className="text-xs text-gray-500">{isOrderMode ? 'Depo ve evrak bilgileri.' : 'Gecerlilik, not ve KDV ayarlari.'}</p>
+                  <p className="text-xs text-gray-500">
+                    {isOrderMode
+                      ? (isOrderEditMode ? 'Belge, aciklama ve satir bilgileri.' : 'Depo ve evrak bilgileri.')
+                      : 'Gecerlilik, not ve KDV ayarlari.'}
+                  </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {!isOrderMode && (
@@ -2268,28 +2395,30 @@ function AdminQuoteNewPageContent() {
                   )}
                   {isOrderMode && (
                     <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Depo</label>
-                        {includedWarehouses.length > 0 ? (
-                          <select
-                            value={orderWarehouse}
-                            onChange={(e) => setOrderWarehouse(e.target.value)}
-                            className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
-                          >
-                            {includedWarehouses.map((warehouse) => (
-                              <option key={warehouse} value={resolveWarehouseValue(warehouse)}>
-                                {warehouse}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <Input
-                            value={orderWarehouse}
-                            onChange={(e) => setOrderWarehouse(e.target.value)}
-                            placeholder="Depo"
-                          />
-                        )}
-                      </div>
+                      {!isOrderEditMode && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Depo</label>
+                          {includedWarehouses.length > 0 ? (
+                            <select
+                              value={orderWarehouse}
+                              onChange={(e) => setOrderWarehouse(e.target.value)}
+                              className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-100"
+                            >
+                              {includedWarehouses.map((warehouse) => (
+                                <option key={warehouse} value={resolveWarehouseValue(warehouse)}>
+                                  {warehouse}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <Input
+                              value={orderWarehouse}
+                              onChange={(e) => setOrderWarehouse(e.target.value)}
+                              placeholder="Depo"
+                            />
+                          )}
+                        </div>
+                      )}
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Belge No (Musteri Siparis No)</label>
                         <Input
@@ -2306,24 +2435,26 @@ function AdminQuoteNewPageContent() {
                           placeholder="Orn: test"
                         />
                       </div>
-                      <div className="grid grid-cols-1 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
-                          <Input
-                            value={orderInvoicedSeries}
-                            onChange={(e) => setOrderInvoicedSeries(e.target.value)}
-                            placeholder="Orn: HENDEK"
-                          />
+                      {!isOrderEditMode && (
+                        <div className="grid grid-cols-1 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
+                            <Input
+                              value={orderInvoicedSeries}
+                              onChange={(e) => setOrderInvoicedSeries(e.target.value)}
+                              placeholder="Orn: HENDEK"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
+                            <Input
+                              value={orderWhiteSeries}
+                              onChange={(e) => setOrderWhiteSeries(e.target.value)}
+                              placeholder="Orn: HENDEK"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
-                          <Input
-                            value={orderWhiteSeries}
-                            onChange={(e) => setOrderWhiteSeries(e.target.value)}
-                            placeholder="Orn: HENDEK"
-                          />
-                        </div>
-                      </div>
+                      )}
                     </>
                   )}
                   <div className="md:col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm">
@@ -3056,7 +3187,13 @@ function AdminQuoteNewPageContent() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-xs text-gray-500">{quoteItems.length} kalem secili</p>
               <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Gonderiliyor...' : isOrderMode ? 'Siparis Olustur' : isEditMode ? 'Teklifi Guncelle' : 'Teklif Olustur'}
+                {submitting
+                  ? 'Gonderiliyor...'
+                  : isOrderMode
+                    ? (isOrderEditMode ? 'Siparisi Guncelle' : 'Siparis Olustur')
+                    : isEditMode
+                      ? 'Teklifi Guncelle'
+                      : 'Teklif Olustur'}
               </Button>
             </div>
           </div>
