@@ -32,12 +32,21 @@ class OrderService {
       return {};
     }
 
+    const customer = await prisma.user.findUnique({
+      where: { id: customerId },
+      select: { mikroCariCode: true },
+    });
+    const mikroCariCode = String(customer?.mikroCariCode || '').trim();
+    if (!mikroCariCode) {
+      return {};
+    }
+
     const takeCount = Math.min(codes.length * limit * 6, 2500);
     const rows = await prisma.orderItem.findMany({
       where: {
         mikroCode: { in: codes },
         order: {
-          userId: customerId,
+          user: { mikroCariCode },
           status: { not: 'REJECTED' },
           ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
         },
