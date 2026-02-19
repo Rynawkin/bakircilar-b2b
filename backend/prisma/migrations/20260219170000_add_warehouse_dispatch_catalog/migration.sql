@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE "WarehouseDispatchDriver" (
   "id" TEXT NOT NULL,
   "firstName" TEXT NOT NULL,
