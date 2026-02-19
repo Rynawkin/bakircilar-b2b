@@ -128,39 +128,83 @@ class OrderService {
     const missingAfterB2b = codes.filter((code) => (output[code]?.length || 0) < limit);
     if (missingAfterB2b.length > 0) {
       try {
-        const sales = await mikroService.getCustomerSalesMovements(
-          mikroCariCode,
-          missingAfterB2b,
-          Math.max(3, limit)
-        );
-        for (const sale of sales) {
-          const code = String(sale.productCode || '').trim();
-          if (!code || !missingAfterB2b.includes(code)) continue;
-          const list = output[code] || [];
-          if (list.length >= limit) continue;
+        const safeCari = mikroCariCode.replace(/'/g, "''");
+        const safeCodes = missingAfterB2b
+          .map((code) => String(code).trim())
+          .filter(Boolean)
+          .map((code) => `'${code.replace(/'/g, "''")}'`)
+          .join(', ');
 
-          const entry = {
-            orderDate: sale.saleDate ? new Date(sale.saleDate).toISOString() : new Date().toISOString(),
-            quantity: Number(sale.quantity) || 0,
-            unitPrice: Number(sale.unitPrice) || 0,
-            priceType: sale.vatZeroed ? 'WHITE' as const : 'INVOICED' as const,
-            documentNo: (sale as any).documentNo || (sale as any).orderNumber || null,
-            orderNumber: (sale as any).orderNumber || null,
-          };
-          const key = `${entry.orderNumber || ''}|${entry.documentNo || ''}|${entry.unitPrice}|${entry.quantity}|${entry.priceType}`;
-          const existingKeys = new Set(
-            list.map(
-              (item) =>
-                `${item.orderNumber || ''}|${item.documentNo || ''}|${item.unitPrice}|${item.quantity}|${item.priceType}`
+        if (safeCodes) {
+          const query = `
+            WITH RankedOrders AS (
+              SELECT
+                sip_stok_kod as productCode,
+                sip_tarih as orderDate,
+                sip_miktar as quantity,
+                sip_b_fiyat as unitPrice,
+                sip_vergi as vatAmount,
+                sip_evrakno_seri as orderSeries,
+                sip_evrakno_sira as orderSequence,
+                ROW_NUMBER() OVER (
+                  PARTITION BY sip_stok_kod
+                  ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satirno DESC
+                ) as rn
+              FROM SIPARISLER WITH (NOLOCK)
+              WHERE sip_tip = 0
+                AND sip_musteri_kod = '${safeCari}'
+                AND sip_stok_kod IN (${safeCodes})
+                AND ISNULL(sip_iptal, 0) = 0
             )
-          );
-          if (!existingKeys.has(key)) {
-            list.push(entry);
-            output[code] = list.slice(0, limit);
+            SELECT
+              productCode,
+              orderDate,
+              quantity,
+              unitPrice,
+              vatAmount,
+              orderSeries,
+              orderSequence
+            FROM RankedOrders
+            WHERE rn <= ${Math.max(3, limit)}
+            ORDER BY productCode, orderDate DESC
+          `;
+
+          const rows = await mikroService.executeQuery(query);
+          for (const row of rows || []) {
+            const code = String(row.productCode || '').trim();
+            if (!code || !missingAfterB2b.includes(code)) continue;
+            const list = output[code] || [];
+            if (list.length >= limit) continue;
+
+            const sequence = Number(row.orderSequence);
+            const orderNo =
+              row.orderSeries && Number.isFinite(sequence)
+                ? `${String(row.orderSeries).trim()}-${sequence}`
+                : null;
+            const entry = {
+              orderDate: row.orderDate ? new Date(row.orderDate).toISOString() : new Date().toISOString(),
+              quantity: Number(row.quantity) || 0,
+              unitPrice: Number(row.unitPrice) || 0,
+              priceType: Number(row.vatAmount || 0) === 0 ? 'WHITE' as const : 'INVOICED' as const,
+              documentNo: orderNo,
+              orderNumber: orderNo,
+            };
+
+            const key = `${entry.orderNumber || ''}|${entry.documentNo || ''}|${entry.unitPrice}|${entry.quantity}|${entry.priceType}`;
+            const existingKeys = new Set(
+              list.map(
+                (item) =>
+                  `${item.orderNumber || ''}|${item.documentNo || ''}|${item.unitPrice}|${item.quantity}|${item.priceType}`
+              )
+            );
+            if (!existingKeys.has(key)) {
+              list.push(entry);
+              output[code] = list.slice(0, limit);
+            }
           }
         }
       } catch (error) {
-        console.error('Mikro customer sales fallback failed', { customerId, mikroCariCode, error });
+        console.error('Mikro SIPARISLER history fallback failed', { customerId, mikroCariCode, error });
       }
     }
 
