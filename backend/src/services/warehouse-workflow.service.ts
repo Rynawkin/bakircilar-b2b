@@ -1523,6 +1523,22 @@ class WarehouseWorkflowService {
     const siraColumn = this.pickFirstColumn(eirsColumns, ['eir_evrakno_sira', 'eir_evrak_sira']);
     if (!seriColumn || !siraColumn) return;
 
+    const whereParts = [
+      `${seriColumn} = ${this.toSqlLiteral(params.deliverySeries)}`,
+      `${siraColumn} = ${this.toSqlLiteral(params.deliverySequence)}`,
+    ];
+    if (evrakTipColumn) {
+      whereParts.push(`${evrakTipColumn} = 1`);
+    }
+    const whereSql = whereParts.join(' AND ');
+
+    const existingRows = await mikroService.executeQuery(`
+      SELECT TOP 1 *
+      FROM E_IRSALIYE_DETAYLARI
+      WHERE ${whereSql}
+    `);
+    const existingRow = (existingRows as any[])[0];
+
     const updateValues: Record<string, unknown> = {};
     const assign = (candidateColumns: string[], value: string) => {
       const column = this.pickFirstColumn(eirsColumns, candidateColumns);
@@ -1539,26 +1555,63 @@ class WarehouseWorkflowService {
     assign(['eir_sofor_tckn', 'eir_sofor_tc', 'eir_sofor_tcno'], params.transport.driverTcNo);
     assign(['eir_tasiyici_arac_plaka', 'eir_arac_plaka', 'eir_plaka'], params.transport.vehiclePlate);
     assign(['eir_arac_tipi', 'eir_tasiyici_adi', 'eir_tasiyici_firma'], params.transport.vehicleName);
-    assign(['eir_belge_no', 'eir_belgeno'], params.documentNo);
+    assign(['eir_matbu_belgeno', 'eir_belge_no', 'eir_belgeno'], params.documentNo);
+    assign(['eir_detay_bilgi'], params.transport.vehicleName);
 
     const setEntries = Object.entries(updateValues);
     if (setEntries.length === 0) return;
 
-    const setSql = setEntries.map(([column, value]) => `${column} = ${this.toSqlLiteral(value)}`).join(', ');
-    const whereParts = [
-      `${seriColumn} = ${this.toSqlLiteral(params.deliverySeries)}`,
-      `${siraColumn} = ${this.toSqlLiteral(params.deliverySequence)}`,
-    ];
-    if (evrakTipColumn) {
-      whereParts.push(`${evrakTipColumn} = 1`);
+    if (existingRow) {
+      const setSql = setEntries.map(([column, value]) => `${column} = ${this.toSqlLiteral(value)}`).join(', ');
+      await mikroService.executeQuery(`
+        UPDATE E_IRSALIYE_DETAYLARI
+        SET ${setSql}
+        WHERE ${whereSql}
+      `);
+      return;
     }
-    const whereSql = whereParts.join(' AND ');
 
-    await mikroService.executeQuery(`
-      UPDATE E_IRSALIYE_DETAYLARI
-      SET ${setSql}
-      WHERE ${whereSql}
+    const templateRows = await mikroService.executeQuery(`
+      SELECT TOP 1 *
+      FROM E_IRSALIYE_DETAYLARI
+      WHERE ISNULL(eir_evrak_tip, 1) = 1
+      ORDER BY eir_evrakno_sira DESC
     `);
+    const templateRow = (templateRows as any[])[0] || {};
+    const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+    const mikroUserNo = Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0 ? Math.trunc(mikroUserNoRaw) : 1;
+
+    const insertValues: Record<string, unknown> = {
+      eir_Guid: this.raw(`CAST('${randomUUID()}' as uniqueidentifier)`),
+      eir_DBCno: toNumber(templateRow.eir_DBCno) || 0,
+      eir_SpecRECno: toNumber(templateRow.eir_SpecRECno) || 0,
+      eir_iptal: 0,
+      eir_fileid: toNumber(templateRow.eir_fileid) || 0,
+      eir_hidden: toNumber(templateRow.eir_hidden) ? 1 : 0,
+      eir_kilitli: toNumber(templateRow.eir_kilitli) ? 1 : 0,
+      eir_degisti: 0,
+      eir_checksum: toNumber(templateRow.eir_checksum) || 0,
+      eir_create_user: Math.max(Math.trunc(toNumber(templateRow.eir_create_user)), mikroUserNo),
+      eir_create_date: this.raw('GETDATE()'),
+      eir_lastup_user: Math.max(Math.trunc(toNumber(templateRow.eir_lastup_user)), mikroUserNo),
+      eir_lastup_date: this.raw('GETDATE()'),
+      eir_special1: normalizeCode(templateRow.eir_special1 || ''),
+      eir_special2: normalizeCode(templateRow.eir_special2 || ''),
+      eir_special3: normalizeCode(templateRow.eir_special3 || ''),
+      eir_firma_no: toNumber(templateRow.eir_firma_no) || 0,
+      eir_evrak_tip: 1,
+      eir_tipi: toNumber(templateRow.eir_tipi) || 0,
+      eir_evrakno_seri: params.deliverySeries,
+      eir_evrakno_sira: params.deliverySequence,
+      eir_normal_iade: toNumber(templateRow.eir_normal_iade) || 0,
+      eir_tip: toNumber(templateRow.eir_tip) || 0,
+    };
+    for (const [column, value] of setEntries) {
+      insertValues[column] = value;
+    }
+
+    const insertSql = this.buildInsertSql('E_IRSALIYE_DETAYLARI', insertValues, eirsColumns);
+    await mikroService.executeQuery(insertSql);
   }
 
   private async getOrderDocumentNo(orderSeries: string, orderSequence: number): Promise<string | null> {
