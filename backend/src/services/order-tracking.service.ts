@@ -46,6 +46,72 @@ interface PendingOrder {
 }
 
 class OrderTrackingService {
+  private async reconcileDeliveredQuantitiesFromMikro(): Promise<void> {
+    await mikroService.executeQuery(`
+      WITH DeliveryAgg AS (
+        SELECT
+          sth_sip_uid as sip_guid,
+          SUM(ISNULL(sth_miktar, 0)) as delivered_qty
+        FROM STOK_HAREKETLERI WITH (NOLOCK)
+        WHERE ISNULL(sth_iptal, 0) = 0
+          AND ISNULL(sth_tip, 1) = 1
+          AND ISNULL(sth_cins, 0) = 0
+          AND ISNULL(sth_evraktip, 0) = 1
+          AND sth_sip_uid IS NOT NULL
+          AND sth_sip_uid <> '00000000-0000-0000-0000-000000000000'
+        GROUP BY sth_sip_uid
+      ),
+      Recalculated AS (
+        SELECT
+          s.sip_Guid as sip_guid,
+          CASE
+            WHEN ISNULL(d.delivered_qty, 0) > ISNULL(s.sip_miktar, 0) THEN ISNULL(s.sip_miktar, 0)
+            ELSE ISNULL(d.delivered_qty, 0)
+          END as next_delivered_qty,
+          CASE
+            WHEN ISNULL(s.sip_rezervasyon_miktari, 0) <= 0 THEN ISNULL(s.sip_rezerveden_teslim_edilen, 0)
+            WHEN ISNULL(d.delivered_qty, 0) > ISNULL(s.sip_rezervasyon_miktari, 0) THEN ISNULL(s.sip_rezervasyon_miktari, 0)
+            ELSE ISNULL(d.delivered_qty, 0)
+          END as next_reserved_delivered_qty
+        FROM SIPARISLER s
+        LEFT JOIN DeliveryAgg d
+          ON d.sip_guid = s.sip_Guid
+        WHERE ISNULL(s.sip_iptal, 0) = 0
+          AND ISNULL(s.sip_tip, 0) = 0
+          AND (
+            ISNULL(s.sip_teslim_miktar, 0) > 0
+            OR EXISTS (
+              SELECT 1
+              FROM STOK_HAREKETLERI h WITH (NOLOCK)
+              WHERE h.sth_sip_uid = s.sip_Guid
+                AND ISNULL(h.sth_tip, 1) = 1
+                AND ISNULL(h.sth_cins, 0) = 0
+                AND ISNULL(h.sth_evraktip, 0) = 1
+            )
+          )
+      )
+      UPDATE s
+      SET
+        sip_teslim_miktar = r.next_delivered_qty,
+        sip_rezerveden_teslim_edilen = r.next_reserved_delivered_qty,
+        sip_kapat_fl = CASE
+          WHEN ISNULL(s.sip_miktar, 0) <= r.next_delivered_qty THEN 1
+          ELSE 0
+        END,
+        sip_lastup_date = GETDATE()
+      FROM SIPARISLER s
+      INNER JOIN Recalculated r
+        ON r.sip_guid = s.sip_Guid
+      WHERE
+        ISNULL(s.sip_teslim_miktar, 0) <> r.next_delivered_qty
+        OR ISNULL(s.sip_rezerveden_teslim_edilen, 0) <> r.next_reserved_delivered_qty
+        OR ISNULL(s.sip_kapat_fl, 0) <> CASE
+          WHEN ISNULL(s.sip_miktar, 0) <= r.next_delivered_qty THEN 1
+          ELSE 0
+        END
+    `);
+  }
+
   /**
    * Mikro'dan bekleyen sipariÅŸleri Ã§ek ve PostgreSQL'e kaydet
    */
@@ -57,6 +123,7 @@ class OrderTrackingService {
   }> {
     try {
       console.log('ğŸ”„ Bekleyen sipariÅŸler sync baÅŸladÄ±...');
+      await this.reconcileDeliveredQuantitiesFromMikro();
 
       // 1. Mikro'dan bekleyen sipariÅŸleri Ã§ek
       const pendingOrders = await this.fetchPendingOrdersFromMikro();

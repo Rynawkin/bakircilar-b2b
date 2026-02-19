@@ -1509,6 +1509,58 @@ class WarehouseWorkflowService {
     assign(['sth_arac_plaka', 'sth_aracplaka', 'sth_plaka'], transport.vehiclePlate);
   }
 
+  private async updateEInvoiceTransportDetails(params: {
+    deliverySeries: string;
+    deliverySequence: number;
+    transport: DispatchTransportInfo;
+    documentNo: string;
+  }): Promise<void> {
+    const eirsColumns = await this.getTableColumns('E_IRSALIYE_DETAYLARI');
+    if (eirsColumns.size === 0) return;
+
+    const evrakTipColumn = this.pickFirstColumn(eirsColumns, ['eir_evrak_tip', 'eir_evraktip']);
+    const seriColumn = this.pickFirstColumn(eirsColumns, ['eir_evrakno_seri', 'eir_evrak_seri']);
+    const siraColumn = this.pickFirstColumn(eirsColumns, ['eir_evrakno_sira', 'eir_evrak_sira']);
+    if (!seriColumn || !siraColumn) return;
+
+    const updateValues: Record<string, unknown> = {};
+    const assign = (candidateColumns: string[], value: string) => {
+      const column = this.pickFirstColumn(eirsColumns, candidateColumns);
+      if (column) {
+        updateValues[column] = value;
+      }
+    };
+
+    if (evrakTipColumn) {
+      updateValues[evrakTipColumn] = 1;
+    }
+    assign(['eir_sofor_adi', 'eir_surucu_adi'], params.transport.driverFirstName);
+    assign(['eir_sofor_soyadi', 'eir_surucu_soyadi'], params.transport.driverLastName);
+    assign(['eir_sofor_tckn', 'eir_sofor_tc', 'eir_sofor_tcno'], params.transport.driverTcNo);
+    assign(['eir_tasiyici_arac_plaka', 'eir_arac_plaka', 'eir_plaka'], params.transport.vehiclePlate);
+    assign(['eir_arac_tipi', 'eir_tasiyici_adi', 'eir_tasiyici_firma'], params.transport.vehicleName);
+    assign(['eir_belge_no', 'eir_belgeno'], params.documentNo);
+
+    const setEntries = Object.entries(updateValues);
+    if (setEntries.length === 0) return;
+
+    const setSql = setEntries.map(([column, value]) => `${column} = ${this.toSqlLiteral(value)}`).join(', ');
+    const whereParts = [
+      `${seriColumn} = ${this.toSqlLiteral(params.deliverySeries)}`,
+      `${siraColumn} = ${this.toSqlLiteral(params.deliverySequence)}`,
+    ];
+    if (evrakTipColumn) {
+      whereParts.push(`${evrakTipColumn} = 1`);
+    }
+    const whereSql = whereParts.join(' AND ');
+
+    await mikroService.executeQuery(`
+      UPDATE E_IRSALIYE_DETAYLARI
+      SET ${setSql}
+      WHERE ${whereSql}
+    `);
+  }
+
   private async getOrderDocumentNo(orderSeries: string, orderSequence: number): Promise<string | null> {
     const sipColumns = await this.getTableColumns('SIPARISLER');
     const belgeNoColumn = sipColumns.has('sip_belge_no') ? 'sip_belge_no' : sipColumns.has('sip_belgeno') ? 'sip_belgeno' : null;
@@ -1781,6 +1833,13 @@ class WarehouseWorkflowService {
         AND sip_evrakno_sira = ${params.orderSequence}
         AND ISNULL(sip_iptal, 0) = 0
     `);
+
+    await this.updateEInvoiceTransportDetails({
+      deliverySeries,
+      deliverySequence,
+      transport: params.transport,
+      documentNo: orderDocumentNo || deliveryNoteNo,
+    });
 
     return {
       deliveryNoteNo,
