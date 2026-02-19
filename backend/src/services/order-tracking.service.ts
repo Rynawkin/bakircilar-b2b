@@ -123,7 +123,6 @@ class OrderTrackingService {
   }> {
     try {
       console.log('ğŸ”„ Bekleyen sipariÅŸler sync baÅŸladÄ±...');
-      await this.reconcileDeliveredQuantitiesFromMikro();
 
       // 1. Mikro'dan bekleyen sipariÅŸleri Ã§ek
       const pendingOrders = await this.fetchPendingOrdersFromMikro();
