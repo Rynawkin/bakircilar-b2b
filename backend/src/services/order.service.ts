@@ -125,6 +125,64 @@ class OrderService {
       }
     }
 
+    const missingCodes = codes.filter((code) => (output[code]?.length || 0) < limit);
+    if (missingCodes.length > 0) {
+      const pendingRows = await prisma.pendingMikroOrder.findMany({
+        where: { customerCode: mikroCariCode },
+        orderBy: { orderDate: 'desc' },
+        take: Math.max(200, limit * 60),
+        select: {
+          mikroOrderNumber: true,
+          orderDate: true,
+          items: true,
+        },
+      });
+
+      const seenMap = new Map<string, Set<string>>();
+      for (const code of codes) {
+        const existing = output[code] || [];
+        output[code] = existing;
+        const seen = new Set<string>(
+          existing.map(
+            (entry) =>
+              `${entry.orderNumber || ''}|${entry.documentNo || ''}|${entry.unitPrice}|${entry.quantity}|${entry.priceType}`
+          )
+        );
+        seenMap.set(code, seen);
+      }
+
+      for (const order of pendingRows) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        for (const raw of items) {
+          const item = raw as any;
+          const code = String(item?.productCode || '').trim();
+          if (!code || !missingCodes.includes(code)) continue;
+          const list = output[code] || [];
+          if (list.length >= limit) continue;
+
+          const entry = {
+            orderDate: order.orderDate ? order.orderDate.toISOString() : new Date().toISOString(),
+            quantity: Number(item?.quantity) || 0,
+            unitPrice: Number(item?.unitPrice) || 0,
+            priceType: 'INVOICED' as const,
+            documentNo: order.mikroOrderNumber || null,
+            orderNumber: order.mikroOrderNumber || null,
+          };
+          const key = `${entry.orderNumber || ''}|${entry.documentNo || ''}|${entry.unitPrice}|${entry.quantity}|${entry.priceType}`;
+          const seen = seenMap.get(code) || new Set<string>();
+          if (seen.has(key)) continue;
+          list.push(entry);
+          seen.add(key);
+          output[code] = list;
+          seenMap.set(code, seen);
+        }
+
+        if (missingCodes.every((code) => (output[code]?.length || 0) >= limit)) {
+          break;
+        }
+      }
+    }
+
     return output;
   }
   /**
