@@ -1299,6 +1299,15 @@ class WarehouseWorkflowService {
     return vatMap[vatCode] ?? 0.2;
   }
 
+  private vatRateToCode(vatRate: number): number {
+    const normalized = Math.max(Number(vatRate) || 0, 0);
+    if (normalized <= 0.0001) return 0;
+    if (normalized <= 0.011) return 2;
+    if (normalized <= 0.11) return 7;
+    if (normalized <= 0.185) return 4;
+    return 5;
+  }
+
   private async getTableColumns(tableName: string): Promise<Set<string>> {
     const rows = await mikroService.executeQuery(`
       SELECT COLUMN_NAME
@@ -1392,6 +1401,8 @@ class WarehouseWorkflowService {
           sip_stok_kod as stok_kod,
           ISNULL(sip_b_fiyat, 0) as unit_price,
           ISNULL(sip_vergi_pntr, 0) as vat_code,
+          ISNULL(sip_vergi, 0) as vat_amount,
+          ISNULL(sip_tutar, 0) as line_total,
           ISNULL(sip_depono, 1) as depo_no,
           ISNULL(sip_stok_sormerk, '') as stok_sormerk,
           ISNULL(sip_cari_sormerk, '') as cari_sormerk,
@@ -1409,8 +1420,33 @@ class WarehouseWorkflowService {
       }
 
       const unitPrice = Math.max(toNumber(sipRow.unit_price), 0);
-      const vatCode = Math.max(Math.trunc(toNumber(sipRow.vat_code)), 0);
-      const vatRate = this.vatCodeToRate(vatCode);
+      let vatCode = Math.max(Math.trunc(toNumber(sipRow.vat_code)), 0);
+      let vatRate = this.vatCodeToRate(vatCode);
+      const sipVatAmount = Math.max(toNumber(sipRow.vat_amount), 0);
+      const sipLineTotal = Math.max(toNumber(sipRow.line_total), 0);
+      if (vatCode <= 0 && sipVatAmount > 0 && sipLineTotal > 0) {
+        const derivedRate = sipVatAmount / sipLineTotal;
+        if (Number.isFinite(derivedRate) && derivedRate > 0) {
+          vatRate = derivedRate;
+          vatCode = this.vatRateToCode(derivedRate);
+        }
+      }
+      if (vatCode <= 0) {
+        try {
+          const stockVatRows = await mikroService.executeQuery(`
+            SELECT TOP 1 ISNULL(sto_toptan_vergi, 0) as stock_vat_code
+            FROM STOKLAR
+            WHERE sto_kod = '${safeProductCode.replace(/'/g, "''")}'
+          `);
+          const stockVatCode = Math.max(Math.trunc(toNumber((stockVatRows as any[])?.[0]?.stock_vat_code)), 0);
+          if (stockVatCode > 0) {
+            vatCode = stockVatCode;
+            vatRate = this.vatCodeToRate(vatCode);
+          }
+        } catch (error) {
+          console.warn('Stok vergi kodu fallback okunamadi:', { productCode: safeProductCode, error });
+        }
+      }
       const lineTotal = Math.max(unitPrice * line.deliverQty, 0);
       const vatAmount = Math.max(lineTotal * vatRate, 0);
       const depoNo = Math.max(Math.trunc(toNumber(sipRow.depo_no || 1)), 1);
@@ -1486,7 +1522,7 @@ class WarehouseWorkflowService {
         sth_stok_srm_merkezi: stokSormerk,
         sth_fis_tarihi: this.raw(`CAST('1899-12-30' as datetime)`),
         sth_fis_sirano: Math.max(Math.trunc(toNumber(templateRow.sth_fis_sirano)), 0),
-        sth_vergisiz_fl: toNumber(templateRow.sth_vergisiz_fl) ? 1 : 0,
+        sth_vergisiz_fl: vatCode > 0 ? 0 : 1,
         sth_proje_kodu: projeKodu,
         sth_otv_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_otv_pntr)), 0),
         sth_otv_vergi: 0,

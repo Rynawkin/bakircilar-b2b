@@ -739,6 +739,7 @@ class OrderService {
                 name: true,
                 mikroCode: true,
                 imageUrl: true,
+                vatRate: true,
               },
             },
           },
