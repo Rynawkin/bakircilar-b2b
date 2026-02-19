@@ -125,6 +125,45 @@ class OrderService {
       }
     }
 
+    const missingAfterB2b = codes.filter((code) => (output[code]?.length || 0) < limit);
+    if (missingAfterB2b.length > 0) {
+      try {
+        const sales = await mikroService.getCustomerSalesMovements(
+          mikroCariCode,
+          missingAfterB2b,
+          Math.max(3, limit)
+        );
+        for (const sale of sales) {
+          const code = String(sale.productCode || '').trim();
+          if (!code || !missingAfterB2b.includes(code)) continue;
+          const list = output[code] || [];
+          if (list.length >= limit) continue;
+
+          const entry = {
+            orderDate: sale.saleDate ? new Date(sale.saleDate).toISOString() : new Date().toISOString(),
+            quantity: Number(sale.quantity) || 0,
+            unitPrice: Number(sale.unitPrice) || 0,
+            priceType: sale.vatZeroed ? 'WHITE' as const : 'INVOICED' as const,
+            documentNo: (sale as any).documentNo || (sale as any).orderNumber || null,
+            orderNumber: (sale as any).orderNumber || null,
+          };
+          const key = `${entry.orderNumber || ''}|${entry.documentNo || ''}|${entry.unitPrice}|${entry.quantity}|${entry.priceType}`;
+          const existingKeys = new Set(
+            list.map(
+              (item) =>
+                `${item.orderNumber || ''}|${item.documentNo || ''}|${item.unitPrice}|${item.quantity}|${item.priceType}`
+            )
+          );
+          if (!existingKeys.has(key)) {
+            list.push(entry);
+            output[code] = list.slice(0, limit);
+          }
+        }
+      } catch (error) {
+        console.error('Mikro customer sales fallback failed', { customerId, mikroCariCode, error });
+      }
+    }
+
     const missingCodes = codes.filter((code) => (output[code]?.length || 0) < limit);
     if (missingCodes.length > 0) {
       const pendingRows = await prisma.pendingMikroOrder.findMany({

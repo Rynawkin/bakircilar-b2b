@@ -107,6 +107,8 @@ export interface MikroCustomerSaleMovement {
   vatAmount: number;
   vatRate: number;
   vatZeroed: boolean;
+  orderNumber?: string | null;
+  documentNo?: string | null;
 }
 
 export interface MikroCustomerQuoteHistory {
