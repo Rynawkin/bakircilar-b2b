@@ -853,7 +853,19 @@ class OrderService {
         include: { product: { select: { vatRate: true } } },
       });
 
-      const existingByProductId = new Map(existingItems.map((item) => [item.productId, item]));
+      const existingByProductId = new Map(
+        existingItems
+          .filter((item) => Boolean(item.productId))
+          .map((item) => [String(item.productId), item])
+      );
+      const existingByMikroCode = new Map<string, Array<any>>();
+      existingItems.forEach((item) => {
+        const code = String(item.mikroCode || '').trim();
+        if (!code) return;
+        const list = existingByMikroCode.get(code) || [];
+        list.push(item);
+        existingByMikroCode.set(code, list);
+      });
       existingItems.forEach((item) => {
         if (item.productId) {
           mikroIdByProductId.set(item.productId, item.mikroOrderId || null);
@@ -867,14 +879,18 @@ class OrderService {
         lineDescription?: string;
       }>>();
 
-      const seenProductIds = new Set<string>();
+      const seenExistingItemIds = new Set<string>();
 
       normalizedItems.forEach((item) => {
-        const existing = existingByProductId.get(item.productId);
+        let existing = existingByProductId.get(item.productId);
+        if (!existing) {
+          const byCode = existingByMikroCode.get(item.mikroCode) || [];
+          existing = byCode.find((candidate) => !seenExistingItemIds.has(candidate.id));
+        }
         if (!existing) {
           throw new Error('Cannot update approved order with new products');
         }
-        seenProductIds.add(item.productId);
+        seenExistingItemIds.add(existing.id);
         const mikroOrderId = existing.mikroOrderId || (order.mikroOrderIds?.[0] || '');
         const vatRate =
           item.priceType === 'WHITE'
@@ -894,7 +910,7 @@ class OrderService {
 
       // Removed items -> close in Mikro
       existingItems.forEach((item) => {
-        if (item.productId && !seenProductIds.has(item.productId)) {
+        if (!seenExistingItemIds.has(item.id)) {
           const mikroOrderId = item.mikroOrderId || (order.mikroOrderIds?.[0] || '');
           const vatRate =
             item.priceType === 'WHITE'
