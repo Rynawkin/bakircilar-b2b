@@ -32,7 +32,7 @@ export default function StaffManagementPage() {
     email: '',
     password: '',
     name: '',
-    role: 'SALES_REP' as 'SALES_REP' | 'MANAGER',
+    role: 'SALES_REP' as 'SALES_REP' | 'MANAGER' | 'DEPOCU',
     assignedSectorCodes: [] as string[],
   });
 
@@ -134,6 +134,7 @@ export default function StaffManagementPage() {
       ADMIN: { label: 'Admin', variant: 'success' },
       MANAGER: { label: 'Manager', variant: 'info' },
       SALES_REP: { label: 'Satış Temsilcisi', variant: 'warning' },
+      DEPOCU: { label: 'Depocu', variant: 'info' },
     };
     const badge = badges[role] || { label: role, variant: 'info' };
     return <Badge variant={badge.variant}>{badge.label}</Badge>;
@@ -154,7 +155,7 @@ export default function StaffManagementPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Personel Yonetimi</h1>
-            <p className="text-sm text-gray-600">MANAGER ve SALES_REP kullanicilarini yonetin</p>
+            <p className="text-sm text-gray-600">MANAGER, SALES_REP ve DEPOCU kullanicilarini yonetin</p>
           </div>
           <Button onClick={() => setShowCreateModal(true)} variant="secondary">
             + Yeni Kullanici
@@ -241,6 +242,7 @@ export default function StaffManagementPage() {
                 >
                   <option value="SALES_REP">Satış Temsilcisi</option>
                   <option value="MANAGER">Manager</option>
+                  <option value="DEPOCU">Depocu</option>
                 </select>
               </div>
 
@@ -431,3 +433,5 @@ export default function StaffManagementPage() {
     </div>
   );
 }
+
+

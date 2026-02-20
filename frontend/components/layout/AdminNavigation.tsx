@@ -65,8 +65,8 @@ const navItems: NavItem[] = [
   { name: 'Teklifler', href: '/quotes', icon: FileText, description: 'Teklif yÃ¶netimi', permission: 'admin:quotes' },
   { name: 'Teklif Kalemleri', href: '/quotes/lines', icon: FileText, description: 'Teklif kalemleri', permission: 'admin:quotes' },
   { name: 'SipariÅŸ Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen sipariÅŸler', permission: 'admin:order-tracking' },
-  { name: 'Depo Kiosk', href: '/warehouse', icon: MonitorSmartphone, description: 'Toplama ve yÃ¼kleme ekranÄ±', permission: 'admin:order-tracking' },
-  { name: 'Perakende Satis', href: '/warehouse/retail', icon: MonitorSmartphone, description: 'Hizli satis ekrani', permission: 'admin:order-tracking' },
+  { name: 'Depo Kiosk', href: '/warehouse', icon: MonitorSmartphone, description: 'Toplama ve yÃ¼kleme ekranÄ±', permission: 'admin:warehouse-kiosk' },
+  { name: 'Perakende Satis', href: '/warehouse/retail', icon: MonitorSmartphone, description: 'Hizli satis ekrani', permission: 'admin:warehouse-retail' },
   { name: 'Resim Hata Talepleri', href: '/warehouse/image-issues', icon: ImageOff, description: 'Depodan gelen urun resmi hatalari', permission: 'admin:order-tracking' },
   { name: 'MÃ¼ÅŸteriler', href: '/customers', icon: Users, description: 'MÃ¼ÅŸteri listesi', permission: 'admin:customers' },
   { name: 'Musteri Portfoyum', href: '/portfolio', icon: Users, description: 'Musteri portfoyu', permission: 'admin:customers' },
@@ -202,6 +202,7 @@ export function AdminNavigation() {
   const visibleSettingsItems = getVisibleSettingsItems();
   const primaryNavItems = visibleNavItems.slice(0, 6);
   const overflowNavItems = visibleNavItems.slice(6);
+  const homeHref = user?.role === 'DEPOCU' ? '/warehouse' : '/dashboard';
 
   return (
     <nav className="bg-gradient-to-r from-primary-700 to-primary-600 shadow-lg sticky top-0 z-50">
@@ -209,7 +210,7 @@ export function AdminNavigation() {
         <div className="flex justify-between items-center h-14">
           {/* Logo & Brand */}
           <div className="flex items-center gap-4">
-            <LogoLink href="/dashboard" variant="light" />
+            <LogoLink href={homeHref} variant="light" />
             <div className="hidden md:block border-l border-primary-500 pl-4">
               <p className="text-sm font-semibold text-white">YÃ¶netim Paneli</p>
               <p className="text-xs text-primary-100">{user?.name}</p>

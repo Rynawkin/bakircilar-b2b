@@ -12,6 +12,7 @@ const ROLE_NAMES: Record<string, string> = {
   ADMIN: 'Admin',
   MANAGER: 'Yönetici',
   SALES_REP: 'Satış Personeli',
+  DEPOCU: 'Depocu',
   CUSTOMER: 'Müşteri',
   DIVERSEY: 'Diversey'
 };
@@ -139,7 +140,7 @@ export default function RolePermissionsPage() {
     return null;
   }
 
-  const roles = ['ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY'];
+  const roles = ['ADMIN', 'MANAGER', 'SALES_REP', 'DEPOCU', 'CUSTOMER', 'DIVERSEY'];
 
   return (
     <div className="space-y-6">

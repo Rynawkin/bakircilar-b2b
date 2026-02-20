@@ -124,7 +124,7 @@ export default function WarehouseRetailPage() {
 
   useEffect(() => {
     if (user === null || permissionsLoading) return;
-    if (!hasPermission('admin:order-tracking')) {
+    if (!hasPermission('admin:order-tracking') && !hasPermission('admin:warehouse-retail')) {
       router.push('/dashboard');
     }
   }, [user, permissionsLoading, hasPermission, router]);
@@ -352,16 +352,24 @@ export default function WarehouseRetailPage() {
               <Card className="p-4 border border-slate-200">
                 <div className="grid grid-cols-1 gap-3">
                   <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-3">
-                    <Input
-                      value={searchText}
-                      readOnly
-                      onClick={() => {
-                        setSearchKeyboardValue(searchText);
-                        setSearchKeyboardOpen(true);
-                      }}
-                      placeholder="Urun kodu veya isim ara..."
-                      className="h-14 text-lg"
-                    />
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <Input
+                        value={searchText}
+                        onChange={(event) => setSearchText(event.target.value)}
+                        placeholder="Urun kodu, isim veya barkod ara..."
+                        className="h-14 text-lg"
+                      />
+                      <Button
+                        onClick={() => {
+                          setSearchKeyboardValue(searchText);
+                          setSearchKeyboardOpen(true);
+                        }}
+                        variant="secondary"
+                        className="h-14 px-4 text-sm font-black"
+                      >
+                        Klavye
+                      </Button>
+                    </div>
 
                     <div className="grid grid-cols-3 gap-2">
                       <Button

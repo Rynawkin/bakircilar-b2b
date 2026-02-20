@@ -41,6 +41,8 @@ const LoginForm = () => {
 
       if (user?.role === 'HEAD_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'SALES_REP') {
         router.push('/dashboard');
+      } else if (user?.role === 'DEPOCU') {
+        router.push('/warehouse');
       } else if (user?.role === 'DIVERSEY') {
         router.push('/diversey/stok');
       } else {

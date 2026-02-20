@@ -14,8 +14,9 @@ export default function HomePage() {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      // Rol'e göre yönlendir
-      if (user.role === 'ADMIN') {
+      if (user.role === 'DEPOCU') {
+        router.push('/warehouse');
+      } else if (user.role === 'ADMIN' || user.role === 'HEAD_ADMIN' || user.role === 'MANAGER' || user.role === 'SALES_REP') {
         router.push('/dashboard');
       } else {
         router.push('/products');

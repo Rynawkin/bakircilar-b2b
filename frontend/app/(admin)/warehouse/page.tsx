@@ -285,7 +285,7 @@ export default function WarehousePage() {
 
   useEffect(() => {
     if (user === null || permissionsLoading) return;
-    if (!hasPermission('admin:order-tracking')) {
+    if (!hasPermission('admin:order-tracking') && !hasPermission('admin:warehouse-kiosk')) {
       router.push('/dashboard');
       return;
     }

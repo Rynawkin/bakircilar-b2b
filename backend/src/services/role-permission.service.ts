@@ -37,6 +37,8 @@ export const AVAILABLE_PERMISSIONS = {
   'admin:quotes': 'Teklif Yonetimi',
   'admin:agreements': 'Anlasmali Fiyatlar',
   'admin:order-tracking': 'Siparis Takip',
+  'admin:warehouse-kiosk': 'Depo Kiosk',
+  'admin:warehouse-retail': 'Hizli Perakende Satis',
   'admin:einvoices': 'E-Faturalar',
   'admin:requests': 'Talepler',
   'admin:campaigns': 'Kampanyalar',
@@ -83,6 +85,8 @@ export const PERMISSION_DESCRIPTIONS = {
   'admin:quotes': 'Teklif listesi ve teklif islemlerine erisim izni verir',
   'admin:agreements': 'Anlasmali fiyat yonetimine erisim izni verir',
   'admin:order-tracking': 'Siparis takip sayfalarina erisim izni verir',
+  'admin:warehouse-kiosk': 'Depo kiosk sayfasina erisim izni verir',
+  'admin:warehouse-retail': 'Hizli perakende satis sayfasina erisim izni verir',
   'admin:einvoices': 'E-fatura arsivine erisim izni verir',
   'admin:requests': 'Talepler ve gorevler ekranina erisim izni verir',
   'admin:campaigns': 'Kampanya yonetimine erisim izni verir',
@@ -191,7 +195,7 @@ class RolePermissionService {
    * Tüm roller için izinleri getir (HEAD_ADMIN için)
    */
   async getAllRolePermissions() {
-    const roles: UserRole[] = ['ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY'];
+    const roles: UserRole[] = ['ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY', 'DEPOCU'];
 
     const result: Record<string, Record<string, boolean>> = {};
 
@@ -262,6 +266,15 @@ class RolePermissionService {
     // DIVERSEY - sadece Diversey stok
     if (role === 'DIVERSEY') {
       return permission === 'dashboard:diversey-stok';
+    }
+
+    // DEPOCU - sadece depo kiosk ve hizli perakende satis
+    if (role === 'DEPOCU') {
+      const allowed = new Set([
+        'admin:warehouse-kiosk',
+        'admin:warehouse-retail',
+      ]);
+      return allowed.has(permission);
     }
 
     // CUSTOMER - admin panel izinleri yok

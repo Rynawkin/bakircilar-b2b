@@ -18,6 +18,7 @@ enum UserRole {
   SALES_REP   // Satış temsilcisi (sektör bazlı erişim)
   MANAGER     // Yönetici (tüm siparişleri görebilir)
   DIVERSEY    // Diversey distribütör kullanıcısı (sadece Diversey ürünlerini görür)
+  DEPOCU      // Depo kiosk + hizli perakende satis kullanicisi
 }
 
 enum CustomerType {

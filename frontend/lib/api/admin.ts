@@ -1455,7 +1455,7 @@ export const adminApi = {
     email: string;
     password: string;
     name: string;
-    role: 'SALES_REP' | 'MANAGER';
+    role: 'SALES_REP' | 'MANAGER' | 'DEPOCU';
     assignedSectorCodes?: string[];
   }): Promise<{ message: string; staff: any }> => {
     const response = await apiClient.post('/admin/staff', data);

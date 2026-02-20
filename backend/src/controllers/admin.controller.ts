@@ -2538,14 +2538,14 @@ export class AdminController {
 
   /**
    * GET /api/admin/staff
-   * Get all staff members (ADMIN, MANAGER, SALES_REP)
+   * Get all staff members (ADMIN, MANAGER, SALES_REP, DEPOCU)
    */
   async getStaffMembers(req: Request, res: Response, next: NextFunction) {
     try {
       const staff = await prisma.user.findMany({
         where: {
           role: {
-            in: ['ADMIN', 'MANAGER', 'SALES_REP']
+            in: ['ADMIN', 'MANAGER', 'SALES_REP', 'DEPOCU']
           }
         },
         select: {
@@ -2570,7 +2570,7 @@ export class AdminController {
 
   /**
    * POST /api/admin/staff
-   * Create new staff member (SALES_REP or MANAGER)
+   * Create new staff member (SALES_REP, MANAGER or DEPOCU)
    * Only ADMIN can create MANAGER
    * ADMIN and MANAGER can create SALES_REP
    */
@@ -2584,8 +2584,8 @@ export class AdminController {
         return res.status(400).json({ error: 'Email, password, name, and role are required' });
       }
 
-      if (!['SALES_REP', 'MANAGER'].includes(role)) {
-        return res.status(400).json({ error: 'Role must be either SALES_REP or MANAGER' });
+      if (!['SALES_REP', 'MANAGER', 'DEPOCU'].includes(role)) {
+        return res.status(400).json({ error: 'Role must be SALES_REP, MANAGER or DEPOCU' });
       }
 
       // Only ADMIN can create MANAGER
@@ -2653,7 +2653,7 @@ export class AdminController {
         return res.status(404).json({ error: 'Staff member not found' });
       }
 
-      if (!['ADMIN', 'MANAGER', 'SALES_REP'].includes(existingStaff.role)) {
+      if (!['ADMIN', 'MANAGER', 'SALES_REP', 'DEPOCU'].includes(existingStaff.role)) {
         return res.status(400).json({ error: 'User is not a staff member' });
       }
 

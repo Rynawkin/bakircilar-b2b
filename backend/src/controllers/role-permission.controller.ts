@@ -45,7 +45,7 @@ class RolePermissionController {
       const { role } = req.params;
 
       // Role validation
-      const validRoles: UserRole[] = ['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY'];
+      const validRoles: UserRole[] = ['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY', 'DEPOCU'];
       if (!validRoles.includes(role as UserRole)) {
         res.status(400).json({ error: 'Invalid role' });
         return;
@@ -80,7 +80,7 @@ class RolePermissionController {
       }
 
       // Role validation
-      const validRoles: UserRole[] = ['ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY'];
+      const validRoles: UserRole[] = ['ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY', 'DEPOCU'];
       if (!validRoles.includes(role as UserRole)) {
         res.status(400).json({ error: 'Invalid role' });
         return;
@@ -110,7 +110,7 @@ class RolePermissionController {
       const { role } = req.params;
 
       // Role validation
-      const validRoles: UserRole[] = ['ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY'];
+      const validRoles: UserRole[] = ['ADMIN', 'MANAGER', 'SALES_REP', 'CUSTOMER', 'DIVERSEY', 'DEPOCU'];
       if (!validRoles.includes(role as UserRole)) {
         res.status(400).json({ error: 'Invalid role' });
         return;
