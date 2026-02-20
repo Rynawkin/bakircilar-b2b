@@ -34,6 +34,13 @@ type CartItem = {
   unit: string;
   quantity: number;
   unitPrice: number;
+  priceOptions: {
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  };
 };
 
 type PriceLevel = 1 | 2 | 3 | 4 | 5;
@@ -172,6 +179,13 @@ export default function WarehouseRetailPage() {
 
     setCart((prev) => {
       const existing = prev[product.productCode];
+      const priceOptions = {
+        1: Math.max(Number(product.perakende1) || 0, 0),
+        2: Math.max(Number(product.perakende2) || 0, 0),
+        3: Math.max(Number(product.perakende3) || 0, 0),
+        4: Math.max(Number(product.perakende4) || 0, 0),
+        5: Math.max(Number(product.perakende5) || 0, 0),
+      };
       return {
         ...prev,
         [product.productCode]: {
@@ -180,6 +194,7 @@ export default function WarehouseRetailPage() {
           unit: product.unit,
           quantity: Number(((existing?.quantity || 0) + quantity).toFixed(3)),
           unitPrice: existing?.unitPrice || unitPrice,
+          priceOptions: existing?.priceOptions || priceOptions,
         },
       };
     });
@@ -224,6 +239,30 @@ export default function WarehouseRetailPage() {
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) return prev;
       return { ...prev, [productCode]: { ...current, unitPrice: Number(unitPrice.toFixed(4)) } };
     });
+  };
+
+  const applyCartPriceListLevel = (productCode: string, level: PriceLevel) => {
+    setCart((prev) => {
+      const current = prev[productCode];
+      if (!current) return prev;
+      const nextPrice = Number(current.priceOptions[level] || 0);
+      if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+        toast.error(`Perakende-${level} fiyati sifir`);
+        return prev;
+      }
+      return { ...prev, [productCode]: { ...current, unitPrice: Number(nextPrice.toFixed(4)) } };
+    });
+  };
+
+  const getSelectedPriceLevel = (item: CartItem): PriceLevel | null => {
+    const epsilon = 0.0001;
+    const levels: PriceLevel[] = [1, 2, 3, 4, 5];
+    for (const level of levels) {
+      if (Math.abs(item.unitPrice - Number(item.priceOptions[level] || 0)) < epsilon) {
+        return level;
+      }
+    }
+    return null;
   };
 
   const clearCart = () => setCart({});
@@ -505,10 +544,33 @@ export default function WarehouseRetailPage() {
                 </div>
 
                 <div className="max-h-[46vh] overflow-y-auto space-y-2 pr-1">
-                  {cartItems.map((item) => (
+                  {cartItems.map((item) => {
+                    const selectedPriceLevel = getSelectedPriceLevel(item);
+                    return (
                     <div key={item.productCode} className="rounded-xl border border-slate-200 bg-white p-3">
                       <p className="text-sm font-black text-slate-900 line-clamp-2">{item.productName}</p>
                       <p className="text-xs text-slate-500">{item.productCode}</p>
+                      <div className="mt-2 grid grid-cols-5 gap-1">
+                        {[1, 2, 3, 4, 5].map((level) => {
+                          const value = item.priceOptions[level as PriceLevel];
+                          const disabled = !Number.isFinite(value) || value <= 0;
+                          const active = selectedPriceLevel === (level as PriceLevel);
+                          return (
+                            <button
+                              key={`${item.productCode}-p${level}`}
+                              onClick={() => applyCartPriceListLevel(item.productCode, level as PriceLevel)}
+                              disabled={disabled}
+                              className={`h-8 rounded-md border text-[11px] font-black ${
+                                active
+                                  ? 'border-cyan-600 bg-cyan-600 text-white'
+                                  : 'border-slate-300 bg-white text-slate-700'
+                              }`}
+                            >
+                              P{level}
+                            </button>
+                          );
+                        })}
+                      </div>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <button
@@ -551,7 +613,8 @@ export default function WarehouseRetailPage() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                   {!cartItems.length && (
                     <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-500 text-sm font-semibold">
                       Sepet bos
