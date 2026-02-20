@@ -1950,6 +1950,19 @@ class WarehouseWorkflowService {
       return String((value as SqlRawValue).raw);
     }
     if (value === null || value === undefined) return 'NULL';
+    if (value instanceof Date) {
+      const time = value.getTime();
+      if (!Number.isFinite(time)) return 'NULL';
+      const pad = (num: number, size = 2) => String(num).padStart(size, '0');
+      const year = value.getFullYear();
+      const month = pad(value.getMonth() + 1);
+      const day = pad(value.getDate());
+      const hour = pad(value.getHours());
+      const minute = pad(value.getMinutes());
+      const second = pad(value.getSeconds());
+      const ms = pad(value.getMilliseconds(), 3);
+      return `'${year}-${month}-${day} ${hour}:${minute}:${second}.${ms}'`;
+    }
     if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '0';
     if (typeof value === 'boolean') return value ? '1' : '0';
     return `'${String(value).replace(/'/g, "''")}'`;
