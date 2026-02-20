@@ -802,7 +802,12 @@ export const adminApi = {
     return response.data;
   },
 
-  getWarehouseRetailProducts: async (params?: { search?: string; limit?: number }): Promise<{
+  getWarehouseRetailProducts: async (params?: {
+    search?: string;
+    limit?: number;
+    warehouseNo?: 1 | 6 | 0;
+    onlyInStock?: boolean;
+  }): Promise<{
     products: Array<{
       productCode: string;
       productName: string;
@@ -810,11 +815,13 @@ export const adminApi = {
       stockMerkez: number;
       stockTopca: number;
       stockTotal: number;
+      stockSelected: number;
       perakende1: number;
       perakende2: number;
       perakende3: number;
       perakende4: number;
       perakende5: number;
+      imageUrl: string | null;
     }>;
   }> => {
     const response = await apiClient.get('/order-tracking/admin/warehouse/retail/products', { params });
@@ -824,7 +831,7 @@ export const adminApi = {
   createWarehouseRetailSale: async (data: {
     paymentType: 'CASH' | 'CARD';
     priceLevel: 1 | 2 | 3 | 4 | 5;
-    items: Array<{ productCode: string; quantity: number }>;
+    items: Array<{ productCode: string; quantity: number; unitPrice?: number }>;
   }): Promise<{
     invoiceNo: string;
     paymentType: 'CASH' | 'CARD';

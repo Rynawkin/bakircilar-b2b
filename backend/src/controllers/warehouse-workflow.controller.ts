@@ -352,7 +352,12 @@ class WarehouseWorkflowController {
     try {
       const search = typeof req.query.search === 'string' ? req.query.search : '';
       const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
-      const products = await warehouseWorkflowService.searchRetailProducts({ search, limit });
+      const warehouseNo = typeof req.query.warehouseNo === 'string' ? Number(req.query.warehouseNo) : undefined;
+      const onlyInStock =
+        typeof req.query.onlyInStock === 'string'
+          ? ['1', 'true', 'yes', 'on'].includes(req.query.onlyInStock.toLowerCase())
+          : false;
+      const products = await warehouseWorkflowService.searchRetailProducts({ search, limit, warehouseNo, onlyInStock });
       res.json({ products });
     } catch (error: any) {
       console.error('Perakende urun arama hatasi:', error);

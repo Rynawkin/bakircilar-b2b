@@ -63,6 +63,7 @@ type RetailPaymentType = 'CASH' | 'CARD';
 type RetailSaleItemInput = {
   productCode: string;
   quantity: number;
+  unitPrice?: number;
 };
 type RetailPriceLevel = 1 | 2 | 3 | 4 | 5;
 type RetailProductRow = {
@@ -72,11 +73,13 @@ type RetailProductRow = {
   stockMerkez: number;
   stockTopca: number;
   stockTotal: number;
+  stockSelected: number;
   perakende1: number;
   perakende2: number;
   perakende3: number;
   perakende4: number;
   perakende5: number;
+  imageUrl: string | null;
 };
 
 const toNumber = (value: unknown): number => {
@@ -264,19 +267,32 @@ class WarehouseWorkflowService {
     return { drivers, vehicles };
   }
 
-  async searchRetailProducts(params?: { search?: string; limit?: number }) {
+  async searchRetailProducts(params?: { search?: string; limit?: number; warehouseNo?: number; onlyInStock?: boolean }) {
     const search = normalizeCode(params?.search);
     const limitRaw = Number(params?.limit || 40);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 40;
+    const warehouseNoRaw = Number(params?.warehouseNo);
+    const warehouseNo = warehouseNoRaw === 6 ? 6 : warehouseNoRaw === 1 ? 1 : 0;
+    const onlyInStock = Boolean(params?.onlyInStock);
     const tokens = buildSqlSearchTokens(search);
 
     let whereSql = "ISNULL(sto_pasif_fl, 0) = 0 AND NULLIF(LTRIM(RTRIM(sto_isim)), '') IS NOT NULL";
+    const selectedStockExpr =
+      warehouseNo === 1
+        ? 'ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0)'
+        : warehouseNo === 6
+        ? 'ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0)'
+        : 'ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) + ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0)';
+
     if (tokens.length > 0) {
       const tokenParts = tokens.map((token) => {
         const safe = token.replace(/'/g, "''");
         return `(sto_kod LIKE '%${safe}%' OR sto_isim LIKE '%${safe}%')`;
       });
       whereSql += ` AND ${tokenParts.join(' AND ')}`;
+    }
+    if (onlyInStock) {
+      whereSql += ` AND (${selectedStockExpr}) > 0`;
     }
 
     const rows = await mikroService.executeQuery(`
@@ -287,6 +303,7 @@ class WarehouseWorkflowService {
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) as decimal(18,3)) as stockMerkez,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) as decimal(18,3)) as stockTopca,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) + ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) as decimal(18,3)) as stockTotal,
+        CAST(${selectedStockExpr} as decimal(18,3)) as stockSelected,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) as decimal(18,4)) as perakende1,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) as decimal(18,4)) as perakende2,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) as decimal(18,4)) as perakende3,
@@ -296,19 +313,36 @@ class WarehouseWorkflowService {
       WHERE ${whereSql}
       ORDER BY sto_isim
     `);
-
-    return (rows as any[]).map((row) => ({
+    const normalizedRows = (rows as any[]).map((row) => ({
       productCode: normalizeProductCode(row.productCode),
       productName: normalizeCode(row.productName),
       unit: normalizeCode(row.unit) || 'ADET',
       stockMerkez: Math.max(toNumber(row.stockMerkez), 0),
       stockTopca: Math.max(toNumber(row.stockTopca), 0),
       stockTotal: Math.max(toNumber(row.stockTotal), 0),
+      stockSelected: Math.max(toNumber(row.stockSelected), 0),
       perakende1: Math.max(toNumber(row.perakende1), 0),
       perakende2: Math.max(toNumber(row.perakende2), 0),
       perakende3: Math.max(toNumber(row.perakende3), 0),
       perakende4: Math.max(toNumber(row.perakende4), 0),
       perakende5: Math.max(toNumber(row.perakende5), 0),
+    }));
+
+    const productCodes = Array.from(new Set(normalizedRows.map((row) => row.productCode).filter(Boolean)));
+    const productImages = productCodes.length
+      ? await prisma.product.findMany({
+          where: { mikroCode: { in: productCodes } },
+          select: { mikroCode: true, imageUrl: true },
+        })
+      : [];
+    const imageMap = new Map<string, string | null>();
+    productImages.forEach((product) => {
+      imageMap.set(normalizeProductCode(product.mikroCode), product.imageUrl || null);
+    });
+
+    return normalizedRows.map((row) => ({
+      ...row,
+      imageUrl: imageMap.get(row.productCode) || null,
     })) as RetailProductRow[];
   }
 
@@ -325,6 +359,7 @@ class WarehouseWorkflowService {
           .map((item) => ({
             productCode: normalizeProductCode(item?.productCode),
             quantity: toNumber(item?.quantity),
+            unitPrice: item?.unitPrice === undefined ? null : toNumber(item.unitPrice),
           }))
           .filter((item) => item.productCode && item.quantity > 0)
       : [];
@@ -334,8 +369,19 @@ class WarehouseWorkflowService {
     }
 
     const quantityByCode = new Map<string, number>();
+    const manualUnitPriceByCode = new Map<string, number>();
     for (const item of normalizedItems) {
       quantityByCode.set(item.productCode, (quantityByCode.get(item.productCode) || 0) + item.quantity);
+      if (item.unitPrice !== null) {
+        if (!Number.isFinite(item.unitPrice) || item.unitPrice <= 0) {
+          throw new Error(`Birim fiyat gecersiz: ${item.productCode}`);
+        }
+        const existingManual = manualUnitPriceByCode.get(item.productCode);
+        if (existingManual !== undefined && Math.abs(existingManual - item.unitPrice) > 0.0001) {
+          throw new Error(`Ayni urun icin farkli birim fiyat gonderildi: ${item.productCode}`);
+        }
+        manualUnitPriceByCode.set(item.productCode, item.unitPrice);
+      }
     }
     const productCodes = Array.from(quantityByCode.keys());
     const safeCodesSql = productCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(', ');
@@ -364,7 +410,9 @@ class WarehouseWorkflowService {
     const unitPriceField = `perakende${priceLevel}` as const;
     const pricedItems = productCodes.map((productCode) => {
       const row = productMap.get(productCode);
-      const unitPrice = Math.max(toNumber(row?.[unitPriceField]), 0);
+      const manualUnitPrice = manualUnitPriceByCode.get(productCode);
+      const calculatedUnitPrice = Math.max(toNumber(row?.[unitPriceField]), 0);
+      const unitPrice = manualUnitPrice !== undefined ? manualUnitPrice : calculatedUnitPrice;
       if (unitPrice <= 0) {
         throw new Error(`Perakende-${priceLevel} fiyati sifir: ${productCode}`);
       }
