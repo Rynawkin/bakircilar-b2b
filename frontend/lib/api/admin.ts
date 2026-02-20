@@ -802,6 +802,50 @@ export const adminApi = {
     return response.data;
   },
 
+  getWarehouseRetailProducts: async (params?: { search?: string; limit?: number }): Promise<{
+    products: Array<{
+      productCode: string;
+      productName: string;
+      unit: string;
+      stockMerkez: number;
+      stockTopca: number;
+      stockTotal: number;
+      perakende1: number;
+      perakende2: number;
+      perakende3: number;
+      perakende4: number;
+      perakende5: number;
+    }>;
+  }> => {
+    const response = await apiClient.get('/order-tracking/admin/warehouse/retail/products', { params });
+    return response.data;
+  },
+
+  createWarehouseRetailSale: async (data: {
+    paymentType: 'CASH' | 'CARD';
+    priceLevel: 1 | 2 | 3 | 4 | 5;
+    items: Array<{ productCode: string; quantity: number }>;
+  }): Promise<{
+    invoiceNo: string;
+    paymentType: 'CASH' | 'CARD';
+    paymentLabel: string;
+    customerCode: string;
+    priceLevel: 1 | 2 | 3 | 4 | 5;
+    totalAmount: number;
+    lineCount: number;
+    lines: Array<{
+      productCode: string;
+      productName: string;
+      quantity: number;
+      unitPrice: number;
+      lineTotal: number;
+      unit: string;
+    }>;
+  }> => {
+    const response = await apiClient.post('/order-tracking/admin/warehouse/retail/sales', data);
+    return response.data;
+  },
+
   // Quotes (Teklifler)
   getQuotePreferences: async (): Promise<{
     preferences: {

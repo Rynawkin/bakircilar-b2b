@@ -347,6 +347,54 @@ class WarehouseWorkflowController {
       res.status(status).json({ error: error.message || 'Siparis irsaliyelestirilemedi' });
     }
   }
+
+  async searchRetailProducts(req: Request, res: Response) {
+    try {
+      const search = typeof req.query.search === 'string' ? req.query.search : '';
+      const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+      const products = await warehouseWorkflowService.searchRetailProducts({ search, limit });
+      res.json({ products });
+    } catch (error: any) {
+      console.error('Perakende urun arama hatasi:', error);
+      res.status(500).json({ error: error.message || 'Perakende urunler alinamadi' });
+    }
+  }
+
+  async createRetailSale(req: Request, res: Response) {
+    try {
+      const paymentType = req.body?.paymentType;
+      const priceLevel = Number(req.body?.priceLevel || 1);
+      const items = Array.isArray(req.body?.items) ? req.body.items : [];
+
+      if (!['CASH', 'CARD'].includes(String(paymentType || ''))) {
+        return res.status(400).json({ error: 'Odeme tipi gecersiz' });
+      }
+      if (!Number.isFinite(priceLevel) || priceLevel < 1 || priceLevel > 5) {
+        return res.status(400).json({ error: 'Perakende fiyat seviyesi gecersiz' });
+      }
+      if (!items.length) {
+        return res.status(400).json({ error: 'En az bir urun secilmeli' });
+      }
+
+      const result = await warehouseWorkflowService.createRetailSale({
+        paymentType,
+        priceLevel: priceLevel as 1 | 2 | 3 | 4 | 5,
+        items,
+        userId: req.user?.userId,
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error('Perakende satis olusturma hatasi:', error);
+      const status =
+        error.message?.includes('gerekli') ||
+        error.message?.includes('gecersiz') ||
+        error.message?.includes('bulunamadi') ||
+        error.message?.includes('fiyati sifir')
+          ? 400
+          : 500;
+      res.status(status).json({ error: error.message || 'Perakende satis olusturulamadi' });
+    }
+  }
 }
 
 export default new WarehouseWorkflowController();

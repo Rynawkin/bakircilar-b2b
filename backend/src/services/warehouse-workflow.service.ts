@@ -59,6 +59,25 @@ type OrderContext = {
   documentNo: string | null;
   orderNote: string | null;
 };
+type RetailPaymentType = 'CASH' | 'CARD';
+type RetailSaleItemInput = {
+  productCode: string;
+  quantity: number;
+};
+type RetailPriceLevel = 1 | 2 | 3 | 4 | 5;
+type RetailProductRow = {
+  productCode: string;
+  productName: string;
+  unit: string;
+  stockMerkez: number;
+  stockTopca: number;
+  stockTotal: number;
+  perakende1: number;
+  perakende2: number;
+  perakende3: number;
+  perakende4: number;
+  perakende5: number;
+};
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -67,6 +86,14 @@ const toNumber = (value: unknown): number => {
 
 const normalizeCode = (value: unknown): string => String(value ?? '').trim();
 const normalizeProductCode = (value: unknown): string => normalizeCode(value).toUpperCase();
+const buildSqlSearchTokens = (value?: string) => {
+  if (!value) return [] as string[];
+  return value
+    .replace(/\*/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+};
 const isGeneratedOrderNote = (value: string): boolean => {
   const note = normalizeCode(value);
   if (!note) return false;
@@ -235,6 +262,301 @@ class WarehouseWorkflowService {
       }),
     ]);
     return { drivers, vehicles };
+  }
+
+  async searchRetailProducts(params?: { search?: string; limit?: number }) {
+    const search = normalizeCode(params?.search);
+    const limitRaw = Number(params?.limit || 40);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 40;
+    const tokens = buildSqlSearchTokens(search);
+
+    let whereSql = "ISNULL(sto_pasif_fl, 0) = 0 AND NULLIF(LTRIM(RTRIM(sto_isim)), '') IS NOT NULL";
+    if (tokens.length > 0) {
+      const tokenParts = tokens.map((token) => {
+        const safe = token.replace(/'/g, "''");
+        return `(sto_kod LIKE '%${safe}%' OR sto_isim LIKE '%${safe}%')`;
+      });
+      whereSql += ` AND ${tokenParts.join(' AND ')}`;
+    }
+
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP ${limit}
+        sto_kod as productCode,
+        sto_isim as productName,
+        ISNULL(sto_birim1_ad, 'ADET') as unit,
+        CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) as decimal(18,3)) as stockMerkez,
+        CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) as decimal(18,3)) as stockTopca,
+        CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) + ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) as decimal(18,3)) as stockTotal,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) as decimal(18,4)) as perakende1,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) as decimal(18,4)) as perakende2,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) as decimal(18,4)) as perakende3,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 4, 0, 1), 0) as decimal(18,4)) as perakende4,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 5, 0, 1), 0) as decimal(18,4)) as perakende5
+      FROM STOKLAR WITH (NOLOCK)
+      WHERE ${whereSql}
+      ORDER BY sto_isim
+    `);
+
+    return (rows as any[]).map((row) => ({
+      productCode: normalizeProductCode(row.productCode),
+      productName: normalizeCode(row.productName),
+      unit: normalizeCode(row.unit) || 'ADET',
+      stockMerkez: Math.max(toNumber(row.stockMerkez), 0),
+      stockTopca: Math.max(toNumber(row.stockTopca), 0),
+      stockTotal: Math.max(toNumber(row.stockTotal), 0),
+      perakende1: Math.max(toNumber(row.perakende1), 0),
+      perakende2: Math.max(toNumber(row.perakende2), 0),
+      perakende3: Math.max(toNumber(row.perakende3), 0),
+      perakende4: Math.max(toNumber(row.perakende4), 0),
+      perakende5: Math.max(toNumber(row.perakende5), 0),
+    })) as RetailProductRow[];
+  }
+
+  async createRetailSale(payload: {
+    paymentType: RetailPaymentType;
+    priceLevel: RetailPriceLevel;
+    items: RetailSaleItemInput[];
+    userId?: string;
+  }) {
+    const paymentType = payload.paymentType === 'CARD' ? 'CARD' : 'CASH';
+    const priceLevel = Math.min(Math.max(Math.trunc(Number(payload.priceLevel || 1)), 1), 5) as RetailPriceLevel;
+    const normalizedItems = Array.isArray(payload.items)
+      ? payload.items
+          .map((item) => ({
+            productCode: normalizeProductCode(item?.productCode),
+            quantity: toNumber(item?.quantity),
+          }))
+          .filter((item) => item.productCode && item.quantity > 0)
+      : [];
+
+    if (!normalizedItems.length) {
+      throw new Error('En az bir urun gerekli');
+    }
+
+    const quantityByCode = new Map<string, number>();
+    for (const item of normalizedItems) {
+      quantityByCode.set(item.productCode, (quantityByCode.get(item.productCode) || 0) + item.quantity);
+    }
+    const productCodes = Array.from(quantityByCode.keys());
+    const safeCodesSql = productCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(', ');
+
+    const priceRows = await mikroService.executeQuery(`
+      SELECT
+        sto_kod as productCode,
+        sto_isim as productName,
+        ISNULL(sto_birim1_ad, 'ADET') as unit,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) as decimal(18,4)) as perakende1,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) as decimal(18,4)) as perakende2,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) as decimal(18,4)) as perakende3,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 4, 0, 1), 0) as decimal(18,4)) as perakende4,
+        CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 5, 0, 1), 0) as decimal(18,4)) as perakende5
+      FROM STOKLAR WITH (NOLOCK)
+      WHERE sto_kod IN (${safeCodesSql})
+    `);
+
+    const productMap = new Map<string, any>();
+    (priceRows as any[]).forEach((row) => productMap.set(normalizeProductCode(row.productCode), row));
+    const missingCodes = productCodes.filter((code) => !productMap.has(code));
+    if (missingCodes.length > 0) {
+      throw new Error(`Stok karti bulunamadi: ${missingCodes.join(', ')}`);
+    }
+
+    const unitPriceField = `perakende${priceLevel}` as const;
+    const pricedItems = productCodes.map((productCode) => {
+      const row = productMap.get(productCode);
+      const unitPrice = Math.max(toNumber(row?.[unitPriceField]), 0);
+      if (unitPrice <= 0) {
+        throw new Error(`Perakende-${priceLevel} fiyati sifir: ${productCode}`);
+      }
+      const quantity = quantityByCode.get(productCode) || 0;
+      return {
+        productCode,
+        productName: normalizeCode(row?.productName) || productCode,
+        unit: normalizeCode(row?.unit) || 'ADET',
+        quantity,
+        unitPrice,
+        lineTotal: quantity * unitPrice,
+      };
+    });
+
+    const paymentConfig =
+      paymentType === 'CARD'
+        ? { customerCode: '120.01.860', paymentOp: 12, label: 'KART' }
+        : { customerCode: '120.01.005', paymentOp: 1, label: 'NAKIT' };
+    const invoiceSeries = 'FTR';
+
+    let templateRows = await mikroService.executeQuery(`
+      SELECT TOP 1 *
+      FROM STOK_HAREKETLERI
+      WHERE ISNULL(sth_tip, 1) = 1
+        AND ISNULL(sth_cins, 0) = 0
+        AND ISNULL(sth_evraktip, 0) = 4
+        AND UPPER(sth_evrakno_seri) = '${invoiceSeries}'
+      ORDER BY sth_evrakno_sira DESC, sth_satirno DESC
+    `);
+    let templateRow = (templateRows as any[])[0];
+    if (!templateRow) {
+      templateRows = await mikroService.executeQuery(`
+        SELECT TOP 1 *
+        FROM STOK_HAREKETLERI
+        WHERE ISNULL(sth_tip, 1) = 1
+          AND ISNULL(sth_cins, 0) = 0
+          AND ISNULL(sth_evraktip, 0) = 4
+        ORDER BY sth_tarih DESC, sth_evrakno_sira DESC, sth_satirno DESC
+      `);
+      templateRow = (templateRows as any[])[0];
+    }
+    if (!templateRow) {
+      throw new Error('Perakende satis icin uygun fatura ornek kaydi bulunamadi');
+    }
+
+    const nextRows = await mikroService.executeQuery(`
+      SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 as next_sira
+      FROM STOK_HAREKETLERI
+      WHERE UPPER(sth_evrakno_seri) = '${invoiceSeries}'
+    `);
+    const invoiceSequence = Number((nextRows as any[])?.[0]?.next_sira || 0);
+    if (!Number.isFinite(invoiceSequence) || invoiceSequence <= 0) {
+      throw new Error('Fatura sira numarasi alinamadi');
+    }
+
+    const sthColumns = await this.getTableColumns('STOK_HAREKETLERI');
+    const zeroGuid = '00000000-0000-0000-0000-000000000000';
+    const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+    const mikroUserNo = Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0 ? Math.trunc(mikroUserNoRaw) : 1;
+    const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
+    const docGuid = randomUUID();
+
+    const createdLines: Array<{
+      productCode: string;
+      productName: string;
+      quantity: number;
+      unitPrice: number;
+      lineTotal: number;
+      unit: string;
+    }> = [];
+
+    for (let index = 0; index < pricedItems.length; index += 1) {
+      const line = pricedItems[index];
+      const rowGuid = randomUUID();
+      const values: Record<string, unknown> = {
+        sth_Guid: this.raw(`CAST('${rowGuid}' as uniqueidentifier)`),
+        sth_DBCno: toNumber(templateRow.sth_DBCno) || 0,
+        sth_SpecRECno: toNumber(templateRow.sth_SpecRECno) || 0,
+        sth_iptal: 0,
+        sth_fileid: Math.max(Math.trunc(toNumber(templateRow.sth_fileid)), 0),
+        sth_hidden: toNumber(templateRow.sth_hidden) ? 1 : 0,
+        sth_kilitli: toNumber(templateRow.sth_kilitli) ? 1 : 0,
+        sth_degisti: 0,
+        sth_checksum: toNumber(templateRow.sth_checksum) || 0,
+        sth_create_user: Math.max(Math.trunc(toNumber(templateRow.sth_create_user)), mikroUserNo),
+        sth_create_date: this.raw('GETDATE()'),
+        sth_lastup_user: Math.max(Math.trunc(toNumber(templateRow.sth_lastup_user)), mikroUserNo),
+        sth_lastup_date: this.raw('GETDATE()'),
+        sth_special1: normalizeCode(templateRow.sth_special1 || ''),
+        sth_special2: normalizeCode(templateRow.sth_special2 || ''),
+        sth_special3: normalizeCode(templateRow.sth_special3 || ''),
+        sth_firmano: toNumber(templateRow.sth_firmano) || 0,
+        sth_subeno: toNumber(templateRow.sth_subeno) || 0,
+        sth_tarih: this.raw('CAST(GETDATE() as date)'),
+        sth_tip: 1,
+        sth_cins: 0,
+        sth_normal_iade: 0,
+        sth_evraktip: 4,
+        sth_evrakno_seri: invoiceSeries,
+        sth_evrakno_sira: invoiceSequence,
+        sth_satirno: index,
+        sth_stok_kod: line.productCode,
+        sth_miktar: line.quantity,
+        sth_miktar2: 0,
+        sth_birim_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_birim_pntr)), 1),
+        sth_cari_kodu: paymentConfig.customerCode,
+        sth_cari_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_cari_cinsi)), 0),
+        sth_cari_grup_no: Math.max(Math.trunc(toNumber(templateRow.sth_cari_grup_no)), 0),
+        sth_plasiyer_kodu: normalizeCode(templateRow.sth_plasiyer_kodu || ''),
+        sth_har_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_har_doviz_cinsi)), 0),
+        sth_har_doviz_kuru: toNumber(templateRow.sth_har_doviz_kuru) || 1,
+        sth_alt_doviz_kuru: toNumber(templateRow.sth_alt_doviz_kuru) || 1,
+        sth_stok_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_stok_doviz_cinsi)), 0),
+        sth_stok_doviz_kuru: toNumber(templateRow.sth_stok_doviz_kuru) || 1,
+        sth_iskonto1: 0,
+        sth_iskonto2: 0,
+        sth_iskonto3: 0,
+        sth_iskonto4: 0,
+        sth_iskonto5: 0,
+        sth_iskonto6: 0,
+        sth_masraf1: 0,
+        sth_masraf2: 0,
+        sth_masraf3: 0,
+        sth_masraf4: 0,
+        sth_tutar: line.lineTotal,
+        sth_vergi: 0,
+        sth_vergi_pntr: 0,
+        sth_masraf_vergi_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_masraf_vergi_pntr)), 0),
+        sth_masraf_vergi: 0,
+        sth_odeme_op: paymentConfig.paymentOp,
+        sth_adres_no: Math.max(Math.trunc(toNumber(templateRow.sth_adres_no)), 1),
+        sth_giris_depo_no: 1,
+        sth_cikis_depo_no: 1,
+        sth_malkbl_sevk_tarihi: this.raw('GETDATE()'),
+        sth_cari_srm_merkezi: normalizeCode(templateRow.sth_cari_srm_merkezi || defaultSorMerkez) || defaultSorMerkez,
+        sth_stok_srm_merkezi: normalizeCode(templateRow.sth_stok_srm_merkezi || defaultSorMerkez) || defaultSorMerkez,
+        sth_fis_tarihi: this.raw(`CAST('1899-12-30' as datetime)`),
+        sth_fis_sirano: Math.max(Math.trunc(toNumber(templateRow.sth_fis_sirano)), 0),
+        sth_vergisiz_fl: 1,
+        sth_proje_kodu: normalizeCode(templateRow.sth_proje_kodu || ''),
+        sth_otv_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_otv_pntr)), 0),
+        sth_otv_vergi: 0,
+        sth_otvtutari: 0,
+        sth_oiv_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_oiv_pntr)), 0),
+        sth_oiv_vergi: 0,
+        sth_oivtutari: 0,
+        sth_fiyat_liste_no: priceLevel,
+        sth_Tevkifat_turu: Math.max(Math.trunc(toNumber(templateRow.sth_Tevkifat_turu)), 0),
+        sth_nakliyedeposu: Math.max(Math.trunc(toNumber(templateRow.sth_nakliyedeposu)), 0),
+        sth_nakliyedurumu: Math.max(Math.trunc(toNumber(templateRow.sth_nakliyedurumu)), 0),
+        sth_sip_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_fat_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_har_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_evrakuid: this.raw(`CAST('${docGuid}' as uniqueidentifier)`),
+        sth_irs_tes_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_kons_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_yetkili_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
+        sth_eirs_senaryo: Math.max(Math.trunc(toNumber(templateRow.sth_eirs_senaryo)), 0),
+        sth_eirs_tipi: Math.max(Math.trunc(toNumber(templateRow.sth_eirs_tipi)), 0),
+        sth_teslim_tarihi: this.raw('GETDATE()'),
+        sth_matbu_fl: toNumber(templateRow.sth_matbu_fl) ? 1 : 0,
+        sth_satis_fiyat_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_satis_fiyat_doviz_cinsi)), 0),
+        sth_satis_fiyat_doviz_kuru: toNumber(templateRow.sth_satis_fiyat_doviz_kuru) || 0,
+        sth_tevkifat_sifirlandi_fl: toNumber(templateRow.sth_tevkifat_sifirlandi_fl) ? 1 : 0,
+      };
+      this.applyDispatchDocumentFields(values, sthColumns, '');
+
+      const insertSql = this.buildInsertSql('STOK_HAREKETLERI', values, sthColumns);
+      await mikroService.executeQuery(insertSql);
+
+      createdLines.push({
+        productCode: line.productCode,
+        productName: line.productName,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        lineTotal: line.lineTotal,
+        unit: line.unit,
+      });
+    }
+
+    const totalAmount = createdLines.reduce((sum, row) => sum + row.lineTotal, 0);
+    const invoiceNo = `${invoiceSeries}-${invoiceSequence}`;
+    return {
+      invoiceNo,
+      paymentType,
+      paymentLabel: paymentConfig.label,
+      customerCode: paymentConfig.customerCode,
+      priceLevel,
+      totalAmount,
+      lineCount: createdLines.length,
+      lines: createdLines,
+    };
   }
 
   async createDispatchDriver(payload: {
@@ -1560,11 +1882,12 @@ class WarehouseWorkflowService {
     const whereSql = whereParts.join(' AND ');
 
     const existingRows = await mikroService.executeQuery(`
-      SELECT TOP 1 *
+      SELECT TOP 50 *
       FROM E_IRSALIYE_DETAYLARI
       WHERE ${whereSql}
+      ORDER BY eir_lastup_date DESC, eir_create_date DESC
     `);
-    const existingRow = (existingRows as any[])[0];
+    const existingRowList = (existingRows as any[]) || [];
 
     let eirsTemplateRow: Record<string, any> = {};
     try {
@@ -1636,13 +1959,49 @@ class WarehouseWorkflowService {
     const setEntries = Object.entries(updateValues);
     if (setEntries.length === 0) return;
 
-    if (existingRow) {
+    const normalizeRowsSql = async () => {
+      const forceValues: Record<string, unknown> = {};
+      const forceAssign = (candidateColumns: string[], value: unknown) => {
+        const column = this.pickFirstColumn(eirsColumns, candidateColumns);
+        if (column) {
+          forceValues[column] = value;
+        }
+      };
+
+      if (evrakTipColumn) forceValues[evrakTipColumn] = 1;
+      forceAssign(['eir_tipi'], 3);
+      forceAssign(['eir_pozisyon'], 0);
+      forceAssign(['eir_sofor_adi', 'eir_surucu_adi'], params.transport.driverFirstName);
+      forceAssign(['eir_sofor_soyadi', 'eir_surucu_soyadi'], params.transport.driverLastName);
+      forceAssign(['eir_sofor_tckn', 'eir_sofor_tc', 'eir_sofor_tcno'], params.transport.driverTcNo);
+      forceAssign(['eir_tasiyici_arac_plaka', 'eir_arac_plaka', 'eir_plaka'], params.transport.vehiclePlate);
+      forceAssign(['eir_arac_tipi', 'eir_tasiyici_adi', 'eir_tasiyici_firma'], params.transport.vehicleName);
+      forceAssign(['eir_matbu_belgeno', 'eir_belge_no', 'eir_belgeno'], params.documentNo);
+      forceAssign(['eir_detay_bilgi'], params.transport.vehicleName);
+
+      const matbuTarih = this.pickFirstColumn(eirsColumns, ['eir_matbu_tarih']);
+      if (matbuTarih) forceValues[matbuTarih] = this.raw('GETDATE()');
+      const lastupDate = this.pickFirstColumn(eirsColumns, ['eir_lastup_date']);
+      if (lastupDate) forceValues[lastupDate] = this.raw('GETDATE()');
+
+      const forceEntries = Object.entries(forceValues);
+      if (!forceEntries.length) return;
+      const forceSetSql = forceEntries.map(([column, value]) => `${column} = ${this.toSqlLiteral(value)}`).join(', ');
+      await mikroService.executeQuery(`
+        UPDATE E_IRSALIYE_DETAYLARI
+        SET ${forceSetSql}
+        WHERE ${whereSql}
+      `);
+    };
+
+    if (existingRowList.length > 0) {
       const setSql = setEntries.map(([column, value]) => `${column} = ${this.toSqlLiteral(value)}`).join(', ');
       await mikroService.executeQuery(`
         UPDATE E_IRSALIYE_DETAYLARI
         SET ${setSql}
         WHERE ${whereSql}
       `);
+      await normalizeRowsSql();
       return;
     }
 
@@ -1687,6 +2046,7 @@ class WarehouseWorkflowService {
 
     const insertSql = this.buildInsertSql('E_IRSALIYE_DETAYLARI', insertValues, eirsColumns);
     await mikroService.executeQuery(insertSql);
+    await normalizeRowsSql();
   }
 
   private async getOrderContext(orderSeries: string, orderSequence: number): Promise<OrderContext> {

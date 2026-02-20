@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, Fragment, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
@@ -49,7 +49,7 @@ const navItems: NavItem[] = [
     name: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
-    description: 'Genel bakış',
+    description: 'Genel bakÄ±ÅŸ',
     permission: [
       'dashboard:orders',
       'dashboard:customers',
@@ -61,20 +61,21 @@ const navItems: NavItem[] = [
       'dashboard:diversey-stok',
     ],
   },
-  { name: 'Siparişler', href: '/orders', icon: ClipboardList, description: 'Sipariş yönetimi', permission: 'admin:orders' },
-  { name: 'Teklifler', href: '/quotes', icon: FileText, description: 'Teklif yönetimi', permission: 'admin:quotes' },
+  { name: 'SipariÅŸler', href: '/orders', icon: ClipboardList, description: 'SipariÅŸ yÃ¶netimi', permission: 'admin:orders' },
+  { name: 'Teklifler', href: '/quotes', icon: FileText, description: 'Teklif yÃ¶netimi', permission: 'admin:quotes' },
   { name: 'Teklif Kalemleri', href: '/quotes/lines', icon: FileText, description: 'Teklif kalemleri', permission: 'admin:quotes' },
-  { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler', permission: 'admin:order-tracking' },
-  { name: 'Depo Kiosk', href: '/warehouse', icon: MonitorSmartphone, description: 'Toplama ve yükleme ekranı', permission: 'admin:order-tracking' },
+  { name: 'SipariÅŸ Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen sipariÅŸler', permission: 'admin:order-tracking' },
+  { name: 'Depo Kiosk', href: '/warehouse', icon: MonitorSmartphone, description: 'Toplama ve yÃ¼kleme ekranÄ±', permission: 'admin:order-tracking' },
+  { name: 'Perakende Satis', href: '/warehouse/retail', icon: MonitorSmartphone, description: 'Hizli satis ekrani', permission: 'admin:order-tracking' },
   { name: 'Resim Hata Talepleri', href: '/warehouse/image-issues', icon: ImageOff, description: 'Depodan gelen urun resmi hatalari', permission: 'admin:order-tracking' },
-  { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi', permission: 'admin:customers' },
+  { name: 'MÃ¼ÅŸteriler', href: '/customers', icon: Users, description: 'MÃ¼ÅŸteri listesi', permission: 'admin:customers' },
   { name: 'Musteri Portfoyum', href: '/portfolio', icon: Users, description: 'Musteri portfoyu', permission: 'admin:customers' },
-  { name: 'Anlaşmalı Fiyatlar', href: '/customer-agreements', icon: Tag, description: 'Müşteri anlaşmaları', permission: 'admin:agreements' },
+  { name: 'AnlaÅŸmalÄ± Fiyatlar', href: '/customer-agreements', icon: Tag, description: 'MÃ¼ÅŸteri anlaÅŸmalarÄ±', permission: 'admin:agreements' },
   { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi', permission: 'admin:vade' },
-  { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arşivi', permission: 'admin:einvoices' },
-  { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi', permission: 'admin:products' },
-  { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Görev ve talepler', permission: 'admin:requests' },
-  { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları', permission: 'admin:campaigns' },
+  { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arÅŸivi', permission: 'admin:einvoices' },
+  { name: 'ÃœrÃ¼nler', href: '/admin-products', icon: Package, description: 'ÃœrÃ¼n yÃ¶netimi', permission: 'admin:products' },
+  { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'GÃ¶rev ve talepler', permission: 'admin:requests' },
+  { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'Ä°ndirim kampanyalarÄ±', permission: 'admin:campaigns' },
   {
     name: 'Raporlar',
     href: '/reports',
@@ -210,7 +211,7 @@ export function AdminNavigation() {
           <div className="flex items-center gap-4">
             <LogoLink href="/dashboard" variant="light" />
             <div className="hidden md:block border-l border-primary-500 pl-4">
-              <p className="text-sm font-semibold text-white">Yönetim Paneli</p>
+              <p className="text-sm font-semibold text-white">YÃ¶netim Paneli</p>
               <p className="text-xs text-primary-100">{user?.name}</p>
             </div>
           </div>
@@ -278,7 +279,7 @@ export function AdminNavigation() {
               </Menu>
             )}
 
-            {/* Settings Dropdown - Sadece ayarlar varsa göster */}
+            {/* Settings Dropdown - Sadece ayarlar varsa gÃ¶ster */}
             {visibleSettingsItems.length > 0 && (
               <Menu as="div" className="relative">
               <Menu.Button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white hover:bg-primary-800/50 transition-all">
@@ -413,7 +414,7 @@ export function AdminNavigation() {
                   <div className="p-3 border-b border-gray-200">
                     <p className="text-sm font-semibold text-gray-900">{user?.name}</p>
                     <p className="text-xs text-gray-500">{user?.email}</p>
-                    <p className="text-xs text-primary-600 font-medium mt-1">👑 Admin</p>
+                    <p className="text-xs text-primary-600 font-medium mt-1">ğŸ‘‘ Admin</p>
                   </div>
                   <div className="p-2">
                     <Menu.Item>
@@ -425,7 +426,7 @@ export function AdminNavigation() {
                           }`}
                         >
                           <LogOut className="w-4 h-4" />
-                          <span>Çıkış Yap</span>
+                          <span>Ã‡Ä±kÄ±ÅŸ Yap</span>
                         </button>
                       )}
                     </Menu.Item>
@@ -504,7 +505,7 @@ export function AdminNavigation() {
                 className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-white hover:bg-red-500/20"
               >
                 <LogOut className="w-5 h-5" />
-                <span>Çıkış Yap</span>
+                <span>Ã‡Ä±kÄ±ÅŸ Yap</span>
               </button>
             </div>
           </div>

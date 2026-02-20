@@ -46,6 +46,8 @@ router.patch('/admin/warehouse/orders/:mikroOrderNumber/items/:lineKey', authent
 router.post('/admin/warehouse/orders/:mikroOrderNumber/items/:lineKey/report-image-issue', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.reportImageIssue);
 router.post('/admin/warehouse/orders/:mikroOrderNumber/loaded', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.markLoaded);
 router.post('/admin/warehouse/orders/:mikroOrderNumber/dispatched', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.markDispatched);
+router.get('/admin/warehouse/retail/products', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.searchRetailProducts);
+router.post('/admin/warehouse/retail/sales', authenticate, requirePermission('admin:order-tracking'), warehouseWorkflowController.createRetailSale);
 
 // Test - Only ADMIN/HEAD_ADMIN
 router.post('/admin/test-email', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.sendTestEmail);
