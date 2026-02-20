@@ -359,7 +359,7 @@ export default function WarehouseRetailPage() {
 
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-3">
             <div className="space-y-3">
-              <Card className="p-3 border border-slate-200">
+              <Card className="p-3 border border-slate-200 lg:sticky lg:top-3 z-20 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
                 <div className="grid grid-cols-1 gap-3">
                   <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
                     <div>
