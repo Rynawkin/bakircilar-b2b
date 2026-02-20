@@ -606,6 +606,14 @@ class WarehouseWorkflowService {
     }
 
     const totalAmount = createdLines.reduce((sum, row) => sum + row.lineTotal, 0);
+    await this.ensureRetailCariMovement({
+      invoiceSeries,
+      invoiceSequence,
+      customerCode: paymentConfig.customerCode,
+      totalAmount,
+      mikroUserNo,
+    });
+
     const invoiceNo = `${invoiceSeries}-${invoiceSequence}`;
     return {
       invoiceNo,
@@ -617,6 +625,100 @@ class WarehouseWorkflowService {
       lineCount: createdLines.length,
       lines: createdLines,
     };
+  }
+
+  private async ensureRetailCariMovement(params: {
+    invoiceSeries: string;
+    invoiceSequence: number;
+    customerCode: string;
+    totalAmount: number;
+    mikroUserNo: number;
+  }) {
+    const invoiceSeries = normalizeCode(params.invoiceSeries).toUpperCase();
+    const invoiceSequence = Math.max(Math.trunc(toNumber(params.invoiceSequence)), 0);
+    const customerCode = normalizeCode(params.customerCode);
+    const totalAmount = Math.max(toNumber(params.totalAmount), 0);
+    if (!invoiceSeries || invoiceSequence <= 0 || !customerCode || totalAmount <= 0) {
+      return;
+    }
+
+    const existingRows = await mikroService.executeQuery(`
+      SELECT TOP 1 cha_Guid
+      FROM CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+      WHERE UPPER(cha_evrakno_seri) = '${invoiceSeries.replace(/'/g, "''")}'
+        AND cha_evrakno_sira = ${invoiceSequence}
+    `);
+    if ((existingRows as any[]).length > 0) {
+      return;
+    }
+
+    let templateRows = await mikroService.executeQuery(`
+      SELECT TOP 1 *
+      FROM CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+      WHERE UPPER(cha_evrakno_seri) = '${invoiceSeries.replace(/'/g, "''")}'
+        AND cha_kod = '${customerCode.replace(/'/g, "''")}'
+      ORDER BY cha_evrakno_sira DESC, cha_satir_no DESC
+    `);
+    let templateRow = (templateRows as any[])[0];
+    if (!templateRow) {
+      templateRows = await mikroService.executeQuery(`
+        SELECT TOP 1 *
+        FROM CARI_HESAP_HAREKETLERI WITH (NOLOCK)
+        WHERE UPPER(cha_evrakno_seri) = '${invoiceSeries.replace(/'/g, "''")}'
+        ORDER BY cha_evrakno_sira DESC, cha_satir_no DESC
+      `);
+      templateRow = (templateRows as any[])[0];
+    }
+    if (!templateRow) {
+      return;
+    }
+
+    const chaColumns = await this.getTableColumns('CARI_HESAP_HAREKETLERI');
+    if (chaColumns.size === 0) {
+      return;
+    }
+
+    const values: Record<string, unknown> = {
+      ...templateRow,
+      cha_Guid: this.raw(`CAST('${randomUUID()}' as uniqueidentifier)`),
+      cha_evrakno_seri: invoiceSeries,
+      cha_evrakno_sira: invoiceSequence,
+      cha_satir_no: 0,
+      cha_tarihi: this.raw('GETDATE()'),
+      cha_belge_tarih: this.raw('GETDATE()'),
+      cha_kod: customerCode,
+      cha_meblag: totalAmount,
+      cha_aratoplam: totalAmount,
+      cha_vergisiz_fl: 1,
+      cha_vergipntr: 0,
+      cha_vergi1: 0,
+      cha_vergi2: 0,
+      cha_vergi3: 0,
+      cha_vergi4: 0,
+      cha_vergi5: 0,
+      cha_vergi6: 0,
+      cha_vergi7: 0,
+      cha_vergi8: 0,
+      cha_vergi9: 0,
+      cha_vergi10: 0,
+      cha_vergi11: 0,
+      cha_vergi12: 0,
+      cha_vergi13: 0,
+      cha_vergi14: 0,
+      cha_vergi15: 0,
+      cha_vergi16: 0,
+      cha_vergi17: 0,
+      cha_vergi18: 0,
+      cha_vergi19: 0,
+      cha_vergi20: 0,
+      cha_create_user: Math.max(Math.trunc(toNumber(templateRow.cha_create_user)), params.mikroUserNo),
+      cha_lastup_user: Math.max(Math.trunc(toNumber(templateRow.cha_lastup_user)), params.mikroUserNo),
+      cha_create_date: this.raw('GETDATE()'),
+      cha_lastup_date: this.raw('GETDATE()'),
+    };
+
+    const insertSql = this.buildInsertSql('CARI_HESAP_HAREKETLERI', values, chaColumns);
+    await mikroService.executeQuery(insertSql);
   }
 
   async createDispatchDriver(payload: {
