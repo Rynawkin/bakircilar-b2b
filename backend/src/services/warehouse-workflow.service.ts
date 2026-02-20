@@ -287,7 +287,19 @@ class WarehouseWorkflowService {
     if (tokens.length > 0) {
       const tokenParts = tokens.map((token) => {
         const safe = token.replace(/'/g, "''");
-        return `(sto_kod LIKE '%${safe}%' OR sto_isim LIKE '%${safe}%')`;
+        return `(
+          sto_kod LIKE '%${safe}%'
+          OR sto_isim LIKE '%${safe}%'
+          OR EXISTS (
+            SELECT 1
+            FROM BARKOD_TANIMLARI WITH (NOLOCK)
+            WHERE bar_stokkodu = sto_kod
+              AND (
+                ISNULL(bar_kodu, '') LIKE '%${safe}%'
+                OR ISNULL(bar_icerigi, '') LIKE '%${safe}%'
+              )
+          )
+        )`;
       });
       whereSql += ` AND ${tokenParts.join(' AND ')}`;
     }
