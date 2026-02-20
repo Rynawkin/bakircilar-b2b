@@ -452,6 +452,8 @@ class WarehouseWorkflowService {
         AND ISNULL(sth_cins, 0) = 0
         AND ISNULL(sth_evraktip, 0) = 4
         AND UPPER(sth_evrakno_seri) = '${invoiceSeries}'
+        AND ISNULL(CAST(sth_fat_uid as nvarchar(36)), '00000000-0000-0000-0000-000000000000') <> '00000000-0000-0000-0000-000000000000'
+        AND sth_belge_tarih IS NOT NULL
       ORDER BY sth_evrakno_sira DESC, sth_satirno DESC
     `);
     let templateRow = (templateRows as any[])[0];
@@ -528,7 +530,7 @@ class WarehouseWorkflowService {
         sth_satirno: index,
         sth_stok_kod: line.productCode,
         sth_miktar: line.quantity,
-        sth_miktar2: 0,
+        sth_miktar2: line.quantity,
         sth_birim_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_birim_pntr)), 1),
         sth_cari_kodu: paymentConfig.customerCode,
         sth_cari_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_cari_cinsi)), 0),
@@ -584,7 +586,9 @@ class WarehouseWorkflowService {
         sth_yetkili_uid: this.raw(`CAST('${zeroGuid}' as uniqueidentifier)`),
         sth_eirs_senaryo: Math.max(Math.trunc(toNumber(templateRow.sth_eirs_senaryo)), 0),
         sth_eirs_tipi: Math.max(Math.trunc(toNumber(templateRow.sth_eirs_tipi)), 0),
-        sth_teslim_tarihi: this.raw('GETDATE()'),
+        sth_teslim_tarihi: this.raw(`CAST('1899-12-30' as datetime)`),
+        sth_belge_tarih: this.raw('CAST(GETDATE() as date)'),
+        sth_taxfree_fl: 0,
         sth_matbu_fl: toNumber(templateRow.sth_matbu_fl) ? 1 : 0,
         sth_satis_fiyat_doviz_cinsi: Math.max(Math.trunc(toNumber(templateRow.sth_satis_fiyat_doviz_cinsi)), 0),
         sth_satis_fiyat_doviz_kuru: toNumber(templateRow.sth_satis_fiyat_doviz_kuru) || 0,
@@ -606,13 +610,22 @@ class WarehouseWorkflowService {
     }
 
     const totalAmount = createdLines.reduce((sum, row) => sum + row.lineTotal, 0);
-    await this.ensureRetailCariMovement({
+    const chaGuid = await this.ensureRetailCariMovement({
       invoiceSeries,
       invoiceSequence,
       customerCode: paymentConfig.customerCode,
       totalAmount,
       mikroUserNo,
     });
+    if (chaGuid) {
+      await mikroService.executeQuery(`
+        UPDATE STOK_HAREKETLERI
+        SET sth_fat_uid = CAST('${chaGuid.replace(/'/g, "''")}' as uniqueidentifier),
+            sth_lastup_date = GETDATE()
+        WHERE UPPER(sth_evrakno_seri) = '${invoiceSeries.replace(/'/g, "''")}'
+          AND sth_evrakno_sira = ${invoiceSequence}
+      `);
+    }
 
     const invoiceNo = `${invoiceSeries}-${invoiceSequence}`;
     return {
@@ -633,13 +646,13 @@ class WarehouseWorkflowService {
     customerCode: string;
     totalAmount: number;
     mikroUserNo: number;
-  }) {
+  }): Promise<string | null> {
     const invoiceSeries = normalizeCode(params.invoiceSeries).toUpperCase();
     const invoiceSequence = Math.max(Math.trunc(toNumber(params.invoiceSequence)), 0);
     const customerCode = normalizeCode(params.customerCode);
     const totalAmount = Math.max(toNumber(params.totalAmount), 0);
     if (!invoiceSeries || invoiceSequence <= 0 || !customerCode || totalAmount <= 0) {
-      return;
+      return null;
     }
 
     const existingRows = await mikroService.executeQuery(`
@@ -649,7 +662,8 @@ class WarehouseWorkflowService {
         AND cha_evrakno_sira = ${invoiceSequence}
     `);
     if ((existingRows as any[]).length > 0) {
-      return;
+      const guid = normalizeCode((existingRows as any[])[0]?.cha_Guid);
+      return guid || null;
     }
 
     let templateRows = await mikroService.executeQuery(`
@@ -670,17 +684,18 @@ class WarehouseWorkflowService {
       templateRow = (templateRows as any[])[0];
     }
     if (!templateRow) {
-      return;
+      return null;
     }
 
     const chaColumns = await this.getTableColumns('CARI_HESAP_HAREKETLERI');
     if (chaColumns.size === 0) {
-      return;
+      return null;
     }
+    const chaGuid = randomUUID();
 
     const values: Record<string, unknown> = {
       ...templateRow,
-      cha_Guid: this.raw(`CAST('${randomUUID()}' as uniqueidentifier)`),
+      cha_Guid: this.raw(`CAST('${chaGuid}' as uniqueidentifier)`),
       cha_evrakno_seri: invoiceSeries,
       cha_evrakno_sira: invoiceSequence,
       cha_satir_no: 0,
@@ -719,6 +734,7 @@ class WarehouseWorkflowService {
 
     const insertSql = this.buildInsertSql('CARI_HESAP_HAREKETLERI', values, chaColumns);
     await mikroService.executeQuery(insertSql);
+    return chaGuid;
   }
 
   async createDispatchDriver(payload: {
