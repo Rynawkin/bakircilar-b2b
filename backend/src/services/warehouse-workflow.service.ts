@@ -67,6 +67,13 @@ const toNumber = (value: unknown): number => {
 
 const normalizeCode = (value: unknown): string => String(value ?? '').trim();
 const normalizeProductCode = (value: unknown): string => normalizeCode(value).toUpperCase();
+const isGeneratedOrderNote = (value: string): boolean => {
+  const note = normalizeCode(value);
+  if (!note) return false;
+  if (/^B2B\s+Manuel\s+Siparis$/i.test(note)) return true;
+  if (/^B2B\s+Teklif\s+.+->\s+Siparis$/i.test(note)) return true;
+  return false;
+};
 const parseMikroOrderNumber = (value: string): { series: string; sequence: number } | null => {
   const normalized = normalizeCode(value);
   const lastDash = normalized.lastIndexOf('-');
@@ -1699,7 +1706,8 @@ class WarehouseWorkflowService {
     `);
     const row = (rows as any[])?.[0] || {};
     const documentNo = normalizeCode(row.order_document_no) || null;
-    let orderNote = normalizeCode(row.order_note) || null;
+    const sipOrderNote = normalizeCode(row.order_note);
+    let orderNote = sipOrderNote && !isGeneratedOrderNote(sipOrderNote) ? sipOrderNote : null;
 
     try {
       const evrakColumns = await this.getTableColumns('EVRAK_ACIKLAMALARI');
@@ -1726,7 +1734,7 @@ class WarehouseWorkflowService {
             } DESC
           `);
           const evrakNote = normalizeCode((evrakRows as any[])?.[0]?.order_note);
-          if (evrakNote) {
+          if (!orderNote && evrakNote && !isGeneratedOrderNote(evrakNote)) {
             orderNote = evrakNote;
           }
         }
