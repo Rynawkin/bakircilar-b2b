@@ -229,6 +229,7 @@ export default function WarehousePage() {
   const [shelfDrafts, setShelfDrafts] = useState<Record<string, string>>({});
   const [isPortrait, setIsPortrait] = useState(false);
   const [isKioskTouchMode, setIsKioskTouchMode] = useState(true);
+  const [isBarcodeMode, setIsBarcodeMode] = useState(false);
   const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
@@ -256,6 +257,7 @@ export default function WarehousePage() {
     value: string;
   } | null>(null);
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
 
   const layoutClass = isPortrait
@@ -299,6 +301,13 @@ export default function WarehousePage() {
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchText]);
+
+  useEffect(() => {
+    if (!isBarcodeMode) return;
+    setKeyboardTarget((prev) => (prev?.type === 'search' ? null : prev));
+    const timer = setTimeout(() => searchInputRef.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, [isBarcodeMode]);
 
   const selectedSeriesKey = useMemo(() => selectedSeries.slice().sort().join(','), [selectedSeries]);
 
@@ -806,6 +815,7 @@ export default function WarehousePage() {
   };
 
   const openSearchKeyboard = () => {
+    if (isBarcodeMode) return;
     setKeyboardTarget({ type: 'search' });
     setKeyboardValue(searchText);
   };
@@ -864,6 +874,24 @@ export default function WarehousePage() {
     setQtyPadTarget(null);
   };
 
+  const handleBarcodeOrderSearch = async () => {
+    const token = searchText.trim().toUpperCase();
+    if (!token) return;
+
+    const exact = sortedOrders.find((order) => order.mikroOrderNumber.toUpperCase() === token);
+    const startsWith = sortedOrders.filter((order) => order.mikroOrderNumber.toUpperCase().startsWith(token));
+    const found = exact || (startsWith.length === 1 ? startsWith[0] : null);
+    if (!found) {
+      toast.error('Barkoddan siparis bulunamadi');
+      return;
+    }
+
+    await loadOrderDetail(found.mikroOrderNumber);
+    setSearchText('');
+    setSearchDebounced('');
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
       <div className="w-full px-2 md:px-4 xl:px-6 py-3 space-y-3">
@@ -888,12 +916,23 @@ export default function WarehousePage() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-8 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-9 gap-2">
               <Input
+                ref={searchInputRef}
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
                 onFocus={openSearchKeyboard}
                 onClick={openSearchKeyboard}
+                onBlur={() => {
+                  if (!isBarcodeMode) return;
+                  setTimeout(() => searchInputRef.current?.focus(), 0);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && isBarcodeMode) {
+                    event.preventDefault();
+                    void handleBarcodeOrderSearch();
+                  }
+                }}
                 placeholder="Siparis no, cari kod veya musteri ara..."
                 className="h-10 text-sm md:col-span-3"
               />
@@ -938,6 +977,13 @@ export default function WarehousePage() {
               </select>
               <Button variant="secondary" onClick={refreshWithSync} className="h-10 text-sm" disabled={actionLoading}>
                 Senkron + Yenile
+              </Button>
+              <Button
+                variant={isBarcodeMode ? 'primary' : 'secondary'}
+                onClick={() => setIsBarcodeMode((prev) => !prev)}
+                className="h-10 text-xs font-bold"
+              >
+                {isBarcodeMode ? 'Barkod Odak Acik' : 'Barkod Odak Kapali'}
               </Button>
             </div>
 
@@ -1575,7 +1621,7 @@ export default function WarehousePage() {
                                       </div>
                                     </div>
 
-                                    <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-1.5 text-xs">
+                                    <div className="mt-2 grid grid-cols-2 gap-1.5 text-xs">
                                       <div className={`rounded-xl border px-2.5 py-2 ${remainingQtyClass}`}>
                                         <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
                                         <p className="text-2xl leading-none font-black mt-1">{line.remainingQty}</p>
@@ -1586,18 +1632,21 @@ export default function WarehousePage() {
                                           {line.stockAvailable}
                                         </p>
                                       </div>
-                                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Toplanan</p>
-                                        <p className="text-sm leading-none font-black mt-1 text-slate-900">{line.pickedQty}</p>
-                                      </div>
-                                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Siparissiz Ek</p>
-                                        <p className="text-sm leading-none font-black mt-1 text-slate-900">{line.extraQty}</p>
-                                      </div>
-                                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 col-span-2 md:col-span-1">
-                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Eksik</p>
-                                        <p className="text-sm leading-none font-black mt-1 text-slate-900">{line.shortageQty}</p>
-                                      </div>
+                                    </div>
+
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                        Toplanan:
+                                        <strong className="text-slate-900">{line.pickedQty}</strong>
+                                      </span>
+                                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                        Siparissiz Ek:
+                                        <strong className="text-slate-900">{line.extraQty}</strong>
+                                      </span>
+                                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                        Eksik:
+                                        <strong className="text-slate-900">{line.shortageQty}</strong>
+                                      </span>
                                     </div>
 
                                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1657,8 +1706,8 @@ export default function WarehousePage() {
                                   </div>
                                 </div>
 
-                                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                                  <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
+                                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-2">
+                                  <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2 xl:col-span-5">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Toplanan Miktar</p>
                                     <div className="flex items-center gap-2">
                                       <button
@@ -1685,14 +1734,14 @@ export default function WarehousePage() {
                                       <button
                                         onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-8 px-2.5 rounded-md bg-emerald-600 text-[11px] text-white font-bold disabled:opacity-50"
+                                        className="h-8 px-2 rounded-md bg-emerald-600 text-[10px] text-white font-bold disabled:opacity-50 whitespace-nowrap"
                                       >
                                         Tamami Toplandi
                                       </button>
                                     </div>
                                   </div>
 
-                                  <div className="rounded-lg border border-slate-200 p-2">
+                                  <div className="rounded-lg border border-slate-200 p-2 xl:col-span-3">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Siparissiz Ek Miktar</p>
                                     <div className="flex items-center gap-2">
                                       <button
@@ -1718,16 +1767,14 @@ export default function WarehousePage() {
                                       </button>
                                     </div>
                                   </div>
-                                </div>
 
-                                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                                  <div className="rounded-lg border border-slate-200 p-2">
+                                  <div className="rounded-lg border border-slate-200 p-2 xl:col-span-2">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Mevcut Raf Kodu</p>
                                     <p className="h-8 rounded-md bg-slate-100 px-2 flex items-center text-xs font-bold text-slate-800">
                                       {line.shelfCode || '-'}
                                     </p>
                                   </div>
-                                  <div className="rounded-lg border border-slate-200 p-2">
+                                  <div className="rounded-lg border border-slate-200 p-2 xl:col-span-2">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Raf Kodu Guncelle</p>
                                     <div className="grid grid-cols-[1fr_auto] gap-2">
                                       <Input
@@ -1746,7 +1793,7 @@ export default function WarehousePage() {
                                         variant="secondary"
                                         onClick={() => saveShelf(orderNumber, line)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-8 px-3 text-xs"
+                                        className="h-8 px-2 text-[11px]"
                                       >
                                         Kaydet
                                       </Button>

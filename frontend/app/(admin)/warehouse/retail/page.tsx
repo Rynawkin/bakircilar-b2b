@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -106,6 +106,7 @@ export default function WarehouseRetailPage() {
   const [creatingSale, setCreatingSale] = useState(false);
   const [quickQtyInput, setQuickQtyInput] = useState('');
   const [moduleFullscreen, setModuleFullscreen] = useState(false);
+  const [isBarcodeMode, setIsBarcodeMode] = useState(false);
 
   const [searchKeyboardOpen, setSearchKeyboardOpen] = useState(false);
   const [searchKeyboardValue, setSearchKeyboardValue] = useState('');
@@ -118,6 +119,7 @@ export default function WarehouseRetailPage() {
     paymentLabel: string;
     customerCode: string;
   } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -164,6 +166,13 @@ export default function WarehouseRetailPage() {
     };
   }, [moduleFullscreen]);
 
+  useEffect(() => {
+    if (!isBarcodeMode) return;
+    setSearchKeyboardOpen(false);
+    const timer = setTimeout(() => searchInputRef.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, [isBarcodeMode]);
+
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const totalAmount = useMemo(
     () => cartItems.reduce((sum, row) => sum + row.unitPrice * row.quantity, 0),
@@ -175,6 +184,7 @@ export default function WarehouseRetailPage() {
   const getQuickQuantity = () => parseQuickQuantity(quickQtyInput) ?? 1;
 
   const openSearchKeyboard = () => {
+    if (isBarcodeMode) return;
     setSearchKeyboardValue(searchText);
     setSearchKeyboardOpen(true);
   };
@@ -222,6 +232,25 @@ export default function WarehouseRetailPage() {
     if (quickQtyInput.trim()) {
       setQuickQtyInput('');
     }
+  };
+
+  const handleBarcodeScanSubmit = () => {
+    const token = searchText.trim().toUpperCase();
+    if (!token) return;
+
+    const exactCode = products.find((product) => product.productCode.toUpperCase() === token);
+    const startsWith = products.filter((product) => product.productCode.toUpperCase().startsWith(token));
+    const found = exactCode || (startsWith.length === 1 ? startsWith[0] : products.length === 1 ? products[0] : null);
+
+    if (!found) {
+      toast.error('Barkoddan urun bulunamadi');
+      return;
+    }
+
+    addToCart(found);
+    setSearchText('');
+    setSearchDebounced('');
+    setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
   const changeCartQty = (productCode: string, delta: number) => {
@@ -386,13 +415,24 @@ export default function WarehouseRetailPage() {
                 }`}
               >
                 <div className="grid grid-cols-1 gap-3">
-                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-2">
                     <div>
                       <Input
+                        ref={searchInputRef}
                         value={searchText}
                         onChange={(event) => setSearchText(event.target.value)}
                         onFocus={openSearchKeyboard}
                         onClick={openSearchKeyboard}
+                        onBlur={() => {
+                          if (!isBarcodeMode) return;
+                          setTimeout(() => searchInputRef.current?.focus(), 0);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && isBarcodeMode) {
+                            event.preventDefault();
+                            handleBarcodeScanSubmit();
+                          }
+                        }}
                         placeholder="Urun kodu, isim veya barkod ara..."
                         className="h-16 text-2xl font-bold"
                       />
@@ -446,6 +486,14 @@ export default function WarehouseRetailPage() {
                         Kart
                       </Button>
                     </div>
+
+                    <Button
+                      onClick={() => setIsBarcodeMode((prev) => !prev)}
+                      className="h-11 text-xs font-black"
+                      variant={isBarcodeMode ? 'primary' : 'secondary'}
+                    >
+                      {isBarcodeMode ? 'Barkod Odak Acik' : 'Barkod Odak Kapali'}
+                    </Button>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_220px] gap-2">
