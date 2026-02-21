@@ -236,13 +236,14 @@ export default function WarehousePage() {
   const [newDriverTcNo, setNewDriverTcNo] = useState('');
   const [newVehicleName, setNewVehicleName] = useState('');
   const [newVehiclePlate, setNewVehiclePlate] = useState('');
+  const [showDispatchCatalogAdmin, setShowDispatchCatalogAdmin] = useState(false);
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
   const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
 
   const layoutClass = isPortrait
-    ? 'grid grid-cols-1 gap-4'
-    : 'grid grid-cols-1 xl:grid-cols-[560px_minmax(0,1fr)] gap-4';
-  const actionButtonClass = isKioskTouchMode ? 'h-14 text-base font-bold' : 'h-12 text-sm font-bold';
+    ? 'grid grid-cols-1 gap-3'
+    : 'grid grid-cols-1 xl:grid-cols-[500px_minmax(0,1fr)] gap-3';
+  const actionButtonClass = isKioskTouchMode ? 'h-11 text-sm font-bold' : 'h-10 text-xs font-bold';
   const activeDrivers = useMemo(() => dispatchDrivers.filter((item) => item.active), [dispatchDrivers]);
   const activeVehicles = useMemo(() => dispatchVehicles.filter((item) => item.active), [dispatchVehicles]);
 
@@ -788,12 +789,12 @@ export default function WarehousePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
-      <div className="w-full px-2 md:px-4 xl:px-6 py-5 space-y-4">
+      <div className="w-full px-2 md:px-4 xl:px-6 py-3 space-y-3">
         <Card className="border border-cyan-200 bg-white/90 backdrop-blur">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
-                <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Depo Kiosk</h1>
+                <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">Depo Kiosk</h1>
                 <p className="text-sm text-slate-600">
                   Dokunmatik toplama ve yukleme akisi ({isPortrait ? 'Dikey' : 'Yatay'} mod)
                 </p>
@@ -804,23 +805,23 @@ export default function WarehousePage() {
               <Button
                 variant={isKioskTouchMode ? 'primary' : 'secondary'}
                 onClick={() => setIsKioskTouchMode((prev) => !prev)}
-                className="h-11 text-sm font-bold"
+                className="h-10 text-xs font-bold"
               >
                 {isKioskTouchMode ? '32\" Dokunmatik Modu Acik' : '32\" Dokunmatik Modu Kapali'}
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-8 gap-2">
               <Input
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
                 placeholder="Siparis no, cari kod veya musteri ara..."
-                className="h-12 text-base"
+                className="h-10 text-sm md:col-span-3"
               />
               <select
                 value={selectedStatus}
                 onChange={(event) => setSelectedStatus(event.target.value as any)}
-                className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-semibold text-slate-700"
+                className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
               >
                 <option value="ALL">Tum Durumlar</option>
                 <option value="PENDING">Beklemede</option>
@@ -833,7 +834,7 @@ export default function WarehousePage() {
               <select
                 value={sortField}
                 onChange={(event) => setSortField(event.target.value as OrderSortField)}
-                className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-semibold text-slate-700"
+                className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
               >
                 <option value="orderDate">Tarih</option>
                 <option value="customerName">Musteri (A-Z)</option>
@@ -843,7 +844,7 @@ export default function WarehousePage() {
               <select
                 value={sortDirection}
                 onChange={(event) => setSortDirection(event.target.value as OrderSortDirection)}
-                className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-semibold text-slate-700"
+                className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
               >
                 <option value="desc">Azalan</option>
                 <option value="asc">Artan</option>
@@ -851,17 +852,29 @@ export default function WarehousePage() {
               <select
                 value={viewMode}
                 onChange={(event) => setViewMode(event.target.value as OrderViewMode)}
-                className="h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-semibold text-slate-700"
+                className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
               >
                 <option value="order">Siparis bazli</option>
                 <option value="customer">Musteriye gore grupla</option>
               </select>
-              <Button variant="secondary" onClick={refreshWithSync} className="h-12 text-base" disabled={actionLoading}>
+              <Button variant="secondary" onClick={refreshWithSync} className="h-10 text-sm" disabled={actionLoading}>
                 Senkron + Yenile
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-xs font-semibold text-slate-600">Sofor/Arac Tanimlari</p>
+              <Button
+                variant={showDispatchCatalogAdmin ? 'primary' : 'secondary'}
+                onClick={() => setShowDispatchCatalogAdmin((prev) => !prev)}
+                className="h-8 px-3 text-xs font-bold"
+              >
+                {showDispatchCatalogAdmin ? 'Kapat' : 'Ac'}
+              </Button>
+            </div>
+
+            {showDispatchCatalogAdmin && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
               <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-2">
                 <p className="text-sm font-black text-slate-800">Sofor Tanimlari</p>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
@@ -958,11 +971,12 @@ export default function WarehousePage() {
                 </div>
               </div>
             </div>
+            )}
 
             <div className="flex gap-2 overflow-x-auto pb-1">
               <button
                 onClick={() => setSelectedSeries([])}
-                className={`px-4 h-11 rounded-xl border text-sm font-bold whitespace-nowrap ${
+                className={`px-3 h-9 rounded-xl border text-xs font-bold whitespace-nowrap ${
                   selectedSeries.length === 0
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-white text-slate-700 border-slate-300'
@@ -974,7 +988,7 @@ export default function WarehousePage() {
                 <button
                   key={item.series}
                   onClick={() => toggleSeriesSelection(item.series)}
-                  className={`px-4 h-11 rounded-xl border text-sm font-bold whitespace-nowrap ${
+                  className={`px-3 h-9 rounded-xl border text-xs font-bold whitespace-nowrap ${
                     selectedSeries.includes(item.series)
                       ? 'bg-cyan-600 text-white border-cyan-600'
                       : 'bg-white text-slate-700 border-slate-300'
@@ -989,7 +1003,7 @@ export default function WarehousePage() {
 
         <div className={layoutClass}>
           <Card className="border border-slate-200 bg-white/90">
-            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[74vh] overflow-y-auto pr-1">
               {isLoading ? (
                 <div className="py-16 text-center text-slate-500 font-semibold">Yukleniyor...</div>
               ) : sortedOrders.length === 0 ? (
@@ -997,7 +1011,7 @@ export default function WarehousePage() {
               ) : (
                 viewMode === 'customer' ? (
                   groupedCustomerOrders.map((group) => (
-                    <div key={group.customerCode} className="rounded-2xl border border-slate-200 bg-white p-3 md:p-4 space-y-3">
+                    <div key={group.customerCode} className="rounded-2xl border border-slate-200 bg-white p-2.5 md:p-3 space-y-2.5">
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                         <div>
                           <p className="text-sm font-black text-slate-900">{group.customerName}</p>
@@ -1038,7 +1052,7 @@ export default function WarehousePage() {
                             <button
                               key={order.mikroOrderNumber}
                               onClick={() => loadOrderDetail(order.mikroOrderNumber)}
-                              className={`text-left rounded-xl border p-3 transition ${
+                              className={`text-left rounded-xl border p-2 transition ${
                                 active
                                   ? 'border-cyan-500 bg-cyan-50 shadow-sm'
                                   : isOpen
@@ -1065,7 +1079,7 @@ export default function WarehousePage() {
                     <button
                       key={order.mikroOrderNumber}
                       onClick={() => loadOrderDetail(order.mikroOrderNumber)}
-                      className={`w-full text-left rounded-2xl border p-4 transition-all ${
+                      className={`w-full text-left rounded-2xl border p-2.5 transition-all ${
                         active
                           ? 'border-cyan-500 bg-cyan-50 shadow-md'
                           : `${coverageBadge.cardClass} bg-white hover:border-cyan-300 hover:bg-cyan-50/40`
@@ -1225,7 +1239,7 @@ export default function WarehousePage() {
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                             <div>
-                              <h2 className="text-2xl font-black text-slate-900">{panelDetail.order.mikroOrderNumber}</h2>
+                              <h2 className="text-xl font-black text-slate-900">{panelDetail.order.mikroOrderNumber}</h2>
                               <p className="text-sm text-slate-700 font-semibold">{panelDetail.order.customerName}</p>
                               {panelDetail.order.orderNote && (
                                 <p className="mt-1 inline-flex max-w-full rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-sm font-black text-amber-900">
@@ -1301,7 +1315,7 @@ export default function WarehousePage() {
                                   setDeliveryNoteDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
                                 }
                                 placeholder="Ornek: BKR"
-                                className={isKioskTouchMode ? 'h-14 text-lg font-bold' : 'h-11 text-base'}
+                                className={isKioskTouchMode ? 'h-11 text-base font-bold' : 'h-10 text-sm'}
                                 disabled={panelWorkflowStatus === 'DISPATCHED'}
                               />
                               <p className="text-[11px] text-slate-600 mt-1">
@@ -1316,7 +1330,7 @@ export default function WarehousePage() {
                                   onChange={(event) =>
                                     setDispatchDriverDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
                                   }
-                                  className={`${isKioskTouchMode ? 'h-14 text-lg' : 'h-11 text-base'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
+                                  className={`${isKioskTouchMode ? 'h-11 text-base' : 'h-10 text-sm'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
                                   disabled={panelWorkflowStatus === 'DISPATCHED'}
                                 >
                                   <option value="">Sofor secin</option>
@@ -1334,7 +1348,7 @@ export default function WarehousePage() {
                                   onChange={(event) =>
                                     setDispatchVehicleDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
                                   }
-                                  className={`${isKioskTouchMode ? 'h-14 text-lg' : 'h-11 text-base'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
+                                  className={`${isKioskTouchMode ? 'h-11 text-base' : 'h-10 text-sm'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
                                   disabled={panelWorkflowStatus === 'DISPATCHED'}
                                 >
                                   <option value="">Arac secin</option>
@@ -1405,7 +1419,7 @@ export default function WarehousePage() {
                             return (
                               <div
                                 key={line.lineKey}
-                                className={`rounded-2xl border bg-white p-3 md:p-4 shadow-sm ${
+                                className={`rounded-2xl border bg-white p-2.5 md:p-3 shadow-sm ${
                                   line.stockCoverageStatus === 'NONE'
                                     ? 'border-rose-200'
                                     : line.stockCoverageStatus === 'PARTIAL'
@@ -1414,7 +1428,7 @@ export default function WarehousePage() {
                                 }`}
                               >
                                 <div className="flex gap-3">
-                                  <div className="w-24 h-24 md:w-28 md:h-28 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                                  <div className="w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
                                     {line.imageUrl ? (
                                       <button
                                         type="button"
@@ -1483,7 +1497,7 @@ export default function WarehousePage() {
                                     <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                       <div className={`rounded-xl border px-3 py-2 ${remainingQtyClass}`}>
                                         <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
-                                        <p className="text-2xl leading-none font-black mt-1">{line.remainingQty}</p>
+                                        <p className="text-xl leading-none font-black mt-1">{line.remainingQty}</p>
                                       </div>
                                       <div className="rounded-xl border border-slate-200 bg-sky-50 px-3 py-2">
                                         <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Toplanan</p>
@@ -1563,24 +1577,24 @@ export default function WarehousePage() {
                                       <button
                                         onClick={() => changePicked(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         -
                                       </button>
-                                      <div className={`${isKioskTouchMode ? 'h-12 text-xl' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
+                                      <div className={`${isKioskTouchMode ? 'h-10 text-lg' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
                                         {line.pickedQty}
                                       </div>
                                       <button
                                         onClick={() => changePicked(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         +
                                       </button>
                                       <button
                                         onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-12 px-4 text-sm' : 'h-9 px-3 text-[11px]'} rounded-lg bg-emerald-600 text-white font-bold disabled:opacity-50`}
+                                        className={`${isKioskTouchMode ? 'h-10 px-3 text-xs' : 'h-9 px-3 text-[11px]'} rounded-lg bg-emerald-600 text-white font-bold disabled:opacity-50`}
                                       >
                                         Tamami Toplandi
                                       </button>
@@ -1593,17 +1607,17 @@ export default function WarehousePage() {
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         -
                                       </button>
-                                      <div className={`${isKioskTouchMode ? 'h-12 text-xl' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
+                                      <div className={`${isKioskTouchMode ? 'h-10 text-lg' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
                                         {line.extraQty}
                                       </div>
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-12 w-12 text-2xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
                                       >
                                         +
                                       </button>
