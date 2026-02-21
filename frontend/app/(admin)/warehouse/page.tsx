@@ -9,6 +9,7 @@ import adminApi from '@/lib/api/admin';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 
@@ -178,6 +179,15 @@ const getRemainingQtyClass = (line: WarehouseOrderDetail['lines'][number]) => {
   return 'bg-rose-100 text-rose-800 border-rose-300';
 };
 
+const KEYBOARD_ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+  ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'],
+  ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', '*', '/'],
+];
+
+const NUMPAD_NUMBER_KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.'];
+
 type DriverOption = {
   id: string;
   firstName: string;
@@ -237,13 +247,21 @@ export default function WarehousePage() {
   const [newVehicleName, setNewVehicleName] = useState('');
   const [newVehiclePlate, setNewVehiclePlate] = useState('');
   const [showDispatchCatalogAdmin, setShowDispatchCatalogAdmin] = useState(false);
+  const [keyboardTarget, setKeyboardTarget] = useState<{ type: 'search' | 'delivery'; orderNumber?: string } | null>(null);
+  const [keyboardValue, setKeyboardValue] = useState('');
+  const [qtyPadTarget, setQtyPadTarget] = useState<{
+    type: 'picked' | 'extra';
+    mikroOrderNumber: string;
+    lineKey: string;
+    value: string;
+  } | null>(null);
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
   const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
 
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-3'
     : 'grid grid-cols-1 xl:grid-cols-[500px_minmax(0,1fr)] gap-3';
-  const actionButtonClass = isKioskTouchMode ? 'h-11 text-sm font-bold' : 'h-10 text-xs font-bold';
+  const actionButtonClass = 'h-9 text-xs font-bold';
   const activeDrivers = useMemo(() => dispatchDrivers.filter((item) => item.active), [dispatchDrivers]);
   const activeVehicles = useMemo(() => dispatchVehicles.filter((item) => item.active), [dispatchVehicles]);
 
@@ -787,6 +805,65 @@ export default function WarehousePage() {
     }
   };
 
+  const openSearchKeyboard = () => {
+    setKeyboardTarget({ type: 'search' });
+    setKeyboardValue(searchText);
+  };
+
+  const openDeliveryKeyboard = (mikroOrderNumber: string) => {
+    setKeyboardTarget({ type: 'delivery', orderNumber: mikroOrderNumber });
+    setKeyboardValue(deliveryNoteDrafts[mikroOrderNumber] || '');
+  };
+
+  const applyKeyboard = () => {
+    if (!keyboardTarget) return;
+    if (keyboardTarget.type === 'search') {
+      setSearchText(keyboardValue.trim());
+    } else if (keyboardTarget.orderNumber) {
+      setDeliveryNoteDrafts((prev) => ({
+        ...prev,
+        [keyboardTarget.orderNumber as string]: keyboardValue.trim(),
+      }));
+    }
+    setKeyboardTarget(null);
+  };
+
+  const openQtyPad = (
+    type: 'picked' | 'extra',
+    mikroOrderNumber: string,
+    line: WarehouseOrderDetail['lines'][number]
+  ) => {
+    setQtyPadTarget({
+      type,
+      mikroOrderNumber,
+      lineKey: line.lineKey,
+      value: String(type === 'picked' ? line.pickedQty : line.extraQty),
+    });
+  };
+
+  const applyQtyPad = async () => {
+    if (!qtyPadTarget) return;
+    const parsed = Number(qtyPadTarget.value.replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      toast.error('Miktar gecersiz');
+      return;
+    }
+
+    const detailForOrder = detailByOrder[qtyPadTarget.mikroOrderNumber];
+    const line = detailForOrder?.lines.find((item) => item.lineKey === qtyPadTarget.lineKey);
+    if (!line) {
+      setQtyPadTarget(null);
+      return;
+    }
+
+    await updateLine(
+      qtyPadTarget.mikroOrderNumber,
+      line,
+      qtyPadTarget.type === 'picked' ? { pickedQty: parsed } : { extraQty: parsed }
+    );
+    setQtyPadTarget(null);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
       <div className="w-full px-2 md:px-4 xl:px-6 py-3 space-y-3">
@@ -815,6 +892,8 @@ export default function WarehousePage() {
               <Input
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
+                onFocus={openSearchKeyboard}
+                onClick={openSearchKeyboard}
                 placeholder="Siparis no, cari kod veya musteri ara..."
                 className="h-10 text-sm md:col-span-3"
               />
@@ -1314,8 +1393,10 @@ export default function WarehousePage() {
                                 onChange={(event) =>
                                   setDeliveryNoteDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
                                 }
+                                onFocus={() => openDeliveryKeyboard(orderNumber)}
+                                onClick={() => openDeliveryKeyboard(orderNumber)}
                                 placeholder="Ornek: BKR"
-                                className={isKioskTouchMode ? 'h-11 text-base font-bold' : 'h-10 text-sm'}
+                                className="h-9 text-sm font-bold"
                                 disabled={panelWorkflowStatus === 'DISPATCHED'}
                               />
                               <p className="text-[11px] text-slate-600 mt-1">
@@ -1494,22 +1575,28 @@ export default function WarehousePage() {
                                       </div>
                                     </div>
 
-                                    <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                                      <div className={`rounded-xl border px-3 py-2 ${remainingQtyClass}`}>
+                                    <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-1.5 text-xs">
+                                      <div className={`rounded-xl border px-2.5 py-2 ${remainingQtyClass}`}>
                                         <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
-                                        <p className="text-xl leading-none font-black mt-1">{line.remainingQty}</p>
+                                        <p className="text-2xl leading-none font-black mt-1">{line.remainingQty}</p>
                                       </div>
-                                      <div className="rounded-xl border border-slate-200 bg-sky-50 px-3 py-2">
-                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Toplanan</p>
-                                        <p className="text-lg leading-none font-black mt-1 text-slate-900">{line.pickedQty}</p>
+                                      <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-2.5 py-2">
+                                        <p className="text-[10px] font-black uppercase tracking-wide text-cyan-800">Depodaki Miktar</p>
+                                        <p className="text-2xl leading-none font-black mt-1 text-cyan-900">
+                                          {line.stockAvailable}
+                                        </p>
                                       </div>
-                                      <div className="rounded-xl border border-slate-200 bg-violet-50 px-3 py-2">
-                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Siparissiz Ek</p>
-                                        <p className="text-lg leading-none font-black mt-1 text-slate-900">{line.extraQty}</p>
+                                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Toplanan</p>
+                                        <p className="text-sm leading-none font-black mt-1 text-slate-900">{line.pickedQty}</p>
                                       </div>
-                                      <div className="rounded-xl border border-slate-200 bg-amber-50 px-3 py-2">
-                                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Eksik</p>
-                                        <p className="text-lg leading-none font-black mt-1 text-slate-900">{line.shortageQty}</p>
+                                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Siparissiz Ek</p>
+                                        <p className="text-sm leading-none font-black mt-1 text-slate-900">{line.extraQty}</p>
+                                      </div>
+                                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 col-span-2 md:col-span-1">
+                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Eksik</p>
+                                        <p className="text-sm leading-none font-black mt-1 text-slate-900">{line.shortageQty}</p>
                                       </div>
                                     </div>
 
@@ -1570,54 +1657,62 @@ export default function WarehousePage() {
                                   </div>
                                 </div>
 
-                                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                  <div className="rounded-xl border border-slate-200 p-2">
+                                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Toplanan Miktar</p>
                                     <div className="flex items-center gap-2">
                                       <button
                                         onClick={() => changePicked(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         -
                                       </button>
-                                      <div className={`${isKioskTouchMode ? 'h-10 text-lg' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
+                                      <button
+                                        onClick={() => openQtyPad('picked', orderNumber, line)}
+                                        disabled={saving || !panelCanEditLines}
+                                        className="h-10 flex-1 rounded-md bg-cyan-600 text-white flex items-center justify-center text-lg font-black disabled:opacity-50"
+                                      >
                                         {line.pickedQty}
-                                      </div>
+                                      </button>
                                       <button
                                         onClick={() => changePicked(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         +
                                       </button>
                                       <button
                                         onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-10 px-3 text-xs' : 'h-9 px-3 text-[11px]'} rounded-lg bg-emerald-600 text-white font-bold disabled:opacity-50`}
+                                        className="h-8 px-2.5 rounded-md bg-emerald-600 text-[11px] text-white font-bold disabled:opacity-50"
                                       >
                                         Tamami Toplandi
                                       </button>
                                     </div>
                                   </div>
 
-                                  <div className="rounded-xl border border-slate-200 p-2">
+                                  <div className="rounded-lg border border-slate-200 p-2">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Siparissiz Ek Miktar</p>
                                     <div className="flex items-center gap-2">
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, -1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         -
                                       </button>
-                                      <div className={`${isKioskTouchMode ? 'h-10 text-lg' : 'h-9 text-base'} flex-1 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-900`}>
+                                      <button
+                                        onClick={() => openQtyPad('extra', orderNumber, line)}
+                                        disabled={saving || !panelCanEditLines}
+                                        className="h-8 flex-1 rounded-md bg-slate-100 flex items-center justify-center text-sm font-black text-slate-900 disabled:opacity-50"
+                                      >
                                         {line.extraQty}
-                                      </div>
+                                      </button>
                                       <button
                                         onClick={() => changeExtra(orderNumber, line, 1)}
                                         disabled={saving || !panelCanEditLines}
-                                        className={`${isKioskTouchMode ? 'h-10 w-10 text-xl' : 'h-9 w-9 text-base'} rounded-lg border border-slate-300 font-black text-slate-700 disabled:opacity-50`}
+                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
                                       >
                                         +
                                       </button>
@@ -1625,14 +1720,14 @@ export default function WarehousePage() {
                                   </div>
                                 </div>
 
-                                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                  <div className="rounded-xl border border-slate-200 p-2">
+                                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  <div className="rounded-lg border border-slate-200 p-2">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Mevcut Raf Kodu</p>
-                                    <p className="h-9 rounded-lg bg-slate-100 px-3 flex items-center text-sm font-bold text-slate-800">
+                                    <p className="h-8 rounded-md bg-slate-100 px-2 flex items-center text-xs font-bold text-slate-800">
                                       {line.shelfCode || '-'}
                                     </p>
                                   </div>
-                                  <div className="rounded-xl border border-slate-200 p-2">
+                                  <div className="rounded-lg border border-slate-200 p-2">
                                     <p className="text-[11px] font-bold text-slate-600 mb-1">Raf Kodu Guncelle</p>
                                     <div className="grid grid-cols-[1fr_auto] gap-2">
                                       <Input
@@ -1644,14 +1739,14 @@ export default function WarehousePage() {
                                           if (panelCanEditLines) saveShelf(orderNumber, line);
                                         }}
                                         placeholder="Raf kodu (ornek: A-03-12)"
-                                        className="h-9"
+                                        className="h-8 text-xs"
                                         disabled={!panelCanEditLines}
                                       />
                                       <Button
                                         variant="secondary"
                                         onClick={() => saveShelf(orderNumber, line)}
                                         disabled={saving || !panelCanEditLines}
-                                        className="h-9 px-4"
+                                        className="h-8 px-3 text-xs"
                                       >
                                         Kaydet
                                       </Button>
@@ -1695,6 +1790,106 @@ export default function WarehousePage() {
           </div>
         </div>
       )}
+      <Modal
+        isOpen={Boolean(keyboardTarget)}
+        onClose={() => setKeyboardTarget(null)}
+        title={keyboardTarget?.type === 'delivery' ? 'Irsaliye Serisi Klavyesi' : 'Siparis Arama Klavyesi'}
+        size="xl"
+        footer={
+          <div className="flex w-full items-center justify-between gap-2">
+            <Button variant="secondary" onClick={() => setKeyboardValue('')}>Temizle</Button>
+            <Button onClick={applyKeyboard}>OK</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            autoFocus
+            value={keyboardValue}
+            onChange={(event) => setKeyboardValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                applyKeyboard();
+              }
+            }}
+            className="h-12 text-lg font-bold"
+          />
+          {KEYBOARD_ROWS.map((row, rowIndex) => (
+            <div key={`row-${rowIndex}`} className="grid grid-cols-10 gap-2">
+              {row.map((key) => (
+                <button
+                  key={`${rowIndex}-${key}`}
+                  onClick={() => setKeyboardValue((prev) => `${prev}${key}`)}
+                  className="h-11 rounded-lg border border-slate-300 bg-white text-sm font-black"
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+          ))}
+          <div className="grid grid-cols-4 gap-2">
+            <button
+              onClick={() => setKeyboardValue((prev) => prev.slice(0, -1))}
+              className="h-11 rounded-lg border border-amber-300 bg-amber-50 text-sm font-black text-amber-700"
+            >
+              Geri Sil
+            </button>
+            <button
+              onClick={() => setKeyboardValue((prev) => `${prev} `)}
+              className="col-span-2 h-11 rounded-lg border border-slate-300 bg-white text-sm font-black"
+            >
+              Bosluk
+            </button>
+            <button
+              onClick={() => setKeyboardValue('')}
+              className="h-11 rounded-lg border border-rose-300 bg-rose-50 text-sm font-black text-rose-700"
+            >
+              Temizle
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(qtyPadTarget)}
+        onClose={() => setQtyPadTarget(null)}
+        title={qtyPadTarget?.type === 'extra' ? 'Siparissiz Ek Miktar' : 'Toplanan Miktar'}
+        size="sm"
+        footer={
+          <div className="flex w-full items-center justify-between gap-2">
+            <Button variant="secondary" onClick={() => setQtyPadTarget(null)}>Iptal</Button>
+            <Button onClick={applyQtyPad}>OK</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <Input value={qtyPadTarget?.value || ''} readOnly className="h-12 text-lg font-black" />
+          <div className="grid grid-cols-3 gap-2">
+            {NUMPAD_NUMBER_KEYS.map((key) => (
+              <button
+                key={`qty-${key}`}
+                onClick={() => setQtyPadTarget((prev) => (prev ? { ...prev, value: `${prev.value}${key}` } : prev))}
+                className="h-11 rounded-lg border border-slate-300 bg-white text-lg font-black"
+              >
+                {key}
+              </button>
+            ))}
+            <button
+              onClick={() => setQtyPadTarget((prev) => (prev ? { ...prev, value: prev.value.slice(0, -1) } : prev))}
+              className="h-11 rounded-lg border border-amber-300 bg-amber-50 text-sm font-black text-amber-700"
+            >
+              Sil
+            </button>
+            <button
+              onClick={() => setQtyPadTarget((prev) => (prev ? { ...prev, value: '' } : prev))}
+              className="h-11 rounded-lg border border-rose-300 bg-rose-50 text-sm font-black text-rose-700"
+            >
+              Temizle
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
