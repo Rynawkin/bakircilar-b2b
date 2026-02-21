@@ -105,6 +105,7 @@ export default function WarehouseRetailPage() {
   const [cart, setCart] = useState<Record<string, CartItem>>({});
   const [creatingSale, setCreatingSale] = useState(false);
   const [quickQtyInput, setQuickQtyInput] = useState('');
+  const [moduleFullscreen, setModuleFullscreen] = useState(false);
 
   const [searchKeyboardOpen, setSearchKeyboardOpen] = useState(false);
   const [searchKeyboardValue, setSearchKeyboardValue] = useState('');
@@ -153,6 +154,15 @@ export default function WarehouseRetailPage() {
     };
     fetchProducts();
   }, [searchDebounced, selectedWarehouse, onlyInStock]);
+
+  useEffect(() => {
+    if (!moduleFullscreen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [moduleFullscreen]);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const totalAmount = useMemo(
@@ -335,7 +345,11 @@ export default function WarehouseRetailPage() {
     selectedWarehouse === 1 ? 'Merkez' : selectedWarehouse === 6 ? 'Topca' : 'Tum Depolar';
 
   return (
-    <div className="space-y-3 p-3 md:p-4 bg-slate-50 min-h-screen">
+    <div
+      className={`space-y-3 p-3 md:p-4 bg-slate-50 min-h-screen ${
+        moduleFullscreen ? 'fixed inset-0 z-[120] overflow-y-auto' : ''
+      }`}
+    >
       <Card className="p-3 md:p-4 border-2 border-slate-200">
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -355,11 +369,22 @@ export default function WarehouseRetailPage() {
                 <p className="text-sm font-bold text-emerald-800">{formatCurrency(lastSale.totalAmount)}</p>
               </div>
             )}
+            <Button
+              onClick={() => setModuleFullscreen((prev) => !prev)}
+              variant={moduleFullscreen ? 'secondary' : 'primary'}
+              className="h-11 px-4 text-sm font-black"
+            >
+              {moduleFullscreen ? 'Tam Ekrandan Cik' : 'Tam Ekran'}
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-3">
             <div className="space-y-3">
-              <Card className="p-3 border border-slate-200 lg:sticky lg:top-3 z-20 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
+              <Card
+                className={`p-3 border border-slate-200 lg:sticky z-20 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 ${
+                  moduleFullscreen ? 'lg:top-2' : 'lg:top-20'
+                }`}
+              >
                 <div className="grid grid-cols-1 gap-3">
                   <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
                     <div>
@@ -541,7 +566,7 @@ export default function WarehouseRetailPage() {
               </Card>
             </div>
 
-            <Card className="p-3 border-2 border-slate-300 h-fit xl:sticky xl:top-16">
+            <Card className={`p-3 border-2 border-slate-300 h-fit xl:sticky ${moduleFullscreen ? 'xl:top-2' : 'xl:top-20'}`}>
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-black text-slate-900">Sepet</h2>
