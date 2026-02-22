@@ -475,6 +475,27 @@ const findValueByNormalizedToken = (data: Record<string, any>, token: string): u
   return key ? data[key] : null;
 };
 
+const resolveDataValueByCandidates = (
+  data: Record<string, any>,
+  keys: string[],
+  fallbackToken?: string
+): unknown => {
+  const exact = pickValueByKeys(data, keys);
+  if (exact !== null && exact !== undefined) return exact;
+
+  for (const key of keys) {
+    const normalized = findValueByNormalizedToken(data, key);
+    if (normalized !== null && normalized !== undefined) return normalized;
+  }
+
+  if (fallbackToken) {
+    const fallback = findValueByNormalizedToken(data, fallbackToken);
+    if (fallback !== null && fallback !== undefined) return fallback;
+  }
+
+  return null;
+};
+
 
 const pickUnitProfit = (data: Record<string, any>): number => {
   const direct = pickValueByKeys(data, ['BirimKarOrtMalGore']);
@@ -774,27 +795,27 @@ const DEFAULT_MARGIN_REPORT_EMAIL_COLUMNS = [
 const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data: Record<string, any>) => unknown }> = {
   documentNo: {
     label: 'Evrak No',
-    resolve: (data) => pickValueByKeys(data, ['Evrak No']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['Evrak No'], 'evrakno'),
   },
   documentType: {
     label: 'Tip',
-    resolve: (data) => pickValueByKeys(data, ['Tip']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['Tip'], 'tip'),
   },
   documentDate: {
     label: 'Evrak Tarihi',
-    resolve: (data) => pickValueByKeys(data, ['Evrak Tarihi']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['Evrak Tarihi'], 'evraktarihi'),
   },
   customerName: {
     label: 'Cari',
-    resolve: (data) => pickValueByKeys(data, ['Cari Ä°smi', 'Cari Ã„Â°smi', 'Cari Ismi']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['Cari Ä°smi', 'Cari Ã„Â°smi', 'Cari Ismi', 'Cari İsmi'], 'cariismi'),
   },
   stockCode: {
     label: 'Stok Kodu',
-    resolve: (data) => pickValueByKeys(data, ['Stok Kodu']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['Stok Kodu'], 'stokkodu'),
   },
   stockName: {
     label: 'ÃœrÃ¼n AdÄ±',
-    resolve: (data) => pickValueByKeys(data, ['Stok Ä°smi', 'Stok Ã„Â°smi', 'Stok Ismi']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['Stok Ä°smi', 'Stok Ã„Â°smi', 'Stok Ismi', 'Stok İsmi'], 'stokismi'),
   },
   quantity: {
     label: 'Miktar',
@@ -806,15 +827,15 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
   },
   unitPrice: {
     label: 'Birim SatÄ±ÅŸ',
-    resolve: (data) => pickValueByKeys(data, ['BirimSatÄ±ÅŸKDV', 'BirimSatÃ„Â±Ã…Å¾KDV', 'BirimSatisKDV']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['BirimSatÄ±ÅŸKDV', 'BirimSatÃ„Â±Ã…Å¾KDV', 'BirimSatisKDV', 'BirimSatışKDV'], 'birimsatiskdv'),
   },
   totalAmount: {
     label: 'Tutar (KDV)',
-    resolve: (data) => pickValueByKeys(data, ['TutarKDV']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
   },
   avgCost: {
     label: 'Ort. Maliyet',
-    resolve: (data) => pickValueByKeys(data, ['OrtalamaMaliyetKDVli']),
+    resolve: (data) => resolveDataValueByCandidates(data, ['OrtalamaMaliyetKDVli'], 'ortalamamaliyetkdvli'),
   },
   unitProfit: {
     label: 'Birim Kar',
@@ -846,7 +867,13 @@ const resolveMarginReportColumns = (columnIds: string[]) => {
     return {
       id,
       label: id,
-      resolve: (data: Record<string, any>) => (data ? data[id] : null),
+      resolve: (data: Record<string, any>) => {
+        if (!data) return null;
+        if (Object.prototype.hasOwnProperty.call(data, id)) {
+          return data[id];
+        }
+        return findValueByNormalizedToken(data, id);
+      },
     };
   });
 };
