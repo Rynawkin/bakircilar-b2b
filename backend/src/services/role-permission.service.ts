@@ -25,6 +25,7 @@ export const AVAILABLE_PERMISSIONS = {
   'reports:supplier-price-lists': 'Tedarikci Fiyat Karsilastirma',
   'reports:complement-missing': 'Tamamlayici Urun Eksikleri',
   'reports:customer-activity': 'Musteri Aktivite Takibi',
+  'reports:staff-activity': 'Personel Aktivite Takibi',
   'reports:customer-carts': 'Musteri Sepetleri',
 
   // Admin Pages
@@ -73,6 +74,7 @@ export const PERMISSION_DESCRIPTIONS = {
   'reports:supplier-price-lists': 'Tedarikci fiyat karsilastirma raporuna erisim izni verir',
   'reports:complement-missing': 'Tamamlayici urun eksikleri raporuna erisim izni verir',
   'reports:customer-activity': 'Musteri aktivite ve davranis raporuna erisim izni verir',
+  'reports:staff-activity': 'Personelin yaptigi islemleri aktivite bazli izleme raporuna erisim izni verir',
   'reports:customer-carts': 'Musteri sepet raporuna erisim izni verir',
 
   // Admin Pages
@@ -251,6 +253,7 @@ class RolePermissionService {
         'dashboard:stok-ara',
         'dashboard:cari-ara',
         'reports:pending-orders',
+        'reports:staff-activity',
         'admin:orders',
         'admin:quotes',
         'admin:customers',

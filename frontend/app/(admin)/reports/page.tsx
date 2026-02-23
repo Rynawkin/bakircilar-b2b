@@ -123,6 +123,16 @@ const reports: ReportCard[] = [
     permission: 'reports:customer-activity',
   },
   {
+    id: 'staff-activity',
+    title: 'Personel Aktivite Takibi',
+    description: 'Sales rep, manager, depocu vb. personelin yaptigi API islemlerini izler',
+    icon: <History className="h-5 w-5" />,
+    href: '/reports/staff-activity',
+    category: 'customer',
+    badge: 'Yeni',
+    permission: 'reports:staff-activity',
+  },
+  {
     id: 'customer-carts',
     title: 'Musteri Sepetleri',
     description: 'Musterilerin guncel sepetleri ve kalem detaylari',

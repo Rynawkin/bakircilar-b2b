@@ -1945,6 +1945,28 @@ export const adminApi = {
     return response.data;
   },
 
+  getStaffActivityReport: async (params: {
+    startDate?: string;
+    endDate?: string;
+    role?: string;
+    userId?: string;
+    route?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ success: boolean; data: any }> => {
+    const queryParams = new URLSearchParams();
+    if (params.startDate) queryParams.append('startDate', params.startDate);
+    if (params.endDate) queryParams.append('endDate', params.endDate);
+    if (params.role) queryParams.append('role', params.role);
+    if (params.userId) queryParams.append('userId', params.userId);
+    if (params.route) queryParams.append('route', params.route);
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+
+    const response = await apiClient.get(`/admin/reports/staff-activity?${queryParams.toString()}`);
+    return response.data;
+  },
+
 
   getCustomerCartsReport: async (params: {
     search?: string;

@@ -5,7 +5,7 @@
  * Mikro'ya her seferinde bağlanmaya gerek yok, sabah sync'te çekilen veriler kullanılır.
  */
 
-import { CustomerActivityType, Prisma } from '@prisma/client';
+import { CustomerActivityType, Prisma, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { config } from '../config';
 import { AppError, ErrorCode } from '../types/errors';
@@ -278,6 +278,68 @@ interface CustomerActivityReportResponse {
       name: string | null;
     } | null;
     userId?: string | null;
+  };
+}
+
+interface StaffActivitySummary {
+  totalEvents: number;
+  uniqueStaff: number;
+  activeSeconds: number;
+  clickCount: number;
+  getCount: number;
+  postCount: number;
+  putCount: number;
+  patchCount: number;
+  deleteCount: number;
+}
+
+interface StaffActivityTopRoute {
+  route: string;
+  count: number;
+}
+
+interface StaffActivityTopUser {
+  userId: string;
+  userName: string | null;
+  email: string | null;
+  role: UserRole;
+  eventCount: number;
+  activeSeconds: number;
+  clickCount: number;
+}
+
+interface StaffActivityEventRow {
+  id: string;
+  createdAt: Date;
+  userId: string;
+  userName: string | null;
+  email: string | null;
+  role: UserRole;
+  method: string;
+  route: string | null;
+  statusCode: number | null;
+  durationMs: number | null;
+  pageTitle: string | null;
+  pagePath: string | null;
+  meta: Prisma.JsonValue | null;
+}
+
+interface StaffActivityReportResponse {
+  summary: StaffActivitySummary;
+  topRoutes: StaffActivityTopRoute[];
+  topUsers: StaffActivityTopUser[];
+  events: StaffActivityEventRow[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+    totalRecords: number;
+  };
+  metadata: {
+    startDate: string;
+    endDate: string;
+    role: UserRole | null;
+    userId: string | null;
   };
 }
 
@@ -3844,6 +3906,206 @@ export class ReportsService {
         startDate: formatDateKey(parsedStart),
         endDate: formatDateKey(parsedEnd),
         customer,
+        userId: options.userId || null,
+      },
+    };
+  }
+
+  async getStaffActivityReport(options: {
+    startDate?: string;
+    endDate?: string;
+    role?: UserRole;
+    userId?: string;
+    page?: number;
+    limit?: number;
+    route?: string;
+  }): Promise<StaffActivityReportResponse> {
+    const staffRoles: UserRole[] = ['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP', 'DEPOCU', 'DIVERSEY'];
+    const now = new Date();
+    const defaultEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const parsedEnd = parseDateInput(options.endDate) || defaultEnd;
+    const parsedStart =
+      parseDateInput(options.startDate) ||
+      (() => {
+        const start = new Date(parsedEnd);
+        start.setUTCDate(start.getUTCDate() - 6);
+        return start;
+      })();
+
+    if (parsedStart > parsedEnd) {
+      throw new AppError('Baslangic tarihi bitis tarihinden sonra olamaz.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const endExclusive = new Date(parsedEnd);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 50;
+    const roleFilter = options.role && staffRoles.includes(options.role) ? options.role : null;
+
+    const where: Prisma.CustomerActivityEventWhereInput = {
+      type: 'CLICK',
+      createdAt: { gte: parsedStart, lt: endExclusive },
+      user: {
+        role: roleFilter ? roleFilter : { in: staffRoles },
+      },
+    };
+
+    if (options.userId) {
+      where.userId = options.userId;
+    }
+
+    if (options.route) {
+      where.pagePath = { contains: options.route, mode: 'insensitive' };
+    }
+
+    const [totalRecords, uniqueUserRows, activeAgg, methodCounts] = await Promise.all([
+      prisma.customerActivityEvent.count({ where }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['userId'],
+        where,
+        _count: { id: true },
+      }),
+      prisma.customerActivityEvent.aggregate({
+        where,
+        _sum: { durationSeconds: true, clickCount: true },
+      }),
+      Promise.all([
+        prisma.customerActivityEvent.count({ where: { ...where, pageTitle: { startsWith: 'GET ' } } }),
+        prisma.customerActivityEvent.count({ where: { ...where, pageTitle: { startsWith: 'POST ' } } }),
+        prisma.customerActivityEvent.count({ where: { ...where, pageTitle: { startsWith: 'PUT ' } } }),
+        prisma.customerActivityEvent.count({ where: { ...where, pageTitle: { startsWith: 'PATCH ' } } }),
+        prisma.customerActivityEvent.count({ where: { ...where, pageTitle: { startsWith: 'DELETE ' } } }),
+      ]),
+    ]);
+
+    const summary: StaffActivitySummary = {
+      totalEvents: totalRecords,
+      uniqueStaff: uniqueUserRows.length,
+      activeSeconds: Number(activeAgg._sum.durationSeconds || 0),
+      clickCount: Number(activeAgg._sum.clickCount || 0),
+      getCount: methodCounts[0],
+      postCount: methodCounts[1],
+      putCount: methodCounts[2],
+      patchCount: methodCounts[3],
+      deleteCount: methodCounts[4],
+    };
+
+    const [topRoutesRaw, topUsersRaw] = await Promise.all([
+      prisma.customerActivityEvent.groupBy({
+        by: ['pagePath'],
+        where: { ...where, pagePath: { not: null } },
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 10,
+      }),
+      prisma.customerActivityEvent.groupBy({
+        by: ['userId'],
+        where,
+        _count: { id: true },
+        _sum: { durationSeconds: true, clickCount: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 10,
+      }),
+    ]);
+
+    const topRoutes: StaffActivityTopRoute[] = topRoutesRaw
+      .filter((row) => row.pagePath)
+      .map((row) => ({
+        route: row.pagePath as string,
+        count: row._count.id,
+      }));
+
+    const topUserIds = topUsersRaw.map((row) => row.userId);
+    const topUsersDetails = topUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: topUserIds } },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            displayName: true,
+            role: true,
+          },
+        })
+      : [];
+
+    const userMap = new Map(topUsersDetails.map((row) => [row.id, row]));
+    const topUsers: StaffActivityTopUser[] = topUsersRaw.map((row) => {
+      const user = userMap.get(row.userId);
+      return {
+        userId: row.userId,
+        userName: user?.displayName || user?.name || null,
+        email: user?.email || null,
+        role: (user?.role || 'ADMIN') as UserRole,
+        eventCount: row._count.id,
+        activeSeconds: Number(row._sum.durationSeconds || 0),
+        clickCount: Number(row._sum.clickCount || 0),
+      };
+    });
+
+    const totalPages = Math.max(1, Math.ceil(totalRecords / limit));
+    const offset = (page - 1) * limit;
+    const events = await prisma.customerActivityEvent.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            name: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    const eventRows: StaffActivityEventRow[] = events.map((event) => {
+      const meta = event.meta && typeof event.meta === 'object' ? (event.meta as Record<string, any>) : {};
+      const method = typeof meta.method === 'string' ? meta.method : event.pageTitle?.split(' ')[0] || 'GET';
+      const route = typeof meta.route === 'string' ? meta.route : event.pagePath;
+      const statusCode = Number.isFinite(meta.statusCode) ? Number(meta.statusCode) : null;
+      const durationMs = Number.isFinite(meta.durationMs)
+        ? Number(meta.durationMs)
+        : Number.isFinite(event.durationSeconds)
+        ? Number(event.durationSeconds) * 1000
+        : null;
+
+      return {
+        id: event.id,
+        createdAt: event.createdAt,
+        userId: event.userId,
+        userName: event.user?.displayName || event.user?.name || null,
+        email: event.user?.email || null,
+        role: event.user?.role || 'ADMIN',
+        method,
+        route: route || null,
+        statusCode,
+        durationMs,
+        pageTitle: event.pageTitle,
+        pagePath: event.pagePath,
+        meta: event.meta ?? null,
+      };
+    });
+
+    return {
+      summary,
+      topRoutes,
+      topUsers,
+      events: eventRows,
+      pagination: {
+        page,
+        limit,
+        totalPages,
+        totalRecords,
+      },
+      metadata: {
+        startDate: formatDateKey(parsedStart),
+        endDate: formatDateKey(parsedEnd),
+        role: roleFilter,
         userId: options.userId || null,
       },
     };

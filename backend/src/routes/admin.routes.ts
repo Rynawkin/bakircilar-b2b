@@ -17,6 +17,7 @@ import {
   requirePermission,
   requireAnyPermission
 } from '../middleware/auth.middleware';
+import { trackStaffApiActivity } from '../middleware/staff-activity.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload, taskUpload, invoiceUpload, supplierPriceListUpload, quoteItemImageUpload } from '../middleware/upload.middleware';
 import { z } from 'zod';
@@ -25,6 +26,7 @@ const router = Router();
 
 // TÃ¼m route'lar authentication gerektirir, role kontrolÃ¼ route bazÄ±nda yapÄ±lÄ±r
 router.use(authenticate);
+router.use(trackStaffApiActivity);
 
 // Validation schemas
 const createCustomerSchema = z.object({
@@ -459,6 +461,7 @@ router.get('/reports/product-customers/:productCode', requirePermission('reports
 router.get('/reports/complement-missing', requirePermission('reports:complement-missing'), adminController.getComplementMissingReport);
 router.get('/reports/complement-missing/export', requirePermission('reports:complement-missing'), adminController.exportComplementMissingReport);
 router.get('/reports/customer-activity', requirePermission('reports:customer-activity'), adminController.getCustomerActivityReport);
+router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);
 // Price Sync endpoints
 router.post('/price-sync', requirePermission('admin:price-sync'), adminController.syncPriceChanges);

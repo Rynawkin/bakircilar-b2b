@@ -3426,6 +3426,33 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/staff-activity
+   * Personel aktivite raporu (sales rep, manager, depocu vb.)
+   */
+  async getStaffActivityReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { startDate, endDate, role, userId, page, limit, route } = req.query;
+
+      const data = await reportsService.getStaffActivityReport({
+        startDate: startDate as string,
+        endDate: endDate as string,
+        role: role as any,
+        userId: userId as string,
+        route: route as string,
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/customer-carts
    * Musterilerin guncel sepetlerini listeler
    */
