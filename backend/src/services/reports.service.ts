@@ -3717,6 +3717,9 @@ export class ReportsService {
         gte: parsedStart,
         lt: endExclusive,
       },
+      user: {
+        role: 'CUSTOMER',
+      },
     };
 
     if (customer?.id) {
@@ -3996,6 +3999,10 @@ export class ReportsService {
       createdAt: { gte: parsedStart, lt: endExclusive },
       user: {
         role: roleFilter ? roleFilter : { in: staffRoles },
+      },
+      meta: {
+        path: ['source'],
+        equals: 'STAFF_API',
       },
       NOT: STAFF_ACTIVITY_HIDDEN_ROUTE_TOKENS.flatMap((token) => [
         { pagePath: { contains: token, mode: 'insensitive' as const } },
