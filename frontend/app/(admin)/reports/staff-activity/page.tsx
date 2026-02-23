@@ -35,6 +35,8 @@ interface StaffEventRow {
   role: StaffRole;
   method: string;
   route?: string | null;
+  action?: string | null;
+  details?: string | null;
   pagePath?: string | null;
   statusCode?: number | null;
   durationMs?: number | null;
@@ -252,8 +254,8 @@ export default function StaffActivityReportPage() {
                   <TableHead>Tarih</TableHead>
                   <TableHead>Personel</TableHead>
                   <TableHead>Rol</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Route</TableHead>
+                  <TableHead>Adim / Aksiyon</TableHead>
+                  <TableHead>Detay</TableHead>
                   <TableHead>Durum</TableHead>
                   <TableHead>Sure</TableHead>
                 </TableRow>
@@ -276,8 +278,13 @@ export default function StaffActivityReportPage() {
                       </div>
                     </TableCell>
                     <TableCell><Badge variant="default">{event.role}</Badge></TableCell>
-                    <TableCell><Badge variant={methodVariant(event.method)}>{event.method}</Badge></TableCell>
-                    <TableCell className="text-xs font-mono">{event.route || event.pagePath || '-'}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={methodVariant(event.method)}>{event.method}</Badge>
+                        <span className="text-xs font-mono">{event.action || event.route || event.pagePath || '-'}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-700">{event.details || '-'}</TableCell>
                     <TableCell>
                       <Badge variant={statusVariant(event.statusCode)}>
                         {event.statusCode ?? '-'}

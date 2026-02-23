@@ -317,6 +317,8 @@ interface StaffActivityEventRow {
   role: UserRole;
   method: string;
   route: string | null;
+  action: string;
+  details: string | null;
   statusCode: number | null;
   durationMs: number | null;
   pageTitle: string | null;
@@ -400,6 +402,53 @@ const formatDateKey = (date: Date): string => {
 };
 
 const formatDateCompact = (date: Date): string => formatDateKey(date).replace(/-/g, '');
+
+const STAFF_ACTIVITY_HIDDEN_ROUTE_TOKENS = ['/notifications'];
+
+const isLikelyRouteIdSegment = (segment: string): boolean => {
+  if (!segment) return false;
+  if (/^\d{3,}$/.test(segment)) return true;
+  if (/^[0-9a-f]{24}$/i.test(segment)) return true;
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(segment)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+const normalizeRouteForAction = (route?: string | null): string => {
+  const raw = String(route || '').trim();
+  if (!raw) return '/';
+  const [pathOnly] = raw.split('?');
+  const normalized = pathOnly
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => (isLikelyRouteIdSegment(segment) ? ':id' : segment))
+    .join('/');
+  return `/${normalized}`;
+};
+
+const summarizeMetaKeys = (value: unknown): string | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const keys = Object.keys(value as Record<string, unknown>).filter(Boolean);
+  return keys.length ? keys.slice(0, 6).join(', ') : null;
+};
+
+const buildStaffEventDetails = (meta: Record<string, any>): string | null => {
+  const chunks: string[] = [];
+  const queryKeys = summarizeMetaKeys(meta.query);
+  if (queryKeys) chunks.push(`query: ${queryKeys}`);
+
+  const bodyKeys =
+    Array.isArray(meta.bodyKeys) ? meta.bodyKeys.filter((key: unknown) => typeof key === 'string' && key.trim()) : [];
+  if (bodyKeys.length) chunks.push(`body: ${bodyKeys.slice(0, 6).join(', ')}`);
+
+  const originalUrl = typeof meta.originalUrl === 'string' ? meta.originalUrl.trim() : '';
+  if (originalUrl.includes('?') && chunks.length === 0) chunks.push(`url: ${originalUrl}`);
+
+  return chunks.length ? chunks.join(' | ') : null;
+};
 
 const subtractMonthsUtc = (date: Date, months: number): Date => {
   const next = new Date(date);
@@ -3948,6 +3997,10 @@ export class ReportsService {
       user: {
         role: roleFilter ? roleFilter : { in: staffRoles },
       },
+      NOT: STAFF_ACTIVITY_HIDDEN_ROUTE_TOKENS.flatMap((token) => [
+        { pagePath: { contains: token, mode: 'insensitive' as const } },
+        { pageTitle: { contains: token, mode: 'insensitive' as const } },
+      ]),
     };
 
     if (options.userId) {
@@ -4073,6 +4126,8 @@ export class ReportsService {
         : Number.isFinite(event.durationSeconds)
         ? Number(event.durationSeconds) * 1000
         : null;
+      const action = `${method.toUpperCase()} ${normalizeRouteForAction(route || event.pagePath)}`;
+      const details = buildStaffEventDetails(meta);
 
       return {
         id: event.id,
@@ -4083,6 +4138,8 @@ export class ReportsService {
         role: event.user?.role || 'ADMIN',
         method,
         route: route || null,
+        action,
+        details,
         statusCode,
         durationMs,
         pageTitle: event.pageTitle,

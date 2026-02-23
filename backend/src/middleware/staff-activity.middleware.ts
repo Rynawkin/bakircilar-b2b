@@ -5,6 +5,7 @@ const STAFF_ROLES = new Set(['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP', 'DEP
 const IGNORED_PATHS = [
   '/api/admin/reports/staff-activity',
   '/api/admin/reports/customer-activity',
+  '/api/admin/notifications',
 ];
 
 const shouldIgnorePath = (path: string) => {
@@ -63,4 +64,3 @@ export const trackStaffApiActivity = (req: Request, res: Response, next: NextFun
 
   next();
 };
-
