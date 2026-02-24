@@ -3477,6 +3477,45 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/ucarer-depo
+   * Ucarer depo karar raporu (Merkez/Topca)
+   */
+  async getUcarerDepotReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { depot, limit } = req.query;
+
+      const data = await reportsService.getUcarerDepotReport({
+        depot: String(depot || 'MERKEZ').toUpperCase() === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/ucarer-minmax/run
+   * MinMax dinamik hesap prosedurunu calistirir
+   */
+  async runUcarerMinMaxReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.runUcarerMinMaxReport();
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/recommendations/complements
    * Tamamlayici urun onerilerini getirir.
    */

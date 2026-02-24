@@ -14,7 +14,9 @@ import {
   FileText,
   Search,
   ShoppingCart,
-  History
+  History,
+  Warehouse,
+  Sigma
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -83,6 +85,26 @@ const reports: ReportCard[] = [
     badge: 'Önerilen',
   },
 
+  {
+    id: 'ucarer-depo',
+    title: 'Ucarer Depo Karar Raporu',
+    description: 'Merkez/Topca depo icin siparis, dsv ve min-max bazli urun karar ekrani',
+    icon: <Warehouse className="h-5 w-5" />,
+    href: '/reports/ucarer-depo',
+    category: 'stock',
+    badge: 'Yeni',
+    permission: 'reports:ucarer-depo',
+  },
+  {
+    id: 'ucarer-minmax',
+    title: 'Ucarer MinMax Dinamik',
+    description: 'Min-max degerlerini dinamik hesaplayan prosedur sonucunu gosterir',
+    icon: <Sigma className="h-5 w-5" />,
+    href: '/reports/ucarer-depo',
+    category: 'stock',
+    badge: 'Yeni',
+    permission: 'reports:ucarer-minmax',
+  },
   // Satış & Müşteri Raporları
   {
     id: 'top-products',

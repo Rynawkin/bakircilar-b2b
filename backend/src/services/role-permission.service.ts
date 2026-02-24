@@ -27,6 +27,8 @@ export const AVAILABLE_PERMISSIONS = {
   'reports:customer-activity': 'Musteri Aktivite Takibi',
   'reports:staff-activity': 'Personel Aktivite Takibi',
   'reports:customer-carts': 'Musteri Sepetleri',
+  'reports:ucarer-depo': 'Ucarer Depo Karar Raporu',
+  'reports:ucarer-minmax': 'Ucarer MinMax Dinamik Hesaplama',
 
   // Admin Pages
   'admin:customers': 'Musteri Yonetimi',
@@ -76,6 +78,8 @@ export const PERMISSION_DESCRIPTIONS = {
   'reports:customer-activity': 'Musteri aktivite ve davranis raporuna erisim izni verir',
   'reports:staff-activity': 'Personelin yaptigi islemleri aktivite bazli izleme raporuna erisim izni verir',
   'reports:customer-carts': 'Musteri sepet raporuna erisim izni verir',
+  'reports:ucarer-depo': 'Ucarer depo karar raporuna erisim izni verir',
+  'reports:ucarer-minmax': 'Ucarer MinMax hesaplama raporuna erisim izni verir',
 
   // Admin Pages
   'admin:customers': 'Musteri listesi ve musteri yonetim sayfalarina erisim izni verir',
@@ -254,6 +258,8 @@ class RolePermissionService {
         'dashboard:cari-ara',
         'reports:pending-orders',
         'reports:staff-activity',
+        'reports:ucarer-depo',
+        'reports:ucarer-minmax',
         'admin:orders',
         'admin:quotes',
         'admin:customers',

@@ -1967,6 +1967,22 @@ export const adminApi = {
     return response.data;
   },
 
+  getUcarerDepotReport: async (params?: {
+    depot?: 'MERKEZ' | 'TOPCA';
+    limit?: number;
+  }): Promise<{ success: boolean; data: { depot: 'MERKEZ' | 'TOPCA'; rows: any[]; columns: string[]; total: number; limited: boolean } }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.depot) queryParams.append('depot', params.depot);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    const response = await apiClient.get(`/admin/reports/ucarer-depo?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  runUcarerMinMaxReport: async (): Promise<{ success: boolean; data: { rows: any[]; columns: string[]; total: number } }> => {
+    const response = await apiClient.post('/admin/reports/ucarer-minmax/run');
+    return response.data;
+  },
+
 
   getCustomerCartsReport: async (params: {
     search?: string;

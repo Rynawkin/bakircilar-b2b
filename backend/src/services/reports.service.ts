@@ -405,6 +405,72 @@ const formatDateCompact = (date: Date): string => formatDateKey(date).replace(/-
 
 const STAFF_ACTIVITY_HIDDEN_ROUTE_TOKENS = ['/notifications'];
 
+const UCARER_MERKEZ_DEPO_SQL = `
+SELECT
+DMD.[STOK KODU],
+DMD.[STOK ADI],
+DMD.[Merkez Depo] AS [Merkez Depo Miktari],
+DMD.[Alinan Sipariste Bekleyen],
+DMD.[Alinan Siparis Tarihi] AS [Alinan Siparis Ilk Tarihi],
+DMD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [Alinan Siparis Sonrasi Depo Ihtiyac Durumu 1.SORUN],
+ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0) AS [Diger Depolardan Gelecek DSV Toplamlari],
+(DMD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0)) AS [Gelecek DSV Sonrasi Ihtiyac Durumu 2.SORUN],
+DMD.[Verilen Sipariste Bekleyen],
+CASE
+WHEN DMD.[Verilen Tarihi]='01.01.1900' THEN ''
+WHEN DMD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DMD.[Verilen Tarihi] END AS [Verilen Siparis Son Tarihi],
+DMD.[DEPO + VERILEN SIPARIS MIKTARI],
+DMD.[REEL MIKTAR] AS [Satinalma Siparisi Sonrasi Ihtiyac Durumu 3.SORUN],
+DMD.[Merkez Minimum Miktar],
+DMD.[Merkez Maximum Miktar],
+CASE
+WHEN DMD.[REEL MIKTAR]<DMD.[Merkez Minimum Miktar] THEN ((DMD.[Merkez Maximum Miktar])-(DMD.[REEL MIKTAR]))
+WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] AND DMD.[Merkez Minimum Miktar]='0' THEN ((DMD.[Merkez Maximum Miktar])-(DMD.[REEL MIKTAR]))
+WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] AND DMD.[REEL MIKTAR]>DMD.[Merkez Maximum Miktar] THEN ((DMD.[Merkez Maximum Miktar])-(DMD.[REEL MIKTAR]))
+WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] THEN '0'
+WHEN DMD.[REEL MIKTAR]=DMD.[Merkez Minimum Miktar] THEN '0'
+END AS [Eksiltilecek Ilave Verilecek Islem Yapilmayacak Miktar Durumu 4.SORUN],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0) as [Dukkan Depo],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU],1,0) as [Merkez Depo],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0) as [Eregli Depo],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU],6,0) as [Topca Depo],
+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0)) AS [4 Depo Toplam Miktari]
+FROM DEPO_MERKEZ_DURUM DMD
+`;
+
+const UCARER_TOPCA_DEPO_SQL = `
+SELECT
+DTD.[STOK KODU],
+DTD.[STOK ADI],
+DTD.[Topca Depo] AS [Topca Depo Miktari],
+DTD.[Alinan Sipariste Bekleyen],
+DTD.[Alinan Siparis Tarihi] AS [Alinan Siparis Ilk Tarihi],
+DTD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [Alinan Siparis Sonrasi Depo Ihtiyac Durumu 1.SORUN],
+ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0) AS [Diger Depolardan Gelecek DSV Toplamlari],
+(DTD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0)) AS [Gelecek DSV Sonrasi Ihtiyac Durumu 2.SORUN],
+DTD.[Verilen Sipariste Bekleyen],
+CASE
+WHEN DTD.[Verilen Tarihi]='01.01.1900' THEN ''
+WHEN DTD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DTD.[Verilen Tarihi] END AS [Verilen Siparis Son Tarihi],
+DTD.[DEPO + VERILEN SIPARIS MIKTARI],
+DTD.[REEL MIKTAR] AS [Satinalma Siparisi Sonrasi Ihtiyac Durumu 3.SORUN],
+DTD.[Merkez Minimum Miktar],
+DTD.[Merkez Maximum Miktar],
+CASE
+WHEN DTD.[REEL MIKTAR]<DTD.[Merkez Minimum Miktar] THEN ((DTD.[Merkez Maximum Miktar])-(DTD.[REEL MIKTAR]))
+WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] AND DTD.[Merkez Minimum Miktar]='0' THEN ((DTD.[Merkez Maximum Miktar])-(DTD.[REEL MIKTAR]))
+WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] AND DTD.[REEL MIKTAR]>DTD.[Merkez Maximum Miktar] THEN ((DTD.[Merkez Maximum Miktar])-(DTD.[REEL MIKTAR]))
+WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] THEN '0'
+WHEN DTD.[REEL MIKTAR]=DTD.[Merkez Minimum Miktar] THEN '0'
+END AS [Eksiltilecek Ilave Verilecek Islem Yapilmayacak Miktar Durumu 4.SORUN],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0) as [Dukkan Depo],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU],1,0) as [Merkez Depo],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0) as [Eregli Depo],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0) as [Topca Depo],
+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0)) AS [4 Depo Toplam Miktari]
+FROM DEPO_TOPCA_DURUM DTD
+`;
+
 const isLikelyRouteIdSegment = (segment: string): boolean => {
   if (!segment) return false;
   if (/^\d{3,}$/.test(segment)) return true;
@@ -4303,6 +4369,49 @@ export class ReportsService {
         totalPages,
         totalRecords,
       },
+    };
+  }
+
+  async getUcarerDepotReport(options: {
+    depot: 'MERKEZ' | 'TOPCA';
+    limit?: number;
+  }): Promise<{
+    depot: 'MERKEZ' | 'TOPCA';
+    rows: Record<string, any>[];
+    columns: string[];
+    total: number;
+    limited: boolean;
+  }> {
+    const depot = options.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
+    const limit = options.limit && options.limit > 0 ? Math.min(options.limit, 5000) : 1000;
+    const sql = depot === 'TOPCA' ? UCARER_TOPCA_DEPO_SQL : UCARER_MERKEZ_DEPO_SQL;
+    const rows = await mikroService.executeQuery(sql);
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0] || {}) : [];
+    const limitedRows = normalizedRows.slice(0, limit);
+
+    return {
+      depot,
+      rows: limitedRows,
+      columns,
+      total: normalizedRows.length,
+      limited: normalizedRows.length > limitedRows.length,
+    };
+  }
+
+  async runUcarerMinMaxReport(): Promise<{
+    rows: Record<string, any>[];
+    columns: string[];
+    total: number;
+  }> {
+    const rows = await mikroService.executeQuery('exec [FEBG_MinMaxHesaplaRES]');
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0] || {}) : [];
+
+    return {
+      rows: normalizedRows,
+      columns,
+      total: normalizedRows.length,
     };
   }
 
