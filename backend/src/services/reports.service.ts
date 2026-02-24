@@ -4385,7 +4385,23 @@ export class ReportsService {
     const depot = options.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
     const limit = options.limit && options.limit > 0 ? Math.min(options.limit, 5000) : 1000;
     const sql = depot === 'TOPCA' ? UCARER_TOPCA_DEPO_SQL : UCARER_MERKEZ_DEPO_SQL;
-    const rows = await mikroService.executeQuery(sql);
+    let rows: any[] = [];
+    try {
+      rows = await mikroService.executeQuery(sql);
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      const isColumnMismatch = message.toLowerCase().includes('invalid column name');
+      if (!isColumnMismatch) {
+        throw error;
+      }
+
+      const fallbackSql =
+        depot === 'TOPCA'
+          ? 'SELECT * FROM DEPO_TOPCA_DURUM'
+          : 'SELECT * FROM DEPO_MERKEZ_DURUM';
+      rows = await mikroService.executeQuery(fallbackSql);
+    }
+
     const normalizedRows = Array.isArray(rows) ? rows : [];
     const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0] || {}) : [];
     const limitedRows = normalizedRows.slice(0, limit);
