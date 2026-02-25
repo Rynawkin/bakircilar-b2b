@@ -83,6 +83,7 @@ export default function UcarerDepotReportPage() {
   const [splitBByFamily, setSplitBByFamily] = useState<Record<string, string>>({});
   const [splitRatioByFamily, setSplitRatioByFamily] = useState<Record<string, number>>({});
   const [manualAllocations, setManualAllocations] = useState<Record<string, Record<string, number>>>({});
+  const [activeFamilyId, setActiveFamilyId] = useState<string>('');
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
   const [defaultColumnWidth] = useState(180);
@@ -232,6 +233,16 @@ export default function UcarerDepotReportPage() {
     loadFamilies();
   }, []);
 
+  useEffect(() => {
+    if (families.length === 0) {
+      setActiveFamilyId('');
+      return;
+    }
+    if (!activeFamilyId || !families.some((family) => family.id === activeFamilyId)) {
+      setActiveFamilyId(families[0].id);
+    }
+  }, [families, activeFamilyId]);
+
   const loadDepotReport = async () => {
     setDepotLoading(true);
     try {
@@ -299,16 +310,6 @@ export default function UcarerDepotReportPage() {
     }
   };
 
-  const removeFamily = async (familyId: string) => {
-    try {
-      await adminApi.deleteProductFamily(familyId);
-      setFamilies((prev) => prev.filter((row) => row.id !== familyId));
-      toast.success('Aile silindi');
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Aile silinemedi');
-    }
-  };
-
   const getFamilyNeed = (family: ProductFamily): number => {
     let total = 0;
     family.items.forEach((item) => {
@@ -359,6 +360,21 @@ export default function UcarerDepotReportPage() {
       },
     }));
   };
+
+  const activeFamily = useMemo(
+    () => families.find((family) => family.id === activeFamilyId) || null,
+    [families, activeFamilyId]
+  );
+
+  const activeFamilyAllocations = activeFamily ? (manualAllocations[activeFamily.id] || {}) : {};
+  const activeFamilyNeed = activeFamily ? getFamilyNeed(activeFamily) : 0;
+  const activeFamilyAllocated = activeFamily
+    ? activeFamily.items.reduce(
+        (sum, item) => sum + (activeFamilyAllocations[String(item.productCode || '').toUpperCase()] || 0),
+        0
+      )
+    : 0;
+  const activeFamilyRemaining = Math.max(0, activeFamilyNeed - activeFamilyAllocated);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -515,17 +531,27 @@ export default function UcarerDepotReportPage() {
                         <th className="px-2 py-2 text-right">
                           Oneri ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'})
                         </th>
+                        <th className="px-2 py-2 text-right">Detay</th>
                       </tr>
                     </thead>
                     <tbody>
                       {familySuggestions.map((row) => (
-                        <tr key={row.id} className="border-t">
+                        <tr
+                          key={row.id}
+                          className={`border-t cursor-pointer ${activeFamilyId === row.id ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                          onClick={() => setActiveFamilyId(row.id)}
+                        >
                           <td className="px-2 py-2">
                             {row.name} {row.code ? `(${row.code})` : ''}
                           </td>
                           <td className="px-2 py-2 text-right">{row.itemCount.toLocaleString('tr-TR')}</td>
                           <td className="px-2 py-2 text-right font-semibold text-emerald-700">
                             {row.suggested.toLocaleString('tr-TR')}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <Button size="sm" variant={activeFamilyId === row.id ? 'primary' : 'outline'}>
+                              {activeFamilyId === row.id ? 'Acik' : 'Ac'}
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -539,9 +565,9 @@ export default function UcarerDepotReportPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Stok Aileleri ve Dagitim</CardTitle>
+            <CardTitle>Aile Operasyon Paneli</CardTitle>
             <CardDescription>
-              Secili moda gore aile ihtiyacini hesapla ve ihtiyaci tek urun / iki urun / manuel dagit.
+              Aile bazli oneriden sec, detayini ac, dagitimi tek panelden hizli yonet.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -554,169 +580,176 @@ export default function UcarerDepotReportPage() {
               </Link>
             </div>
 
-            <div className="space-y-3">
-              {familyLoading && <p className="text-sm text-gray-500">Aileler yukleniyor...</p>}
-              {!familyLoading && families.length === 0 && (
-                <p className="text-sm text-gray-500">Tanimli aile yok.</p>
-              )}
+            {familyLoading && <p className="text-sm text-gray-500">Aileler yukleniyor...</p>}
+            {!familyLoading && !activeFamily && (
+              <p className="text-sm text-gray-500">Tanimli aile yok.</p>
+            )}
 
-              {families.map((family) => {
-                const familyNeed = getFamilyNeed(family);
-                const mode = allocationModeByFamily[family.id] || 'MANUAL';
-                const allocations = manualAllocations[family.id] || {};
-                const allocatedTotal = family.items.reduce(
-                  (sum, item) => sum + (allocations[String(item.productCode || '').toUpperCase()] || 0),
-                  0
-                );
-                const remaining = familyNeed - allocatedTotal;
-
-                return (
-                  <div key={family.id} className="rounded-md border p-3 bg-white space-y-2">
-                    <div className="flex flex-wrap items-center gap-2 justify-between">
-                      <div>
-                        <p className="font-semibold text-sm">
-                          {family.name} {family.code ? `(${family.code})` : ''}
-                        </p>
-                        <p className="text-xs text-gray-600">
-                          Ihtiyac ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'}):{' '}
-                          <strong>{familyNeed.toLocaleString('tr-TR')}</strong>
-                        </p>
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => removeFamily(family.id)}>
-                        Sil
-                      </Button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">Dagitim Modu</p>
-                        <Select
-                          value={mode}
-                          onChange={(e) =>
-                            setAllocationModeByFamily((prev) => ({ ...prev, [family.id]: e.target.value as AllocationMode }))
-                          }
-                        >
-                          <option value="SINGLE">Tek Urun</option>
-                          <option value="TWO_SPLIT">Iki Urun</option>
-                          <option value="MANUAL">Manuel</option>
-                        </Select>
-                      </div>
-
-                      {mode === 'SINGLE' && (
-                        <>
-                          <div>
-                            <p className="text-xs text-gray-600 mb-1">Urun</p>
-                            <Select
-                              value={singleCodeByFamily[family.id] || family.items[0]?.productCode || ''}
-                              onChange={(e) =>
-                                setSingleCodeByFamily((prev) => ({ ...prev, [family.id]: e.target.value }))
-                              }
-                            >
-                              {family.items.map((item) => (
-                                <option key={item.id} value={item.productCode}>
-                                  {item.productCode}
-                                </option>
-                              ))}
-                            </Select>
-                          </div>
-                          <Button size="sm" onClick={() => applySingleAllocation(family)}>
-                            Tek Urune Dagit
-                          </Button>
-                        </>
-                      )}
-
-                      {mode === 'TWO_SPLIT' && (
-                        <>
-                          <div>
-                            <p className="text-xs text-gray-600 mb-1">Urun A</p>
-                            <Select
-                              value={splitAByFamily[family.id] || family.items[0]?.productCode || ''}
-                              onChange={(e) => setSplitAByFamily((prev) => ({ ...prev, [family.id]: e.target.value }))}
-                            >
-                              {family.items.map((item) => (
-                                <option key={item.id} value={item.productCode}>
-                                  {item.productCode}
-                                </option>
-                              ))}
-                            </Select>
-                          </div>
-                          <div>
-                            <p className="text-xs text-gray-600 mb-1">Urun B</p>
-                            <Select
-                              value={splitBByFamily[family.id] || family.items[1]?.productCode || family.items[0]?.productCode || ''}
-                              onChange={(e) => setSplitBByFamily((prev) => ({ ...prev, [family.id]: e.target.value }))}
-                            >
-                              {family.items.map((item) => (
-                                <option key={item.id} value={item.productCode}>
-                                  {item.productCode}
-                                </option>
-                              ))}
-                            </Select>
-                          </div>
-                          <div>
-                            <p className="text-xs text-gray-600 mb-1">
-                              A Urun Orani: <strong>{splitRatioByFamily[family.id] ?? 50}%</strong>
-                            </p>
-                            <input
-                              type="range"
-                              min={0}
-                              max={100}
-                              step={5}
-                              value={splitRatioByFamily[family.id] ?? 50}
-                              onChange={(e) =>
-                                setSplitRatioByFamily((prev) => ({ ...prev, [family.id]: Number(e.target.value) }))
-                              }
-                              className="w-full"
-                            />
-                            <Button size="sm" className="mt-1 w-full" onClick={() => applySplitAllocation(family)}>
-                              Iki Urune Dagit
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    <div className="overflow-auto rounded border">
-                      <table className="w-full text-xs">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="px-2 py-2 text-left">Stok Kodu</th>
-                            <th className="px-2 py-2 text-left">Urun Adi</th>
-                            <th className="px-2 py-2 text-right">Dagitim Miktari</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {family.items.map((item) => {
-                            const code = String(item.productCode || '').toUpperCase();
-                            return (
-                              <tr key={item.id} className="border-t">
-                                <td className="px-2 py-2">{item.productCode}</td>
-                                <td className="px-2 py-2">{item.productName || '-'}</td>
-                                <td className="px-2 py-2 text-right">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    value={allocations[code] ?? 0}
-                                    onChange={(e) => setManualAllocation(family.id, code, Number(e.target.value))}
-                                    className="w-24 rounded border px-2 py-1 text-right"
-                                    disabled={mode !== 'MANUAL'}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <p className={`text-xs ${remaining === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                      Dagitim Toplami: {allocatedTotal.toLocaleString('tr-TR')} / Ihtiyac:{' '}
-                      {familyNeed.toLocaleString('tr-TR')} / Kalan: {remaining.toLocaleString('tr-TR')}
+            {activeFamily && (
+              <div className="rounded-xl border bg-gradient-to-br from-white to-slate-50 p-4 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {activeFamily.name} {activeFamily.code ? `(${activeFamily.code})` : ''}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Mode gore ihtiyac ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'})
                     </p>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg bg-white border px-3 py-2">
+                      <p className="text-[11px] text-gray-500">Ihtiyac</p>
+                      <p className="font-semibold text-gray-900">{activeFamilyNeed.toLocaleString('tr-TR')}</p>
+                    </div>
+                    <div className="rounded-lg bg-white border px-3 py-2">
+                      <p className="text-[11px] text-gray-500">Dagitim</p>
+                      <p className="font-semibold text-blue-700">{activeFamilyAllocated.toLocaleString('tr-TR')}</p>
+                    </div>
+                    <div className="rounded-lg bg-white border px-3 py-2">
+                      <p className="text-[11px] text-gray-500">Kalan</p>
+                      <p className={`font-semibold ${activeFamilyRemaining === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {activeFamilyRemaining.toLocaleString('tr-TR')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
+                  <div className="lg:col-span-3">
+                    <p className="text-xs text-gray-600 mb-1">Dagitim Modu</p>
+                    <Select
+                      value={allocationModeByFamily[activeFamily.id] || 'MANUAL'}
+                      onChange={(e) =>
+                        setAllocationModeByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value as AllocationMode }))
+                      }
+                    >
+                      <option value="SINGLE">Tek Urun</option>
+                      <option value="TWO_SPLIT">Iki Urun</option>
+                      <option value="MANUAL">Manuel</option>
+                    </Select>
+                  </div>
+
+                  {(allocationModeByFamily[activeFamily.id] || 'MANUAL') === 'SINGLE' && (
+                    <>
+                      <div className="lg:col-span-5">
+                        <p className="text-xs text-gray-600 mb-1">Urun</p>
+                        <Select
+                          value={singleCodeByFamily[activeFamily.id] || activeFamily.items[0]?.productCode || ''}
+                          onChange={(e) =>
+                            setSingleCodeByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))
+                          }
+                        >
+                          {activeFamily.items.map((item) => (
+                            <option key={item.id} value={item.productCode}>
+                              {item.productCode} - {item.productName || '-'}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div className="lg:col-span-2">
+                        <Button size="sm" className="w-full" onClick={() => applySingleAllocation(activeFamily)}>
+                          Uygula
+                        </Button>
+                      </div>
+                    </>
+                  )}
+
+                  {(allocationModeByFamily[activeFamily.id] || 'MANUAL') === 'TWO_SPLIT' && (
+                    <>
+                      <div className="lg:col-span-3">
+                        <p className="text-xs text-gray-600 mb-1">Urun A</p>
+                        <Select
+                          value={splitAByFamily[activeFamily.id] || activeFamily.items[0]?.productCode || ''}
+                          onChange={(e) => setSplitAByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
+                        >
+                          {activeFamily.items.map((item) => (
+                            <option key={item.id} value={item.productCode}>
+                              {item.productCode}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div className="lg:col-span-3">
+                        <p className="text-xs text-gray-600 mb-1">Urun B</p>
+                        <Select
+                          value={splitBByFamily[activeFamily.id] || activeFamily.items[1]?.productCode || activeFamily.items[0]?.productCode || ''}
+                          onChange={(e) => setSplitBByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
+                        >
+                          {activeFamily.items.map((item) => (
+                            <option key={item.id} value={item.productCode}>
+                              {item.productCode}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div className="lg:col-span-2">
+                        <p className="text-xs text-gray-600 mb-1">A Orani %{splitRatioByFamily[activeFamily.id] ?? 50}</p>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={splitRatioByFamily[activeFamily.id] ?? 50}
+                          onChange={(e) =>
+                            setSplitRatioByFamily((prev) => ({ ...prev, [activeFamily.id]: Number(e.target.value) }))
+                          }
+                          className="w-full"
+                        />
+                      </div>
+                      <div className="lg:col-span-1">
+                        <Button size="sm" className="w-full" onClick={() => applySplitAllocation(activeFamily)}>
+                          Uygula
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="overflow-auto rounded border bg-white">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-2 py-2 text-left">Stok Kodu</th>
+                        <th className="px-2 py-2 text-left">Urun Adi</th>
+                        <th className="px-2 py-2 text-right">Aile Oneri</th>
+                        <th className="px-2 py-2 text-right">Dagitim</th>
+                        <th className="px-2 py-2 text-right">Fark</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeFamily.items.map((item) => {
+                        const code = String(item.productCode || '').toUpperCase();
+                        const row = rowByProductCode.get(code);
+                        const itemNeed = row ? getSuggestedQty(row) : 0;
+                        const allocation = activeFamilyAllocations[code] ?? 0;
+                        const diff = allocation - itemNeed;
+                        const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
+                        return (
+                          <tr key={item.id} className="border-t">
+                            <td className="px-2 py-2 font-semibold text-gray-900">{item.productCode}</td>
+                            <td className="px-2 py-2 text-gray-700">{item.productName || '-'}</td>
+                            <td className="px-2 py-2 text-right text-emerald-700 font-semibold">{itemNeed.toLocaleString('tr-TR')}</td>
+                            <td className="px-2 py-2 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                value={allocation}
+                                onChange={(e) => setManualAllocation(activeFamily.id, code, Number(e.target.value))}
+                                className="w-24 rounded border px-2 py-1 text-right"
+                                disabled={mode !== 'MANUAL'}
+                              />
+                            </td>
+                            <td className={`px-2 py-2 text-right font-semibold ${diff === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              {diff.toLocaleString('tr-TR')}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
