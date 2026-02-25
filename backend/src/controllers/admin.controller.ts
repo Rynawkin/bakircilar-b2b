@@ -3580,6 +3580,25 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/reports/product-families/create-supplier-orders
+   */
+  async createSupplierOrdersFromFamilies(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { depot, allocations } = req.body as {
+        depot?: 'MERKEZ' | 'TOPCA';
+        allocations?: Array<{ familyId: string; productCode: string; quantity: number }>;
+      };
+      const data = await reportsService.createSupplierOrdersFromFamilyAllocations({
+        depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
+        allocations: Array.isArray(allocations) ? allocations : [],
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/recommendations/complements
    * Tamamlayici urun onerilerini getirir.
    */

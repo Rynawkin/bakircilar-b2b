@@ -2036,6 +2036,27 @@ export const adminApi = {
     return response.data;
   },
 
+  createSupplierOrdersFromFamilyAllocations: async (payload: {
+    depot: 'MERKEZ' | 'TOPCA';
+    allocations: Array<{ familyId: string; productCode: string; quantity: number }>;
+  }): Promise<{
+    success: boolean;
+    data: {
+      createdOrders: Array<{
+        supplierCode: string;
+        supplierName: string | null;
+        orderNumber: string;
+        itemCount: number;
+        totalQuantity: number;
+      }>;
+      missingSupplierProducts: Array<{ productCode: string; quantity: number }>;
+      skippedInvalid: Array<{ familyId: string; productCode: string; quantity: number }>;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/product-families/create-supplier-orders', payload);
+    return response.data;
+  },
+
 
   getCustomerCartsReport: async (params: {
     search?: string;

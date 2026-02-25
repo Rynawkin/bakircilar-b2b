@@ -87,6 +87,7 @@ export default function UcarerDepotReportPage() {
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
   const [familySearch, setFamilySearch] = useState('');
   const [panelHighlight, setPanelHighlight] = useState(false);
+  const [creatingOrders, setCreatingOrders] = useState(false);
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
   const [defaultColumnWidth] = useState(180);
@@ -426,6 +427,46 @@ export default function UcarerDepotReportPage() {
     });
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
+  const createSupplierOrders = async () => {
+    const allocations: Array<{ familyId: string; productCode: string; quantity: number }> = [];
+    families.forEach((family) => {
+      const familyAllocation = manualAllocations[family.id] || {};
+      family.items.forEach((item) => {
+        const code = String(item.productCode || '').trim().toUpperCase();
+        const qty = Math.max(0, Math.trunc(Number(familyAllocation[code] || 0)));
+        if (qty > 0) {
+          allocations.push({ familyId: family.id, productCode: code, quantity: qty });
+        }
+      });
+    });
+
+    if (allocations.length === 0) {
+      toast.error('Siparis olusturmak icin once dagitim miktari girin.');
+      return;
+    }
+
+    setCreatingOrders(true);
+    try {
+      const result = await adminApi.createSupplierOrdersFromFamilyAllocations({
+        depot,
+        allocations,
+      });
+      const created = result.data?.createdOrders || [];
+      if (created.length === 0) {
+        toast.error('Siparis olusturulamadi.');
+        return;
+      }
+      toast.success(`${created.length} tedarikci icin siparis olusturuldu.`);
+      const orderList = created.map((row) => `${row.supplierCode}: ${row.orderNumber}`).join(' | ');
+      if (orderList) {
+        toast(orderList, { duration: 9000 });
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Tedarikci siparisleri olusturulamadi');
+    } finally {
+      setCreatingOrders(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -696,6 +737,9 @@ export default function UcarerDepotReportPage() {
                     </Button>
                     <Button size="sm" variant="outline" onClick={clearActiveAllocations}>
                       Sifirla
+                    </Button>
+                    <Button size="sm" onClick={createSupplierOrders} disabled={creatingOrders}>
+                      {creatingOrders ? 'Olusturuluyor...' : 'Siparisleri Olustur'}
                     </Button>
                     <p className="text-xs text-gray-600">
                       Hizli aksiyonlar manuel dagitim tablosunu otomatik doldurur.

@@ -4553,6 +4553,180 @@ export class ReportsService {
     });
   }
 
+  async createSupplierOrdersFromFamilyAllocations(input: {
+    depot: 'MERKEZ' | 'TOPCA';
+    allocations: Array<{ familyId: string; productCode: string; quantity: number }>;
+  }): Promise<{
+    createdOrders: Array<{
+      supplierCode: string;
+      supplierName: string | null;
+      orderNumber: string;
+      itemCount: number;
+      totalQuantity: number;
+    }>;
+    missingSupplierProducts: Array<{ productCode: string; quantity: number }>;
+    skippedInvalid: Array<{ familyId: string; productCode: string; quantity: number }>;
+  }> {
+    const depot = input.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
+    const warehouseNo = depot === 'TOPCA' ? 6 : 1;
+    const rawRows = Array.isArray(input.allocations) ? input.allocations : [];
+
+    const normalizedRows = rawRows
+      .map((row) => ({
+        familyId: String(row.familyId || '').trim(),
+        productCode: String(row.productCode || '').trim().toUpperCase(),
+        quantity: Math.max(0, Math.trunc(Number(row.quantity || 0))),
+      }))
+      .filter((row) => row.familyId && row.productCode && row.quantity > 0);
+
+    if (normalizedRows.length === 0) {
+      throw new AppError('Dagitimda siparis olusturulacak miktar yok.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const families = await prisma.productFamily.findMany({
+      where: { id: { in: Array.from(new Set(normalizedRows.map((row) => row.familyId))) } },
+      include: { items: true },
+    });
+    const familyItemSet = new Map<string, Set<string>>();
+    families.forEach((family) => {
+      familyItemSet.set(
+        family.id,
+        new Set(family.items.map((item) => String(item.productCode || '').trim().toUpperCase()))
+      );
+    });
+
+    const skippedInvalid: Array<{ familyId: string; productCode: string; quantity: number }> = [];
+    const productQtyMap = new Map<string, number>();
+    normalizedRows.forEach((row) => {
+      const allowedCodes = familyItemSet.get(row.familyId);
+      if (!allowedCodes || !allowedCodes.has(row.productCode)) {
+        skippedInvalid.push(row);
+        return;
+      }
+      productQtyMap.set(row.productCode, (productQtyMap.get(row.productCode) || 0) + row.quantity);
+    });
+
+    if (productQtyMap.size === 0) {
+      throw new AppError('Gecerli aile dagitimi bulunamadi.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const productCodes = Array.from(productQtyMap.keys());
+    const inClause = productCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+    const supplierRows = await mikroService.executeQuery(`
+      SELECT
+        sto_kod AS productCode,
+        LTRIM(RTRIM(ISNULL(sto_sat_cari_kod, ''))) AS supplierCode
+      FROM STOKLAR
+      WHERE sto_kod IN (${inClause})
+    `);
+
+    const supplierCodeByProduct = new Map<string, string>();
+    (supplierRows || []).forEach((row: any) => {
+      const productCode = String(row?.productCode || '').trim().toUpperCase();
+      const supplierCode = String(row?.supplierCode || '').trim();
+      if (productCode && supplierCode) {
+        supplierCodeByProduct.set(productCode, supplierCode);
+      }
+    });
+
+    const missingSupplierProducts: Array<{ productCode: string; quantity: number }> = [];
+    const supplierItems = new Map<string, Array<{ productCode: string; quantity: number }>>();
+    productQtyMap.forEach((quantity, productCode) => {
+      const supplierCode = supplierCodeByProduct.get(productCode);
+      if (!supplierCode) {
+        missingSupplierProducts.push({ productCode, quantity });
+        return;
+      }
+      const list = supplierItems.get(supplierCode) || [];
+      list.push({ productCode, quantity });
+      supplierItems.set(supplierCode, list);
+    });
+
+    if (missingSupplierProducts.length > 0) {
+      throw new AppError(
+        `Ana saglayicisi tanimli olmayan stoklar var: ${missingSupplierProducts
+          .slice(0, 10)
+          .map((row) => row.productCode)
+          .join(', ')}`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
+    const supplierCodes = Array.from(supplierItems.keys());
+    const supplierIn = supplierCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+    const supplierNameRows = await mikroService.executeQuery(`
+      SELECT cari_kod AS supplierCode, cari_unvan1 AS supplierName
+      FROM CARI_HESAPLAR
+      WHERE cari_kod IN (${supplierIn})
+    `);
+    const supplierNameMap = new Map<string, string>();
+    (supplierNameRows || []).forEach((row: any) => {
+      const code = String(row?.supplierCode || '').trim();
+      const name = String(row?.supplierName || '').trim();
+      if (code) supplierNameMap.set(code, name || code);
+    });
+
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const year = today.getFullYear();
+    const createdOrders: Array<{
+      supplierCode: string;
+      supplierName: string | null;
+      orderNumber: string;
+      itemCount: number;
+      totalQuantity: number;
+    }> = [];
+
+    for (const [supplierCode, items] of supplierItems.entries()) {
+      const totalQuantity = items.reduce((sum, row) => sum + row.quantity, 0);
+      const orderNumber = await mikroService.writeOrder({
+        cariCode: supplierCode,
+        items: items.map((item) => ({
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: 0,
+          vatRate: 0,
+          lineDescription: `Ucarer aile dagitimi ${depot}`,
+        })),
+        applyVAT: false,
+        description: `Ucarer Aile Dagitimi ${depot}`,
+        documentDescription: `Ucarer aile dagitimi ${depot} ${day}.${month}.${year}`,
+        evrakSeri: String(process.env.MIKRO_PURCHASE_ORDER_SERIES || 'H').trim() || 'H',
+        warehouseNo,
+      });
+
+      const match = String(orderNumber).match(/^(.*)-(\d+)$/);
+      if (match) {
+        const seri = match[1];
+        const sira = Number(match[2]);
+        if (seri && Number.isFinite(sira)) {
+          await mikroService.executeQuery(`
+            UPDATE SIPARISLER
+            SET sip_tip = 1
+            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+              AND sip_evrakno_sira = ${sira}
+          `);
+        }
+      }
+
+      createdOrders.push({
+        supplierCode,
+        supplierName: supplierNameMap.get(supplierCode) || null,
+        orderNumber,
+        itemCount: items.length,
+        totalQuantity,
+      });
+    }
+
+    return {
+      createdOrders,
+      missingSupplierProducts: [],
+      skippedInvalid,
+    };
+  }
+
   async getProductCustomers(params: {
     productCode: string;
     startDate?: string;
