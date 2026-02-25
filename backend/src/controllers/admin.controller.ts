@@ -3482,11 +3482,12 @@ export class AdminController {
    */
   async getUcarerDepotReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const { depot, limit } = req.query;
+      const { depot, limit, all } = req.query;
 
       const data = await reportsService.getUcarerDepotReport({
         depot: String(depot || 'MERKEZ').toUpperCase() === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
         limit: limit ? parseInt(limit as string, 10) : undefined,
+        all: all === '1' || all === 'true',
       });
 
       res.json({

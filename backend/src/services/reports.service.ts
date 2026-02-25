@@ -4375,6 +4375,7 @@ export class ReportsService {
   async getUcarerDepotReport(options: {
     depot: 'MERKEZ' | 'TOPCA';
     limit?: number;
+    all?: boolean;
   }): Promise<{
     depot: 'MERKEZ' | 'TOPCA';
     rows: Record<string, any>[];
@@ -4383,7 +4384,8 @@ export class ReportsService {
     limited: boolean;
   }> {
     const depot = options.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
-    const limit = options.limit && options.limit > 0 ? Math.min(options.limit, 5000) : 1000;
+    const returnAll = Boolean(options.all);
+    const limit = options.limit && options.limit > 0 ? Math.min(options.limit, 20000) : 1000;
     const sql = depot === 'TOPCA' ? UCARER_TOPCA_DEPO_SQL : UCARER_MERKEZ_DEPO_SQL;
     let rows: any[] = [];
     try {
@@ -4404,14 +4406,14 @@ export class ReportsService {
 
     const normalizedRows = Array.isArray(rows) ? rows : [];
     const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0] || {}) : [];
-    const limitedRows = normalizedRows.slice(0, limit);
+    const limitedRows = returnAll ? normalizedRows : normalizedRows.slice(0, limit);
 
     return {
       depot,
       rows: limitedRows,
       columns,
       total: normalizedRows.length,
-      limited: normalizedRows.length > limitedRows.length,
+      limited: !returnAll && normalizedRows.length > limitedRows.length,
     };
   }
 

@@ -1970,10 +1970,12 @@ export const adminApi = {
   getUcarerDepotReport: async (params?: {
     depot?: 'MERKEZ' | 'TOPCA';
     limit?: number;
+    all?: boolean;
   }): Promise<{ success: boolean; data: { depot: 'MERKEZ' | 'TOPCA'; rows: any[]; columns: string[]; total: number; limited: boolean } }> => {
     const queryParams = new URLSearchParams();
     if (params?.depot) queryParams.append('depot', params.depot);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.all) queryParams.append('all', '1');
     const response = await apiClient.get(`/admin/reports/ucarer-depo?${queryParams.toString()}`);
     return response.data;
   },

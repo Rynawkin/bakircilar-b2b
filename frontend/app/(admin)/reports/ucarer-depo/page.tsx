@@ -21,6 +21,7 @@ const normalizeValue = (value: unknown): string => {
 
 export default function UcarerDepotReportPage() {
   const [depot, setDepot] = useState<DepotType>('MERKEZ');
+  const [depotLimit, setDepotLimit] = useState<string>('1000');
   const [depotLoading, setDepotLoading] = useState(false);
   const [minMaxLoading, setMinMaxLoading] = useState(false);
   const [depotRows, setDepotRows] = useState<Array<Record<string, any>>>([]);
@@ -32,6 +33,8 @@ export default function UcarerDepotReportPage() {
   const [minMaxTotal, setMinMaxTotal] = useState(0);
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
+  const [columnWidth, setColumnWidth] = useState(180);
+  const [headerHeight, setHeaderHeight] = useState(44);
 
   const visibleDepotColumns = useMemo(() => depotColumns, [depotColumns]);
   const visibleMinMaxColumns = useMemo(() => minMaxColumns, [minMaxColumns]);
@@ -77,7 +80,13 @@ export default function UcarerDepotReportPage() {
   const loadDepotReport = async () => {
     setDepotLoading(true);
     try {
-      const response = await adminApi.getUcarerDepotReport({ depot, limit: 1000 });
+      const limitNumeric = Number(depotLimit);
+      const requestAll = depotLimit === 'ALL';
+      const response = await adminApi.getUcarerDepotReport({
+        depot,
+        all: requestAll,
+        limit: requestAll ? undefined : (Number.isFinite(limitNumeric) ? limitNumeric : 1000),
+      });
       const data = response.data;
       setDepotRows(data.rows || []);
       setDepotColumns(data.columns || []);
@@ -109,9 +118,11 @@ export default function UcarerDepotReportPage() {
   const exportDepot = async () => {
     try {
       setExportingDepot(true);
+      const response = await adminApi.getUcarerDepotReport({ depot, all: true });
+      const data = response.data;
       await downloadExcel({
-        rows: depotRows,
-        columns: visibleDepotColumns,
+        rows: data.rows || [],
+        columns: data.columns || [],
         fileName: `ucarer-depo-${depot.toLowerCase()}`,
       });
     } finally {
@@ -164,6 +175,13 @@ export default function UcarerDepotReportPage() {
                 <option value="MERKEZ">MERKEZ</option>
                 <option value="TOPCA">TOPCA</option>
               </Select>
+              <Select value={depotLimit} onChange={(e) => setDepotLimit(e.target.value)} className="w-48">
+                <option value="500">Ilk 500 satir</option>
+                <option value="1000">Ilk 1000 satir</option>
+                <option value="2000">Ilk 2000 satir</option>
+                <option value="5000">Ilk 5000 satir</option>
+                <option value="ALL">Tum satirlar</option>
+              </Select>
               <Button onClick={loadDepotReport} disabled={depotLoading}>
                 <RefreshCw className={`mr-2 h-4 w-4 ${depotLoading ? 'animate-spin' : ''}`} />
                 Raporu Getir
@@ -174,16 +192,47 @@ export default function UcarerDepotReportPage() {
               </Button>
               <p className="text-sm text-gray-600">
                 Toplam: <strong>{depotTotal.toLocaleString('tr-TR')}</strong>
-                {depotLimited ? ' (ilk 1000 satir gosteriliyor)' : ''}
+                {depotLimited ? ` (ilk ${depotLimit} satir gosteriliyor)` : ''}
               </p>
             </div>
 
-            <div className="overflow-auto rounded-md border bg-white">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border p-3 bg-white">
+              <label className="text-xs text-gray-700">
+                Kolon Genisligi: <strong>{columnWidth}px</strong>
+                <input
+                  type="range"
+                  min={120}
+                  max={420}
+                  step={10}
+                  value={columnWidth}
+                  onChange={(e) => setColumnWidth(Number(e.target.value))}
+                  className="mt-1 w-full"
+                />
+              </label>
+              <label className="text-xs text-gray-700">
+                Baslik Yuksekligi: <strong>{headerHeight}px</strong>
+                <input
+                  type="range"
+                  min={30}
+                  max={72}
+                  step={2}
+                  value={headerHeight}
+                  onChange={(e) => setHeaderHeight(Number(e.target.value))}
+                  className="mt-1 w-full"
+                />
+              </label>
+            </div>
+
+            <div className="overflow-auto rounded-md border bg-white max-h-[70vh]">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100">
                   <tr>
                     {visibleDepotColumns.map((column) => (
-                      <th key={column} className="px-2 py-2 text-left font-semibold whitespace-nowrap">
+                      <th
+                        key={column}
+                        className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100"
+                        style={{ minWidth: `${columnWidth}px`, height: `${headerHeight}px` }}
+                      >
                         {column}
                       </th>
                     ))}
@@ -200,7 +249,11 @@ export default function UcarerDepotReportPage() {
                   {depotRows.map((row, index) => (
                     <tr key={`${depot}-${index}`} className="border-t">
                       {visibleDepotColumns.map((column) => (
-                        <td key={`${column}-${index}`} className="px-2 py-2 whitespace-nowrap">
+                        <td
+                          key={`${column}-${index}`}
+                          className="px-2 py-2 whitespace-nowrap"
+                          style={{ minWidth: `${columnWidth}px` }}
+                        >
                           {normalizeValue(row[column])}
                         </td>
                       ))}
@@ -232,12 +285,16 @@ export default function UcarerDepotReportPage() {
               </p>
             </div>
 
-            <div className="overflow-auto rounded-md border bg-white">
+            <div className="overflow-auto rounded-md border bg-white max-h-[60vh]">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100">
                   <tr>
                     {visibleMinMaxColumns.map((column) => (
-                      <th key={column} className="px-2 py-2 text-left font-semibold whitespace-nowrap">
+                      <th
+                        key={column}
+                        className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100"
+                        style={{ minWidth: `${columnWidth}px`, height: `${headerHeight}px` }}
+                      >
                         {column}
                       </th>
                     ))}
@@ -254,7 +311,11 @@ export default function UcarerDepotReportPage() {
                   {minMaxRows.map((row, index) => (
                     <tr key={`minmax-${index}`} className="border-t">
                       {visibleMinMaxColumns.map((column) => (
-                        <td key={`${column}-${index}`} className="px-2 py-2 whitespace-nowrap">
+                        <td
+                          key={`${column}-${index}`}
+                          className="px-2 py-2 whitespace-nowrap"
+                          style={{ minWidth: `${columnWidth}px` }}
+                        >
                           {normalizeValue(row[column])}
                         </td>
                       ))}
