@@ -10,6 +10,7 @@ import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
 
 type DepotType = 'MERKEZ' | 'TOPCA';
+type SuggestionMode = 'INCLUDE_MINMAX' | 'EXCLUDE_MINMAX';
 
 const normalizeValue = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
@@ -17,6 +18,33 @@ const normalizeValue = (value: unknown): string => {
   if (value instanceof Date) return value.toLocaleDateString('tr-TR');
   const text = String(value).trim();
   return text ? text : '-';
+};
+
+const normalizeKey = (value: string): string =>
+  String(value || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i')
+    .replace(/İ/g, 'i')
+    .replace(/ş/g, 's')
+    .replace(/Ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/Ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/Ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/Ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/Ç/g, 'c')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const toNumberFlexible = (value: unknown): number => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const raw = String(value ?? '').trim();
+  if (!raw) return 0;
+  const normalized = raw.replace(/\./g, '').replace(',', '.');
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : 0;
 };
 
 export default function UcarerDepotReportPage() {
@@ -35,6 +63,7 @@ export default function UcarerDepotReportPage() {
   const [exportingMinMax, setExportingMinMax] = useState(false);
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
+  const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>('INCLUDE_MINMAX');
   const [depotColumnWidths, setDepotColumnWidths] = useState<Record<string, number>>({});
   const [minMaxColumnWidths, setMinMaxColumnWidths] = useState<Record<string, number>>({});
   const resizingRef = useRef<{
@@ -46,9 +75,30 @@ export default function UcarerDepotReportPage() {
 
   const visibleDepotColumns = useMemo(() => depotColumns, [depotColumns]);
   const visibleMinMaxColumns = useMemo(() => minMaxColumns, [minMaxColumns]);
+  const thirdIssueColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => {
+      const n = normalizeKey(column);
+      return n.includes('3.sorun') || n.includes('satinalma siparisi sonrasi');
+    });
+  }, [visibleDepotColumns]);
+  const fourthIssueColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => {
+      const n = normalizeKey(column);
+      return n.includes('4. sorun') || n.includes('4.sorun') || n.includes('eksiltilecek');
+    });
+  }, [visibleDepotColumns]);
 
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
+  const getSuggestedQty = (row: Record<string, any>): number => {
+    const sourceColumn = suggestionMode === 'INCLUDE_MINMAX' ? fourthIssueColumn : thirdIssueColumn;
+    if (!sourceColumn) return 0;
+    return Math.max(0, toNumberFlexible(row[sourceColumn]));
+  };
+  const totalSuggestedQty = useMemo(
+    () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
+    [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]
+  );
 
   const beginResize = (type: 'depot' | 'minmax', column: string, startX: number) => {
     const startWidth = type === 'depot' ? getDepotColumnWidth(column) : getMinMaxColumnWidth(column);
@@ -226,9 +276,16 @@ export default function UcarerDepotReportPage() {
                 <Download className="mr-2 h-4 w-4" />
                 {exportingDepot ? 'Hazirlaniyor...' : "Excel'e Aktar"}
               </Button>
+              <Select value={suggestionMode} onChange={(e) => setSuggestionMode(e.target.value as SuggestionMode)} className="w-56">
+                <option value="INCLUDE_MINMAX">MinMax Dahil (4. Sorun)</option>
+                <option value="EXCLUDE_MINMAX">MinMax Haric (3. Sorun)</option>
+              </Select>
               <p className="text-sm text-gray-600">
                 Toplam: <strong>{depotTotal.toLocaleString('tr-TR')}</strong>
                 {depotLimited ? ` (ilk ${depotLimit} satir gosteriliyor)` : ''}
+              </p>
+              <p className="text-sm text-gray-700">
+                Mod'a Gore Onerilen Toplam: <strong>{totalSuggestedQty.toLocaleString('tr-TR')}</strong>
               </p>
             </div>
 
@@ -254,6 +311,12 @@ export default function UcarerDepotReportPage() {
               <table className="w-full text-xs">
                 <thead className="bg-gray-100">
                   <tr>
+                    <th
+                      className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100 relative select-none"
+                      style={{ minWidth: '180px', height: `${headerHeight}px` }}
+                    >
+                      Onerilen Miktar
+                    </th>
                     {visibleDepotColumns.map((column) => (
                       <th
                         key={column}
@@ -275,13 +338,16 @@ export default function UcarerDepotReportPage() {
                 <tbody>
                   {depotRows.length === 0 && (
                     <tr>
-                      <td colSpan={Math.max(1, visibleDepotColumns.length)} className="px-2 py-6 text-center text-gray-500">
+                      <td colSpan={Math.max(2, visibleDepotColumns.length + 1)} className="px-2 py-6 text-center text-gray-500">
                         Kayit yok
                       </td>
                     </tr>
                   )}
                   {depotRows.map((row, index) => (
                     <tr key={`${depot}-${index}`} className="border-t">
+                      <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-700">
+                        {getSuggestedQty(row).toLocaleString('tr-TR')}
+                      </td>
                       {visibleDepotColumns.map((column) => (
                         <td
                           key={`${column}-${index}`}
