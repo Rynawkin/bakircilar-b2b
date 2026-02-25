@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { ArrowLeft, Download, Play, RefreshCw, Warehouse } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
@@ -78,11 +77,6 @@ export default function UcarerDepotReportPage() {
   const [minMaxTotal, setMinMaxTotal] = useState(0);
   const [families, setFamilies] = useState<ProductFamily[]>([]);
   const [familyLoading, setFamilyLoading] = useState(false);
-  const [savingFamily, setSavingFamily] = useState(false);
-  const [newFamilyName, setNewFamilyName] = useState('');
-  const [newFamilyCode, setNewFamilyCode] = useState('');
-  const [newFamilyNote, setNewFamilyNote] = useState('');
-  const [newFamilyCodesText, setNewFamilyCodesText] = useState('');
   const [allocationModeByFamily, setAllocationModeByFamily] = useState<Record<string, AllocationMode>>({});
   const [singleCodeByFamily, setSingleCodeByFamily] = useState<Record<string, string>>({});
   const [splitAByFamily, setSplitAByFamily] = useState<Record<string, string>>({});
@@ -287,46 +281,6 @@ export default function UcarerDepotReportPage() {
     }
   };
 
-  const createFamily = async () => {
-    const name = newFamilyName.trim();
-    if (!name) {
-      toast.error('Aile adi girilmeli');
-      return;
-    }
-    const productCodes = Array.from(
-      new Set(
-        newFamilyCodesText
-          .split(/[\n,;\t ]+/)
-          .map((code) => code.trim().toUpperCase())
-          .filter(Boolean)
-      )
-    );
-    if (productCodes.length === 0) {
-      toast.error('En az bir stok kodu girilmeli');
-      return;
-    }
-
-    setSavingFamily(true);
-    try {
-      await adminApi.createProductFamily({
-        name,
-        code: newFamilyCode.trim() || null,
-        note: newFamilyNote.trim() || null,
-        productCodes,
-      });
-      setNewFamilyName('');
-      setNewFamilyCode('');
-      setNewFamilyNote('');
-      setNewFamilyCodesText('');
-      await loadFamilies();
-      toast.success('Aile kaydedildi');
-    } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Aile kaydedilemedi');
-    } finally {
-      setSavingFamily(false);
-    }
-  };
-
   const removeFamily = async (familyId: string) => {
     try {
       await adminApi.deleteProductFamily(familyId);
@@ -528,26 +482,17 @@ export default function UcarerDepotReportPage() {
           <CardHeader>
             <CardTitle>Stok Aileleri ve Dagitim</CardTitle>
             <CardDescription>
-              Aileyi stok kodlariyla tanimla, secili moda gore aile ihtiyacini hesapla ve ihtiyaci tek urun / iki urun / manuel dagit.
+              Secili moda gore aile ihtiyacini hesapla ve ihtiyaci tek urun / iki urun / manuel dagit.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <Input placeholder="Aile Adi" value={newFamilyName} onChange={(e) => setNewFamilyName(e.target.value)} />
-              <Input placeholder="Aile Kodu (ops.)" value={newFamilyCode} onChange={(e) => setNewFamilyCode(e.target.value)} />
-              <Input placeholder="Not (ops.)" value={newFamilyNote} onChange={(e) => setNewFamilyNote(e.target.value)} />
-              <Button onClick={createFamily} disabled={savingFamily}>
-                {savingFamily ? 'Kaydediliyor...' : 'Aile Kaydet'}
-              </Button>
-            </div>
-            <div>
-              <p className="text-xs text-gray-600 mb-1">Stok Kodlari (virgul, bosluk veya satir satir)</p>
-              <textarea
-                value={newFamilyCodesText}
-                onChange={(e) => setNewFamilyCodesText(e.target.value)}
-                className="w-full min-h-[84px] rounded-md border px-3 py-2 text-sm"
-                placeholder="B100001, B100002&#10;B100003"
-              />
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-white p-3">
+              <p className="text-sm text-gray-700">
+                Aile olusturma ve urun ekleme islemleri ayri ekrana tasindi.
+              </p>
+              <Link href="/reports/product-families">
+                <Button size="sm" variant="outline">Aile Yonetimine Git</Button>
+              </Link>
             </div>
 
             <div className="space-y-3">

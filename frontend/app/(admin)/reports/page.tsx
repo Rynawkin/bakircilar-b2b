@@ -105,6 +105,16 @@ const reports: ReportCard[] = [
     badge: 'Yeni',
     permission: 'reports:ucarer-minmax',
   },
+  {
+    id: 'product-families',
+    title: 'Stok Aile Yonetimi',
+    description: 'Urun havuzundan secerek stok ailesi olustur ve duzenle',
+    icon: <Warehouse className="h-5 w-5" />,
+    href: '/reports/product-families',
+    category: 'stock',
+    badge: 'Yeni',
+    permission: 'reports:ucarer-depo',
+  },
   // Satış & Müşteri Raporları
   {
     id: 'top-products',
