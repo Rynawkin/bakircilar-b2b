@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Play, RefreshCw, Warehouse } from 'lucide-react';
+import { ArrowLeft, Download, Play, RefreshCw, Warehouse } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -30,9 +30,49 @@ export default function UcarerDepotReportPage() {
   const [minMaxRows, setMinMaxRows] = useState<Array<Record<string, any>>>([]);
   const [minMaxColumns, setMinMaxColumns] = useState<string[]>([]);
   const [minMaxTotal, setMinMaxTotal] = useState(0);
+  const [exportingDepot, setExportingDepot] = useState(false);
+  const [exportingMinMax, setExportingMinMax] = useState(false);
 
   const visibleDepotColumns = useMemo(() => depotColumns, [depotColumns]);
   const visibleMinMaxColumns = useMemo(() => minMaxColumns, [minMaxColumns]);
+
+  const downloadExcel = async (params: {
+    rows: Array<Record<string, any>>;
+    columns: string[];
+    fileName: string;
+  }) => {
+    const { rows, columns, fileName } = params;
+    if (!rows.length || !columns.length) {
+      toast.error('Excel icin veri yok');
+      return;
+    }
+
+    const XLSX = await import('xlsx');
+    const normalizedRows = rows.map((row) => {
+      const out: Record<string, unknown> = {};
+      columns.forEach((column) => {
+        out[column] = row?.[column] ?? null;
+      });
+      return out;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(normalizedRows, { header: columns });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Rapor');
+
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${fileName}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const loadDepotReport = async () => {
     setDepotLoading(true);
@@ -63,6 +103,32 @@ export default function UcarerDepotReportPage() {
       toast.error(error?.response?.data?.error || 'MinMax hesaplama calistirilamadi');
     } finally {
       setMinMaxLoading(false);
+    }
+  };
+
+  const exportDepot = async () => {
+    try {
+      setExportingDepot(true);
+      await downloadExcel({
+        rows: depotRows,
+        columns: visibleDepotColumns,
+        fileName: `ucarer-depo-${depot.toLowerCase()}`,
+      });
+    } finally {
+      setExportingDepot(false);
+    }
+  };
+
+  const exportMinMax = async () => {
+    try {
+      setExportingMinMax(true);
+      await downloadExcel({
+        rows: minMaxRows,
+        columns: visibleMinMaxColumns,
+        fileName: 'ucarer-minmax',
+      });
+    } finally {
+      setExportingMinMax(false);
     }
   };
 
@@ -101,6 +167,10 @@ export default function UcarerDepotReportPage() {
               <Button onClick={loadDepotReport} disabled={depotLoading}>
                 <RefreshCw className={`mr-2 h-4 w-4 ${depotLoading ? 'animate-spin' : ''}`} />
                 Raporu Getir
+              </Button>
+              <Button variant="outline" onClick={exportDepot} disabled={exportingDepot || depotRows.length === 0}>
+                <Download className="mr-2 h-4 w-4" />
+                {exportingDepot ? 'Hazirlaniyor...' : "Excel'e Aktar"}
               </Button>
               <p className="text-sm text-gray-600">
                 Toplam: <strong>{depotTotal.toLocaleString('tr-TR')}</strong>
@@ -152,6 +222,10 @@ export default function UcarerDepotReportPage() {
               <Button onClick={runMinMax} disabled={minMaxLoading}>
                 <Play className="mr-2 h-4 w-4" />
                 {minMaxLoading ? 'Calisiyor...' : 'MinMax Calistir'}
+              </Button>
+              <Button variant="outline" onClick={exportMinMax} disabled={exportingMinMax || minMaxRows.length === 0}>
+                <Download className="mr-2 h-4 w-4" />
+                {exportingMinMax ? 'Hazirlaniyor...' : "Excel'e Aktar"}
               </Button>
               <p className="text-sm text-gray-600">
                 Toplam: <strong>{minMaxTotal.toLocaleString('tr-TR')}</strong>
