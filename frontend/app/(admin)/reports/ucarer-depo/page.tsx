@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Download, Play, RefreshCw, Warehouse } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -33,18 +33,47 @@ export default function UcarerDepotReportPage() {
   const [minMaxTotal, setMinMaxTotal] = useState(0);
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
-  const [defaultColumnWidth, setDefaultColumnWidth] = useState(180);
+  const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
   const [depotColumnWidths, setDepotColumnWidths] = useState<Record<string, number>>({});
   const [minMaxColumnWidths, setMinMaxColumnWidths] = useState<Record<string, number>>({});
-  const [selectedDepotColumn, setSelectedDepotColumn] = useState('');
-  const [selectedMinMaxColumn, setSelectedMinMaxColumn] = useState('');
+  const resizingRef = useRef<{
+    type: 'depot' | 'minmax';
+    column: string;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
 
   const visibleDepotColumns = useMemo(() => depotColumns, [depotColumns]);
   const visibleMinMaxColumns = useMemo(() => minMaxColumns, [minMaxColumns]);
 
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
+
+  const beginResize = (type: 'depot' | 'minmax', column: string, startX: number) => {
+    const startWidth = type === 'depot' ? getDepotColumnWidth(column) : getMinMaxColumnWidth(column);
+    resizingRef.current = { type, column, startX, startWidth };
+
+    const onMouseMove = (event: MouseEvent) => {
+      const current = resizingRef.current;
+      if (!current) return;
+      const nextWidth = Math.max(90, Math.min(700, current.startWidth + (event.clientX - current.startX)));
+      if (current.type === 'depot') {
+        setDepotColumnWidths((prev) => ({ ...prev, [current.column]: nextWidth }));
+      } else {
+        setMinMaxColumnWidths((prev) => ({ ...prev, [current.column]: nextWidth }));
+      }
+    };
+
+    const onMouseUp = () => {
+      resizingRef.current = null;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   const downloadExcel = async (params: {
     rows: Array<Record<string, any>>;
@@ -97,9 +126,6 @@ export default function UcarerDepotReportPage() {
       const data = response.data;
       setDepotRows(data.rows || []);
       setDepotColumns(data.columns || []);
-      if (!selectedDepotColumn && data.columns?.length) {
-        setSelectedDepotColumn(data.columns[0]);
-      }
       setDepotTotal(Number(data.total || 0));
       setDepotLimited(Boolean(data.limited));
     } catch (error: any) {
@@ -116,9 +142,6 @@ export default function UcarerDepotReportPage() {
       const data = response.data;
       setMinMaxRows(data.rows || []);
       setMinMaxColumns(data.columns || []);
-      if (!selectedMinMaxColumn && data.columns?.length) {
-        setSelectedMinMaxColumn(data.columns[0]);
-      }
       setMinMaxTotal(Number(data.total || 0));
       toast.success('MinMax hesaplama tamamlandi');
     } catch (error: any) {
@@ -210,18 +233,9 @@ export default function UcarerDepotReportPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border p-3 bg-white">
-              <label className="text-xs text-gray-700">
-                Varsayilan Kolon Genisligi: <strong>{defaultColumnWidth}px</strong>
-                <input
-                  type="range"
-                  min={120}
-                  max={420}
-                  step={10}
-                  value={defaultColumnWidth}
-                  onChange={(e) => setDefaultColumnWidth(Number(e.target.value))}
-                  className="mt-1 w-full"
-                />
-              </label>
+              <div className="text-xs text-gray-600 flex items-center">
+                Kolon basliginin sag kenarindan surukleyerek kolon genisligini ayarlayabilirsiniz.
+              </div>
               <label className="text-xs text-gray-700">
                 Baslik Yuksekligi: <strong>{headerHeight}px</strong>
                 <input
@@ -236,37 +250,6 @@ export default function UcarerDepotReportPage() {
               </label>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border p-3 bg-white">
-              <div>
-                <p className="text-xs text-gray-700 mb-1">Kolon Sec</p>
-                <Select value={selectedDepotColumn} onChange={(e) => setSelectedDepotColumn(e.target.value)}>
-                  {visibleDepotColumns.length === 0 && <option value="">Kolon yok</option>}
-                  {visibleDepotColumns.map((column) => (
-                    <option key={column} value={column}>
-                      {column}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <label className="text-xs text-gray-700">
-                Secilen Kolon Genisligi:{' '}
-                <strong>{selectedDepotColumn ? getDepotColumnWidth(selectedDepotColumn) : defaultColumnWidth}px</strong>
-                <input
-                  type="range"
-                  min={120}
-                  max={520}
-                  step={10}
-                  value={selectedDepotColumn ? getDepotColumnWidth(selectedDepotColumn) : defaultColumnWidth}
-                  onChange={(e) => {
-                    if (!selectedDepotColumn) return;
-                    const next = Number(e.target.value);
-                    setDepotColumnWidths((prev) => ({ ...prev, [selectedDepotColumn]: next }));
-                  }}
-                  className="mt-1 w-full"
-                />
-              </label>
-            </div>
-
             <div className="overflow-auto rounded-md border bg-white max-h-[70vh]">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100">
@@ -274,10 +257,17 @@ export default function UcarerDepotReportPage() {
                     {visibleDepotColumns.map((column) => (
                       <th
                         key={column}
-                        className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100"
+                        className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100 relative select-none"
                         style={{ minWidth: `${getDepotColumnWidth(column)}px`, height: `${headerHeight}px` }}
                       >
                         {column}
+                        <div
+                          className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            beginResize('depot', column, e.clientX);
+                          }}
+                        />
                       </th>
                     ))}
                   </tr>
@@ -329,37 +319,6 @@ export default function UcarerDepotReportPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border p-3 bg-white">
-              <div>
-                <p className="text-xs text-gray-700 mb-1">Kolon Sec</p>
-                <Select value={selectedMinMaxColumn} onChange={(e) => setSelectedMinMaxColumn(e.target.value)}>
-                  {visibleMinMaxColumns.length === 0 && <option value="">Kolon yok</option>}
-                  {visibleMinMaxColumns.map((column) => (
-                    <option key={column} value={column}>
-                      {column}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <label className="text-xs text-gray-700">
-                Secilen Kolon Genisligi:{' '}
-                <strong>{selectedMinMaxColumn ? getMinMaxColumnWidth(selectedMinMaxColumn) : defaultColumnWidth}px</strong>
-                <input
-                  type="range"
-                  min={120}
-                  max={520}
-                  step={10}
-                  value={selectedMinMaxColumn ? getMinMaxColumnWidth(selectedMinMaxColumn) : defaultColumnWidth}
-                  onChange={(e) => {
-                    if (!selectedMinMaxColumn) return;
-                    const next = Number(e.target.value);
-                    setMinMaxColumnWidths((prev) => ({ ...prev, [selectedMinMaxColumn]: next }));
-                  }}
-                  className="mt-1 w-full"
-                />
-              </label>
-            </div>
-
             <div className="overflow-auto rounded-md border bg-white max-h-[60vh]">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100">
@@ -367,10 +326,17 @@ export default function UcarerDepotReportPage() {
                     {visibleMinMaxColumns.map((column) => (
                       <th
                         key={column}
-                        className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100"
+                        className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100 relative select-none"
                         style={{ minWidth: `${getMinMaxColumnWidth(column)}px`, height: `${headerHeight}px` }}
                       >
                         {column}
+                        <div
+                          className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            beginResize('minmax', column, e.clientX);
+                          }}
+                        />
                       </th>
                     ))}
                   </tr>
