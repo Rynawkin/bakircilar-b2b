@@ -4445,6 +4445,7 @@ export class ReportsService {
       id: string;
       productCode: string;
       productName: string | null;
+      supplierName: string | null;
       priority: number;
       active: boolean;
     }>;
@@ -4458,6 +4459,36 @@ export class ReportsService {
       },
     });
 
+    const allProductCodes = Array.from(
+      new Set(
+        rows
+          .flatMap((row) => row.items.map((item) => String(item.productCode || '').trim().toUpperCase()))
+          .filter(Boolean)
+      )
+    );
+
+    const supplierNameByProductCode = new Map<string, string>();
+    if (allProductCodes.length > 0) {
+      const inClause = allProductCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+      const supplierRows = await mikroService.executeQuery(`
+        SELECT
+          s.sto_kod AS productCode,
+          LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS supplierCode,
+          c.cari_unvan1 AS supplierName
+        FROM STOKLAR s
+        LEFT JOIN CARI_HESAPLAR c
+          ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
+        WHERE s.sto_kod IN (${inClause})
+      `);
+      (supplierRows || []).forEach((row: any) => {
+        const productCode = String(row?.productCode || '').trim().toUpperCase();
+        const supplierName = String(row?.supplierName || '').trim();
+        if (productCode) {
+          supplierNameByProductCode.set(productCode, supplierName || '');
+        }
+      });
+    }
+
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -4470,6 +4501,7 @@ export class ReportsService {
         id: item.id,
         productCode: item.productCode,
         productName: item.productName || null,
+        supplierName: supplierNameByProductCode.get(String(item.productCode || '').trim().toUpperCase()) || null,
         priority: item.priority,
         active: item.active,
       })),

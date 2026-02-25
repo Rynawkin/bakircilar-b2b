@@ -1997,6 +1997,7 @@ export const adminApi = {
         id: string;
         productCode: string;
         productName?: string | null;
+        supplierName?: string | null;
         priority: number;
         active: boolean;
       }>;

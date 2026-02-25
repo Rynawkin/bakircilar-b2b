@@ -24,6 +24,7 @@ interface ProductFamily {
     id: string;
     productCode: string;
     productName?: string | null;
+    supplierName?: string | null;
     priority: number;
     active: boolean;
   }>;
@@ -844,6 +845,7 @@ export default function UcarerDepotReportPage() {
                       <tr>
                         <th className="px-2 py-2 text-left">Stok Kodu</th>
                         <th className="px-2 py-2 text-left">Urun Adi</th>
+                        <th className="px-2 py-2 text-left">Ana Saglayici Cari Adi</th>
                         <th className="px-2 py-2 text-right">Aile Oneri</th>
                         <th className="px-2 py-2 text-right">Dagitim</th>
                         <th className="px-2 py-2 text-right">Fark</th>
@@ -861,6 +863,7 @@ export default function UcarerDepotReportPage() {
                           <tr key={item.id} className="border-t">
                             <td className="px-2 py-2 font-semibold text-gray-900">{item.productCode}</td>
                             <td className="px-2 py-2 text-gray-700">{item.productName || '-'}</td>
+                            <td className="px-2 py-2 text-gray-600">{item.supplierName || '-'}</td>
                             <td className="px-2 py-2 text-right text-emerald-700 font-semibold">{itemNeed.toLocaleString('tr-TR')}</td>
                             <td className="px-2 py-2 text-right">
                               <input
