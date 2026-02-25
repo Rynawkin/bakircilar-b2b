@@ -4708,6 +4708,21 @@ export class ReportsService {
             WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
               AND sip_evrakno_sira = ${sira}
           `);
+          const verify = await mikroService.executeQuery(`
+            SELECT COUNT(*) AS cnt
+            FROM SIPARISLER
+            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+              AND sip_evrakno_sira = ${sira}
+              AND sip_tip = 1
+          `);
+          const confirmedCount = Number(verify?.[0]?.cnt || 0);
+          if (!Number.isFinite(confirmedCount) || confirmedCount <= 0) {
+            throw new AppError(
+              `Verilen siparis fisi formati dogrulanamadi (${seri}-${sira}).`,
+              500,
+              ErrorCode.INTERNAL_SERVER_ERROR
+            );
+          }
         }
       }
 
