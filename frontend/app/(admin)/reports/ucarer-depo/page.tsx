@@ -31,8 +31,8 @@ export default function UcarerDepotReportPage() {
   const [minMaxColumns, setMinMaxColumns] = useState<string[]>([]);
   const [minMaxTotal, setMinMaxTotal] = useState(0);
 
-  const visibleDepotColumns = useMemo(() => depotColumns.slice(0, 14), [depotColumns]);
-  const visibleMinMaxColumns = useMemo(() => minMaxColumns.slice(0, 14), [minMaxColumns]);
+  const visibleDepotColumns = useMemo(() => depotColumns, [depotColumns]);
+  const visibleMinMaxColumns = useMemo(() => minMaxColumns, [minMaxColumns]);
 
   const loadDepotReport = async () => {
     setDepotLoading(true);
