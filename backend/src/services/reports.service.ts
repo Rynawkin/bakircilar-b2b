@@ -4433,6 +4433,126 @@ export class ReportsService {
     };
   }
 
+  async getProductFamilies(): Promise<Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    note: string | null;
+    active: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    items: Array<{
+      id: string;
+      productCode: string;
+      productName: string | null;
+      priority: number;
+      active: boolean;
+    }>;
+  }>> {
+    const rows = await prisma.productFamily.findMany({
+      orderBy: [{ active: 'desc' }, { name: 'asc' }],
+      include: {
+        items: {
+          orderBy: [{ priority: 'asc' }, { productCode: 'asc' }],
+        },
+      },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      code: row.code || null,
+      note: row.note || null,
+      active: row.active,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      items: row.items.map((item) => ({
+        id: item.id,
+        productCode: item.productCode,
+        productName: item.productName || null,
+        priority: item.priority,
+        active: item.active,
+      })),
+    }));
+  }
+
+  async upsertProductFamily(input: {
+    id?: string;
+    name: string;
+    code?: string | null;
+    note?: string | null;
+    active?: boolean;
+    productCodes: string[];
+  }): Promise<{ id: string }> {
+    const name = String(input.name || '').trim();
+    if (!name) {
+      throw new AppError('Aile adi zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const normalizedCodes = Array.from(
+      new Set(
+        (input.productCodes || [])
+          .map((code) => String(code || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+
+    if (normalizedCodes.length === 0) {
+      throw new AppError('En az bir stok kodu girilmelidir.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: normalizedCodes } },
+      select: { id: true, mikroCode: true, name: true },
+    });
+    const productMap = new Map(products.map((row) => [row.mikroCode.toUpperCase(), row]));
+
+    const payload = {
+      name,
+      code: input.code ? String(input.code).trim().toUpperCase() : null,
+      note: input.note ? String(input.note).trim() : null,
+      active: input.active !== false,
+    };
+
+    const familyId = input.id
+      ? (
+          await prisma.productFamily.update({
+            where: { id: input.id },
+            data: payload,
+            select: { id: true },
+          })
+        ).id
+      : (
+          await prisma.productFamily.create({
+            data: payload,
+            select: { id: true },
+          })
+        ).id;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.productFamilyItem.deleteMany({ where: { familyId } });
+      if (normalizedCodes.length === 0) return;
+      await tx.productFamilyItem.createMany({
+        data: normalizedCodes.map((code, index) => ({
+          familyId,
+          productCode: code,
+          productId: productMap.get(code)?.id || null,
+          productName: productMap.get(code)?.name || null,
+          priority: index + 1,
+          active: true,
+        })),
+      });
+    });
+
+    return { id: familyId };
+  }
+
+  async deleteProductFamily(id: string): Promise<void> {
+    await prisma.productFamily.delete({
+      where: { id },
+    });
+  }
+
   async getProductCustomers(params: {
     productCode: string;
     startDate?: string;

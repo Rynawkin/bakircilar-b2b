@@ -688,6 +688,7 @@ model Product {
   orderItems              OrderItem[]
   quoteItems              QuoteItem[]
   priceOverrides          ProductPriceOverride[]
+  familyItems             ProductFamilyItem[]
   priceAgreements         CustomerPriceAgreement[]
   customerRequestItems    CustomerRequestItem[]
   supplierPriceListMatches SupplierPriceListMatch[]
@@ -1416,6 +1417,37 @@ model PendingMikroOrder {
   @@index([syncedAt])
   @@index([emailSent])
   @@index([sectorCode])
+}
+
+model ProductFamily {
+  id         String              @id @default(uuid())
+  name       String
+  code       String?             @unique
+  note       String?
+  active     Boolean             @default(true)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  items      ProductFamilyItem[]
+
+  @@index([active])
+}
+
+model ProductFamilyItem {
+  id          String         @id @default(uuid())
+  familyId    String
+  family      ProductFamily  @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCode String
+  productName String?
+  priority    Int            @default(100)
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([familyId, productCode])
+  @@index([productCode])
+  @@index([familyId, priority])
 }
 
 model WarehouseOrderWorkflow {

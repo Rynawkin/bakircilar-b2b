@@ -3517,6 +3517,69 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/product-families
+   */
+  async getProductFamilies(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.getProductFamilies();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/product-families
+   */
+  async createProductFamily(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { name, code, note, active, productCodes } = req.body || {};
+      const result = await reportsService.upsertProductFamily({
+        name,
+        code,
+        note,
+        active,
+        productCodes: Array.isArray(productCodes) ? productCodes : [],
+      });
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/admin/reports/product-families/:id
+   */
+  async updateProductFamily(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { name, code, note, active, productCodes } = req.body || {};
+      const result = await reportsService.upsertProductFamily({
+        id: req.params.id,
+        name,
+        code,
+        note,
+        active,
+        productCodes: Array.isArray(productCodes) ? productCodes : [],
+      });
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /api/admin/reports/product-families/:id
+   */
+  async deleteProductFamily(req: Request, res: Response, next: NextFunction) {
+    try {
+      await reportsService.deleteProductFamily(req.params.id);
+      res.json({ success: true, message: 'Aile silindi.' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/recommendations/complements
    * Tamamlayici urun onerilerini getirir.
    */

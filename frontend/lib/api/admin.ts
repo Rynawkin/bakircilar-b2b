@@ -1985,6 +1985,57 @@ export const adminApi = {
     return response.data;
   },
 
+  getProductFamilies: async (): Promise<{
+    success: boolean;
+    data: Array<{
+      id: string;
+      name: string;
+      code?: string | null;
+      note?: string | null;
+      active: boolean;
+      items: Array<{
+        id: string;
+        productCode: string;
+        productName?: string | null;
+        priority: number;
+        active: boolean;
+      }>;
+    }>;
+  }> => {
+    const response = await apiClient.get('/admin/reports/product-families');
+    return response.data;
+  },
+
+  createProductFamily: async (payload: {
+    name: string;
+    code?: string | null;
+    note?: string | null;
+    active?: boolean;
+    productCodes: string[];
+  }): Promise<{ success: boolean; data: { id: string } }> => {
+    const response = await apiClient.post('/admin/reports/product-families', payload);
+    return response.data;
+  },
+
+  updateProductFamily: async (
+    id: string,
+    payload: {
+      name: string;
+      code?: string | null;
+      note?: string | null;
+      active?: boolean;
+      productCodes: string[];
+    }
+  ): Promise<{ success: boolean; data: { id: string } }> => {
+    const response = await apiClient.put(`/admin/reports/product-families/${id}`, payload);
+    return response.data;
+  },
+
+  deleteProductFamily: async (id: string): Promise<{ success: boolean; message: string }> => {
+    const response = await apiClient.delete(`/admin/reports/product-families/${id}`);
+    return response.data;
+  },
+
 
   getCustomerCartsReport: async (params: {
     search?: string;

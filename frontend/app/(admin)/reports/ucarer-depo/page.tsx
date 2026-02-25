@@ -1,16 +1,33 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Download, Play, RefreshCw, Warehouse } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
 
 type DepotType = 'MERKEZ' | 'TOPCA';
 type SuggestionMode = 'INCLUDE_MINMAX' | 'EXCLUDE_MINMAX';
+type AllocationMode = 'SINGLE' | 'TWO_SPLIT' | 'MANUAL';
+
+interface ProductFamily {
+  id: string;
+  name: string;
+  code?: string | null;
+  note?: string | null;
+  active: boolean;
+  items: Array<{
+    id: string;
+    productCode: string;
+    productName?: string | null;
+    priority: number;
+    active: boolean;
+  }>;
+}
 
 const normalizeValue = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
@@ -59,6 +76,19 @@ export default function UcarerDepotReportPage() {
   const [minMaxRows, setMinMaxRows] = useState<Array<Record<string, any>>>([]);
   const [minMaxColumns, setMinMaxColumns] = useState<string[]>([]);
   const [minMaxTotal, setMinMaxTotal] = useState(0);
+  const [families, setFamilies] = useState<ProductFamily[]>([]);
+  const [familyLoading, setFamilyLoading] = useState(false);
+  const [savingFamily, setSavingFamily] = useState(false);
+  const [newFamilyName, setNewFamilyName] = useState('');
+  const [newFamilyCode, setNewFamilyCode] = useState('');
+  const [newFamilyNote, setNewFamilyNote] = useState('');
+  const [newFamilyCodesText, setNewFamilyCodesText] = useState('');
+  const [allocationModeByFamily, setAllocationModeByFamily] = useState<Record<string, AllocationMode>>({});
+  const [singleCodeByFamily, setSingleCodeByFamily] = useState<Record<string, string>>({});
+  const [splitAByFamily, setSplitAByFamily] = useState<Record<string, string>>({});
+  const [splitBByFamily, setSplitBByFamily] = useState<Record<string, string>>({});
+  const [splitRatioByFamily, setSplitRatioByFamily] = useState<Record<string, number>>({});
+  const [manualAllocations, setManualAllocations] = useState<Record<string, Record<string, number>>>({});
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
   const [defaultColumnWidth] = useState(180);
@@ -87,6 +117,18 @@ export default function UcarerDepotReportPage() {
       return n.includes('4. sorun') || n.includes('4.sorun') || n.includes('eksiltilecek');
     });
   }, [visibleDepotColumns]);
+  const stockCodeColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('stok kodu'));
+  }, [visibleDepotColumns]);
+  const rowByProductCode = useMemo(() => {
+    const map = new Map<string, Record<string, any>>();
+    if (!stockCodeColumn) return map;
+    depotRows.forEach((row) => {
+      const code = String(row?.[stockCodeColumn] || '').trim().toUpperCase();
+      if (code) map.set(code, row);
+    });
+    return map;
+  }, [depotRows, stockCodeColumn]);
 
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
@@ -163,6 +205,22 @@ export default function UcarerDepotReportPage() {
     URL.revokeObjectURL(url);
   };
 
+  const loadFamilies = async () => {
+    setFamilyLoading(true);
+    try {
+      const response = await adminApi.getProductFamilies();
+      setFamilies(response.data || []);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Aile listesi alinamadi');
+    } finally {
+      setFamilyLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFamilies();
+  }, []);
+
   const loadDepotReport = async () => {
     setDepotLoading(true);
     try {
@@ -227,6 +285,107 @@ export default function UcarerDepotReportPage() {
     } finally {
       setExportingMinMax(false);
     }
+  };
+
+  const createFamily = async () => {
+    const name = newFamilyName.trim();
+    if (!name) {
+      toast.error('Aile adi girilmeli');
+      return;
+    }
+    const productCodes = Array.from(
+      new Set(
+        newFamilyCodesText
+          .split(/[\n,;\t ]+/)
+          .map((code) => code.trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+    if (productCodes.length === 0) {
+      toast.error('En az bir stok kodu girilmeli');
+      return;
+    }
+
+    setSavingFamily(true);
+    try {
+      await adminApi.createProductFamily({
+        name,
+        code: newFamilyCode.trim() || null,
+        note: newFamilyNote.trim() || null,
+        productCodes,
+      });
+      setNewFamilyName('');
+      setNewFamilyCode('');
+      setNewFamilyNote('');
+      setNewFamilyCodesText('');
+      await loadFamilies();
+      toast.success('Aile kaydedildi');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Aile kaydedilemedi');
+    } finally {
+      setSavingFamily(false);
+    }
+  };
+
+  const removeFamily = async (familyId: string) => {
+    try {
+      await adminApi.deleteProductFamily(familyId);
+      setFamilies((prev) => prev.filter((row) => row.id !== familyId));
+      toast.success('Aile silindi');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Aile silinemedi');
+    }
+  };
+
+  const getFamilyNeed = (family: ProductFamily): number => {
+    let total = 0;
+    family.items.forEach((item) => {
+      const code = String(item.productCode || '').trim().toUpperCase();
+      const row = rowByProductCode.get(code);
+      if (row) total += getSuggestedQty(row);
+    });
+    return Math.max(0, total);
+  };
+
+  const applySingleAllocation = (family: ProductFamily) => {
+    const selectedCode =
+      singleCodeByFamily[family.id] || String(family.items[0]?.productCode || '').toUpperCase();
+    const need = getFamilyNeed(family);
+    const next: Record<string, number> = {};
+    family.items.forEach((item) => {
+      const code = String(item.productCode || '').toUpperCase();
+      next[code] = code === selectedCode ? need : 0;
+    });
+    setManualAllocations((prev) => ({ ...prev, [family.id]: next }));
+  };
+
+  const applySplitAllocation = (family: ProductFamily) => {
+    const items = family.items.map((item) => String(item.productCode || '').toUpperCase());
+    const a = splitAByFamily[family.id] || items[0] || '';
+    const b = splitBByFamily[family.id] || items[1] || items[0] || '';
+    if (!a || !b) return;
+    const ratio = splitRatioByFamily[family.id] ?? 50;
+    const need = getFamilyNeed(family);
+    const qtyA = Math.round((need * ratio) / 100);
+    const qtyB = Math.max(0, need - qtyA);
+    const next: Record<string, number> = {};
+    family.items.forEach((item) => {
+      const code = String(item.productCode || '').toUpperCase();
+      if (code === a) next[code] = qtyA;
+      else if (code === b) next[code] = qtyB;
+      else next[code] = 0;
+    });
+    setManualAllocations((prev) => ({ ...prev, [family.id]: next }));
+  };
+
+  const setManualAllocation = (familyId: string, code: string, value: number) => {
+    setManualAllocations((prev) => ({
+      ...prev,
+      [familyId]: {
+        ...(prev[familyId] || {}),
+        [code]: Math.max(0, Math.trunc(value || 0)),
+      },
+    }));
   };
 
   return (
@@ -361,6 +520,198 @@ export default function UcarerDepotReportPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Stok Aileleri ve Dagitim</CardTitle>
+            <CardDescription>
+              Aileyi stok kodlariyla tanimla, secili moda gore aile ihtiyacini hesapla ve ihtiyaci tek urun / iki urun / manuel dagit.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <Input placeholder="Aile Adi" value={newFamilyName} onChange={(e) => setNewFamilyName(e.target.value)} />
+              <Input placeholder="Aile Kodu (ops.)" value={newFamilyCode} onChange={(e) => setNewFamilyCode(e.target.value)} />
+              <Input placeholder="Not (ops.)" value={newFamilyNote} onChange={(e) => setNewFamilyNote(e.target.value)} />
+              <Button onClick={createFamily} disabled={savingFamily}>
+                {savingFamily ? 'Kaydediliyor...' : 'Aile Kaydet'}
+              </Button>
+            </div>
+            <div>
+              <p className="text-xs text-gray-600 mb-1">Stok Kodlari (virgul, bosluk veya satir satir)</p>
+              <textarea
+                value={newFamilyCodesText}
+                onChange={(e) => setNewFamilyCodesText(e.target.value)}
+                className="w-full min-h-[84px] rounded-md border px-3 py-2 text-sm"
+                placeholder="B100001, B100002&#10;B100003"
+              />
+            </div>
+
+            <div className="space-y-3">
+              {familyLoading && <p className="text-sm text-gray-500">Aileler yukleniyor...</p>}
+              {!familyLoading && families.length === 0 && (
+                <p className="text-sm text-gray-500">Tanimli aile yok.</p>
+              )}
+
+              {families.map((family) => {
+                const familyNeed = getFamilyNeed(family);
+                const mode = allocationModeByFamily[family.id] || 'MANUAL';
+                const allocations = manualAllocations[family.id] || {};
+                const allocatedTotal = family.items.reduce(
+                  (sum, item) => sum + (allocations[String(item.productCode || '').toUpperCase()] || 0),
+                  0
+                );
+                const remaining = familyNeed - allocatedTotal;
+
+                return (
+                  <div key={family.id} className="rounded-md border p-3 bg-white space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 justify-between">
+                      <div>
+                        <p className="font-semibold text-sm">
+                          {family.name} {family.code ? `(${family.code})` : ''}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          Ihtiyac ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'}):{' '}
+                          <strong>{familyNeed.toLocaleString('tr-TR')}</strong>
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => removeFamily(family.id)}>
+                        Sil
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                      <div>
+                        <p className="text-xs text-gray-600 mb-1">Dagitim Modu</p>
+                        <Select
+                          value={mode}
+                          onChange={(e) =>
+                            setAllocationModeByFamily((prev) => ({ ...prev, [family.id]: e.target.value as AllocationMode }))
+                          }
+                        >
+                          <option value="SINGLE">Tek Urun</option>
+                          <option value="TWO_SPLIT">Iki Urun</option>
+                          <option value="MANUAL">Manuel</option>
+                        </Select>
+                      </div>
+
+                      {mode === 'SINGLE' && (
+                        <>
+                          <div>
+                            <p className="text-xs text-gray-600 mb-1">Urun</p>
+                            <Select
+                              value={singleCodeByFamily[family.id] || family.items[0]?.productCode || ''}
+                              onChange={(e) =>
+                                setSingleCodeByFamily((prev) => ({ ...prev, [family.id]: e.target.value }))
+                              }
+                            >
+                              {family.items.map((item) => (
+                                <option key={item.id} value={item.productCode}>
+                                  {item.productCode}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+                          <Button size="sm" onClick={() => applySingleAllocation(family)}>
+                            Tek Urune Dagit
+                          </Button>
+                        </>
+                      )}
+
+                      {mode === 'TWO_SPLIT' && (
+                        <>
+                          <div>
+                            <p className="text-xs text-gray-600 mb-1">Urun A</p>
+                            <Select
+                              value={splitAByFamily[family.id] || family.items[0]?.productCode || ''}
+                              onChange={(e) => setSplitAByFamily((prev) => ({ ...prev, [family.id]: e.target.value }))}
+                            >
+                              {family.items.map((item) => (
+                                <option key={item.id} value={item.productCode}>
+                                  {item.productCode}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-600 mb-1">Urun B</p>
+                            <Select
+                              value={splitBByFamily[family.id] || family.items[1]?.productCode || family.items[0]?.productCode || ''}
+                              onChange={(e) => setSplitBByFamily((prev) => ({ ...prev, [family.id]: e.target.value }))}
+                            >
+                              {family.items.map((item) => (
+                                <option key={item.id} value={item.productCode}>
+                                  {item.productCode}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-600 mb-1">
+                              A Urun Orani: <strong>{splitRatioByFamily[family.id] ?? 50}%</strong>
+                            </p>
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={5}
+                              value={splitRatioByFamily[family.id] ?? 50}
+                              onChange={(e) =>
+                                setSplitRatioByFamily((prev) => ({ ...prev, [family.id]: Number(e.target.value) }))
+                              }
+                              className="w-full"
+                            />
+                            <Button size="sm" className="mt-1 w-full" onClick={() => applySplitAllocation(family)}>
+                              Iki Urune Dagit
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="overflow-auto rounded border">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="px-2 py-2 text-left">Stok Kodu</th>
+                            <th className="px-2 py-2 text-left">Urun Adi</th>
+                            <th className="px-2 py-2 text-right">Dagitim Miktari</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {family.items.map((item) => {
+                            const code = String(item.productCode || '').toUpperCase();
+                            return (
+                              <tr key={item.id} className="border-t">
+                                <td className="px-2 py-2">{item.productCode}</td>
+                                <td className="px-2 py-2">{item.productName || '-'}</td>
+                                <td className="px-2 py-2 text-right">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={allocations[code] ?? 0}
+                                    onChange={(e) => setManualAllocation(family.id, code, Number(e.target.value))}
+                                    className="w-24 rounded border px-2 py-1 text-right"
+                                    disabled={mode !== 'MANUAL'}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <p className={`text-xs ${remaining === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      Dagitim Toplami: {allocatedTotal.toLocaleString('tr-TR')} / Ihtiyac:{' '}
+                      {familyNeed.toLocaleString('tr-TR')} / Kalan: {remaining.toLocaleString('tr-TR')}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
