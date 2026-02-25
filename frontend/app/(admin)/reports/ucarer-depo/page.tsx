@@ -123,14 +123,31 @@ export default function UcarerDepotReportPage() {
     });
     return map;
   }, [depotRows, stockCodeColumn]);
+  const familySuggestions = useMemo(() => {
+    return families.map((family) => {
+      let need = 0;
+      family.items.forEach((item) => {
+        const code = String(item.productCode || '').trim().toUpperCase();
+        const row = rowByProductCode.get(code);
+        if (row) need += getSuggestedQty(row);
+      });
+      return {
+        id: family.id,
+        name: family.name,
+        code: family.code,
+        itemCount: family.items.length,
+        suggested: Math.max(0, need),
+      };
+    });
+  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
 
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
-  const getSuggestedQty = (row: Record<string, any>): number => {
+  function getSuggestedQty(row: Record<string, any>): number {
     const sourceColumn = suggestionMode === 'INCLUDE_MINMAX' ? fourthIssueColumn : thirdIssueColumn;
     if (!sourceColumn) return 0;
     return Math.max(0, toNumberFlexible(row[sourceColumn]));
-  };
+  }
   const totalSuggestedQty = useMemo(
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
     [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]
@@ -230,6 +247,7 @@ export default function UcarerDepotReportPage() {
       setDepotColumns(data.columns || []);
       setDepotTotal(Number(data.total || 0));
       setDepotLimited(Boolean(data.limited));
+      await loadFamilies();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Ucarer depo raporu alinamadi');
     } finally {
@@ -474,6 +492,47 @@ export default function UcarerDepotReportPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            <div className="rounded-md border bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-gray-900">Aile Bazli Oneri Ozeti</p>
+                <Button size="sm" variant="outline" onClick={loadFamilies} disabled={familyLoading}>
+                  {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
+                </Button>
+              </div>
+              {familySuggestions.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  Tanimli aile yok. <Link href="/reports/product-families" className="underline">Aile yonetimi</Link> ekranindan olusturabilirsiniz.
+                </p>
+              ) : (
+                <div className="overflow-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-2 py-2 text-left">Aile</th>
+                        <th className="px-2 py-2 text-right">Urun Sayisi</th>
+                        <th className="px-2 py-2 text-right">
+                          Oneri ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'})
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {familySuggestions.map((row) => (
+                        <tr key={row.id} className="border-t">
+                          <td className="px-2 py-2">
+                            {row.name} {row.code ? `(${row.code})` : ''}
+                          </td>
+                          <td className="px-2 py-2 text-right">{row.itemCount.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2 text-right font-semibold text-emerald-700">
+                            {row.suggested.toLocaleString('tr-TR')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
