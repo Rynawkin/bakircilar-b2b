@@ -33,11 +33,18 @@ export default function UcarerDepotReportPage() {
   const [minMaxTotal, setMinMaxTotal] = useState(0);
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
-  const [columnWidth, setColumnWidth] = useState(180);
+  const [defaultColumnWidth, setDefaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
+  const [depotColumnWidths, setDepotColumnWidths] = useState<Record<string, number>>({});
+  const [minMaxColumnWidths, setMinMaxColumnWidths] = useState<Record<string, number>>({});
+  const [selectedDepotColumn, setSelectedDepotColumn] = useState('');
+  const [selectedMinMaxColumn, setSelectedMinMaxColumn] = useState('');
 
   const visibleDepotColumns = useMemo(() => depotColumns, [depotColumns]);
   const visibleMinMaxColumns = useMemo(() => minMaxColumns, [minMaxColumns]);
+
+  const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
+  const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
 
   const downloadExcel = async (params: {
     rows: Array<Record<string, any>>;
@@ -90,6 +97,9 @@ export default function UcarerDepotReportPage() {
       const data = response.data;
       setDepotRows(data.rows || []);
       setDepotColumns(data.columns || []);
+      if (!selectedDepotColumn && data.columns?.length) {
+        setSelectedDepotColumn(data.columns[0]);
+      }
       setDepotTotal(Number(data.total || 0));
       setDepotLimited(Boolean(data.limited));
     } catch (error: any) {
@@ -106,6 +116,9 @@ export default function UcarerDepotReportPage() {
       const data = response.data;
       setMinMaxRows(data.rows || []);
       setMinMaxColumns(data.columns || []);
+      if (!selectedMinMaxColumn && data.columns?.length) {
+        setSelectedMinMaxColumn(data.columns[0]);
+      }
       setMinMaxTotal(Number(data.total || 0));
       toast.success('MinMax hesaplama tamamlandi');
     } catch (error: any) {
@@ -198,14 +211,14 @@ export default function UcarerDepotReportPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border p-3 bg-white">
               <label className="text-xs text-gray-700">
-                Kolon Genisligi: <strong>{columnWidth}px</strong>
+                Varsayilan Kolon Genisligi: <strong>{defaultColumnWidth}px</strong>
                 <input
                   type="range"
                   min={120}
                   max={420}
                   step={10}
-                  value={columnWidth}
-                  onChange={(e) => setColumnWidth(Number(e.target.value))}
+                  value={defaultColumnWidth}
+                  onChange={(e) => setDefaultColumnWidth(Number(e.target.value))}
                   className="mt-1 w-full"
                 />
               </label>
@@ -223,6 +236,37 @@ export default function UcarerDepotReportPage() {
               </label>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border p-3 bg-white">
+              <div>
+                <p className="text-xs text-gray-700 mb-1">Kolon Sec</p>
+                <Select value={selectedDepotColumn} onChange={(e) => setSelectedDepotColumn(e.target.value)}>
+                  {visibleDepotColumns.length === 0 && <option value="">Kolon yok</option>}
+                  {visibleDepotColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <label className="text-xs text-gray-700">
+                Secilen Kolon Genisligi:{' '}
+                <strong>{selectedDepotColumn ? getDepotColumnWidth(selectedDepotColumn) : defaultColumnWidth}px</strong>
+                <input
+                  type="range"
+                  min={120}
+                  max={520}
+                  step={10}
+                  value={selectedDepotColumn ? getDepotColumnWidth(selectedDepotColumn) : defaultColumnWidth}
+                  onChange={(e) => {
+                    if (!selectedDepotColumn) return;
+                    const next = Number(e.target.value);
+                    setDepotColumnWidths((prev) => ({ ...prev, [selectedDepotColumn]: next }));
+                  }}
+                  className="mt-1 w-full"
+                />
+              </label>
+            </div>
+
             <div className="overflow-auto rounded-md border bg-white max-h-[70vh]">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100">
@@ -231,7 +275,7 @@ export default function UcarerDepotReportPage() {
                       <th
                         key={column}
                         className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100"
-                        style={{ minWidth: `${columnWidth}px`, height: `${headerHeight}px` }}
+                        style={{ minWidth: `${getDepotColumnWidth(column)}px`, height: `${headerHeight}px` }}
                       >
                         {column}
                       </th>
@@ -252,7 +296,7 @@ export default function UcarerDepotReportPage() {
                         <td
                           key={`${column}-${index}`}
                           className="px-2 py-2 whitespace-nowrap"
-                          style={{ minWidth: `${columnWidth}px` }}
+                          style={{ minWidth: `${getDepotColumnWidth(column)}px` }}
                         >
                           {normalizeValue(row[column])}
                         </td>
@@ -285,6 +329,37 @@ export default function UcarerDepotReportPage() {
               </p>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border p-3 bg-white">
+              <div>
+                <p className="text-xs text-gray-700 mb-1">Kolon Sec</p>
+                <Select value={selectedMinMaxColumn} onChange={(e) => setSelectedMinMaxColumn(e.target.value)}>
+                  {visibleMinMaxColumns.length === 0 && <option value="">Kolon yok</option>}
+                  {visibleMinMaxColumns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <label className="text-xs text-gray-700">
+                Secilen Kolon Genisligi:{' '}
+                <strong>{selectedMinMaxColumn ? getMinMaxColumnWidth(selectedMinMaxColumn) : defaultColumnWidth}px</strong>
+                <input
+                  type="range"
+                  min={120}
+                  max={520}
+                  step={10}
+                  value={selectedMinMaxColumn ? getMinMaxColumnWidth(selectedMinMaxColumn) : defaultColumnWidth}
+                  onChange={(e) => {
+                    if (!selectedMinMaxColumn) return;
+                    const next = Number(e.target.value);
+                    setMinMaxColumnWidths((prev) => ({ ...prev, [selectedMinMaxColumn]: next }));
+                  }}
+                  className="mt-1 w-full"
+                />
+              </label>
+            </div>
+
             <div className="overflow-auto rounded-md border bg-white max-h-[60vh]">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100">
@@ -293,7 +368,7 @@ export default function UcarerDepotReportPage() {
                       <th
                         key={column}
                         className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100"
-                        style={{ minWidth: `${columnWidth}px`, height: `${headerHeight}px` }}
+                        style={{ minWidth: `${getMinMaxColumnWidth(column)}px`, height: `${headerHeight}px` }}
                       >
                         {column}
                       </th>
@@ -314,7 +389,7 @@ export default function UcarerDepotReportPage() {
                         <td
                           key={`${column}-${index}`}
                           className="px-2 py-2 whitespace-nowrap"
-                          style={{ minWidth: `${columnWidth}px` }}
+                          style={{ minWidth: `${getMinMaxColumnWidth(column)}px` }}
                         >
                           {normalizeValue(row[column])}
                         </td>
