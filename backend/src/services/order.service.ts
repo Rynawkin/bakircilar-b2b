@@ -420,6 +420,7 @@ class OrderService {
       where: { id: customerId },
       select: {
         mikroCariCode: true,
+        paymentPlanNo: true,
         name: true,
         displayName: true,
         email: true,
@@ -547,6 +548,7 @@ class OrderService {
         evrakSeri: String(invoicedSeries).trim(),
         evrakSira: Number.isFinite(Number(invoicedSira)) ? Number(invoicedSira) : undefined,
         warehouseNo: warehouseValue,
+        paymentPlanNo: customer.paymentPlanNo ?? undefined,
       });
       if (invoicedOrderId) {
         mikroOrderIds.push(invoicedOrderId);
@@ -575,6 +577,7 @@ class OrderService {
         evrakSeri: String(whiteSeries).trim(),
         evrakSira: Number.isFinite(Number(whiteSira)) ? Number(whiteSira) : undefined,
         warehouseNo: warehouseValue,
+        paymentPlanNo: customer.paymentPlanNo ?? undefined,
       });
       if (whiteOrderId) {
         mikroOrderIds.push(whiteOrderId);
@@ -994,6 +997,7 @@ class OrderService {
             email: true,
             customerType: true,
             mikroCariCode: true,
+            paymentPlanNo: true,
           },
         },
         requestedBy: {
@@ -1099,6 +1103,7 @@ class OrderService {
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı${adminNote ? ` | ${adminNote}` : ''}`,
           evrakSeri: invoicedSeries,
+          paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });
 
         mikroOrderIds.push(invoicedOrderId);
@@ -1119,6 +1124,7 @@ class OrderService {
           applyVAT: false,
           description: `B2B Sipari? ${order.orderNumber} - Beyaz${adminNote ? ` | ${adminNote}` : ''}`,
           evrakSeri: whiteSeries,
+          paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });
 
         mikroOrderIds.push(whiteOrderId);
@@ -1217,6 +1223,7 @@ class OrderService {
           applyVAT: true,
           description: `B2B Sipariş ${order.orderNumber} - Faturalı (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
           evrakSeri: invoicedSeries,
+          paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });
 
         mikroOrderIds.push(invoicedOrderId);
@@ -1249,6 +1256,7 @@ class OrderService {
           applyVAT: false,
           description: `B2B Sipariş ${order.orderNumber} - Beyaz (Kısmi)${adminNote ? ` | ${adminNote}` : ''}`,
           evrakSeri: whiteSeries,
+          paymentPlanNo: order.user.paymentPlanNo ?? undefined,
         });
 
         mikroOrderIds.push(whiteOrderId);

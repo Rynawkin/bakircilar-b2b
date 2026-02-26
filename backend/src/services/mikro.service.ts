@@ -1193,7 +1193,7 @@ class MikroService {
     const warehouseValue = Number.isFinite(warehouseValueRaw) && warehouseValueRaw > 0 ? Math.trunc(warehouseValueRaw) : 1;
     const paymentPlanNoRaw = Number(paymentPlanNoInput);
     const paymentPlanNoValue = Number.isFinite(paymentPlanNoRaw) && paymentPlanNoRaw > 0 ? Math.trunc(paymentPlanNoRaw) : 0;
-    let teslimGun = 7;
+    let resolvedPlanNo = paymentPlanNoValue;
     const evrakSeriValue = evrakSeriInput ? String(evrakSeriInput).trim().slice(0, 20) : '';
     const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
     const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
@@ -1235,7 +1235,6 @@ class MikroService {
     }
 
     try {
-      let resolvedPlanNo = paymentPlanNoValue;
       if (!resolvedPlanNo) {
         const cariPlanResult = await this.pool!
           .request()
@@ -1250,24 +1249,8 @@ class MikroService {
           resolvedPlanNo = Math.trunc(fetchedPlanNo);
         }
       }
-
-      if (resolvedPlanNo > 0) {
-        const planResult = await this.pool!
-          .request()
-          .input('planNo', sql.Int, resolvedPlanNo)
-          .query(`
-            SELECT TOP 1 odp_kodu
-            FROM ODEME_PLANLARI
-            WHERE odp_no = @planNo
-          `);
-        const planCodeRaw = String(planResult.recordset?.[0]?.odp_kodu || '').trim();
-        const planDays = Number.parseInt(planCodeRaw, 10);
-        if (Number.isFinite(planDays) && planDays >= 0) {
-          teslimGun = planDays;
-        }
-      }
     } catch (error) {
-      console.warn('WARN: Siparis vade gunu odeme planindan hesaplanamadi, varsayilan kullanilacak:', error);
+      console.warn('WARN: Siparis odeme plani alinamadi, varsayilan plan no kullanilacak:', error);
     }
 
     console.log(`🔧 Sipariş parametreleri:`, {
@@ -1276,7 +1259,7 @@ class MikroService {
       applyVAT,
       evrakSeri,
       paymentPlanNo: paymentPlanNoValue || null,
-      teslimGun,
+      resolvedPlanNo: resolvedPlanNo || null,
     });
 
     // SIPARISLER_OZET trigger'ını geçici olarak devre dışı bırak
@@ -1423,7 +1406,7 @@ class MikroService {
           '@sira',
           '@satirNo',
           'GETDATE()',
-          'DATEADD(day, @teslimGun, GETDATE())',
+          'DATEADD(day, 7, GETDATE())',
           '0',
           '0',
           '@cariKod',
@@ -1487,7 +1470,6 @@ class MikroService {
           .input('satirNo', sql.Int, satirNo)
           .input('cariKod', sql.NVarChar(25), cariCode)
           .input('stokKod', sql.NVarChar(25), item.productCode)
-          .input('teslimGun', sql.Int, teslimGun)
           .input('miktar', sql.Float, item.quantity)
           .input('reserveQty', sql.Float, reserveQty)
           .input('depoNo', sql.Int, warehouseValue)
@@ -1779,6 +1761,7 @@ class MikroService {
           .input('sira', sql.Int, evrakSira)
           .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
           .input('vergiSiz', sql.Bit, vergiSizFlag)
+          .input('sipOpNo', sql.Int, resolvedPlanNo > 0 ? resolvedPlanNo : 8)
           .input('createUser', sql.SmallInt, mikroUserNo)
           .input('lastupUser', sql.SmallInt, mikroUserNo)
           .query(`
@@ -1799,7 +1782,7 @@ class MikroService {
               sip_belgeno = ISNULL(sip_belgeno, ''),
               sip_birim_pntr = ISNULL(sip_birim_pntr, 1),
               sip_masvergi_pntr = ISNULL(sip_masvergi_pntr, 0),
-              sip_opno = ISNULL(sip_opno, 8),
+              sip_opno = CASE WHEN ISNULL(sip_opno, 0) = 0 THEN @sipOpNo ELSE sip_opno END,
               sip_aciklama2 = ISNULL(sip_aciklama2, ''),
               sip_OnaylayanKulNo = ISNULL(sip_OnaylayanKulNo, 0),
               sip_vergisiz_fl = ISNULL(sip_vergisiz_fl, @vergiSiz),
