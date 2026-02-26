@@ -4587,7 +4587,14 @@ export class ReportsService {
 
   async createSupplierOrdersFromFamilyAllocations(input: {
     depot: 'MERKEZ' | 'TOPCA';
-    allocations: Array<{ familyId?: string | null; productCode: string; quantity: number }>;
+    series: string;
+    allocations: Array<{
+      familyId?: string | null;
+      productCode: string;
+      quantity: number;
+      supplierCodeOverride?: string | null;
+      persistSupplierOverride?: boolean;
+    }>;
   }): Promise<{
     createdOrders: Array<{
       supplierCode: string;
@@ -4601,6 +4608,10 @@ export class ReportsService {
   }> {
     const depot = input.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
     const warehouseNo = depot === 'TOPCA' ? 6 : 1;
+    const series = String(input.series || '').trim();
+    if (!series) {
+      throw new AppError('Siparis serisi zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
     const rawRows = Array.isArray(input.allocations) ? input.allocations : [];
 
     const normalizedRows = rawRows
@@ -4608,6 +4619,8 @@ export class ReportsService {
         familyId: String(row.familyId || '').trim() || null,
         productCode: String(row.productCode || '').trim().toUpperCase(),
         quantity: Math.max(0, Math.trunc(Number(row.quantity || 0))),
+        supplierCodeOverride: String(row.supplierCodeOverride || '').trim().toUpperCase() || null,
+        persistSupplierOverride: Boolean(row.persistSupplierOverride),
       }))
       .filter((row) => row.productCode && row.quantity > 0);
 
@@ -4629,7 +4642,15 @@ export class ReportsService {
 
     const skippedInvalid: Array<{ familyId: string | null; productCode: string; quantity: number }> = [];
     const productQtyMap = new Map<string, number>();
+    const supplierOverrideByProduct = new Map<string, string>();
+    const persistOverrideByProduct = new Map<string, boolean>();
     normalizedRows.forEach((row) => {
+      if (row.supplierCodeOverride) {
+        supplierOverrideByProduct.set(row.productCode, row.supplierCodeOverride);
+        if (row.persistSupplierOverride) {
+          persistOverrideByProduct.set(row.productCode, true);
+        }
+      }
       if (!row.familyId) {
         productQtyMap.set(row.productCode, (productQtyMap.get(row.productCode) || 0) + row.quantity);
         return;
@@ -4661,14 +4682,44 @@ export class ReportsService {
       const productCode = String(row?.productCode || '').trim().toUpperCase();
       const supplierCode = String(row?.supplierCode || '').trim();
       if (productCode && supplierCode) {
-        supplierCodeByProduct.set(productCode, supplierCode);
+      supplierCodeByProduct.set(productCode, supplierCode);
       }
     });
 
+    const allSupplierCodes = new Set<string>();
+    supplierCodeByProduct.forEach((code) => {
+      if (code) allSupplierCodes.add(code);
+    });
+    supplierOverrideByProduct.forEach((code) => {
+      if (code) allSupplierCodes.add(code);
+    });
+    const supplierNameMap = new Map<string, string>();
+    if (allSupplierCodes.size > 0) {
+      const supplierIn = Array.from(allSupplierCodes)
+        .map((code) => `'${code.replace(/'/g, "''")}'`)
+        .join(',');
+      const supplierNameRows = await mikroService.executeQuery(`
+        SELECT cari_kod AS supplierCode, cari_unvan1 AS supplierName
+        FROM CARI_HESAPLAR
+        WHERE cari_kod IN (${supplierIn})
+      `);
+      (supplierNameRows || []).forEach((row: any) => {
+        const code = String(row?.supplierCode || '').trim();
+        const name = String(row?.supplierName || '').trim();
+        if (code) supplierNameMap.set(code, name || code);
+      });
+    }
+
     const missingSupplierProducts: Array<{ productCode: string; quantity: number }> = [];
     const supplierItems = new Map<string, Array<{ productCode: string; quantity: number }>>();
+    const invalidOverrideProducts: string[] = [];
     productQtyMap.forEach((quantity, productCode) => {
-      const supplierCode = supplierCodeByProduct.get(productCode);
+      const overriddenSupplierCode = supplierOverrideByProduct.get(productCode);
+      const supplierCode = overriddenSupplierCode || supplierCodeByProduct.get(productCode);
+      if (overriddenSupplierCode && !supplierNameMap.has(overriddenSupplierCode)) {
+        invalidOverrideProducts.push(productCode);
+        return;
+      }
       if (!supplierCode) {
         missingSupplierProducts.push({ productCode, quantity });
         return;
@@ -4677,6 +4728,14 @@ export class ReportsService {
       list.push({ productCode, quantity });
       supplierItems.set(supplierCode, list);
     });
+
+    if (invalidOverrideProducts.length > 0) {
+      throw new AppError(
+        `Gecersiz saglayici secimi var: ${invalidOverrideProducts.slice(0, 10).join(', ')}`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
 
     if (missingSupplierProducts.length > 0) {
       throw new AppError(
@@ -4689,19 +4748,45 @@ export class ReportsService {
       );
     }
 
-    const supplierCodes = Array.from(supplierItems.keys());
-    const supplierIn = supplierCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
-    const supplierNameRows = await mikroService.executeQuery(`
-      SELECT cari_kod AS supplierCode, cari_unvan1 AS supplierName
-      FROM CARI_HESAPLAR
-      WHERE cari_kod IN (${supplierIn})
-    `);
-    const supplierNameMap = new Map<string, string>();
-    (supplierNameRows || []).forEach((row: any) => {
-      const code = String(row?.supplierCode || '').trim();
-      const name = String(row?.supplierName || '').trim();
-      if (code) supplierNameMap.set(code, name || code);
+    const costRows = await prisma.product.findMany({
+      where: { mikroCode: { in: productCodes } },
+      select: { mikroCode: true, currentCost: true, vatRate: true },
     });
+    const productCostMap = new Map<string, { unitPrice: number; vatRate: number }>();
+    (costRows || []).forEach((row) => {
+      const code = String(row?.mikroCode || '').trim().toUpperCase();
+      const unitPrice = Number(row?.currentCost || 0);
+      const vatRate = Number(row?.vatRate || 0);
+      if (!code) return;
+      productCostMap.set(code, {
+        unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+        vatRate: Number.isFinite(vatRate) ? vatRate : 0,
+      });
+    });
+    const missingCostCodes = productCodes.filter((code) => {
+      const cost = productCostMap.get(code)?.unitPrice || 0;
+      return !Number.isFinite(cost) || cost <= 0;
+    });
+    if (missingCostCodes.length > 0) {
+      throw new AppError(
+        `Guncel maliyeti bos/0 olan stoklar var: ${missingCostCodes.slice(0, 10).join(', ')}`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
+    const persistUpdates = Array.from(persistOverrideByProduct.entries()).filter(
+      ([productCode, persist]) => persist && Boolean(supplierOverrideByProduct.get(productCode))
+    );
+    for (const [productCode] of persistUpdates) {
+      const newSupplierCode = supplierOverrideByProduct.get(productCode);
+      if (!newSupplierCode) continue;
+      await mikroService.executeQuery(`
+        UPDATE STOKLAR
+        SET sto_sat_cari_kod = '${newSupplierCode.replace(/'/g, "''")}'
+        WHERE sto_kod = '${productCode.replace(/'/g, "''")}'
+      `);
+    }
 
     const today = new Date();
     const day = String(today.getDate()).padStart(2, '0');
@@ -4722,14 +4807,14 @@ export class ReportsService {
         items: items.map((item) => ({
           productCode: item.productCode,
           quantity: item.quantity,
-          unitPrice: 0,
-          vatRate: 0,
+          unitPrice: productCostMap.get(item.productCode)?.unitPrice || 0,
+          vatRate: productCostMap.get(item.productCode)?.vatRate || 0,
           lineDescription: `Ucarer aile dagitimi ${depot}`,
         })),
         applyVAT: false,
         description: `Ucarer Aile Dagitimi ${depot}`,
         documentDescription: `Ucarer aile dagitimi ${depot} ${day}.${month}.${year}`,
-        evrakSeri: String(process.env.MIKRO_PURCHASE_ORDER_SERIES || 'H').trim() || 'H',
+        evrakSeri: series,
         warehouseNo,
       });
 

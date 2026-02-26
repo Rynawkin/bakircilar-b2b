@@ -787,7 +787,35 @@ export class AdminController {
       });
 
       const productsWithPriceLists = await buildProductsWithPriceLists(products);
-      res.json({ products: productsWithPriceLists, total: productsWithPriceLists.length });
+      const inClause = normalizedCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+      const supplierRows = await mikroService.executeQuery(`
+        SELECT
+          s.sto_kod AS productCode,
+          LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS mainSupplierCode,
+          LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS mainSupplierName
+        FROM STOKLAR s
+        LEFT JOIN CARI_HESAPLAR c
+          ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
+        WHERE s.sto_kod IN (${inClause})
+      `);
+      const supplierByCode = new Map<string, { code: string | null; name: string | null }>();
+      (supplierRows || []).forEach((row: any) => {
+        const productCode = String(row?.productCode || '').trim().toUpperCase();
+        if (!productCode) return;
+        const mainSupplierCode = String(row?.mainSupplierCode || '').trim() || null;
+        const mainSupplierName = String(row?.mainSupplierName || '').trim() || null;
+        supplierByCode.set(productCode, { code: mainSupplierCode, name: mainSupplierName });
+      });
+
+      const enrichedProducts = productsWithPriceLists.map((product: any) => {
+        const supplier = supplierByCode.get(String(product?.mikroCode || '').trim().toUpperCase());
+        return {
+          ...product,
+          mainSupplierCode: supplier?.code || null,
+          mainSupplierName: supplier?.name || null,
+        };
+      });
+      res.json({ products: enrichedProducts, total: enrichedProducts.length });
     } catch (error) {
       next(error);
     }
@@ -3584,12 +3612,20 @@ export class AdminController {
    */
   async createSupplierOrdersFromFamilies(req: Request, res: Response, next: NextFunction) {
     try {
-      const { depot, allocations } = req.body as {
+      const { depot, series, allocations } = req.body as {
         depot?: 'MERKEZ' | 'TOPCA';
-        allocations?: Array<{ familyId?: string | null; productCode: string; quantity: number }>;
+        series?: string;
+        allocations?: Array<{
+          familyId?: string | null;
+          productCode: string;
+          quantity: number;
+          supplierCodeOverride?: string | null;
+          persistSupplierOverride?: boolean;
+        }>;
       };
       const data = await reportsService.createSupplierOrdersFromFamilyAllocations({
         depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
+        series: String(series || '').trim(),
         allocations: Array.isArray(allocations) ? allocations : [],
       });
       res.json({ success: true, data });

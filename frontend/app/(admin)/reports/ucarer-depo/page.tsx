@@ -103,7 +103,6 @@ export default function UcarerDepotReportPage() {
   const [splitRatioByFamily, setSplitRatioByFamily] = useState<Record<string, number>>({});
   const [manualAllocations, setManualAllocations] = useState<Record<string, Record<string, number>>>({});
   const [nonFamilyAllocations, setNonFamilyAllocations] = useState<Record<string, number | ''>>({});
-  const [nonFamilySelections, setNonFamilySelections] = useState<Record<string, boolean>>({});
   const [panelColumns, setPanelColumns] = useState<Record<OpsExtraColumnKey, boolean>>({
     depotQty: true,
     incomingOrders: true,
@@ -114,6 +113,10 @@ export default function UcarerDepotReportPage() {
     currentCost: true,
   });
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
+  const [mainSupplierByCode, setMainSupplierByCode] = useState<Record<string, { code: string; name: string }>>({});
+  const [supplierOverrideByCode, setSupplierOverrideByCode] = useState<Record<string, string>>({});
+  const [persistSupplierOverrideByCode, setPersistSupplierOverrideByCode] = useState<Record<string, boolean>>({});
+  const [cariOptions, setCariOptions] = useState<Array<{ code: string; name: string }>>([]);
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
   const [panelHighlight, setPanelHighlight] = useState(false);
   const [creatingOrders, setCreatingOrders] = useState(false);
@@ -160,12 +163,6 @@ export default function UcarerDepotReportPage() {
   }, [visibleDepotColumns]);
   const outgoingOrderColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('verilen sipariste bekleyen'));
-  }, [visibleDepotColumns]);
-  const supplierNameColumn = useMemo(() => {
-    return visibleDepotColumns.find((column) => {
-      const n = normalizeKey(column);
-      return n.includes('ana saglayici cari adi') || (n.includes('saglayici') && n.includes('cari') && n.includes('adi'));
-    });
   }, [visibleDepotColumns]);
   const realQtyColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('reel miktar'));
@@ -219,23 +216,26 @@ export default function UcarerDepotReportPage() {
       visibleItems.forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const row = rowByProductCode.get(code);
-        if (row) need += getSuggestedQty(row);
+        if (row) need += getRawSuggestedQty(row);
       });
       return {
         id: family.id,
         name: family.name,
         code: family.code,
         itemCount: visibleItems.length,
-        suggested: Math.max(0, need),
+        suggested: Math.max(0, Math.trunc(need)),
       };
     });
   }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
-  function getSuggestedQty(row: Record<string, any>): number {
+  function getRawSuggestedQty(row: Record<string, any>): number {
     const sourceColumn = suggestionMode === 'INCLUDE_MINMAX' ? fourthIssueColumn : thirdIssueColumn;
     if (!sourceColumn) return 0;
-    return Math.max(0, toNumberFlexible(row[sourceColumn]));
+    return toNumberFlexible(row[sourceColumn]);
+  }
+  function getSuggestedQty(row: Record<string, any>): number {
+    return Math.max(0, getRawSuggestedQty(row));
   }
   const totalSuggestedQty = useMemo(
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
@@ -281,14 +281,23 @@ export default function UcarerDepotReportPage() {
   }, [nonFamilyRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
 
   useEffect(() => {
-    setNonFamilySelections((prev) => {
-      const next: Record<string, boolean> = {};
-      nonFamilyRows.forEach((item) => {
-        next[item.code] = prev[item.code] === true;
-      });
-      return next;
-    });
-  }, [nonFamilyRows]);
+    let active = true;
+    (async () => {
+      try {
+        const response = await adminApi.getCariList();
+        const list = (response.cariList || []).map((cari) => ({
+          code: String(cari.code || '').trim().toUpperCase(),
+          name: String(cari.name || '').trim(),
+        }));
+        if (active) setCariOptions(list.filter((item) => item.code));
+      } catch {
+        if (active) setCariOptions([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const codes = new Set<string>();
@@ -309,20 +318,39 @@ export default function UcarerDepotReportPage() {
     (async () => {
       try {
         const costMap: Record<string, number> = {};
+        const supplierMap: Record<string, { code: string; name: string }> = {};
         for (let i = 0; i < codeList.length; i += 200) {
           const chunk = codeList.slice(i, i + 200);
           const response = await adminApi.getProductsByCodes(chunk);
           (response.products || []).forEach((product: any) => {
             const code = String(product?.mikroCode || '').trim().toUpperCase();
             const costValue = Number(product?.currentCost ?? 0);
+            const mainSupplierCode = String(product?.mainSupplierCode || '').trim().toUpperCase();
+            const mainSupplierName = String(product?.mainSupplierName || '').trim();
             if (code && Number.isFinite(costValue)) {
               costMap[code] = costValue;
             }
+            if (code && mainSupplierCode) {
+              supplierMap[code] = { code: mainSupplierCode, name: mainSupplierName || mainSupplierCode };
+            }
           });
         }
-        if (active) setCurrentCostByCode(costMap);
+        if (active) {
+          setCurrentCostByCode(costMap);
+          setMainSupplierByCode(supplierMap);
+          setSupplierOverrideByCode((prev) => {
+            const next: Record<string, string> = { ...prev };
+            Object.entries(supplierMap).forEach(([productCode, supplier]) => {
+              if (!next[productCode]) next[productCode] = supplier.code;
+            });
+            return next;
+          });
+        }
       } catch {
-        if (active) setCurrentCostByCode({});
+        if (active) {
+          setCurrentCostByCode({});
+          setMainSupplierByCode({});
+        }
       }
     })();
 
@@ -534,9 +562,9 @@ export default function UcarerDepotReportPage() {
     getVisibleFamilyItems(family).forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
-      if (row) total += getSuggestedQty(row);
+      if (row) total += getRawSuggestedQty(row);
     });
-    return Math.max(0, total);
+    return Math.max(0, Math.trunc(total));
   };
 
   const applySingleAllocation = (family: ProductFamily) => {
@@ -596,6 +624,25 @@ export default function UcarerDepotReportPage() {
     }
     return '-';
   };
+  const cariNameByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    cariOptions.forEach((item) => {
+      const code = String(item.code || '').trim().toUpperCase();
+      if (!code) return;
+      map.set(code, String(item.name || '').trim() || code);
+    });
+    return map;
+  }, [cariOptions]);
+  const getEffectiveSupplierCode = (productCode: string): string => {
+    const code = String(productCode || '').trim().toUpperCase();
+    return String(supplierOverrideByCode[code] || mainSupplierByCode[code]?.code || '').trim().toUpperCase();
+  };
+  const getEffectiveSupplierName = (productCode: string): string => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const supplierCode = getEffectiveSupplierCode(code);
+    if (!supplierCode) return '-';
+    return cariNameByCode.get(supplierCode) || mainSupplierByCode[code]?.name || supplierCode;
+  };
 
   const activeFamily = useMemo(
     () => families.find((family) => family.id === activeFamilyId) || null,
@@ -646,23 +693,49 @@ export default function UcarerDepotReportPage() {
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
   const createSupplierOrders = async () => {
-    const allocations: Array<{ familyId?: string | null; productCode: string; quantity: number }> = [];
+    const seriesInput = typeof window !== 'undefined' ? window.prompt('Siparis serisini girin (orn: H)') : '';
+    const series = String(seriesInput || '').trim().toUpperCase();
+    if (!series) {
+      toast.error('Siparis serisi zorunlu.');
+      return;
+    }
+
+    const allocations: Array<{
+      familyId?: string | null;
+      productCode: string;
+      quantity: number;
+      supplierCodeOverride?: string | null;
+      persistSupplierOverride?: boolean;
+    }> = [];
     families.forEach((family) => {
       const familyAllocation = manualAllocations[family.id] || {};
       getVisibleFamilyItems(family).forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const qty = Math.max(0, Math.trunc(Number(familyAllocation[code] || 0)));
         if (qty > 0) {
-          allocations.push({ familyId: family.id, productCode: code, quantity: qty });
+          const supplierCodeOverride = getEffectiveSupplierCode(code) || null;
+          allocations.push({
+            familyId: family.id,
+            productCode: code,
+            quantity: qty,
+            supplierCodeOverride,
+            persistSupplierOverride: Boolean(persistSupplierOverrideByCode[code]),
+          });
         }
       });
     });
     nonFamilyRows.forEach((item) => {
-      if (!nonFamilySelections[item.code]) return;
       const rawQty = nonFamilyAllocations[item.code];
       const qty = Math.max(0, Math.trunc(Number(rawQty === '' ? 0 : rawQty || 0)));
       if (qty > 0) {
-        allocations.push({ familyId: null, productCode: item.code, quantity: qty });
+        const supplierCodeOverride = getEffectiveSupplierCode(item.code) || null;
+        allocations.push({
+          familyId: null,
+          productCode: item.code,
+          quantity: qty,
+          supplierCodeOverride,
+          persistSupplierOverride: Boolean(persistSupplierOverrideByCode[item.code]),
+        });
       }
     });
 
@@ -675,6 +748,7 @@ export default function UcarerDepotReportPage() {
     try {
       const result = await adminApi.createSupplierOrdersFromFamilyAllocations({
         depot,
+        series,
         allocations,
       });
       const created = result.data?.createdOrders || [];
@@ -868,7 +942,7 @@ export default function UcarerDepotReportPage() {
                 </Select>
               </div>
               <Button size="sm" onClick={createSupplierOrders} disabled={creatingOrders}>
-                {creatingOrders ? 'Olusturuluyor...' : 'Tum Onerilerden Toplu Siparis Olustur'}
+                {creatingOrders ? 'Olusturuluyor...' : 'Toplu Siparis Olustur'}
               </Button>
               <Button size="sm" variant="outline" onClick={loadFamilies} disabled={familyLoading}>
                 {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
@@ -1063,7 +1137,9 @@ export default function UcarerDepotReportPage() {
                       <tr>
                         <th className="px-2 py-2 text-left">Stok Kodu</th>
                         <th className="px-2 py-2 text-left">Urun Adi</th>
-                        <th className="px-2 py-2 text-left">Ana Saglayici Cari Adi</th>
+                        <th className="px-2 py-2 text-left">Saglayici Kodu</th>
+                        <th className="px-2 py-2 text-left">Saglayici Adi</th>
+                        <th className="px-2 py-2 text-center">Kalici Degistir</th>
                         {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
                         {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
                         {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right">Verilen Siparis</th>}
@@ -1095,7 +1171,33 @@ export default function UcarerDepotReportPage() {
                           <tr key={item.id} className="border-t">
                             <td className="px-2 py-2 font-semibold text-gray-900">{item.productCode}</td>
                             <td className="px-2 py-2 text-gray-700">{item.productName || '-'}</td>
-                            <td className="px-2 py-2 text-gray-600">{item.supplierName || '-'}</td>
+                            <td className="px-2 py-2">
+                              <input
+                                list="ucarer-supplier-cari-list"
+                                value={getEffectiveSupplierCode(code)}
+                                onChange={(e) =>
+                                  setSupplierOverrideByCode((prev) => ({
+                                    ...prev,
+                                    [code]: String(e.target.value || '').trim().toUpperCase(),
+                                  }))
+                                }
+                                className="w-32 rounded border px-2 py-1 text-xs uppercase"
+                                placeholder="Cari kodu"
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-gray-600">{getEffectiveSupplierName(code)}</td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(persistSupplierOverrideByCode[code])}
+                                onChange={(e) =>
+                                  setPersistSupplierOverrideByCode((prev) => ({
+                                    ...prev,
+                                    [code]: e.target.checked,
+                                  }))
+                                }
+                              />
+                            </td>
                             {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
                             {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
                             {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
@@ -1133,65 +1235,18 @@ export default function UcarerDepotReportPage() {
                   <p className="text-xs text-gray-600">Ailelere dahil olmayan ancak siparise donusturulebilen urunler.</p>
                 </div>
                 <p className="text-sm text-gray-700">
-                  Kalem: <strong>{nonFamilyRows.length.toLocaleString('tr-TR')}</strong> | Secili:{' '}
-                  <strong>{Object.values(nonFamilySelections).filter(Boolean).length.toLocaleString('tr-TR')}</strong>
+                  Kalem: <strong>{nonFamilyRows.length.toLocaleString('tr-TR')}</strong>
                 </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setNonFamilySelections(() => {
-                      const next: Record<string, boolean> = {};
-                      nonFamilyRows.forEach((item) => {
-                        next[item.code] = true;
-                      });
-                      return next;
-                    })
-                  }
-                >
-                  Tumunu Sec
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setNonFamilySelections(() => {
-                      const next: Record<string, boolean> = {};
-                      nonFamilyRows.forEach((item) => {
-                        next[item.code] = false;
-                      });
-                      return next;
-                    })
-                  }
-                >
-                  Secimi Temizle
-                </Button>
               </div>
               <div className="overflow-auto rounded border">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-100">
                     <tr>
-                      <th className="px-2 py-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={nonFamilyRows.length > 0 && nonFamilyRows.every((item) => nonFamilySelections[item.code])}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setNonFamilySelections(() => {
-                              const next: Record<string, boolean> = {};
-                              nonFamilyRows.forEach((item) => {
-                                next[item.code] = checked;
-                              });
-                              return next;
-                            });
-                          }}
-                        />
-                      </th>
                       <th className="px-2 py-2 text-left">Stok Kodu</th>
                       <th className="px-2 py-2 text-left">Urun Adi</th>
-                      <th className="px-2 py-2 text-left">Ana Saglayici Cari Adi</th>
+                      <th className="px-2 py-2 text-left">Saglayici Kodu</th>
+                      <th className="px-2 py-2 text-left">Saglayici Adi</th>
+                      <th className="px-2 py-2 text-center">Kalici Degistir</th>
                       {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
                       {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
                       {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right">Verilen Siparis</th>}
@@ -1221,21 +1276,35 @@ export default function UcarerDepotReportPage() {
                         : Math.max(0, Math.trunc(Number(rawAllocated)));
                       return (
                         <tr key={code} className="border-t">
+                          <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
+                          <td className="px-2 py-2 text-gray-700">{productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}</td>
+                          <td className="px-2 py-2">
+                            <input
+                              list="ucarer-supplier-cari-list"
+                              value={getEffectiveSupplierCode(code)}
+                              onChange={(e) =>
+                                setSupplierOverrideByCode((prev) => ({
+                                  ...prev,
+                                  [code]: String(e.target.value || '').trim().toUpperCase(),
+                                }))
+                              }
+                              className="w-32 rounded border px-2 py-1 text-xs uppercase"
+                              placeholder="Cari kodu"
+                            />
+                          </td>
+                          <td className="px-2 py-2 text-gray-600">{getEffectiveSupplierName(code)}</td>
                           <td className="px-2 py-2 text-center">
                             <input
                               type="checkbox"
-                              checked={nonFamilySelections[code] === true}
+                              checked={Boolean(persistSupplierOverrideByCode[code])}
                               onChange={(e) =>
-                                setNonFamilySelections((prev) => ({
+                                setPersistSupplierOverrideByCode((prev) => ({
                                   ...prev,
                                   [code]: e.target.checked,
                                 }))
                               }
                             />
                           </td>
-                          <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
-                          <td className="px-2 py-2 text-gray-700">{productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}</td>
-                          <td className="px-2 py-2 text-gray-600">{supplierNameColumn ? normalizeValue(row?.[supplierNameColumn]) : '-'}</td>
                           {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
                           {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
                           {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
@@ -1268,6 +1337,13 @@ export default function UcarerDepotReportPage() {
                 </table>
               </div>
             </div>
+            <datalist id="ucarer-supplier-cari-list">
+              {cariOptions.map((cari) => (
+                <option key={cari.code} value={cari.code}>
+                  {cari.name}
+                </option>
+              ))}
+            </datalist>
           </CardContent>
         </Card>
 

@@ -2039,7 +2039,14 @@ export const adminApi = {
 
   createSupplierOrdersFromFamilyAllocations: async (payload: {
     depot: 'MERKEZ' | 'TOPCA';
-    allocations: Array<{ familyId?: string | null; productCode: string; quantity: number }>;
+    series: string;
+    allocations: Array<{
+      familyId?: string | null;
+      productCode: string;
+      quantity: number;
+      supplierCodeOverride?: string | null;
+      persistSupplierOverride?: boolean;
+    }>;
   }): Promise<{
     success: boolean;
     data: {
