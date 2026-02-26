@@ -224,7 +224,7 @@ export default function UcarerDepotReportPage() {
     return families.map((family) => {
       let rawNeed = 0;
       const visibleItems = getVisibleFamilyItems(family);
-      const itemSignals: Array<{ code: string; raw: number; orderDriven: number }> = [];
+      const itemSignals: Array<{ code: string; raw: number; orderDriven: number; incomingOrders: number }> = [];
       visibleItems.forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const row = rowByProductCode.get(code);
@@ -232,18 +232,23 @@ export default function UcarerDepotReportPage() {
         const raw = getRawSuggestedQty(row);
         rawNeed += raw;
         const orderDriven = thirdIssueColumn ? Math.max(0, toNumberFlexible(row?.[thirdIssueColumn])) : 0;
-        itemSignals.push({ code, raw, orderDriven });
+        const incomingOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row?.[incomingOrderColumn])) : 0;
+        itemSignals.push({ code, raw, orderDriven, incomingOrders });
       });
       let redirectSuggestion: string | null = null;
       if (Math.trunc(rawNeed) < 0) {
         const source = itemSignals
-          .filter((item) => item.orderDriven > 0)
+          .filter((item) => item.raw > 0)
           .sort((a, b) => b.orderDriven - a.orderDriven)[0];
         const target = itemSignals
           .filter((item) => item.raw < 0)
           .sort((a, b) => a.raw - b.raw)[0];
         if (source && target) {
-          redirectSuggestion = `${source.code} talebi, aile ici fazla stok olan ${target.code} urunune yonlendirilebilir.`;
+          if (source.incomingOrders > 0) {
+            redirectSuggestion = `Siparis yonlendirme onerisi: ${source.code} ihtiyaci, aile ici fazla stok olan ${target.code} urunune yonlendirilebilir.`;
+          } else {
+            redirectSuggestion = `Depo yonlendirme onerisi: ${source.code} ihtiyaci, aile ici fazla stok olan ${target.code} urunune yonlendirilebilir.`;
+          }
         }
       }
       return {
@@ -256,7 +261,7 @@ export default function UcarerDepotReportPage() {
         redirectSuggestion,
       };
     });
-  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
+  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingOrderColumn]);
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
   function getRawSuggestedQty(row: Record<string, any>): number {
@@ -1226,7 +1231,7 @@ export default function UcarerDepotReportPage() {
                       {activeFamilyItems.map((item) => {
                         const code = String(item.productCode || '').toUpperCase();
                         const row = rowByProductCode.get(code);
-                        const itemNeed = row ? getSuggestedQty(row) : 0;
+                        const itemNeed = row ? getRawSuggestedQty(row) : 0;
                         const allocation = activeFamilyAllocations[code] ?? 0;
                         const diff = allocation - itemNeed;
                         const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
