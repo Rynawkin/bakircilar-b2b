@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { ArrowLeft, Download, Play, RefreshCw, Warehouse, WandSparkles } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
@@ -67,7 +66,7 @@ const toNumberFlexible = (value: unknown): number => {
 
 export default function UcarerDepotReportPage() {
   const [depot, setDepot] = useState<DepotType>('MERKEZ');
-  const [depotLimit, setDepotLimit] = useState<string>('1000');
+  const [depotLimit, setDepotLimit] = useState<string>('ALL');
   const [depotLoading, setDepotLoading] = useState(false);
   const [minMaxLoading, setMinMaxLoading] = useState(false);
   const [depotRows, setDepotRows] = useState<Array<Record<string, any>>>([]);
@@ -86,7 +85,6 @@ export default function UcarerDepotReportPage() {
   const [splitRatioByFamily, setSplitRatioByFamily] = useState<Record<string, number>>({});
   const [manualAllocations, setManualAllocations] = useState<Record<string, Record<string, number>>>({});
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
-  const [familySearch, setFamilySearch] = useState('');
   const [panelHighlight, setPanelHighlight] = useState(false);
   const [creatingOrders, setCreatingOrders] = useState(false);
   const [exportingDepot, setExportingDepot] = useState(false);
@@ -147,14 +145,6 @@ export default function UcarerDepotReportPage() {
       };
     });
   }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
-  const filteredFamilySuggestions = useMemo(() => {
-    const query = familySearch.trim().toLocaleLowerCase('tr-TR');
-    if (!query) return familySuggestions;
-    return familySuggestions.filter((item) =>
-      `${item.name} ${item.code || ''}`.toLocaleLowerCase('tr-TR').includes(query)
-    );
-  }, [familySuggestions, familySearch]);
-
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
   function getSuggestedQty(row: Record<string, any>): number {
@@ -203,27 +193,69 @@ export default function UcarerDepotReportPage() {
       return;
     }
 
-    const XLSX = await import('xlsx');
-    const normalizedRows = rows.map((row) => {
-      const out: Record<string, unknown> = {};
-      columns.forEach((column) => {
-        out[column] = row?.[column] ?? null;
+    const escapeHtml = (value: unknown) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const columnWidths = columns.map((column) => {
+      let maxLen = String(column).length;
+      rows.forEach((row) => {
+        const cell = normalizeValue(row?.[column]);
+        maxLen = Math.max(maxLen, String(cell).length);
       });
-      return out;
+      return Math.max(120, Math.min(420, maxLen * 8 + 28));
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(normalizedRows, { header: columns });
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Rapor');
+    const colGroup = columns
+      .map((_, index) => `<col style="width:${columnWidths[index]}px;" />`)
+      .join('');
 
-    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([buffer], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    const headCells = columns
+      .map(
+        (column) =>
+          `<th style="background:#d1d5db;font-weight:700;border:1px solid #cbd5e1;padding:6px 8px;text-align:left;white-space:nowrap;">${escapeHtml(column)}</th>`
+      )
+      .join('');
+
+    const bodyRows = rows
+      .map((row, rowIndex) => {
+        const background = rowIndex % 2 === 0 ? '#f3f4f6' : '#ffffff';
+        const cells = columns
+          .map((column) => {
+            const value = normalizeValue(row?.[column]);
+            return `<td style="background:${background};border:1px solid #e2e8f0;padding:6px 8px;white-space:nowrap;">${escapeHtml(value)}</td>`;
+          })
+          .join('');
+        return `<tr>${cells}</tr>`;
+      })
+      .join('');
+
+    const html = `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+        </head>
+        <body>
+          <table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">
+            <colgroup>${colGroup}</colgroup>
+            <thead><tr>${headCells}</tr></thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], {
+      type: 'application/vnd.ms-excel;charset=utf-8;',
     });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${fileName}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    anchor.download = `${fileName}-${new Date().toISOString().slice(0, 10)}.xls`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -372,15 +404,6 @@ export default function UcarerDepotReportPage() {
         [code]: Math.max(0, Math.trunc(value || 0)),
       },
     }));
-  };
-
-  const openFamilyDetail = (familyId: string) => {
-    setActiveFamilyId(familyId);
-    setPanelHighlight(true);
-    setTimeout(() => setPanelHighlight(false), 900);
-    setTimeout(() => {
-      detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 20);
   };
 
   const activeFamily = useMemo(
@@ -603,71 +626,6 @@ export default function UcarerDepotReportPage() {
               </table>
             </div>
 
-            <div className="rounded-md border bg-white p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-gray-900">Aile Bazli Oneri Ozeti</p>
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="Aile ara..."
-                    value={familySearch}
-                    onChange={(e) => setFamilySearch(e.target.value)}
-                    className="h-8 w-44 text-xs"
-                  />
-                  <Button size="sm" variant="outline" onClick={loadFamilies} disabled={familyLoading}>
-                    {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
-                  </Button>
-                </div>
-              </div>
-              {filteredFamilySuggestions.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  Tanimli aile yok. <Link href="/reports/product-families" className="underline">Aile yonetimi</Link> ekranindan olusturabilirsiniz.
-                </p>
-              ) : (
-                <div className="overflow-auto rounded border">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-2 py-2 text-left">Aile</th>
-                        <th className="px-2 py-2 text-right">Urun Sayisi</th>
-                        <th className="px-2 py-2 text-right">
-                          Oneri ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'})
-                        </th>
-                        <th className="px-2 py-2 text-right">Detay</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredFamilySuggestions.map((row) => (
-                        <tr
-                          key={row.id}
-                          className={`border-t cursor-pointer ${activeFamilyId === row.id ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
-                          onClick={() => openFamilyDetail(row.id)}
-                        >
-                          <td className="px-2 py-2">
-                            {row.name} {row.code ? `(${row.code})` : ''}
-                          </td>
-                          <td className="px-2 py-2 text-right">{row.itemCount.toLocaleString('tr-TR')}</td>
-                          <td className="px-2 py-2 text-right font-semibold text-emerald-700">
-                            {row.suggested.toLocaleString('tr-TR')}
-                          </td>
-                          <td className="px-2 py-2 text-right">
-                            <Button
-                              size="sm"
-                              variant={activeFamilyId === row.id ? 'primary' : 'outline'}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openFamilyDetail(row.id);
-                              }}
-                            >
-                              {activeFamilyId === row.id ? 'Acik' : 'Detayi Ac'}
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
           </CardContent>
         </Card>
 
@@ -686,6 +644,30 @@ export default function UcarerDepotReportPage() {
               <Link href="/reports/product-families">
                 <Button size="sm" variant="outline">Aile Yonetimine Git</Button>
               </Link>
+            </div>
+
+            <div className="rounded-md border bg-white p-3 grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+              <div className="md:col-span-2">
+                <p className="text-xs text-gray-600 mb-1">Aile Sec</p>
+                <Select
+                  value={activeFamilyId}
+                  onChange={(e) => {
+                    setActiveFamilyId(e.target.value);
+                    setPanelHighlight(true);
+                    setTimeout(() => setPanelHighlight(false), 900);
+                    setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 20);
+                  }}
+                >
+                  {familySuggestions.map((family) => (
+                    <option key={family.id} value={family.id}>
+                      {family.name} {family.code ? `(${family.code})` : ''} - Oneri: {family.suggested.toLocaleString('tr-TR')}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Button size="sm" variant="outline" onClick={loadFamilies} disabled={familyLoading}>
+                {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
+              </Button>
             </div>
 
             {familyLoading && <p className="text-sm text-gray-500">Aileler yukleniyor...</p>}
