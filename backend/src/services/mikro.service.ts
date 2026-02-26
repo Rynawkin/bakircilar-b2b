@@ -1173,10 +1173,11 @@ class MikroService {
     evrakSeri?: string;
     evrakSira?: number;
     warehouseNo?: number;
+    paymentPlanNo?: number;
   }): Promise<string> {
     await this.connect();
 
-    const { cariCode, items, applyVAT, description, documentDescription, documentNo, evrakSeri: evrakSeriInput, evrakSira: evrakSiraInput, warehouseNo } = orderData;
+    const { cariCode, items, applyVAT, description, documentDescription, documentNo, evrakSeri: evrakSeriInput, evrakSira: evrakSiraInput, warehouseNo, paymentPlanNo: paymentPlanNoInput } = orderData;
     const descriptionValue = String((documentDescription ?? description) || '').trim();
     const documentDescriptionValue = descriptionValue ? descriptionValue.slice(0, 127) : null;
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : '';
@@ -1190,6 +1191,9 @@ class MikroService {
     const zeroGuid = '00000000-0000-0000-0000-000000000000';
     const warehouseValueRaw = Number(warehouseNo);
     const warehouseValue = Number.isFinite(warehouseValueRaw) && warehouseValueRaw > 0 ? Math.trunc(warehouseValueRaw) : 1;
+    const paymentPlanNoRaw = Number(paymentPlanNoInput);
+    const paymentPlanNoValue = Number.isFinite(paymentPlanNoRaw) && paymentPlanNoRaw > 0 ? Math.trunc(paymentPlanNoRaw) : 0;
+    let teslimGun = 7;
     const evrakSeriValue = evrakSeriInput ? String(evrakSeriInput).trim().slice(0, 20) : '';
     const defaultSorMerkez = String(process.env.MIKRO_SORMERK || 'HENDEK').trim().slice(0, 25);
     const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
@@ -1230,11 +1234,49 @@ class MikroService {
       sipFileId = 21;
     }
 
+    try {
+      let resolvedPlanNo = paymentPlanNoValue;
+      if (!resolvedPlanNo) {
+        const cariPlanResult = await this.pool!
+          .request()
+          .input('cariKod', sql.NVarChar(25), cariCode)
+          .query(`
+            SELECT TOP 1 ABS(cari_odemeplan_no) AS planNo
+            FROM CARI_HESAPLAR
+            WHERE cari_kod = @cariKod
+          `);
+        const fetchedPlanNo = Number(cariPlanResult.recordset?.[0]?.planNo || 0);
+        if (Number.isFinite(fetchedPlanNo) && fetchedPlanNo > 0) {
+          resolvedPlanNo = Math.trunc(fetchedPlanNo);
+        }
+      }
+
+      if (resolvedPlanNo > 0) {
+        const planResult = await this.pool!
+          .request()
+          .input('planNo', sql.Int, resolvedPlanNo)
+          .query(`
+            SELECT TOP 1 odp_kodu
+            FROM ODEME_PLANLARI
+            WHERE odp_no = @planNo
+          `);
+        const planCodeRaw = String(planResult.recordset?.[0]?.odp_kodu || '').trim();
+        const planDays = Number.parseInt(planCodeRaw, 10);
+        if (Number.isFinite(planDays) && planDays >= 0) {
+          teslimGun = planDays;
+        }
+      }
+    } catch (error) {
+      console.warn('WARN: Siparis vade gunu odeme planindan hesaplanamadi, varsayilan kullanilacak:', error);
+    }
+
     console.log(`🔧 Sipariş parametreleri:`, {
       cariCode,
       itemCount: items.length,
       applyVAT,
-      evrakSeri
+      evrakSeri,
+      paymentPlanNo: paymentPlanNoValue || null,
+      teslimGun,
     });
 
     // SIPARISLER_OZET trigger'ını geçici olarak devre dışı bırak
@@ -1381,7 +1423,7 @@ class MikroService {
           '@sira',
           '@satirNo',
           'GETDATE()',
-          'DATEADD(day, 7, GETDATE())',
+          'DATEADD(day, @teslimGun, GETDATE())',
           '0',
           '0',
           '@cariKod',
@@ -1445,6 +1487,7 @@ class MikroService {
           .input('satirNo', sql.Int, satirNo)
           .input('cariKod', sql.NVarChar(25), cariCode)
           .input('stokKod', sql.NVarChar(25), item.productCode)
+          .input('teslimGun', sql.Int, teslimGun)
           .input('miktar', sql.Float, item.quantity)
           .input('reserveQty', sql.Float, reserveQty)
           .input('depoNo', sql.Int, warehouseValue)
