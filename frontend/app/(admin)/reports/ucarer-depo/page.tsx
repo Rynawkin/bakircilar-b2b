@@ -117,6 +117,17 @@ export default function UcarerDepotReportPage() {
   const [supplierOverrideByCode, setSupplierOverrideByCode] = useState<Record<string, string>>({});
   const [persistSupplierOverrideByCode, setPersistSupplierOverrideByCode] = useState<Record<string, boolean>>({});
   const [cariOptions, setCariOptions] = useState<Array<{ code: string; name: string }>>([]);
+  const [seriesModalOpen, setSeriesModalOpen] = useState(false);
+  const [seriesInput, setSeriesInput] = useState('H');
+  const [pendingAllocations, setPendingAllocations] = useState<
+    Array<{
+      familyId?: string | null;
+      productCode: string;
+      quantity: number;
+      supplierCodeOverride?: string | null;
+      persistSupplierOverride?: boolean;
+    }>
+  >([]);
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
   const [panelHighlight, setPanelHighlight] = useState(false);
   const [creatingOrders, setCreatingOrders] = useState(false);
@@ -211,19 +222,38 @@ export default function UcarerDepotReportPage() {
   }, [families]);
   const familySuggestions = useMemo(() => {
     return families.map((family) => {
-      let need = 0;
+      let rawNeed = 0;
       const visibleItems = getVisibleFamilyItems(family);
+      const itemSignals: Array<{ code: string; raw: number; orderDriven: number }> = [];
       visibleItems.forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const row = rowByProductCode.get(code);
-        if (row) need += getRawSuggestedQty(row);
+        if (!row) return;
+        const raw = getRawSuggestedQty(row);
+        rawNeed += raw;
+        const orderDriven = thirdIssueColumn ? Math.max(0, toNumberFlexible(row?.[thirdIssueColumn])) : 0;
+        itemSignals.push({ code, raw, orderDriven });
       });
+      let redirectSuggestion: string | null = null;
+      if (Math.trunc(rawNeed) < 0) {
+        const source = itemSignals
+          .filter((item) => item.orderDriven > 0)
+          .sort((a, b) => b.orderDriven - a.orderDriven)[0];
+        const target = itemSignals
+          .filter((item) => item.raw < 0)
+          .sort((a, b) => a.raw - b.raw)[0];
+        if (source && target) {
+          redirectSuggestion = `${source.code} talebi, aile ici fazla stok olan ${target.code} urunune yonlendirilebilir.`;
+        }
+      }
       return {
         id: family.id,
         name: family.name,
         code: family.code,
         itemCount: visibleItems.length,
-        suggested: Math.max(0, Math.trunc(need)),
+        suggestedRaw: Math.trunc(rawNeed),
+        suggested: Math.max(0, Math.trunc(rawNeed)),
+        redirectSuggestion,
       };
     });
   }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
@@ -648,10 +678,15 @@ export default function UcarerDepotReportPage() {
     () => families.find((family) => family.id === activeFamilyId) || null,
     [families, activeFamilyId]
   );
+  const activeFamilySuggestion = useMemo(
+    () => familySuggestions.find((item) => item.id === activeFamilyId) || null,
+    [familySuggestions, activeFamilyId]
+  );
   const activeFamilyItems = activeFamily ? getVisibleFamilyItems(activeFamily) : [];
 
   const activeFamilyAllocations = activeFamily ? (manualAllocations[activeFamily.id] || {}) : {};
-  const activeFamilyNeed = activeFamily ? getFamilyNeed(activeFamily) : 0;
+  const activeFamilyNeedRaw = activeFamilySuggestion?.suggestedRaw || 0;
+  const activeFamilyNeed = Math.max(0, activeFamilyNeedRaw);
   const activeFamilyAllocated = activeFamily
     ? activeFamilyItems.reduce(
         (sum, item) => sum + (activeFamilyAllocations[String(item.productCode || '').toUpperCase()] || 0),
@@ -692,14 +727,13 @@ export default function UcarerDepotReportPage() {
     });
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
-  const createSupplierOrders = async () => {
-    const seriesInput = typeof window !== 'undefined' ? window.prompt('Siparis serisini girin (orn: H)') : '';
-    const series = String(seriesInput || '').trim().toUpperCase();
-    if (!series) {
-      toast.error('Siparis serisi zorunlu.');
-      return;
-    }
-
+  const buildOrderAllocations = (): Array<{
+    familyId?: string | null;
+    productCode: string;
+    quantity: number;
+    supplierCodeOverride?: string | null;
+    persistSupplierOverride?: boolean;
+  }> => {
     const allocations: Array<{
       familyId?: string | null;
       productCode: string;
@@ -738,9 +772,29 @@ export default function UcarerDepotReportPage() {
         });
       }
     });
+    return allocations;
+  };
+
+  const createSupplierOrders = async () => {
+    const allocations = buildOrderAllocations();
 
     if (allocations.length === 0) {
       toast.error('Siparis olusturmak icin once dagitim miktari girin.');
+      return;
+    }
+    setPendingAllocations(allocations);
+    setSeriesInput('H');
+    setSeriesModalOpen(true);
+  };
+
+  const submitCreateSupplierOrders = async () => {
+    const series = String(seriesInput || '').trim().toUpperCase();
+    if (!series) {
+      toast.error('Siparis serisi zorunlu.');
+      return;
+    }
+    if (!pendingAllocations.length) {
+      toast.error('Siparis olusturmak icin dagitim bulunamadi.');
       return;
     }
 
@@ -749,7 +803,7 @@ export default function UcarerDepotReportPage() {
       const result = await adminApi.createSupplierOrdersFromFamilyAllocations({
         depot,
         series,
-        allocations,
+        allocations: pendingAllocations,
       });
       const created = result.data?.createdOrders || [];
       if (created.length === 0) {
@@ -761,6 +815,8 @@ export default function UcarerDepotReportPage() {
       if (orderList) {
         toast(orderList, { duration: 9000 });
       }
+      setSeriesModalOpen(false);
+      setPendingAllocations([]);
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Tedarikci siparisleri olusturulamadi');
     } finally {
@@ -936,7 +992,7 @@ export default function UcarerDepotReportPage() {
                 >
                   {familySuggestions.map((family) => (
                     <option key={family.id} value={family.id}>
-                      {family.name} {family.code ? `(${family.code})` : ''} - Oneri: {family.suggested.toLocaleString('tr-TR')}
+                      {family.name} {family.code ? `(${family.code})` : ''} - Oneri: {family.suggestedRaw.toLocaleString('tr-TR')}
                     </option>
                   ))}
                 </Select>
@@ -1007,7 +1063,9 @@ export default function UcarerDepotReportPage() {
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="rounded-lg bg-white border px-3 py-2">
                       <p className="text-[11px] text-gray-500">Ihtiyac</p>
-                      <p className="font-semibold text-gray-900">{activeFamilyNeed.toLocaleString('tr-TR')}</p>
+                      <p className={`font-semibold ${activeFamilyNeedRaw < 0 ? 'text-red-700' : 'text-gray-900'}`}>
+                        {activeFamilyNeedRaw.toLocaleString('tr-TR')}
+                      </p>
                     </div>
                     <div className="rounded-lg bg-white border px-3 py-2">
                       <p className="text-[11px] text-gray-500">Dagitim</p>
@@ -1021,6 +1079,11 @@ export default function UcarerDepotReportPage() {
                     </div>
                   </div>
                 </div>
+                {activeFamilySuggestion?.redirectSuggestion && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <strong>Yonlendirme Onerisi:</strong> {activeFamilySuggestion.redirectSuggestion}
+                  </div>
+                )}
 
                 <div className="rounded-lg border bg-white p-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1415,6 +1478,41 @@ export default function UcarerDepotReportPage() {
             </div>
           </CardContent>
         </Card>
+        {seriesModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl">
+              <p className="text-base font-semibold text-gray-900">Siparis Serisi</p>
+              <p className="mt-1 text-xs text-gray-600">
+                Toplu siparis olusturmadan once kullanilacak seri kodunu girin.
+              </p>
+              <div className="mt-3">
+                <label className="text-xs text-gray-700">Seri</label>
+                <input
+                  value={seriesInput}
+                  onChange={(e) => setSeriesInput(String(e.target.value || '').toUpperCase())}
+                  className="mt-1 w-full rounded border px-3 py-2 text-sm uppercase"
+                  maxLength={20}
+                  placeholder="H"
+                />
+              </div>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (creatingOrders) return;
+                    setSeriesModalOpen(false);
+                  }}
+                >
+                  Vazgec
+                </Button>
+                <Button size="sm" onClick={submitCreateSupplierOrders} disabled={creatingOrders}>
+                  {creatingOrders ? 'Olusturuluyor...' : 'Siparisleri Olustur'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
