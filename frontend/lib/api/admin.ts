@@ -2039,7 +2039,7 @@ export const adminApi = {
 
   createSupplierOrdersFromFamilyAllocations: async (payload: {
     depot: 'MERKEZ' | 'TOPCA';
-    allocations: Array<{ familyId: string; productCode: string; quantity: number }>;
+    allocations: Array<{ familyId?: string | null; productCode: string; quantity: number }>;
   }): Promise<{
     success: boolean;
     data: {
@@ -2051,7 +2051,7 @@ export const adminApi = {
         totalQuantity: number;
       }>;
       missingSupplierProducts: Array<{ productCode: string; quantity: number }>;
-      skippedInvalid: Array<{ familyId: string; productCode: string; quantity: number }>;
+      skippedInvalid: Array<{ familyId: string | null; productCode: string; quantity: number }>;
     };
   }> => {
     const response = await apiClient.post('/admin/reports/product-families/create-supplier-orders', payload);

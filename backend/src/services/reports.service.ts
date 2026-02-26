@@ -4587,7 +4587,7 @@ export class ReportsService {
 
   async createSupplierOrdersFromFamilyAllocations(input: {
     depot: 'MERKEZ' | 'TOPCA';
-    allocations: Array<{ familyId: string; productCode: string; quantity: number }>;
+    allocations: Array<{ familyId?: string | null; productCode: string; quantity: number }>;
   }): Promise<{
     createdOrders: Array<{
       supplierCode: string;
@@ -4597,7 +4597,7 @@ export class ReportsService {
       totalQuantity: number;
     }>;
     missingSupplierProducts: Array<{ productCode: string; quantity: number }>;
-    skippedInvalid: Array<{ familyId: string; productCode: string; quantity: number }>;
+    skippedInvalid: Array<{ familyId: string | null; productCode: string; quantity: number }>;
   }> {
     const depot = input.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
     const warehouseNo = depot === 'TOPCA' ? 6 : 1;
@@ -4605,18 +4605,18 @@ export class ReportsService {
 
     const normalizedRows = rawRows
       .map((row) => ({
-        familyId: String(row.familyId || '').trim(),
+        familyId: String(row.familyId || '').trim() || null,
         productCode: String(row.productCode || '').trim().toUpperCase(),
         quantity: Math.max(0, Math.trunc(Number(row.quantity || 0))),
       }))
-      .filter((row) => row.familyId && row.productCode && row.quantity > 0);
+      .filter((row) => row.productCode && row.quantity > 0);
 
     if (normalizedRows.length === 0) {
       throw new AppError('Dagitimda siparis olusturulacak miktar yok.', 400, ErrorCode.BAD_REQUEST);
     }
 
     const families = await prisma.productFamily.findMany({
-      where: { id: { in: Array.from(new Set(normalizedRows.map((row) => row.familyId))) } },
+      where: { id: { in: Array.from(new Set(normalizedRows.map((row) => row.familyId).filter(Boolean))) as string[] } },
       include: { items: true },
     });
     const familyItemSet = new Map<string, Set<string>>();
@@ -4627,9 +4627,13 @@ export class ReportsService {
       );
     });
 
-    const skippedInvalid: Array<{ familyId: string; productCode: string; quantity: number }> = [];
+    const skippedInvalid: Array<{ familyId: string | null; productCode: string; quantity: number }> = [];
     const productQtyMap = new Map<string, number>();
     normalizedRows.forEach((row) => {
+      if (!row.familyId) {
+        productQtyMap.set(row.productCode, (productQtyMap.get(row.productCode) || 0) + row.quantity);
+        return;
+      }
       const allowedCodes = familyItemSet.get(row.familyId);
       if (!allowedCodes || !allowedCodes.has(row.productCode)) {
         skippedInvalid.push(row);

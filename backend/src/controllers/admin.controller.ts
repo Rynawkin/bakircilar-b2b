@@ -3586,7 +3586,7 @@ export class AdminController {
     try {
       const { depot, allocations } = req.body as {
         depot?: 'MERKEZ' | 'TOPCA';
-        allocations?: Array<{ familyId: string; productCode: string; quantity: number }>;
+        allocations?: Array<{ familyId?: string | null; productCode: string; quantity: number }>;
       };
       const data = await reportsService.createSupplierOrdersFromFamilyAllocations({
         depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',

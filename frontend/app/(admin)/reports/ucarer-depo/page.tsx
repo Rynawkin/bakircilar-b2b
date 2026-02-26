@@ -12,6 +12,14 @@ import toast from 'react-hot-toast';
 type DepotType = 'MERKEZ' | 'TOPCA';
 type SuggestionMode = 'INCLUDE_MINMAX' | 'EXCLUDE_MINMAX';
 type AllocationMode = 'SINGLE' | 'TWO_SPLIT' | 'MANUAL';
+type OpsExtraColumnKey =
+  | 'depotQty'
+  | 'incomingOrders'
+  | 'outgoingOrders'
+  | 'realQty'
+  | 'minQty'
+  | 'maxQty'
+  | 'currentCost';
 
 interface ProductFamily {
   id: string;
@@ -64,6 +72,16 @@ const toNumberFlexible = (value: unknown): number => {
   return Number.isFinite(num) ? num : 0;
 };
 
+const parseMaybeNumber = (value: unknown): number | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/\./g, '').replace(',', '.');
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : null;
+};
+
 export default function UcarerDepotReportPage() {
   const [depot, setDepot] = useState<DepotType>('MERKEZ');
   const [depotLimit, setDepotLimit] = useState<string>('ALL');
@@ -84,6 +102,17 @@ export default function UcarerDepotReportPage() {
   const [splitBByFamily, setSplitBByFamily] = useState<Record<string, string>>({});
   const [splitRatioByFamily, setSplitRatioByFamily] = useState<Record<string, number>>({});
   const [manualAllocations, setManualAllocations] = useState<Record<string, Record<string, number>>>({});
+  const [nonFamilyAllocations, setNonFamilyAllocations] = useState<Record<string, number>>({});
+  const [panelColumns, setPanelColumns] = useState<Record<OpsExtraColumnKey, boolean>>({
+    depotQty: true,
+    incomingOrders: true,
+    outgoingOrders: true,
+    realQty: false,
+    minQty: false,
+    maxQty: false,
+    currentCost: true,
+  });
+  const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
   const [panelHighlight, setPanelHighlight] = useState(false);
   const [creatingOrders, setCreatingOrders] = useState(false);
@@ -119,6 +148,27 @@ export default function UcarerDepotReportPage() {
   const stockCodeColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('stok kodu'));
   }, [visibleDepotColumns]);
+  const productNameColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('stok adi'));
+  }, [visibleDepotColumns]);
+  const depotQtyColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('depo miktar'));
+  }, [visibleDepotColumns]);
+  const incomingOrderColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('alinan sipariste bekleyen'));
+  }, [visibleDepotColumns]);
+  const outgoingOrderColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('verilen sipariste bekleyen'));
+  }, [visibleDepotColumns]);
+  const realQtyColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('reel miktar'));
+  }, [visibleDepotColumns]);
+  const minQtyColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('minimum miktar'));
+  }, [visibleDepotColumns]);
+  const maxQtyColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column).includes('maximum miktar'));
+  }, [visibleDepotColumns]);
   const rowByProductCode = useMemo(() => {
     const map = new Map<string, Record<string, any>>();
     if (!stockCodeColumn) return map;
@@ -128,10 +178,38 @@ export default function UcarerDepotReportPage() {
     });
     return map;
   }, [depotRows, stockCodeColumn]);
+  const isRowOperationallyEmpty = (row?: Record<string, any>) => {
+    if (!row) return true;
+    let hasNumeric = false;
+    for (const value of Object.values(row)) {
+      const parsed = parseMaybeNumber(value);
+      if (parsed === null) continue;
+      hasNumeric = true;
+      if (Math.abs(parsed) > 0.00001) return false;
+    }
+    return hasNumeric;
+  };
+  const getVisibleFamilyItems = (family: ProductFamily) =>
+    family.items.filter((item) => {
+      const code = String(item.productCode || '').trim().toUpperCase();
+      const row = rowByProductCode.get(code);
+      return Boolean(row && !isRowOperationallyEmpty(row));
+    });
+  const familyCodeSet = useMemo(() => {
+    const set = new Set<string>();
+    families.forEach((family) => {
+      family.items.forEach((item) => {
+        const code = String(item.productCode || '').trim().toUpperCase();
+        if (code) set.add(code);
+      });
+    });
+    return set;
+  }, [families]);
   const familySuggestions = useMemo(() => {
     return families.map((family) => {
       let need = 0;
-      family.items.forEach((item) => {
+      const visibleItems = getVisibleFamilyItems(family);
+      visibleItems.forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const row = rowByProductCode.get(code);
         if (row) need += getSuggestedQty(row);
@@ -140,7 +218,7 @@ export default function UcarerDepotReportPage() {
         id: family.id,
         name: family.name,
         code: family.code,
-        itemCount: family.items.length,
+        itemCount: visibleItems.length,
         suggested: Math.max(0, need),
       };
     });
@@ -156,6 +234,86 @@ export default function UcarerDepotReportPage() {
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
     [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]
   );
+  const nonFamilyRows = useMemo(() => {
+    if (!stockCodeColumn) return [];
+    return depotRows
+      .map((row) => {
+        const code = String(row?.[stockCodeColumn] || '').trim().toUpperCase();
+        return { code, row };
+      })
+      .filter((item) => item.code && !familyCodeSet.has(item.code))
+      .filter((item) => !isRowOperationallyEmpty(item.row))
+      .filter((item) => getSuggestedQty(item.row) > 0);
+  }, [depotRows, stockCodeColumn, familyCodeSet, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('ucarer_ops_panel_cols_v1');
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as Partial<Record<OpsExtraColumnKey, boolean>>;
+      setPanelColumns((prev) => ({ ...prev, ...parsed }));
+    } catch {
+      // ignore malformed local storage
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('ucarer_ops_panel_cols_v1', JSON.stringify(panelColumns));
+  }, [panelColumns]);
+
+  useEffect(() => {
+    setNonFamilyAllocations((prev) => {
+      const next: Record<string, number> = {};
+      nonFamilyRows.forEach((item) => {
+        const suggested = Math.max(0, Math.trunc(getSuggestedQty(item.row)));
+        next[item.code] = prev[item.code] !== undefined ? prev[item.code] : suggested;
+      });
+      return next;
+    });
+  }, [nonFamilyRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
+
+  useEffect(() => {
+    const codes = new Set<string>();
+    families.forEach((family) => {
+      getVisibleFamilyItems(family).forEach((item) => {
+        const code = String(item.productCode || '').trim().toUpperCase();
+        if (code) codes.add(code);
+      });
+    });
+    nonFamilyRows.forEach((item) => codes.add(item.code));
+    const codeList = Array.from(codes);
+    if (codeList.length === 0) {
+      setCurrentCostByCode({});
+      return;
+    }
+
+    let active = true;
+    (async () => {
+      try {
+        const costMap: Record<string, number> = {};
+        for (let i = 0; i < codeList.length; i += 200) {
+          const chunk = codeList.slice(i, i + 200);
+          const response = await adminApi.getProductsByCodes(chunk);
+          (response.products || []).forEach((product: any) => {
+            const code = String(product?.mikroCode || '').trim().toUpperCase();
+            const costValue = Number(product?.currentCost ?? 0);
+            if (code && Number.isFinite(costValue)) {
+              costMap[code] = costValue;
+            }
+          });
+        }
+        if (active) setCurrentCostByCode(costMap);
+      } catch {
+        if (active) setCurrentCostByCode({});
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [families, nonFamilyRows, depotRows, suggestionMode]);
 
   const beginResize = (type: 'depot' | 'minmax', column: string, startX: number) => {
     const startWidth = type === 'depot' ? getDepotColumnWidth(column) : getMinMaxColumnWidth(column);
@@ -357,7 +515,7 @@ export default function UcarerDepotReportPage() {
 
   const getFamilyNeed = (family: ProductFamily): number => {
     let total = 0;
-    family.items.forEach((item) => {
+    getVisibleFamilyItems(family).forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
       if (row) total += getSuggestedQty(row);
@@ -366,11 +524,12 @@ export default function UcarerDepotReportPage() {
   };
 
   const applySingleAllocation = (family: ProductFamily) => {
+    const visibleItems = getVisibleFamilyItems(family);
     const selectedCode =
-      singleCodeByFamily[family.id] || String(family.items[0]?.productCode || '').toUpperCase();
+      singleCodeByFamily[family.id] || String(visibleItems[0]?.productCode || '').toUpperCase();
     const need = getFamilyNeed(family);
     const next: Record<string, number> = {};
-    family.items.forEach((item) => {
+    visibleItems.forEach((item) => {
       const code = String(item.productCode || '').toUpperCase();
       next[code] = code === selectedCode ? need : 0;
     });
@@ -378,7 +537,8 @@ export default function UcarerDepotReportPage() {
   };
 
   const applySplitAllocation = (family: ProductFamily) => {
-    const items = family.items.map((item) => String(item.productCode || '').toUpperCase());
+    const visibleItems = getVisibleFamilyItems(family);
+    const items = visibleItems.map((item) => String(item.productCode || '').toUpperCase());
     const a = splitAByFamily[family.id] || items[0] || '';
     const b = splitBByFamily[family.id] || items[1] || items[0] || '';
     if (!a || !b) return;
@@ -387,7 +547,7 @@ export default function UcarerDepotReportPage() {
     const qtyA = Math.round((need * ratio) / 100);
     const qtyB = Math.max(0, need - qtyA);
     const next: Record<string, number> = {};
-    family.items.forEach((item) => {
+    visibleItems.forEach((item) => {
       const code = String(item.productCode || '').toUpperCase();
       if (code === a) next[code] = qtyA;
       else if (code === b) next[code] = qtyB;
@@ -406,15 +566,31 @@ export default function UcarerDepotReportPage() {
     }));
   };
 
+  const getExtraColumnValue = (row: Record<string, any>, code: string, key: OpsExtraColumnKey): string => {
+    const valueFrom = (column?: string) => (column ? normalizeValue(row?.[column]) : '-');
+    if (key === 'depotQty') return valueFrom(depotQtyColumn);
+    if (key === 'incomingOrders') return valueFrom(incomingOrderColumn);
+    if (key === 'outgoingOrders') return valueFrom(outgoingOrderColumn);
+    if (key === 'realQty') return valueFrom(realQtyColumn);
+    if (key === 'minQty') return valueFrom(minQtyColumn);
+    if (key === 'maxQty') return valueFrom(maxQtyColumn);
+    if (key === 'currentCost') {
+      const currentCost = currentCostByCode[code];
+      return Number.isFinite(currentCost) ? currentCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
+    }
+    return '-';
+  };
+
   const activeFamily = useMemo(
     () => families.find((family) => family.id === activeFamilyId) || null,
     [families, activeFamilyId]
   );
+  const activeFamilyItems = activeFamily ? getVisibleFamilyItems(activeFamily) : [];
 
   const activeFamilyAllocations = activeFamily ? (manualAllocations[activeFamily.id] || {}) : {};
   const activeFamilyNeed = activeFamily ? getFamilyNeed(activeFamily) : 0;
   const activeFamilyAllocated = activeFamily
-    ? activeFamily.items.reduce(
+    ? activeFamilyItems.reduce(
         (sum, item) => sum + (activeFamilyAllocations[String(item.productCode || '').toUpperCase()] || 0),
         0
       )
@@ -423,7 +599,7 @@ export default function UcarerDepotReportPage() {
   const fillActiveBySuggestions = () => {
     if (!activeFamily) return;
     const next: Record<string, number> = {};
-    activeFamily.items.forEach((item) => {
+    getVisibleFamilyItems(activeFamily).forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
       next[code] = row ? getSuggestedQty(row) : 0;
@@ -433,17 +609,19 @@ export default function UcarerDepotReportPage() {
   const clearActiveAllocations = () => {
     if (!activeFamily) return;
     const next: Record<string, number> = {};
-    activeFamily.items.forEach((item) => {
+    getVisibleFamilyItems(activeFamily).forEach((item) => {
       next[String(item.productCode || '').trim().toUpperCase()] = 0;
     });
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
   const splitActiveEvenly = () => {
-    if (!activeFamily || activeFamily.items.length === 0) return;
-    const qtyPerItem = Math.floor(activeFamilyNeed / activeFamily.items.length);
-    let remainder = activeFamilyNeed - qtyPerItem * activeFamily.items.length;
+    if (!activeFamily) return;
+    const visibleItems = getVisibleFamilyItems(activeFamily);
+    if (visibleItems.length === 0) return;
+    const qtyPerItem = Math.floor(activeFamilyNeed / visibleItems.length);
+    let remainder = activeFamilyNeed - qtyPerItem * visibleItems.length;
     const next: Record<string, number> = {};
-    activeFamily.items.forEach((item) => {
+    visibleItems.forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const plusOne = remainder > 0 ? 1 : 0;
       remainder = Math.max(0, remainder - 1);
@@ -452,16 +630,22 @@ export default function UcarerDepotReportPage() {
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
   const createSupplierOrders = async () => {
-    const allocations: Array<{ familyId: string; productCode: string; quantity: number }> = [];
+    const allocations: Array<{ familyId?: string | null; productCode: string; quantity: number }> = [];
     families.forEach((family) => {
       const familyAllocation = manualAllocations[family.id] || {};
-      family.items.forEach((item) => {
+      getVisibleFamilyItems(family).forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const qty = Math.max(0, Math.trunc(Number(familyAllocation[code] || 0)));
         if (qty > 0) {
           allocations.push({ familyId: family.id, productCode: code, quantity: qty });
         }
       });
+    });
+    nonFamilyRows.forEach((item) => {
+      const qty = Math.max(0, Math.trunc(Number(nonFamilyAllocations[item.code] || 0)));
+      if (qty > 0) {
+        allocations.push({ familyId: null, productCode: item.code, quantity: qty });
+      }
     });
 
     if (allocations.length === 0) {
@@ -646,7 +830,7 @@ export default function UcarerDepotReportPage() {
               </Link>
             </div>
 
-            <div className="rounded-md border bg-white p-3 grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+            <div className="rounded-md border bg-white p-3 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
               <div className="md:col-span-2">
                 <p className="text-xs text-gray-600 mb-1">Aile Sec</p>
                 <Select
@@ -665,9 +849,46 @@ export default function UcarerDepotReportPage() {
                   ))}
                 </Select>
               </div>
+              <Button size="sm" onClick={createSupplierOrders} disabled={creatingOrders}>
+                {creatingOrders ? 'Olusturuluyor...' : 'Tum Onerilerden Toplu Siparis Olustur'}
+              </Button>
               <Button size="sm" variant="outline" onClick={loadFamilies} disabled={familyLoading}>
                 {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
               </Button>
+            </div>
+
+            <div className="rounded-md border bg-white p-3">
+              <p className="text-xs font-semibold text-gray-700 mb-2">Operasyon Kolonlari (ac/kapat)</p>
+              <div className="flex flex-wrap gap-3 text-xs text-gray-700">
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.depotQty} onChange={(e) => setPanelColumns((p) => ({ ...p, depotQty: e.target.checked }))} />
+                  Depo Miktari
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.incomingOrders} onChange={(e) => setPanelColumns((p) => ({ ...p, incomingOrders: e.target.checked }))} />
+                  Alinan Siparis
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.outgoingOrders} onChange={(e) => setPanelColumns((p) => ({ ...p, outgoingOrders: e.target.checked }))} />
+                  Verilen Siparis
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.realQty} onChange={(e) => setPanelColumns((p) => ({ ...p, realQty: e.target.checked }))} />
+                  Reel Miktar
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.minQty} onChange={(e) => setPanelColumns((p) => ({ ...p, minQty: e.target.checked }))} />
+                  Min
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.maxQty} onChange={(e) => setPanelColumns((p) => ({ ...p, maxQty: e.target.checked }))} />
+                  Max
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.currentCost} onChange={(e) => setPanelColumns((p) => ({ ...p, currentCost: e.target.checked }))} />
+                  Guncel Maliyet
+                </label>
+              </div>
             </div>
 
             {familyLoading && <p className="text-sm text-gray-500">Aileler yukleniyor...</p>}
@@ -721,9 +942,6 @@ export default function UcarerDepotReportPage() {
                     <Button size="sm" variant="outline" onClick={clearActiveAllocations}>
                       Sifirla
                     </Button>
-                    <Button size="sm" onClick={createSupplierOrders} disabled={creatingOrders}>
-                      {creatingOrders ? 'Olusturuluyor...' : 'Siparisleri Olustur'}
-                    </Button>
                     <p className="text-xs text-gray-600">
                       Hizli aksiyonlar manuel dagitim tablosunu otomatik doldurur.
                     </p>
@@ -750,12 +968,12 @@ export default function UcarerDepotReportPage() {
                       <div className="lg:col-span-5">
                         <p className="text-xs text-gray-600 mb-1">Urun</p>
                         <Select
-                          value={singleCodeByFamily[activeFamily.id] || activeFamily.items[0]?.productCode || ''}
+                          value={singleCodeByFamily[activeFamily.id] || activeFamilyItems[0]?.productCode || ''}
                           onChange={(e) =>
                             setSingleCodeByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))
                           }
                         >
-                          {activeFamily.items.map((item) => (
+                          {activeFamilyItems.map((item) => (
                             <option key={item.id} value={item.productCode}>
                               {item.productCode} - {item.productName || '-'}
                             </option>
@@ -775,10 +993,10 @@ export default function UcarerDepotReportPage() {
                       <div className="lg:col-span-3">
                         <p className="text-xs text-gray-600 mb-1">Urun A</p>
                         <Select
-                          value={splitAByFamily[activeFamily.id] || activeFamily.items[0]?.productCode || ''}
+                          value={splitAByFamily[activeFamily.id] || activeFamilyItems[0]?.productCode || ''}
                           onChange={(e) => setSplitAByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
                         >
-                          {activeFamily.items.map((item) => (
+                          {activeFamilyItems.map((item) => (
                             <option key={item.id} value={item.productCode}>
                               {item.productCode}
                             </option>
@@ -788,10 +1006,10 @@ export default function UcarerDepotReportPage() {
                       <div className="lg:col-span-3">
                         <p className="text-xs text-gray-600 mb-1">Urun B</p>
                         <Select
-                          value={splitBByFamily[activeFamily.id] || activeFamily.items[1]?.productCode || activeFamily.items[0]?.productCode || ''}
+                          value={splitBByFamily[activeFamily.id] || activeFamilyItems[1]?.productCode || activeFamilyItems[0]?.productCode || ''}
                           onChange={(e) => setSplitBByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
                         >
-                          {activeFamily.items.map((item) => (
+                          {activeFamilyItems.map((item) => (
                             <option key={item.id} value={item.productCode}>
                               {item.productCode}
                             </option>
@@ -828,13 +1046,27 @@ export default function UcarerDepotReportPage() {
                         <th className="px-2 py-2 text-left">Stok Kodu</th>
                         <th className="px-2 py-2 text-left">Urun Adi</th>
                         <th className="px-2 py-2 text-left">Ana Saglayici Cari Adi</th>
+                        {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
+                        {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
+                        {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right">Verilen Siparis</th>}
+                        {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
+                        {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
+                        {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
+                        {panelColumns.currentCost && <th className="px-2 py-2 text-right">Guncel Maliyet</th>}
                         <th className="px-2 py-2 text-right">Aile Oneri</th>
                         <th className="px-2 py-2 text-right">Dagitim</th>
                         <th className="px-2 py-2 text-right">Fark</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {activeFamily.items.map((item) => {
+                      {activeFamilyItems.length === 0 && (
+                        <tr>
+                          <td colSpan={20} className="px-2 py-4 text-center text-gray-500">
+                            Bu ailede Ucarer raporunda tum degerleri sifir olan urunler gizlendi. Gorunen urun yok.
+                          </td>
+                        </tr>
+                      )}
+                      {activeFamilyItems.map((item) => {
                         const code = String(item.productCode || '').toUpperCase();
                         const row = rowByProductCode.get(code);
                         const itemNeed = row ? getSuggestedQty(row) : 0;
@@ -846,6 +1078,13 @@ export default function UcarerDepotReportPage() {
                             <td className="px-2 py-2 font-semibold text-gray-900">{item.productCode}</td>
                             <td className="px-2 py-2 text-gray-700">{item.productName || '-'}</td>
                             <td className="px-2 py-2 text-gray-600">{item.supplierName || '-'}</td>
+                            {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
+                            {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
+                            {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
+                            {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
+                            {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
+                            {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
+                            {panelColumns.currentCost && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'currentCost')}</td>}
                             <td className="px-2 py-2 text-right text-emerald-700 font-semibold">{itemNeed.toLocaleString('tr-TR')}</td>
                             <td className="px-2 py-2 text-right">
                               <input
@@ -868,6 +1107,80 @@ export default function UcarerDepotReportPage() {
                 </div>
               </div>
             )}
+
+            <div className="rounded-xl border bg-white p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-base font-semibold text-gray-900">Aile Disi Oneriler</p>
+                  <p className="text-xs text-gray-600">Ailelere dahil olmayan ancak siparise donusturulebilen urunler.</p>
+                </div>
+                <p className="text-sm text-gray-700">
+                  Kalem: <strong>{nonFamilyRows.length.toLocaleString('tr-TR')}</strong>
+                </p>
+              </div>
+              <div className="overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-2 py-2 text-left">Stok Kodu</th>
+                      <th className="px-2 py-2 text-left">Urun Adi</th>
+                      {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
+                      {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
+                      {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right">Verilen Siparis</th>}
+                      {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
+                      {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
+                      {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
+                      {panelColumns.currentCost && <th className="px-2 py-2 text-right">Guncel Maliyet</th>}
+                      <th className="px-2 py-2 text-right">Oneri</th>
+                      <th className="px-2 py-2 text-right">Dagitim</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nonFamilyRows.length === 0 && (
+                      <tr>
+                        <td colSpan={20} className="px-2 py-4 text-center text-gray-500">
+                          Aile disi onerili urun yok.
+                        </td>
+                      </tr>
+                    )}
+                    {nonFamilyRows.map((item) => {
+                      const row = item.row;
+                      const code = item.code;
+                      const suggested = Math.max(0, Math.trunc(getSuggestedQty(row)));
+                      const allocated = Math.max(0, Math.trunc(Number(nonFamilyAllocations[code] || 0)));
+                      return (
+                        <tr key={code} className="border-t">
+                          <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
+                          <td className="px-2 py-2 text-gray-700">{productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}</td>
+                          {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
+                          {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
+                          {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
+                          {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
+                          {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
+                          {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
+                          {panelColumns.currentCost && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'currentCost')}</td>}
+                          <td className="px-2 py-2 text-right font-semibold text-emerald-700">{suggested.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2 text-right">
+                            <input
+                              type="number"
+                              min={0}
+                              value={allocated}
+                              onChange={(e) =>
+                                setNonFamilyAllocations((prev) => ({
+                                  ...prev,
+                                  [code]: Math.max(0, Math.trunc(Number(e.target.value || 0))),
+                                }))
+                              }
+                              className="w-24 rounded border px-2 py-1 text-right"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
