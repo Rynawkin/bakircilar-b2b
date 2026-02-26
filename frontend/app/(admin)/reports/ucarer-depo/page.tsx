@@ -113,6 +113,9 @@ export default function UcarerDepotReportPage() {
     currentCost: true,
   });
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
+  const [costInputByCode, setCostInputByCode] = useState<Record<string, string>>({});
+  const [updatePriceListsByCode, setUpdatePriceListsByCode] = useState<Record<string, boolean>>({});
+  const [updatingCostByCode, setUpdatingCostByCode] = useState<Record<string, boolean>>({});
   const [mainSupplierByCode, setMainSupplierByCode] = useState<Record<string, { code: string; name: string }>>({});
   const [supplierOverrideByCode, setSupplierOverrideByCode] = useState<Record<string, string>>({});
   const [persistSupplierOverrideByCode, setPersistSupplierOverrideByCode] = useState<Record<string, boolean>>({});
@@ -372,6 +375,15 @@ export default function UcarerDepotReportPage() {
         }
         if (active) {
           setCurrentCostByCode(costMap);
+          setCostInputByCode((prev) => {
+            const next: Record<string, string> = { ...prev };
+            Object.entries(costMap).forEach(([code, value]) => {
+              if (next[code] === undefined) {
+                next[code] = Number(value).toString();
+              }
+            });
+            return next;
+          });
           setMainSupplierByCode(supplierMap);
           setSupplierOverrideByCode((prev) => {
             const next: Record<string, string> = { ...prev };
@@ -678,6 +690,40 @@ export default function UcarerDepotReportPage() {
     if (!supplierCode) return '-';
     return cariNameByCode.get(supplierCode) || mainSupplierByCode[code]?.name || supplierCode;
   };
+  const updateProductCost = async (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const parsedCost = Number(String(costInputByCode[code] || '').replace(',', '.'));
+    if (!Number.isFinite(parsedCost) || parsedCost <= 0) {
+      toast.error('Gecerli bir guncel maliyet girin.');
+      return;
+    }
+
+    setUpdatingCostByCode((prev) => ({ ...prev, [code]: true }));
+    try {
+      const result = await adminApi.updateUcarerProductCost({
+        productCode: code,
+        cost: parsedCost,
+        updatePriceLists: Boolean(updatePriceListsByCode[code]),
+      });
+      const newCost = Number(result.data?.currentCost || parsedCost);
+      setCurrentCostByCode((prev) => ({ ...prev, [code]: newCost }));
+      setCostInputByCode((prev) => ({ ...prev, [code]: String(newCost) }));
+      const missing = result.data?.missingLists || [];
+      if (Boolean(updatePriceListsByCode[code])) {
+        if (missing.length > 0) {
+          toast.success(`Maliyet guncellendi. Eksik liste satiri: ${missing.join(', ')}`);
+        } else {
+          toast.success('Maliyet ve 10 fiyat listesi guncellendi.');
+        }
+      } else {
+        toast.success('Guncel maliyet guncellendi.');
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
+    } finally {
+      setUpdatingCostByCode((prev) => ({ ...prev, [code]: false }));
+    }
+  };
 
   const activeFamily = useMemo(
     () => families.find((family) => family.id === activeFamilyId) || null,
@@ -736,6 +782,7 @@ export default function UcarerDepotReportPage() {
     familyId?: string | null;
     productCode: string;
     quantity: number;
+    unitPriceOverride?: number | null;
     supplierCodeOverride?: string | null;
     persistSupplierOverride?: boolean;
   }> => {
@@ -743,6 +790,7 @@ export default function UcarerDepotReportPage() {
       familyId?: string | null;
       productCode: string;
       quantity: number;
+      unitPriceOverride?: number | null;
       supplierCodeOverride?: string | null;
       persistSupplierOverride?: boolean;
     }> = [];
@@ -757,6 +805,9 @@ export default function UcarerDepotReportPage() {
             familyId: family.id,
             productCode: code,
             quantity: qty,
+            unitPriceOverride: Number.isFinite(Number(String(costInputByCode[code] || '').replace(',', '.')))
+              ? Math.max(0, Number(String(costInputByCode[code] || '').replace(',', '.')))
+              : null,
             supplierCodeOverride,
             persistSupplierOverride: Boolean(persistSupplierOverrideByCode[code]),
           });
@@ -772,6 +823,9 @@ export default function UcarerDepotReportPage() {
           familyId: null,
           productCode: item.code,
           quantity: qty,
+          unitPriceOverride: Number.isFinite(Number(String(costInputByCode[item.code] || '').replace(',', '.')))
+            ? Math.max(0, Number(String(costInputByCode[item.code] || '').replace(',', '.')))
+            : null,
           supplierCodeOverride,
           persistSupplierOverride: Boolean(persistSupplierOverrideByCode[item.code]),
         });
@@ -1272,7 +1326,46 @@ export default function UcarerDepotReportPage() {
                             {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                             {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
                             {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
-                            {panelColumns.currentCost && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'currentCost')}</td>}
+                            {panelColumns.currentCost && (
+                              <td className="px-2 py-2 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    value={costInputByCode[code] ?? ''}
+                                    onChange={(e) =>
+                                      setCostInputByCode((prev) => ({
+                                        ...prev,
+                                        [code]: e.target.value,
+                                      }))
+                                    }
+                                    className="w-24 rounded border px-2 py-1 text-right"
+                                  />
+                                  <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(updatePriceListsByCode[code])}
+                                      onChange={(e) =>
+                                        setUpdatePriceListsByCode((prev) => ({
+                                          ...prev,
+                                          [code]: e.target.checked,
+                                        }))
+                                      }
+                                    />
+                                    10 liste
+                                  </label>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateProductCost(code)}
+                                    disabled={Boolean(updatingCostByCode[code])}
+                                  >
+                                    {updatingCostByCode[code] ? '...' : 'Guncelle'}
+                                  </Button>
+                                </div>
+                              </td>
+                            )}
                             <td className="px-2 py-2 text-right text-emerald-700 font-semibold">{itemNeed.toLocaleString('tr-TR')}</td>
                             <td className="px-2 py-2 text-right">
                               <input
@@ -1379,7 +1472,46 @@ export default function UcarerDepotReportPage() {
                           {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                           {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
                           {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
-                          {panelColumns.currentCost && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'currentCost')}</td>}
+                          {panelColumns.currentCost && (
+                            <td className="px-2 py-2 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={costInputByCode[code] ?? ''}
+                                  onChange={(e) =>
+                                    setCostInputByCode((prev) => ({
+                                      ...prev,
+                                      [code]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-24 rounded border px-2 py-1 text-right"
+                                />
+                                <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(updatePriceListsByCode[code])}
+                                    onChange={(e) =>
+                                      setUpdatePriceListsByCode((prev) => ({
+                                        ...prev,
+                                        [code]: e.target.checked,
+                                      }))
+                                    }
+                                  />
+                                  10 liste
+                                </label>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updateProductCost(code)}
+                                  disabled={Boolean(updatingCostByCode[code])}
+                                >
+                                  {updatingCostByCode[code] ? '...' : 'Guncelle'}
+                                </Button>
+                              </div>
+                            </td>
+                          )}
                           <td className="px-2 py-2 text-right font-semibold text-emerald-700">{suggested.toLocaleString('tr-TR')}</td>
                           <td className="px-2 py-2 text-right">
                             <input

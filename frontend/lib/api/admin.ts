@@ -2044,6 +2044,7 @@ export const adminApi = {
       familyId?: string | null;
       productCode: string;
       quantity: number;
+      unitPriceOverride?: number | null;
       supplierCodeOverride?: string | null;
       persistSupplierOverride?: boolean;
     }>;
@@ -2062,6 +2063,24 @@ export const adminApi = {
     };
   }> => {
     const response = await apiClient.post('/admin/reports/product-families/create-supplier-orders', payload);
+    return response.data;
+  },
+
+  updateUcarerProductCost: async (payload: {
+    productCode: string;
+    cost: number;
+    updatePriceLists?: boolean;
+  }): Promise<{
+    success: boolean;
+    data: {
+      productCode: string;
+      currentCost: number;
+      priceListsUpdated: boolean;
+      updatedLists: Array<{ listNo: number; value: number; affected: number }>;
+      missingLists: number[];
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/ucarer-depo/update-cost', payload);
     return response.data;
   },
 

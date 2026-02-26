@@ -3619,6 +3619,7 @@ export class AdminController {
           familyId?: string | null;
           productCode: string;
           quantity: number;
+          unitPriceOverride?: number | null;
           supplierCodeOverride?: string | null;
           persistSupplierOverride?: boolean;
         }>;
@@ -3627,6 +3628,27 @@ export class AdminController {
         depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
         series: String(series || '').trim(),
         allocations: Array.isArray(allocations) ? allocations : [],
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/ucarer-depo/update-cost
+   */
+  async updateUcarerProductCost(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { productCode, cost, updatePriceLists } = req.body as {
+        productCode?: string;
+        cost?: number;
+        updatePriceLists?: boolean;
+      };
+      const data = await reportsService.updateUcarerProductCost({
+        productCode: String(productCode || ''),
+        cost: Number(cost || 0),
+        updatePriceLists: Boolean(updatePriceLists),
       });
       res.json({ success: true, data });
     } catch (error) {

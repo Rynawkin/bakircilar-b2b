@@ -4592,6 +4592,7 @@ export class ReportsService {
       familyId?: string | null;
       productCode: string;
       quantity: number;
+      unitPriceOverride?: number | null;
       supplierCodeOverride?: string | null;
       persistSupplierOverride?: boolean;
     }>;
@@ -4619,6 +4620,9 @@ export class ReportsService {
         familyId: String(row.familyId || '').trim() || null,
         productCode: String(row.productCode || '').trim().toUpperCase(),
         quantity: Math.max(0, Math.trunc(Number(row.quantity || 0))),
+        unitPriceOverride: Number.isFinite(Number(row.unitPriceOverride))
+          ? Math.max(0, Number(row.unitPriceOverride))
+          : null,
         supplierCodeOverride: String(row.supplierCodeOverride || '').trim().toUpperCase() || null,
         persistSupplierOverride: Boolean(row.persistSupplierOverride),
       }))
@@ -4642,9 +4646,13 @@ export class ReportsService {
 
     const skippedInvalid: Array<{ familyId: string | null; productCode: string; quantity: number }> = [];
     const productQtyMap = new Map<string, number>();
+    const unitPriceOverrideByProduct = new Map<string, number>();
     const supplierOverrideByProduct = new Map<string, string>();
     const persistOverrideByProduct = new Map<string, boolean>();
     normalizedRows.forEach((row) => {
+      if (row.unitPriceOverride !== null && row.unitPriceOverride > 0) {
+        unitPriceOverrideByProduct.set(row.productCode, row.unitPriceOverride);
+      }
       if (row.supplierCodeOverride) {
         supplierOverrideByProduct.set(row.productCode, row.supplierCodeOverride);
         if (row.persistSupplierOverride) {
@@ -4755,7 +4763,9 @@ export class ReportsService {
     const productCostMap = new Map<string, { unitPrice: number; vatRate: number }>();
     (costRows || []).forEach((row) => {
       const code = String(row?.mikroCode || '').trim().toUpperCase();
-      const unitPrice = Number(row?.currentCost || 0);
+      const dbUnitPrice = Number(row?.currentCost || 0);
+      const overrideUnitPrice = unitPriceOverrideByProduct.get(code);
+      const unitPrice = overrideUnitPrice && overrideUnitPrice > 0 ? overrideUnitPrice : dbUnitPrice;
       const vatRate = Number(row?.vatRate || 0);
       if (!code) return;
       productCostMap.set(code, {
@@ -4860,6 +4870,121 @@ export class ReportsService {
       createdOrders,
       missingSupplierProducts: [],
       skippedInvalid,
+    };
+  }
+
+  async updateUcarerProductCost(input: {
+    productCode: string;
+    cost: number;
+    updatePriceLists?: boolean;
+  }): Promise<{
+    productCode: string;
+    currentCost: number;
+    priceListsUpdated: boolean;
+    updatedLists: Array<{ listNo: number; value: number; affected: number }>;
+    missingLists: number[];
+  }> {
+    const productCode = String(input.productCode || '').trim().toUpperCase();
+    const cost = Number(input.cost || 0);
+    const updatePriceLists = Boolean(input.updatePriceLists);
+
+    if (!productCode) {
+      throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (!Number.isFinite(cost) || cost <= 0) {
+      throw new AppError('Gecerli bir maliyet girin.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    await mikroService.executeQuery(`
+      UPDATE STOKLAR
+      SET sto_standartmaliyet = ${cost}
+      WHERE sto_kod = '${productCode.replace(/'/g, "''")}'
+    `);
+
+    await prisma.product.updateMany({
+      where: { mikroCode: productCode },
+      data: {
+        currentCost: cost,
+        currentCostDate: new Date(),
+      },
+    });
+
+    const updatedLists: Array<{ listNo: number; value: number; affected: number }> = [];
+    const missingLists: number[] = [];
+    if (updatePriceLists) {
+      const stockRows = await mikroService.executeQuery(`
+        SELECT
+          s.sto_kod AS productCode,
+          ISNULL(dbo.fn_VergiYuzde(s.sto_toptan_vergi), 0) AS vatPercent,
+          u.Marj_1,
+          u.Marj_2,
+          u.Marj_3,
+          u.Marj_4,
+          u.Marj_5
+        FROM STOKLAR s
+        LEFT JOIN STOKLAR_USER u ON s.sto_Guid = u.Record_uid
+        WHERE s.sto_kod = '${productCode.replace(/'/g, "''")}'
+      `);
+      const row = stockRows?.[0];
+      const vatPercent = Number(row?.vatPercent || 0);
+      const parseMargin = (value: unknown) => {
+        const raw = String(value ?? '').trim().replace(',', '.');
+        const num = Number(raw);
+        return Number.isFinite(num) && num > 0 ? num : 1;
+      };
+      const margins = [
+        parseMargin(row?.Marj_1),
+        parseMargin(row?.Marj_2),
+        parseMargin(row?.Marj_3),
+        parseMargin(row?.Marj_4),
+        parseMargin(row?.Marj_5),
+      ];
+
+      for (let idx = 0; idx < 5; idx += 1) {
+        const margin = margins[idx];
+        const invoicedListNo = 6 + idx;
+        const retailListNo = 1 + idx;
+        const invoicedValue = Number((cost * margin).toFixed(4));
+        const retailValue = Number((cost * (1 + vatPercent / 100) * margin).toFixed(4));
+
+        const invoicedRows = await mikroService.executeQuery(`
+          UPDATE STOK_SATIS_FIYAT_LISTELERI
+          SET sfiyat_fiyati = ${invoicedValue}
+          WHERE sfiyat_stokkod = '${productCode.replace(/'/g, "''")}'
+            AND sfiyat_listesirano = ${invoicedListNo}
+            AND sfiyat_deposirano = 0
+            AND sfiyat_doviz = 0
+            AND sfiyat_odemeplan = 0
+            AND sfiyat_iptal = 0;
+          SELECT @@ROWCOUNT AS affected;
+        `);
+        const invoicedAffected = Number(invoicedRows?.[0]?.affected || 0);
+        updatedLists.push({ listNo: invoicedListNo, value: invoicedValue, affected: invoicedAffected });
+        if (invoicedAffected <= 0) missingLists.push(invoicedListNo);
+
+        const retailRows = await mikroService.executeQuery(`
+          UPDATE STOK_SATIS_FIYAT_LISTELERI
+          SET sfiyat_fiyati = ${retailValue}
+          WHERE sfiyat_stokkod = '${productCode.replace(/'/g, "''")}'
+            AND sfiyat_listesirano = ${retailListNo}
+            AND sfiyat_deposirano = 0
+            AND sfiyat_doviz = 0
+            AND sfiyat_odemeplan = 0
+            AND sfiyat_iptal = 0;
+          SELECT @@ROWCOUNT AS affected;
+        `);
+        const retailAffected = Number(retailRows?.[0]?.affected || 0);
+        updatedLists.push({ listNo: retailListNo, value: retailValue, affected: retailAffected });
+        if (retailAffected <= 0) missingLists.push(retailListNo);
+      }
+    }
+
+    return {
+      productCode,
+      currentCost: cost,
+      priceListsUpdated: updatePriceLists,
+      updatedLists,
+      missingLists,
     };
   }
 
