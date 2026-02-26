@@ -2068,13 +2068,17 @@ export const adminApi = {
 
   updateUcarerProductCost: async (payload: {
     productCode: string;
-    cost: number;
+    cost?: number;
+    costP?: number;
+    costT?: number;
     updatePriceLists?: boolean;
   }): Promise<{
     success: boolean;
     data: {
       productCode: string;
       currentCost: number;
+      costP: number;
+      costT: number;
       priceListsUpdated: boolean;
       updatedLists: Array<{ listNo: number; value: number; affected: number }>;
       missingLists: number[];

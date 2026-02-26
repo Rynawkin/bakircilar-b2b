@@ -113,7 +113,8 @@ export default function UcarerDepotReportPage() {
     currentCost: true,
   });
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
-  const [costInputByCode, setCostInputByCode] = useState<Record<string, string>>({});
+  const [costPInputByCode, setCostPInputByCode] = useState<Record<string, string>>({});
+  const [costTInputByCode, setCostTInputByCode] = useState<Record<string, string>>({});
   const [updatePriceListsByCode, setUpdatePriceListsByCode] = useState<Record<string, boolean>>({});
   const [updatingCostByCode, setUpdatingCostByCode] = useState<Record<string, boolean>>({});
   const [mainSupplierByCode, setMainSupplierByCode] = useState<Record<string, { code: string; name: string }>>({});
@@ -375,7 +376,16 @@ export default function UcarerDepotReportPage() {
         }
         if (active) {
           setCurrentCostByCode(costMap);
-          setCostInputByCode((prev) => {
+          setCostPInputByCode((prev) => {
+            const next: Record<string, string> = { ...prev };
+            Object.entries(costMap).forEach(([code, value]) => {
+              if (next[code] === undefined) {
+                next[code] = Number(value).toString();
+              }
+            });
+            return next;
+          });
+          setCostTInputByCode((prev) => {
             const next: Record<string, string> = { ...prev };
             Object.entries(costMap).forEach(([code, value]) => {
               if (next[code] === undefined) {
@@ -692,9 +702,14 @@ export default function UcarerDepotReportPage() {
   };
   const updateProductCost = async (productCode: string) => {
     const code = String(productCode || '').trim().toUpperCase();
-    const parsedCost = Number(String(costInputByCode[code] || '').replace(',', '.'));
-    if (!Number.isFinite(parsedCost) || parsedCost <= 0) {
-      toast.error('Gecerli bir guncel maliyet girin.');
+    const parsedCostP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+    const parsedCostT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
+    if (!Number.isFinite(parsedCostP) || parsedCostP <= 0) {
+      toast.error('Gecerli bir Maliyet P girin.');
+      return;
+    }
+    if (!Number.isFinite(parsedCostT) || parsedCostT <= 0) {
+      toast.error('Gecerli bir Maliyet T girin.');
       return;
     }
 
@@ -702,12 +717,16 @@ export default function UcarerDepotReportPage() {
     try {
       const result = await adminApi.updateUcarerProductCost({
         productCode: code,
-        cost: parsedCost,
+        costP: parsedCostP,
+        costT: parsedCostT,
         updatePriceLists: Boolean(updatePriceListsByCode[code]),
       });
-      const newCost = Number(result.data?.currentCost || parsedCost);
+      const newCostP = Number(result.data?.costP || parsedCostP);
+      const newCostT = Number(result.data?.costT || parsedCostT);
+      const newCost = Number(result.data?.currentCost || newCostP);
       setCurrentCostByCode((prev) => ({ ...prev, [code]: newCost }));
-      setCostInputByCode((prev) => ({ ...prev, [code]: String(newCost) }));
+      setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
+      setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
       const missing = result.data?.missingLists || [];
       if (Boolean(updatePriceListsByCode[code])) {
         if (missing.length > 0) {
@@ -805,8 +824,8 @@ export default function UcarerDepotReportPage() {
             familyId: family.id,
             productCode: code,
             quantity: qty,
-            unitPriceOverride: Number.isFinite(Number(String(costInputByCode[code] || '').replace(',', '.')))
-              ? Math.max(0, Number(String(costInputByCode[code] || '').replace(',', '.')))
+            unitPriceOverride: Number.isFinite(Number(String(costPInputByCode[code] || '').replace(',', '.')))
+              ? Math.max(0, Number(String(costPInputByCode[code] || '').replace(',', '.')))
               : null,
             supplierCodeOverride,
             persistSupplierOverride: Boolean(persistSupplierOverrideByCode[code]),
@@ -823,8 +842,8 @@ export default function UcarerDepotReportPage() {
           familyId: null,
           productCode: item.code,
           quantity: qty,
-          unitPriceOverride: Number.isFinite(Number(String(costInputByCode[item.code] || '').replace(',', '.')))
-            ? Math.max(0, Number(String(costInputByCode[item.code] || '').replace(',', '.')))
+          unitPriceOverride: Number.isFinite(Number(String(costPInputByCode[item.code] || '').replace(',', '.')))
+            ? Math.max(0, Number(String(costPInputByCode[item.code] || '').replace(',', '.')))
             : null,
           supplierCodeOverride,
           persistSupplierOverride: Boolean(persistSupplierOverrideByCode[item.code]),
@@ -1093,7 +1112,7 @@ export default function UcarerDepotReportPage() {
                 </label>
                 <label className="inline-flex items-center gap-1">
                   <input type="checkbox" checked={panelColumns.currentCost} onChange={(e) => setPanelColumns((p) => ({ ...p, currentCost: e.target.checked }))} />
-                  Guncel Maliyet
+                  Maliyet (P/T)
                 </label>
               </div>
             </div>
@@ -1268,7 +1287,7 @@ export default function UcarerDepotReportPage() {
                         {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
                         {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
                         {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
-                        {panelColumns.currentCost && <th className="px-2 py-2 text-right">Guncel Maliyet</th>}
+                        {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
                         <th className="px-2 py-2 text-right">Aile Oneri</th>
                         <th className="px-2 py-2 text-right">Dagitim</th>
                         <th className="px-2 py-2 text-right">Fark</th>
@@ -1333,14 +1352,31 @@ export default function UcarerDepotReportPage() {
                                     type="number"
                                     min={0}
                                     step="0.01"
-                                    value={costInputByCode[code] ?? ''}
+                                    value={costPInputByCode[code] ?? ''}
                                     onChange={(e) =>
-                                      setCostInputByCode((prev) => ({
+                                      setCostPInputByCode((prev) => ({
                                         ...prev,
                                         [code]: e.target.value,
                                       }))
                                     }
-                                    className="w-24 rounded border px-2 py-1 text-right"
+                                    className="w-20 rounded border px-2 py-1 text-right"
+                                    title="Maliyet P"
+                                    placeholder="P"
+                                  />
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    value={costTInputByCode[code] ?? ''}
+                                    onChange={(e) =>
+                                      setCostTInputByCode((prev) => ({
+                                        ...prev,
+                                        [code]: e.target.value,
+                                      }))
+                                    }
+                                    className="w-20 rounded border px-2 py-1 text-right"
+                                    title="Maliyet T"
+                                    placeholder="T"
                                   />
                                   <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                                     <input
@@ -1414,7 +1450,7 @@ export default function UcarerDepotReportPage() {
                       {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
                       {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
                       {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
-                      {panelColumns.currentCost && <th className="px-2 py-2 text-right">Guncel Maliyet</th>}
+                      {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
                       <th className="px-2 py-2 text-right">Oneri</th>
                       <th className="px-2 py-2 text-right">Dagitim</th>
                     </tr>
@@ -1479,14 +1515,31 @@ export default function UcarerDepotReportPage() {
                                   type="number"
                                   min={0}
                                   step="0.01"
-                                  value={costInputByCode[code] ?? ''}
+                                  value={costPInputByCode[code] ?? ''}
                                   onChange={(e) =>
-                                    setCostInputByCode((prev) => ({
+                                    setCostPInputByCode((prev) => ({
                                       ...prev,
                                       [code]: e.target.value,
                                     }))
                                   }
-                                  className="w-24 rounded border px-2 py-1 text-right"
+                                  className="w-20 rounded border px-2 py-1 text-right"
+                                  title="Maliyet P"
+                                  placeholder="P"
+                                />
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={costTInputByCode[code] ?? ''}
+                                  onChange={(e) =>
+                                    setCostTInputByCode((prev) => ({
+                                      ...prev,
+                                      [code]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-20 rounded border px-2 py-1 text-right"
+                                  title="Maliyet T"
+                                  placeholder="T"
                                 />
                                 <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                                   <input

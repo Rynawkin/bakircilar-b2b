@@ -3640,14 +3640,18 @@ export class AdminController {
    */
   async updateUcarerProductCost(req: Request, res: Response, next: NextFunction) {
     try {
-      const { productCode, cost, updatePriceLists } = req.body as {
+      const { productCode, cost, costP, costT, updatePriceLists } = req.body as {
         productCode?: string;
         cost?: number;
+        costP?: number;
+        costT?: number;
         updatePriceLists?: boolean;
       };
       const data = await reportsService.updateUcarerProductCost({
         productCode: String(productCode || ''),
         cost: Number(cost || 0),
+        costP: costP === undefined ? undefined : Number(costP),
+        costT: costT === undefined ? undefined : Number(costT),
         updatePriceLists: Boolean(updatePriceLists),
       });
       res.json({ success: true, data });

@@ -4875,36 +4875,76 @@ export class ReportsService {
 
   async updateUcarerProductCost(input: {
     productCode: string;
-    cost: number;
+    cost?: number;
+    costP?: number;
+    costT?: number;
     updatePriceLists?: boolean;
   }): Promise<{
     productCode: string;
     currentCost: number;
+    costP: number;
+    costT: number;
     priceListsUpdated: boolean;
     updatedLists: Array<{ listNo: number; value: number; affected: number }>;
     missingLists: number[];
   }> {
     const productCode = String(input.productCode || '').trim().toUpperCase();
-    const cost = Number(input.cost || 0);
+    const legacyCost = Number(input.cost || 0);
+    const costP = Number(input.costP ?? legacyCost ?? 0);
+    const costT = Number(input.costT ?? input.costP ?? legacyCost ?? 0);
     const updatePriceLists = Boolean(input.updatePriceLists);
+    const escapedCode = productCode.replace(/'/g, "''");
 
     if (!productCode) {
       throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
     }
-    if (!Number.isFinite(cost) || cost <= 0) {
-      throw new AppError('Gecerli bir maliyet girin.', 400, ErrorCode.BAD_REQUEST);
+    if (!Number.isFinite(costP) || costP <= 0) {
+      throw new AppError('Gecerli bir Maliyet P girin.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (!Number.isFinite(costT) || costT <= 0) {
+      throw new AppError('Gecerli bir Maliyet T girin.', 400, ErrorCode.BAD_REQUEST);
     }
 
     await mikroService.executeQuery(`
       UPDATE STOKLAR
-      SET sto_standartmaliyet = ${cost}
-      WHERE sto_kod = '${productCode.replace(/'/g, "''")}'
+      SET
+        sto_standartmaliyet = ${costP},
+        sto_resim_url = CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10))
+      WHERE sto_kod = '${escapedCode}'
+    `);
+
+    await mikroService.executeQuery(`
+      DECLARE @uid uniqueidentifier;
+      SELECT @uid = sto_guid FROM STOKLAR WHERE sto_kod='${escapedCode}';
+      IF @uid IS NOT NULL
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM STOKLAR_USER WHERE Record_uid=@uid)
+        BEGIN
+          INSERT INTO STOKLAR_USER
+            (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi)
+          VALUES
+            (@uid, GETDATE(), 0, 0, 0, '1', '1', '1', '1', '1', ${costP}, ${costT},
+             CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10)),
+             CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10)),
+             '', 0);
+        END
+        ELSE
+        BEGIN
+          UPDATE STOKLAR_USER
+          SET
+            MaliyetP = ${costP},
+            MaliyetT = ${costT},
+            MaliyetTarihi = CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10)),
+            FiyatDegisimTarihi = CAST(DATEPART(day, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(MONTH, GETDATE()) AS nvarchar(10))+'.'+CAST(DATEPART(year, GETDATE()) AS nvarchar(10))
+          WHERE Record_uid=@uid;
+        END
+      END
     `);
 
     await prisma.product.updateMany({
       where: { mikroCode: productCode },
       data: {
-        currentCost: cost,
+        currentCost: costP,
         currentCostDate: new Date(),
       },
     });
@@ -4914,8 +4954,6 @@ export class ReportsService {
     if (updatePriceLists) {
       const stockRows = await mikroService.executeQuery(`
         SELECT
-          s.sto_kod AS productCode,
-          ISNULL(dbo.fn_VergiYuzde(s.sto_toptan_vergi), 0) AS vatPercent,
           u.Marj_1,
           u.Marj_2,
           u.Marj_3,
@@ -4923,14 +4961,13 @@ export class ReportsService {
           u.Marj_5
         FROM STOKLAR s
         LEFT JOIN STOKLAR_USER u ON s.sto_Guid = u.Record_uid
-        WHERE s.sto_kod = '${productCode.replace(/'/g, "''")}'
+        WHERE s.sto_kod = '${escapedCode}'
       `);
       const row = stockRows?.[0];
-      const vatPercent = Number(row?.vatPercent || 0);
       const parseMargin = (value: unknown) => {
         const raw = String(value ?? '').trim().replace(',', '.');
         const num = Number(raw);
-        return Number.isFinite(num) && num > 0 ? num : 1;
+        return Number.isFinite(num) ? num : 0;
       };
       const margins = [
         parseMargin(row?.Marj_1),
@@ -4940,48 +4977,46 @@ export class ReportsService {
         parseMargin(row?.Marj_5),
       ];
 
+      const upsertPriceList = async (listNo: number, value: number) => {
+        if (!Number.isFinite(value) || value <= 0) {
+          return;
+        }
+        const rows = await mikroService.executeQuery(`
+          UPDATE STOK_SATIS_FIYAT_LISTELERI
+          SET sfiyat_fiyati = ${value}
+          WHERE sfiyat_stokkod = '${escapedCode}'
+            AND sfiyat_listesirano = ${listNo};
+          SELECT @@ROWCOUNT AS affected;
+        `);
+        let affected = Number(rows?.[0]?.affected || 0);
+        if (affected <= 0) {
+          await mikroService.executeQuery(`
+            INSERT INTO STOK_SATIS_FIYAT_LISTELERI
+              (sfiyat_Guid, sfiyat_DBCno, sfiyat_SpecRECno, sfiyat_iptal, sfiyat_fileid, sfiyat_hidden, sfiyat_kilitli, sfiyat_degisti, sfiyat_checksum, sfiyat_create_user, sfiyat_create_date,
+               sfiyat_lastup_user, sfiyat_lastup_date, sfiyat_special1, sfiyat_special2, sfiyat_special3, sfiyat_stokkod, sfiyat_listesirano, sfiyat_deposirano, sfiyat_odemeplan, sfiyat_birim_pntr,
+               sfiyat_fiyati, sfiyat_doviz, sfiyat_iskontokod, sfiyat_deg_nedeni, sfiyat_primyuzdesi, sfiyat_kampanyakod, sfiyat_doviz_kuru)
+            VALUES
+              (NEWID(), 0, 0, 0, 0, 0, 0, 0, 0, 1, GETDATE(), 1, GETDATE(), '', '', '', '${escapedCode}', ${listNo}, 0, 0, 0,
+               ${value}, 0, '', 0, 0, '', 0);
+          `);
+          affected = 1;
+        }
+        updatedLists.push({ listNo, value, affected });
+        if (affected <= 0) missingLists.push(listNo);
+      };
+
       for (let idx = 0; idx < 5; idx += 1) {
         const margin = margins[idx];
-        const invoicedListNo = 6 + idx;
-        const retailListNo = 1 + idx;
-        const invoicedValue = Number((cost * margin).toFixed(4));
-        const retailValue = Number((cost * (1 + vatPercent / 100) * margin).toFixed(4));
-
-        const invoicedRows = await mikroService.executeQuery(`
-          UPDATE STOK_SATIS_FIYAT_LISTELERI
-          SET sfiyat_fiyati = ${invoicedValue}
-          WHERE sfiyat_stokkod = '${productCode.replace(/'/g, "''")}'
-            AND sfiyat_listesirano = ${invoicedListNo}
-            AND sfiyat_deposirano = 0
-            AND sfiyat_doviz = 0
-            AND sfiyat_odemeplan = 0
-            AND sfiyat_iptal = 0;
-          SELECT @@ROWCOUNT AS affected;
-        `);
-        const invoicedAffected = Number(invoicedRows?.[0]?.affected || 0);
-        updatedLists.push({ listNo: invoicedListNo, value: invoicedValue, affected: invoicedAffected });
-        if (invoicedAffected <= 0) missingLists.push(invoicedListNo);
-
-        const retailRows = await mikroService.executeQuery(`
-          UPDATE STOK_SATIS_FIYAT_LISTELERI
-          SET sfiyat_fiyati = ${retailValue}
-          WHERE sfiyat_stokkod = '${productCode.replace(/'/g, "''")}'
-            AND sfiyat_listesirano = ${retailListNo}
-            AND sfiyat_deposirano = 0
-            AND sfiyat_doviz = 0
-            AND sfiyat_odemeplan = 0
-            AND sfiyat_iptal = 0;
-          SELECT @@ROWCOUNT AS affected;
-        `);
-        const retailAffected = Number(retailRows?.[0]?.affected || 0);
-        updatedLists.push({ listNo: retailListNo, value: retailValue, affected: retailAffected });
-        if (retailAffected <= 0) missingLists.push(retailListNo);
+        await upsertPriceList(6 + idx, costP * margin);
+        await upsertPriceList(1 + idx, costT * margin);
       }
     }
 
     return {
       productCode,
-      currentCost: cost,
+      currentCost: costP,
+      costP,
+      costT,
       priceListsUpdated: updatePriceLists,
       updatedLists,
       missingLists,
