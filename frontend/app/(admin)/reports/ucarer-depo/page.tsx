@@ -102,7 +102,8 @@ export default function UcarerDepotReportPage() {
   const [splitBByFamily, setSplitBByFamily] = useState<Record<string, string>>({});
   const [splitRatioByFamily, setSplitRatioByFamily] = useState<Record<string, number>>({});
   const [manualAllocations, setManualAllocations] = useState<Record<string, Record<string, number>>>({});
-  const [nonFamilyAllocations, setNonFamilyAllocations] = useState<Record<string, number>>({});
+  const [nonFamilyAllocations, setNonFamilyAllocations] = useState<Record<string, number | ''>>({});
+  const [nonFamilySelections, setNonFamilySelections] = useState<Record<string, boolean>>({});
   const [panelColumns, setPanelColumns] = useState<Record<OpsExtraColumnKey, boolean>>({
     depotQty: true,
     incomingOrders: true,
@@ -159,6 +160,12 @@ export default function UcarerDepotReportPage() {
   }, [visibleDepotColumns]);
   const outgoingOrderColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('verilen sipariste bekleyen'));
+  }, [visibleDepotColumns]);
+  const supplierNameColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => {
+      const n = normalizeKey(column);
+      return n.includes('ana saglayici cari adi') || (n.includes('saglayici') && n.includes('cari') && n.includes('adi'));
+    });
   }, [visibleDepotColumns]);
   const realQtyColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('reel miktar'));
@@ -265,14 +272,23 @@ export default function UcarerDepotReportPage() {
 
   useEffect(() => {
     setNonFamilyAllocations((prev) => {
-      const next: Record<string, number> = {};
+      const next: Record<string, number | ''> = {};
       nonFamilyRows.forEach((item) => {
-        const suggested = Math.max(0, Math.trunc(getSuggestedQty(item.row)));
-        next[item.code] = prev[item.code] !== undefined ? prev[item.code] : suggested;
+        next[item.code] = prev[item.code] !== undefined ? prev[item.code] : '';
       });
       return next;
     });
   }, [nonFamilyRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
+
+  useEffect(() => {
+    setNonFamilySelections((prev) => {
+      const next: Record<string, boolean> = {};
+      nonFamilyRows.forEach((item) => {
+        next[item.code] = prev[item.code] === true;
+      });
+      return next;
+    });
+  }, [nonFamilyRows]);
 
   useEffect(() => {
     const codes = new Set<string>();
@@ -642,7 +658,9 @@ export default function UcarerDepotReportPage() {
       });
     });
     nonFamilyRows.forEach((item) => {
-      const qty = Math.max(0, Math.trunc(Number(nonFamilyAllocations[item.code] || 0)));
+      if (!nonFamilySelections[item.code]) return;
+      const rawQty = nonFamilyAllocations[item.code];
+      const qty = Math.max(0, Math.trunc(Number(rawQty === '' ? 0 : rawQty || 0)));
       if (qty > 0) {
         allocations.push({ familyId: null, productCode: item.code, quantity: qty });
       }
@@ -1115,15 +1133,65 @@ export default function UcarerDepotReportPage() {
                   <p className="text-xs text-gray-600">Ailelere dahil olmayan ancak siparise donusturulebilen urunler.</p>
                 </div>
                 <p className="text-sm text-gray-700">
-                  Kalem: <strong>{nonFamilyRows.length.toLocaleString('tr-TR')}</strong>
+                  Kalem: <strong>{nonFamilyRows.length.toLocaleString('tr-TR')}</strong> | Secili:{' '}
+                  <strong>{Object.values(nonFamilySelections).filter(Boolean).length.toLocaleString('tr-TR')}</strong>
                 </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setNonFamilySelections(() => {
+                      const next: Record<string, boolean> = {};
+                      nonFamilyRows.forEach((item) => {
+                        next[item.code] = true;
+                      });
+                      return next;
+                    })
+                  }
+                >
+                  Tumunu Sec
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setNonFamilySelections(() => {
+                      const next: Record<string, boolean> = {};
+                      nonFamilyRows.forEach((item) => {
+                        next[item.code] = false;
+                      });
+                      return next;
+                    })
+                  }
+                >
+                  Secimi Temizle
+                </Button>
               </div>
               <div className="overflow-auto rounded border">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-100">
                     <tr>
+                      <th className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={nonFamilyRows.length > 0 && nonFamilyRows.every((item) => nonFamilySelections[item.code])}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setNonFamilySelections(() => {
+                              const next: Record<string, boolean> = {};
+                              nonFamilyRows.forEach((item) => {
+                                next[item.code] = checked;
+                              });
+                              return next;
+                            });
+                          }}
+                        />
+                      </th>
                       <th className="px-2 py-2 text-left">Stok Kodu</th>
                       <th className="px-2 py-2 text-left">Urun Adi</th>
+                      <th className="px-2 py-2 text-left">Ana Saglayici Cari Adi</th>
                       {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
                       {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
                       {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right">Verilen Siparis</th>}
@@ -1147,11 +1215,27 @@ export default function UcarerDepotReportPage() {
                       const row = item.row;
                       const code = item.code;
                       const suggested = Math.max(0, Math.trunc(getSuggestedQty(row)));
-                      const allocated = Math.max(0, Math.trunc(Number(nonFamilyAllocations[code] || 0)));
+                      const rawAllocated = nonFamilyAllocations[code];
+                      const allocated = rawAllocated === '' || rawAllocated === undefined
+                        ? ''
+                        : Math.max(0, Math.trunc(Number(rawAllocated)));
                       return (
                         <tr key={code} className="border-t">
+                          <td className="px-2 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={nonFamilySelections[code] === true}
+                              onChange={(e) =>
+                                setNonFamilySelections((prev) => ({
+                                  ...prev,
+                                  [code]: e.target.checked,
+                                }))
+                              }
+                            />
+                          </td>
                           <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
                           <td className="px-2 py-2 text-gray-700">{productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}</td>
+                          <td className="px-2 py-2 text-gray-600">{supplierNameColumn ? normalizeValue(row?.[supplierNameColumn]) : '-'}</td>
                           {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
                           {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
                           {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
@@ -1168,7 +1252,10 @@ export default function UcarerDepotReportPage() {
                               onChange={(e) =>
                                 setNonFamilyAllocations((prev) => ({
                                   ...prev,
-                                  [code]: Math.max(0, Math.trunc(Number(e.target.value || 0))),
+                                  [code]:
+                                    e.target.value === ''
+                                      ? ''
+                                      : Math.max(0, Math.trunc(Number(e.target.value || 0))),
                                 }))
                               }
                               className="w-24 rounded border px-2 py-1 text-right"
