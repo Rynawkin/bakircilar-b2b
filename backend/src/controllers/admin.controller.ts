@@ -3661,6 +3661,25 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/reports/ucarer-depo/update-main-supplier
+   */
+  async updateUcarerMainSupplier(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { productCode, supplierCode } = req.body as {
+        productCode?: string;
+        supplierCode?: string;
+      };
+      const data = await reportsService.updateUcarerMainSupplier({
+        productCode: String(productCode || ''),
+        supplierCode: String(supplierCode || ''),
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/recommendations/complements
    * Tamamlayici urun onerilerini getirir.
    */

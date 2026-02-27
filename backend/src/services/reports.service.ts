@@ -5023,6 +5023,46 @@ export class ReportsService {
     };
   }
 
+  async updateUcarerMainSupplier(input: {
+    productCode: string;
+    supplierCode: string;
+  }): Promise<{
+    productCode: string;
+    supplierCode: string;
+    supplierName: string | null;
+  }> {
+    const productCode = String(input.productCode || '').trim().toUpperCase();
+    const supplierCode = String(input.supplierCode || '').trim().toUpperCase();
+
+    if (!productCode) {
+      throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (!supplierCode) {
+      throw new AppError('Saglayici kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const escapedProductCode = productCode.replace(/'/g, "''");
+    const escapedSupplierCode = supplierCode.replace(/'/g, "''");
+    await mikroService.executeQuery(`
+      UPDATE STOKLAR
+      SET sto_sat_cari_kod = '${escapedSupplierCode}'
+      WHERE sto_kod = '${escapedProductCode}'
+    `);
+
+    const supplierRows = await mikroService.executeQuery(`
+      SELECT TOP 1 LTRIM(RTRIM(ISNULL(cari_unvan1, ''))) AS supplierName
+      FROM CARI_HESAPLAR
+      WHERE cari_kod = '${escapedSupplierCode}'
+    `);
+    const supplierName = String(supplierRows?.[0]?.supplierName || '').trim() || null;
+
+    return {
+      productCode,
+      supplierCode,
+      supplierName,
+    };
+  }
+
   async getProductCustomers(params: {
     productCode: string;
     startDate?: string;

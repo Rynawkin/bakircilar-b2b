@@ -2087,6 +2087,20 @@ export const adminApi = {
     const response = await apiClient.post('/admin/reports/ucarer-depo/update-cost', payload);
     return response.data;
   },
+  updateUcarerMainSupplier: async (payload: {
+    productCode: string;
+    supplierCode: string;
+  }): Promise<{
+    success: boolean;
+    data: {
+      productCode: string;
+      supplierCode: string;
+      supplierName: string | null;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/ucarer-depo/update-main-supplier', payload);
+    return response.data;
+  },
 
 
   getCustomerCartsReport: async (params: {

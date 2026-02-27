@@ -115,8 +115,11 @@ export default function UcarerDepotReportPage() {
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
   const [costPInputByCode, setCostPInputByCode] = useState<Record<string, string>>({});
   const [costTInputByCode, setCostTInputByCode] = useState<Record<string, string>>({});
+  const [manualCostPOverrideByCode, setManualCostPOverrideByCode] = useState<Record<string, boolean>>({});
+  const [vatRateByCode, setVatRateByCode] = useState<Record<string, number>>({});
   const [updatePriceListsByCode, setUpdatePriceListsByCode] = useState<Record<string, boolean>>({});
   const [updatingCostByCode, setUpdatingCostByCode] = useState<Record<string, boolean>>({});
+  const [updatingSupplierByCode, setUpdatingSupplierByCode] = useState<Record<string, boolean>>({});
   const [mainSupplierByCode, setMainSupplierByCode] = useState<Record<string, { code: string; name: string }>>({});
   const [supplierOverrideByCode, setSupplierOverrideByCode] = useState<Record<string, string>>({});
   const [persistSupplierOverrideByCode, setPersistSupplierOverrideByCode] = useState<Record<string, boolean>>({});
@@ -185,6 +188,12 @@ export default function UcarerDepotReportPage() {
   const minQtyColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('minimum miktar'));
   }, [visibleDepotColumns]);
+  const merkezDepoStockColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column) === 'merkez depo');
+  }, [visibleDepotColumns]);
+  const topcaDepoStockColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => normalizeKey(column) === 'topca depo');
+  }, [visibleDepotColumns]);
   const maxQtyColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('maximum miktar'));
   }, [visibleDepotColumns]);
@@ -248,10 +257,12 @@ export default function UcarerDepotReportPage() {
           .filter((item) => item.raw < 0)
           .sort((a, b) => a.raw - b.raw)[0];
         if (source && target) {
+          const sourceName = String(rowByProductCode.get(source.code)?.[productNameColumn || ''] || '').trim() || source.code;
+          const targetName = String(rowByProductCode.get(target.code)?.[productNameColumn || ''] || '').trim() || target.code;
           if (source.incomingOrders > 0) {
-            redirectSuggestion = `Siparis yonlendirme onerisi: ${source.code} ihtiyaci, aile ici fazla stok olan ${target.code} urunune yonlendirilebilir.`;
+            redirectSuggestion = `Siparis yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`;
           } else {
-            redirectSuggestion = `Depo yonlendirme onerisi: ${source.code} ihtiyaci, aile ici fazla stok olan ${target.code} urunune yonlendirilebilir.`;
+            redirectSuggestion = `Depo yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`;
           }
         }
       }
@@ -265,7 +276,7 @@ export default function UcarerDepotReportPage() {
         redirectSuggestion,
       };
     });
-  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingOrderColumn]);
+  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingOrderColumn, productNameColumn]);
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
   function getRawSuggestedQty(row: Record<string, any>): number {
@@ -357,6 +368,7 @@ export default function UcarerDepotReportPage() {
     (async () => {
       try {
         const costMap: Record<string, number> = {};
+        const vatMap: Record<string, number> = {};
         const supplierMap: Record<string, { code: string; name: string }> = {};
         for (let i = 0; i < codeList.length; i += 200) {
           const chunk = codeList.slice(i, i + 200);
@@ -364,10 +376,14 @@ export default function UcarerDepotReportPage() {
           (response.products || []).forEach((product: any) => {
             const code = String(product?.mikroCode || '').trim().toUpperCase();
             const costValue = Number(product?.currentCost ?? 0);
+            const vatRateValue = Number(product?.vatRate ?? 0);
             const mainSupplierCode = String(product?.mainSupplierCode || '').trim().toUpperCase();
             const mainSupplierName = String(product?.mainSupplierName || '').trim();
             if (code && Number.isFinite(costValue)) {
               costMap[code] = costValue;
+            }
+            if (code && Number.isFinite(vatRateValue)) {
+              vatMap[code] = vatRateValue;
             }
             if (code && mainSupplierCode) {
               supplierMap[code] = { code: mainSupplierCode, name: mainSupplierName || mainSupplierCode };
@@ -394,6 +410,7 @@ export default function UcarerDepotReportPage() {
             });
             return next;
           });
+          setVatRateByCode((prev) => ({ ...prev, ...vatMap }));
           setMainSupplierByCode(supplierMap);
           setSupplierOverrideByCode((prev) => {
             const next: Record<string, string> = { ...prev };
@@ -406,6 +423,7 @@ export default function UcarerDepotReportPage() {
       } catch {
         if (active) {
           setCurrentCostByCode({});
+          setVatRateByCode({});
           setMainSupplierByCode({});
         }
       }
@@ -415,6 +433,25 @@ export default function UcarerDepotReportPage() {
       active = false;
     };
   }, [families, nonFamilyRows, depotRows, suggestionMode]);
+
+  const getRowHighlightClass = (row: Record<string, any> | undefined): string => {
+    if (!row) return '';
+    const incoming = incomingOrderColumn ? toNumberFlexible(row?.[incomingOrderColumn]) : 0;
+    if (incoming > 0) return 'bg-emerald-50';
+    const need = Math.max(0, Math.trunc(getSuggestedQty(row)));
+    if (need <= 0) return '';
+
+    const otherDepotQty =
+      depot === 'MERKEZ'
+        ? toNumberFlexible(row?.[topcaDepoStockColumn || ''])
+        : toNumberFlexible(row?.[merkezDepoStockColumn || '']);
+    if (otherDepotQty < need) return '';
+
+    const minQty = Math.max(0, toNumberFlexible(row?.[minQtyColumn || '']));
+    const remainingAfterTransfer = otherDepotQty - need;
+    if (remainingAfterTransfer >= minQty) return 'bg-amber-50';
+    return 'bg-red-50';
+  };
 
   const beginResize = (type: 'depot' | 'minmax', column: string, startX: number) => {
     const startWidth = type === 'depot' ? getDepotColumnWidth(column) : getMinMaxColumnWidth(column);
@@ -702,8 +739,8 @@ export default function UcarerDepotReportPage() {
   };
   const updateProductCost = async (productCode: string) => {
     const code = String(productCode || '').trim().toUpperCase();
-    const parsedCostP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
-    const parsedCostT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
+    const parsedCostT = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+    const parsedCostP = Number(String(costTInputByCode[code] || '').replace(',', '.'));
     if (!Number.isFinite(parsedCostP) || parsedCostP <= 0) {
       toast.error('Gecerli bir Maliyet P girin.');
       return;
@@ -725,8 +762,8 @@ export default function UcarerDepotReportPage() {
       const newCostT = Number(result.data?.costT || parsedCostT);
       const newCost = Number(result.data?.currentCost || newCostP);
       setCurrentCostByCode((prev) => ({ ...prev, [code]: newCost }));
-      setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
-      setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
+      setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
+      setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
       const missing = result.data?.missingLists || [];
       if (Boolean(updatePriceListsByCode[code])) {
         if (missing.length > 0) {
@@ -741,6 +778,30 @@ export default function UcarerDepotReportPage() {
       toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
     } finally {
       setUpdatingCostByCode((prev) => ({ ...prev, [code]: false }));
+    }
+  };
+  const updateMainSupplier = async (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const supplierCode = String(getEffectiveSupplierCode(code) || '').trim().toUpperCase();
+    if (!supplierCode) {
+      toast.error('Gecerli bir saglayici kodu girin.');
+      return;
+    }
+    setUpdatingSupplierByCode((prev) => ({ ...prev, [code]: true }));
+    try {
+      const result = await adminApi.updateUcarerMainSupplier({
+        productCode: code,
+        supplierCode,
+      });
+      const resolvedCode = String(result.data?.supplierCode || supplierCode).trim().toUpperCase();
+      const resolvedName = String(result.data?.supplierName || cariNameByCode.get(resolvedCode) || resolvedCode).trim();
+      setMainSupplierByCode((prev) => ({ ...prev, [code]: { code: resolvedCode, name: resolvedName } }));
+      setSupplierOverrideByCode((prev) => ({ ...prev, [code]: resolvedCode }));
+      toast.success('Ana saglayici guncellendi.');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Ana saglayici guncellenemedi');
+    } finally {
+      setUpdatingSupplierByCode((prev) => ({ ...prev, [code]: false }));
     }
   };
 
@@ -824,8 +885,8 @@ export default function UcarerDepotReportPage() {
             familyId: family.id,
             productCode: code,
             quantity: qty,
-            unitPriceOverride: Number.isFinite(Number(String(costPInputByCode[code] || '').replace(',', '.')))
-              ? Math.max(0, Number(String(costPInputByCode[code] || '').replace(',', '.')))
+            unitPriceOverride: Number.isFinite(Number(String(costTInputByCode[code] || '').replace(',', '.')))
+              ? Math.max(0, Number(String(costTInputByCode[code] || '').replace(',', '.')))
               : null,
             supplierCodeOverride,
             persistSupplierOverride: Boolean(persistSupplierOverrideByCode[code]),
@@ -842,8 +903,8 @@ export default function UcarerDepotReportPage() {
           familyId: null,
           productCode: item.code,
           quantity: qty,
-          unitPriceOverride: Number.isFinite(Number(String(costPInputByCode[item.code] || '').replace(',', '.')))
-            ? Math.max(0, Number(String(costPInputByCode[item.code] || '').replace(',', '.')))
+          unitPriceOverride: Number.isFinite(Number(String(costTInputByCode[item.code] || '').replace(',', '.')))
+            ? Math.max(0, Number(String(costTInputByCode[item.code] || '').replace(',', '.')))
             : null,
           supplierCodeOverride,
           persistSupplierOverride: Boolean(persistSupplierOverrideByCode[item.code]),
@@ -1306,6 +1367,7 @@ export default function UcarerDepotReportPage() {
                         <th className="px-2 py-2 text-left">Urun Adi</th>
                         <th className="px-2 py-2 text-left">Saglayici Kodu</th>
                         <th className="px-2 py-2 text-left">Saglayici Adi</th>
+                        <th className="px-2 py-2 text-center">Ana Saglayici</th>
                         <th className="px-2 py-2 text-center">Kalici Degistir</th>
                         {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
                         {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
@@ -1335,7 +1397,7 @@ export default function UcarerDepotReportPage() {
                         const diff = allocation - itemNeed;
                         const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
                         return (
-                          <tr key={item.id} className="border-t">
+                          <tr key={item.id} className={`border-t ${getRowHighlightClass(row)}`}>
                             <td className="px-2 py-2 font-semibold text-gray-900">{item.productCode}</td>
                             <td className="px-2 py-2 text-gray-700">{item.productName || '-'}</td>
                             <td className="px-2 py-2">
@@ -1353,6 +1415,16 @@ export default function UcarerDepotReportPage() {
                               />
                             </td>
                             <td className="px-2 py-2 text-gray-600">{getEffectiveSupplierName(code)}</td>
+                            <td className="px-2 py-2 text-center">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateMainSupplier(code)}
+                                disabled={Boolean(updatingSupplierByCode[code])}
+                              >
+                                {updatingSupplierByCode[code] ? '...' : 'Saglayiciyi Guncelle'}
+                              </Button>
+                            </td>
                             <td className="px-2 py-2 text-center">
                               <input
                                 type="checkbox"
@@ -1379,31 +1451,44 @@ export default function UcarerDepotReportPage() {
                                     min={0}
                                     step="0.01"
                                     value={costPInputByCode[code] ?? ''}
-                                    onChange={(e) =>
+                                    onChange={(e) => {
+                                      const rawValue = e.target.value;
                                       setCostPInputByCode((prev) => ({
                                         ...prev,
-                                        [code]: e.target.value,
-                                      }))
-                                    }
+                                        [code]: rawValue,
+                                      }));
+                                      if (manualCostPOverrideByCode[code]) return;
+                                      const parsed = Number(String(rawValue || '').replace(',', '.'));
+                                      if (!Number.isFinite(parsed)) return;
+                                      const vatRate = Number(vatRateByCode[code] ?? 0);
+                                      const vatPercent = vatRate <= 1 ? vatRate * 100 : vatRate;
+                                      const autoCostP = parsed * (1 + vatPercent / 200);
+                                      setCostTInputByCode((prev) => ({
+                                        ...prev,
+                                        [code]: Number.isFinite(autoCostP) ? autoCostP.toFixed(4).replace(/\.?0+$/, '') : prev[code] || '',
+                                      }));
+                                    }}
                                     className="w-20 rounded border px-2 py-1 text-right"
-                                    title="Maliyet P"
-                                    placeholder="P"
+                                    title="Maliyet T"
+                                    placeholder="T"
                                   />
                                   <input
                                     type="number"
                                     min={0}
                                     step="0.01"
                                     value={costTInputByCode[code] ?? ''}
-                                    onChange={(e) =>
+                                    onChange={(e) => {
+                                      setManualCostPOverrideByCode((prev) => ({ ...prev, [code]: true }));
                                       setCostTInputByCode((prev) => ({
                                         ...prev,
                                         [code]: e.target.value,
-                                      }))
-                                    }
+                                      }));
+                                    }}
                                     className="w-20 rounded border px-2 py-1 text-right"
-                                    title="Maliyet T"
-                                    placeholder="T"
+                                    title="Maliyet P"
+                                    placeholder="P"
                                   />
+                                  <span className="text-[10px] text-gray-600">KDV %{((Number(vatRateByCode[code] ?? 0) <= 1 ? Number(vatRateByCode[code] ?? 0) * 100 : Number(vatRateByCode[code] ?? 0))).toLocaleString('tr-TR')}</span>
                                   <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                                     <input
                                       type="checkbox"
@@ -1469,6 +1554,7 @@ export default function UcarerDepotReportPage() {
                       <th className="px-2 py-2 text-left">Urun Adi</th>
                       <th className="px-2 py-2 text-left">Saglayici Kodu</th>
                       <th className="px-2 py-2 text-left">Saglayici Adi</th>
+                      <th className="px-2 py-2 text-center">Ana Saglayici</th>
                       <th className="px-2 py-2 text-center">Kalici Degistir</th>
                       {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
                       {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
@@ -1498,7 +1584,7 @@ export default function UcarerDepotReportPage() {
                         ? ''
                         : Math.max(0, Math.trunc(Number(rawAllocated)));
                       return (
-                        <tr key={code} className="border-t">
+                        <tr key={code} className={`border-t ${getRowHighlightClass(row)}`}>
                           <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
                           <td className="px-2 py-2 text-gray-700">{productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}</td>
                           <td className="px-2 py-2">
@@ -1516,6 +1602,16 @@ export default function UcarerDepotReportPage() {
                             />
                           </td>
                           <td className="px-2 py-2 text-gray-600">{getEffectiveSupplierName(code)}</td>
+                          <td className="px-2 py-2 text-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updateMainSupplier(code)}
+                              disabled={Boolean(updatingSupplierByCode[code])}
+                            >
+                              {updatingSupplierByCode[code] ? '...' : 'Saglayiciyi Guncelle'}
+                            </Button>
+                          </td>
                           <td className="px-2 py-2 text-center">
                             <input
                               type="checkbox"
@@ -1542,31 +1638,44 @@ export default function UcarerDepotReportPage() {
                                   min={0}
                                   step="0.01"
                                   value={costPInputByCode[code] ?? ''}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
+                                    const rawValue = e.target.value;
                                     setCostPInputByCode((prev) => ({
                                       ...prev,
-                                      [code]: e.target.value,
-                                    }))
-                                  }
+                                      [code]: rawValue,
+                                    }));
+                                    if (manualCostPOverrideByCode[code]) return;
+                                    const parsed = Number(String(rawValue || '').replace(',', '.'));
+                                    if (!Number.isFinite(parsed)) return;
+                                    const vatRate = Number(vatRateByCode[code] ?? 0);
+                                    const vatPercent = vatRate <= 1 ? vatRate * 100 : vatRate;
+                                    const autoCostP = parsed * (1 + vatPercent / 200);
+                                    setCostTInputByCode((prev) => ({
+                                      ...prev,
+                                      [code]: Number.isFinite(autoCostP) ? autoCostP.toFixed(4).replace(/\.?0+$/, '') : prev[code] || '',
+                                    }));
+                                  }}
                                   className="w-20 rounded border px-2 py-1 text-right"
-                                  title="Maliyet P"
-                                  placeholder="P"
+                                  title="Maliyet T"
+                                  placeholder="T"
                                 />
                                 <input
                                   type="number"
                                   min={0}
                                   step="0.01"
                                   value={costTInputByCode[code] ?? ''}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
+                                    setManualCostPOverrideByCode((prev) => ({ ...prev, [code]: true }));
                                     setCostTInputByCode((prev) => ({
                                       ...prev,
                                       [code]: e.target.value,
-                                    }))
-                                  }
+                                    }));
+                                  }}
                                   className="w-20 rounded border px-2 py-1 text-right"
-                                  title="Maliyet T"
-                                  placeholder="T"
+                                  title="Maliyet P"
+                                  placeholder="P"
                                 />
+                                <span className="text-[10px] text-gray-600">KDV %{((Number(vatRateByCode[code] ?? 0) <= 1 ? Number(vatRateByCode[code] ?? 0) * 100 : Number(vatRateByCode[code] ?? 0))).toLocaleString('tr-TR')}</span>
                                 <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                                   <input
                                     type="checkbox"

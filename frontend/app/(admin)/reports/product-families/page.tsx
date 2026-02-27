@@ -32,6 +32,27 @@ interface PoolProduct {
 
 type FormMode = 'create' | 'edit';
 
+const foldSearch = (value: string): string =>
+  String(value || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ç/g, 'c')
+    .replace(/ğ/g, 'g')
+    .replace(/[ıi]/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ş/g, 's')
+    .replace(/ü/g, 'u')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildSearchVariants = (query: string): string[] => {
+  const raw = String(query || '').trim();
+  if (!raw) return [];
+  const folded = foldSearch(raw);
+  const trI = raw.replace(/i/g, 'ı').replace(/I/g, 'İ');
+  const latinI = raw.replace(/ı/g, 'i').replace(/İ/g, 'I');
+  return Array.from(new Set([raw, folded, trI, latinI].filter((item) => String(item || '').trim().length >= 2)));
+};
+
 const mapFamilyItemsToPool = (family: ProductFamily): PoolProduct[] =>
   family.items.map((item) => ({
     id: item.id,
@@ -89,22 +110,41 @@ export default function ProductFamiliesPage() {
     const timeout = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const result = await adminApi.getProducts({
-          search: q,
-          limit: 40,
-          page: 1,
-          sortBy: 'name',
-          sortOrder: 'asc',
-        });
+        const variants = buildSearchVariants(q);
+        const responses = await Promise.all(
+          variants.map((searchValue) =>
+            adminApi.getProducts({
+              search: searchValue,
+              limit: 40,
+              page: 1,
+              sortBy: 'name',
+              sortOrder: 'asc',
+            })
+          )
+        );
         if (searchRequestRef.current !== requestId) return;
-        const mapped = (result.products || [])
+        const merged = responses.flatMap((result) => result.products || []);
+        const mapped = merged
           .map((product: any) => ({
             id: String(product.id || ''),
             mikroCode: String(product.mikroCode || '').trim().toUpperCase(),
             name: String(product.name || '').trim(),
           }))
           .filter((product: PoolProduct) => product.mikroCode && product.name);
-        setSearchResults(mapped);
+        const foldedQuery = foldSearch(q);
+        const deduped = new Map<string, PoolProduct>();
+        mapped.forEach((product) => {
+          const key = product.mikroCode;
+          if (!deduped.has(key)) deduped.set(key, product);
+        });
+        const filtered = Array.from(deduped.values()).filter((product) => {
+          if (!foldedQuery) return true;
+          return (
+            foldSearch(product.mikroCode).includes(foldedQuery) ||
+            foldSearch(product.name).includes(foldedQuery)
+          );
+        });
+        setSearchResults(filtered.slice(0, 80));
       } catch (error) {
         if (searchRequestRef.current === requestId) {
           setSearchResults([]);
@@ -370,4 +410,3 @@ export default function ProductFamiliesPage() {
     </div>
   );
 }
-
