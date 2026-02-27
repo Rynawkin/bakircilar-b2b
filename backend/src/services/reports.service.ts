@@ -4952,14 +4952,6 @@ export class ReportsService {
         AND ISNULL(sip_musteri_kod, '') <> ''
       ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
     `);
-    const fallbackAnyRows = await mikroService.executeQuery(`
-      SELECT TOP 1 sip_musteri_kod AS cariCode
-      FROM SIPARISLER
-      WHERE sip_tip = 1
-        AND sip_depono = ${targetWarehouseNo}
-        AND ISNULL(sip_musteri_kod, '') <> ''
-      ORDER BY sip_create_date DESC, sip_evrakno_sira DESC, sip_satirno DESC
-    `);
     const sourceKeyword = depot === 'TOPCA' ? 'MERKEZ' : 'TOPCA';
     const fallbackCariFromUnvanRows = await mikroService.executeQuery(`
       SELECT TOP 1 cari_kod AS cariCode
@@ -4977,7 +4969,6 @@ export class ReportsService {
         envCariGlobal ||
         templateRows?.[0]?.cariCode ||
         fallbackSeriesRows?.[0]?.cariCode ||
-        fallbackAnyRows?.[0]?.cariCode ||
         fallbackCariFromUnvanRows?.[0]?.cariCode ||
         '',
     )
@@ -5013,6 +5004,62 @@ export class ReportsService {
       warehouseNo: targetWarehouseNo,
       buyerCode: '195.01.069',
     });
+
+    const match = String(orderNumber).match(/^(.*)-(\d+)$/);
+    if (match) {
+      const seri = String(match[1] || '').trim();
+      const sira = Number(match[2]);
+      if (seri && Number.isFinite(sira)) {
+        const templateShapeRows = await mikroService.executeQuery(`
+          SELECT TOP 1
+            sip_tip AS tip,
+            sip_cins AS cins,
+            sip_harekettipi AS hareketTipi,
+            sip_vergisiz_fl AS vergisiz,
+            sip_opno AS opNo,
+            sip_teslimturu AS teslimTuru,
+            sip_odeme_plan_no AS odemePlanNo,
+            sip_projekodu AS projeKodu,
+            sip_stok_sormerk AS stokSorMerkez,
+            sip_cari_sormerk AS cariSorMerkez
+          FROM SIPARISLER
+          WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+            AND sip_evrakno_sira <> ${sira}
+          ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
+        `);
+
+        const t = templateShapeRows?.[0];
+        if (t) {
+          const tip = Number.isFinite(Number(t.tip)) ? Number(t.tip) : 0;
+          const cins = Number.isFinite(Number(t.cins)) ? Number(t.cins) : 0;
+          const hareketTipi = Number.isFinite(Number(t.hareketTipi)) ? Number(t.hareketTipi) : 0;
+          const vergisiz = Number.isFinite(Number(t.vergisiz)) ? Number(t.vergisiz) : 0;
+          const opNo = Number.isFinite(Number(t.opNo)) ? Number(t.opNo) : 0;
+          const odemePlanNo = Number.isFinite(Number(t.odemePlanNo)) ? Number(t.odemePlanNo) : 0;
+          const teslimTuru = String(t.teslimTuru || '').trim().replace(/'/g, "''");
+          const projeKodu = String(t.projeKodu || '').trim().replace(/'/g, "''");
+          const stokSorMerkez = String(t.stokSorMerkez || '').trim().replace(/'/g, "''");
+          const cariSorMerkez = String(t.cariSorMerkez || '').trim().replace(/'/g, "''");
+
+          await mikroService.executeQuery(`
+            UPDATE SIPARISLER
+            SET
+              sip_tip = ${tip},
+              sip_cins = ${cins},
+              sip_harekettipi = ${hareketTipi},
+              sip_vergisiz_fl = ${vergisiz},
+              sip_opno = ${opNo},
+              sip_odeme_plan_no = ${odemePlanNo},
+              sip_teslimturu = '${teslimTuru}',
+              sip_projekodu = '${projeKodu}',
+              sip_stok_sormerk = '${stokSorMerkez}',
+              sip_cari_sormerk = '${cariSorMerkez}'
+            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+              AND sip_evrakno_sira = ${sira}
+          `);
+        }
+      }
+    }
 
     return {
       orderNumber,
