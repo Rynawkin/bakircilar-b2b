@@ -5014,20 +5014,6 @@ export class ReportsService {
       buyerCode: '195.01.069',
     });
 
-    const match = String(orderNumber).match(/^(.*)-(\d+)$/);
-    if (match) {
-      const seri = match[1];
-      const sira = Number(match[2]);
-      if (seri && Number.isFinite(sira)) {
-        await mikroService.executeQuery(`
-          UPDATE SIPARISLER
-          SET sip_tip = 1
-          WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-            AND sip_evrakno_sira = ${sira}
-        `);
-      }
-    }
-
     return {
       orderNumber,
       itemCount: rows.length,

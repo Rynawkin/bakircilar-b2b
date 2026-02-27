@@ -471,6 +471,20 @@ export default function UcarerDepotReportPage() {
     return 'bg-red-50';
   };
 
+  const stickySelectionWidth = 48;
+  const stickyCodeWidth = 140;
+  const stickyNameWidth = 280;
+  const stickyCodeLeft = stickySelectionWidth;
+  const stickyNameLeft = stickySelectionWidth + stickyCodeWidth;
+
+  const getStickyCellBgClass = (row: Record<string, any> | undefined): string => {
+    const rowClass = getRowHighlightClass(row);
+    if (rowClass.includes('bg-emerald-50')) return 'bg-emerald-50';
+    if (rowClass.includes('bg-amber-50')) return 'bg-amber-50';
+    if (rowClass.includes('bg-red-50')) return 'bg-red-50';
+    return 'bg-white';
+  };
+
   const beginResize = (type: 'depot' | 'minmax', column: string, startX: number) => {
     const startWidth = type === 'depot' ? getDepotColumnWidth(column) : getMinMaxColumnWidth(column);
     resizingRef.current = { type, column, startX, startWidth };
@@ -1541,12 +1555,27 @@ export default function UcarerDepotReportPage() {
                 </div>
 
                 <div className="overflow-x-auto overflow-y-auto rounded border bg-white max-h-[62vh]">
-                  <table className="w-max min-w-[1900px] text-[11px]">
+                  <table className="w-max min-w-[2200px] text-[11px]">
                     <thead className="bg-gray-100">
                       <tr>
-                        <th className="px-2 py-2 text-center">Sec</th>
-                        <th className="px-2 py-2 text-left">Stok Kodu</th>
-                        <th className="px-2 py-2 text-left">Urun Adi</th>
+                        <th
+                          className="px-2 py-2 text-center sticky left-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                          style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                        >
+                          Sec
+                        </th>
+                        <th
+                          className="px-2 py-2 text-left sticky z-30 bg-gray-100"
+                          style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                        >
+                          Stok Kodu
+                        </th>
+                        <th
+                          className="px-2 py-2 text-left sticky z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                          style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                        >
+                          Urun Adi
+                        </th>
                         <th className="px-2 py-2 text-left">Saglayici Kodu</th>
                         <th className="px-2 py-2 text-left">Saglayici Adi</th>
                         <th className="px-2 py-2 text-center">Ana Saglayici</th>
@@ -1583,7 +1612,10 @@ export default function UcarerDepotReportPage() {
                         const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
                         return (
                           <tr key={item.id} className={`border-t ${getRowHighlightClass(row)}`}>
-                            <td className="px-2 py-2 text-center">
+                            <td
+                              className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                              style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                            >
                               <input
                                 type="checkbox"
                                 checked={Boolean(selectedTransferByCode[code])}
@@ -1595,8 +1627,18 @@ export default function UcarerDepotReportPage() {
                                 }
                               />
                             </td>
-                            <td className="px-2 py-2 font-semibold text-gray-900">{item.productCode}</td>
-                            <td className="px-2 py-2 text-gray-700">{item.productName || '-'}</td>
+                            <td
+                              className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
+                              style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                            >
+                              {item.productCode}
+                            </td>
+                            <td
+                              className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                              style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                            >
+                              {item.productName || '-'}
+                            </td>
                             <td className="px-2 py-2">
                               <input
                                 list="ucarer-supplier-cari-list"
@@ -1747,12 +1789,27 @@ export default function UcarerDepotReportPage() {
                 </p>
               </div>
               <div className="overflow-x-auto overflow-y-auto rounded border max-h-[62vh]">
-                <table className="w-max min-w-[1900px] text-[11px]">
+                <table className="w-max min-w-[2200px] text-[11px]">
                   <thead className="bg-gray-100">
                     <tr>
-                      <th className="px-2 py-2 text-center">Sec</th>
-                      <th className="px-2 py-2 text-left">Stok Kodu</th>
-                      <th className="px-2 py-2 text-left">Urun Adi</th>
+                      <th
+                        className="px-2 py-2 text-center sticky left-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                        style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                      >
+                        Sec
+                      </th>
+                      <th
+                        className="px-2 py-2 text-left sticky z-30 bg-gray-100"
+                        style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                      >
+                        Stok Kodu
+                      </th>
+                      <th
+                        className="px-2 py-2 text-left sticky z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                        style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                      >
+                        Urun Adi
+                      </th>
                       <th className="px-2 py-2 text-left">Saglayici Kodu</th>
                       <th className="px-2 py-2 text-left">Saglayici Adi</th>
                       <th className="px-2 py-2 text-center">Ana Saglayici</th>
@@ -1789,7 +1846,10 @@ export default function UcarerDepotReportPage() {
                         : Math.max(0, Math.trunc(Number(rawAllocated)));
                       return (
                         <tr key={code} className={`border-t ${getRowHighlightClass(row)}`}>
-                          <td className="px-2 py-2 text-center">
+                          <td
+                            className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                            style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                          >
                             <input
                               type="checkbox"
                               checked={Boolean(selectedTransferByCode[code])}
@@ -1801,8 +1861,18 @@ export default function UcarerDepotReportPage() {
                               }
                             />
                           </td>
-                          <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
-                          <td className="px-2 py-2 text-gray-700">{productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}</td>
+                          <td
+                            className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
+                            style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                          >
+                            {code}
+                          </td>
+                          <td
+                            className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                            style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                          >
+                            {productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}
+                          </td>
                           <td className="px-2 py-2">
                             <input
                               list="ucarer-supplier-cari-list"
