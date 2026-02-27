@@ -193,6 +193,12 @@ export default function UcarerDepotReportPage() {
   const outgoingOrderColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('verilen sipariste bekleyen'));
   }, [visibleDepotColumns]);
+  const incomingDsvColumn = useMemo(() => {
+    return visibleDepotColumns.find((column) => {
+      const n = normalizeKey(column);
+      return n.includes('diger depolardan gelecek dsv') || n.includes('gelecek dsv toplam');
+    });
+  }, [visibleDepotColumns]);
   const realQtyColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('reel miktar'));
   }, [visibleDepotColumns]);
@@ -293,7 +299,9 @@ export default function UcarerDepotReportPage() {
   function getRawSuggestedQty(row: Record<string, any>): number {
     const sourceColumn = suggestionMode === 'INCLUDE_MINMAX' ? fourthIssueColumn : thirdIssueColumn;
     if (!sourceColumn) return 0;
-    return toNumberFlexible(row[sourceColumn]);
+    const base = toNumberFlexible(row[sourceColumn]);
+    const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
+    return base - incomingDsv;
   }
   function getSuggestedQty(row: Record<string, any>): number {
     return Math.max(0, getRawSuggestedQty(row));
