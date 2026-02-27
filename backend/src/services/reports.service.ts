@@ -5010,30 +5010,37 @@ export class ReportsService {
       const seri = String(match[1] || '').trim();
       const sira = Number(match[2]);
       if (seri && Number.isFinite(sira)) {
-        await mikroService.executeQuery(`
-          UPDATE n
-          SET
-            n.sip_tip = t.sip_tip,
-            n.sip_cins = t.sip_cins,
-            n.sip_harekettipi = t.sip_harekettipi,
-            n.sip_vergisiz_fl = t.sip_vergisiz_fl,
-            n.sip_opno = t.sip_opno,
-            n.sip_odeme_plan_no = t.sip_odeme_plan_no,
-            n.sip_teslimturu = t.sip_teslimturu,
-            n.sip_projekodu = t.sip_projekodu,
-            n.sip_stok_sormerk = t.sip_stok_sormerk,
-            n.sip_cari_sormerk = t.sip_cari_sormerk
-          FROM SIPARISLER n
-          CROSS APPLY (
-            SELECT TOP 1 *
-            FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-              AND sip_evrakno_sira <> ${sira}
-            ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
-          ) t
-          WHERE n.sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-            AND n.sip_evrakno_sira = ${sira}
-        `);
+        try {
+          await mikroService.executeQuery(`
+            UPDATE n
+            SET
+              n.sip_tip = t.sip_tip,
+              n.sip_cins = t.sip_cins,
+              n.sip_harekettipi = t.sip_harekettipi,
+              n.sip_vergisiz_fl = t.sip_vergisiz_fl,
+              n.sip_opno = t.sip_opno,
+              n.sip_odeme_plan_no = t.sip_odeme_plan_no,
+              n.sip_teslimturu = t.sip_teslimturu,
+              n.sip_projekodu = t.sip_projekodu,
+              n.sip_stok_sormerk = t.sip_stok_sormerk,
+              n.sip_cari_sormerk = t.sip_cari_sormerk
+            FROM SIPARISLER n
+            CROSS APPLY (
+              SELECT TOP 1 *
+              FROM SIPARISLER
+              WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+                AND sip_evrakno_sira <> ${sira}
+              ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
+            ) t
+            WHERE n.sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+              AND n.sip_evrakno_sira = ${sira}
+          `);
+        } catch (error) {
+          console.warn('Depolar arasi siparis kaydedildi ancak DSV sekil esitlemesi atlandi:', {
+            orderNumber,
+            error,
+          });
+        }
       }
     }
 
