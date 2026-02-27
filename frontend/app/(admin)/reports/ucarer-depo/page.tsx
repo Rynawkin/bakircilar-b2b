@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Download, Play, RefreshCw, Warehouse, WandSparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Play, RefreshCw, Warehouse, WandSparkles } from 'lucide-react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -132,6 +132,7 @@ export default function UcarerDepotReportPage() {
   const [persistSupplierOverrideByCode, setPersistSupplierOverrideByCode] = useState<Record<string, boolean>>({});
   const [cariOptions, setCariOptions] = useState<Array<{ code: string; name: string }>>([]);
   const [seriesModalOpen, setSeriesModalOpen] = useState(false);
+  const [expandedSupplierRows, setExpandedSupplierRows] = useState<Record<string, boolean>>({});
   const [supplierOrderConfigs, setSupplierOrderConfigs] = useState<
     Record<string, { series: string; applyVAT: boolean; deliveryType: string; deliveryDate: string }>
   >({});
@@ -989,6 +990,35 @@ export default function UcarerDepotReportPage() {
     });
     return Array.from(grouped.values()).sort((a, b) => a.supplierCode.localeCompare(b.supplierCode, 'tr'));
   }, [pendingAllocations, cariNameByCode]);
+  const pendingSupplierItemsByCode = useMemo(() => {
+    const grouped = new Map<
+      string,
+      Map<string, { productCode: string; productName: string; quantity: number }>
+    >();
+    pendingAllocations.forEach((row) => {
+      const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+      const productCode = String(row.productCode || '').trim().toUpperCase();
+      const qty = Math.max(0, Math.trunc(Number(row.quantity || 0)));
+      if (!supplierCode || !productCode || qty <= 0) return;
+      const supplierItems = grouped.get(supplierCode) || new Map<string, { productCode: string; productName: string; quantity: number }>();
+      const existing = supplierItems.get(productCode);
+      const productName =
+        String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
+      if (existing) {
+        existing.quantity += qty;
+      } else {
+        supplierItems.set(productCode, { productCode, productName, quantity: qty });
+      }
+      grouped.set(supplierCode, supplierItems);
+    });
+    const result: Record<string, Array<{ productCode: string; productName: string; quantity: number }>> = {};
+    grouped.forEach((items, supplierCode) => {
+      result[supplierCode] = Array.from(items.values()).sort((a, b) =>
+        a.productCode.localeCompare(b.productCode, 'tr')
+      );
+    });
+    return result;
+  }, [pendingAllocations, rowByProductCode, productNameColumn]);
 
   const createSupplierOrders = async () => {
     const allocations = buildOrderAllocations();
@@ -1015,6 +1045,7 @@ export default function UcarerDepotReportPage() {
       };
     });
     setSupplierOrderConfigs(defaults);
+    setExpandedSupplierRows({});
     setSeriesModalOpen(true);
   };
 
@@ -1564,7 +1595,7 @@ export default function UcarerDepotReportPage() {
 
                 <div className="overflow-x-auto overflow-y-auto rounded border bg-white max-h-[62vh]">
                   <table className="w-max min-w-[2200px] text-[11px]">
-                    <thead className="bg-gray-100">
+                    <thead className="bg-gray-100 sticky top-0 z-20">
                       <tr>
                         <th
                           className="px-2 py-2 text-center sticky left-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
@@ -1798,7 +1829,7 @@ export default function UcarerDepotReportPage() {
               </div>
               <div className="overflow-x-auto overflow-y-auto rounded border max-h-[62vh]">
                 <table className="w-max min-w-[2200px] text-[11px]">
-                  <thead className="bg-gray-100">
+                  <thead className="bg-gray-100 sticky top-0 z-20">
                     <tr>
                       <th
                         className="px-2 py-2 text-center sticky left-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
@@ -2111,6 +2142,7 @@ export default function UcarerDepotReportPage() {
                 <table className="w-full text-xs">
                   <thead className="bg-gray-100">
                     <tr>
+                      <th className="px-2 py-2 text-center">Detay</th>
                       <th className="px-2 py-2 text-left">Cari</th>
                       <th className="px-2 py-2 text-left">Unvan</th>
                       <th className="px-2 py-2 text-right">Kalem</th>
@@ -2129,80 +2161,121 @@ export default function UcarerDepotReportPage() {
                         deliveryType: 'B',
                         deliveryDate: '',
                       };
+                      const detailRows = pendingSupplierItemsByCode[row.supplierCode] || [];
+                      const isExpanded = Boolean(expandedSupplierRows[row.supplierCode]);
                       return (
-                        <tr key={row.supplierCode} className="border-t">
-                          <td className="px-2 py-2 font-semibold">{row.supplierCode}</td>
-                          <td className="px-2 py-2">{row.supplierName}</td>
-                          <td className="px-2 py-2 text-right">{row.itemCount.toLocaleString('tr-TR')}</td>
-                          <td className="px-2 py-2 text-right">{row.totalQuantity.toLocaleString('tr-TR')}</td>
-                          <td className="px-2 py-2">
-                            <input
-                              className="w-20 rounded border px-2 py-1 uppercase"
-                              maxLength={20}
-                              value={cfg.series}
-                              onChange={(e) =>
-                                setSupplierOrderConfigs((prev) => ({
-                                  ...prev,
-                                  [row.supplierCode]: {
-                                    ...cfg,
-                                    series: String(e.target.value || '').toUpperCase(),
-                                  },
-                                }))
-                              }
-                            />
-                          </td>
-                          <td className="px-2 py-2">
-                            <label className="inline-flex items-center gap-1">
+                        <Fragment key={row.supplierCode}>
+                          <tr className="border-t">
+                            <td className="px-2 py-2 text-center">
+                              <button
+                                type="button"
+                                className="inline-flex h-6 w-6 items-center justify-center rounded border bg-white"
+                                onClick={() =>
+                                  setExpandedSupplierRows((prev) => ({
+                                    ...prev,
+                                    [row.supplierCode]: !prev[row.supplierCode],
+                                  }))
+                                }
+                                title="Urunleri goster/gizle"
+                              >
+                                {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                              </button>
+                            </td>
+                            <td className="px-2 py-2 font-semibold">{row.supplierCode}</td>
+                            <td className="px-2 py-2">{row.supplierName}</td>
+                            <td className="px-2 py-2 text-right">{row.itemCount.toLocaleString('tr-TR')}</td>
+                            <td className="px-2 py-2 text-right">{row.totalQuantity.toLocaleString('tr-TR')}</td>
+                            <td className="px-2 py-2">
                               <input
-                                type="checkbox"
-                                checked={Boolean(cfg.applyVAT)}
+                                className="w-20 rounded border px-2 py-1 uppercase"
+                                maxLength={20}
+                                value={cfg.series}
                                 onChange={(e) =>
                                   setSupplierOrderConfigs((prev) => ({
                                     ...prev,
                                     [row.supplierCode]: {
                                       ...cfg,
-                                      applyVAT: e.target.checked,
+                                      series: String(e.target.value || '').toUpperCase(),
                                     },
                                   }))
                                 }
                               />
-                              Vergili
-                            </label>
-                          </td>
-                          <td className="px-2 py-2">
-                            <input
-                              list="ucarer-delivery-type-list"
-                              className="w-44 rounded border px-2 py-1"
-                              placeholder="B / N"
-                              value={cfg.deliveryType}
-                              onChange={(e) =>
-                                setSupplierOrderConfigs((prev) => ({
-                                  ...prev,
-                                  [row.supplierCode]: {
-                                    ...cfg,
-                                    deliveryType: String(e.target.value || '').trim().toUpperCase(),
-                                  },
-                                }))
-                              }
-                            />
-                          </td>
-                          <td className="px-2 py-2">
-                            <input
-                              type="date"
-                              className="rounded border px-2 py-1"
-                              value={cfg.deliveryDate}
-                              onChange={(e) =>
-                                setSupplierOrderConfigs((prev) => ({
-                                  ...prev,
-                                  [row.supplierCode]: {
-                                    ...cfg,
-                                    deliveryDate: String(e.target.value || ''),
-                                  },
-                                }))
-                              }
-                            />
-                          </td>
-                        </tr>
+                            </td>
+                            <td className="px-2 py-2">
+                              <label className="inline-flex items-center gap-1">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(cfg.applyVAT)}
+                                  onChange={(e) =>
+                                    setSupplierOrderConfigs((prev) => ({
+                                      ...prev,
+                                      [row.supplierCode]: {
+                                        ...cfg,
+                                        applyVAT: e.target.checked,
+                                      },
+                                    }))
+                                  }
+                                />
+                                Vergili
+                              </label>
+                            </td>
+                            <td className="px-2 py-2">
+                              <input
+                                list="ucarer-delivery-type-list"
+                                className="w-44 rounded border px-2 py-1"
+                                placeholder="B / N"
+                                value={cfg.deliveryType}
+                                onChange={(e) =>
+                                  setSupplierOrderConfigs((prev) => ({
+                                    ...prev,
+                                    [row.supplierCode]: {
+                                      ...cfg,
+                                      deliveryType: String(e.target.value || '').trim().toUpperCase(),
+                                    },
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td className="px-2 py-2">
+                              <input
+                                type="date"
+                                className="rounded border px-2 py-1"
+                                value={cfg.deliveryDate}
+                                onChange={(e) =>
+                                  setSupplierOrderConfigs((prev) => ({
+                                    ...prev,
+                                    [row.supplierCode]: {
+                                      ...cfg,
+                                      deliveryDate: String(e.target.value || ''),
+                                    },
+                                  }))
+                                }
+                              />
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="border-t bg-gray-50">
+                              <td className="px-2 py-2" />
+                              <td className="px-2 py-2 text-[11px] text-gray-700" colSpan={8}>
+                                <div className="space-y-1">
+                                  {detailRows.map((item) => (
+                                    <div key={`${row.supplierCode}-${item.productCode}`} className="flex items-center justify-between gap-4 rounded border bg-white px-2 py-1">
+                                      <span className="font-medium text-gray-800">
+                                        {item.productCode} - {item.productName}
+                                      </span>
+                                      <span className="text-gray-700">
+                                        Miktar: <strong>{item.quantity.toLocaleString('tr-TR')}</strong>
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {detailRows.length === 0 && (
+                                    <div className="text-gray-500">Bu cari icin urun bulunamadi.</div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </tbody>
