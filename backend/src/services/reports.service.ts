@@ -5030,7 +5030,7 @@ export class ReportsService {
 
         const t = templateShapeRows?.[0];
         if (t) {
-          const tip = Number.isFinite(Number(t.tip)) ? Number(t.tip) : 0;
+          const tip = 2;
           const cins = Number.isFinite(Number(t.cins)) && Number(t.cins) > 0 ? Number(t.cins) : 5;
           const hareketTipi = Number.isFinite(Number(t.hareketTipi)) ? Number(t.hareketTipi) : 0;
           const vergisiz = Number.isFinite(Number(t.vergisiz)) ? Number(t.vergisiz) : 0;
@@ -5064,7 +5064,28 @@ export class ReportsService {
             WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
               AND sip_evrakno_sira = ${sira}
           `);
+          await mikroService.executeQuery(`
+            UPDATE SIPARISLER
+            SET sip_tip = 2
+            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+              AND sip_evrakno_sira = ${sira}
+          `);
         }
+      }
+    }
+
+    if (match) {
+      const seri = String(match[1] || '').trim().replace(/'/g, "''");
+      const sira = Number(match[2]);
+      if (seri && Number.isFinite(sira)) {
+        await mikroService.executeQuery(`
+          UPDATE SIPARISLER
+          SET
+            sip_tip = 2,
+            sip_cins = 5
+          WHERE sip_evrakno_seri = '${seri}'
+            AND sip_evrakno_sira = ${sira}
+        `);
       }
     }
 
