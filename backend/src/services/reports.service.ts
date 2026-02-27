@@ -15,6 +15,7 @@ import priceListService from './price-list.service';
 import pricingService from './pricing.service';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '../utils/search';
+import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 
 interface CostUpdateAlert {
@@ -4900,6 +4901,7 @@ export class ReportsService {
   }> {
     const depot = input.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
     const targetWarehouseNo = depot === 'TOPCA' ? 6 : 1;
+    const sourceWarehouseNo = depot === 'TOPCA' ? 1 : 6;
     const series = String(input.series || 'DSV').trim().toUpperCase() || 'DSV';
     const rows = (Array.isArray(input.allocations) ? input.allocations : [])
       .map((row) => ({
@@ -4928,151 +4930,116 @@ export class ReportsService {
     });
 
     const escapedSeries = series.replace(/'/g, "''");
-    const envCariByDepot = String(
-      depot === 'TOPCA'
-        ? process.env.MIKRO_DEPOT_TRANSFER_CARI_TOPCA || ''
-        : process.env.MIKRO_DEPOT_TRANSFER_CARI_MERKEZ || '',
-    )
-      .trim()
-      .toUpperCase();
-    const envCariGlobal = String(process.env.MIKRO_DEPOT_TRANSFER_CARI || '').trim().toUpperCase();
-
+    const templateSeqRaw = Number(process.env.MIKRO_DEPOT_TRANSFER_TEMPLATE_SEQ || 1225);
+    const templateSeq = Number.isFinite(templateSeqRaw) && templateSeqRaw > 0 ? Math.trunc(templateSeqRaw) : 1225;
     const templateRows = await mikroService.executeQuery(`
-      SELECT TOP 1 sip_musteri_kod AS cariCode
-      FROM SIPARISLER
-      WHERE sip_evrakno_seri = '${escapedSeries}'
-        AND sip_depono = ${targetWarehouseNo}
-        AND ISNULL(sip_musteri_kod, '') <> ''
-      ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
+      SELECT TOP 1 *
+      FROM (
+        SELECT 1 AS prio, * FROM STOK_HAREKETLERI
+        WHERE sth_evrakno_seri = '${escapedSeries}' AND sth_evrakno_sira = ${templateSeq}
+        UNION ALL
+        SELECT 2 AS prio, * FROM STOK_HAREKETLERI
+        WHERE sth_evrakno_seri = '${escapedSeries}' AND sth_evrakno_sira = 1225
+        UNION ALL
+        SELECT 3 AS prio, * FROM STOK_HAREKETLERI
+        WHERE sth_evrakno_seri = '${escapedSeries}' AND sth_evrakno_sira = 1222
+        UNION ALL
+        SELECT 4 AS prio, * FROM STOK_HAREKETLERI
+        WHERE sth_evrakno_seri = '${escapedSeries}'
+      ) t
+      ORDER BY t.prio ASC, t.sth_evrakno_sira DESC, t.sth_satirno DESC
     `);
-    const fallbackSeriesRows = await mikroService.executeQuery(`
-      SELECT TOP 1 sip_musteri_kod AS cariCode
-      FROM SIPARISLER
-      WHERE sip_evrakno_seri = '${escapedSeries}'
-        AND ISNULL(sip_musteri_kod, '') <> ''
-      ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
-    `);
-    const sourceKeyword = depot === 'TOPCA' ? 'MERKEZ' : 'TOPCA';
-    const fallbackCariFromUnvanRows = await mikroService.executeQuery(`
-      SELECT TOP 1 cari_kod AS cariCode
-      FROM CARI_HESAPLAR
-      WHERE ISNULL(cari_kod, '') <> ''
-        AND (
-          UPPER(ISNULL(cari_unvan1, '')) COLLATE Turkish_CI_AI LIKE '%${sourceKeyword}%'
-          OR UPPER(ISNULL(cari_unvan2, '')) COLLATE Turkish_CI_AI LIKE '%${sourceKeyword}%'
-        )
-      ORDER BY cari_kod
-    `);
-
-    const cariCode = String(
-      envCariByDepot ||
-        envCariGlobal ||
-        templateRows?.[0]?.cariCode ||
-        fallbackSeriesRows?.[0]?.cariCode ||
-        fallbackCariFromUnvanRows?.[0]?.cariCode ||
-        '',
-    )
-      .trim()
-      .toUpperCase();
-    if (!cariCode) {
-      throw new AppError(
-        `Depolar arasi siparis icin cari kodu bulunamadi. Lutfen ortam degiskeni tanimlayin: ${
-          depot === 'TOPCA' ? 'MIKRO_DEPOT_TRANSFER_CARI_TOPCA' : 'MIKRO_DEPOT_TRANSFER_CARI_MERKEZ'
-        } (veya MIKRO_DEPOT_TRANSFER_CARI).`,
-        400,
-        ErrorCode.BAD_REQUEST,
-      );
+    const templateRow = templateRows?.[0];
+    if (!templateRow) {
+      throw new AppError(`Depolar arasi siparis template kaydi bulunamadi (seri: ${series}).`, 400, ErrorCode.BAD_REQUEST);
     }
 
-    const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const year = now.getFullYear();
-    const orderNumber = await mikroService.writeOrder({
-      cariCode,
-      items: rows.map((row) => ({
-        productCode: row.productCode,
-        quantity: row.quantity,
-        unitPrice: unitPriceByCode.get(row.productCode) || 1,
-        vatRate: 0,
-        lineDescription: `Depolar arasi siparis ${depot}`,
-      })),
-      applyVAT: false,
-      description: `Depolar Arasi Siparis ${depot}`,
-      documentDescription: `Depolar arasi siparis ${depot} ${day}.${month}.${year}`,
-      evrakSeri: series,
-      warehouseNo: targetWarehouseNo,
-      buyerCode: '195.01.069',
-    });
+    const nextRows = await mikroService.executeQuery(`
+      SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 AS nextSira
+      FROM STOK_HAREKETLERI
+      WHERE sth_evrakno_seri = '${escapedSeries}'
+    `);
+    const nextSira = Number(nextRows?.[0]?.nextSira || 1);
+    const orderNumber = `${series}-${nextSira}`;
 
-    const match = String(orderNumber).match(/^(.*)-(\d+)$/);
-    if (match) {
-      const seri = String(match[1] || '').trim();
-      const sira = Number(match[2]);
-      if (seri && Number.isFinite(sira)) {
-        const escapedSeri = seri.replace(/'/g, "''");
-        const templateSeqRaw = Number(process.env.MIKRO_DEPOT_TRANSFER_TEMPLATE_SEQ || 1225);
-        const templateSeq = Number.isFinite(templateSeqRaw) && templateSeqRaw > 0 ? Math.trunc(templateSeqRaw) : 1225;
-        const templateRows = await mikroService.executeQuery(`
-          SELECT TOP 1
-            sip_tip AS tip,
-            sip_cins AS cins,
-            sip_harekettipi AS hareketTipi,
-            sip_vergisiz_fl AS vergisiz,
-            sip_opno AS opNo,
-            sip_odeme_plan_no AS odemePlanNo,
-            sip_teslimturu AS teslimTuru,
-            sip_projekodu AS projeKodu,
-            sip_stok_sormerk AS stokSorMerkez,
-            sip_cari_sormerk AS cariSorMerkez
-          FROM (
-            SELECT 1 AS prio, * FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira = ${templateSeq}
-            UNION ALL
-            SELECT 2 AS prio, * FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira = 1225
-            UNION ALL
-            SELECT 3 AS prio, * FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira = 1222
-            UNION ALL
-            SELECT 4 AS prio, * FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira <= ${templateSeq} AND sip_evrakno_sira <> ${sira}
-            UNION ALL
-            SELECT 5 AS prio, * FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira <> ${sira}
-          ) t
-          ORDER BY t.prio ASC, t.sip_evrakno_sira DESC, t.sip_satirno DESC
-        `);
-        const tpl = templateRows?.[0];
-        if (tpl) {
-          const tip = Number.isFinite(Number(tpl.tip)) ? Math.trunc(Number(tpl.tip)) : 0;
-          const cins = Number.isFinite(Number(tpl.cins)) ? Math.trunc(Number(tpl.cins)) : 0;
-          const hareketTipi = Number.isFinite(Number(tpl.hareketTipi)) ? Math.trunc(Number(tpl.hareketTipi)) : 0;
-          const vergisiz = Number.isFinite(Number(tpl.vergisiz)) ? Math.trunc(Number(tpl.vergisiz)) : 0;
-          const opNo = Number.isFinite(Number(tpl.opNo)) ? Math.trunc(Number(tpl.opNo)) : 0;
-          const odemePlanNo = Number.isFinite(Number(tpl.odemePlanNo)) ? Math.trunc(Number(tpl.odemePlanNo)) : 0;
-          const teslimTuru = String(tpl.teslimTuru || '').replace(/'/g, "''");
-          const projeKodu = String(tpl.projeKodu || '').replace(/'/g, "''");
-          const stokSorMerkez = String(tpl.stokSorMerkez || '').replace(/'/g, "''");
-          const cariSorMerkez = String(tpl.cariSorMerkez || '').replace(/'/g, "''");
-          await mikroService.executeQuery(`
-            UPDATE SIPARISLER
-            SET
-              sip_tip = ${tip},
-              sip_cins = ${cins},
-              sip_harekettipi = ${hareketTipi},
-              sip_vergisiz_fl = ${vergisiz},
-              sip_opno = ${opNo},
-              sip_odeme_plan_no = ${odemePlanNo},
-              sip_teslimturu = '${teslimTuru}',
-              sip_projekodu = '${projeKodu}',
-              sip_stok_sormerk = '${stokSorMerkez}',
-              sip_cari_sormerk = '${cariSorMerkez}'
-            WHERE sip_evrakno_seri = '${escapedSeri}'
-              AND sip_evrakno_sira = ${sira}
-          `);
-        }
+    const insertableColumnsRows = await mikroService.executeQuery(`
+      SELECT c.name AS colName
+      FROM sys.columns c
+      INNER JOIN sys.tables t ON c.object_id = t.object_id
+      WHERE t.name = 'STOK_HAREKETLERI'
+        AND c.is_identity = 0
+        AND c.is_computed = 0
+        AND c.system_type_id <> 189
+      ORDER BY c.column_id
+    `);
+    const insertableColumns = (insertableColumnsRows || [])
+      .map((r: any) => String(r.colName || '').trim())
+      .filter(Boolean);
+    if (!insertableColumns.length) {
+      throw new AppError('STOK_HAREKETLERI kolonlari okunamadi.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    const orderGuid = randomUUID();
+    const zeroGuid = '00000000-0000-0000-0000-000000000000';
+    const toSqlLiteral = (value: unknown): string => {
+      if (value === null || value === undefined) return 'NULL';
+      if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
+      if (typeof value === 'boolean') return value ? '1' : '0';
+      if (value instanceof Date) {
+        const iso = value.toISOString().slice(0, 23).replace('T', ' ');
+        return `'${iso}'`;
       }
+      const text = String(value).replace(/'/g, "''");
+      return `N'${text}'`;
+    };
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const unitPrice = Number(unitPriceByCode.get(row.productCode) || 1);
+      const lineTotal = Math.max(0, unitPrice * row.quantity);
+      const lineData: Record<string, unknown> = { ...templateRow };
+      const now = new Date();
+
+      lineData.sth_Guid = randomUUID();
+      lineData.sth_iptal = 0;
+      lineData.sth_degisti = 0;
+      lineData.sth_create_date = now;
+      lineData.sth_lastup_date = now;
+      lineData.sth_tarih = now;
+      lineData.sth_malkbl_sevk_tarihi = now;
+      lineData.sth_teslim_tarihi = now;
+      lineData.sth_evrakno_seri = series;
+      lineData.sth_evrakno_sira = nextSira;
+      lineData.sth_satirno = index;
+      lineData.sth_stok_kod = row.productCode;
+      lineData.sth_miktar = row.quantity;
+      lineData.sth_miktar2 = row.quantity;
+      lineData.sth_tutar = lineTotal;
+      lineData.sth_vergi = 0;
+      lineData.sth_vergi_pntr = 0;
+      lineData.sth_vergisiz_fl = 1;
+      lineData.sth_tip = 2;
+      lineData.sth_cins = 6;
+      lineData.sth_evraktip = 2;
+      lineData.sth_giris_depo_no = targetWarehouseNo;
+      lineData.sth_cikis_depo_no = sourceWarehouseNo;
+      lineData.sth_cari_kodu = '';
+      lineData.sth_cari_cinsi = 0;
+      lineData.sth_cari_grup_no = 0;
+      lineData.sth_sip_uid = zeroGuid;
+      lineData.sth_fat_uid = zeroGuid;
+      lineData.sth_har_uid = zeroGuid;
+      lineData.sth_irs_tes_uid = zeroGuid;
+      lineData.sth_kons_uid = zeroGuid;
+      lineData.sth_yetkili_uid = zeroGuid;
+      lineData.sth_evrakuid = orderGuid;
+
+      const colsSql = insertableColumns.map((col) => `[${col}]`).join(', ');
+      const valsSql = insertableColumns.map((col) => toSqlLiteral(lineData[col])).join(', ');
+      await mikroService.executeQuery(`
+        INSERT INTO STOK_HAREKETLERI (${colsSql})
+        VALUES (${valsSql})
+      `);
     }
 
     return {
