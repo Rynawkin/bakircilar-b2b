@@ -542,8 +542,8 @@ export default function UcarerDepotReportPage() {
       setActiveFamilyId('');
       return;
     }
-    if (!activeFamilyId || !families.some((family) => family.id === activeFamilyId)) {
-      setActiveFamilyId(families[0].id);
+    if (activeFamilyId && !families.some((family) => family.id === activeFamilyId)) {
+      setActiveFamilyId('');
     }
   }, [families, activeFamilyId]);
 
@@ -901,6 +901,17 @@ export default function UcarerDepotReportPage() {
       setCreatingOrders(false);
     }
   };
+  const toggleFamilyDetail = (familyId: string) => {
+    setActiveFamilyId((prev) => {
+      const next = prev === familyId ? '' : familyId;
+      if (next) {
+        setPanelHighlight(true);
+        setTimeout(() => setPanelHighlight(false), 900);
+        setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 20);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1056,24 +1067,10 @@ export default function UcarerDepotReportPage() {
               </Link>
             </div>
 
-            <div className="rounded-md border bg-white p-3 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
-              <div className="md:col-span-2">
-                <p className="text-xs text-gray-600 mb-1">Aile Sec</p>
-                <Select
-                  value={activeFamilyId}
-                  onChange={(e) => {
-                    setActiveFamilyId(e.target.value);
-                    setPanelHighlight(true);
-                    setTimeout(() => setPanelHighlight(false), 900);
-                    setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 20);
-                  }}
-                >
-                  {familySuggestions.map((family) => (
-                    <option key={family.id} value={family.id}>
-                      {family.name} {family.code ? `(${family.code})` : ''} - Oneri: {family.suggestedRaw.toLocaleString('tr-TR')}
-                    </option>
-                  ))}
-                </Select>
+            <div className="rounded-md border bg-white p-3 grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+              <div>
+                <p className="text-xs text-gray-600">Aile Sayisi</p>
+                <p className="text-sm font-semibold text-gray-900">{familySuggestions.length.toLocaleString('tr-TR')}</p>
               </div>
               <Button size="sm" onClick={createSupplierOrders} disabled={creatingOrders}>
                 {creatingOrders ? 'Olusturuluyor...' : 'Toplu Siparis Olustur'}
@@ -1081,6 +1078,35 @@ export default function UcarerDepotReportPage() {
               <Button size="sm" variant="outline" onClick={loadFamilies} disabled={familyLoading}>
                 {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
               </Button>
+            </div>
+
+            <div className="rounded-md border bg-white p-3">
+              <p className="text-xs font-semibold text-gray-700 mb-2">Aileler</p>
+              <div className="space-y-2">
+                {familySuggestions.length === 0 && (
+                  <p className="text-xs text-gray-500">Tanimli aile yok.</p>
+                )}
+                {familySuggestions.map((family) => (
+                  <div
+                    key={family.id}
+                    className={`flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 ${
+                      activeFamilyId === family.id ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900">
+                        {family.name} {family.code ? `(${family.code})` : ''}
+                      </p>
+                      <p className="text-xs text-gray-600">
+                        Oneri: {family.suggestedRaw.toLocaleString('tr-TR')} | Kalem: {family.itemCount.toLocaleString('tr-TR')}
+                      </p>
+                    </div>
+                    <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
+                      {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="rounded-md border bg-white p-3">
@@ -1118,8 +1144,8 @@ export default function UcarerDepotReportPage() {
             </div>
 
             {familyLoading && <p className="text-sm text-gray-500">Aileler yukleniyor...</p>}
-            {!familyLoading && !activeFamily && (
-              <p className="text-sm text-gray-500">Tanimli aile yok.</p>
+            {!familyLoading && !activeFamily && families.length > 0 && (
+              <p className="text-sm text-gray-500">Aile detayi acmak icin listeden "Detayi Ac" kullanin.</p>
             )}
 
             {activeFamily && (
