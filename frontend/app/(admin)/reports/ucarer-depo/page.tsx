@@ -1540,8 +1540,8 @@ export default function UcarerDepotReportPage() {
                   )}
                 </div>
 
-                <div className="overflow-auto rounded border bg-white">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto overflow-y-auto rounded border bg-white max-h-[62vh]">
+                  <table className="w-max min-w-[1900px] text-[11px]">
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="px-2 py-2 text-center">Sec</th>
@@ -1746,8 +1746,8 @@ export default function UcarerDepotReportPage() {
                   Kalem: <strong>{nonFamilyRows.length.toLocaleString('tr-TR')}</strong>
                 </p>
               </div>
-              <div className="overflow-auto rounded border">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto overflow-y-auto rounded border max-h-[62vh]">
+                <table className="w-max min-w-[1900px] text-[11px]">
                   <thead className="bg-gray-100">
                     <tr>
                       <th className="px-2 py-2 text-center">Sec</th>

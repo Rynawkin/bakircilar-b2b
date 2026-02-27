@@ -4927,22 +4927,70 @@ export class ReportsService {
       if (!unitPriceByCode.has(row.productCode)) unitPriceByCode.set(row.productCode, 1);
     });
 
+    const escapedSeries = series.replace(/'/g, "''");
+    const envCariByDepot = String(
+      depot === 'TOPCA'
+        ? process.env.MIKRO_DEPOT_TRANSFER_CARI_TOPCA || ''
+        : process.env.MIKRO_DEPOT_TRANSFER_CARI_MERKEZ || '',
+    )
+      .trim()
+      .toUpperCase();
+    const envCariGlobal = String(process.env.MIKRO_DEPOT_TRANSFER_CARI || '').trim().toUpperCase();
+
     const templateRows = await mikroService.executeQuery(`
       SELECT TOP 1 sip_musteri_kod AS cariCode
       FROM SIPARISLER
-      WHERE sip_evrakno_seri = 'DSV'
+      WHERE sip_evrakno_seri = '${escapedSeries}'
         AND sip_depono = ${targetWarehouseNo}
+        AND ISNULL(sip_musteri_kod, '') <> ''
       ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
     `);
-    const fallbackRows = await mikroService.executeQuery(`
+    const fallbackSeriesRows = await mikroService.executeQuery(`
       SELECT TOP 1 sip_musteri_kod AS cariCode
       FROM SIPARISLER
-      WHERE sip_evrakno_seri = 'DSV'
+      WHERE sip_evrakno_seri = '${escapedSeries}'
+        AND ISNULL(sip_musteri_kod, '') <> ''
       ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
     `);
-    const cariCode = String(templateRows?.[0]?.cariCode || fallbackRows?.[0]?.cariCode || '').trim();
+    const fallbackAnyRows = await mikroService.executeQuery(`
+      SELECT TOP 1 sip_musteri_kod AS cariCode
+      FROM SIPARISLER
+      WHERE sip_tip = 1
+        AND sip_depono = ${targetWarehouseNo}
+        AND ISNULL(sip_musteri_kod, '') <> ''
+      ORDER BY sip_create_date DESC, sip_evrakno_sira DESC, sip_satirno DESC
+    `);
+    const sourceKeyword = depot === 'TOPCA' ? 'MERKEZ' : 'TOPCA';
+    const fallbackCariFromUnvanRows = await mikroService.executeQuery(`
+      SELECT TOP 1 cari_kod AS cariCode
+      FROM CARI_HESAPLAR
+      WHERE ISNULL(cari_kod, '') <> ''
+        AND (
+          UPPER(ISNULL(cari_unvan1, '')) COLLATE Turkish_CI_AI LIKE '%${sourceKeyword}%'
+          OR UPPER(ISNULL(cari_unvan2, '')) COLLATE Turkish_CI_AI LIKE '%${sourceKeyword}%'
+        )
+      ORDER BY cari_kod
+    `);
+
+    const cariCode = String(
+      envCariByDepot ||
+        envCariGlobal ||
+        templateRows?.[0]?.cariCode ||
+        fallbackSeriesRows?.[0]?.cariCode ||
+        fallbackAnyRows?.[0]?.cariCode ||
+        fallbackCariFromUnvanRows?.[0]?.cariCode ||
+        '',
+    )
+      .trim()
+      .toUpperCase();
     if (!cariCode) {
-      throw new AppError('DSV template cari kodu bulunamadi.', 400, ErrorCode.BAD_REQUEST);
+      throw new AppError(
+        `Depolar arasi siparis icin cari kodu bulunamadi. Lutfen ortam degiskeni tanimlayin: ${
+          depot === 'TOPCA' ? 'MIKRO_DEPOT_TRANSFER_CARI_TOPCA' : 'MIKRO_DEPOT_TRANSFER_CARI_MERKEZ'
+        } (veya MIKRO_DEPOT_TRANSFER_CARI).`,
+        400,
+        ErrorCode.BAD_REQUEST,
+      );
     }
 
     const now = new Date();
