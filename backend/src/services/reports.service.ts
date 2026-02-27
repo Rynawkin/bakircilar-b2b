@@ -5010,30 +5010,68 @@ export class ReportsService {
       const seri = String(match[1] || '').trim();
       const sira = Number(match[2]);
       if (seri && Number.isFinite(sira)) {
-        await mikroService.executeQuery(`
-          UPDATE n
-          SET
-            n.sip_tip = t.sip_tip,
-            n.sip_cins = t.sip_cins,
-            n.sip_harekettipi = t.sip_harekettipi,
-            n.sip_vergisiz_fl = t.sip_vergisiz_fl,
-            n.sip_opno = t.sip_opno,
-            n.sip_odeme_plan_no = t.sip_odeme_plan_no,
-            n.sip_teslimturu = t.sip_teslimturu,
-            n.sip_projekodu = t.sip_projekodu,
-            n.sip_stok_sormerk = t.sip_stok_sormerk,
-            n.sip_cari_sormerk = t.sip_cari_sormerk
-          FROM SIPARISLER n
-          CROSS APPLY (
-            SELECT TOP 1 *
-            FROM SIPARISLER
-            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-              AND sip_evrakno_sira <> ${sira}
-            ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
+        const escapedSeri = seri.replace(/'/g, "''");
+        const templateSeqRaw = Number(process.env.MIKRO_DEPOT_TRANSFER_TEMPLATE_SEQ || 1225);
+        const templateSeq = Number.isFinite(templateSeqRaw) && templateSeqRaw > 0 ? Math.trunc(templateSeqRaw) : 1225;
+        const templateRows = await mikroService.executeQuery(`
+          SELECT TOP 1
+            sip_tip AS tip,
+            sip_cins AS cins,
+            sip_harekettipi AS hareketTipi,
+            sip_vergisiz_fl AS vergisiz,
+            sip_opno AS opNo,
+            sip_odeme_plan_no AS odemePlanNo,
+            sip_teslimturu AS teslimTuru,
+            sip_projekodu AS projeKodu,
+            sip_stok_sormerk AS stokSorMerkez,
+            sip_cari_sormerk AS cariSorMerkez
+          FROM (
+            SELECT 1 AS prio, * FROM SIPARISLER
+            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira = ${templateSeq}
+            UNION ALL
+            SELECT 2 AS prio, * FROM SIPARISLER
+            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira = 1225
+            UNION ALL
+            SELECT 3 AS prio, * FROM SIPARISLER
+            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira = 1222
+            UNION ALL
+            SELECT 4 AS prio, * FROM SIPARISLER
+            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira <= ${templateSeq} AND sip_evrakno_sira <> ${sira}
+            UNION ALL
+            SELECT 5 AS prio, * FROM SIPARISLER
+            WHERE sip_evrakno_seri = '${escapedSeri}' AND sip_evrakno_sira <> ${sira}
           ) t
-          WHERE n.sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
-            AND n.sip_evrakno_sira = ${sira}
+          ORDER BY t.prio ASC, t.sip_evrakno_sira DESC, t.sip_satirno DESC
         `);
+        const tpl = templateRows?.[0];
+        if (tpl) {
+          const tip = Number.isFinite(Number(tpl.tip)) ? Math.trunc(Number(tpl.tip)) : 0;
+          const cins = Number.isFinite(Number(tpl.cins)) ? Math.trunc(Number(tpl.cins)) : 0;
+          const hareketTipi = Number.isFinite(Number(tpl.hareketTipi)) ? Math.trunc(Number(tpl.hareketTipi)) : 0;
+          const vergisiz = Number.isFinite(Number(tpl.vergisiz)) ? Math.trunc(Number(tpl.vergisiz)) : 0;
+          const opNo = Number.isFinite(Number(tpl.opNo)) ? Math.trunc(Number(tpl.opNo)) : 0;
+          const odemePlanNo = Number.isFinite(Number(tpl.odemePlanNo)) ? Math.trunc(Number(tpl.odemePlanNo)) : 0;
+          const teslimTuru = String(tpl.teslimTuru || '').replace(/'/g, "''");
+          const projeKodu = String(tpl.projeKodu || '').replace(/'/g, "''");
+          const stokSorMerkez = String(tpl.stokSorMerkez || '').replace(/'/g, "''");
+          const cariSorMerkez = String(tpl.cariSorMerkez || '').replace(/'/g, "''");
+          await mikroService.executeQuery(`
+            UPDATE SIPARISLER
+            SET
+              sip_tip = ${tip},
+              sip_cins = ${cins},
+              sip_harekettipi = ${hareketTipi},
+              sip_vergisiz_fl = ${vergisiz},
+              sip_opno = ${opNo},
+              sip_odeme_plan_no = ${odemePlanNo},
+              sip_teslimturu = '${teslimTuru}',
+              sip_projekodu = '${projeKodu}',
+              sip_stok_sormerk = '${stokSorMerkez}',
+              sip_cari_sormerk = '${cariSorMerkez}'
+            WHERE sip_evrakno_seri = '${escapedSeri}'
+              AND sip_evrakno_sira = ${sira}
+          `);
+        }
       }
     }
 
