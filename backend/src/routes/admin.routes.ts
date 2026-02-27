@@ -470,6 +470,7 @@ router.post('/reports/product-families', requirePermission('reports:ucarer-depo'
 router.put('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.updateProductFamily);
 router.delete('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.deleteProductFamily);
 router.post('/reports/product-families/create-supplier-orders', requirePermission('reports:ucarer-depo'), adminController.createSupplierOrdersFromFamilies);
+router.post('/reports/product-families/create-depot-transfer-order', requirePermission('reports:ucarer-depo'), adminController.createDepotTransferOrder);
 router.post('/reports/ucarer-depo/update-cost', requirePermission('reports:ucarer-depo'), adminController.updateUcarerProductCost);
 router.post('/reports/ucarer-depo/update-main-supplier', requirePermission('reports:ucarer-depo'), adminController.updateUcarerMainSupplier);
 // Price Sync endpoints

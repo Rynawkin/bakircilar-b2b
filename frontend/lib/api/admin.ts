@@ -2039,7 +2039,15 @@ export const adminApi = {
 
   createSupplierOrdersFromFamilyAllocations: async (payload: {
     depot: 'MERKEZ' | 'TOPCA';
-    series: string;
+    supplierConfigs: Record<
+      string,
+      {
+        series: string;
+        applyVAT: boolean;
+        deliveryType?: string;
+        deliveryDate?: string | null;
+      }
+    >;
     allocations: Array<{
       familyId?: string | null;
       productCode: string;
@@ -2063,6 +2071,21 @@ export const adminApi = {
     };
   }> => {
     const response = await apiClient.post('/admin/reports/product-families/create-supplier-orders', payload);
+    return response.data;
+  },
+  createDepotTransferOrder: async (payload: {
+    depot: 'MERKEZ' | 'TOPCA';
+    series?: string;
+    allocations: Array<{ productCode: string; quantity: number }>;
+  }): Promise<{
+    success: boolean;
+    data: {
+      orderNumber: string;
+      itemCount: number;
+      totalQuantity: number;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/product-families/create-depot-transfer-order', payload);
     return response.data;
   },
 

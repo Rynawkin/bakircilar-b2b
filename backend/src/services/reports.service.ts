@@ -4587,7 +4587,15 @@ export class ReportsService {
 
   async createSupplierOrdersFromFamilyAllocations(input: {
     depot: 'MERKEZ' | 'TOPCA';
-    series: string;
+    supplierConfigs?: Record<
+      string,
+      {
+        series?: string;
+        applyVAT?: boolean;
+        deliveryType?: string;
+        deliveryDate?: string | null;
+      }
+    >;
     allocations: Array<{
       familyId?: string | null;
       productCode: string;
@@ -4609,10 +4617,7 @@ export class ReportsService {
   }> {
     const depot = input.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
     const warehouseNo = depot === 'TOPCA' ? 6 : 1;
-    const series = String(input.series || '').trim();
-    if (!series) {
-      throw new AppError('Siparis serisi zorunludur.', 400, ErrorCode.BAD_REQUEST);
-    }
+    const supplierConfigs = input.supplierConfigs || {};
     const rawRows = Array.isArray(input.allocations) ? input.allocations : [];
 
     const normalizedRows = rawRows
@@ -4811,6 +4816,14 @@ export class ReportsService {
     }> = [];
 
     for (const [supplierCode, items] of supplierItems.entries()) {
+      const cfg = supplierConfigs[supplierCode] || {};
+      const series = String(cfg.series || '').trim().toUpperCase();
+      if (!series) {
+        throw new AppError(`Siparis serisi zorunludur (${supplierCode}).`, 400, ErrorCode.BAD_REQUEST);
+      }
+      const applyVAT = Boolean(cfg.applyVAT);
+      const deliveryType = String(cfg.deliveryType || '').trim().slice(0, 25);
+      const deliveryDate = cfg.deliveryDate ? String(cfg.deliveryDate) : null;
       const totalQuantity = items.reduce((sum, row) => sum + row.quantity, 0);
       const orderNumber = await mikroService.writeOrder({
         cariCode: supplierCode,
@@ -4821,11 +4834,14 @@ export class ReportsService {
           vatRate: productCostMap.get(item.productCode)?.vatRate || 0,
           lineDescription: `Ucarer aile dagitimi ${depot}`,
         })),
-        applyVAT: false,
+        applyVAT,
         description: `Ucarer Aile Dagitimi ${depot}`,
         documentDescription: `Ucarer aile dagitimi ${depot} ${day}.${month}.${year}`,
         evrakSeri: series,
         warehouseNo,
+        deliveryType,
+        deliveryDate,
+        buyerCode: '195.01.069',
       });
 
       const match = String(orderNumber).match(/^(.*)-(\d+)$/);
@@ -4870,6 +4886,104 @@ export class ReportsService {
       createdOrders,
       missingSupplierProducts: [],
       skippedInvalid,
+    };
+  }
+
+  async createDepotTransferOrder(input: {
+    depot: 'MERKEZ' | 'TOPCA';
+    allocations: Array<{ productCode: string; quantity: number }>;
+    series?: string;
+  }): Promise<{
+    orderNumber: string;
+    itemCount: number;
+    totalQuantity: number;
+  }> {
+    const depot = input.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
+    const targetWarehouseNo = depot === 'TOPCA' ? 6 : 1;
+    const series = String(input.series || 'DSV').trim().toUpperCase() || 'DSV';
+    const rows = (Array.isArray(input.allocations) ? input.allocations : [])
+      .map((row) => ({
+        productCode: String(row.productCode || '').trim().toUpperCase(),
+        quantity: Math.max(0, Math.trunc(Number(row.quantity || 0))),
+      }))
+      .filter((row) => row.productCode && row.quantity > 0);
+
+    if (rows.length === 0) {
+      throw new AppError('Depolar arasi siparis icin secili miktar yok.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const inClause = rows.map((row) => `'${row.productCode.replace(/'/g, "''")}'`).join(',');
+    const costRows = await prisma.product.findMany({
+      where: { mikroCode: { in: rows.map((row) => row.productCode) } },
+      select: { mikroCode: true, currentCost: true },
+    });
+    const unitPriceByCode = new Map<string, number>();
+    costRows.forEach((row) => {
+      const code = String(row?.mikroCode || '').trim().toUpperCase();
+      const cost = Number(row?.currentCost || 0);
+      if (code) unitPriceByCode.set(code, Number.isFinite(cost) && cost > 0 ? cost : 1);
+    });
+    rows.forEach((row) => {
+      if (!unitPriceByCode.has(row.productCode)) unitPriceByCode.set(row.productCode, 1);
+    });
+
+    const templateRows = await mikroService.executeQuery(`
+      SELECT TOP 1 sip_musteri_kod AS cariCode
+      FROM SIPARISLER
+      WHERE sip_evrakno_seri = 'DSV'
+        AND sip_depono = ${targetWarehouseNo}
+      ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
+    `);
+    const fallbackRows = await mikroService.executeQuery(`
+      SELECT TOP 1 sip_musteri_kod AS cariCode
+      FROM SIPARISLER
+      WHERE sip_evrakno_seri = 'DSV'
+      ORDER BY sip_evrakno_sira DESC, sip_satirno DESC
+    `);
+    const cariCode = String(templateRows?.[0]?.cariCode || fallbackRows?.[0]?.cariCode || '').trim();
+    if (!cariCode) {
+      throw new AppError('DSV template cari kodu bulunamadi.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const orderNumber = await mikroService.writeOrder({
+      cariCode,
+      items: rows.map((row) => ({
+        productCode: row.productCode,
+        quantity: row.quantity,
+        unitPrice: unitPriceByCode.get(row.productCode) || 1,
+        vatRate: 0,
+        lineDescription: `Depolar arasi sevk ${depot}`,
+      })),
+      applyVAT: false,
+      description: `Depolar Arasi Sevk ${depot}`,
+      documentDescription: `Depolar arasi sevk ${depot} ${day}.${month}.${year}`,
+      evrakSeri: series,
+      warehouseNo: targetWarehouseNo,
+      buyerCode: '195.01.069',
+    });
+
+    const match = String(orderNumber).match(/^(.*)-(\d+)$/);
+    if (match) {
+      const seri = match[1];
+      const sira = Number(match[2]);
+      if (seri && Number.isFinite(sira)) {
+        await mikroService.executeQuery(`
+          UPDATE SIPARISLER
+          SET sip_tip = 1
+          WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+            AND sip_evrakno_sira = ${sira}
+        `);
+      }
+    }
+
+    return {
+      orderNumber,
+      itemCount: rows.length,
+      totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0),
     };
   }
 

@@ -3612,9 +3612,17 @@ export class AdminController {
    */
   async createSupplierOrdersFromFamilies(req: Request, res: Response, next: NextFunction) {
     try {
-      const { depot, series, allocations } = req.body as {
+      const { depot, allocations, supplierConfigs } = req.body as {
         depot?: 'MERKEZ' | 'TOPCA';
-        series?: string;
+        supplierConfigs?: Record<
+          string,
+          {
+            series?: string;
+            applyVAT?: boolean;
+            deliveryType?: string;
+            deliveryDate?: string | null;
+          }
+        >;
         allocations?: Array<{
           familyId?: string | null;
           productCode: string;
@@ -3626,8 +3634,34 @@ export class AdminController {
       };
       const data = await reportsService.createSupplierOrdersFromFamilyAllocations({
         depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
-        series: String(series || '').trim(),
+        supplierConfigs: supplierConfigs || {},
         allocations: Array.isArray(allocations) ? allocations : [],
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/product-families/create-depot-transfer-order
+   */
+  async createDepotTransferOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { depot, series, allocations } = req.body as {
+        depot?: 'MERKEZ' | 'TOPCA';
+        series?: string;
+        allocations?: Array<{ productCode?: string; quantity?: number }>;
+      };
+      const data = await reportsService.createDepotTransferOrder({
+        depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
+        series: String(series || 'DSV').trim(),
+        allocations: Array.isArray(allocations)
+          ? allocations.map((row) => ({
+              productCode: String(row.productCode || ''),
+              quantity: Number(row.quantity || 0),
+            }))
+          : [],
       });
       res.json({ success: true, data });
     } catch (error) {

@@ -19,7 +19,10 @@ type OpsExtraColumnKey =
   | 'realQty'
   | 'minQty'
   | 'maxQty'
-  | 'currentCost';
+  | 'currentCost'
+  | 'packQty'
+  | 'costExVat'
+  | 'costIncVat';
 
 interface ProductFamily {
   id: string;
@@ -111,7 +114,11 @@ export default function UcarerDepotReportPage() {
     minQty: false,
     maxQty: false,
     currentCost: true,
+    packQty: true,
+    costExVat: true,
+    costIncVat: true,
   });
+  const [packQtyByCode, setPackQtyByCode] = useState<Record<string, number>>({});
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
   const [costPInputByCode, setCostPInputByCode] = useState<Record<string, string>>({});
   const [costTInputByCode, setCostTInputByCode] = useState<Record<string, string>>({});
@@ -125,7 +132,9 @@ export default function UcarerDepotReportPage() {
   const [persistSupplierOverrideByCode, setPersistSupplierOverrideByCode] = useState<Record<string, boolean>>({});
   const [cariOptions, setCariOptions] = useState<Array<{ code: string; name: string }>>([]);
   const [seriesModalOpen, setSeriesModalOpen] = useState(false);
-  const [seriesInput, setSeriesInput] = useState('H');
+  const [supplierOrderConfigs, setSupplierOrderConfigs] = useState<
+    Record<string, { series: string; applyVAT: boolean; deliveryType: string; deliveryDate: string }>
+  >({});
   const [pendingAllocations, setPendingAllocations] = useState<
     Array<{
       familyId?: string | null;
@@ -138,6 +147,8 @@ export default function UcarerDepotReportPage() {
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
   const [panelHighlight, setPanelHighlight] = useState(false);
   const [creatingOrders, setCreatingOrders] = useState(false);
+  const [creatingTransferOrder, setCreatingTransferOrder] = useState(false);
+  const [selectedTransferByCode, setSelectedTransferByCode] = useState<Record<string, boolean>>({});
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
   const [defaultColumnWidth] = useState(180);
@@ -369,6 +380,7 @@ export default function UcarerDepotReportPage() {
       try {
         const costMap: Record<string, number> = {};
         const vatMap: Record<string, number> = {};
+        const packMap: Record<string, number> = {};
         const supplierMap: Record<string, { code: string; name: string }> = {};
         for (let i = 0; i < codeList.length; i += 200) {
           const chunk = codeList.slice(i, i + 200);
@@ -379,11 +391,15 @@ export default function UcarerDepotReportPage() {
             const vatRateValue = Number(product?.vatRate ?? 0);
             const mainSupplierCode = String(product?.mainSupplierCode || '').trim().toUpperCase();
             const mainSupplierName = String(product?.mainSupplierName || '').trim();
+            const unit2Factor = Number(product?.unit2Factor ?? 0);
             if (code && Number.isFinite(costValue)) {
               costMap[code] = costValue;
             }
             if (code && Number.isFinite(vatRateValue)) {
               vatMap[code] = vatRateValue;
+            }
+            if (code && Number.isFinite(unit2Factor)) {
+              packMap[code] = unit2Factor;
             }
             if (code && mainSupplierCode) {
               supplierMap[code] = { code: mainSupplierCode, name: mainSupplierName || mainSupplierCode };
@@ -411,6 +427,7 @@ export default function UcarerDepotReportPage() {
             return next;
           });
           setVatRateByCode((prev) => ({ ...prev, ...vatMap }));
+          setPackQtyByCode((prev) => ({ ...prev, ...packMap }));
           setMainSupplierByCode(supplierMap);
           setSupplierOverrideByCode((prev) => {
             const next: Record<string, string> = { ...prev };
@@ -424,6 +441,7 @@ export default function UcarerDepotReportPage() {
         if (active) {
           setCurrentCostByCode({});
           setVatRateByCode({});
+          setPackQtyByCode({});
           setMainSupplierByCode({});
         }
       }
@@ -716,6 +734,25 @@ export default function UcarerDepotReportPage() {
       const currentCost = currentCostByCode[code];
       return Number.isFinite(currentCost) ? currentCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
     }
+    if (key === 'packQty') {
+      const packQty = Number(packQtyByCode[code] ?? 0);
+      return Number.isFinite(packQty) && packQty > 0 ? packQty.toLocaleString('tr-TR') : '-';
+    }
+    if (key === 'costExVat') {
+      const currentCost = Number(currentCostByCode[code] ?? 0);
+      return Number.isFinite(currentCost) && currentCost > 0
+        ? currentCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : '-';
+    }
+    if (key === 'costIncVat') {
+      const currentCost = Number(currentCostByCode[code] ?? 0);
+      const vatRate = Number(vatRateByCode[code] ?? 0);
+      const vatPercent = vatRate <= 1 ? vatRate * 100 : vatRate;
+      const withVat = currentCost * (1 + vatPercent / 100);
+      return Number.isFinite(withVat) && withVat > 0
+        ? withVat.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : '-';
+    }
     return '-';
   };
   const cariNameByCode = useMemo(() => {
@@ -913,6 +950,23 @@ export default function UcarerDepotReportPage() {
     });
     return allocations;
   };
+  const pendingSupplierRows = useMemo(() => {
+    const grouped = new Map<string, { supplierCode: string; supplierName: string; itemCount: number; totalQuantity: number }>();
+    pendingAllocations.forEach((row) => {
+      const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+      if (!supplierCode) return;
+      const found = grouped.get(supplierCode) || {
+        supplierCode,
+        supplierName: cariNameByCode.get(supplierCode) || supplierCode,
+        itemCount: 0,
+        totalQuantity: 0,
+      };
+      found.itemCount += 1;
+      found.totalQuantity += Math.max(0, Math.trunc(Number(row.quantity || 0)));
+      grouped.set(supplierCode, found);
+    });
+    return Array.from(grouped.values()).sort((a, b) => a.supplierCode.localeCompare(b.supplierCode, 'tr'));
+  }, [pendingAllocations, cariNameByCode]);
 
   const createSupplierOrders = async () => {
     const allocations = buildOrderAllocations();
@@ -922,18 +976,111 @@ export default function UcarerDepotReportPage() {
       return;
     }
     setPendingAllocations(allocations);
-    setSeriesInput('H');
+    const defaults: Record<string, { series: string; applyVAT: boolean; deliveryType: string; deliveryDate: string }> = {};
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const defaultDate = `${yyyy}-${mm}-${dd}`;
+    allocations.forEach((row) => {
+      const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+      if (!supplierCode || defaults[supplierCode]) return;
+      defaults[supplierCode] = {
+        series: 'H',
+        applyVAT: true,
+        deliveryType: 'B',
+        deliveryDate: defaultDate,
+      };
+    });
+    setSupplierOrderConfigs(defaults);
     setSeriesModalOpen(true);
   };
 
-  const submitCreateSupplierOrders = async () => {
-    const series = String(seriesInput || '').trim().toUpperCase();
-    if (!series) {
-      toast.error('Siparis serisi zorunlu.');
+  const createDepotTransferOrder = async () => {
+    const selectedCodes = Object.entries(selectedTransferByCode)
+      .filter(([, selected]) => selected)
+      .map(([code]) => String(code || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (selectedCodes.length === 0) {
+      toast.error('Depolar arasi siparis icin once satir secin.');
       return;
     }
+
+    const transferAllocations: Array<{ productCode: string; quantity: number }> = [];
+    const selectedSet = new Set(selectedCodes);
+    families.forEach((family) => {
+      const familyAllocation = manualAllocations[family.id] || {};
+      getVisibleFamilyItems(family).forEach((item) => {
+        const code = String(item.productCode || '').trim().toUpperCase();
+        if (!selectedSet.has(code)) return;
+        const qty = Math.max(0, Math.trunc(Number(familyAllocation[code] || 0)));
+        if (qty > 0) transferAllocations.push({ productCode: code, quantity: qty });
+      });
+    });
+    nonFamilyRows.forEach((item) => {
+      const code = String(item.code || '').trim().toUpperCase();
+      if (!selectedSet.has(code)) return;
+      const qty = Math.max(0, Math.trunc(Number(nonFamilyAllocations[code] || 0)));
+      if (qty > 0) transferAllocations.push({ productCode: code, quantity: qty });
+    });
+
+    if (transferAllocations.length === 0) {
+      toast.error('Secili satirlarda dagitim miktari yok.');
+      return;
+    }
+
+    setCreatingTransferOrder(true);
+    try {
+      const result = await adminApi.createDepotTransferOrder({
+        depot,
+        series: 'DSV',
+        allocations: transferAllocations,
+      });
+      toast.success(`Depolar arasi siparis olustu: ${result.data.orderNumber}`);
+      const clearCodes = new Set(transferAllocations.map((row) => row.productCode));
+      setManualAllocations((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((familyId) => {
+          const familyAlloc = { ...(next[familyId] || {}) };
+          Object.keys(familyAlloc).forEach((code) => {
+            if (clearCodes.has(String(code).toUpperCase())) familyAlloc[code] = 0;
+          });
+          next[familyId] = familyAlloc;
+        });
+        return next;
+      });
+      setNonFamilyAllocations((prev) => {
+        const next: Record<string, number | ''> = { ...prev };
+        Object.keys(next).forEach((code) => {
+          if (clearCodes.has(String(code).toUpperCase())) next[code] = '';
+        });
+        return next;
+      });
+      setSelectedTransferByCode((prev) => {
+        const next = { ...prev };
+        clearCodes.forEach((code) => {
+          next[code] = false;
+        });
+        return next;
+      });
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Depolar arasi siparis olusturulamadi');
+    } finally {
+      setCreatingTransferOrder(false);
+    }
+  };
+
+  const submitCreateSupplierOrders = async () => {
     if (!pendingAllocations.length) {
       toast.error('Siparis olusturmak icin dagitim bulunamadi.');
+      return;
+    }
+    const invalidSupplier = pendingSupplierRows.find((row) => {
+      const cfg = supplierOrderConfigs[row.supplierCode];
+      return !cfg || !String(cfg.series || '').trim();
+    });
+    if (invalidSupplier) {
+      toast.error(`Seri zorunlu: ${invalidSupplier.supplierCode}`);
       return;
     }
 
@@ -941,7 +1088,25 @@ export default function UcarerDepotReportPage() {
     try {
       const result = await adminApi.createSupplierOrdersFromFamilyAllocations({
         depot,
-        series,
+        supplierConfigs: Object.fromEntries(
+          pendingSupplierRows.map((row) => {
+            const cfg = supplierOrderConfigs[row.supplierCode] || {
+              series: 'H',
+              applyVAT: true,
+              deliveryType: '',
+              deliveryDate: '',
+            };
+            return [
+              row.supplierCode,
+              {
+                series: String(cfg.series || '').trim().toUpperCase(),
+                applyVAT: Boolean(cfg.applyVAT),
+                deliveryType: String(cfg.deliveryType || '').trim(),
+                deliveryDate: String(cfg.deliveryDate || '').trim() || null,
+              },
+            ];
+          })
+        ),
         allocations: pendingAllocations,
       });
       const created = result.data?.createdOrders || [];
@@ -956,6 +1121,7 @@ export default function UcarerDepotReportPage() {
       }
       setSeriesModalOpen(false);
       setPendingAllocations([]);
+      setSupplierOrderConfigs({});
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Tedarikci siparisleri olusturulamadi');
     } finally {
@@ -1128,13 +1294,16 @@ export default function UcarerDepotReportPage() {
               </Link>
             </div>
 
-            <div className="rounded-md border bg-white p-3 grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+            <div className="rounded-md border bg-white p-3 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
               <div>
                 <p className="text-xs text-gray-600">Aile Sayisi</p>
                 <p className="text-sm font-semibold text-gray-900">{familySuggestions.length.toLocaleString('tr-TR')}</p>
               </div>
               <Button size="sm" onClick={createSupplierOrders} disabled={creatingOrders}>
                 {creatingOrders ? 'Olusturuluyor...' : 'Toplu Siparis Olustur'}
+              </Button>
+              <Button size="sm" variant="secondary" onClick={createDepotTransferOrder} disabled={creatingTransferOrder}>
+                {creatingTransferOrder ? 'Olusturuluyor...' : 'Toplu Depolar Arasi Siparis Olustur'}
               </Button>
               <Button size="sm" variant="outline" onClick={loadFamilies} disabled={familyLoading}>
                 {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
@@ -1200,6 +1369,18 @@ export default function UcarerDepotReportPage() {
                 <label className="inline-flex items-center gap-1">
                   <input type="checkbox" checked={panelColumns.currentCost} onChange={(e) => setPanelColumns((p) => ({ ...p, currentCost: e.target.checked }))} />
                   Maliyet (P/T)
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.packQty} onChange={(e) => setPanelColumns((p) => ({ ...p, packQty: e.target.checked }))} />
+                  Koli Ici
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.costExVat} onChange={(e) => setPanelColumns((p) => ({ ...p, costExVat: e.target.checked }))} />
+                  Maliyet KDV Haric
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input type="checkbox" checked={panelColumns.costIncVat} onChange={(e) => setPanelColumns((p) => ({ ...p, costIncVat: e.target.checked }))} />
+                  Maliyet KDV Dahil
                 </label>
               </div>
             </div>
@@ -1363,6 +1544,7 @@ export default function UcarerDepotReportPage() {
                   <table className="w-full text-xs">
                     <thead className="bg-gray-100">
                       <tr>
+                        <th className="px-2 py-2 text-center">Sec</th>
                         <th className="px-2 py-2 text-left">Stok Kodu</th>
                         <th className="px-2 py-2 text-left">Urun Adi</th>
                         <th className="px-2 py-2 text-left">Saglayici Kodu</th>
@@ -1375,6 +1557,9 @@ export default function UcarerDepotReportPage() {
                         {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
                         {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
                         {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
+                        {panelColumns.packQty && <th className="px-2 py-2 text-right">Koli Ici</th>}
+                        {panelColumns.costExVat && <th className="px-2 py-2 text-right">Maliyet KDV Haric</th>}
+                        {panelColumns.costIncVat && <th className="px-2 py-2 text-right">Maliyet KDV Dahil</th>}
                         {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
                         <th className="px-2 py-2 text-right">Aile Oneri</th>
                         <th className="px-2 py-2 text-right">Dagitim</th>
@@ -1398,6 +1583,18 @@ export default function UcarerDepotReportPage() {
                         const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
                         return (
                           <tr key={item.id} className={`border-t ${getRowHighlightClass(row)}`}>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(selectedTransferByCode[code])}
+                                onChange={(e) =>
+                                  setSelectedTransferByCode((prev) => ({
+                                    ...prev,
+                                    [code]: e.target.checked,
+                                  }))
+                                }
+                              />
+                            </td>
                             <td className="px-2 py-2 font-semibold text-gray-900">{item.productCode}</td>
                             <td className="px-2 py-2 text-gray-700">{item.productName || '-'}</td>
                             <td className="px-2 py-2">
@@ -1443,6 +1640,9 @@ export default function UcarerDepotReportPage() {
                             {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                             {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
                             {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
+                            {panelColumns.packQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'packQty')}</td>}
+                            {panelColumns.costExVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costExVat')}</td>}
+                            {panelColumns.costIncVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costIncVat')}</td>}
                             {panelColumns.currentCost && (
                               <td className="px-2 py-2 text-right">
                                 <div className="flex items-center justify-end gap-2">
@@ -1550,6 +1750,7 @@ export default function UcarerDepotReportPage() {
                 <table className="w-full text-xs">
                   <thead className="bg-gray-100">
                     <tr>
+                      <th className="px-2 py-2 text-center">Sec</th>
                       <th className="px-2 py-2 text-left">Stok Kodu</th>
                       <th className="px-2 py-2 text-left">Urun Adi</th>
                       <th className="px-2 py-2 text-left">Saglayici Kodu</th>
@@ -1562,6 +1763,9 @@ export default function UcarerDepotReportPage() {
                       {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
                       {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
                       {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
+                      {panelColumns.packQty && <th className="px-2 py-2 text-right">Koli Ici</th>}
+                      {panelColumns.costExVat && <th className="px-2 py-2 text-right">Maliyet KDV Haric</th>}
+                      {panelColumns.costIncVat && <th className="px-2 py-2 text-right">Maliyet KDV Dahil</th>}
                       {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
                       <th className="px-2 py-2 text-right">Oneri</th>
                       <th className="px-2 py-2 text-right">Dagitim</th>
@@ -1585,6 +1789,18 @@ export default function UcarerDepotReportPage() {
                         : Math.max(0, Math.trunc(Number(rawAllocated)));
                       return (
                         <tr key={code} className={`border-t ${getRowHighlightClass(row)}`}>
+                          <td className="px-2 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(selectedTransferByCode[code])}
+                              onChange={(e) =>
+                                setSelectedTransferByCode((prev) => ({
+                                  ...prev,
+                                  [code]: e.target.checked,
+                                }))
+                              }
+                            />
+                          </td>
                           <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
                           <td className="px-2 py-2 text-gray-700">{productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}</td>
                           <td className="px-2 py-2">
@@ -1630,6 +1846,9 @@ export default function UcarerDepotReportPage() {
                           {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                           {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
                           {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
+                          {panelColumns.packQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'packQty')}</td>}
+                          {panelColumns.costExVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costExVat')}</td>}
+                          {panelColumns.costIncVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costIncVat')}</td>}
                           {panelColumns.currentCost && (
                             <td className="px-2 py-2 text-right">
                               <div className="flex items-center justify-end gap-2">
@@ -1805,20 +2024,115 @@ export default function UcarerDepotReportPage() {
         </Card>
         {seriesModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-            <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl">
-              <p className="text-base font-semibold text-gray-900">Siparis Serisi</p>
+            <div className="w-full max-w-4xl rounded-lg bg-white p-4 shadow-xl">
+              <p className="text-base font-semibold text-gray-900">Cari Bazinda Siparis Ayarlari</p>
               <p className="mt-1 text-xs text-gray-600">
-                Toplu siparis olusturmadan once kullanilacak seri kodunu girin.
+                Her cari icin seri, vergili/vergisiz, teslim turu ve teslim tarihi secin.
               </p>
-              <div className="mt-3">
-                <label className="text-xs text-gray-700">Seri</label>
-                <input
-                  value={seriesInput}
-                  onChange={(e) => setSeriesInput(String(e.target.value || '').toUpperCase())}
-                  className="mt-1 w-full rounded border px-3 py-2 text-sm uppercase"
-                  maxLength={20}
-                  placeholder="H"
-                />
+              <div className="mt-3 max-h-[55vh] overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-2 py-2 text-left">Cari</th>
+                      <th className="px-2 py-2 text-left">Unvan</th>
+                      <th className="px-2 py-2 text-right">Kalem</th>
+                      <th className="px-2 py-2 text-right">Miktar</th>
+                      <th className="px-2 py-2 text-left">Seri</th>
+                      <th className="px-2 py-2 text-left">Vergi</th>
+                      <th className="px-2 py-2 text-left">Teslim Turu</th>
+                      <th className="px-2 py-2 text-left">Teslim Tarihi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingSupplierRows.map((row) => {
+                      const cfg = supplierOrderConfigs[row.supplierCode] || {
+                        series: 'H',
+                        applyVAT: true,
+                        deliveryType: 'B',
+                        deliveryDate: '',
+                      };
+                      return (
+                        <tr key={row.supplierCode} className="border-t">
+                          <td className="px-2 py-2 font-semibold">{row.supplierCode}</td>
+                          <td className="px-2 py-2">{row.supplierName}</td>
+                          <td className="px-2 py-2 text-right">{row.itemCount.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2 text-right">{row.totalQuantity.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2">
+                            <input
+                              className="w-20 rounded border px-2 py-1 uppercase"
+                              maxLength={20}
+                              value={cfg.series}
+                              onChange={(e) =>
+                                setSupplierOrderConfigs((prev) => ({
+                                  ...prev,
+                                  [row.supplierCode]: {
+                                    ...cfg,
+                                    series: String(e.target.value || '').toUpperCase(),
+                                  },
+                                }))
+                              }
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(cfg.applyVAT)}
+                                onChange={(e) =>
+                                  setSupplierOrderConfigs((prev) => ({
+                                    ...prev,
+                                    [row.supplierCode]: {
+                                      ...cfg,
+                                      applyVAT: e.target.checked,
+                                    },
+                                  }))
+                                }
+                              />
+                              Vergili
+                            </label>
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              list="ucarer-delivery-type-list"
+                              className="w-44 rounded border px-2 py-1"
+                              placeholder="B / N"
+                              value={cfg.deliveryType}
+                              onChange={(e) =>
+                                setSupplierOrderConfigs((prev) => ({
+                                  ...prev,
+                                  [row.supplierCode]: {
+                                    ...cfg,
+                                    deliveryType: String(e.target.value || '').trim().toUpperCase(),
+                                  },
+                                }))
+                              }
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              type="date"
+                              className="rounded border px-2 py-1"
+                              value={cfg.deliveryDate}
+                              onChange={(e) =>
+                                setSupplierOrderConfigs((prev) => ({
+                                  ...prev,
+                                  [row.supplierCode]: {
+                                    ...cfg,
+                                    deliveryDate: String(e.target.value || ''),
+                                  },
+                                }))
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <datalist id="ucarer-delivery-type-list">
+                  <option value="B">B-Bakircilar Sevk</option>
+                  <option value="N">N-Nama Sevk</option>
+                </datalist>
               </div>
               <div className="mt-4 flex items-center justify-end gap-2">
                 <Button

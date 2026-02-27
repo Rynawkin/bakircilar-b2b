@@ -1174,10 +1174,27 @@ class MikroService {
     evrakSira?: number;
     warehouseNo?: number;
     paymentPlanNo?: number;
+    deliveryType?: string;
+    deliveryDate?: string | Date | null;
+    buyerCode?: string;
   }): Promise<string> {
     await this.connect();
 
-    const { cariCode, items, applyVAT, description, documentDescription, documentNo, evrakSeri: evrakSeriInput, evrakSira: evrakSiraInput, warehouseNo, paymentPlanNo: paymentPlanNoInput } = orderData;
+    const {
+      cariCode,
+      items,
+      applyVAT,
+      description,
+      documentDescription,
+      documentNo,
+      evrakSeri: evrakSeriInput,
+      evrakSira: evrakSiraInput,
+      warehouseNo,
+      paymentPlanNo: paymentPlanNoInput,
+      deliveryType: deliveryTypeInput,
+      deliveryDate: deliveryDateInput,
+      buyerCode: buyerCodeInput,
+    } = orderData;
     const descriptionValue = String((documentDescription ?? description) || '').trim();
     const documentDescriptionValue = descriptionValue ? descriptionValue.slice(0, 127) : null;
     const documentNoValue = documentNo ? String(documentNo).trim().slice(0, 50) : '';
@@ -1204,6 +1221,11 @@ class MikroService {
     const projeKodu = String(process.env.MIKRO_PROJE_KODU || 'R').trim().slice(0, 25);
     const hareketTipi = 0;
     const vergiSizFlag = applyVAT ? 0 : 1;
+    const deliveryTypeValue = String(deliveryTypeInput || '').trim().slice(0, 25);
+    const buyerCodeValue = String(buyerCodeInput || '').trim().slice(0, 25);
+    const deliveryDateValueRaw = deliveryDateInput ? new Date(deliveryDateInput) : null;
+    const deliveryDateValue =
+      deliveryDateValueRaw && !Number.isNaN(deliveryDateValueRaw.getTime()) ? deliveryDateValueRaw : null;
 
     if (documentNoValue && !includeBelgeNo) {
       console.warn('WARN: SIPARISLER sip_belge_no/sip_belgeno kolonunu bulamadik, belge no yazilmadi.');
@@ -1406,7 +1428,7 @@ class MikroService {
           '@sira',
           '@satirNo',
           'GETDATE()',
-          'DATEADD(day, 7, GETDATE())',
+          'ISNULL(@teslimTarih, DATEADD(day, 7, GETDATE()))',
           '0',
           '0',
           '@cariKod',
@@ -1470,6 +1492,7 @@ class MikroService {
           .input('satirNo', sql.Int, satirNo)
           .input('cariKod', sql.NVarChar(25), cariCode)
           .input('stokKod', sql.NVarChar(25), item.productCode)
+          .input('teslimTarih', sql.DateTime, deliveryDateValue)
           .input('miktar', sql.Float, item.quantity)
           .input('reserveQty', sql.Float, reserveQty)
           .input('depoNo', sql.Int, warehouseValue)
@@ -1762,6 +1785,8 @@ class MikroService {
           .input('zeroGuid', sql.UniqueIdentifier, zeroGuid)
           .input('vergiSiz', sql.Bit, vergiSizFlag)
           .input('sipOpNo', sql.Int, resolvedPlanNo > 0 ? resolvedPlanNo : 8)
+          .input('teslimTuru', sql.NVarChar(25), deliveryTypeValue)
+          .input('saticiKod', sql.NVarChar(25), buyerCodeValue)
           .input('createUser', sql.SmallInt, mikroUserNo)
           .input('lastupUser', sql.SmallInt, mikroUserNo)
           .query(`
@@ -1778,7 +1803,7 @@ class MikroService {
               sip_create_user = ISNULL(sip_create_user, @createUser),
               sip_lastup_user = ISNULL(sip_lastup_user, @lastupUser),
               sip_lastup_date = ISNULL(sip_lastup_date, GETDATE()),
-              sip_satici_kod = ISNULL(sip_satici_kod, ''),
+              sip_satici_kod = CASE WHEN @saticiKod <> '' THEN @saticiKod ELSE ISNULL(sip_satici_kod, '') END,
               sip_belgeno = ISNULL(sip_belgeno, ''),
               sip_birim_pntr = ISNULL(sip_birim_pntr, 1),
               sip_masvergi_pntr = ISNULL(sip_masvergi_pntr, 0),
@@ -1790,7 +1815,7 @@ class MikroService {
               sip_cari_grupno = ISNULL(sip_cari_grupno, 0),
               sip_alt_doviz_kuru = ISNULL(sip_alt_doviz_kuru, 1),
               sip_adresno = ISNULL(sip_adresno, 1),
-              sip_teslimturu = ISNULL(sip_teslimturu, ''),
+              sip_teslimturu = CASE WHEN @teslimTuru <> '' THEN @teslimTuru ELSE ISNULL(sip_teslimturu, '') END,
               sip_cagrilabilir_fl = ISNULL(sip_cagrilabilir_fl, 1),
               sip_prosip_uid = ISNULL(sip_prosip_uid, @zeroGuid),
               sip_iskonto1 = ISNULL(sip_iskonto1, 0),
