@@ -4935,19 +4935,19 @@ export class ReportsService {
     const templateRows = await mikroService.executeQuery(`
       SELECT TOP 1 *
       FROM (
-        SELECT 1 AS prio, * FROM STOK_HAREKETLERI
-        WHERE sth_evrakno_seri = '${escapedSeries}' AND sth_evrakno_sira = ${templateSeq}
+        SELECT 1 AS prio, * FROM DEPOLAR_ARASI_SIPARISLER
+        WHERE ssip_evrakno_seri = '${escapedSeries}' AND ssip_evrakno_sira = ${templateSeq}
         UNION ALL
-        SELECT 2 AS prio, * FROM STOK_HAREKETLERI
-        WHERE sth_evrakno_seri = '${escapedSeries}' AND sth_evrakno_sira = 1225
+        SELECT 2 AS prio, * FROM DEPOLAR_ARASI_SIPARISLER
+        WHERE ssip_evrakno_seri = '${escapedSeries}' AND ssip_evrakno_sira = 1225
         UNION ALL
-        SELECT 3 AS prio, * FROM STOK_HAREKETLERI
-        WHERE sth_evrakno_seri = '${escapedSeries}' AND sth_evrakno_sira = 1222
+        SELECT 3 AS prio, * FROM DEPOLAR_ARASI_SIPARISLER
+        WHERE ssip_evrakno_seri = '${escapedSeries}' AND ssip_evrakno_sira = 1222
         UNION ALL
-        SELECT 4 AS prio, * FROM STOK_HAREKETLERI
-        WHERE sth_evrakno_seri = '${escapedSeries}'
+        SELECT 4 AS prio, * FROM DEPOLAR_ARASI_SIPARISLER
+        WHERE ssip_evrakno_seri = '${escapedSeries}'
       ) t
-      ORDER BY t.prio ASC, t.sth_evrakno_sira DESC, t.sth_satirno DESC
+      ORDER BY t.prio ASC, t.ssip_evrakno_sira DESC, t.ssip_satirno DESC
     `);
     const templateRow = templateRows?.[0];
     if (!templateRow) {
@@ -4955,9 +4955,9 @@ export class ReportsService {
     }
 
     const nextRows = await mikroService.executeQuery(`
-      SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 AS nextSira
-      FROM STOK_HAREKETLERI
-      WHERE sth_evrakno_seri = '${escapedSeries}'
+      SELECT ISNULL(MAX(ssip_evrakno_sira), 0) + 1 AS nextSira
+      FROM DEPOLAR_ARASI_SIPARISLER
+      WHERE ssip_evrakno_seri = '${escapedSeries}'
     `);
     const nextSira = Number(nextRows?.[0]?.nextSira || 1);
     const orderNumber = `${series}-${nextSira}`;
@@ -4966,7 +4966,7 @@ export class ReportsService {
       SELECT c.name AS colName
       FROM sys.columns c
       INNER JOIN sys.tables t ON c.object_id = t.object_id
-      WHERE t.name = 'STOK_HAREKETLERI'
+      WHERE t.name = 'DEPOLAR_ARASI_SIPARISLER'
         AND c.is_identity = 0
         AND c.is_computed = 0
         AND c.system_type_id <> 189
@@ -4976,10 +4976,9 @@ export class ReportsService {
       .map((r: any) => String(r.colName || '').trim())
       .filter(Boolean);
     if (!insertableColumns.length) {
-      throw new AppError('STOK_HAREKETLERI kolonlari okunamadi.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      throw new AppError('DEPOLAR_ARASI_SIPARISLER kolonlari okunamadi.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
     }
 
-    const orderGuid = randomUUID();
     const zeroGuid = '00000000-0000-0000-0000-000000000000';
     const toSqlLiteral = (value: unknown): string => {
       if (value === null || value === undefined) return 'NULL';
@@ -5000,44 +4999,32 @@ export class ReportsService {
       const lineData: Record<string, unknown> = { ...templateRow };
       const now = new Date();
 
-      lineData.sth_Guid = randomUUID();
-      lineData.sth_iptal = 0;
-      lineData.sth_degisti = 0;
-      lineData.sth_create_date = now;
-      lineData.sth_lastup_date = now;
-      lineData.sth_tarih = now;
-      lineData.sth_malkbl_sevk_tarihi = now;
-      lineData.sth_teslim_tarihi = now;
-      lineData.sth_evrakno_seri = series;
-      lineData.sth_evrakno_sira = nextSira;
-      lineData.sth_satirno = index;
-      lineData.sth_stok_kod = row.productCode;
-      lineData.sth_miktar = row.quantity;
-      lineData.sth_miktar2 = row.quantity;
-      lineData.sth_tutar = lineTotal;
-      lineData.sth_vergi = 0;
-      lineData.sth_vergi_pntr = 0;
-      lineData.sth_vergisiz_fl = 1;
-      lineData.sth_tip = 2;
-      lineData.sth_cins = 6;
-      lineData.sth_evraktip = 2;
-      lineData.sth_giris_depo_no = targetWarehouseNo;
-      lineData.sth_cikis_depo_no = sourceWarehouseNo;
-      lineData.sth_cari_kodu = '';
-      lineData.sth_cari_cinsi = 0;
-      lineData.sth_cari_grup_no = 0;
-      lineData.sth_sip_uid = zeroGuid;
-      lineData.sth_fat_uid = zeroGuid;
-      lineData.sth_har_uid = zeroGuid;
-      lineData.sth_irs_tes_uid = zeroGuid;
-      lineData.sth_kons_uid = zeroGuid;
-      lineData.sth_yetkili_uid = zeroGuid;
-      lineData.sth_evrakuid = orderGuid;
+      lineData.ssip_Guid = randomUUID();
+      lineData.ssip_iptal = 0;
+      lineData.ssip_degisti = 0;
+      lineData.ssip_create_date = now;
+      lineData.ssip_lastup_date = now;
+      lineData.ssip_tarih = now;
+      lineData.ssip_teslim_tarih = now;
+      lineData.ssip_belge_tarih = now;
+      lineData.ssip_evrakno_seri = series;
+      lineData.ssip_evrakno_sira = nextSira;
+      lineData.ssip_satirno = index;
+      lineData.ssip_stok_kod = row.productCode;
+      lineData.ssip_miktar = row.quantity;
+      lineData.ssip_tutar = lineTotal;
+      lineData.ssip_b_fiyat = unitPrice;
+      lineData.ssip_teslim_miktar = 0;
+      lineData.ssip_kapat_fl = 0;
+      lineData.ssip_girdepo = targetWarehouseNo;
+      lineData.ssip_cikdepo = sourceWarehouseNo;
+      lineData.ssip_stal_uid = zeroGuid;
+      lineData.ssip_birim_pntr = Number(lineData.ssip_birim_pntr || 1) || 1;
 
       const colsSql = insertableColumns.map((col) => `[${col}]`).join(', ');
       const valsSql = insertableColumns.map((col) => toSqlLiteral(lineData[col])).join(', ');
       await mikroService.executeQuery(`
-        INSERT INTO STOK_HAREKETLERI (${colsSql})
+        INSERT INTO DEPOLAR_ARASI_SIPARISLER (${colsSql})
         VALUES (${valsSql})
       `);
     }
