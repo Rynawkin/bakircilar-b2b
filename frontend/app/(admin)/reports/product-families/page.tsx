@@ -74,6 +74,7 @@ export default function ProductFamiliesPage() {
   const [selectedProducts, setSelectedProducts] = useState<PoolProduct[]>([]);
 
   const [search, setSearch] = useState('');
+  const [familySearch, setFamilySearch] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<PoolProduct[]>([]);
   const searchRequestRef = useRef(0);
@@ -100,6 +101,13 @@ export default function ProductFamiliesPage() {
     });
     return map;
   }, [families]);
+  const filteredFamilies = useMemo(() => {
+    const q = foldSearch(familySearch);
+    if (!q) return families;
+    return families.filter((family) =>
+      foldSearch(`${family.name || ''} ${family.code || ''} ${family.note || ''}`).includes(q)
+    );
+  }, [families, familySearch]);
 
   const loadFamilies = async () => {
     setLoadingFamilies(true);
@@ -295,8 +303,20 @@ export default function ProductFamiliesPage() {
               {!loadingFamilies && families.length === 0 && (
                 <p className="text-sm text-gray-500">Tanimli aile yok.</p>
               )}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  className="pl-9"
+                  placeholder="Aile ara..."
+                  value={familySearch}
+                  onChange={(e) => setFamilySearch(e.target.value)}
+                />
+              </div>
               <div className="max-h-[70vh] overflow-y-auto space-y-2 pr-1">
-                {families.map((family) => (
+                {!loadingFamilies && filteredFamilies.length === 0 && (
+                  <p className="text-sm text-gray-500">Aramaya uygun aile bulunamadi.</p>
+                )}
+                {filteredFamilies.map((family) => (
                   <div key={family.id} className="rounded-md border bg-white p-3">
                     <button
                       type="button"
