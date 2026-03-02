@@ -12,6 +12,25 @@ import toast from 'react-hot-toast';
 type DepotType = 'MERKEZ' | 'TOPCA';
 type SuggestionMode = 'INCLUDE_MINMAX' | 'EXCLUDE_MINMAX';
 type AllocationMode = 'SINGLE' | 'TWO_SPLIT' | 'MANUAL';
+type SortDirection = 'none' | 'desc' | 'asc';
+type SuggestionSortKey =
+  | 'color'
+  | 'code'
+  | 'name'
+  | 'supplierCode'
+  | 'supplierName'
+  | 'depotQty'
+  | 'incomingOrders'
+  | 'outgoingOrders'
+  | 'realQty'
+  | 'minQty'
+  | 'maxQty'
+  | 'packQty'
+  | 'costExVat'
+  | 'costIncVat'
+  | 'suggested'
+  | 'allocation'
+  | 'diff';
 type OpsExtraColumnKey =
   | 'depotQty'
   | 'incomingOrders'
@@ -38,6 +57,11 @@ interface ProductFamily {
     priority: number;
     active: boolean;
   }>;
+}
+
+interface SuggestionSortState {
+  key: SuggestionSortKey;
+  direction: SortDirection;
 }
 
 const normalizeValue = (value: unknown): string => {
@@ -132,6 +156,8 @@ export default function UcarerDepotReportPage() {
   const [persistSupplierOverrideByCode, setPersistSupplierOverrideByCode] = useState<Record<string, boolean>>({});
   const [cariOptions, setCariOptions] = useState<Array<{ code: string; name: string }>>([]);
   const [seriesModalOpen, setSeriesModalOpen] = useState(false);
+  const [familySort, setFamilySort] = useState<SuggestionSortState>({ key: 'code', direction: 'none' });
+  const [nonFamilySort, setNonFamilySort] = useState<SuggestionSortState>({ key: 'code', direction: 'none' });
   const [expandedSupplierRows, setExpandedSupplierRows] = useState<Record<string, boolean>>({});
   const [supplierOrderConfigs, setSupplierOrderConfigs] = useState<
     Record<string, { series: string; applyVAT: boolean; deliveryType: string; deliveryDate: string }>
@@ -478,6 +504,41 @@ export default function UcarerDepotReportPage() {
     const remainingAfterTransfer = otherDepotQty - need;
     if (remainingAfterTransfer >= minQty) return 'bg-amber-50';
     return 'bg-red-50';
+  };
+  const getRowColorRank = (row: Record<string, any> | undefined): number => {
+    const rowClass = getRowHighlightClass(row);
+    if (rowClass.includes('bg-red-50')) return 3;
+    if (rowClass.includes('bg-amber-50')) return 2;
+    if (rowClass.includes('bg-emerald-50')) return 1;
+    return 0;
+  };
+
+  const nextSortDirection = (current: SortDirection): SortDirection => {
+    if (current === 'none') return 'desc';
+    if (current === 'desc') return 'asc';
+    return 'none';
+  };
+  const updateSort = (
+    prev: SuggestionSortState,
+    key: SuggestionSortKey
+  ): SuggestionSortState => (prev.key === key ? { key, direction: nextSortDirection(prev.direction) } : { key, direction: 'desc' });
+  const sortIndicator = (sortState: SuggestionSortState, key: SuggestionSortKey): string =>
+    sortState.key !== key || sortState.direction === 'none'
+      ? ''
+      : sortState.direction === 'asc'
+      ? ' ▲'
+      : ' ▼';
+  const compareMixed = (a: unknown, b: unknown, direction: SortDirection): number => {
+    if (direction === 'none') return 0;
+    const numA = parseMaybeNumber(a);
+    const numB = parseMaybeNumber(b);
+    let base = 0;
+    if (numA !== null || numB !== null) {
+      base = (numA || 0) - (numB || 0);
+    } else {
+      base = String(a || '').localeCompare(String(b || ''), 'tr', { sensitivity: 'base' });
+    }
+    return direction === 'asc' ? base : -base;
   };
 
   const stickySelectionWidth = 48;
@@ -874,6 +935,134 @@ export default function UcarerDepotReportPage() {
     [familySuggestions, activeFamilyId]
   );
   const activeFamilyItems = activeFamily ? getVisibleFamilyItems(activeFamily) : [];
+  const activeFamilyRowsSorted = useMemo(() => {
+    if (!activeFamily) return [] as Array<{
+      item: ProductFamily['items'][number];
+      code: string;
+      row?: Record<string, any>;
+      suggested: number;
+      allocation: number;
+      diff: number;
+      supplierCode: string;
+      supplierName: string;
+      colorRank: number;
+    }>;
+    const rows = activeFamilyItems.map((item) => {
+      const code = String(item.productCode || '').trim().toUpperCase();
+      const row = rowByProductCode.get(code);
+      const suggested = row ? getRawSuggestedQty(row) : 0;
+      const allocation = manualAllocations[activeFamily.id]?.[code] ?? 0;
+      const diff = allocation - suggested;
+      return {
+        item,
+        code,
+        row,
+        suggested,
+        allocation,
+        diff,
+        supplierCode: getEffectiveSupplierCode(code),
+        supplierName: getEffectiveSupplierName(code),
+        colorRank: getRowColorRank(row),
+      };
+    });
+    if (familySort.direction === 'none') return rows;
+    return [...rows].sort((a, b) => {
+      if (familySort.key === 'color') return compareMixed(a.colorRank, b.colorRank, familySort.direction);
+      if (familySort.key === 'code') return compareMixed(a.code, b.code, familySort.direction);
+      if (familySort.key === 'name') return compareMixed(a.item.productName, b.item.productName, familySort.direction);
+      if (familySort.key === 'supplierCode') return compareMixed(a.supplierCode, b.supplierCode, familySort.direction);
+      if (familySort.key === 'supplierName') return compareMixed(a.supplierName, b.supplierName, familySort.direction);
+      if (familySort.key === 'depotQty') return compareMixed(a.row?.[depotQtyColumn || ''], b.row?.[depotQtyColumn || ''], familySort.direction);
+      if (familySort.key === 'incomingOrders') return compareMixed(a.row?.[incomingOrderColumn || ''], b.row?.[incomingOrderColumn || ''], familySort.direction);
+      if (familySort.key === 'outgoingOrders') return compareMixed(a.row?.[outgoingOrderColumn || ''], b.row?.[outgoingOrderColumn || ''], familySort.direction);
+      if (familySort.key === 'realQty') return compareMixed(a.row?.[realQtyColumn || ''], b.row?.[realQtyColumn || ''], familySort.direction);
+      if (familySort.key === 'minQty') return compareMixed(a.row?.[minQtyColumn || ''], b.row?.[minQtyColumn || ''], familySort.direction);
+      if (familySort.key === 'maxQty') return compareMixed(a.row?.[maxQtyColumn || ''], b.row?.[maxQtyColumn || ''], familySort.direction);
+      if (familySort.key === 'packQty') return compareMixed(packQtyByCode[a.code] || 0, packQtyByCode[b.code] || 0, familySort.direction);
+      if (familySort.key === 'costExVat') return compareMixed(currentCostByCode[a.code] || 0, currentCostByCode[b.code] || 0, familySort.direction);
+      if (familySort.key === 'costIncVat') {
+        const vatA = Number(vatRateByCode[a.code] ?? 0);
+        const vatB = Number(vatRateByCode[b.code] ?? 0);
+        const costA = Number(currentCostByCode[a.code] || 0) * (1 + ((vatA <= 1 ? vatA * 100 : vatA) / 100));
+        const costB = Number(currentCostByCode[b.code] || 0) * (1 + ((vatB <= 1 ? vatB * 100 : vatB) / 100));
+        return compareMixed(costA, costB, familySort.direction);
+      }
+      if (familySort.key === 'allocation') return compareMixed(a.allocation, b.allocation, familySort.direction);
+      if (familySort.key === 'diff') return compareMixed(a.diff, b.diff, familySort.direction);
+      return compareMixed(a.suggested, b.suggested, familySort.direction);
+    });
+  }, [
+    activeFamily,
+    activeFamilyItems,
+    currentCostByCode,
+    depotQtyColumn,
+    familySort,
+    incomingOrderColumn,
+    manualAllocations,
+    maxQtyColumn,
+    minQtyColumn,
+    outgoingOrderColumn,
+    packQtyByCode,
+    realQtyColumn,
+    rowByProductCode,
+    vatRateByCode,
+  ]);
+  const nonFamilyRowsSorted = useMemo(() => {
+    const rows = nonFamilyRows.map((item) => {
+      const row = item.row;
+      const code = item.code;
+      const suggested = Math.max(0, Math.trunc(getSuggestedQty(row)));
+      const rawAllocated = nonFamilyAllocations[code];
+      const allocation = rawAllocated === '' || rawAllocated === undefined ? 0 : Math.max(0, Math.trunc(Number(rawAllocated)));
+      return {
+        ...item,
+        suggested,
+        allocation,
+        supplierCode: getEffectiveSupplierCode(code),
+        supplierName: getEffectiveSupplierName(code),
+        colorRank: getRowColorRank(row),
+      };
+    });
+    if (nonFamilySort.direction === 'none') return rows;
+    return [...rows].sort((a, b) => {
+      if (nonFamilySort.key === 'color') return compareMixed(a.colorRank, b.colorRank, nonFamilySort.direction);
+      if (nonFamilySort.key === 'code') return compareMixed(a.code, b.code, nonFamilySort.direction);
+      if (nonFamilySort.key === 'name') return compareMixed(a.row?.[productNameColumn || ''], b.row?.[productNameColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'supplierCode') return compareMixed(a.supplierCode, b.supplierCode, nonFamilySort.direction);
+      if (nonFamilySort.key === 'supplierName') return compareMixed(a.supplierName, b.supplierName, nonFamilySort.direction);
+      if (nonFamilySort.key === 'depotQty') return compareMixed(a.row?.[depotQtyColumn || ''], b.row?.[depotQtyColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'incomingOrders') return compareMixed(a.row?.[incomingOrderColumn || ''], b.row?.[incomingOrderColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'outgoingOrders') return compareMixed(a.row?.[outgoingOrderColumn || ''], b.row?.[outgoingOrderColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'realQty') return compareMixed(a.row?.[realQtyColumn || ''], b.row?.[realQtyColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'minQty') return compareMixed(a.row?.[minQtyColumn || ''], b.row?.[minQtyColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'maxQty') return compareMixed(a.row?.[maxQtyColumn || ''], b.row?.[maxQtyColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'packQty') return compareMixed(packQtyByCode[a.code] || 0, packQtyByCode[b.code] || 0, nonFamilySort.direction);
+      if (nonFamilySort.key === 'costExVat') return compareMixed(currentCostByCode[a.code] || 0, currentCostByCode[b.code] || 0, nonFamilySort.direction);
+      if (nonFamilySort.key === 'costIncVat') {
+        const vatA = Number(vatRateByCode[a.code] ?? 0);
+        const vatB = Number(vatRateByCode[b.code] ?? 0);
+        const costA = Number(currentCostByCode[a.code] || 0) * (1 + ((vatA <= 1 ? vatA * 100 : vatA) / 100));
+        const costB = Number(currentCostByCode[b.code] || 0) * (1 + ((vatB <= 1 ? vatB * 100 : vatB) / 100));
+        return compareMixed(costA, costB, nonFamilySort.direction);
+      }
+      if (nonFamilySort.key === 'allocation') return compareMixed(a.allocation, b.allocation, nonFamilySort.direction);
+      return compareMixed(a.suggested, b.suggested, nonFamilySort.direction);
+    });
+  }, [
+    currentCostByCode,
+    depotQtyColumn,
+    incomingOrderColumn,
+    maxQtyColumn,
+    minQtyColumn,
+    nonFamilyAllocations,
+    nonFamilyRows,
+    nonFamilySort,
+    outgoingOrderColumn,
+    packQtyByCode,
+    productNameColumn,
+    realQtyColumn,
+    vatRateByCode,
+  ]);
 
   const activeFamilyAllocations = activeFamily ? (manualAllocations[activeFamily.id] || {}) : {};
   const activeFamilyNeedRaw = activeFamilySuggestion?.suggestedRaw || 0;
@@ -1598,56 +1787,60 @@ export default function UcarerDepotReportPage() {
                     <thead className="bg-gray-100 sticky top-0 z-20">
                       <tr>
                         <th
-                          className="px-2 py-2 text-center sticky left-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                          className="px-2 py-2 text-center sticky left-0 top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
                           style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                          onClick={() => setFamilySort((prev) => updateSort(prev, 'color'))}
                         >
-                          Sec
+                          Sec{sortIndicator(familySort, 'color')}
                         </th>
                         <th
-                          className="px-2 py-2 text-left sticky z-30 bg-gray-100"
+                          className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 cursor-pointer"
                           style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                          onClick={() => setFamilySort((prev) => updateSort(prev, 'code'))}
                         >
-                          Stok Kodu
+                          Stok Kodu{sortIndicator(familySort, 'code')}
                         </th>
                         <th
-                          className="px-2 py-2 text-left sticky z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                          className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
                           style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                          onClick={() => setFamilySort((prev) => updateSort(prev, 'name'))}
                         >
-                          Urun Adi
+                          Urun Adi{sortIndicator(familySort, 'name')}
                         </th>
-                        <th className="px-2 py-2 text-left">Saglayici Kodu</th>
-                        <th className="px-2 py-2 text-left">Saglayici Adi</th>
+                        <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'supplierCode'))}>Saglayici Kodu{sortIndicator(familySort, 'supplierCode')}</th>
+                        <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(familySort, 'supplierName')}</th>
                         <th className="px-2 py-2 text-center">Ana Saglayici</th>
                         <th className="px-2 py-2 text-center">Kalici Degistir</th>
-                        {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
-                        {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
-                        {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right">Verilen Siparis</th>}
-                        {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
-                        {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
-                        {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
-                        {panelColumns.packQty && <th className="px-2 py-2 text-right">Koli Ici</th>}
-                        {panelColumns.costExVat && <th className="px-2 py-2 text-right">Maliyet KDV Haric</th>}
-                        {panelColumns.costIncVat && <th className="px-2 py-2 text-right">Maliyet KDV Dahil</th>}
+                        {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(familySort, 'depotQty')}</th>}
+                        {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(familySort, 'incomingOrders')}</th>}
+                        {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(familySort, 'outgoingOrders')}</th>}
+                        {panelColumns.realQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(familySort, 'realQty')}</th>}
+                        {panelColumns.minQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'minQty'))}>Min{sortIndicator(familySort, 'minQty')}</th>}
+                        {panelColumns.maxQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'maxQty'))}>Max{sortIndicator(familySort, 'maxQty')}</th>}
+                        {panelColumns.packQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'packQty'))}>Koli Ici{sortIndicator(familySort, 'packQty')}</th>}
+                        {panelColumns.costExVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costExVat'))}>Maliyet KDV Haric{sortIndicator(familySort, 'costExVat')}</th>}
+                        {panelColumns.costIncVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costIncVat'))}>Maliyet KDV Dahil{sortIndicator(familySort, 'costIncVat')}</th>}
                         {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
-                        <th className="px-2 py-2 text-right">Aile Oneri</th>
-                        <th className="px-2 py-2 text-right">Dagitim</th>
-                        <th className="px-2 py-2 text-right">Fark</th>
+                        <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'suggested'))}>Aile Oneri{sortIndicator(familySort, 'suggested')}</th>
+                        <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'allocation'))}>Dagitim{sortIndicator(familySort, 'allocation')}</th>
+                        <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'diff'))}>Fark{sortIndicator(familySort, 'diff')}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {activeFamilyItems.length === 0 && (
+                      {activeFamilyRowsSorted.length === 0 && (
                         <tr>
                           <td colSpan={20} className="px-2 py-4 text-center text-gray-500">
                             Bu ailede Ucarer raporunda tum degerleri sifir olan urunler gizlendi. Gorunen urun yok.
                           </td>
                         </tr>
                       )}
-                      {activeFamilyItems.map((item) => {
-                        const code = String(item.productCode || '').toUpperCase();
-                        const row = rowByProductCode.get(code);
-                        const itemNeed = row ? getRawSuggestedQty(row) : 0;
-                        const allocation = activeFamilyAllocations[code] ?? 0;
-                        const diff = allocation - itemNeed;
+                      {activeFamilyRowsSorted.map((entry) => {
+                        const item = entry.item;
+                        const code = entry.code;
+                        const row = entry.row;
+                        const itemNeed = entry.suggested;
+                        const allocation = entry.allocation;
+                        const diff = entry.diff;
                         const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
                         return (
                           <tr key={item.id} className={`border-t ${getRowHighlightClass(row)}`}>
@@ -1832,57 +2025,58 @@ export default function UcarerDepotReportPage() {
                   <thead className="bg-gray-100 sticky top-0 z-20">
                     <tr>
                       <th
-                        className="px-2 py-2 text-center sticky left-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                        className="px-2 py-2 text-center sticky left-0 top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
                         style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                        onClick={() => setNonFamilySort((prev) => updateSort(prev, 'color'))}
                       >
-                        Sec
+                        Sec{sortIndicator(nonFamilySort, 'color')}
                       </th>
                       <th
-                        className="px-2 py-2 text-left sticky z-30 bg-gray-100"
+                        className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 cursor-pointer"
                         style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                        onClick={() => setNonFamilySort((prev) => updateSort(prev, 'code'))}
                       >
-                        Stok Kodu
+                        Stok Kodu{sortIndicator(nonFamilySort, 'code')}
                       </th>
                       <th
-                        className="px-2 py-2 text-left sticky z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]"
+                        className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
                         style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                        onClick={() => setNonFamilySort((prev) => updateSort(prev, 'name'))}
                       >
-                        Urun Adi
+                        Urun Adi{sortIndicator(nonFamilySort, 'name')}
                       </th>
-                      <th className="px-2 py-2 text-left">Saglayici Kodu</th>
-                      <th className="px-2 py-2 text-left">Saglayici Adi</th>
+                      <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'supplierCode'))}>Saglayici Kodu{sortIndicator(nonFamilySort, 'supplierCode')}</th>
+                      <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(nonFamilySort, 'supplierName')}</th>
                       <th className="px-2 py-2 text-center">Ana Saglayici</th>
                       <th className="px-2 py-2 text-center">Kalici Degistir</th>
-                      {panelColumns.depotQty && <th className="px-2 py-2 text-right">Depo Miktari</th>}
-                      {panelColumns.incomingOrders && <th className="px-2 py-2 text-right">Alinan Siparis</th>}
-                      {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right">Verilen Siparis</th>}
-                      {panelColumns.realQty && <th className="px-2 py-2 text-right">Reel Miktar</th>}
-                      {panelColumns.minQty && <th className="px-2 py-2 text-right">Min</th>}
-                      {panelColumns.maxQty && <th className="px-2 py-2 text-right">Max</th>}
-                      {panelColumns.packQty && <th className="px-2 py-2 text-right">Koli Ici</th>}
-                      {panelColumns.costExVat && <th className="px-2 py-2 text-right">Maliyet KDV Haric</th>}
-                      {panelColumns.costIncVat && <th className="px-2 py-2 text-right">Maliyet KDV Dahil</th>}
+                      {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(nonFamilySort, 'depotQty')}</th>}
+                      {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(nonFamilySort, 'incomingOrders')}</th>}
+                      {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(nonFamilySort, 'outgoingOrders')}</th>}
+                      {panelColumns.realQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(nonFamilySort, 'realQty')}</th>}
+                      {panelColumns.minQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'minQty'))}>Min{sortIndicator(nonFamilySort, 'minQty')}</th>}
+                      {panelColumns.maxQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'maxQty'))}>Max{sortIndicator(nonFamilySort, 'maxQty')}</th>}
+                      {panelColumns.packQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'packQty'))}>Koli Ici{sortIndicator(nonFamilySort, 'packQty')}</th>}
+                      {panelColumns.costExVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'costExVat'))}>Maliyet KDV Haric{sortIndicator(nonFamilySort, 'costExVat')}</th>}
+                      {panelColumns.costIncVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'costIncVat'))}>Maliyet KDV Dahil{sortIndicator(nonFamilySort, 'costIncVat')}</th>}
                       {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
-                      <th className="px-2 py-2 text-right">Oneri</th>
-                      <th className="px-2 py-2 text-right">Dagitim</th>
+                      <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'suggested'))}>Oneri{sortIndicator(nonFamilySort, 'suggested')}</th>
+                      <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'allocation'))}>Dagitim{sortIndicator(nonFamilySort, 'allocation')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {nonFamilyRows.length === 0 && (
+                    {nonFamilyRowsSorted.length === 0 && (
                       <tr>
                         <td colSpan={20} className="px-2 py-4 text-center text-gray-500">
                           Aile disi onerili urun yok.
                         </td>
                       </tr>
                     )}
-                    {nonFamilyRows.map((item) => {
+                    {nonFamilyRowsSorted.map((item) => {
                       const row = item.row;
                       const code = item.code;
-                      const suggested = Math.max(0, Math.trunc(getSuggestedQty(row)));
+                      const suggested = item.suggested;
                       const rawAllocated = nonFamilyAllocations[code];
-                      const allocated = rawAllocated === '' || rawAllocated === undefined
-                        ? ''
-                        : Math.max(0, Math.trunc(Number(rawAllocated)));
+                      const allocated = rawAllocated === '' || rawAllocated === undefined ? '' : item.allocation;
                       return (
                         <tr key={code} className={`border-t ${getRowHighlightClass(row)}`}>
                           <td

@@ -4914,21 +4914,6 @@ export class ReportsService {
       throw new AppError('Depolar arasi siparis icin secili miktar yok.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const inClause = rows.map((row) => `'${row.productCode.replace(/'/g, "''")}'`).join(',');
-    const costRows = await prisma.product.findMany({
-      where: { mikroCode: { in: rows.map((row) => row.productCode) } },
-      select: { mikroCode: true, currentCost: true },
-    });
-    const unitPriceByCode = new Map<string, number>();
-    costRows.forEach((row) => {
-      const code = String(row?.mikroCode || '').trim().toUpperCase();
-      const cost = Number(row?.currentCost || 0);
-      if (code) unitPriceByCode.set(code, Number.isFinite(cost) && cost > 0 ? cost : 1);
-    });
-    rows.forEach((row) => {
-      if (!unitPriceByCode.has(row.productCode)) unitPriceByCode.set(row.productCode, 1);
-    });
-
     const escapedSeries = series.replace(/'/g, "''");
     const templateSeqRaw = Number(process.env.MIKRO_DEPOT_TRANSFER_TEMPLATE_SEQ || 1225);
     const templateSeq = Number.isFinite(templateSeqRaw) && templateSeqRaw > 0 ? Math.trunc(templateSeqRaw) : 1225;
@@ -4994,8 +4979,6 @@ export class ReportsService {
 
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
-      const unitPrice = Number(unitPriceByCode.get(row.productCode) || 1);
-      const lineTotal = Math.max(0, unitPrice * row.quantity);
       const lineData: Record<string, unknown> = { ...templateRow };
       const now = new Date();
 
@@ -5012,8 +4995,8 @@ export class ReportsService {
       lineData.ssip_satirno = index;
       lineData.ssip_stok_kod = row.productCode;
       lineData.ssip_miktar = row.quantity;
-      lineData.ssip_tutar = lineTotal;
-      lineData.ssip_b_fiyat = unitPrice;
+      lineData.ssip_tutar = 0;
+      lineData.ssip_b_fiyat = 0;
       lineData.ssip_teslim_miktar = 0;
       lineData.ssip_kapat_fl = 0;
       lineData.ssip_girdepo = targetWarehouseNo;

@@ -82,6 +82,24 @@ export default function ProductFamiliesPage() {
     () => new Set(selectedProducts.map((product) => product.mikroCode)),
     [selectedProducts]
   );
+  const editingFamily = useMemo(
+    () => families.find((family) => family.id === editingId) || null,
+    [families, editingId]
+  );
+  const familyNamesByProductCode = useMemo(() => {
+    const map = new Map<string, string[]>();
+    families.forEach((family) => {
+      const familyName = String(family.name || '').trim();
+      family.items.forEach((item) => {
+        const code = String(item.productCode || '').trim().toUpperCase();
+        if (!code) return;
+        const list = map.get(code) || [];
+        if (familyName && !list.includes(familyName)) list.push(familyName);
+        map.set(code, list);
+      });
+    });
+    return map;
+  }, [families]);
 
   const loadFamilies = async () => {
     setLoadingFamilies(true);
@@ -131,18 +149,16 @@ export default function ProductFamiliesPage() {
             name: String(product.name || '').trim(),
           }))
           .filter((product: PoolProduct) => product.mikroCode && product.name);
-        const foldedQuery = foldSearch(q);
+        const foldedTokens = foldSearch(q).split(' ').filter(Boolean);
         const deduped = new Map<string, PoolProduct>();
         mapped.forEach((product) => {
           const key = product.mikroCode;
           if (!deduped.has(key)) deduped.set(key, product);
         });
         const filtered = Array.from(deduped.values()).filter((product) => {
-          if (!foldedQuery) return true;
-          return (
-            foldSearch(product.mikroCode).includes(foldedQuery) ||
-            foldSearch(product.name).includes(foldedQuery)
-          );
+          if (foldedTokens.length === 0) return true;
+          const haystack = `${foldSearch(product.mikroCode)} ${foldSearch(product.name)}`;
+          return foldedTokens.every((token) => haystack.includes(token));
         });
         setSearchResults(filtered.slice(0, 80));
       } catch (error) {
@@ -279,32 +295,34 @@ export default function ProductFamiliesPage() {
               {!loadingFamilies && families.length === 0 && (
                 <p className="text-sm text-gray-500">Tanimli aile yok.</p>
               )}
-              {families.map((family) => (
-                <div key={family.id} className="rounded-md border bg-white p-3">
-                  <button
-                    type="button"
-                    className="w-full text-left"
-                    onClick={() => startEdit(family)}
-                  >
-                    <p className="font-semibold text-sm text-gray-900">
-                      {family.name} {family.code ? `(${family.code})` : ''}
-                    </p>
-                    <p className="text-xs text-gray-600">{family.items.length} urun</p>
-                  </button>
-                  <div className="mt-2 flex justify-end">
-                    <Button
+              <div className="max-h-[70vh] overflow-y-auto space-y-2 pr-1">
+                {families.map((family) => (
+                  <div key={family.id} className="rounded-md border bg-white p-3">
+                    <button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => deleteFamily(family.id)}
-                      disabled={deletingId === family.id}
+                      className="w-full text-left"
+                      onClick={() => startEdit(family)}
                     >
-                      <Trash2 className="mr-1 h-3 w-3" />
-                      Sil
-                    </Button>
+                      <p className="font-semibold text-sm text-gray-900">
+                        {family.name} {family.code ? `(${family.code})` : ''}
+                      </p>
+                      <p className="text-xs text-gray-600">{family.items.length} urun</p>
+                    </button>
+                    <div className="mt-2 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => deleteFamily(family.id)}
+                        disabled={deletingId === family.id}
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        Sil
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </CardContent>
           </Card>
 
@@ -343,20 +361,31 @@ export default function ProductFamiliesPage() {
                   )}
                   {!searchLoading && searchResults.map((product) => {
                     const selected = selectedCodeSet.has(product.mikroCode);
+                    const ownerFamilies = familyNamesByProductCode.get(product.mikroCode) || [];
+                    const otherOwnerFamilies = editingFamily
+                      ? ownerFamilies.filter((familyName) => familyName !== editingFamily.name)
+                      : ownerFamilies;
+                    const blockedByOtherFamily = otherOwnerFamilies.length > 0;
+                    const ownerText = blockedByOtherFamily
+                      ? `Baska ailede tanimli: ${otherOwnerFamilies.join(', ')}`
+                      : '';
                     return (
                       <div key={product.id} className="flex items-center justify-between border-b px-3 py-2 last:border-b-0">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-900 truncate">{product.mikroCode}</p>
                           <p className="text-xs text-gray-600 truncate">{product.name}</p>
+                          {ownerText && (
+                            <p className="text-[11px] text-amber-700 truncate">{ownerText}</p>
+                          )}
                         </div>
                         <Button
                           type="button"
                           size="sm"
                           variant={selected ? 'outline' : 'primary'}
-                          disabled={selected}
+                          disabled={selected || blockedByOtherFamily}
                           onClick={() => addProduct(product)}
                         >
-                          {selected ? 'Eklendi' : 'Ekle'}
+                          {selected ? 'Eklendi' : blockedByOtherFamily ? 'Baska Ailede' : 'Ekle'}
                         </Button>
                       </div>
                     );
