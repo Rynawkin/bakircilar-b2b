@@ -295,7 +295,7 @@ export default function UcarerDepotReportPage() {
         const incomingOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row?.[incomingOrderColumn])) : 0;
         itemSignals.push({ code, raw, orderDriven, incomingOrders });
       });
-      const redirectSuggestions: string[] = [];
+      const redirectSuggestions: Array<{ type: 'ORDER' | 'DEPOT'; text: string }> = [];
       if (Math.trunc(rawNeed) < 0) {
         const sources = itemSignals
           .filter((item) => item.raw > 0)
@@ -309,13 +309,23 @@ export default function UcarerDepotReportPage() {
           if (!target) return;
           const sourceName = String(rowByProductCode.get(source.code)?.[productNameColumn || ''] || '').trim() || source.code;
           const targetName = String(rowByProductCode.get(target.code)?.[productNameColumn || ''] || '').trim() || target.code;
-          const text =
-            source.incomingOrders > 0
-              ? `Siparis yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`
-              : `Depo yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`;
-          redirectSuggestions.push(text);
+          if (source.incomingOrders > 0) {
+            redirectSuggestions.push({
+              type: 'ORDER',
+              text: `Siparis yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`,
+            });
+          } else {
+            redirectSuggestions.push({
+              type: 'DEPOT',
+              text: `Depo yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`,
+            });
+          }
         });
       }
+      redirectSuggestions.sort((a, b) => {
+        const rank = (item: { type: 'ORDER' | 'DEPOT' }) => (item.type === 'ORDER' ? 0 : 1);
+        return rank(a) - rank(b);
+      });
       return {
         id: family.id,
         name: family.name,
@@ -1428,6 +1438,44 @@ export default function UcarerDepotReportPage() {
       return next;
     });
   };
+  const renderActiveFamilyPanel = () => {
+    if (!activeFamily || !activeFamilySuggestion) return null;
+    return (
+      <div
+        className={`rounded-xl border bg-gradient-to-br from-white to-slate-50 p-3 space-y-2 transition-all ${
+          panelHighlight ? 'ring-2 ring-emerald-400 shadow-xl' : 'shadow-sm'
+        }`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">
+              {activeFamily.name} {activeFamily.code ? `(${activeFamily.code})` : ''}
+            </p>
+            <p className="text-[11px] text-gray-600">
+              Ihtiyac: {activeFamilyNeedRaw.toLocaleString('tr-TR')} | Dagitim: {activeFamilyAllocated.toLocaleString('tr-TR')} | Kalan: {activeFamilyRemaining.toLocaleString('tr-TR')}
+            </p>
+          </div>
+        </div>
+        {Boolean(activeFamilySuggestion?.redirectSuggestions?.length) && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
+            <strong>Yonlendirme Onerileri:</strong>
+            {(activeFamilySuggestion?.redirectSuggestions || []).map((item, idx) => (
+              <p
+                key={`inline-redir-${idx}`}
+                className={
+                  item.type === 'ORDER'
+                    ? 'rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-900'
+                    : 'rounded border border-amber-200 bg-amber-100 px-2 py-1 text-amber-900'
+                }
+              >
+                {item.text}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1613,24 +1661,26 @@ export default function UcarerDepotReportPage() {
                   <p className="text-xs text-gray-500">Tanimli aile yok.</p>
                 )}
                 {suggestedFamilies.map((family) => (
-                  <div
-                    key={family.id}
-                    className={`flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 ${
-                      activeFamilyId === family.id ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900">
-                        {family.name} {family.code ? `(${family.code})` : ''}
-                      </p>
-                      <p className="text-xs text-gray-600">
-                        Oneri: {family.suggestedRaw.toLocaleString('tr-TR')} | Kalem: {family.itemCount.toLocaleString('tr-TR')}
-                      </p>
+                  <Fragment key={family.id}>
+                    <div
+                      className={`flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 ${
+                        activeFamilyId === family.id ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900">
+                          {family.name} {family.code ? `(${family.code})` : ''}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          Oneri: {family.suggestedRaw.toLocaleString('tr-TR')} | Kalem: {family.itemCount.toLocaleString('tr-TR')}
+                        </p>
+                      </div>
+                      <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
+                        {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
+                      </Button>
                     </div>
-                    <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
-                      {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
-                    </Button>
-                  </div>
+                    {activeFamilyId === family.id && renderActiveFamilyPanel()}
+                  </Fragment>
                 ))}
                 {unsuggestedFamilies.length > 0 && (
                   <div className="rounded border border-dashed border-gray-300 bg-gray-50 p-2">
@@ -1644,24 +1694,26 @@ export default function UcarerDepotReportPage() {
                     {showUnsuggestedFamilies && (
                       <div className="mt-2 space-y-2">
                         {unsuggestedFamilies.map((family) => (
-                          <div
-                            key={family.id}
-                            className={`flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 ${
-                              activeFamilyId === family.id ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-gray-900">
-                                {family.name} {family.code ? `(${family.code})` : ''}
-                              </p>
-                              <p className="text-xs text-gray-600">
-                                Oneri: {family.suggestedRaw.toLocaleString('tr-TR')} | Kalem: {family.itemCount.toLocaleString('tr-TR')}
-                              </p>
+                          <Fragment key={family.id}>
+                            <div
+                              className={`flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 ${
+                                activeFamilyId === family.id ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-gray-900">
+                                  {family.name} {family.code ? `(${family.code})` : ''}
+                                </p>
+                                <p className="text-xs text-gray-600">
+                                  Oneri: {family.suggestedRaw.toLocaleString('tr-TR')} | Kalem: {family.itemCount.toLocaleString('tr-TR')}
+                                </p>
+                              </div>
+                              <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
+                                {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
+                              </Button>
                             </div>
-                            <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
-                              {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
-                            </Button>
-                          </div>
+                            {activeFamilyId === family.id && renderActiveFamilyPanel()}
+                          </Fragment>
                         ))}
                       </div>
                     )}
@@ -1758,8 +1810,17 @@ export default function UcarerDepotReportPage() {
                 {Boolean(activeFamilySuggestion?.redirectSuggestions?.length) && (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
                     <strong>Yonlendirme Onerileri:</strong>
-                    {(activeFamilySuggestion?.redirectSuggestions || []).map((text, idx) => (
-                      <p key={`redir-${idx}`}>{text}</p>
+                    {(activeFamilySuggestion?.redirectSuggestions || []).map((item, idx) => (
+                      <p
+                        key={`redir-${idx}`}
+                        className={
+                          item.type === 'ORDER'
+                            ? 'rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-900'
+                            : 'rounded border border-amber-200 bg-amber-100 px-2 py-1 text-amber-900'
+                        }
+                      >
+                        {item.text}
+                      </p>
                     ))}
                   </div>
                 )}
