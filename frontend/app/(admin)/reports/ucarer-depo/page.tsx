@@ -1440,20 +1440,39 @@ export default function UcarerDepotReportPage() {
   };
   const renderActiveFamilyPanel = () => {
     if (!activeFamily || !activeFamilySuggestion) return null;
+    const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
     return (
       <div
-        className={`rounded-xl border bg-gradient-to-br from-white to-slate-50 p-3 space-y-2 transition-all ${
+        className={`rounded-xl border bg-gradient-to-br from-white to-slate-50 p-4 space-y-4 transition-all ${
           panelHighlight ? 'ring-2 ring-emerald-400 shadow-xl' : 'shadow-sm'
         }`}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-lg font-semibold text-gray-900">
               {activeFamily.name} {activeFamily.code ? `(${activeFamily.code})` : ''}
             </p>
-            <p className="text-[11px] text-gray-600">
-              Ihtiyac: {activeFamilyNeedRaw.toLocaleString('tr-TR')} | Dagitim: {activeFamilyAllocated.toLocaleString('tr-TR')} | Kalan: {activeFamilyRemaining.toLocaleString('tr-TR')}
+            <p className="text-xs text-gray-600">
+              Mode gore ihtiyac ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'})
             </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-white border px-3 py-2">
+              <p className="text-[11px] text-gray-500">Ihtiyac</p>
+              <p className={`font-semibold ${activeFamilyNeedRaw < 0 ? 'text-red-700' : 'text-gray-900'}`}>
+                {activeFamilyNeedRaw.toLocaleString('tr-TR')}
+              </p>
+            </div>
+            <div className="rounded-lg bg-white border px-3 py-2">
+              <p className="text-[11px] text-gray-500">Dagitim</p>
+              <p className="font-semibold text-blue-700">{activeFamilyAllocated.toLocaleString('tr-TR')}</p>
+            </div>
+            <div className="rounded-lg bg-white border px-3 py-2">
+              <p className="text-[11px] text-gray-500">Kalan</p>
+              <p className={`font-semibold ${activeFamilyRemaining === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {activeFamilyRemaining.toLocaleString('tr-TR')}
+              </p>
+            </div>
           </div>
         </div>
         {Boolean(activeFamilySuggestion?.redirectSuggestions?.length) && (
@@ -1473,6 +1492,396 @@ export default function UcarerDepotReportPage() {
             ))}
           </div>
         )}
+
+        <div className="rounded-md border bg-white p-3">
+          <p className="text-xs font-semibold text-gray-700 mb-2">Operasyon Kolonlari (ac/kapat)</p>
+          <div className="flex flex-wrap gap-3 text-xs text-gray-700">
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.depotQty} onChange={(e) => setPanelColumns((p) => ({ ...p, depotQty: e.target.checked }))} />
+              Depo Miktari
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.incomingOrders} onChange={(e) => setPanelColumns((p) => ({ ...p, incomingOrders: e.target.checked }))} />
+              Alinan Siparis
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.outgoingOrders} onChange={(e) => setPanelColumns((p) => ({ ...p, outgoingOrders: e.target.checked }))} />
+              Verilen Siparis
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.realQty} onChange={(e) => setPanelColumns((p) => ({ ...p, realQty: e.target.checked }))} />
+              Reel Miktar
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.minQty} onChange={(e) => setPanelColumns((p) => ({ ...p, minQty: e.target.checked }))} />
+              Min
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.maxQty} onChange={(e) => setPanelColumns((p) => ({ ...p, maxQty: e.target.checked }))} />
+              Max
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.currentCost} onChange={(e) => setPanelColumns((p) => ({ ...p, currentCost: e.target.checked }))} />
+              Maliyet (P/T)
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.packQty} onChange={(e) => setPanelColumns((p) => ({ ...p, packQty: e.target.checked }))} />
+              Koli Ici
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.costExVat} onChange={(e) => setPanelColumns((p) => ({ ...p, costExVat: e.target.checked }))} />
+              Maliyet KDV Haric
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.costIncVat} onChange={(e) => setPanelColumns((p) => ({ ...p, costIncVat: e.target.checked }))} />
+              Maliyet KDV Dahil
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-white p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={fillActiveBySuggestions}>
+              <WandSparkles className="mr-1 h-3 w-3" />
+              Oneriye Gore Doldur
+            </Button>
+            <Button size="sm" variant="outline" onClick={splitActiveEvenly}>
+              Esit Dagit
+            </Button>
+            <Button size="sm" variant="outline" onClick={clearActiveAllocations}>
+              Sifirla
+            </Button>
+            <p className="text-xs text-gray-600">
+              Hizli aksiyonlar manuel dagitim tablosunu otomatik doldurur.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
+          <div className="lg:col-span-3">
+            <p className="text-xs text-gray-600 mb-1">Dagitim Modu</p>
+            <Select
+              value={mode}
+              onChange={(e) =>
+                setAllocationModeByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value as AllocationMode }))
+              }
+            >
+              <option value="SINGLE">Tek Urun</option>
+              <option value="TWO_SPLIT">Iki Urun</option>
+              <option value="MANUAL">Manuel</option>
+            </Select>
+          </div>
+
+          {mode === 'SINGLE' && (
+            <>
+              <div className="lg:col-span-5">
+                <p className="text-xs text-gray-600 mb-1">Urun</p>
+                <Select
+                  value={singleCodeByFamily[activeFamily.id] || activeFamilyItems[0]?.productCode || ''}
+                  onChange={(e) =>
+                    setSingleCodeByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))
+                  }
+                >
+                  {activeFamilyItems.map((item) => (
+                    <option key={item.id} value={item.productCode}>
+                      {item.productCode} - {item.productName || '-'}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="lg:col-span-2">
+                <Button size="sm" className="w-full" onClick={() => applySingleAllocation(activeFamily)}>
+                  Uygula
+                </Button>
+              </div>
+            </>
+          )}
+
+          {mode === 'TWO_SPLIT' && (
+            <>
+              <div className="lg:col-span-3">
+                <p className="text-xs text-gray-600 mb-1">Urun A</p>
+                <Select
+                  value={splitAByFamily[activeFamily.id] || activeFamilyItems[0]?.productCode || ''}
+                  onChange={(e) => setSplitAByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
+                >
+                  {activeFamilyItems.map((item) => (
+                    <option key={item.id} value={item.productCode}>
+                      {item.productCode}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="lg:col-span-3">
+                <p className="text-xs text-gray-600 mb-1">Urun B</p>
+                <Select
+                  value={splitBByFamily[activeFamily.id] || activeFamilyItems[1]?.productCode || activeFamilyItems[0]?.productCode || ''}
+                  onChange={(e) => setSplitBByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
+                >
+                  {activeFamilyItems.map((item) => (
+                    <option key={item.id} value={item.productCode}>
+                      {item.productCode}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="lg:col-span-2">
+                <p className="text-xs text-gray-600 mb-1">A Orani %{splitRatioByFamily[activeFamily.id] ?? 50}</p>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={splitRatioByFamily[activeFamily.id] ?? 50}
+                  onChange={(e) =>
+                    setSplitRatioByFamily((prev) => ({ ...prev, [activeFamily.id]: Number(e.target.value) }))
+                  }
+                  className="w-full"
+                />
+              </div>
+              <div className="lg:col-span-1">
+                <Button size="sm" className="w-full" onClick={() => applySplitAllocation(activeFamily)}>
+                  Uygula
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="rounded-md border bg-white p-2">
+          <input
+            type="text"
+            value={familyDetailSearch}
+            onChange={(e) => setFamilyDetailSearch(e.target.value)}
+            className="w-full rounded border px-2 py-1 text-xs"
+            placeholder="Aile detayinda ara (stok kodu/adi/saglayici)"
+          />
+        </div>
+
+        <div className="overflow-x-auto overflow-y-auto rounded border bg-white max-h-[62vh]">
+          <table className="w-max min-w-[2200px] text-[11px]">
+            <thead className="bg-gray-100 sticky top-0 z-20">
+              <tr>
+                <th
+                  className="px-2 py-2 text-center sticky left-0 top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
+                  style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                  onClick={() => setFamilySort((prev) => updateSort(prev, 'color'))}
+                >
+                  Sec{sortIndicator(familySort, 'color')}
+                </th>
+                <th
+                  className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 cursor-pointer"
+                  style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                  onClick={() => setFamilySort((prev) => updateSort(prev, 'code'))}
+                >
+                  Stok Kodu{sortIndicator(familySort, 'code')}
+                </th>
+                <th
+                  className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
+                  style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                  onClick={() => setFamilySort((prev) => updateSort(prev, 'name'))}
+                >
+                  Urun Adi{sortIndicator(familySort, 'name')}
+                </th>
+                <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'supplierCode'))}>Saglayici Kodu{sortIndicator(familySort, 'supplierCode')}</th>
+                <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(familySort, 'supplierName')}</th>
+                <th className="px-2 py-2 text-center">Ana Saglayici</th>
+                <th className="px-2 py-2 text-center">Kalici Degistir</th>
+                {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(familySort, 'depotQty')}</th>}
+                {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(familySort, 'incomingOrders')}</th>}
+                {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(familySort, 'outgoingOrders')}</th>}
+                {panelColumns.realQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(familySort, 'realQty')}</th>}
+                {panelColumns.minQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'minQty'))}>Min{sortIndicator(familySort, 'minQty')}</th>}
+                {panelColumns.maxQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'maxQty'))}>Max{sortIndicator(familySort, 'maxQty')}</th>}
+                {panelColumns.packQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'packQty'))}>Koli Ici{sortIndicator(familySort, 'packQty')}</th>}
+                {panelColumns.costExVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costExVat'))}>Maliyet KDV Haric{sortIndicator(familySort, 'costExVat')}</th>}
+                {panelColumns.costIncVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costIncVat'))}>Maliyet KDV Dahil{sortIndicator(familySort, 'costIncVat')}</th>}
+                {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
+                <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'suggested'))}>Aile Oneri{sortIndicator(familySort, 'suggested')}</th>
+                <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'allocation'))}>Dagitim{sortIndicator(familySort, 'allocation')}</th>
+                <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'diff'))}>Fark{sortIndicator(familySort, 'diff')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredActiveFamilyRows.length === 0 && (
+                <tr>
+                  <td colSpan={20} className="px-2 py-4 text-center text-gray-500">
+                    Bu ailede Ucarer raporunda tum degerleri sifir olan urunler gizlendi. Gorunen urun yok.
+                  </td>
+                </tr>
+              )}
+              {filteredActiveFamilyRows.map((entry) => {
+                const item = entry.item;
+                const code = entry.code;
+                const row = entry.row;
+                const itemNeed = entry.suggested;
+                const allocation = entry.allocation;
+                const diff = entry.diff;
+                return (
+                  <tr key={item.id} className={`border-t ${getRowHighlightClass(row)}`}>
+                    <td
+                      className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                      style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedTransferByCode[code])}
+                        onChange={(e) =>
+                          setSelectedTransferByCode((prev) => ({
+                            ...prev,
+                            [code]: e.target.checked,
+                          }))
+                        }
+                      />
+                    </td>
+                    <td
+                      className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
+                      style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                    >
+                      {item.productCode}
+                    </td>
+                    <td
+                      className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                      style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                    >
+                      {item.productName || '-'}
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        list="ucarer-supplier-cari-list"
+                        value={getEffectiveSupplierCode(code)}
+                        onChange={(e) =>
+                          setSupplierOverrideByCode((prev) => ({
+                            ...prev,
+                            [code]: String(e.target.value || '').trim().toUpperCase(),
+                          }))
+                        }
+                        className="w-32 rounded border px-2 py-1 text-xs uppercase"
+                        placeholder="Cari kodu"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-gray-600">{getEffectiveSupplierName(code)}</td>
+                    <td className="px-2 py-2 text-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => updateMainSupplier(code)}
+                        disabled={Boolean(updatingSupplierByCode[code])}
+                      >
+                        {updatingSupplierByCode[code] ? '...' : 'Saglayiciyi Guncelle'}
+                      </Button>
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(persistSupplierOverrideByCode[code])}
+                        onChange={(e) =>
+                          setPersistSupplierOverrideByCode((prev) => ({
+                            ...prev,
+                            [code]: e.target.checked,
+                          }))
+                        }
+                      />
+                    </td>
+                    {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
+                    {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
+                    {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
+                    {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
+                    {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
+                    {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
+                    {panelColumns.packQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'packQty')}</td>}
+                    {panelColumns.costExVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costExVat')}</td>}
+                    {panelColumns.costIncVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costIncVat')}</td>}
+                    {panelColumns.currentCost && (
+                      <td className="px-2 py-2 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={costPInputByCode[code] ?? ''}
+                            onChange={(e) => {
+                              const rawValue = e.target.value;
+                              setCostPInputByCode((prev) => ({
+                                ...prev,
+                                [code]: rawValue,
+                              }));
+                              if (manualCostPOverrideByCode[code]) return;
+                              const parsed = Number(String(rawValue || '').replace(',', '.'));
+                              if (!Number.isFinite(parsed)) return;
+                              const vatRate = Number(vatRateByCode[code] ?? 0);
+                              const vatPercent = vatRate <= 1 ? vatRate * 100 : vatRate;
+                              const autoCostP = parsed * (1 + vatPercent / 200);
+                              setCostTInputByCode((prev) => ({
+                                ...prev,
+                                [code]: Number.isFinite(autoCostP) ? autoCostP.toFixed(4).replace(/\.?0+$/, '') : prev[code] || '',
+                              }));
+                            }}
+                            className="w-20 rounded border px-2 py-1 text-right"
+                            title="Maliyet T"
+                            placeholder="T"
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={costTInputByCode[code] ?? ''}
+                            onChange={(e) => {
+                              setManualCostPOverrideByCode((prev) => ({ ...prev, [code]: true }));
+                              setCostTInputByCode((prev) => ({
+                                ...prev,
+                                [code]: e.target.value,
+                              }));
+                            }}
+                            className="w-20 rounded border px-2 py-1 text-right"
+                            title="Maliyet P"
+                            placeholder="P"
+                          />
+                          <span className="text-[10px] text-gray-600">KDV %{((Number(vatRateByCode[code] ?? 0) <= 1 ? Number(vatRateByCode[code] ?? 0) * 100 : Number(vatRateByCode[code] ?? 0))).toLocaleString('tr-TR')}</span>
+                          <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(updatePriceListsByCode[code])}
+                              onChange={(e) =>
+                                setUpdatePriceListsByCode((prev) => ({
+                                  ...prev,
+                                  [code]: e.target.checked,
+                                }))
+                              }
+                            />
+                            10 liste
+                          </label>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => updateProductCost(code)}
+                            disabled={Boolean(updatingCostByCode[code])}
+                          >
+                            {updatingCostByCode[code] ? '...' : 'Guncelle'}
+                          </Button>
+                        </div>
+                      </td>
+                    )}
+                    <td className="px-2 py-2 text-right text-emerald-700 font-semibold">{itemNeed.toLocaleString('tr-TR')}</td>
+                    <td className="px-2 py-2 text-right">
+                      <input
+                        type="number"
+                        min={0}
+                        value={allocation}
+                        onChange={(e) => setManualAllocation(activeFamily.id, code, Number(e.target.value))}
+                        className="w-24 rounded border px-2 py-1 text-right"
+                        disabled={mode !== 'MANUAL'}
+                      />
+                    </td>
+                    <td className={`px-2 py-2 text-right font-semibold ${diff === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {diff.toLocaleString('tr-TR')}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   };
@@ -1722,453 +2131,9 @@ export default function UcarerDepotReportPage() {
               </div>
             </div>
 
-            <div className="rounded-md border bg-white p-3">
-              <p className="text-xs font-semibold text-gray-700 mb-2">Operasyon Kolonlari (ac/kapat)</p>
-              <div className="flex flex-wrap gap-3 text-xs text-gray-700">
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.depotQty} onChange={(e) => setPanelColumns((p) => ({ ...p, depotQty: e.target.checked }))} />
-                  Depo Miktari
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.incomingOrders} onChange={(e) => setPanelColumns((p) => ({ ...p, incomingOrders: e.target.checked }))} />
-                  Alinan Siparis
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.outgoingOrders} onChange={(e) => setPanelColumns((p) => ({ ...p, outgoingOrders: e.target.checked }))} />
-                  Verilen Siparis
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.realQty} onChange={(e) => setPanelColumns((p) => ({ ...p, realQty: e.target.checked }))} />
-                  Reel Miktar
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.minQty} onChange={(e) => setPanelColumns((p) => ({ ...p, minQty: e.target.checked }))} />
-                  Min
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.maxQty} onChange={(e) => setPanelColumns((p) => ({ ...p, maxQty: e.target.checked }))} />
-                  Max
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.currentCost} onChange={(e) => setPanelColumns((p) => ({ ...p, currentCost: e.target.checked }))} />
-                  Maliyet (P/T)
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.packQty} onChange={(e) => setPanelColumns((p) => ({ ...p, packQty: e.target.checked }))} />
-                  Koli Ici
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.costExVat} onChange={(e) => setPanelColumns((p) => ({ ...p, costExVat: e.target.checked }))} />
-                  Maliyet KDV Haric
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={panelColumns.costIncVat} onChange={(e) => setPanelColumns((p) => ({ ...p, costIncVat: e.target.checked }))} />
-                  Maliyet KDV Dahil
-                </label>
-              </div>
-            </div>
-
             {familyLoading && <p className="text-sm text-gray-500">Aileler yukleniyor...</p>}
             {!familyLoading && !activeFamily && families.length > 0 && (
               <p className="text-sm text-gray-500">Aile detayi acmak icin listeden "Detayi Ac" kullanin.</p>
-            )}
-
-            {activeFamily && (
-              <div
-                className={`rounded-xl border bg-gradient-to-br from-white to-slate-50 p-4 space-y-4 transition-all ${
-                  panelHighlight ? 'ring-2 ring-emerald-400 shadow-xl' : 'shadow-sm'
-                }`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-lg font-semibold text-gray-900">
-                      {activeFamily.name} {activeFamily.code ? `(${activeFamily.code})` : ''}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      Mode gore ihtiyac ({suggestionMode === 'INCLUDE_MINMAX' ? '4. Sorun' : '3. Sorun'})
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div className="rounded-lg bg-white border px-3 py-2">
-                      <p className="text-[11px] text-gray-500">Ihtiyac</p>
-                      <p className={`font-semibold ${activeFamilyNeedRaw < 0 ? 'text-red-700' : 'text-gray-900'}`}>
-                        {activeFamilyNeedRaw.toLocaleString('tr-TR')}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-white border px-3 py-2">
-                      <p className="text-[11px] text-gray-500">Dagitim</p>
-                      <p className="font-semibold text-blue-700">{activeFamilyAllocated.toLocaleString('tr-TR')}</p>
-                    </div>
-                    <div className="rounded-lg bg-white border px-3 py-2">
-                      <p className="text-[11px] text-gray-500">Kalan</p>
-                      <p className={`font-semibold ${activeFamilyRemaining === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {activeFamilyRemaining.toLocaleString('tr-TR')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                {Boolean(activeFamilySuggestion?.redirectSuggestions?.length) && (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
-                    <strong>Yonlendirme Onerileri:</strong>
-                    {(activeFamilySuggestion?.redirectSuggestions || []).map((item, idx) => (
-                      <p
-                        key={`redir-${idx}`}
-                        className={
-                          item.type === 'ORDER'
-                            ? 'rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-900'
-                            : 'rounded border border-amber-200 bg-amber-100 px-2 py-1 text-amber-900'
-                        }
-                      >
-                        {item.text}
-                      </p>
-                    ))}
-                  </div>
-                )}
-
-                <div className="rounded-lg border bg-white p-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={fillActiveBySuggestions}>
-                      <WandSparkles className="mr-1 h-3 w-3" />
-                      Oneriye Gore Doldur
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={splitActiveEvenly}>
-                      Esit Dagit
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={clearActiveAllocations}>
-                      Sifirla
-                    </Button>
-                    <p className="text-xs text-gray-600">
-                      Hizli aksiyonlar manuel dagitim tablosunu otomatik doldurur.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
-                  <div className="lg:col-span-3">
-                    <p className="text-xs text-gray-600 mb-1">Dagitim Modu</p>
-                    <Select
-                      value={allocationModeByFamily[activeFamily.id] || 'MANUAL'}
-                      onChange={(e) =>
-                        setAllocationModeByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value as AllocationMode }))
-                      }
-                    >
-                      <option value="SINGLE">Tek Urun</option>
-                      <option value="TWO_SPLIT">Iki Urun</option>
-                      <option value="MANUAL">Manuel</option>
-                    </Select>
-                  </div>
-
-                  {(allocationModeByFamily[activeFamily.id] || 'MANUAL') === 'SINGLE' && (
-                    <>
-                      <div className="lg:col-span-5">
-                        <p className="text-xs text-gray-600 mb-1">Urun</p>
-                        <Select
-                          value={singleCodeByFamily[activeFamily.id] || activeFamilyItems[0]?.productCode || ''}
-                          onChange={(e) =>
-                            setSingleCodeByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))
-                          }
-                        >
-                          {activeFamilyItems.map((item) => (
-                            <option key={item.id} value={item.productCode}>
-                              {item.productCode} - {item.productName || '-'}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div className="lg:col-span-2">
-                        <Button size="sm" className="w-full" onClick={() => applySingleAllocation(activeFamily)}>
-                          Uygula
-                        </Button>
-                      </div>
-                    </>
-                  )}
-
-                  {(allocationModeByFamily[activeFamily.id] || 'MANUAL') === 'TWO_SPLIT' && (
-                    <>
-                      <div className="lg:col-span-3">
-                        <p className="text-xs text-gray-600 mb-1">Urun A</p>
-                        <Select
-                          value={splitAByFamily[activeFamily.id] || activeFamilyItems[0]?.productCode || ''}
-                          onChange={(e) => setSplitAByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
-                        >
-                          {activeFamilyItems.map((item) => (
-                            <option key={item.id} value={item.productCode}>
-                              {item.productCode}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div className="lg:col-span-3">
-                        <p className="text-xs text-gray-600 mb-1">Urun B</p>
-                        <Select
-                          value={splitBByFamily[activeFamily.id] || activeFamilyItems[1]?.productCode || activeFamilyItems[0]?.productCode || ''}
-                          onChange={(e) => setSplitBByFamily((prev) => ({ ...prev, [activeFamily.id]: e.target.value }))}
-                        >
-                          {activeFamilyItems.map((item) => (
-                            <option key={item.id} value={item.productCode}>
-                              {item.productCode}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div className="lg:col-span-2">
-                        <p className="text-xs text-gray-600 mb-1">A Orani %{splitRatioByFamily[activeFamily.id] ?? 50}</p>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={5}
-                          value={splitRatioByFamily[activeFamily.id] ?? 50}
-                          onChange={(e) =>
-                            setSplitRatioByFamily((prev) => ({ ...prev, [activeFamily.id]: Number(e.target.value) }))
-                          }
-                          className="w-full"
-                        />
-                      </div>
-                      <div className="lg:col-span-1">
-                        <Button size="sm" className="w-full" onClick={() => applySplitAllocation(activeFamily)}>
-                          Uygula
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="rounded-md border bg-white p-2">
-                  <input
-                    type="text"
-                    value={familyDetailSearch}
-                    onChange={(e) => setFamilyDetailSearch(e.target.value)}
-                    className="w-full rounded border px-2 py-1 text-xs"
-                    placeholder="Aile detayinda ara (stok kodu/adi/saglayici)"
-                  />
-                </div>
-
-                <div className="overflow-x-auto overflow-y-auto rounded border bg-white max-h-[62vh]">
-                  <table className="w-max min-w-[2200px] text-[11px]">
-                    <thead className="bg-gray-100 sticky top-0 z-20">
-                      <tr>
-                        <th
-                          className="px-2 py-2 text-center sticky left-0 top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
-                          style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
-                          onClick={() => setFamilySort((prev) => updateSort(prev, 'color'))}
-                        >
-                          Sec{sortIndicator(familySort, 'color')}
-                        </th>
-                        <th
-                          className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 cursor-pointer"
-                          style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
-                          onClick={() => setFamilySort((prev) => updateSort(prev, 'code'))}
-                        >
-                          Stok Kodu{sortIndicator(familySort, 'code')}
-                        </th>
-                        <th
-                          className="px-2 py-2 text-left sticky top-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)] cursor-pointer"
-                          style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
-                          onClick={() => setFamilySort((prev) => updateSort(prev, 'name'))}
-                        >
-                          Urun Adi{sortIndicator(familySort, 'name')}
-                        </th>
-                        <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'supplierCode'))}>Saglayici Kodu{sortIndicator(familySort, 'supplierCode')}</th>
-                        <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(familySort, 'supplierName')}</th>
-                        <th className="px-2 py-2 text-center">Ana Saglayici</th>
-                        <th className="px-2 py-2 text-center">Kalici Degistir</th>
-                        {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(familySort, 'depotQty')}</th>}
-                        {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(familySort, 'incomingOrders')}</th>}
-                        {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(familySort, 'outgoingOrders')}</th>}
-                        {panelColumns.realQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(familySort, 'realQty')}</th>}
-                        {panelColumns.minQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'minQty'))}>Min{sortIndicator(familySort, 'minQty')}</th>}
-                        {panelColumns.maxQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'maxQty'))}>Max{sortIndicator(familySort, 'maxQty')}</th>}
-                        {panelColumns.packQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'packQty'))}>Koli Ici{sortIndicator(familySort, 'packQty')}</th>}
-                        {panelColumns.costExVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costExVat'))}>Maliyet KDV Haric{sortIndicator(familySort, 'costExVat')}</th>}
-                        {panelColumns.costIncVat && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'costIncVat'))}>Maliyet KDV Dahil{sortIndicator(familySort, 'costIncVat')}</th>}
-                        {panelColumns.currentCost && <th className="px-2 py-2 text-right">Maliyet P/T</th>}
-                        <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'suggested'))}>Aile Oneri{sortIndicator(familySort, 'suggested')}</th>
-                        <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'allocation'))}>Dagitim{sortIndicator(familySort, 'allocation')}</th>
-                        <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'diff'))}>Fark{sortIndicator(familySort, 'diff')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredActiveFamilyRows.length === 0 && (
-                        <tr>
-                          <td colSpan={20} className="px-2 py-4 text-center text-gray-500">
-                            Bu ailede Ucarer raporunda tum degerleri sifir olan urunler gizlendi. Gorunen urun yok.
-                          </td>
-                        </tr>
-                      )}
-                      {filteredActiveFamilyRows.map((entry) => {
-                        const item = entry.item;
-                        const code = entry.code;
-                        const row = entry.row;
-                        const itemNeed = entry.suggested;
-                        const allocation = entry.allocation;
-                        const diff = entry.diff;
-                        const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
-                        return (
-                          <tr key={item.id} className={`border-t ${getRowHighlightClass(row)}`}>
-                            <td
-                              className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
-                              style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={Boolean(selectedTransferByCode[code])}
-                                onChange={(e) =>
-                                  setSelectedTransferByCode((prev) => ({
-                                    ...prev,
-                                    [code]: e.target.checked,
-                                  }))
-                                }
-                              />
-                            </td>
-                            <td
-                              className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
-                              style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
-                            >
-                              {item.productCode}
-                            </td>
-                            <td
-                              className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
-                              style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
-                            >
-                              {item.productName || '-'}
-                            </td>
-                            <td className="px-2 py-2">
-                              <input
-                                list="ucarer-supplier-cari-list"
-                                value={getEffectiveSupplierCode(code)}
-                                onChange={(e) =>
-                                  setSupplierOverrideByCode((prev) => ({
-                                    ...prev,
-                                    [code]: String(e.target.value || '').trim().toUpperCase(),
-                                  }))
-                                }
-                                className="w-32 rounded border px-2 py-1 text-xs uppercase"
-                                placeholder="Cari kodu"
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-gray-600">{getEffectiveSupplierName(code)}</td>
-                            <td className="px-2 py-2 text-center">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateMainSupplier(code)}
-                                disabled={Boolean(updatingSupplierByCode[code])}
-                              >
-                                {updatingSupplierByCode[code] ? '...' : 'Saglayiciyi Guncelle'}
-                              </Button>
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(persistSupplierOverrideByCode[code])}
-                                onChange={(e) =>
-                                  setPersistSupplierOverrideByCode((prev) => ({
-                                    ...prev,
-                                    [code]: e.target.checked,
-                                  }))
-                                }
-                              />
-                            </td>
-                            {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
-                            {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
-                            {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
-                            {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
-                            {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
-                            {panelColumns.maxQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'maxQty')}</td>}
-                            {panelColumns.packQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'packQty')}</td>}
-                            {panelColumns.costExVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costExVat')}</td>}
-                            {panelColumns.costIncVat && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'costIncVat')}</td>}
-                            {panelColumns.currentCost && (
-                              <td className="px-2 py-2 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step="0.01"
-                                    value={costPInputByCode[code] ?? ''}
-                                    onChange={(e) => {
-                                      const rawValue = e.target.value;
-                                      setCostPInputByCode((prev) => ({
-                                        ...prev,
-                                        [code]: rawValue,
-                                      }));
-                                      if (manualCostPOverrideByCode[code]) return;
-                                      const parsed = Number(String(rawValue || '').replace(',', '.'));
-                                      if (!Number.isFinite(parsed)) return;
-                                      const vatRate = Number(vatRateByCode[code] ?? 0);
-                                      const vatPercent = vatRate <= 1 ? vatRate * 100 : vatRate;
-                                      const autoCostP = parsed * (1 + vatPercent / 200);
-                                      setCostTInputByCode((prev) => ({
-                                        ...prev,
-                                        [code]: Number.isFinite(autoCostP) ? autoCostP.toFixed(4).replace(/\.?0+$/, '') : prev[code] || '',
-                                      }));
-                                    }}
-                                    className="w-20 rounded border px-2 py-1 text-right"
-                                    title="Maliyet T"
-                                    placeholder="T"
-                                  />
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step="0.01"
-                                    value={costTInputByCode[code] ?? ''}
-                                    onChange={(e) => {
-                                      setManualCostPOverrideByCode((prev) => ({ ...prev, [code]: true }));
-                                      setCostTInputByCode((prev) => ({
-                                        ...prev,
-                                        [code]: e.target.value,
-                                      }));
-                                    }}
-                                    className="w-20 rounded border px-2 py-1 text-right"
-                                    title="Maliyet P"
-                                    placeholder="P"
-                                  />
-                                  <span className="text-[10px] text-gray-600">KDV %{((Number(vatRateByCode[code] ?? 0) <= 1 ? Number(vatRateByCode[code] ?? 0) * 100 : Number(vatRateByCode[code] ?? 0))).toLocaleString('tr-TR')}</span>
-                                  <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
-                                    <input
-                                      type="checkbox"
-                                      checked={Boolean(updatePriceListsByCode[code])}
-                                      onChange={(e) =>
-                                        setUpdatePriceListsByCode((prev) => ({
-                                          ...prev,
-                                          [code]: e.target.checked,
-                                        }))
-                                      }
-                                    />
-                                    10 liste
-                                  </label>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => updateProductCost(code)}
-                                    disabled={Boolean(updatingCostByCode[code])}
-                                  >
-                                    {updatingCostByCode[code] ? '...' : 'Guncelle'}
-                                  </Button>
-                                </div>
-                              </td>
-                            )}
-                            <td className="px-2 py-2 text-right text-emerald-700 font-semibold">{itemNeed.toLocaleString('tr-TR')}</td>
-                            <td className="px-2 py-2 text-right">
-                              <input
-                                type="number"
-                                min={0}
-                                value={allocation}
-                                onChange={(e) => setManualAllocation(activeFamily.id, code, Number(e.target.value))}
-                                className="w-24 rounded border px-2 py-1 text-right"
-                                disabled={mode !== 'MANUAL'}
-                              />
-                            </td>
-                            <td className={`px-2 py-2 text-right font-semibold ${diff === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                              {diff.toLocaleString('tr-TR')}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             )}
 
             <div className="rounded-xl border bg-white p-4 space-y-3">
