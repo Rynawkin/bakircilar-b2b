@@ -464,24 +464,6 @@ export default function UcarerDepotReportPage() {
         }
         if (active) {
           setCurrentCostByCode(costMap);
-          setCostPInputByCode((prev) => {
-            const next: Record<string, string> = { ...prev };
-            Object.entries(costMap).forEach(([code, value]) => {
-              if (next[code] === undefined) {
-                next[code] = Number(value).toString();
-              }
-            });
-            return next;
-          });
-          setCostTInputByCode((prev) => {
-            const next: Record<string, string> = { ...prev };
-            Object.entries(costMap).forEach(([code, value]) => {
-              if (next[code] === undefined) {
-                next[code] = Number(value).toString();
-              }
-            });
-            return next;
-          });
           setVatRateByCode((prev) => ({ ...prev, ...vatMap }));
           setPackQtyByCode((prev) => ({ ...prev, ...packMap }));
           setMainSupplierByCode(supplierMap);
@@ -885,8 +867,8 @@ export default function UcarerDepotReportPage() {
   };
   const updateProductCost = async (productCode: string) => {
     const code = String(productCode || '').trim().toUpperCase();
-    const parsedCostT = Number(String(costPInputByCode[code] || '').replace(',', '.'));
-    const parsedCostP = Number(String(costTInputByCode[code] || '').replace(',', '.'));
+    const parsedCostP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+    const parsedCostT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
     if (!Number.isFinite(parsedCostP) || parsedCostP <= 0) {
       toast.error('Gecerli bir Maliyet P girin.');
       return;
@@ -908,8 +890,8 @@ export default function UcarerDepotReportPage() {
       const newCostT = Number(result.data?.costT || parsedCostT);
       const newCost = Number(result.data?.currentCost || newCostP);
       setCurrentCostByCode((prev) => ({ ...prev, [code]: newCost }));
-      setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
-      setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
+      setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
+      setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
       const missing = result.data?.missingLists || [];
       if (Boolean(updatePriceListsByCode[code])) {
         if (missing.length > 0) {
@@ -1225,8 +1207,8 @@ export default function UcarerDepotReportPage() {
             familyId: family.id,
             productCode: code,
             quantity: qty,
-            unitPriceOverride: Number.isFinite(Number(String(costTInputByCode[code] || '').replace(',', '.')))
-              ? Math.max(0, Number(String(costTInputByCode[code] || '').replace(',', '.')))
+            unitPriceOverride: Number.isFinite(Number(String(costPInputByCode[code] || '').replace(',', '.')))
+              ? Math.max(0, Number(String(costPInputByCode[code] || '').replace(',', '.')))
               : null,
             supplierCodeOverride,
             persistSupplierOverride: Boolean(persistSupplierOverrideByCode[code]),
@@ -1243,8 +1225,8 @@ export default function UcarerDepotReportPage() {
           familyId: null,
           productCode: item.code,
           quantity: qty,
-          unitPriceOverride: Number.isFinite(Number(String(costTInputByCode[item.code] || '').replace(',', '.')))
-            ? Math.max(0, Number(String(costTInputByCode[item.code] || '').replace(',', '.')))
+          unitPriceOverride: Number.isFinite(Number(String(costPInputByCode[item.code] || '').replace(',', '.')))
+            ? Math.max(0, Number(String(costPInputByCode[item.code] || '').replace(',', '.')))
             : null,
           supplierCodeOverride,
           persistSupplierOverride: Boolean(persistSupplierOverrideByCode[item.code]),
