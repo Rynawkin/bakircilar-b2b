@@ -167,11 +167,30 @@ export default function ProductsPage() {
     const priceType = allowedPriceTypes.includes(requestedPriceType)
       ? requestedPriceType
       : defaultPriceType;
+    const hasAgreement = Boolean(product.agreement);
+    const excessInvoiced = resolveValidExcessPrice(
+      product.prices.invoiced,
+      product.excessPrices?.invoiced
+    );
+    const excessWhite = resolveValidExcessPrice(
+      product.prices.white,
+      product.excessPrices?.white
+    );
+    const showExcessPricing =
+      !hasAgreement &&
+      product.excessStock > 0 &&
+      (excessInvoiced !== undefined || excessWhite !== undefined);
+    const hasSelectedExcessPrice = showExcessPricing
+      ? (priceType === 'INVOICED' ? excessInvoiced !== undefined : excessWhite !== undefined)
+      : false;
+    const effectivePriceMode: 'LIST' | 'EXCESS' = hasSelectedExcessPrice ? 'EXCESS' : 'LIST';
 
     setAddingToCart({ ...addingToCart, [productId]: true });
 
     try {
-      const maxQty = getMaxOrderQuantity(product, 'LIST');
+      const maxQty = effectivePriceMode === 'EXCESS'
+        ? Math.max(0, Number(product.excessStock) || 0)
+        : getMaxOrderQuantity(product, 'LIST');
       if (quantity > maxQty) {
         const confirmed = await confirmBackorder({
           requestedQty: quantity,
@@ -186,7 +205,7 @@ export default function ProductsPage() {
         productId,
         quantity,
         priceType,
-        priceMode: 'LIST',
+        priceMode: effectivePriceMode,
       });
 
       // Reset quantity after adding
