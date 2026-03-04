@@ -503,10 +503,13 @@ export default function UcarerDepotReportPage() {
     };
   }, [families, nonFamilyRows, depotRows, suggestionMode]);
 
+  const isIncomingOrderRow = (row: Record<string, any> | undefined): boolean => {
+    if (!row || !incomingOrderColumn) return false;
+    return toNumberFlexible(row?.[incomingOrderColumn]) > 0;
+  };
+
   const getRowHighlightClass = (row: Record<string, any> | undefined): string => {
     if (!row) return '';
-    const incoming = incomingOrderColumn ? toNumberFlexible(row?.[incomingOrderColumn]) : 0;
-    if (incoming > 0) return 'bg-emerald-50';
     const need = Math.max(0, Math.trunc(getSuggestedQty(row)));
     if (need <= 0) return '';
 
@@ -514,18 +517,19 @@ export default function UcarerDepotReportPage() {
       depot === 'MERKEZ'
         ? toNumberFlexible(row?.[topcaDepoStockColumn || ''])
         : toNumberFlexible(row?.[merkezDepoStockColumn || '']);
-    if (otherDepotQty < need) return '';
+    if (otherDepotQty > 0 && otherDepotQty < need) return 'bg-red-200';
+    if (otherDepotQty <= 0) return '';
 
     const minQty = Math.max(0, toNumberFlexible(row?.[minQtyColumn || '']));
     const remainingAfterTransfer = otherDepotQty - need;
-    if (remainingAfterTransfer >= minQty) return 'bg-amber-50';
-    return 'bg-red-50';
+    if (remainingAfterTransfer >= minQty) return 'bg-emerald-200';
+    return 'bg-amber-200';
   };
   const getRowColorRank = (row: Record<string, any> | undefined): number => {
     const rowClass = getRowHighlightClass(row);
-    if (rowClass.includes('bg-red-50')) return 3;
-    if (rowClass.includes('bg-amber-50')) return 2;
-    if (rowClass.includes('bg-emerald-50')) return 1;
+    if (rowClass.includes('bg-red-200')) return 3;
+    if (rowClass.includes('bg-amber-200')) return 2;
+    if (rowClass.includes('bg-emerald-200')) return 1;
     return 0;
   };
 
@@ -565,9 +569,9 @@ export default function UcarerDepotReportPage() {
 
   const getStickyCellBgClass = (row: Record<string, any> | undefined): string => {
     const rowClass = getRowHighlightClass(row);
-    if (rowClass.includes('bg-emerald-50')) return 'bg-emerald-50';
-    if (rowClass.includes('bg-amber-50')) return 'bg-amber-50';
-    if (rowClass.includes('bg-red-50')) return 'bg-red-50';
+    if (rowClass.includes('bg-emerald-200')) return 'bg-emerald-200';
+    if (rowClass.includes('bg-amber-200')) return 'bg-amber-200';
+    if (rowClass.includes('bg-red-200')) return 'bg-red-200';
     return 'bg-white';
   };
 
@@ -1107,7 +1111,12 @@ export default function UcarerDepotReportPage() {
       : familySuggestions.filter((family) =>
           normalizeKey(`${family.name} ${family.code || ''}`).includes(query)
         );
-    return source.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    return source.sort((a, b) => {
+      const qtyA = Math.max(0, Number(a.suggestedRaw) || 0);
+      const qtyB = Math.max(0, Number(b.suggestedRaw) || 0);
+      if (qtyB !== qtyA) return qtyB - qtyA;
+      return a.name.localeCompare(b.name, 'tr');
+    });
   }, [familySuggestions, familyListSearch]);
   const suggestedFamilies = useMemo(
     () =>
@@ -1718,7 +1727,7 @@ export default function UcarerDepotReportPage() {
                 const allocation = entry.allocation;
                 const diff = entry.diff;
                 return (
-                  <tr key={item.id} className={`border-t ${getRowHighlightClass(row)}`}>
+                  <tr key={item.id} className={`border-t ${getRowHighlightClass(row)} ${isIncomingOrderRow(row) ? 'font-bold' : ''}`}>
                     <td
                       className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
                       style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
@@ -1888,7 +1897,7 @@ export default function UcarerDepotReportPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="container mx-auto px-4 py-8 pb-28 space-y-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link href="/reports">
@@ -2211,7 +2220,7 @@ export default function UcarerDepotReportPage() {
                       const rawAllocated = nonFamilyAllocations[code];
                       const allocated = rawAllocated === '' || rawAllocated === undefined ? '' : item.allocation;
                       return (
-                        <tr key={code} className={`border-t ${getRowHighlightClass(row)}`}>
+                        <tr key={code} className={`border-t ${getRowHighlightClass(row)} ${isIncomingOrderRow(row) ? 'font-bold' : ''}`}>
                           <td
                             className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
                             style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
@@ -2458,6 +2467,18 @@ export default function UcarerDepotReportPage() {
             </div>
           </CardContent>
         </Card>
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-300 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button onClick={createSupplierOrders} disabled={creatingOrders}>
+                {creatingOrders ? 'Olusturuluyor...' : 'Toplu Siparis Olustur'}
+              </Button>
+              <Button variant="secondary" onClick={createDepotTransferOrder} disabled={creatingTransferOrder}>
+                {creatingTransferOrder ? 'Olusturuluyor...' : 'Toplu Depolar Arasi Siparis Olustur'}
+              </Button>
+            </div>
+          </div>
+        </div>
         {seriesModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-4xl rounded-lg bg-white p-4 shadow-xl">
