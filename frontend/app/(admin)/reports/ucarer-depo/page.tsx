@@ -187,6 +187,19 @@ export default function UcarerDepotReportPage() {
   const [selectedTransferByCode, setSelectedTransferByCode] = useState<Record<string, boolean>>({});
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
+  const [minMaxExcludedRows, setMinMaxExcludedRows] = useState<
+    Array<{
+      productCode: string;
+      productName: string;
+      stoModelKodu: string;
+      distinctCustomersLast1Month: number;
+      distinctCustomersLast2Months: number;
+      distinctCustomersLast3Months: number;
+      hasMultiCustomerSalesLast2Months: boolean;
+    }>
+  >([]);
+  const [minMaxExcludedLoading, setMinMaxExcludedLoading] = useState(false);
+  const [updatingMinMaxExclusionByCode, setUpdatingMinMaxExclusionByCode] = useState<Record<string, boolean>>({});
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
   const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>('INCLUDE_MINMAX');
@@ -258,6 +271,18 @@ export default function UcarerDepotReportPage() {
     });
     return map;
   }, [depotRows, stockCodeColumn]);
+  const minMaxExcludedCodeSet = useMemo(
+    () => new Set(minMaxExcludedRows.map((row) => String(row.productCode || '').trim().toUpperCase()).filter(Boolean)),
+    [minMaxExcludedRows]
+  );
+  const getDepotRowProductCode = (row: Record<string, any> | undefined): string => {
+    if (!row) return '';
+    if (stockCodeColumn) {
+      return String(row?.[stockCodeColumn] || '').trim().toUpperCase();
+    }
+    const fallbackColumn = Object.keys(row).find((column) => normalizeKey(column).includes('stok kodu'));
+    return fallbackColumn ? String(row?.[fallbackColumn] || '').trim().toUpperCase() : '';
+  };
   const isRowOperationallyEmpty = (row?: Record<string, any>) => {
     if (!row) return true;
     let hasNumeric = false;
@@ -679,8 +704,21 @@ export default function UcarerDepotReportPage() {
     }
   };
 
+  const loadMinMaxExcludedReport = async () => {
+    setMinMaxExcludedLoading(true);
+    try {
+      const response = await adminApi.getUcarerMinMaxExcludedProductsReport();
+      setMinMaxExcludedRows(response.data?.rows || []);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'MinMax hesaplanmayacak stoklar alinamadi');
+    } finally {
+      setMinMaxExcludedLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadFamilies();
+    loadMinMaxExcludedReport();
   }, []);
 
   useEffect(() => {
@@ -709,6 +747,7 @@ export default function UcarerDepotReportPage() {
       setDepotTotal(Number(data.total || 0));
       setDepotLimited(Boolean(data.limited));
       await loadFamilies();
+      await loadMinMaxExcludedReport();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Ucarer depo raporu alinamadi');
     } finally {
@@ -930,6 +969,42 @@ export default function UcarerDepotReportPage() {
       toast.error(error?.response?.data?.error || 'Ana saglayici guncellenemedi');
     } finally {
       setUpdatingSupplierByCode((prev) => ({ ...prev, [code]: false }));
+    }
+  };
+  const setMinMaxExclusion = async (productCode: string, exclude: boolean) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return;
+    setUpdatingMinMaxExclusionByCode((prev) => ({ ...prev, [code]: true }));
+    try {
+      const result = await adminApi.setUcarerMinMaxExclusion({
+        productCode: code,
+        exclude,
+      });
+      const isExcluded = Boolean(result.data?.excluded);
+      setMinMaxExcludedRows((prev) => {
+        const filtered = prev.filter((row) => String(row.productCode || '').trim().toUpperCase() !== code);
+        if (!isExcluded) return filtered;
+        const fallbackName =
+          String(rowByProductCode.get(code)?.[productNameColumn || ''] || '').trim() || code;
+        return [
+          {
+            productCode: code,
+            productName: fallbackName,
+            stoModelKodu: 'HAYIR',
+            distinctCustomersLast1Month: 0,
+            distinctCustomersLast2Months: 0,
+            distinctCustomersLast3Months: 0,
+            hasMultiCustomerSalesLast2Months: false,
+          },
+          ...filtered,
+        ];
+      });
+      toast.success(isExcluded ? 'MinMax hesaplamasi disina alindi.' : 'MinMax hesaplamasina tekrar dahil edildi.');
+      await loadMinMaxExcludedReport();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'MinMax dislama islemi basarisiz');
+    } finally {
+      setUpdatingMinMaxExclusionByCode((prev) => ({ ...prev, [code]: false }));
     }
   };
 
@@ -1702,6 +1777,7 @@ export default function UcarerDepotReportPage() {
                 <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(familySort, 'supplierName')}</th>
                 <th className="px-2 py-2 text-center">Ana Saglayici</th>
                 <th className="px-2 py-2 text-center">Kalici Degistir</th>
+                <th className="px-2 py-2 text-center">MinMax</th>
                 {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(familySort, 'depotQty')}</th>}
                 {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(familySort, 'incomingOrders')}</th>}
                 {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(familySort, 'outgoingOrders')}</th>}
@@ -1797,6 +1873,20 @@ export default function UcarerDepotReportPage() {
                           }))
                         }
                       />
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setMinMaxExclusion(code, !minMaxExcludedCodeSet.has(code))}
+                        disabled={Boolean(updatingMinMaxExclusionByCode[code])}
+                      >
+                        {updatingMinMaxExclusionByCode[code]
+                          ? '...'
+                          : minMaxExcludedCodeSet.has(code)
+                          ? 'Hesaplamaya Al'
+                          : 'Hesaplama Disi'}
+                      </Button>
                     </td>
                     {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
                     {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
@@ -1989,6 +2079,12 @@ export default function UcarerDepotReportPage() {
                     >
                       Onerilen Miktar
                     </th>
+                    <th
+                      className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100 relative select-none"
+                      style={{ minWidth: '180px', height: `${headerHeight}px` }}
+                    >
+                      MinMax
+                    </th>
                     {visibleDepotColumns.map((column) => (
                       <th
                         key={column}
@@ -2010,15 +2106,36 @@ export default function UcarerDepotReportPage() {
                 <tbody>
                   {depotRows.length === 0 && (
                     <tr>
-                      <td colSpan={Math.max(2, visibleDepotColumns.length + 1)} className="px-2 py-6 text-center text-gray-500">
+                      <td colSpan={Math.max(3, visibleDepotColumns.length + 2)} className="px-2 py-6 text-center text-gray-500">
                         Kayit yok
                       </td>
                     </tr>
                   )}
-                  {depotRows.map((row, index) => (
+                  {depotRows.map((row, index) => {
+                    const rowCode = getDepotRowProductCode(row);
+                    const isExcluded = rowCode ? minMaxExcludedCodeSet.has(rowCode) : false;
+                    return (
                     <tr key={`${depot}-${index}`} className="border-t">
                       <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-700">
                         {getSuggestedQty(row).toLocaleString('tr-TR')}
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        {rowCode ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setMinMaxExclusion(rowCode, !isExcluded)}
+                            disabled={Boolean(updatingMinMaxExclusionByCode[rowCode])}
+                          >
+                            {updatingMinMaxExclusionByCode[rowCode]
+                              ? '...'
+                              : isExcluded
+                              ? 'Hesaplamaya Al'
+                              : 'Hesaplama Disi'}
+                          </Button>
+                        ) : (
+                          '-'
+                        )}
                       </td>
                       {visibleDepotColumns.map((column) => (
                         <td
@@ -2030,7 +2147,7 @@ export default function UcarerDepotReportPage() {
                         </td>
                       ))}
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -2221,6 +2338,7 @@ export default function UcarerDepotReportPage() {
                       <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'supplierName'))}>Saglayici Adi{sortIndicator(nonFamilySort, 'supplierName')}</th>
                       <th className="px-2 py-2 text-center">Ana Saglayici</th>
                       <th className="px-2 py-2 text-center">Kalici Degistir</th>
+                      <th className="px-2 py-2 text-center">MinMax</th>
                       {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(nonFamilySort, 'depotQty')}</th>}
                       {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(nonFamilySort, 'incomingOrders')}</th>}
                       {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(nonFamilySort, 'outgoingOrders')}</th>}
@@ -2314,6 +2432,20 @@ export default function UcarerDepotReportPage() {
                                 }))
                               }
                             />
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setMinMaxExclusion(code, !minMaxExcludedCodeSet.has(code))}
+                              disabled={Boolean(updatingMinMaxExclusionByCode[code])}
+                            >
+                              {updatingMinMaxExclusionByCode[code]
+                                ? '...'
+                                : minMaxExcludedCodeSet.has(code)
+                                ? 'Hesaplamaya Al'
+                                : 'Hesaplama Disi'}
+                            </Button>
                           </td>
                           {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
                           {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
@@ -2492,6 +2624,78 @@ export default function UcarerDepotReportPage() {
                       ))}
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>MinMax Hesaplanmayacak Stoklar</CardTitle>
+            <CardDescription>
+              `sto_model_kodu = HAYIR` olan stoklar. Buradan tekrar hesaplamaya dahil edebilirsiniz.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" onClick={loadMinMaxExcludedReport} disabled={minMaxExcludedLoading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${minMaxExcludedLoading ? 'animate-spin' : ''}`} />
+                {minMaxExcludedLoading ? 'Yenileniyor...' : 'Listeyi Yenile'}
+              </Button>
+              <p className="text-sm text-gray-600">
+                Toplam: <strong>{minMaxExcludedRows.length.toLocaleString('tr-TR')}</strong>
+              </p>
+              <p className="text-xs text-gray-500">
+                Son 2 ayda 1'den fazla farkli cariye satilan urunler renkli gosterilir.
+              </p>
+            </div>
+
+            <div className="overflow-auto rounded-md border bg-white max-h-[58vh]">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-100 sticky top-0 z-10">
+                  <tr>
+                    <th className="px-2 py-2 text-left">Stok Kodu</th>
+                    <th className="px-2 py-2 text-left">Stok Adi</th>
+                    <th className="px-2 py-2 text-left">Model Kodu</th>
+                    <th className="px-2 py-2 text-right">Son 1 Ay Farkli Cari</th>
+                    <th className="px-2 py-2 text-right">Son 2 Ay Farkli Cari</th>
+                    <th className="px-2 py-2 text-right">Son 3 Ay Farkli Cari</th>
+                    <th className="px-2 py-2 text-center">Islem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {minMaxExcludedRows.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-2 py-6 text-center text-gray-500">
+                        MinMax hesaplamasi disi isaretli stok yok.
+                      </td>
+                    </tr>
+                  )}
+                  {minMaxExcludedRows.map((row) => {
+                    const code = String(row.productCode || '').trim().toUpperCase();
+                    const rowHighlight = row.hasMultiCustomerSalesLast2Months ? 'bg-amber-300/70' : '';
+                    return (
+                      <tr key={code} className={`border-t ${rowHighlight}`}>
+                        <td className="px-2 py-2 font-semibold text-gray-900">{code}</td>
+                        <td className="px-2 py-2">{row.productName || '-'}</td>
+                        <td className="px-2 py-2">{row.stoModelKodu || '-'}</td>
+                        <td className="px-2 py-2 text-right">{Number(row.distinctCustomersLast1Month || 0).toLocaleString('tr-TR')}</td>
+                        <td className="px-2 py-2 text-right">{Number(row.distinctCustomersLast2Months || 0).toLocaleString('tr-TR')}</td>
+                        <td className="px-2 py-2 text-right">{Number(row.distinctCustomersLast3Months || 0).toLocaleString('tr-TR')}</td>
+                        <td className="px-2 py-2 text-center">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setMinMaxExclusion(code, false)}
+                            disabled={Boolean(updatingMinMaxExclusionByCode[code])}
+                          >
+                            {updatingMinMaxExclusionByCode[code] ? '...' : 'Hesaplamaya Al'}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

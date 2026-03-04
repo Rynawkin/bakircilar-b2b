@@ -1984,6 +1984,38 @@ export const adminApi = {
     const response = await apiClient.post('/admin/reports/ucarer-minmax/run');
     return response.data;
   },
+  getUcarerMinMaxExcludedProductsReport: async (): Promise<{
+    success: boolean;
+    data: {
+      rows: Array<{
+        productCode: string;
+        productName: string;
+        stoModelKodu: string;
+        distinctCustomersLast1Month: number;
+        distinctCustomersLast2Months: number;
+        distinctCustomersLast3Months: number;
+        hasMultiCustomerSalesLast2Months: boolean;
+      }>;
+      total: number;
+    };
+  }> => {
+    const response = await apiClient.get('/admin/reports/ucarer-minmax-excluded');
+    return response.data;
+  },
+  setUcarerMinMaxExclusion: async (payload: {
+    productCode: string;
+    exclude: boolean;
+  }): Promise<{
+    success: boolean;
+    data: {
+      productCode: string;
+      excluded: boolean;
+      stoModelKodu: string | null;
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/ucarer-minmax-exclusion', payload);
+    return response.data;
+  },
 
   getProductFamilies: async (): Promise<{
     success: boolean;

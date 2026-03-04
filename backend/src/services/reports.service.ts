@@ -4434,6 +4434,138 @@ export class ReportsService {
     };
   }
 
+  async setUcarerMinMaxExclusion(input: {
+    productCode: string;
+    exclude: boolean;
+  }): Promise<{
+    productCode: string;
+    excluded: boolean;
+    stoModelKodu: string | null;
+  }> {
+    const productCode = String(input.productCode || '').trim().toUpperCase();
+    const exclude = Boolean(input.exclude);
+
+    if (!productCode) {
+      throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const escapedCode = productCode.replace(/'/g, "''");
+    const existsRows = await mikroService.executeQuery(`
+      SELECT TOP 1 sto_kod
+      FROM STOKLAR
+      WHERE sto_kod = '${escapedCode}'
+    `);
+    if (!Array.isArray(existsRows) || existsRows.length === 0) {
+      throw new AppError('Stok bulunamadi.', 404, ErrorCode.NOT_FOUND);
+    }
+
+    if (exclude) {
+      await mikroService.executeQuery(`
+        UPDATE STOKLAR
+        SET sto_model_kodu = 'HAYIR'
+        WHERE sto_kod = '${escapedCode}'
+      `);
+    } else {
+      await mikroService.executeQuery(`
+        UPDATE STOKLAR
+        SET sto_model_kodu =
+          CASE
+            WHEN UPPER(LTRIM(RTRIM(ISNULL(sto_model_kodu, '')))) = 'HAYIR' THEN ''
+            ELSE sto_model_kodu
+          END
+        WHERE sto_kod = '${escapedCode}'
+      `);
+    }
+
+    const resultRows = await mikroService.executeQuery(`
+      SELECT TOP 1 LTRIM(RTRIM(ISNULL(sto_model_kodu, ''))) AS stoModelKodu
+      FROM STOKLAR
+      WHERE sto_kod = '${escapedCode}'
+    `);
+    const stoModelKoduRaw = String(resultRows?.[0]?.stoModelKodu || '').trim();
+    const normalizedStoModelKodu = stoModelKoduRaw || null;
+    const excluded = String(normalizedStoModelKodu || '').toUpperCase() === 'HAYIR';
+
+    return {
+      productCode,
+      excluded,
+      stoModelKodu: normalizedStoModelKodu,
+    };
+  }
+
+  async getUcarerMinMaxExcludedProductsReport(): Promise<{
+    rows: Array<{
+      productCode: string;
+      productName: string;
+      stoModelKodu: string;
+      distinctCustomersLast1Month: number;
+      distinctCustomersLast2Months: number;
+      distinctCustomersLast3Months: number;
+      hasMultiCustomerSalesLast2Months: boolean;
+    }>;
+    total: number;
+  }> {
+    const rows = await mikroService.executeQuery(`
+      SELECT
+        s.sto_kod AS productCode,
+        LTRIM(RTRIM(ISNULL(s.sto_isim, ''))) AS productName,
+        LTRIM(RTRIM(ISNULL(s.sto_model_kodu, ''))) AS stoModelKodu,
+        ISNULL(x.distinctCustomersLast1Month, 0) AS distinctCustomersLast1Month,
+        ISNULL(x.distinctCustomersLast2Months, 0) AS distinctCustomersLast2Months,
+        ISNULL(x.distinctCustomersLast3Months, 0) AS distinctCustomersLast3Months
+      FROM STOKLAR s
+      OUTER APPLY (
+        SELECT
+          COUNT(DISTINCT CASE
+            WHEN sth.sth_tarih >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
+            THEN LTRIM(RTRIM(ISNULL(sth.sth_cari_kodu, '')))
+            ELSE NULL
+          END) AS distinctCustomersLast1Month,
+          COUNT(DISTINCT CASE
+            WHEN sth.sth_tarih >= DATEADD(MONTH, -2, CAST(GETDATE() AS date))
+            THEN LTRIM(RTRIM(ISNULL(sth.sth_cari_kodu, '')))
+            ELSE NULL
+          END) AS distinctCustomersLast2Months,
+          COUNT(DISTINCT CASE
+            WHEN sth.sth_tarih >= DATEADD(MONTH, -3, CAST(GETDATE() AS date))
+            THEN LTRIM(RTRIM(ISNULL(sth.sth_cari_kodu, '')))
+            ELSE NULL
+          END) AS distinctCustomersLast3Months
+        FROM STOK_HAREKETLERI sth
+        WHERE sth.sth_stok_kod = s.sto_kod
+          AND sth.sth_cins = 0
+          AND sth.sth_tip = 1
+          AND LTRIM(RTRIM(ISNULL(sth.sth_cari_kodu, ''))) <> ''
+          AND sth.sth_tarih >= DATEADD(MONTH, -3, CAST(GETDATE() AS date))
+      ) x
+      WHERE UPPER(LTRIM(RTRIM(ISNULL(s.sto_model_kodu, '')))) = 'HAYIR'
+      ORDER BY
+        ISNULL(x.distinctCustomersLast2Months, 0) DESC,
+        ISNULL(x.distinctCustomersLast1Month, 0) DESC,
+        s.sto_kod ASC
+    `);
+
+    const normalizedRows = (Array.isArray(rows) ? rows : []).map((row: any) => {
+      const distinctCustomersLast1Month = Number(row?.distinctCustomersLast1Month || 0);
+      const distinctCustomersLast2Months = Number(row?.distinctCustomersLast2Months || 0);
+      const distinctCustomersLast3Months = Number(row?.distinctCustomersLast3Months || 0);
+      return {
+        productCode: String(row?.productCode || '').trim().toUpperCase(),
+        productName: String(row?.productName || '').trim(),
+        stoModelKodu: String(row?.stoModelKodu || '').trim(),
+        distinctCustomersLast1Month: Number.isFinite(distinctCustomersLast1Month) ? distinctCustomersLast1Month : 0,
+        distinctCustomersLast2Months: Number.isFinite(distinctCustomersLast2Months) ? distinctCustomersLast2Months : 0,
+        distinctCustomersLast3Months: Number.isFinite(distinctCustomersLast3Months) ? distinctCustomersLast3Months : 0,
+        hasMultiCustomerSalesLast2Months: Number.isFinite(distinctCustomersLast2Months) && distinctCustomersLast2Months > 1,
+      };
+    });
+
+    return {
+      rows: normalizedRows,
+      total: normalizedRows.length,
+    };
+  }
+
   async getProductFamilies(): Promise<Array<{
     id: string;
     name: string;
