@@ -106,6 +106,16 @@ const reports: ReportCard[] = [
     permission: 'reports:ucarer-minmax',
   },
   {
+    id: 'ucarer-minmax-exclusions',
+    title: 'MinMax Hesaplanmayacaklar',
+    description: 'HAYIR isaretli stoklari gor, son 1/2/3 ay farkli cari satislarini izle ve tekrar hesaplamaya al',
+    icon: <Sigma className="h-5 w-5" />,
+    href: '/reports/ucarer-minmax-exclusions',
+    category: 'stock',
+    badge: 'Yeni',
+    permission: 'reports:ucarer-depo',
+  },
+  {
     id: 'product-families',
     title: 'Stok Aile Yonetimi',
     description: 'Urun havuzundan secerek stok ailesi olustur ve duzenle',
