@@ -82,8 +82,8 @@ const parseQuickQuantity = (value: string): number | null => {
 const KEYBOARD_ROWS = [
   ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
   ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'],
-  ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', '*', '/'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'İ', 'Ö', 'Ü'],
+  ['Z', 'X', 'C', 'V', 'B', 'N', 'M', 'Ç', 'Ğ', 'Ş', '.', '-'],
 ];
 
 const NUMPAD_KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.'];
@@ -234,13 +234,36 @@ export default function WarehouseRetailPage() {
     }
   };
 
-  const handleBarcodeScanSubmit = () => {
-    const token = searchText.trim().toUpperCase();
+  const findScannedProduct = (list: RetailProduct[], token: string) => {
+    const exactCode = list.find((product) => product.productCode.toUpperCase() === token);
+    const startsWith = list.filter((product) => product.productCode.toUpperCase().startsWith(token));
+    return exactCode || (startsWith.length === 1 ? startsWith[0] : list.length === 1 ? list[0] : null);
+  };
+
+  const handleBarcodeScanSubmit = async (rawInput?: string) => {
+    const token = (rawInput ?? searchText).trim().toUpperCase();
     if (!token) return;
 
-    const exactCode = products.find((product) => product.productCode.toUpperCase() === token);
-    const startsWith = products.filter((product) => product.productCode.toUpperCase().startsWith(token));
-    const found = exactCode || (startsWith.length === 1 ? startsWith[0] : products.length === 1 ? products[0] : null);
+    let found = findScannedProduct(products, token);
+
+    // Scanner Enter often arrives before debounced list refresh; do a direct API lookup fallback.
+    if (!found) {
+      try {
+        const response = await adminApi.getWarehouseRetailProducts({
+          search: token,
+          limit: 20,
+          warehouseNo: selectedWarehouse,
+          onlyInStock,
+        });
+        const remoteProducts = response.products || [];
+        if (remoteProducts.length > 0) {
+          setProducts(remoteProducts);
+        }
+        found = findScannedProduct(remoteProducts, token);
+      } catch (error) {
+        console.error('Barkod arama fallback hatasi:', error);
+      }
+    }
 
     if (!found) {
       toast.error('Barkoddan urun bulunamadi');
@@ -430,7 +453,7 @@ export default function WarehouseRetailPage() {
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' && isBarcodeMode) {
                             event.preventDefault();
-                            handleBarcodeScanSubmit();
+                            handleBarcodeScanSubmit(event.currentTarget.value);
                           }
                         }}
                         placeholder="Urun kodu, isim veya barkod ara..."
@@ -763,7 +786,11 @@ export default function WarehouseRetailPage() {
             className="h-14 text-xl font-bold"
           />
           {KEYBOARD_ROWS.map((row, rowIndex) => (
-            <div key={`row-${rowIndex}`} className="grid grid-cols-10 gap-2">
+            <div
+              key={`row-${rowIndex}`}
+              className="grid gap-2"
+              style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+            >
               {row.map((key) => (
                 <button
                   key={`${rowIndex}-${key}`}
