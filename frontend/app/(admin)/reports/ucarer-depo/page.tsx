@@ -64,6 +64,9 @@ interface SuggestionSortState {
   direction: SortDirection;
 }
 
+type NonFamilyColorFilter = 'ALL' | 'GREEN' | 'YELLOW' | 'RED' | 'UNCOLORED';
+type NonFamilyColorSort = 'NONE' | 'RISK_DESC' | 'RISK_ASC';
+
 const normalizeValue = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
   if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString('tr-TR') : '-';
@@ -158,6 +161,8 @@ export default function UcarerDepotReportPage() {
   const [seriesModalOpen, setSeriesModalOpen] = useState(false);
   const [familySort, setFamilySort] = useState<SuggestionSortState>({ key: 'code', direction: 'none' });
   const [nonFamilySort, setNonFamilySort] = useState<SuggestionSortState>({ key: 'code', direction: 'none' });
+  const [nonFamilyColorFilter, setNonFamilyColorFilter] = useState<NonFamilyColorFilter>('ALL');
+  const [nonFamilyColorSort, setNonFamilyColorSort] = useState<NonFamilyColorSort>('NONE');
   const [familyListSearch, setFamilyListSearch] = useState('');
   const [familyDetailSearch, setFamilyDetailSearch] = useState('');
   const [nonFamilySearch, setNonFamilySearch] = useState('');
@@ -1097,13 +1102,32 @@ export default function UcarerDepotReportPage() {
   }, [activeFamilyRowsSorted, familyDetailSearch]);
   const filteredNonFamilyRows = useMemo(() => {
     const query = normalizeKey(nonFamilySearch);
-    if (!query) return nonFamilyRowsSorted;
-    return nonFamilyRowsSorted.filter((entry) => {
-      const name = String(entry.row?.[productNameColumn || ''] || '');
-      const haystack = normalizeKey(`${entry.code} ${name} ${entry.supplierCode || ''} ${entry.supplierName || ''}`);
-      return haystack.includes(query);
-    });
-  }, [nonFamilyRowsSorted, nonFamilySearch, productNameColumn]);
+    let rows = !query
+      ? [...nonFamilyRowsSorted]
+      : nonFamilyRowsSorted.filter((entry) => {
+          const name = String(entry.row?.[productNameColumn || ''] || '');
+          const haystack = normalizeKey(`${entry.code} ${name} ${entry.supplierCode || ''} ${entry.supplierName || ''}`);
+          return haystack.includes(query);
+        });
+
+    if (nonFamilyColorFilter !== 'ALL') {
+      rows = rows.filter((entry) => {
+        if (nonFamilyColorFilter === 'GREEN') return entry.colorRank === 1;
+        if (nonFamilyColorFilter === 'YELLOW') return entry.colorRank === 2;
+        if (nonFamilyColorFilter === 'RED') return entry.colorRank === 3;
+        return entry.colorRank === 0;
+      });
+    }
+
+    if (nonFamilyColorSort !== 'NONE') {
+      rows.sort((a, b) => {
+        const diff = a.colorRank - b.colorRank;
+        return nonFamilyColorSort === 'RISK_ASC' ? diff : -diff;
+      });
+    }
+
+    return rows;
+  }, [nonFamilyRowsSorted, nonFamilySearch, productNameColumn, nonFamilyColorFilter, nonFamilyColorSort]);
   const familySuggestionsFiltered = useMemo(() => {
     const query = normalizeKey(familyListSearch);
     const source = !query
@@ -2155,13 +2179,37 @@ export default function UcarerDepotReportPage() {
                   Kalem: <strong>{filteredNonFamilyRows.length.toLocaleString('tr-TR')}</strong>
                 </p>
               </div>
-              <input
-                type="text"
-                value={nonFamilySearch}
-                onChange={(e) => setNonFamilySearch(e.target.value)}
-                className="w-full rounded border px-2 py-1 text-xs"
-                placeholder="Aile disi onerilerde ara (stok kodu/adi/saglayici)"
-              />
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                <input
+                  type="text"
+                  value={nonFamilySearch}
+                  onChange={(e) => setNonFamilySearch(e.target.value)}
+                  className="w-full rounded border px-2 py-1 text-xs md:col-span-2"
+                  placeholder="Aile disi onerilerde ara (stok kodu/adi/saglayici)"
+                />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Select
+                    value={nonFamilyColorFilter}
+                    onChange={(e) => setNonFamilyColorFilter(e.target.value as NonFamilyColorFilter)}
+                    className="h-8 text-xs"
+                  >
+                    <option value="ALL">Renk: Tum</option>
+                    <option value="GREEN">Renk: Yesil</option>
+                    <option value="YELLOW">Renk: Sari</option>
+                    <option value="RED">Renk: Kirmizi</option>
+                    <option value="UNCOLORED">Renk: Renksiz</option>
+                  </Select>
+                  <Select
+                    value={nonFamilyColorSort}
+                    onChange={(e) => setNonFamilyColorSort(e.target.value as NonFamilyColorSort)}
+                    className="h-8 text-xs"
+                  >
+                    <option value="NONE">Renk Sirala: Kapali</option>
+                    <option value="RISK_DESC">Renk Sirala: Yuksek Risk</option>
+                    <option value="RISK_ASC">Renk Sirala: Dusuk Risk</option>
+                  </Select>
+                </div>
+              </div>
               <div className="overflow-x-auto overflow-y-auto rounded border max-h-[62vh]">
                 <table className="w-max min-w-[2200px] text-[11px]">
                   <thead className="bg-gray-100 sticky top-0 z-20">
