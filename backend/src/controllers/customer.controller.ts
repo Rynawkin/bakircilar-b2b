@@ -862,7 +862,7 @@ export class CustomerController {
       const shouldUseLastPrices =
         Boolean(customer.useLastPrices && customer.mikroCariCode) && !isDiscounted && canFetchLastSalesForList;
       let lastSalesMap = new Map<string, number>();
-      let lastSalesDetailsMap = new Map<string, MikroCustomerSaleMovement>();
+      let lastSalesDetailsMap = new Map<string, MikroCustomerSaleMovement[]>();
       if (isPurchased) {
         try {
           const recentOrderItems = await prisma.orderItem.findMany({
@@ -891,8 +891,10 @@ export class CustomerController {
 
           recentOrderItems.forEach((item) => {
             const code = String(item.mikroCode || '').trim();
-            if (!code || lastSalesDetailsMap.has(code)) return;
-            lastSalesDetailsMap.set(code, {
+            if (!code) return;
+            const existing = lastSalesDetailsMap.get(code) || [];
+            if (existing.length >= 5) return;
+            existing.push({
               productCode: code,
               saleDate: item.order.createdAt,
               quantity: item.quantity,
@@ -904,6 +906,7 @@ export class CustomerController {
               orderNumber: item.order.orderNumber || null,
               documentNo: item.order.customerOrderNumber || item.order.orderNumber || null,
             });
+            lastSalesDetailsMap.set(code, existing);
           });
         } catch (error) {
           console.error('Purchased last sales fallback failed', { customerId: customer.id, error });
@@ -1044,9 +1047,8 @@ export class CustomerController {
           pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
           lastSales: isPurchased
             ? (() => {
-                const lastSale = lastSalesDetailsMap.get(product.mikroCode);
-                if (!lastSale) return [];
-                return [{
+                const lastSales = lastSalesDetailsMap.get(product.mikroCode) || [];
+                return lastSales.map((lastSale) => ({
                   saleDate: lastSale.saleDate,
                   quantity: lastSale.quantity,
                   unitPrice: lastSale.unitPrice,
@@ -1056,7 +1058,7 @@ export class CustomerController {
                   vatZeroed: lastSale.vatZeroed,
                   orderNumber: lastSale.orderNumber || null,
                   documentNo: lastSale.documentNo || null,
-                }];
+                }));
               })()
             : undefined,
           agreement: agreementActive

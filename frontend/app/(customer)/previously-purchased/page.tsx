@@ -40,6 +40,8 @@ export default function PreviouslyPurchasedPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
+  const [documentNoFilter, setDocumentNoFilter] = useState('');
+  const [lastPurchaseSort, setLastPurchaseSort] = useState<'none' | 'date-desc' | 'date-asc'>('none');
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
@@ -57,6 +59,7 @@ export default function PreviouslyPurchasedPage() {
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [lastSalesModalProduct, setLastSalesModalProduct] = useState<Product | null>(null);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -174,23 +177,49 @@ export default function PreviouslyPurchasedPage() {
     fetchProducts({ reset: true, offset: 0 });
   }, [selectedCategory, debouncedSearch, isStaticDataLoaded, fetchProducts]);
 
-  const filteredProducts = useMemo(() => applyProductFilters(products, advancedFilters), [products, advancedFilters]);
+  const filteredProducts = useMemo(() => {
+    let next = applyProductFilters(products, advancedFilters);
+    const normalizedDoc = documentNoFilter.trim().toLowerCase();
+
+    if (normalizedDoc) {
+      next = next.filter((product) =>
+        (product.lastSales || []).some((sale) => {
+          const documentValue = String(sale.documentNo || sale.orderNumber || '').toLowerCase();
+          return documentValue.includes(normalizedDoc);
+        })
+      );
+    }
+
+    if (lastPurchaseSort !== 'none') {
+      next = [...next].sort((a, b) => {
+        const aTs = a.lastSales?.[0]?.saleDate ? new Date(a.lastSales[0].saleDate).getTime() : 0;
+        const bTs = b.lastSales?.[0]?.saleDate ? new Date(b.lastSales[0].saleDate).getTime() : 0;
+        return lastPurchaseSort === 'date-desc' ? bTs - aTs : aTs - bTs;
+      });
+    }
+
+    return next;
+  }, [products, advancedFilters, documentNoFilter, lastPurchaseSort]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (search.trim()) count += 1;
     if (selectedCategory) count += 1;
+    if (documentNoFilter.trim()) count += 1;
+    if (lastPurchaseSort !== 'none') count += 1;
     if (advancedFilters.sortBy !== 'none') count += 1;
     if (typeof advancedFilters.minPrice === 'number') count += 1;
     if (typeof advancedFilters.maxPrice === 'number') count += 1;
     if (typeof advancedFilters.minStock === 'number') count += 1;
     if (typeof advancedFilters.maxStock === 'number') count += 1;
     return count;
-  }, [search, selectedCategory, advancedFilters]);
+  }, [search, selectedCategory, documentNoFilter, lastPurchaseSort, advancedFilters]);
 
   const clearBaseFilters = () => {
     setSearch('');
     setSelectedCategory('');
+    setDocumentNoFilter('');
+    setLastPurchaseSort('none');
   };
 
   const getDiscountPercent = (listPrice?: number, salePrice?: number) => {
@@ -329,13 +358,47 @@ export default function PreviouslyPurchasedPage() {
                 />
               </div>
 
-              {(search || selectedCategory) && (
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-800">Belge No Filtre</label>
+                  <Input
+                    placeholder="Belge no ile filtrele"
+                    value={documentNoFilter}
+                    onChange={(e) => setDocumentNoFilter(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-800">Son Alis Tarihi Siralama</label>
+                  <select
+                    value={lastPurchaseSort}
+                    onChange={(e) => setLastPurchaseSort(e.target.value as 'none' | 'date-desc' | 'date-asc')}
+                    className="input h-11 w-full border-2 border-gray-200"
+                  >
+                    <option value="none">Varsayilan</option>
+                    <option value="date-desc">Yeniden Eskiye</option>
+                    <option value="date-asc">Eskiden Yeniye</option>
+                  </select>
+                </div>
+              </div>
+
+              {(search || selectedCategory || documentNoFilter || lastPurchaseSort !== 'none') && (
                 <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 text-xs">
                   <span className="font-semibold text-gray-600">Aktif filtreler:</span>
                   {search && <span className="rounded-full bg-primary-50 px-3 py-1 text-primary-700">Arama: {search}</span>}
                   {selectedCategory && (
                     <span className="rounded-full bg-green-50 px-3 py-1 text-green-700">
                       Kategori: {categories.find((cat) => cat.id === selectedCategory)?.name}
+                    </span>
+                  )}
+                  {documentNoFilter && (
+                    <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">
+                      Belge No: {documentNoFilter}
+                    </span>
+                  )}
+                  {lastPurchaseSort !== 'none' && (
+                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-indigo-700">
+                      Siralama: {lastPurchaseSort === 'date-desc' ? 'Yeniden eskiye' : 'Eskiden yeniye'}
                     </span>
                   )}
                   <button
@@ -464,9 +527,13 @@ export default function PreviouslyPurchasedPage() {
                             <div className="mt-1 text-xs text-gray-500">Kategori: {product.category.name}</div>
                             {unitLabel && <div className="mt-1 text-xs text-gray-500">{unitLabel}</div>}
                             {lastSale?.saleDate && (
-                              <div className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                              <button
+                                type="button"
+                                onClick={() => setLastSalesModalProduct(product)}
+                                className="mt-2 w-full rounded-md bg-amber-50 px-2 py-1 text-left text-[11px] text-amber-800 hover:bg-amber-100"
+                              >
                                 Son Alis: {formatDateShort(lastSale.saleDate)} | Belge No: {lastSaleDocumentNo}
-                              </div>
+                              </button>
                             )}
                             {product.agreement && (
                               <div className="mt-2 inline-flex rounded bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
@@ -595,6 +662,68 @@ export default function PreviouslyPurchasedPage() {
         allowedPriceTypes={allowedPriceTypes}
         vatDisplayPreference={vatDisplayPreference}
       />
+
+      {lastSalesModalProduct && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Son 5 Alis Detayi</h3>
+                <p className="text-xs text-gray-600">
+                  {lastSalesModalProduct.name} ({lastSalesModalProduct.mikroCode})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLastSalesModalProduct(null)}
+                className="rounded-md border border-gray-200 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Kapat
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-auto p-4">
+              {Array.isArray(lastSalesModalProduct.lastSales) && lastSalesModalProduct.lastSales.length > 0 ? (
+                <div className="space-y-2">
+                  {lastSalesModalProduct.lastSales.slice(0, 5).map((sale, index) => {
+                    const lineTotal = Number(sale.lineTotal ?? (Number(sale.quantity || 0) * Number(sale.unitPrice || 0)));
+                    return (
+                      <div key={`${sale.saleDate}-${sale.documentNo || sale.orderNumber || index}`} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <div className="grid grid-cols-1 gap-2 text-xs text-gray-700 md:grid-cols-5">
+                          <div>
+                            <div className="font-semibold text-gray-500">Tarih</div>
+                            <div>{formatDateShort(sale.saleDate)}</div>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-500">Belge No</div>
+                            <div>{sale.documentNo || '-'}</div>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-500">Siparis No</div>
+                            <div>{sale.orderNumber || '-'}</div>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-500">Miktar</div>
+                            <div>{sale.quantity} {lastSalesModalProduct.unit}</div>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-500">Birim / Tutar</div>
+                            <div>{formatCurrency(Number(sale.unitPrice || 0))} / {formatCurrency(lineTotal)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                  Son alis detayi bulunamadi.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
