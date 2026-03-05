@@ -836,13 +836,57 @@ export class CustomerController {
       lap('priceStats');
 
       const canFetchLastSalesForList =
-        isPurchased || Boolean(limit) || searchTokens.length > 0 || Boolean(categoryId);
+        Boolean(limit) || searchTokens.length > 0 || Boolean(categoryId);
       const shouldUseLastPrices =
         Boolean(customer.useLastPrices && customer.mikroCariCode) && !isDiscounted && canFetchLastSalesForList;
       let lastSalesMap = new Map<string, number>();
       let lastSalesDetailsMap = new Map<string, MikroCustomerSaleMovement>();
-      const shouldFetchLastSalesDetails = Boolean(customer.mikroCariCode) && isPurchased;
-      if (shouldFetchLastSalesDetails) {
+      if (isPurchased) {
+        try {
+          const recentOrderItems = await prisma.orderItem.findMany({
+            where: {
+              mikroCode: { in: products.map((product) => product.mikroCode) },
+              order: { userId: customer.id },
+            },
+            orderBy: {
+              order: { createdAt: 'desc' },
+            },
+            take: Math.max(200, products.length * 5),
+            select: {
+              mikroCode: true,
+              quantity: true,
+              unitPrice: true,
+              totalPrice: true,
+              order: {
+                select: {
+                  createdAt: true,
+                  orderNumber: true,
+                  customerOrderNumber: true,
+                },
+              },
+            },
+          });
+
+          recentOrderItems.forEach((item) => {
+            const code = String(item.mikroCode || '').trim();
+            if (!code || lastSalesDetailsMap.has(code)) return;
+            lastSalesDetailsMap.set(code, {
+              productCode: code,
+              saleDate: item.order.createdAt,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              lineTotal: item.totalPrice,
+              vatAmount: 0,
+              vatRate: 0,
+              vatZeroed: false,
+              orderNumber: item.order.orderNumber || null,
+              documentNo: item.order.customerOrderNumber || item.order.orderNumber || null,
+            });
+          });
+        } catch (error) {
+          console.error('Purchased last sales fallback failed', { customerId: customer.id, error });
+        }
+      } else if (shouldUseLastPrices && customer.mikroCariCode) {
         try {
           const sales = await withTimeout(
             mikroService.getCustomerSalesMovements(
@@ -850,19 +894,10 @@ export class CustomerController {
               products.map((product) => product.mikroCode),
               1
             ),
-            15000,
+            12000,
             'getCustomerSalesMovements'
           );
-          if (shouldUseLastPrices) {
-            lastSalesMap = buildLastSalesMap(sales);
-          }
-          if (isPurchased) {
-            sales.forEach((sale) => {
-              const code = String(sale.productCode || '').trim();
-              if (!code || lastSalesDetailsMap.has(code)) return;
-              lastSalesDetailsMap.set(code, sale);
-            });
-          }
+          lastSalesMap = buildLastSalesMap(sales);
         } catch (error) {
           console.error('Customer last prices failed', { customerId: customer.id, error });
         }
