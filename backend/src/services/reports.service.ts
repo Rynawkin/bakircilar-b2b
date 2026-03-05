@@ -4437,6 +4437,7 @@ export class ReportsService {
   async setUcarerMinMaxExclusion(input: {
     productCode: string;
     exclude: boolean;
+    resetMinMaxValues?: boolean;
   }): Promise<{
     productCode: string;
     excluded: boolean;
@@ -4444,6 +4445,7 @@ export class ReportsService {
   }> {
     const productCode = String(input.productCode || '').trim().toUpperCase();
     const exclude = Boolean(input.exclude);
+    const resetMinMaxValues = Boolean(input.resetMinMaxValues);
 
     if (!productCode) {
       throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
@@ -4465,6 +4467,30 @@ export class ReportsService {
         SET sto_model_kodu = 'HAYIR'
         WHERE sto_kod = '${escapedCode}'
       `);
+
+      if (resetMinMaxValues) {
+        await mikroService.executeQuery(`
+          DECLARE @uid uniqueidentifier;
+          SELECT @uid = sto_guid FROM STOKLAR WHERE sto_kod='${escapedCode}';
+          IF @uid IS NOT NULL
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM STOKLAR_USER WHERE Record_uid=@uid)
+            BEGIN
+              INSERT INTO STOKLAR_USER
+                (Record_uid, TOPCA_MIN, TOPCA_MAX)
+              VALUES
+                (@uid, 0, 0);
+            END
+            ELSE
+            BEGIN
+              UPDATE STOKLAR_USER
+              SET TOPCA_MIN = 0,
+                  TOPCA_MAX = 0
+              WHERE Record_uid=@uid;
+            END
+          END
+        `);
+      }
     } else {
       await mikroService.executeQuery(`
         UPDATE STOKLAR

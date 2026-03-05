@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ChevronDown, ChevronRight, Download, Play, RefreshCw, Warehouse, WandSparkles } from 'lucide-react';
+import jsPDF from 'jspdf';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -25,6 +26,7 @@ type SuggestionSortKey =
   | 'realQty'
   | 'minQty'
   | 'maxQty'
+  | 'topcaDepotQty'
   | 'packQty'
   | 'costExVat'
   | 'costIncVat'
@@ -38,6 +40,7 @@ type OpsExtraColumnKey =
   | 'realQty'
   | 'minQty'
   | 'maxQty'
+  | 'topcaDepotQty'
   | 'currentCost'
   | 'packQty'
   | 'costExVat'
@@ -135,6 +138,7 @@ export default function UcarerDepotReportPage() {
   const [nonFamilyAllocations, setNonFamilyAllocations] = useState<Record<string, number | ''>>({});
   const [panelColumns, setPanelColumns] = useState<Record<OpsExtraColumnKey, boolean>>({
     depotQty: true,
+    topcaDepotQty: true,
     incomingOrders: true,
     outgoingOrders: true,
     realQty: false,
@@ -187,7 +191,24 @@ export default function UcarerDepotReportPage() {
   const [selectedTransferByCode, setSelectedTransferByCode] = useState<Record<string, boolean>>({});
   const [exportingDepot, setExportingDepot] = useState(false);
   const [exportingMinMax, setExportingMinMax] = useState(false);
+  const [minMaxExcludedRows, setMinMaxExcludedRows] = useState<Array<{ productCode: string }>>([]);
+  const [resetMinMaxToZeroByCode, setResetMinMaxToZeroByCode] = useState<Record<string, boolean>>({});
   const [updatingMinMaxExclusionByCode, setUpdatingMinMaxExclusionByCode] = useState<Record<string, boolean>>({});
+  const [lastCreatedOrders, setLastCreatedOrders] = useState<
+    Array<{ supplierCode: string; supplierName: string | null; orderNumber: string; itemCount: number; totalQuantity: number }>
+  >([]);
+  const [lastCreatedAllocations, setLastCreatedAllocations] = useState<
+    Array<{
+      familyId?: string | null;
+      productCode: string;
+      quantity: number;
+      unitPriceOverride?: number | null;
+      supplierCodeOverride?: string | null;
+      persistSupplierOverride?: boolean;
+    }>
+  >([]);
+  const [downloadingOrderPdfs, setDownloadingOrderPdfs] = useState(false);
+  const [downloadingOrderSummaryPdf, setDownloadingOrderSummaryPdf] = useState(false);
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
   const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>('INCLUDE_MINMAX');
@@ -259,6 +280,10 @@ export default function UcarerDepotReportPage() {
     });
     return map;
   }, [depotRows, stockCodeColumn]);
+  const minMaxExcludedCodeSet = useMemo(
+    () => new Set(minMaxExcludedRows.map((row) => String(row.productCode || '').trim().toUpperCase()).filter(Boolean)),
+    [minMaxExcludedRows]
+  );
   const getDepotRowProductCode = (row: Record<string, any> | undefined): string => {
     if (!row) return '';
     if (stockCodeColumn) {
@@ -688,8 +713,18 @@ export default function UcarerDepotReportPage() {
     }
   };
 
+  const loadMinMaxExcludedCodes = async () => {
+    try {
+      const response = await adminApi.getUcarerMinMaxExcludedProductsReport();
+      setMinMaxExcludedRows((response.data?.rows || []).map((row) => ({ productCode: String(row.productCode || '').trim().toUpperCase() })));
+    } catch {
+      setMinMaxExcludedRows([]);
+    }
+  };
+
   useEffect(() => {
     loadFamilies();
+    loadMinMaxExcludedCodes();
   }, []);
 
   useEffect(() => {
@@ -718,6 +753,7 @@ export default function UcarerDepotReportPage() {
       setDepotTotal(Number(data.total || 0));
       setDepotLimited(Boolean(data.limited));
       await loadFamilies();
+      await loadMinMaxExcludedCodes();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Ucarer depo raporu alinamadi');
     } finally {
@@ -825,6 +861,7 @@ export default function UcarerDepotReportPage() {
   const getExtraColumnValue = (row: Record<string, any>, code: string, key: OpsExtraColumnKey): string => {
     const valueFrom = (column?: string) => (column ? normalizeValue(row?.[column]) : '-');
     if (key === 'depotQty') return valueFrom(depotQtyColumn);
+    if (key === 'topcaDepotQty') return valueFrom(topcaDepoStockColumn);
     if (key === 'incomingOrders') return valueFrom(incomingOrderColumn);
     if (key === 'outgoingOrders') return valueFrom(outgoingOrderColumn);
     if (key === 'realQty') return valueFrom(realQtyColumn);
@@ -949,8 +986,15 @@ export default function UcarerDepotReportPage() {
       await adminApi.setUcarerMinMaxExclusion({
         productCode: code,
         exclude,
+        resetMinMaxValues: exclude ? Boolean(resetMinMaxToZeroByCode[code]) : false,
       });
       toast.success(exclude ? 'MinMax hesaplamasi disina alindi.' : 'MinMax hesaplamasina tekrar dahil edildi.');
+      setMinMaxExcludedRows((prev) => {
+        const hasCode = prev.some((row) => String(row.productCode || '').trim().toUpperCase() === code);
+        if (exclude && !hasCode) return [{ productCode: code }, ...prev];
+        if (!exclude) return prev.filter((row) => String(row.productCode || '').trim().toUpperCase() !== code);
+        return prev;
+      });
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'MinMax dislama islemi basarisiz');
     } finally {
@@ -1005,6 +1049,7 @@ export default function UcarerDepotReportPage() {
       if (familySort.key === 'supplierCode') return compareMixed(a.supplierCode, b.supplierCode, familySort.direction);
       if (familySort.key === 'supplierName') return compareMixed(a.supplierName, b.supplierName, familySort.direction);
       if (familySort.key === 'depotQty') return compareMixed(a.row?.[depotQtyColumn || ''], b.row?.[depotQtyColumn || ''], familySort.direction);
+      if (familySort.key === 'topcaDepotQty') return compareMixed(a.row?.[topcaDepoStockColumn || ''], b.row?.[topcaDepoStockColumn || ''], familySort.direction);
       if (familySort.key === 'incomingOrders') return compareMixed(a.row?.[incomingOrderColumn || ''], b.row?.[incomingOrderColumn || ''], familySort.direction);
       if (familySort.key === 'outgoingOrders') return compareMixed(a.row?.[outgoingOrderColumn || ''], b.row?.[outgoingOrderColumn || ''], familySort.direction);
       if (familySort.key === 'realQty') return compareMixed(a.row?.[realQtyColumn || ''], b.row?.[realQtyColumn || ''], familySort.direction);
@@ -1037,6 +1082,7 @@ export default function UcarerDepotReportPage() {
     packQtyByCode,
     realQtyColumn,
     rowByProductCode,
+    topcaDepoStockColumn,
     vatRateByCode,
   ]);
   const nonFamilyRowsSorted = useMemo(() => {
@@ -1063,6 +1109,7 @@ export default function UcarerDepotReportPage() {
       if (nonFamilySort.key === 'supplierCode') return compareMixed(a.supplierCode, b.supplierCode, nonFamilySort.direction);
       if (nonFamilySort.key === 'supplierName') return compareMixed(a.supplierName, b.supplierName, nonFamilySort.direction);
       if (nonFamilySort.key === 'depotQty') return compareMixed(a.row?.[depotQtyColumn || ''], b.row?.[depotQtyColumn || ''], nonFamilySort.direction);
+      if (nonFamilySort.key === 'topcaDepotQty') return compareMixed(a.row?.[topcaDepoStockColumn || ''], b.row?.[topcaDepoStockColumn || ''], nonFamilySort.direction);
       if (nonFamilySort.key === 'incomingOrders') return compareMixed(a.row?.[incomingOrderColumn || ''], b.row?.[incomingOrderColumn || ''], nonFamilySort.direction);
       if (nonFamilySort.key === 'outgoingOrders') return compareMixed(a.row?.[outgoingOrderColumn || ''], b.row?.[outgoingOrderColumn || ''], nonFamilySort.direction);
       if (nonFamilySort.key === 'realQty') return compareMixed(a.row?.[realQtyColumn || ''], b.row?.[realQtyColumn || ''], nonFamilySort.direction);
@@ -1093,6 +1140,7 @@ export default function UcarerDepotReportPage() {
     packQtyByCode,
     productNameColumn,
     realQtyColumn,
+    topcaDepoStockColumn,
     vatRateByCode,
   ]);
 
@@ -1459,6 +1507,8 @@ export default function UcarerDepotReportPage() {
       if (orderList) {
         toast(orderList, { duration: 9000 });
       }
+      setLastCreatedOrders(created);
+      setLastCreatedAllocations([...pendingAllocations]);
       setSeriesModalOpen(false);
       setPendingAllocations([]);
       setSupplierOrderConfigs({});
@@ -1466,6 +1516,144 @@ export default function UcarerDepotReportPage() {
       toast.error(error?.response?.data?.error || 'Tedarikci siparisleri olusturulamadi');
     } finally {
       setCreatingOrders(false);
+    }
+  };
+
+  const downloadCreatedOrderPdfs = async () => {
+    if (!lastCreatedOrders.length) return;
+    setDownloadingOrderPdfs(true);
+    try {
+      const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
+      lastCreatedAllocations.forEach((row) => {
+        const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+        const productCode = String(row.productCode || '').trim().toUpperCase();
+        const quantity = Math.max(0, Number(row.quantity || 0));
+        if (!supplierCode || !productCode || quantity <= 0) return;
+        const unitPrice =
+          Number.isFinite(Number(row.unitPriceOverride))
+            ? Number(row.unitPriceOverride)
+            : Number(currentCostByCode[productCode] || 0);
+        const productName = String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
+        const supplierRows = linesBySupplier.get(supplierCode) || [];
+        supplierRows.push({
+          productCode,
+          productName,
+          quantity,
+          unitPrice,
+          total: unitPrice * quantity,
+        });
+        linesBySupplier.set(supplierCode, supplierRows);
+      });
+
+      for (const order of lastCreatedOrders) {
+        const supplierCode = String(order.supplierCode || '').trim().toUpperCase();
+        const supplierName = String(order.supplierName || supplierCode).trim();
+        const orderNumber = String(order.orderNumber || '').trim();
+        const lines = linesBySupplier.get(supplierCode) || [];
+        const totalAmount = lines.reduce((sum, line) => sum + line.total, 0);
+
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        doc.setFontSize(14);
+        doc.text('Tedarikci Siparis Ozet', 14, 14);
+        doc.setFontSize(10);
+        doc.text(`Cari: ${supplierCode} - ${supplierName}`, 14, 22);
+        doc.text(`Siparis No: ${orderNumber}`, 14, 28);
+        doc.text(`Kalem: ${lines.length}  Toplam Tutar: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 14, 34);
+
+        let y = 42;
+        lines
+          .sort((a, b) => a.productCode.localeCompare(b.productCode, 'tr'))
+          .forEach((line) => {
+            if (y > 280) {
+              doc.addPage();
+              y = 14;
+            }
+            doc.text(
+              `${line.productCode} | ${line.productName} | Miktar: ${line.quantity.toLocaleString('tr-TR')} | Birim: ${line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Tutar: ${line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+              14,
+              y
+            );
+            y += 6;
+          });
+
+        const safeSupplier = supplierName.replace(/[\\/:*?"<>|]/g, '_');
+        const safeOrder = orderNumber.replace(/[\\/:*?"<>|]/g, '_');
+        doc.save(`${safeSupplier}-${safeOrder}.pdf`);
+      }
+    } finally {
+      setDownloadingOrderPdfs(false);
+    }
+  };
+
+  const downloadCreatedOrdersSummaryPdf = async () => {
+    if (!lastCreatedOrders.length) return;
+    setDownloadingOrderSummaryPdf(true);
+    try {
+      const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
+      lastCreatedAllocations.forEach((row) => {
+        const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+        const productCode = String(row.productCode || '').trim().toUpperCase();
+        const quantity = Math.max(0, Number(row.quantity || 0));
+        if (!supplierCode || !productCode || quantity <= 0) return;
+        const unitPrice =
+          Number.isFinite(Number(row.unitPriceOverride))
+            ? Number(row.unitPriceOverride)
+            : Number(currentCostByCode[productCode] || 0);
+        const productName = String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
+        const supplierRows = linesBySupplier.get(supplierCode) || [];
+        supplierRows.push({
+          productCode,
+          productName,
+          quantity,
+          unitPrice,
+          total: unitPrice * quantity,
+        });
+        linesBySupplier.set(supplierCode, supplierRows);
+      });
+
+      const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+      doc.setFontSize(14);
+      doc.text('Toplu Siparis Yonetici Onay Ozeti', 14, 14);
+      doc.setFontSize(10);
+      let y = 22;
+      let grandTotal = 0;
+
+      lastCreatedOrders.forEach((order, idx) => {
+        const supplierCode = String(order.supplierCode || '').trim().toUpperCase();
+        const supplierName = String(order.supplierName || supplierCode).trim();
+        const orderNumber = String(order.orderNumber || '').trim();
+        const lines = (linesBySupplier.get(supplierCode) || []).sort((a, b) => a.productCode.localeCompare(b.productCode, 'tr'));
+        const totalAmount = lines.reduce((sum, line) => sum + line.total, 0);
+        grandTotal += totalAmount;
+
+        if (y > 270) {
+          doc.addPage();
+          y = 14;
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${idx + 1}) ${supplierCode} - ${supplierName} | Siparis: ${orderNumber} | Tutar: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 14, y);
+        y += 6;
+        doc.setFont('helvetica', 'normal');
+        lines.forEach((line) => {
+          if (y > 280) {
+            doc.addPage();
+            y = 14;
+          }
+          doc.text(`- ${line.productCode} ${line.productName} | ${line.quantity.toLocaleString('tr-TR')} x ${line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = ${line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 16, y);
+          y += 5;
+        });
+        y += 2;
+      });
+
+      if (y > 280) {
+        doc.addPage();
+        y = 14;
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Genel Toplam: ${grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 14, y);
+      doc.save(`toplu-siparis-yonetici-ozet-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } finally {
+      setDownloadingOrderSummaryPdf(false);
     }
   };
   const toggleFamilyDetail = (familyId: string) => {
@@ -1539,6 +1727,10 @@ export default function UcarerDepotReportPage() {
             <label className="inline-flex items-center gap-1">
               <input type="checkbox" checked={panelColumns.depotQty} onChange={(e) => setPanelColumns((p) => ({ ...p, depotQty: e.target.checked }))} />
               Depo Miktari
+            </label>
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={panelColumns.topcaDepotQty} onChange={(e) => setPanelColumns((p) => ({ ...p, topcaDepotQty: e.target.checked }))} />
+              Topca Depo
             </label>
             <label className="inline-flex items-center gap-1">
               <input type="checkbox" checked={panelColumns.incomingOrders} onChange={(e) => setPanelColumns((p) => ({ ...p, incomingOrders: e.target.checked }))} />
@@ -1729,6 +1921,7 @@ export default function UcarerDepotReportPage() {
                 <th className="px-2 py-2 text-center">Kalici Degistir</th>
                 <th className="px-2 py-2 text-center">MinMax Hesaplanmasin</th>
                 {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(familySort, 'depotQty')}</th>}
+                {panelColumns.topcaDepotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'topcaDepotQty'))}>Topca Depo{sortIndicator(familySort, 'topcaDepotQty')}</th>}
                 {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(familySort, 'incomingOrders')}</th>}
                 {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(familySort, 'outgoingOrders')}</th>}
                 {panelColumns.realQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(familySort, 'realQty')}</th>}
@@ -1825,16 +2018,42 @@ export default function UcarerDepotReportPage() {
                       />
                     </td>
                     <td className="px-2 py-2 text-center">
+                      {(() => {
+                        const isExcluded = minMaxExcludedCodeSet.has(code);
+                        return (
+                      <div className="flex items-center justify-center gap-2">
+                        <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(resetMinMaxToZeroByCode[code])}
+                            onChange={(e) =>
+                              setResetMinMaxToZeroByCode((prev) => ({
+                                ...prev,
+                                [code]: e.target.checked,
+                              }))
+                            }
+                            disabled={isExcluded}
+                          />
+                          0-0
+                        </label>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setMinMaxExclusion(code, true)}
+                        onClick={() => setMinMaxExclusion(code, !isExcluded)}
                         disabled={Boolean(updatingMinMaxExclusionByCode[code])}
                       >
-                        {updatingMinMaxExclusionByCode[code] ? '...' : 'MinMax Hesaplanmasin'}
+                        {updatingMinMaxExclusionByCode[code]
+                          ? '...'
+                          : isExcluded
+                          ? 'MinMax Hesaplansin'
+                          : 'MinMax Hesaplanmasin'}
                       </Button>
+                      </div>
+                        );
+                      })()}
                     </td>
                     {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
+                    {panelColumns.topcaDepotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'topcaDepotQty')}</td>}
                     {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
                     {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
                     {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
@@ -2069,14 +2288,34 @@ export default function UcarerDepotReportPage() {
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap">
                         {rowCode ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setMinMaxExclusion(rowCode, true)}
-                            disabled={Boolean(updatingMinMaxExclusionByCode[rowCode])}
-                          >
-                            {updatingMinMaxExclusionByCode[rowCode] ? '...' : 'MinMax Hesaplanmasin'}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(resetMinMaxToZeroByCode[rowCode])}
+                                onChange={(e) =>
+                                  setResetMinMaxToZeroByCode((prev) => ({
+                                    ...prev,
+                                    [rowCode]: e.target.checked,
+                                  }))
+                                }
+                                disabled={minMaxExcludedCodeSet.has(rowCode)}
+                              />
+                              0-0
+                            </label>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setMinMaxExclusion(rowCode, !minMaxExcludedCodeSet.has(rowCode))}
+                              disabled={Boolean(updatingMinMaxExclusionByCode[rowCode])}
+                            >
+                              {updatingMinMaxExclusionByCode[rowCode]
+                                ? '...'
+                                : minMaxExcludedCodeSet.has(rowCode)
+                                ? 'MinMax Hesaplansin'
+                                : 'MinMax Hesaplanmasin'}
+                            </Button>
+                          </div>
                         ) : (
                           '-'
                         )}
@@ -2132,6 +2371,22 @@ export default function UcarerDepotReportPage() {
               </Button>
             </div>
 
+            {lastCreatedOrders.length > 0 && (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-xs font-semibold text-emerald-900 mb-2">
+                  Son olusturulan siparisler: {lastCreatedOrders.length.toLocaleString('tr-TR')}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={downloadCreatedOrderPdfs} disabled={downloadingOrderPdfs}>
+                    {downloadingOrderPdfs ? 'Hazirlaniyor...' : 'Tum Siparisleri PDF (tek tek)'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={downloadCreatedOrdersSummaryPdf} disabled={downloadingOrderSummaryPdf}>
+                    {downloadingOrderSummaryPdf ? 'Hazirlaniyor...' : 'Yonetici Onay Ozeti (tek PDF)'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-md border bg-white p-3">
               <p className="text-xs font-semibold text-gray-700 mb-2">Aileler</p>
               <input
@@ -2147,9 +2402,16 @@ export default function UcarerDepotReportPage() {
                 )}
                 {suggestedFamilies.map((family) => (
                   <Fragment key={family.id}>
+                    {(() => {
+                      const hasRedirectSuggestions = Boolean(family.redirectSuggestions && family.redirectSuggestions.length > 0);
+                      return (
                     <div
                       className={`flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 ${
-                        activeFamilyId === family.id ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
+                        activeFamilyId === family.id
+                          ? 'border-emerald-300 bg-emerald-50'
+                          : hasRedirectSuggestions
+                          ? 'border-emerald-400 bg-emerald-100'
+                          : 'border-gray-200 bg-white'
                       }`}
                     >
                       <div className="min-w-0">
@@ -2164,6 +2426,8 @@ export default function UcarerDepotReportPage() {
                         {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
                       </Button>
                     </div>
+                      );
+                    })()}
                     {activeFamilyId === family.id && renderActiveFamilyPanel()}
                   </Fragment>
                 ))}
@@ -2284,6 +2548,7 @@ export default function UcarerDepotReportPage() {
                       <th className="px-2 py-2 text-center">Kalici Degistir</th>
                       <th className="px-2 py-2 text-center">MinMax Hesaplanmasin</th>
                       {panelColumns.depotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'depotQty'))}>Depo Miktari{sortIndicator(nonFamilySort, 'depotQty')}</th>}
+                      {panelColumns.topcaDepotQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'topcaDepotQty'))}>Topca Depo{sortIndicator(nonFamilySort, 'topcaDepotQty')}</th>}
                       {panelColumns.incomingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'incomingOrders'))}>Alinan Siparis{sortIndicator(nonFamilySort, 'incomingOrders')}</th>}
                       {panelColumns.outgoingOrders && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'outgoingOrders'))}>Verilen Siparis{sortIndicator(nonFamilySort, 'outgoingOrders')}</th>}
                       {panelColumns.realQty && <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setNonFamilySort((prev) => updateSort(prev, 'realQty'))}>Reel Miktar{sortIndicator(nonFamilySort, 'realQty')}</th>}
@@ -2378,16 +2643,37 @@ export default function UcarerDepotReportPage() {
                             />
                           </td>
                           <td className="px-2 py-2 text-center">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setMinMaxExclusion(code, true)}
-                              disabled={Boolean(updatingMinMaxExclusionByCode[code])}
-                            >
-                              {updatingMinMaxExclusionByCode[code] ? '...' : 'MinMax Hesaplanmasin'}
-                            </Button>
+                            <div className="flex items-center justify-center gap-2">
+                              <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(resetMinMaxToZeroByCode[code])}
+                                  onChange={(e) =>
+                                    setResetMinMaxToZeroByCode((prev) => ({
+                                      ...prev,
+                                      [code]: e.target.checked,
+                                    }))
+                                  }
+                                  disabled={minMaxExcludedCodeSet.has(code)}
+                                />
+                                0-0
+                              </label>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setMinMaxExclusion(code, !minMaxExcludedCodeSet.has(code))}
+                                disabled={Boolean(updatingMinMaxExclusionByCode[code])}
+                              >
+                                {updatingMinMaxExclusionByCode[code]
+                                  ? '...'
+                                  : minMaxExcludedCodeSet.has(code)
+                                  ? 'MinMax Hesaplansin'
+                                  : 'MinMax Hesaplanmasin'}
+                              </Button>
+                            </div>
                           </td>
                           {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
+                          {panelColumns.topcaDepotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'topcaDepotQty')}</td>}
                           {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
                           {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
                           {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}

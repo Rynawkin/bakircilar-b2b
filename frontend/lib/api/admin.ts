@@ -2005,6 +2005,7 @@ export const adminApi = {
   setUcarerMinMaxExclusion: async (payload: {
     productCode: string;
     exclude: boolean;
+    resetMinMaxValues?: boolean;
   }): Promise<{
     success: boolean;
     data: {
