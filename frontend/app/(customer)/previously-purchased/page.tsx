@@ -149,7 +149,7 @@ export default function PreviouslyPurchasedPage() {
           offset: nextOffset,
         });
 
-        const nextProducts = productsData.products;
+        const nextProducts = Array.isArray(productsData?.products) ? productsData.products : [];
         setProducts((prev) => (reset ? nextProducts : [...prev, ...nextProducts]));
         setOffset(nextOffset + nextProducts.length);
         setHasMore(nextProducts.length === PAGE_SIZE);
