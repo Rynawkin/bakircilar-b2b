@@ -824,14 +824,25 @@ export class CustomerController {
       const shouldUseLastPrices =
         Boolean(customer.useLastPrices && customer.mikroCariCode) && !isDiscounted;
       let lastSalesMap = new Map<string, number>();
-      if (shouldUseLastPrices) {
+      let lastSalesDetailsMap = new Map<string, MikroCustomerSaleMovement>();
+      const shouldFetchLastSalesDetails = Boolean(customer.mikroCariCode) && (shouldUseLastPrices || isPurchased);
+      if (shouldFetchLastSalesDetails) {
         try {
           const sales = await mikroService.getCustomerSalesMovements(
             customer.mikroCariCode as string,
             products.map((product) => product.mikroCode),
             1
           );
-          lastSalesMap = buildLastSalesMap(sales);
+          if (shouldUseLastPrices) {
+            lastSalesMap = buildLastSalesMap(sales);
+          }
+          if (isPurchased) {
+            sales.forEach((sale) => {
+              const code = String(sale.productCode || '').trim();
+              if (!code || lastSalesDetailsMap.has(code)) return;
+              lastSalesDetailsMap.set(code, sale);
+            });
+          }
         } catch (error) {
           console.error('Customer last prices failed', { customerId: customer.id, error });
         }
@@ -954,6 +965,23 @@ export class CustomerController {
           excessPrices: agreementExcessPrices || customerPrices,
           listPrices: agreementActive ? listPricesRaw : (isDiscounted ? listPricesRaw : undefined),
           pricingMode: isDiscounted ? 'EXCESS' : 'LIST',
+          lastSales: isPurchased
+            ? (() => {
+                const lastSale = lastSalesDetailsMap.get(product.mikroCode);
+                if (!lastSale) return [];
+                return [{
+                  saleDate: lastSale.saleDate,
+                  quantity: lastSale.quantity,
+                  unitPrice: lastSale.unitPrice,
+                  lineTotal: lastSale.lineTotal,
+                  vatAmount: lastSale.vatAmount,
+                  vatRate: lastSale.vatRate,
+                  vatZeroed: lastSale.vatZeroed,
+                  orderNumber: lastSale.orderNumber || null,
+                  documentNo: lastSale.documentNo || null,
+                }];
+              })()
+            : undefined,
           agreement: agreementActive
             ? {
                 priceInvoiced: agreement!.priceInvoiced,

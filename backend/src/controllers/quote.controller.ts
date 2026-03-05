@@ -169,6 +169,8 @@ export class QuoteController {
         return Number.isFinite(parsed) ? parsed : undefined;
       };
 
+      const createdById = req.user?.role === 'SALES_REP' ? req.user.userId : undefined;
+
       const result = await quoteService.getQuoteLineItems({
         status: status ? String(status) : undefined,
         search: search ? String(search) : undefined,
@@ -177,6 +179,7 @@ export class QuoteController {
         maxDays: parseNumber(maxDays),
         limit: parseNumber(limit),
         offset: parseNumber(offset),
+        createdById,
       });
 
       res.json(result);

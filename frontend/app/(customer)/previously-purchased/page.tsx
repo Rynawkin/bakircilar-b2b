@@ -18,7 +18,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
-import { formatCurrency } from '@/lib/utils/format';
+import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
@@ -433,6 +433,8 @@ export default function PreviouslyPurchasedPage() {
                     );
                     const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
                     const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
+                    const lastSale = product.lastSales?.[0];
+                    const lastSaleDocumentNo = lastSale?.documentNo || lastSale?.orderNumber || '-';
 
                     return (
                       <Card key={product.id} className="group overflow-hidden flex h-full flex-col rounded-xl border-2 border-gray-200 bg-white p-0">
@@ -461,6 +463,11 @@ export default function PreviouslyPurchasedPage() {
                             <div className="mt-1 text-xs text-gray-500">Kod: {product.mikroCode}</div>
                             <div className="mt-1 text-xs text-gray-500">Kategori: {product.category.name}</div>
                             {unitLabel && <div className="mt-1 text-xs text-gray-500">{unitLabel}</div>}
+                            {lastSale?.saleDate && (
+                              <div className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                                Son Alis: {formatDateShort(lastSale.saleDate)} | Belge No: {lastSaleDocumentNo}
+                              </div>
+                            )}
                             {product.agreement && (
                               <div className="mt-2 inline-flex rounded bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
                                 Anlasma min miktar: {product.agreement.minQuantity} {product.unit}

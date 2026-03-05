@@ -67,6 +67,17 @@ export interface Product {
     white: number;
   };
   pricingMode?: 'LIST' | 'EXCESS';
+  lastSales?: Array<{
+    saleDate: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal?: number;
+    vatAmount?: number;
+    vatRate?: number;
+    vatZeroed?: boolean;
+    orderNumber?: string | null;
+    documentNo?: string | null;
+  }>;
 }
 
 export interface Category {

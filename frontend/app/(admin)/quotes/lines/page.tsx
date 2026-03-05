@@ -41,6 +41,7 @@ export default function QuoteLineItemsPage() {
   const [closeReasonFilter, setCloseReasonFilter] = useState('');
   const [minDays, setMinDays] = useState('');
   const [maxDays, setMaxDays] = useState('');
+  const [sortBy, setSortBy] = useState('created_desc');
   const [page, setPage] = useState(1);
   const [limit] = useState(50);
   const [items, setItems] = useState<QuoteLineItem[]>([]);
@@ -65,6 +66,35 @@ export default function QuoteLineItemsPage() {
     return selectedIds.filter((id) => openSet.has(id));
   }, [selectedIds, openItemIds]);
   const allSelected = openItemIds.length > 0 && selectedOpenIds.length === openItemIds.length;
+  const sortedItems = useMemo(() => {
+    const next = [...items];
+    const getQuoteCreatedAt = (item: QuoteLineItem) => {
+      const value = item.quote?.createdAt ? new Date(item.quote.createdAt).getTime() : 0;
+      return Number.isFinite(value) ? value : 0;
+    };
+    switch (sortBy) {
+      case 'created_asc':
+        next.sort((a, b) => getQuoteCreatedAt(a) - getQuoteCreatedAt(b));
+        break;
+      case 'waiting_desc':
+        next.sort((a, b) => (b.waitingDays || 0) - (a.waitingDays || 0));
+        break;
+      case 'waiting_asc':
+        next.sort((a, b) => (a.waitingDays || 0) - (b.waitingDays || 0));
+        break;
+      case 'total_desc':
+        next.sort((a, b) => (b.totalPrice || 0) - (a.totalPrice || 0));
+        break;
+      case 'total_asc':
+        next.sort((a, b) => (a.totalPrice || 0) - (b.totalPrice || 0));
+        break;
+      case 'created_desc':
+      default:
+        next.sort((a, b) => getQuoteCreatedAt(b) - getQuoteCreatedAt(a));
+        break;
+    }
+    return next;
+  }, [items, sortBy]);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -228,7 +258,7 @@ export default function QuoteLineItemsPage() {
         </div>
 
         <Card>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-6">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Durum</label>
               <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -280,6 +310,17 @@ export default function QuoteLineItemsPage() {
                 onChange={(e) => setMaxDays(e.target.value)}
                 placeholder="999"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Siralama</label>
+              <Select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="created_desc">Yeni teklif ustte</option>
+                <option value="created_asc">Eski teklif ustte</option>
+                <option value="waiting_desc">Bekleme suresi (cok-az)</option>
+                <option value="waiting_asc">Bekleme suresi (az-cok)</option>
+                <option value="total_desc">Tutar (buyuk-kucuk)</option>
+                <option value="total_asc">Tutar (kucuk-buyuk)</option>
+              </Select>
             </div>
           </div>
         </Card>
@@ -355,7 +396,7 @@ export default function QuoteLineItemsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((item) => {
+                {sortedItems.map((item) => {
                   const status = item.status || 'OPEN';
                   const quoteNumber = item.quote?.quoteNumber || '-';
                   const documentNo = item.quote?.documentNo || '-';
