@@ -4589,6 +4589,31 @@ export class ReportsService {
         const targetTable = depot === 'TOPCA' ? 'DEPO_TOPCA_DURUM' : 'DEPO_MERKEZ_DURUM';
         const quoteIdentifier = (identifier: string) => `[${String(identifier || '').replace(/]/g, ']]')}]`;
         let resetApplied = false;
+        const depotNo = depot === 'TOPCA' ? 6 : 1;
+
+        try {
+          await mikroService.executeQuery(`
+            UPDATE STOK_DEPO_DETAYLARI
+            SET sdp_min_stok = 0,
+                sdp_max_stok = 0
+            WHERE LTRIM(RTRIM(sdp_depo_kod)) = '${escapedCode}'
+              AND sdp_depo_no = ${depotNo}
+          `);
+          const verifyRows = await mikroService.executeQuery(`
+            SELECT COUNT(1) AS rowCount
+            FROM STOK_DEPO_DETAYLARI
+            WHERE LTRIM(RTRIM(sdp_depo_kod)) = '${escapedCode}'
+              AND sdp_depo_no = ${depotNo}
+              AND ISNULL(sdp_min_stok, 0) = 0
+              AND ISNULL(sdp_max_stok, 0) = 0
+          `);
+          const rowCount = Number(verifyRows?.[0]?.rowCount || 0);
+          if (Number.isFinite(rowCount) && rowCount > 0) {
+            resetApplied = true;
+          }
+        } catch {
+          // continue to legacy fallback logic
+        }
 
         try {
           const sampleRows = await mikroService.executeQuery(`SELECT TOP 1 * FROM ${targetTable}`);

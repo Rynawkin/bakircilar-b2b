@@ -1685,16 +1685,39 @@ export default function UcarerDepotReportPage() {
     doc.text(cleanPdfText(new Date().toLocaleString('tr-TR')), pageWidth - 12, 17, { align: 'right' });
   };
   const buildLinesBySupplier = () => {
+    const resolvePdfUnitPrice = (productCode: string, unitPriceOverride: unknown) => {
+      const code = String(productCode || '').trim().toUpperCase();
+      const override = Number(unitPriceOverride);
+      if (Number.isFinite(override) && override > 0) return override;
+
+      const manualInput = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+      if (Number.isFinite(manualInput) && manualInput > 0) return manualInput;
+
+      const currentCost = Number(currentCostByCode[code] || 0);
+      if (Number.isFinite(currentCost) && currentCost > 0) return currentCost;
+
+      const row = rowByProductCode.get(code) || {};
+      const rowEntries = Object.entries(row as Record<string, any>);
+      const candidate = rowEntries.find(([key, value]) => {
+        const keyNorm = normalizeKey(key);
+        if (!keyNorm.includes('maliyet') && !keyNorm.includes('cost')) return false;
+        const parsed = toNumberFlexible(value);
+        return Number.isFinite(parsed) && parsed > 0;
+      });
+      if (candidate) {
+        const parsed = toNumberFlexible(candidate[1]);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
+      return 0;
+    };
+
     const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
     lastCreatedAllocations.forEach((row) => {
       const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
       const productCode = String(row.productCode || '').trim().toUpperCase();
       const quantity = Math.max(0, Number(row.quantity || 0));
       if (!supplierCode || !productCode || quantity <= 0) return;
-      const unitPrice =
-        Number.isFinite(Number(row.unitPriceOverride))
-          ? Number(row.unitPriceOverride)
-          : Number(currentCostByCode[productCode] || 0);
+      const unitPrice = resolvePdfUnitPrice(productCode, row.unitPriceOverride);
       const productName = String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
       const supplierRows = linesBySupplier.get(supplierCode) || [];
       supplierRows.push({
