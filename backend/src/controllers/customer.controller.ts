@@ -80,6 +80,20 @@ const buildLastSalesMap = (sales: MikroCustomerSaleMovement[]) => {
 const normalizeMikroCode = (value: string | null | undefined): string =>
   String(value || '').trim().toUpperCase();
 
+const withTimeout = async <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timeout (${ms}ms)`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
 const loadCustomerContext = async (userId: string) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -821,17 +835,23 @@ export class CustomerController {
       );
       lap('priceStats');
 
+      const canFetchLastSalesForList =
+        isPurchased || Boolean(limit) || searchTokens.length > 0 || Boolean(categoryId);
       const shouldUseLastPrices =
-        Boolean(customer.useLastPrices && customer.mikroCariCode) && !isDiscounted;
+        Boolean(customer.useLastPrices && customer.mikroCariCode) && !isDiscounted && canFetchLastSalesForList;
       let lastSalesMap = new Map<string, number>();
       let lastSalesDetailsMap = new Map<string, MikroCustomerSaleMovement>();
-      const shouldFetchLastSalesDetails = Boolean(customer.mikroCariCode) && (shouldUseLastPrices || isPurchased);
+      const shouldFetchLastSalesDetails = Boolean(customer.mikroCariCode) && isPurchased;
       if (shouldFetchLastSalesDetails) {
         try {
-          const sales = await mikroService.getCustomerSalesMovements(
-            customer.mikroCariCode as string,
-            products.map((product) => product.mikroCode),
-            1
+          const sales = await withTimeout(
+            mikroService.getCustomerSalesMovements(
+              customer.mikroCariCode as string,
+              products.map((product) => product.mikroCode),
+              1
+            ),
+            15000,
+            'getCustomerSalesMovements'
           );
           if (shouldUseLastPrices) {
             lastSalesMap = buildLastSalesMap(sales);
