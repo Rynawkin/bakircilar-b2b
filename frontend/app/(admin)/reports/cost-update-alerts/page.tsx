@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -82,6 +82,10 @@ export default function CostUpdateAlertsPage() {
   const [manualCostPOverrideByCode, setManualCostPOverrideByCode] = useState<Record<string, boolean>>({});
   const [updatePriceListsByCode, setUpdatePriceListsByCode] = useState<Record<string, boolean>>({});
   const [updatingCostByCode, setUpdatingCostByCode] = useState<Record<string, boolean>>({});
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const bottomScrollRef = useRef<HTMLDivElement | null>(null);
+  const syncingScrollRef = useRef(false);
+  const [bottomScrollbarWidth, setBottomScrollbarWidth] = useState(2400);
 
   const isFiniteNumber = (value: any): value is number => Number.isFinite(value);
   const toFixedSafe = (value: number | null | undefined, digits: number) =>
@@ -461,6 +465,38 @@ export default function CostUpdateAlertsPage() {
     }
   };
 
+  useEffect(() => {
+    const container = tableScrollRef.current;
+    if (!container) return;
+    const updateWidth = () => {
+      const tableEl = container.querySelector('table') as HTMLElement | null;
+      const width = tableEl?.scrollWidth || container.scrollWidth || 2400;
+      setBottomScrollbarWidth(width);
+    };
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, [filteredData.length, loading, error]);
+
+  const syncFromMainScroll = () => {
+    if (syncingScrollRef.current) return;
+    const main = tableScrollRef.current;
+    const bottom = bottomScrollRef.current;
+    if (!main || !bottom) return;
+    syncingScrollRef.current = true;
+    bottom.scrollLeft = main.scrollLeft;
+    syncingScrollRef.current = false;
+  };
+  const syncFromBottomScroll = () => {
+    if (syncingScrollRef.current) return;
+    const main = tableScrollRef.current;
+    const bottom = bottomScrollRef.current;
+    if (!main || !bottom) return;
+    syncingScrollRef.current = true;
+    main.scrollLeft = bottom.scrollLeft;
+    syncingScrollRef.current = false;
+  };
+
   return (
     <>
       <div className="container mx-auto p-6 space-y-6">
@@ -644,7 +680,11 @@ export default function CostUpdateAlertsPage() {
             </div>
           ) : (
             <>
-              <div className="max-h-[68vh] overflow-y-auto overflow-x-scroll">
+              <div
+                ref={tableScrollRef}
+                className="max-h-[68vh] overflow-y-auto overflow-x-scroll"
+                onScroll={syncFromMainScroll}
+              >
               <Table className="min-w-[2400px]">
                 <TableHeader className="sticky top-0 z-30 bg-white">
                   <TableRow>
@@ -790,6 +830,13 @@ export default function CostUpdateAlertsPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
+              <div
+                ref={bottomScrollRef}
+                className="h-4 overflow-x-scroll overflow-y-hidden border-t bg-gray-50"
+                onScroll={syncFromBottomScroll}
+              >
+                <div style={{ width: `${bottomScrollbarWidth}px`, height: '1px' }} />
               </div>
 
               {/* Pagination */}
