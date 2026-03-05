@@ -2133,7 +2133,7 @@ export default function UcarerDepotReportPage() {
                         </div>
                       </td>
                     )}
-                    <td className="px-2 py-2 text-right text-emerald-700 font-semibold">{itemNeed.toLocaleString('tr-TR')}</td>
+                    <td className="px-2 py-2 text-right text-emerald-700 font-semibold cursor-pointer" title="Dagitima kopyala" onClick={() => setManualAllocation(activeFamily.id, code, Math.max(0, Math.trunc(itemNeed)))}>{itemNeed.toLocaleString('tr-TR')}</td>
                     <td className="px-2 py-2 text-right">
                       <input
                         type="number"
@@ -2755,7 +2755,7 @@ export default function UcarerDepotReportPage() {
                               </div>
                             </td>
                           )}
-                          <td className="px-2 py-2 text-right font-semibold text-emerald-700">{suggested.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2 text-right font-semibold text-emerald-700 cursor-pointer" title="Dagitima kopyala" onClick={() => setNonFamilyAllocations((prev) => ({ ...prev, [code]: Math.max(0, Math.trunc(suggested)) }))}>{suggested.toLocaleString('tr-TR')}</td>
                           <td className="px-2 py-2 text-right">
                             <input
                               type="number"

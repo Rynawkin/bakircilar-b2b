@@ -16,7 +16,7 @@ const TASK_COLOR_OPTIONS = ['red', 'purple', 'amber', 'blue', 'slate', 'green'];
 const TASK_NOTIFICATION_LINK = '/requests';
 
 const isAdminRole = (role?: string) =>
-  role === 'HEAD_ADMIN' || role === 'ADMIN' || role === 'MANAGER';
+  role === 'HEAD_ADMIN' || role === 'ADMIN';
 
 const parseDateInput = (value?: string | Date | null) => {
   if (!value) return null;

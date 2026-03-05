@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -75,6 +75,13 @@ export default function CostUpdateAlertsPage() {
   const [percentDiffFilter, setPercentDiffFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
+  const [vatRateByCode, setVatRateByCode] = useState<Record<string, number>>({});
+  const [costPInputByCode, setCostPInputByCode] = useState<Record<string, string>>({});
+  const [costTInputByCode, setCostTInputByCode] = useState<Record<string, string>>({});
+  const [manualCostPOverrideByCode, setManualCostPOverrideByCode] = useState<Record<string, boolean>>({});
+  const [updatePriceListsByCode, setUpdatePriceListsByCode] = useState<Record<string, boolean>>({});
+  const [updatingCostByCode, setUpdatingCostByCode] = useState<Record<string, boolean>>({});
 
   const isFiniteNumber = (value: any): value is number => Number.isFinite(value);
   const toFixedSafe = (value: number | null | undefined, digits: number) =>
@@ -114,6 +121,49 @@ export default function CostUpdateAlertsPage() {
   useEffect(() => {
     fetchData();
   }, [page, dayDiffFilter, percentDiffFilter]);
+
+  useEffect(() => {
+    const codeList = Array.from(
+      new Set(
+        (data || [])
+          .map((item) => String(item?.productCode || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+    if (codeList.length === 0) {
+      setCurrentCostByCode({});
+      setVatRateByCode({});
+      return;
+    }
+
+    let active = true;
+    (async () => {
+      try {
+        const nextCost: Record<string, number> = {};
+        const nextVat: Record<string, number> = {};
+        for (let i = 0; i < codeList.length; i += 200) {
+          const chunk = codeList.slice(i, i + 200);
+          const response = await adminApi.getProductsByCodes(chunk);
+          (response.products || []).forEach((product: any) => {
+            const code = String(product?.mikroCode || '').trim().toUpperCase();
+            const costValue = Number(product?.currentCost ?? 0);
+            const vatValue = Number(product?.vatRate ?? 0);
+            if (code && Number.isFinite(costValue)) nextCost[code] = costValue;
+            if (code && Number.isFinite(vatValue)) nextVat[code] = vatValue;
+          });
+        }
+        if (!active) return;
+        setCurrentCostByCode((prev) => ({ ...prev, ...nextCost }));
+        setVatRateByCode((prev) => ({ ...prev, ...nextVat }));
+      } catch {
+        if (!active) return;
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [data]);
 
   const handleManualSync = async () => {
     if (isSyncing) return;
@@ -317,6 +367,98 @@ export default function CostUpdateAlertsPage() {
     return matchesSearchTokens(haystack, tokens);
   });
 
+  const codeSetInView = useMemo(
+    () =>
+      new Set(
+        filteredData
+          .map((item) => String(item.productCode || '').trim().toUpperCase())
+          .filter(Boolean)
+      ),
+    [filteredData]
+  );
+
+  useEffect(() => {
+    setCostPInputByCode((prev) => {
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([code, value]) => {
+        if (codeSetInView.has(code)) next[code] = value;
+      });
+      return next;
+    });
+    setCostTInputByCode((prev) => {
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([code, value]) => {
+        if (codeSetInView.has(code)) next[code] = value;
+      });
+      return next;
+    });
+    setManualCostPOverrideByCode((prev) => {
+      const next: Record<string, boolean> = {};
+      Object.entries(prev).forEach(([code, value]) => {
+        if (codeSetInView.has(code)) next[code] = value;
+      });
+      return next;
+    });
+    setUpdatePriceListsByCode((prev) => {
+      const next: Record<string, boolean> = {};
+      Object.entries(prev).forEach(([code, value]) => {
+        if (codeSetInView.has(code)) next[code] = value;
+      });
+      return next;
+    });
+    setUpdatingCostByCode((prev) => {
+      const next: Record<string, boolean> = {};
+      Object.entries(prev).forEach(([code, value]) => {
+        if (codeSetInView.has(code)) next[code] = value;
+      });
+      return next;
+    });
+  }, [codeSetInView]);
+
+  const updateProductCost = async (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const parsedCostP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+    const parsedCostT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
+    if (!Number.isFinite(parsedCostP) || parsedCostP <= 0) {
+      toast.error('Gecerli bir Maliyet P girin.');
+      return;
+    }
+    if (!Number.isFinite(parsedCostT) || parsedCostT <= 0) {
+      toast.error('Gecerli bir Maliyet T girin.');
+      return;
+    }
+
+    setUpdatingCostByCode((prev) => ({ ...prev, [code]: true }));
+    try {
+      const result = await adminApi.updateUcarerProductCost({
+        productCode: code,
+        costP: parsedCostP,
+        costT: parsedCostT,
+        updatePriceLists: Boolean(updatePriceListsByCode[code]),
+      });
+      const newCostP = Number(result.data?.costP || parsedCostP);
+      const newCostT = Number(result.data?.costT || parsedCostT);
+      const newCost = Number(result.data?.currentCost || newCostP);
+      setCurrentCostByCode((prev) => ({ ...prev, [code]: newCost }));
+      setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
+      setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
+      const missing = result.data?.missingLists || [];
+      if (Boolean(updatePriceListsByCode[code])) {
+        if (missing.length > 0) {
+          toast.success(`Maliyet guncellendi. Eksik liste satiri: ${missing.join(', ')}`);
+        } else {
+          toast.success('Maliyet ve 10 fiyat listesi guncellendi.');
+        }
+      } else {
+        toast.success('Guncel maliyet guncellendi.');
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
+    } finally {
+      setUpdatingCostByCode((prev) => ({ ...prev, [code]: false }));
+    }
+  };
+
   return (
     <>
       <div className="container mx-auto p-6 space-y-6">
@@ -515,12 +657,13 @@ export default function CostUpdateAlertsPage() {
                     <TableHead className="text-right">Gün Farkı</TableHead>
                     <TableHead className="text-right">Eldeki Stok</TableHead>
                     <TableHead className="text-right">Risk Tutarı</TableHead>
+                    <TableHead className="text-right">Maliyet Guncelle</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-12">
+                      <TableCell colSpan={13} className="text-center py-12">
                         <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                         <p className="text-muted-foreground">Uyarı bulunamadı</p>
                       </TableCell>
@@ -535,7 +678,7 @@ export default function CostUpdateAlertsPage() {
                         <TableCell className="max-w-xs truncate">{item.productName}</TableCell>
                         <TableCell className="text-right text-sm">{formatDate(item.currentCostDate)}</TableCell>
                         <TableCell className="text-right font-medium">
-                          {formatCurrency(item.currentCost)}
+                          {formatCurrency(currentCostByCode[String(item.productCode || '').trim().toUpperCase()] ?? item.currentCost)}
                         </TableCell>
                         <TableCell className="text-right text-sm text-green-600">
                           {formatDate(item.lastEntryDate)}
@@ -557,6 +700,67 @@ export default function CostUpdateAlertsPage() {
                         <TableCell className="text-right">{toFixedSafe(item.stockQuantity, 0)}</TableCell>
                         <TableCell className="text-right font-bold text-red-700">
                           {formatCurrency(item.riskAmount)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={costPInputByCode[String(item.productCode || '').trim().toUpperCase()] ?? ''}
+                              onChange={(e) => {
+                                const code = String(item.productCode || '').trim().toUpperCase();
+                                const rawValue = e.target.value;
+                                setCostPInputByCode((prev) => ({ ...prev, [code]: rawValue }));
+                                if (manualCostPOverrideByCode[code]) return;
+                                const parsed = Number(String(rawValue || '').replace(',', '.'));
+                                if (!Number.isFinite(parsed)) return;
+                                const vatRate = Number(vatRateByCode[code] ?? 0);
+                                const vatPercent = vatRate <= 1 ? vatRate * 100 : vatRate;
+                                const autoCostP = parsed * (1 + vatPercent / 200);
+                                setCostTInputByCode((prev) => ({
+                                  ...prev,
+                                  [code]: Number.isFinite(autoCostP) ? autoCostP.toFixed(4).replace(/\.?0+$/, '') : prev[code] || '',
+                                }));
+                              }}
+                              className="h-8 w-20 text-right"
+                              title="Maliyet T"
+                              placeholder="T"
+                            />
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={costTInputByCode[String(item.productCode || '').trim().toUpperCase()] ?? ''}
+                              onChange={(e) => {
+                                const code = String(item.productCode || '').trim().toUpperCase();
+                                setManualCostPOverrideByCode((prev) => ({ ...prev, [code]: true }));
+                                setCostTInputByCode((prev) => ({ ...prev, [code]: e.target.value }));
+                              }}
+                              className="h-8 w-20 text-right"
+                              title="Maliyet P"
+                              placeholder="P"
+                            />
+                            <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(updatePriceListsByCode[String(item.productCode || '').trim().toUpperCase()])}
+                                onChange={(e) => {
+                                  const code = String(item.productCode || '').trim().toUpperCase();
+                                  setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: e.target.checked }));
+                                }}
+                              />
+                              10 liste
+                            </label>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updateProductCost(item.productCode)}
+                              disabled={Boolean(updatingCostByCode[String(item.productCode || '').trim().toUpperCase()])}
+                            >
+                              {updatingCostByCode[String(item.productCode || '').trim().toUpperCase()] ? '...' : 'Guncelle'}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
