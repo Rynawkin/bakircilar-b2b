@@ -4444,7 +4444,6 @@ export class ReportsService {
       WHERE sip_tip = 0
         AND LTRIM(RTRIM(ISNULL(sip_stok_kod, ''))) = '${escapedCode}'
         AND ISNULL(sip_miktar, 0) > ISNULL(sip_teslim_miktar, 0)
-      ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satir_no DESC
     `);
 
     const rows = Array.isArray(rawRows) ? rawRows : [];
@@ -4587,26 +4586,111 @@ export class ReportsService {
       if (resetMinMaxValues) {
         const targetTable = depot === 'TOPCA' ? 'DEPO_TOPCA_DURUM' : 'DEPO_MERKEZ_DURUM';
         const quoteIdentifier = (identifier: string) => `[${String(identifier || '').replace(/]/g, ']]')}]`;
-        const sampleRows = await mikroService.executeQuery(`SELECT TOP 1 * FROM ${targetTable}`);
-        const sampleRow = Array.isArray(sampleRows) && sampleRows.length > 0 ? (sampleRows[0] as Record<string, any>) : {};
-        const allColumns = Object.keys(sampleRow);
-        const stockCodeColumn = allColumns.find((column) =>
-          normalizeKeyToken(column).includes(normalizeKeyToken('stok kodu'))
-        );
-        const minColumn = allColumns.find((column) =>
-          normalizeKeyToken(column).includes(normalizeKeyToken('minimum miktar'))
-        );
-        const maxColumn = allColumns.find((column) =>
-          normalizeKeyToken(column).includes(normalizeKeyToken('maximum miktar'))
-        );
+        let resetApplied = false;
 
-        if (stockCodeColumn && minColumn && maxColumn) {
-          await mikroService.executeQuery(`
-            UPDATE ${targetTable}
-            SET ${quoteIdentifier(minColumn)} = 0,
-                ${quoteIdentifier(maxColumn)} = 0
-            WHERE ${quoteIdentifier(stockCodeColumn)} = '${escapedCode}'
+        try {
+          const sampleRows = await mikroService.executeQuery(`SELECT TOP 1 * FROM ${targetTable}`);
+          const sampleRow = Array.isArray(sampleRows) && sampleRows.length > 0 ? (sampleRows[0] as Record<string, any>) : {};
+          const allColumns = Object.keys(sampleRow);
+          const stockCodeColumn = allColumns.find((column) =>
+            normalizeKeyToken(column).includes(normalizeKeyToken('stok kodu'))
+          );
+          const minColumn = allColumns.find((column) =>
+            normalizeKeyToken(column).includes(normalizeKeyToken('minimum miktar'))
+          );
+          const maxColumn = allColumns.find((column) =>
+            normalizeKeyToken(column).includes(normalizeKeyToken('maximum miktar'))
+          );
+          if (stockCodeColumn && minColumn && maxColumn) {
+            await mikroService.executeQuery(`
+              UPDATE ${targetTable}
+              SET ${quoteIdentifier(minColumn)} = 0,
+                  ${quoteIdentifier(maxColumn)} = 0
+              WHERE ${quoteIdentifier(stockCodeColumn)} = '${escapedCode}'
+            `);
+            resetApplied = true;
+          }
+        } catch {
+          // fallback updates below
+        }
+
+        const readColumns = async (tableName: string) => {
+          const rows = await mikroService.executeQuery(`
+            SELECT COLUMN_NAME AS columnName
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = '${tableName}'
           `);
+          return (Array.isArray(rows) ? rows : [])
+            .map((row: any) => String(row?.columnName || '').trim())
+            .filter(Boolean);
+        };
+        const pickMinMaxColumns = (columns: string[], preferTopca: boolean) => {
+          const normalized = columns.map((column) => ({
+            column,
+            key: normalizeKeyToken(column),
+          }));
+          const minCandidates = normalized.filter((item) =>
+            item.key.includes('min') || item.key.includes('minimum')
+          );
+          const maxCandidates = normalized.filter((item) =>
+            item.key.includes('max') || item.key.includes('maximum')
+          );
+          const score = (key: string, wantTopca: boolean, isMin: boolean) => {
+            let total = 0;
+            if (wantTopca && key.includes('topca')) total += 5;
+            if (!wantTopca && key.includes('topca')) total -= 3;
+            if (wantTopca && key.includes('merkez')) total -= 1;
+            if (!wantTopca && key.includes('merkez')) total += 3;
+            if (isMin && key.includes('min')) total += 2;
+            if (!isMin && key.includes('max')) total += 2;
+            if (key.startsWith('sto_')) total += 1;
+            return total;
+          };
+          const minColumn = minCandidates
+            .sort((a, b) => score(b.key, preferTopca, true) - score(a.key, preferTopca, true))[0]?.column;
+          const maxColumn = maxCandidates
+            .sort((a, b) => score(b.key, preferTopca, false) - score(a.key, preferTopca, false))[0]?.column;
+          return { minColumn, maxColumn };
+        };
+
+        if (!resetApplied) {
+          try {
+            const stoklarColumns = await readColumns('STOKLAR');
+            const picked = pickMinMaxColumns(stoklarColumns, false);
+            if (picked.minColumn && picked.maxColumn) {
+              await mikroService.executeQuery(`
+                UPDATE STOKLAR
+                SET ${quoteIdentifier(picked.minColumn)} = 0,
+                    ${quoteIdentifier(picked.maxColumn)} = 0
+                WHERE sto_kod = '${escapedCode}'
+              `);
+              resetApplied = true;
+            }
+          } catch {
+            // continue
+          }
+        }
+
+        if (!resetApplied) {
+          try {
+            const stoklarUserColumns = await readColumns('STOKLAR_USER');
+            const picked = pickMinMaxColumns(stoklarUserColumns, depot === 'TOPCA');
+            if (picked.minColumn && picked.maxColumn) {
+              await mikroService.executeQuery(`
+                UPDATE STOKLAR_USER
+                SET ${quoteIdentifier(picked.minColumn)} = 0,
+                    ${quoteIdentifier(picked.maxColumn)} = 0
+                WHERE sto_kod = '${escapedCode}'
+              `);
+              resetApplied = true;
+            }
+          } catch {
+            // continue
+          }
+        }
+
+        if (!resetApplied) {
+          throw new AppError('0-0 minmax alanlari bulunamadi veya guncellenemedi.', 400, ErrorCode.BAD_REQUEST);
         }
       }
     } else {

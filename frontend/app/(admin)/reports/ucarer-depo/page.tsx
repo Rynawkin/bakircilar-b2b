@@ -126,6 +126,21 @@ const parseMaybeNumber = (value: unknown): number | null => {
   const num = Number(normalized);
   return Number.isFinite(num) ? num : null;
 };
+const cleanPdfText = (value: string | number | null | undefined) =>
+  String(value ?? '')
+    .replace(/ğ/g, 'g')
+    .replace(/Ğ/g, 'G')
+    .replace(/ü/g, 'u')
+    .replace(/Ü/g, 'U')
+    .replace(/ş/g, 's')
+    .replace(/Ş/g, 'S')
+    .replace(/ı/g, 'i')
+    .replace(/İ/g, 'I')
+    .replace(/ö/g, 'o')
+    .replace(/Ö/g, 'O')
+    .replace(/ç/g, 'c')
+    .replace(/Ç/g, 'C')
+    .replace(/₺/g, 'TL');
 
 export default function UcarerDepotReportPage() {
   const [depot, setDepot] = useState<DepotType>('MERKEZ');
@@ -1056,6 +1071,21 @@ export default function UcarerDepotReportPage() {
       })
     );
   };
+  const setPendingPersistOverrideForProduct = (productCode: string, persist: boolean) => {
+    const stockCode = String(productCode || '').trim().toUpperCase();
+    if (!stockCode) return;
+    setPersistSupplierOverrideByCode((prev) => ({ ...prev, [stockCode]: persist }));
+    setPendingAllocations((prev) =>
+      prev.map((row) => {
+        const rowProductCode = String(row.productCode || '').trim().toUpperCase();
+        if (rowProductCode !== stockCode) return row;
+        return {
+          ...row,
+          persistSupplierOverride: persist,
+        };
+      })
+    );
+  };
 
   const activeFamily = useMemo(
     () => families.find((family) => family.id === activeFamilyId) || null,
@@ -1629,11 +1659,11 @@ export default function UcarerDepotReportPage() {
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
-    doc.text(title, 60, 11);
+    doc.text(cleanPdfText(title), 60, 11);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(subTitle, 60, 17);
-    doc.text(new Date().toLocaleString('tr-TR'), pageWidth - 12, 17, { align: 'right' });
+    doc.text(cleanPdfText(subTitle), 60, 17);
+    doc.text(cleanPdfText(new Date().toLocaleString('tr-TR')), pageWidth - 12, 17, { align: 'right' });
   };
   const buildLinesBySupplier = () => {
     const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
@@ -1678,24 +1708,24 @@ export default function UcarerDepotReportPage() {
         await drawPdfHeader(doc, 'Tedarikci Siparis Ozet', `${supplierCode} - ${supplierName} | Siparis No: ${orderNumber}`);
         autoTable(doc, {
           startY: 30,
-          head: [['Stok Kodu', 'Urun', 'Miktar', 'Birim Fiyat', 'Tutar']],
+          head: [[cleanPdfText('Stok Kodu'), cleanPdfText('Urun'), cleanPdfText('Miktar'), cleanPdfText('Birim Fiyat'), cleanPdfText('Tutar')]],
           body: lines.map((line) => [
-            line.productCode,
-            line.productName,
-            line.quantity.toLocaleString('tr-TR'),
-            line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            cleanPdfText(line.productCode),
+            cleanPdfText(line.productName),
+            cleanPdfText(line.quantity.toLocaleString('tr-TR')),
+            cleanPdfText(line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
+            cleanPdfText(line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
           ]),
           theme: 'grid',
           headStyles: { fillColor: [30, 64, 175], textColor: 255, fontSize: 9 },
-          styles: { fontSize: 8, cellPadding: 2 },
+          styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
           columnStyles: { 0: { cellWidth: 26 }, 2: { halign: 'right', cellWidth: 18 }, 3: { halign: 'right', cellWidth: 26 }, 4: { halign: 'right', cellWidth: 26 } },
         });
         const finalY = (doc as any).lastAutoTable?.finalY || 40;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
         doc.text(
-          `Toplam: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`,
+          cleanPdfText(`Toplam: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`),
           doc.internal.pageSize.getWidth() - 12,
           finalY + 8,
           { align: 'right' }
@@ -1737,17 +1767,17 @@ export default function UcarerDepotReportPage() {
       const grandTotal = summaryRows.reduce((sum, row) => sum + row.totalAmount, 0);
       autoTable(doc, {
         startY: 30,
-        head: [['Cari Kodu', 'Cari Unvan', 'Siparis No', 'Kalem', 'Tutar (TL)']],
+        head: [[cleanPdfText('Cari Kodu'), cleanPdfText('Cari Unvan'), cleanPdfText('Siparis No'), cleanPdfText('Kalem'), cleanPdfText('Tutar (TL)')]],
         body: summaryRows.map((row) => [
-          row.supplierCode,
-          row.supplierName,
-          row.orderNumber,
-          row.itemCount.toLocaleString('tr-TR'),
-          row.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          cleanPdfText(row.supplierCode),
+          cleanPdfText(row.supplierName),
+          cleanPdfText(row.orderNumber),
+          cleanPdfText(row.itemCount.toLocaleString('tr-TR')),
+          cleanPdfText(row.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
         ]),
         theme: 'grid',
         headStyles: { fillColor: [13, 148, 136], textColor: 255, fontSize: 9 },
-        styles: { fontSize: 8, cellPadding: 2 },
+        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
         columnStyles: { 3: { halign: 'right', cellWidth: 16 }, 4: { halign: 'right', cellWidth: 30 } },
       });
 
@@ -1760,20 +1790,20 @@ export default function UcarerDepotReportPage() {
         }
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
-        doc.text(`${index + 1}) ${row.supplierCode} - ${row.supplierName} | ${row.orderNumber}`, 12, startY);
+        doc.text(cleanPdfText(`${index + 1}) ${row.supplierCode} - ${row.supplierName} | ${row.orderNumber}`), 12, startY);
         autoTable(doc, {
           startY: startY + 2,
-          head: [['Stok', 'Urun', 'Miktar', 'Birim', 'Tutar']],
+          head: [[cleanPdfText('Stok'), cleanPdfText('Urun'), cleanPdfText('Miktar'), cleanPdfText('Birim'), cleanPdfText('Tutar')]],
           body: lines.map((line) => [
-            line.productCode,
-            line.productName,
-            line.quantity.toLocaleString('tr-TR'),
-            line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            cleanPdfText(line.productCode),
+            cleanPdfText(line.productName),
+            cleanPdfText(line.quantity.toLocaleString('tr-TR')),
+            cleanPdfText(line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
+            cleanPdfText(line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
           ]),
           theme: 'striped',
           headStyles: { fillColor: [55, 65, 81], textColor: 255, fontSize: 8 },
-          styles: { fontSize: 7.5, cellPadding: 1.8 },
+          styles: { fontSize: 7.5, cellPadding: 1.8, overflow: 'linebreak' },
           margin: { left: 12, right: 12 },
           columnStyles: { 2: { halign: 'right', cellWidth: 16 }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'right', cellWidth: 24 } },
         });
@@ -1783,7 +1813,7 @@ export default function UcarerDepotReportPage() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.text(
-        `Genel Toplam: ${grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`,
+        cleanPdfText(`Genel Toplam: ${grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`),
         doc.internal.pageSize.getWidth() - 12,
         Math.min(288, startY + 4),
         { align: 'right' }
@@ -3231,19 +3261,32 @@ export default function UcarerDepotReportPage() {
                                         </div>
                                       </div>
                                       <div className="flex items-center gap-2">
-                                        <select
-                                          className="w-40 rounded border px-2 py-1 text-[11px]"
-                                          value={row.supplierCode}
+                                        <input
+                                          list="ucarer-supplier-cari-list"
+                                          className="w-40 rounded border px-2 py-1 text-[11px] uppercase"
+                                          value={String(
+                                            pendingAllocations.find(
+                                              (alloc) =>
+                                                String(alloc.productCode || '').trim().toUpperCase() ===
+                                                String(item.productCode || '').trim().toUpperCase()
+                                            )?.supplierCodeOverride || row.supplierCode
+                                          ).trim().toUpperCase()}
                                           onChange={(e) => reassignPendingSupplierForProduct(row.supplierCode, item.productCode, e.target.value)}
-                                        >
-                                          <option value={row.supplierCode}>{row.supplierCode}</option>
-                                          {cariOptions.map((cari) => (
-                                            <option key={`${row.supplierCode}-${item.productCode}-${cari.code}`} value={cari.code}>
-                                              {cari.code} - {cari.name}
-                                            </option>
-                                          ))}
-                                        </select>
-                                        <span className="text-[10px] text-gray-500">Ana saglayici degistir</span>
+                                        />
+                                        <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(
+                                              pendingAllocations.find(
+                                                (alloc) =>
+                                                  String(alloc.productCode || '').trim().toUpperCase() ===
+                                                  String(item.productCode || '').trim().toUpperCase()
+                                              )?.persistSupplierOverride
+                                            )}
+                                            onChange={(e) => setPendingPersistOverrideForProduct(item.productCode, e.target.checked)}
+                                          />
+                                          Kalici
+                                        </label>
                                       </div>
                                     </div>
                                   ))}

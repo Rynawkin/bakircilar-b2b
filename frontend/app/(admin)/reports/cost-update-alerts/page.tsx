@@ -644,7 +644,7 @@ export default function CostUpdateAlertsPage() {
             </div>
           ) : (
             <>
-              <div className="overflow-auto">
+              <div className="max-h-[68vh] overflow-auto">
               <Table className="min-w-[1700px]">
                 <TableHeader>
                   <TableRow>
