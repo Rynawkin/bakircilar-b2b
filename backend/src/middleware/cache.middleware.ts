@@ -40,12 +40,15 @@ export function cacheMiddleware(options: CacheOptions) {
 
       // Override json method to cache the response
       res.json = function (data: any) {
-        // Cache the response (don't await to avoid blocking)
-        cacheService
-          .set(options.namespace, identifier, data, options.ttl || 600)
-          .catch((err) => {
-            console.error('Error caching response:', err);
-          });
+        const shouldCache = res.statusCode >= 200 && res.statusCode < 300;
+        if (shouldCache) {
+          // Cache only successful responses (don't await to avoid blocking)
+          cacheService
+            .set(options.namespace, identifier, data, options.ttl || 600)
+            .catch((err) => {
+              console.error('Error caching response:', err);
+            });
+        }
 
         // Send the response
         return originalJson(data);
