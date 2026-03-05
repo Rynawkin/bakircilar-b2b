@@ -366,6 +366,8 @@ export default function CostUpdateAlertsPage() {
     const haystack = normalizeSearchText(`${item.productName} ${item.productCode}`);
     return matchesSearchTokens(haystack, tokens);
   });
+  const stickyCodeWidth = 150;
+  const stickyNameWidth = 300;
 
   const codeSetInView = useMemo(
     () =>
@@ -642,12 +644,23 @@ export default function CostUpdateAlertsPage() {
             </div>
           ) : (
             <>
-              <Table>
+              <div className="overflow-auto">
+              <Table className="min-w-[1700px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Risk</TableHead>
-                    <TableHead>Ürün Kodu</TableHead>
-                    <TableHead>Ürün Adı</TableHead>
+                    <TableHead
+                      className="sticky left-0 z-20 bg-white"
+                      style={{ minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                    >
+                      Ürün Kodu
+                    </TableHead>
+                    <TableHead
+                      className="sticky z-20 bg-white"
+                      style={{ left: `${stickyCodeWidth}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                    >
+                      Ürün Adı
+                    </TableHead>
                     <TableHead className="text-right">G. Mal. Tarihi</TableHead>
                     <TableHead className="text-right">Güncel Maliyet</TableHead>
                     <TableHead className="text-right">S. Giriş Tarihi</TableHead>
@@ -674,8 +687,18 @@ export default function CostUpdateAlertsPage() {
                         <TableCell>
                           {getRiskLevelBadge(item.diffPercent)}
                         </TableCell>
-                        <TableCell className="font-mono text-sm">{item.productCode}</TableCell>
-                        <TableCell className="max-w-xs truncate">{item.productName}</TableCell>
+                        <TableCell
+                          className="sticky left-0 z-10 bg-inherit font-mono text-sm"
+                          style={{ minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
+                        >
+                          {item.productCode}
+                        </TableCell>
+                        <TableCell
+                          className="sticky z-10 bg-inherit max-w-xs truncate"
+                          style={{ left: `${stickyCodeWidth}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
+                        >
+                          {item.productName}
+                        </TableCell>
                         <TableCell className="text-right text-sm">{formatDate(item.currentCostDate)}</TableCell>
                         <TableCell className="text-right font-medium">
                           {formatCurrency(currentCostByCode[String(item.productCode || '').trim().toUpperCase()] ?? item.currentCost)}
@@ -767,6 +790,7 @@ export default function CostUpdateAlertsPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
 
               {/* Pagination */}
               {totalPages > 1 && (

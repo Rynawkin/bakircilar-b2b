@@ -1979,6 +1979,29 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/ucarer-depo?${queryParams.toString()}`);
     return response.data;
   },
+  getUcarerIncomingOrderDetails: async (productCode: string): Promise<{
+    success: boolean;
+    data: {
+      productCode: string;
+      rows: Array<{
+        customerCode: string;
+        customerName: string;
+        orderSeries: string;
+        orderSequence: number;
+        orderLineNo: number;
+        orderDate: string | null;
+        quantity: number;
+        deliveredQuantity: number;
+        remainingQuantity: number;
+      }>;
+      total: number;
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('productCode', productCode);
+    const response = await apiClient.get(`/admin/reports/ucarer-incoming-order-details?${queryParams.toString()}`);
+    return response.data;
+  },
 
   runUcarerMinMaxReport: async (): Promise<{ success: boolean; data: { rows: any[]; columns: string[]; total: number } }> => {
     const response = await apiClient.post('/admin/reports/ucarer-minmax/run');

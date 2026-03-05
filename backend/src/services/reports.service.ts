@@ -4418,6 +4418,120 @@ export class ReportsService {
     };
   }
 
+  async getUcarerIncomingOrderDetails(productCodeInput: string): Promise<{
+    productCode: string;
+    rows: Array<{
+      customerCode: string;
+      customerName: string;
+      orderSeries: string;
+      orderSequence: number;
+      orderLineNo: number;
+      orderDate: string | null;
+      quantity: number;
+      deliveredQuantity: number;
+      remainingQuantity: number;
+    }>;
+    total: number;
+  }> {
+    const productCode = String(productCodeInput || '').trim().toUpperCase();
+    if (!productCode) {
+      throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+    const escapedCode = productCode.replace(/'/g, "''");
+    const rawRows = await mikroService.executeQuery(`
+      SELECT TOP 750 *
+      FROM SIPARISLER WITH (NOLOCK)
+      WHERE sip_tip = 0
+        AND LTRIM(RTRIM(ISNULL(sip_stok_kod, ''))) = '${escapedCode}'
+        AND ISNULL(sip_miktar, 0) > ISNULL(sip_teslim_miktar, 0)
+      ORDER BY sip_tarih DESC, sip_evrakno_sira DESC, sip_satir_no DESC
+    `);
+
+    const rows = Array.isArray(rawRows) ? rawRows : [];
+    if (rows.length === 0) {
+      return { productCode, rows: [], total: 0 };
+    }
+
+    const readByTokens = (row: Record<string, any>, tokens: string[]): any => {
+      for (const token of tokens) {
+        const key = Object.keys(row).find((candidate) =>
+          normalizeKeyToken(candidate).includes(normalizeKeyToken(token))
+        );
+        if (key) return row[key];
+      }
+      return null;
+    };
+    const toNum = (value: unknown): number => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const normalized = rows.map((row) => {
+      const customerCode = String(
+        readByTokens(row, ['sipcarikod', 'sipmusterikod', 'carikod', 'musterikod']) || ''
+      )
+        .trim()
+        .toUpperCase();
+      const orderSeries = String(readByTokens(row, ['sipevraknoseri', 'evraknoseri']) || '').trim().toUpperCase();
+      const orderSequence = Math.max(0, Math.trunc(toNum(readByTokens(row, ['sipevraknosira', 'evraknosira']))));
+      const orderLineNo = Math.max(0, Math.trunc(toNum(readByTokens(row, ['sipsatirno', 'satirno']))));
+      const quantity = Math.max(0, toNum(readByTokens(row, ['sipmiktar'])));
+      const deliveredQuantity = Math.max(0, toNum(readByTokens(row, ['sipteslimmiktar'])));
+      const remainingQuantity = Math.max(0, quantity - deliveredQuantity);
+      const orderDateValue = readByTokens(row, ['siptarih', 'tarih']);
+      const parsedDate = orderDateValue ? new Date(orderDateValue) : null;
+      const orderDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : null;
+      return {
+        customerCode,
+        orderSeries,
+        orderSequence,
+        orderLineNo,
+        orderDate,
+        quantity,
+        deliveredQuantity,
+        remainingQuantity,
+      };
+    });
+
+    const customerCodes = Array.from(
+      new Set(normalized.map((row) => row.customerCode).filter(Boolean))
+    );
+    let customerNameMap = new Map<string, string>();
+    if (customerCodes.length > 0) {
+      const inClause = customerCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(', ');
+      const customerRows = await mikroService.executeQuery(`
+        SELECT cari_kod AS customerCode, LTRIM(RTRIM(ISNULL(cari_unvan1, ''))) AS customerName
+        FROM CARI_HESAPLAR WITH (NOLOCK)
+        WHERE cari_kod IN (${inClause})
+      `);
+      customerNameMap = new Map(
+        (Array.isArray(customerRows) ? customerRows : []).map((row: any) => [
+          String(row?.customerCode || '').trim().toUpperCase(),
+          String(row?.customerName || '').trim(),
+        ])
+      );
+    }
+
+    const responseRows = normalized
+      .map((row) => ({
+        ...row,
+        customerName: customerNameMap.get(row.customerCode) || row.customerCode || '-',
+      }))
+      .sort((a, b) => {
+        const dateA = a.orderDate ? new Date(a.orderDate).getTime() : 0;
+        const dateB = b.orderDate ? new Date(b.orderDate).getTime() : 0;
+        if (dateB !== dateA) return dateB - dateA;
+        if (b.orderSequence !== a.orderSequence) return b.orderSequence - a.orderSequence;
+        return b.orderLineNo - a.orderLineNo;
+      });
+
+    return {
+      productCode,
+      rows: responseRows,
+      total: responseRows.length,
+    };
+  }
+
   async runUcarerMinMaxReport(): Promise<{
     rows: Record<string, any>[];
     columns: string[];
@@ -4472,12 +4586,28 @@ export class ReportsService {
 
       if (resetMinMaxValues) {
         const targetTable = depot === 'TOPCA' ? 'DEPO_TOPCA_DURUM' : 'DEPO_MERKEZ_DURUM';
-        await mikroService.executeQuery(`
-          UPDATE ${targetTable}
-          SET [Merkez Minimum Miktar] = 0,
-              [Merkez Maximum Miktar] = 0
-          WHERE [STOK KODU] = '${escapedCode}'
-        `);
+        const quoteIdentifier = (identifier: string) => `[${String(identifier || '').replace(/]/g, ']]')}]`;
+        const sampleRows = await mikroService.executeQuery(`SELECT TOP 1 * FROM ${targetTable}`);
+        const sampleRow = Array.isArray(sampleRows) && sampleRows.length > 0 ? (sampleRows[0] as Record<string, any>) : {};
+        const allColumns = Object.keys(sampleRow);
+        const stockCodeColumn = allColumns.find((column) =>
+          normalizeKeyToken(column).includes(normalizeKeyToken('stok kodu'))
+        );
+        const minColumn = allColumns.find((column) =>
+          normalizeKeyToken(column).includes(normalizeKeyToken('minimum miktar'))
+        );
+        const maxColumn = allColumns.find((column) =>
+          normalizeKeyToken(column).includes(normalizeKeyToken('maximum miktar'))
+        );
+
+        if (stockCodeColumn && minColumn && maxColumn) {
+          await mikroService.executeQuery(`
+            UPDATE ${targetTable}
+            SET ${quoteIdentifier(minColumn)} = 0,
+                ${quoteIdentifier(maxColumn)} = 0
+            WHERE ${quoteIdentifier(stockCodeColumn)} = '${escapedCode}'
+          `);
+        }
       }
     } else {
       await mikroService.executeQuery(`

@@ -62,6 +62,18 @@ interface ProductFamily {
   }>;
 }
 
+interface IncomingOrderDetailRow {
+  customerCode: string;
+  customerName: string;
+  orderSeries: string;
+  orderSequence: number;
+  orderLineNo: number;
+  orderDate: string | null;
+  quantity: number;
+  deliveredQuantity: number;
+  remainingQuantity: number;
+}
+
 interface SuggestionSortState {
   key: SuggestionSortKey;
   direction: SortDirection;
@@ -209,6 +221,11 @@ export default function UcarerDepotReportPage() {
   >([]);
   const [downloadingOrderPdfs, setDownloadingOrderPdfs] = useState(false);
   const [downloadingOrderSummaryPdf, setDownloadingOrderSummaryPdf] = useState(false);
+  const [createdOrdersModalOpen, setCreatedOrdersModalOpen] = useState(false);
+  const [incomingOrdersModalOpen, setIncomingOrdersModalOpen] = useState(false);
+  const [incomingOrdersLoading, setIncomingOrdersLoading] = useState(false);
+  const [incomingOrdersProductCode, setIncomingOrdersProductCode] = useState('');
+  const [incomingOrdersDetailRows, setIncomingOrdersDetailRows] = useState<IncomingOrderDetailRow[]>([]);
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
   const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>('INCLUDE_MINMAX');
@@ -375,7 +392,7 @@ export default function UcarerDepotReportPage() {
         redirectSuggestions,
       };
     });
-  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingOrderColumn, productNameColumn]);
+  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn, incomingOrderColumn, productNameColumn]);
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
   function getRawSuggestedQty(row: Record<string, any>): number {
@@ -383,6 +400,9 @@ export default function UcarerDepotReportPage() {
     if (!sourceColumn) return 0;
     const base = toNumberFlexible(row[sourceColumn]);
     const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
+    const minQty = minQtyColumn ? Math.max(0, toNumberFlexible(row[minQtyColumn])) : 0;
+    const realQty = realQtyColumn ? toNumberFlexible(row[realQtyColumn]) : 0;
+    if (realQty + incomingDsv >= minQty && minQty > 0) return 0;
     return base - incomingDsv;
   }
   function getSuggestedQty(row: Record<string, any>): number {
@@ -390,7 +410,7 @@ export default function UcarerDepotReportPage() {
   }
   const totalSuggestedQty = useMemo(
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
-    [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]
+    [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn]
   );
   const nonFamilyRows = useMemo(() => {
     if (!stockCodeColumn) return [];
@@ -402,7 +422,7 @@ export default function UcarerDepotReportPage() {
       .filter((item) => item.code && !familyCodeSet.has(item.code))
       .filter((item) => !isRowOperationallyEmpty(item.row))
       .filter((item) => getSuggestedQty(item.row) > 0);
-  }, [depotRows, stockCodeColumn, familyCodeSet, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
+  }, [depotRows, stockCodeColumn, familyCodeSet, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -429,7 +449,7 @@ export default function UcarerDepotReportPage() {
       });
       return next;
     });
-  }, [nonFamilyRows, suggestionMode, thirdIssueColumn, fourthIssueColumn]);
+  }, [nonFamilyRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn]);
 
   useEffect(() => {
     let active = true;
@@ -1002,6 +1022,40 @@ export default function UcarerDepotReportPage() {
       setUpdatingMinMaxExclusionByCode((prev) => ({ ...prev, [code]: false }));
     }
   };
+  const openIncomingOrdersModal = async (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return;
+    setIncomingOrdersProductCode(code);
+    setIncomingOrdersModalOpen(true);
+    setIncomingOrdersLoading(true);
+    try {
+      const response = await adminApi.getUcarerIncomingOrderDetails(code);
+      setIncomingOrdersDetailRows(Array.isArray(response.data?.rows) ? response.data.rows : []);
+    } catch (error: any) {
+      setIncomingOrdersDetailRows([]);
+      toast.error(error?.response?.data?.error || 'Alinan siparis detaylari getirilemedi');
+    } finally {
+      setIncomingOrdersLoading(false);
+    }
+  };
+  const reassignPendingSupplierForProduct = (fromSupplierCode: string, productCode: string, newSupplierCodeInput: string) => {
+    const sourceCode = String(fromSupplierCode || '').trim().toUpperCase();
+    const stockCode = String(productCode || '').trim().toUpperCase();
+    const targetCode = String(newSupplierCodeInput || '').trim().toUpperCase();
+    if (!sourceCode || !stockCode || !targetCode) return;
+
+    setPendingAllocations((prev) =>
+      prev.map((row) => {
+        const rowSupplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+        const rowProductCode = String(row.productCode || '').trim().toUpperCase();
+        if (rowSupplierCode !== sourceCode || rowProductCode !== stockCode) return row;
+        return {
+          ...row,
+          supplierCodeOverride: targetCode,
+        };
+      })
+    );
+  };
 
   const activeFamily = useMemo(
     () => families.find((family) => family.id === activeFamilyId) || null,
@@ -1355,6 +1409,27 @@ export default function UcarerDepotReportPage() {
     });
     return result;
   }, [pendingAllocations, rowByProductCode, productNameColumn]);
+  useEffect(() => {
+    if (!seriesModalOpen) return;
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const defaultDate = `${yyyy}-${mm}-${dd}`;
+    setSupplierOrderConfigs((prev) => {
+      const next: Record<string, { series: string; applyVAT: boolean; deliveryType: string; deliveryDate: string }> = {};
+      pendingSupplierRows.forEach((row) => {
+        const current = prev[row.supplierCode];
+        next[row.supplierCode] = current || {
+          series: 'H',
+          applyVAT: true,
+          deliveryType: 'B',
+          deliveryDate: defaultDate,
+        };
+      });
+      return next;
+    });
+  }, [pendingSupplierRows, seriesModalOpen]);
 
   const createSupplierOrders = async () => {
     const allocations = buildOrderAllocations();
@@ -1510,6 +1585,7 @@ export default function UcarerDepotReportPage() {
       }
       setLastCreatedOrders(created);
       setLastCreatedAllocations([...pendingAllocations]);
+      setCreatedOrdersModalOpen(true);
       setSeriesModalOpen(false);
       setPendingAllocations([]);
       setSupplierOrderConfigs({});
@@ -1520,62 +1596,110 @@ export default function UcarerDepotReportPage() {
     }
   };
 
+  const resolveImageUrl = (src: string): string | null => {
+    if (!src) return null;
+    if (src.startsWith('http://') || src.startsWith('https://')) return src;
+    if (typeof window === 'undefined') return src;
+    const base = window.location.origin || '';
+    return `${base}${src.startsWith('/') ? '' : '/'}${src}`;
+  };
+  const loadImageData = async (url: string): Promise<string | null> => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+  const getImageFormat = (dataUrl: string) => (dataUrl.includes('image/png') ? 'PNG' : 'JPEG');
+  const drawPdfHeader = async (doc: jsPDF, title: string, subTitle: string) => {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    doc.setFillColor(248, 250, 252);
+    doc.rect(0, 0, pageWidth, 26, 'F');
+    const logoData = await loadImageData(resolveImageUrl('/quote-logo.png') || '');
+    if (logoData) {
+      doc.addImage(logoData, getImageFormat(logoData), 12, 4, 44, 18);
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(title, 60, 11);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(subTitle, 60, 17);
+    doc.text(new Date().toLocaleString('tr-TR'), pageWidth - 12, 17, { align: 'right' });
+  };
+  const buildLinesBySupplier = () => {
+    const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
+    lastCreatedAllocations.forEach((row) => {
+      const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+      const productCode = String(row.productCode || '').trim().toUpperCase();
+      const quantity = Math.max(0, Number(row.quantity || 0));
+      if (!supplierCode || !productCode || quantity <= 0) return;
+      const unitPrice =
+        Number.isFinite(Number(row.unitPriceOverride))
+          ? Number(row.unitPriceOverride)
+          : Number(currentCostByCode[productCode] || 0);
+      const productName = String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
+      const supplierRows = linesBySupplier.get(supplierCode) || [];
+      supplierRows.push({
+        productCode,
+        productName,
+        quantity,
+        unitPrice,
+        total: unitPrice * quantity,
+      });
+      linesBySupplier.set(supplierCode, supplierRows);
+    });
+    return linesBySupplier;
+  };
+
   const downloadCreatedOrderPdfs = async () => {
     if (!lastCreatedOrders.length) return;
     setDownloadingOrderPdfs(true);
     try {
-      const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
-      lastCreatedAllocations.forEach((row) => {
-        const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
-        const productCode = String(row.productCode || '').trim().toUpperCase();
-        const quantity = Math.max(0, Number(row.quantity || 0));
-        if (!supplierCode || !productCode || quantity <= 0) return;
-        const unitPrice =
-          Number.isFinite(Number(row.unitPriceOverride))
-            ? Number(row.unitPriceOverride)
-            : Number(currentCostByCode[productCode] || 0);
-        const productName = String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
-        const supplierRows = linesBySupplier.get(supplierCode) || [];
-        supplierRows.push({
-          productCode,
-          productName,
-          quantity,
-          unitPrice,
-          total: unitPrice * quantity,
-        });
-        linesBySupplier.set(supplierCode, supplierRows);
-      });
-
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = (autoTableModule as any).default || autoTableModule;
+      const linesBySupplier = buildLinesBySupplier();
       for (const order of lastCreatedOrders) {
         const supplierCode = String(order.supplierCode || '').trim().toUpperCase();
         const supplierName = String(order.supplierName || supplierCode).trim();
         const orderNumber = String(order.orderNumber || '').trim();
-        const lines = linesBySupplier.get(supplierCode) || [];
+        const lines = (linesBySupplier.get(supplierCode) || []).sort((a, b) => a.productCode.localeCompare(b.productCode, 'tr'));
         const totalAmount = lines.reduce((sum, line) => sum + line.total, 0);
 
         const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-        doc.setFontSize(14);
-        doc.text('Tedarikci Siparis Ozet', 14, 14);
+        await drawPdfHeader(doc, 'Tedarikci Siparis Ozet', `${supplierCode} - ${supplierName} | Siparis No: ${orderNumber}`);
+        autoTable(doc, {
+          startY: 30,
+          head: [['Stok Kodu', 'Urun', 'Miktar', 'Birim Fiyat', 'Tutar']],
+          body: lines.map((line) => [
+            line.productCode,
+            line.productName,
+            line.quantity.toLocaleString('tr-TR'),
+            line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          ]),
+          theme: 'grid',
+          headStyles: { fillColor: [30, 64, 175], textColor: 255, fontSize: 9 },
+          styles: { fontSize: 8, cellPadding: 2 },
+          columnStyles: { 0: { cellWidth: 26 }, 2: { halign: 'right', cellWidth: 18 }, 3: { halign: 'right', cellWidth: 26 }, 4: { halign: 'right', cellWidth: 26 } },
+        });
+        const finalY = (doc as any).lastAutoTable?.finalY || 40;
+        doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
-        doc.text(`Cari: ${supplierCode} - ${supplierName}`, 14, 22);
-        doc.text(`Siparis No: ${orderNumber}`, 14, 28);
-        doc.text(`Kalem: ${lines.length}  Toplam Tutar: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 14, 34);
-
-        let y = 42;
-        lines
-          .sort((a, b) => a.productCode.localeCompare(b.productCode, 'tr'))
-          .forEach((line) => {
-            if (y > 280) {
-              doc.addPage();
-              y = 14;
-            }
-            doc.text(
-              `${line.productCode} | ${line.productName} | Miktar: ${line.quantity.toLocaleString('tr-TR')} | Birim: ${line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Tutar: ${line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-              14,
-              y
-            );
-            y += 6;
-          });
+        doc.text(
+          `Toplam: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`,
+          doc.internal.pageSize.getWidth() - 12,
+          finalY + 8,
+          { align: 'right' }
+        );
 
         const safeSupplier = supplierName.replace(/[\\/:*?"<>|]/g, '_');
         const safeOrder = orderNumber.replace(/[\\/:*?"<>|]/g, '_');
@@ -1590,68 +1714,80 @@ export default function UcarerDepotReportPage() {
     if (!lastCreatedOrders.length) return;
     setDownloadingOrderSummaryPdf(true);
     try {
-      const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
-      lastCreatedAllocations.forEach((row) => {
-        const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
-        const productCode = String(row.productCode || '').trim().toUpperCase();
-        const quantity = Math.max(0, Number(row.quantity || 0));
-        if (!supplierCode || !productCode || quantity <= 0) return;
-        const unitPrice =
-          Number.isFinite(Number(row.unitPriceOverride))
-            ? Number(row.unitPriceOverride)
-            : Number(currentCostByCode[productCode] || 0);
-        const productName = String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
-        const supplierRows = linesBySupplier.get(supplierCode) || [];
-        supplierRows.push({
-          productCode,
-          productName,
-          quantity,
-          unitPrice,
-          total: unitPrice * quantity,
-        });
-        linesBySupplier.set(supplierCode, supplierRows);
-      });
-
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = (autoTableModule as any).default || autoTableModule;
+      const linesBySupplier = buildLinesBySupplier();
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-      doc.setFontSize(14);
-      doc.text('Toplu Siparis Yonetici Onay Ozeti', 14, 14);
-      doc.setFontSize(10);
-      let y = 22;
-      let grandTotal = 0;
+      await drawPdfHeader(doc, 'Toplu Siparis Yonetici Onay Ozeti', 'Cari bazinda siparis ve tutar listesi');
 
-      lastCreatedOrders.forEach((order, idx) => {
+      const summaryRows = lastCreatedOrders.map((order) => {
         const supplierCode = String(order.supplierCode || '').trim().toUpperCase();
         const supplierName = String(order.supplierName || supplierCode).trim();
         const orderNumber = String(order.orderNumber || '').trim();
-        const lines = (linesBySupplier.get(supplierCode) || []).sort((a, b) => a.productCode.localeCompare(b.productCode, 'tr'));
+        const lines = linesBySupplier.get(supplierCode) || [];
         const totalAmount = lines.reduce((sum, line) => sum + line.total, 0);
-        grandTotal += totalAmount;
-
-        if (y > 270) {
-          doc.addPage();
-          y = 14;
-        }
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${idx + 1}) ${supplierCode} - ${supplierName} | Siparis: ${orderNumber} | Tutar: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 14, y);
-        y += 6;
-        doc.setFont('helvetica', 'normal');
-        lines.forEach((line) => {
-          if (y > 280) {
-            doc.addPage();
-            y = 14;
-          }
-          doc.text(`- ${line.productCode} ${line.productName} | ${line.quantity.toLocaleString('tr-TR')} x ${line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = ${line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 16, y);
-          y += 5;
-        });
-        y += 2;
+        return {
+          supplierCode,
+          supplierName,
+          orderNumber,
+          itemCount: lines.length,
+          totalAmount,
+        };
+      });
+      const grandTotal = summaryRows.reduce((sum, row) => sum + row.totalAmount, 0);
+      autoTable(doc, {
+        startY: 30,
+        head: [['Cari Kodu', 'Cari Unvan', 'Siparis No', 'Kalem', 'Tutar (TL)']],
+        body: summaryRows.map((row) => [
+          row.supplierCode,
+          row.supplierName,
+          row.orderNumber,
+          row.itemCount.toLocaleString('tr-TR'),
+          row.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [13, 148, 136], textColor: 255, fontSize: 9 },
+        styles: { fontSize: 8, cellPadding: 2 },
+        columnStyles: { 3: { halign: 'right', cellWidth: 16 }, 4: { halign: 'right', cellWidth: 30 } },
       });
 
-      if (y > 280) {
-        doc.addPage();
-        y = 14;
-      }
+      let startY = ((doc as any).lastAutoTable?.finalY || 36) + 8;
+      summaryRows.forEach((row, index) => {
+        const lines = (linesBySupplier.get(row.supplierCode) || []).sort((a, b) => a.productCode.localeCompare(b.productCode, 'tr'));
+        if (startY > 250) {
+          doc.addPage();
+          startY = 16;
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(`${index + 1}) ${row.supplierCode} - ${row.supplierName} | ${row.orderNumber}`, 12, startY);
+        autoTable(doc, {
+          startY: startY + 2,
+          head: [['Stok', 'Urun', 'Miktar', 'Birim', 'Tutar']],
+          body: lines.map((line) => [
+            line.productCode,
+            line.productName,
+            line.quantity.toLocaleString('tr-TR'),
+            line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          ]),
+          theme: 'striped',
+          headStyles: { fillColor: [55, 65, 81], textColor: 255, fontSize: 8 },
+          styles: { fontSize: 7.5, cellPadding: 1.8 },
+          margin: { left: 12, right: 12 },
+          columnStyles: { 2: { halign: 'right', cellWidth: 16 }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'right', cellWidth: 24 } },
+        });
+        startY = ((doc as any).lastAutoTable?.finalY || startY + 12) + 6;
+      });
+
       doc.setFont('helvetica', 'bold');
-      doc.text(`Genel Toplam: ${grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`, 14, y);
+      doc.setFontSize(10);
+      doc.text(
+        `Genel Toplam: ${grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`,
+        doc.internal.pageSize.getWidth() - 12,
+        Math.min(288, startY + 4),
+        { align: 'right' }
+      );
       doc.save(`toplu-siparis-yonetici-ozet-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally {
       setDownloadingOrderSummaryPdf(false);
@@ -2055,7 +2191,15 @@ export default function UcarerDepotReportPage() {
                     </td>
                     {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
                     {panelColumns.topcaDepotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'topcaDepotQty')}</td>}
-                    {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
+                    {panelColumns.incomingOrders && (
+                      <td
+                        className="px-2 py-2 text-right cursor-pointer hover:underline"
+                        onClick={() => openIncomingOrdersModal(code)}
+                        title="Alinan siparis detaylarini goster"
+                      >
+                        {getExtraColumnValue(row || {}, code, 'incomingOrders')}
+                      </td>
+                    )}
                     {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
                     {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                     {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
@@ -2377,14 +2521,9 @@ export default function UcarerDepotReportPage() {
                 <p className="text-xs font-semibold text-emerald-900 mb-2">
                   Son olusturulan siparisler: {lastCreatedOrders.length.toLocaleString('tr-TR')}
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={downloadCreatedOrderPdfs} disabled={downloadingOrderPdfs}>
-                    {downloadingOrderPdfs ? 'Hazirlaniyor...' : 'Tum Siparisleri PDF (tek tek)'}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={downloadCreatedOrdersSummaryPdf} disabled={downloadingOrderSummaryPdf}>
-                    {downloadingOrderSummaryPdf ? 'Hazirlaniyor...' : 'Yonetici Onay Ozeti (tek PDF)'}
-                  </Button>
-                </div>
+                <Button size="sm" variant="outline" onClick={() => setCreatedOrdersModalOpen(true)}>
+                  PDF Indirme Penceresini Ac
+                </Button>
               </div>
             )}
 
@@ -2677,7 +2816,15 @@ export default function UcarerDepotReportPage() {
                           </td>
                           {panelColumns.depotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'depotQty')}</td>}
                           {panelColumns.topcaDepotQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'topcaDepotQty')}</td>}
-                          {panelColumns.incomingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'incomingOrders')}</td>}
+                          {panelColumns.incomingOrders && (
+                            <td
+                              className="px-2 py-2 text-right cursor-pointer hover:underline"
+                              onClick={() => openIncomingOrdersModal(code)}
+                              title="Alinan siparis detaylarini goster"
+                            >
+                              {getExtraColumnValue(row || {}, code, 'incomingOrders')}
+                            </td>
+                          )}
                           {panelColumns.outgoingOrders && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'outgoingOrders')}</td>}
                           {panelColumns.realQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'realQty')}</td>}
                           {panelColumns.minQty && <td className="px-2 py-2 text-right">{getExtraColumnValue(row || {}, code, 'minQty')}</td>}
@@ -2871,6 +3018,81 @@ export default function UcarerDepotReportPage() {
             </div>
           </div>
         </div>
+        {createdOrdersModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-xl rounded-lg bg-white p-4 shadow-xl">
+              <p className="text-base font-semibold text-gray-900">Olusturulan Siparis PDF Indirme</p>
+              <p className="mt-1 text-xs text-gray-600">
+                Olusan siparisleri tek tek ya da yonetici onay ozeti olarak indirebilirsiniz.
+              </p>
+              <div className="mt-4 grid grid-cols-1 gap-2">
+                <Button size="sm" variant="outline" onClick={downloadCreatedOrderPdfs} disabled={downloadingOrderPdfs}>
+                  {downloadingOrderPdfs ? 'Hazirlaniyor...' : 'Tum Siparisleri PDF (tek tek)'}
+                </Button>
+                <Button size="sm" variant="outline" onClick={downloadCreatedOrdersSummaryPdf} disabled={downloadingOrderSummaryPdf}>
+                  {downloadingOrderSummaryPdf ? 'Hazirlaniyor...' : 'Yonetici Onay Ozeti (tek PDF)'}
+                </Button>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button size="sm" variant="outline" onClick={() => setCreatedOrdersModalOpen(false)}>
+                  Kapat
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        {incomingOrdersModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-5xl rounded-lg bg-white p-4 shadow-xl">
+              <p className="text-base font-semibold text-gray-900">
+                Alinan Siparis Detayi - {incomingOrdersProductCode || '-'}
+              </p>
+              <div className="mt-3 max-h-[60vh] overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-gray-100">
+                    <tr>
+                      <th className="px-2 py-2 text-left">Cari Kodu</th>
+                      <th className="px-2 py-2 text-left">Cari Unvan</th>
+                      <th className="px-2 py-2 text-left">Siparis No</th>
+                      <th className="px-2 py-2 text-right">Siparis Miktari</th>
+                      <th className="px-2 py-2 text-right">Teslim</th>
+                      <th className="px-2 py-2 text-right">Kalan</th>
+                      <th className="px-2 py-2 text-left">Tarih</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {incomingOrdersLoading ? (
+                      <tr>
+                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Yukleniyor...</td>
+                      </tr>
+                    ) : incomingOrdersDetailRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Detay bulunamadi.</td>
+                      </tr>
+                    ) : (
+                      incomingOrdersDetailRows.map((row, index) => (
+                        <tr key={`${row.orderSeries}-${row.orderSequence}-${row.orderLineNo}-${index}`} className="border-t">
+                          <td className="px-2 py-2">{row.customerCode}</td>
+                          <td className="px-2 py-2">{row.customerName}</td>
+                          <td className="px-2 py-2">{row.orderSeries}-{row.orderSequence}</td>
+                          <td className="px-2 py-2 text-right">{row.quantity.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2 text-right">{row.deliveredQuantity.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2 text-right font-semibold">{row.remainingQuantity.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2">{row.orderDate ? new Date(row.orderDate).toLocaleDateString('tr-TR') : '-'}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button size="sm" variant="outline" onClick={() => setIncomingOrdersModalOpen(false)}>
+                  Kapat
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {seriesModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-4xl rounded-lg bg-white p-4 shadow-xl">
@@ -3000,12 +3222,29 @@ export default function UcarerDepotReportPage() {
                                 <div className="space-y-1">
                                   {detailRows.map((item) => (
                                     <div key={`${row.supplierCode}-${item.productCode}`} className="flex items-center justify-between gap-4 rounded border bg-white px-2 py-1">
-                                      <span className="font-medium text-gray-800">
-                                        {item.productCode} - {item.productName}
-                                      </span>
-                                      <span className="text-gray-700">
-                                        Miktar: <strong>{item.quantity.toLocaleString('tr-TR')}</strong>
-                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="truncate font-medium text-gray-800">
+                                          {item.productCode} - {item.productName}
+                                        </div>
+                                        <div className="text-[11px] text-gray-700">
+                                          Miktar: <strong>{item.quantity.toLocaleString('tr-TR')}</strong>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <select
+                                          className="w-40 rounded border px-2 py-1 text-[11px]"
+                                          value={row.supplierCode}
+                                          onChange={(e) => reassignPendingSupplierForProduct(row.supplierCode, item.productCode, e.target.value)}
+                                        >
+                                          <option value={row.supplierCode}>{row.supplierCode}</option>
+                                          {cariOptions.map((cari) => (
+                                            <option key={`${row.supplierCode}-${item.productCode}-${cari.code}`} value={cari.code}>
+                                              {cari.code} - {cari.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <span className="text-[10px] text-gray-500">Ana saglayici degistir</span>
+                                      </div>
                                     </div>
                                   ))}
                                   {detailRows.length === 0 && (
