@@ -444,10 +444,32 @@ export class CustomerController {
 
       let purchasedCodes: string[] = [];
       if (isPurchased) {
-        const allPurchasedCodes = await mikroService.getPurchasedProductCodes(customer.mikroCariCode as string);
-        purchasedCodes = allPurchasedCodes.filter(
-          (code) => !excludedProductCodeSet.has(normalizeMikroCode(code))
-        );
+        const localPurchasedRows = await prisma.orderItem.findMany({
+          where: { order: { userId: customer.id } },
+          select: { mikroCode: true },
+          distinct: ['mikroCode'],
+          take: 5000,
+        });
+        purchasedCodes = localPurchasedRows
+          .map((row) => String(row.mikroCode || '').trim())
+          .filter(Boolean)
+          .filter((code) => !excludedProductCodeSet.has(normalizeMikroCode(code)));
+
+        if (purchasedCodes.length === 0 && customer.mikroCariCode) {
+          try {
+            const allPurchasedCodes = await withTimeout(
+              mikroService.getPurchasedProductCodes(customer.mikroCariCode as string),
+              10000,
+              'getPurchasedProductCodes'
+            );
+            purchasedCodes = allPurchasedCodes.filter(
+              (code) => !excludedProductCodeSet.has(normalizeMikroCode(code))
+            );
+          } catch (error) {
+            console.error('Purchased codes fetch failed', { customerId: customer.id, error });
+          }
+        }
+
         lap('purchasedCodes');
         if (purchasedCodes.length === 0) {
           logTiming({ counts: { purchasedCodes: 0 }, reason: 'no-purchases' });
