@@ -4442,6 +4442,7 @@ export class ReportsService {
       SELECT TOP 750 *
       FROM SIPARISLER WITH (NOLOCK)
       WHERE sip_tip = 0
+        AND ISNULL(sip_kapat_fl, 0) = 0
         AND LTRIM(RTRIM(ISNULL(sip_stok_kod, ''))) = '${escapedCode}'
         AND ISNULL(sip_miktar, 0) > ISNULL(sip_teslim_miktar, 0)
     `);
@@ -4512,6 +4513,7 @@ export class ReportsService {
     }
 
     const responseRows = normalized
+      .filter((row) => row.remainingQuantity > 0)
       .map((row) => ({
         ...row,
         customerName: customerNameMap.get(row.customerCode) || row.customerCode || '-',
@@ -4606,9 +4608,9 @@ export class ReportsService {
               UPDATE ${targetTable}
               SET ${quoteIdentifier(minColumn)} = 0,
                   ${quoteIdentifier(maxColumn)} = 0
-              WHERE ${quoteIdentifier(stockCodeColumn)} = '${escapedCode}'
-            `);
-            resetApplied = true;
+            WHERE LTRIM(RTRIM(CONVERT(NVARCHAR(100), ${quoteIdentifier(stockCodeColumn)}))) = '${escapedCode}'
+          `);
+          resetApplied = true;
           }
         } catch {
           // fallback updates below
@@ -4662,7 +4664,7 @@ export class ReportsService {
                 UPDATE STOKLAR
                 SET ${quoteIdentifier(picked.minColumn)} = 0,
                     ${quoteIdentifier(picked.maxColumn)} = 0
-                WHERE sto_kod = '${escapedCode}'
+                WHERE LTRIM(RTRIM(sto_kod)) = '${escapedCode}'
               `);
               resetApplied = true;
             }
@@ -4680,7 +4682,7 @@ export class ReportsService {
                 UPDATE STOKLAR_USER
                 SET ${quoteIdentifier(picked.minColumn)} = 0,
                     ${quoteIdentifier(picked.maxColumn)} = 0
-                WHERE sto_kod = '${escapedCode}'
+                WHERE LTRIM(RTRIM(sto_kod)) = '${escapedCode}'
               `);
               resetApplied = true;
             }

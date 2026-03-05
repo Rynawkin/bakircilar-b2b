@@ -141,6 +141,11 @@ const cleanPdfText = (value: string | number | null | undefined) =>
     .replace(/ç/g, 'c')
     .replace(/Ç/g, 'C')
     .replace(/₺/g, 'TL');
+const formatPdfMoney = (value: unknown) => {
+  const num = Number(value);
+  const safe = Number.isFinite(num) ? num : 0;
+  return `${safe.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+};
 
 export default function UcarerDepotReportPage() {
   const [depot, setDepot] = useState<DepotType>('MERKEZ');
@@ -241,6 +246,7 @@ export default function UcarerDepotReportPage() {
   const [incomingOrdersLoading, setIncomingOrdersLoading] = useState(false);
   const [incomingOrdersProductCode, setIncomingOrdersProductCode] = useState('');
   const [incomingOrdersDetailRows, setIncomingOrdersDetailRows] = useState<IncomingOrderDetailRow[]>([]);
+  const [pendingSupplierInputByProduct, setPendingSupplierInputByProduct] = useState<Record<string, string>>({});
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
   const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>('INCLUDE_MINMAX');
@@ -1056,7 +1062,8 @@ export default function UcarerDepotReportPage() {
   const reassignPendingSupplierForProduct = (fromSupplierCode: string, productCode: string, newSupplierCodeInput: string) => {
     const sourceCode = String(fromSupplierCode || '').trim().toUpperCase();
     const stockCode = String(productCode || '').trim().toUpperCase();
-    const targetCode = String(newSupplierCodeInput || '').trim().toUpperCase();
+    const normalizedInput = String(newSupplierCodeInput || '').trim().toUpperCase();
+    const targetCode = String((normalizedInput.match(/^([A-Z0-9._-]+)/)?.[1] || normalizedInput)).trim().toUpperCase();
     if (!sourceCode || !stockCode || !targetCode) return;
 
     setPendingAllocations((prev) =>
@@ -1070,6 +1077,7 @@ export default function UcarerDepotReportPage() {
         };
       })
     );
+    setPendingSupplierInputByProduct((prev) => ({ ...prev, [stockCode]: targetCode }));
   };
   const setPendingPersistOverrideForProduct = (productCode: string, persist: boolean) => {
     const stockCode = String(productCode || '').trim().toUpperCase();
@@ -1459,6 +1467,17 @@ export default function UcarerDepotReportPage() {
       });
       return next;
     });
+    setPendingSupplierInputByProduct((prev) => {
+      const next = { ...prev };
+      pendingAllocations.forEach((alloc) => {
+        const code = String(alloc.productCode || '').trim().toUpperCase();
+        if (!code) return;
+        if (!next[code]) {
+          next[code] = String(alloc.supplierCodeOverride || '').trim().toUpperCase();
+        }
+      });
+      return next;
+    });
   }, [pendingSupplierRows, seriesModalOpen]);
 
   const createSupplierOrders = async () => {
@@ -1713,8 +1732,8 @@ export default function UcarerDepotReportPage() {
             cleanPdfText(line.productCode),
             cleanPdfText(line.productName),
             cleanPdfText(line.quantity.toLocaleString('tr-TR')),
-            cleanPdfText(line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
-            cleanPdfText(line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
+            cleanPdfText(formatPdfMoney(line.unitPrice)),
+            cleanPdfText(formatPdfMoney(line.total)),
           ]),
           theme: 'grid',
           headStyles: { fillColor: [30, 64, 175], textColor: 255, fontSize: 9 },
@@ -1725,7 +1744,7 @@ export default function UcarerDepotReportPage() {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
         doc.text(
-          cleanPdfText(`Toplam: ${totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`),
+          cleanPdfText(`Toplam: ${formatPdfMoney(totalAmount)}`),
           doc.internal.pageSize.getWidth() - 12,
           finalY + 8,
           { align: 'right' }
@@ -1773,7 +1792,7 @@ export default function UcarerDepotReportPage() {
           cleanPdfText(row.supplierName),
           cleanPdfText(row.orderNumber),
           cleanPdfText(row.itemCount.toLocaleString('tr-TR')),
-          cleanPdfText(row.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
+          cleanPdfText(formatPdfMoney(row.totalAmount)),
         ]),
         theme: 'grid',
         headStyles: { fillColor: [13, 148, 136], textColor: 255, fontSize: 9 },
@@ -1798,8 +1817,8 @@ export default function UcarerDepotReportPage() {
             cleanPdfText(line.productCode),
             cleanPdfText(line.productName),
             cleanPdfText(line.quantity.toLocaleString('tr-TR')),
-            cleanPdfText(line.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
-            cleanPdfText(line.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })),
+            cleanPdfText(formatPdfMoney(line.unitPrice)),
+            cleanPdfText(formatPdfMoney(line.total)),
           ]),
           theme: 'striped',
           headStyles: { fillColor: [55, 65, 81], textColor: 255, fontSize: 8 },
@@ -1813,7 +1832,7 @@ export default function UcarerDepotReportPage() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.text(
-        cleanPdfText(`Genel Toplam: ${grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`),
+        cleanPdfText(`Genel Toplam: ${formatPdfMoney(grandTotal)}`),
         doc.internal.pageSize.getWidth() - 12,
         Math.min(288, startY + 4),
         { align: 'right' }
@@ -3261,18 +3280,39 @@ export default function UcarerDepotReportPage() {
                                         </div>
                                       </div>
                                       <div className="flex items-center gap-2">
+                                        {(() => {
+                                          const productCode = String(item.productCode || '').trim().toUpperCase();
+                                          const typedValue = pendingSupplierInputByProduct[productCode] ?? String(
+                                            pendingAllocations.find(
+                                              (alloc) =>
+                                                String(alloc.productCode || '').trim().toUpperCase() === productCode
+                                            )?.supplierCodeOverride || row.supplierCode
+                                          ).trim().toUpperCase();
+                                          return (
+                                            <>
                                         <input
                                           list="ucarer-supplier-cari-list"
                                           className="w-40 rounded border px-2 py-1 text-[11px] uppercase"
-                                          value={String(
-                                            pendingAllocations.find(
-                                              (alloc) =>
-                                                String(alloc.productCode || '').trim().toUpperCase() ===
-                                                String(item.productCode || '').trim().toUpperCase()
-                                            )?.supplierCodeOverride || row.supplierCode
-                                          ).trim().toUpperCase()}
-                                          onChange={(e) => reassignPendingSupplierForProduct(row.supplierCode, item.productCode, e.target.value)}
+                                          value={typedValue}
+                                          onChange={(e) =>
+                                            setPendingSupplierInputByProduct((prev) => ({
+                                              ...prev,
+                                              [productCode]: String(e.target.value || '').toUpperCase(),
+                                            }))
+                                          }
+                                          onKeyDown={(e) => {
+                                            if (e.key !== 'Enter') return;
+                                            reassignPendingSupplierForProduct(row.supplierCode, item.productCode, typedValue);
+                                          }}
                                         />
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => reassignPendingSupplierForProduct(row.supplierCode, item.productCode, typedValue)}
+                                        >
+                                          Uygula
+                                        </Button>
                                         <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                                           <input
                                             type="checkbox"
@@ -3287,6 +3327,9 @@ export default function UcarerDepotReportPage() {
                                           />
                                           Kalici
                                         </label>
+                                            </>
+                                          );
+                                        })()}
                                       </div>
                                     </div>
                                   ))}
