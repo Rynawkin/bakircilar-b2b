@@ -3561,15 +3561,17 @@ export class AdminController {
    */
   async setUcarerMinMaxExclusion(req: Request, res: Response, next: NextFunction) {
     try {
-      const { productCode, exclude, resetMinMaxValues } = req.body as {
+      const { productCode, exclude, resetMinMaxValues, depot } = req.body as {
         productCode?: string;
         exclude?: boolean;
         resetMinMaxValues?: boolean;
+        depot?: 'MERKEZ' | 'TOPCA';
       };
       const data = await reportsService.setUcarerMinMaxExclusion({
         productCode: String(productCode || ''),
         exclude: Boolean(exclude),
         resetMinMaxValues: Boolean(resetMinMaxValues),
+        depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
       });
       res.json({ success: true, data });
     } catch (error) {

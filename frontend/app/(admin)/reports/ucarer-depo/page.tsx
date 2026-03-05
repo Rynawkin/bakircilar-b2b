@@ -987,6 +987,7 @@ export default function UcarerDepotReportPage() {
         productCode: code,
         exclude,
         resetMinMaxValues: exclude ? Boolean(resetMinMaxToZeroByCode[code]) : false,
+        depot,
       });
       toast.success(exclude ? 'MinMax hesaplamasi disina alindi.' : 'MinMax hesaplamasina tekrar dahil edildi.');
       setMinMaxExcludedRows((prev) => {
@@ -2403,13 +2404,15 @@ export default function UcarerDepotReportPage() {
                 {suggestedFamilies.map((family) => (
                   <Fragment key={family.id}>
                     {(() => {
-                      const hasRedirectSuggestions = Boolean(family.redirectSuggestions && family.redirectSuggestions.length > 0);
+                      const hasOrderRedirect = Boolean(
+                        (family.redirectSuggestions || []).some((item) => item.type === 'ORDER')
+                      );
                       return (
                     <div
                       className={`flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 ${
                         activeFamilyId === family.id
                           ? 'border-emerald-300 bg-emerald-50'
-                          : hasRedirectSuggestions
+                          : hasOrderRedirect
                           ? 'border-emerald-400 bg-emerald-100'
                           : 'border-gray-200 bg-white'
                       }`}

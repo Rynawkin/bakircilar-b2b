@@ -2006,6 +2006,7 @@ export const adminApi = {
     productCode: string;
     exclude: boolean;
     resetMinMaxValues?: boolean;
+    depot?: 'MERKEZ' | 'TOPCA';
   }): Promise<{
     success: boolean;
     data: {

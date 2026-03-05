@@ -418,9 +418,20 @@ export default function WarehousePage() {
   const fetchDispatchCatalog = async () => {
     setCatalogLoading(true);
     try {
-      const result = await adminApi.getWarehouseDispatchCatalogAdmin();
-      setDispatchDrivers(result.drivers || []);
-      setDispatchVehicles(result.vehicles || []);
+      try {
+        const result = await adminApi.getWarehouseDispatchCatalogAdmin();
+        setDispatchDrivers(result.drivers || []);
+        setDispatchVehicles(result.vehicles || []);
+      } catch (adminError: any) {
+        const status = Number(adminError?.response?.status || 0);
+        if (status === 401 || status === 403) {
+          const result = await adminApi.getWarehouseDispatchCatalog();
+          setDispatchDrivers(result.drivers || []);
+          setDispatchVehicles(result.vehicles || []);
+        } else {
+          throw adminError;
+        }
+      }
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Sofor/arac katalogu alinamadi');
     } finally {

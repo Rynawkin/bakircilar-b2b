@@ -4438,6 +4438,7 @@ export class ReportsService {
     productCode: string;
     exclude: boolean;
     resetMinMaxValues?: boolean;
+    depot?: 'MERKEZ' | 'TOPCA';
   }): Promise<{
     productCode: string;
     excluded: boolean;
@@ -4446,6 +4447,7 @@ export class ReportsService {
     const productCode = String(input.productCode || '').trim().toUpperCase();
     const exclude = Boolean(input.exclude);
     const resetMinMaxValues = Boolean(input.resetMinMaxValues);
+    const depot = input.depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ';
 
     if (!productCode) {
       throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
@@ -4469,26 +4471,12 @@ export class ReportsService {
       `);
 
       if (resetMinMaxValues) {
+        const targetTable = depot === 'TOPCA' ? 'DEPO_TOPCA_DURUM' : 'DEPO_MERKEZ_DURUM';
         await mikroService.executeQuery(`
-          DECLARE @uid uniqueidentifier;
-          SELECT @uid = sto_guid FROM STOKLAR WHERE sto_kod='${escapedCode}';
-          IF @uid IS NOT NULL
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM STOKLAR_USER WHERE Record_uid=@uid)
-            BEGIN
-              INSERT INTO STOKLAR_USER
-                (Record_uid, TOPCA_MIN, TOPCA_MAX)
-              VALUES
-                (@uid, 0, 0);
-            END
-            ELSE
-            BEGIN
-              UPDATE STOKLAR_USER
-              SET TOPCA_MIN = 0,
-                  TOPCA_MAX = 0
-              WHERE Record_uid=@uid;
-            END
-          END
+          UPDATE ${targetTable}
+          SET [Merkez Minimum Miktar] = 0,
+              [Merkez Maximum Miktar] = 0
+          WHERE [STOK KODU] = '${escapedCode}'
         `);
       }
     } else {
