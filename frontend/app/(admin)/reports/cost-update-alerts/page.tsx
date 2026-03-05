@@ -685,7 +685,7 @@ export default function CostUpdateAlertsPage() {
                 className="max-h-[68vh] overflow-y-auto overflow-x-scroll"
                 onScroll={syncFromMainScroll}
               >
-              <Table className="min-w-[2400px]">
+              <Table className="min-w-[2400px]" containerClassName="overflow-visible">
                 <TableHeader className="sticky top-0 z-30 bg-white">
                   <TableRow>
                     <TableHead>Risk</TableHead>
