@@ -33,6 +33,8 @@ type ColumnId =
 
 const PAGE_SIZE = 200;
 const VISIBLE_COLUMNS_KEY = 'cost-update-all-products-visible-columns-v1';
+const STICKY_CODE_WIDTH = 170;
+const STICKY_NAME_WIDTH = 340;
 
 const COLUMN_DEFS: Array<{ id: ColumnId; label: string }> = [
   { id: 'productCode', label: 'Urun Kodu' },
@@ -109,6 +111,8 @@ export default function CostUpdateAllProductsPage() {
   const [updatingByCode, setUpdatingByCode] = useState<Record<string, boolean>>({});
   const [currentCostOverrideByCode, setCurrentCostOverrideByCode] = useState<Record<string, number>>({});
   const [priceListOverrideByCode, setPriceListOverrideByCode] = useState<Record<string, Record<number, number>>>({});
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState<{ code: string; costP: number; costT: number; oldCost: number } | null>(null);
 
   const loadData = async (showSpinner = true) => {
     if (showSpinner) setLoading(true);
@@ -228,6 +232,7 @@ export default function CostUpdateAllProductsPage() {
   }, [rows, search, sortKey, sortDirection, mainSupplierByCode, currentCostOverrideByCode, priceListOverrideByCode]);
 
   const toggleColumn = (column: ColumnId) => {
+    if (column === 'productCode' || column === 'productName') return;
     setVisibleColumns((prev) => {
       if (prev.includes(column)) {
         if (prev.length <= 1) return prev;
@@ -237,13 +242,7 @@ export default function CostUpdateAllProductsPage() {
     });
   };
 
-  const updateCost = async (item: any) => {
-    const code = String(item?.mikroCode || '').trim().toUpperCase();
-    const costP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
-    const costT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
-    if (!Number.isFinite(costP) || costP <= 0) return toast.error('Gecerli bir Maliyet P girin.');
-    if (!Number.isFinite(costT) || costT <= 0) return toast.error('Gecerli bir Maliyet T girin.');
-
+  const executeCostUpdate = async (code: string, costP: number, costT: number) => {
     setUpdatingByCode((prev) => ({ ...prev, [code]: true }));
     try {
       const result = await adminApi.updateUcarerProductCost({
@@ -275,6 +274,23 @@ export default function CostUpdateAllProductsPage() {
     } finally {
       setUpdatingByCode((prev) => ({ ...prev, [code]: false }));
     }
+  };
+
+  const updateCost = async (item: any) => {
+    const code = String(item?.mikroCode || '').trim().toUpperCase();
+    const costP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+    const costT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
+    if (!Number.isFinite(costP) || costP <= 0) return toast.error('Gecerli bir Maliyet P girin.');
+    if (!Number.isFinite(costT) || costT <= 0) return toast.error('Gecerli bir Maliyet T girin.');
+
+    if (Boolean(updatePriceListsByCode[code])) {
+      const oldCost = Number(currentCostOverrideByCode[code] ?? item?.currentCost ?? 0);
+      setPendingUpdate({ code, costP, costT, oldCost });
+      setConfirmModalOpen(true);
+      return;
+    }
+
+    await executeCostUpdate(code, costP, costT);
   };
 
   return (
@@ -314,6 +330,7 @@ export default function CostUpdateAllProductsPage() {
                   type="checkbox"
                   checked={visibleColumns.includes(column.id)}
                   onChange={() => toggleColumn(column.id)}
+                  disabled={column.id === 'productCode' || column.id === 'productName'}
                 />
                 {column.label}
               </label>
@@ -337,8 +354,21 @@ export default function CostUpdateAllProductsPage() {
                     {visibleColumns.map((column) => (
                       <th
                         key={column}
-                        className="cursor-pointer whitespace-nowrap border-b px-2 py-2 text-left"
+                        className={`cursor-pointer whitespace-nowrap border-b px-2 py-2 text-left ${
+                          column === 'productCode'
+                            ? 'sticky left-0 z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]'
+                            : column === 'productName'
+                            ? 'sticky z-30 bg-gray-100 shadow-[2px_0_0_0_rgba(229,231,235,1)]'
+                            : ''
+                        }`}
                         onClick={() => toggleSort(column)}
+                        style={
+                          column === 'productCode'
+                            ? { minWidth: `${STICKY_CODE_WIDTH}px`, width: `${STICKY_CODE_WIDTH}px` }
+                            : column === 'productName'
+                            ? { left: `${STICKY_CODE_WIDTH}px`, minWidth: `${STICKY_NAME_WIDTH}px`, width: `${STICKY_NAME_WIDTH}px` }
+                            : undefined
+                        }
                       >
                         {COLUMN_DEFS.find((c) => c.id === column)?.label}{sortIndicator(column)}
                       </th>
@@ -370,7 +400,27 @@ export default function CostUpdateAllProductsPage() {
                             const listNo = Number(column.replace('list', ''));
                             value = toMoney(overriddenLists[listNo] ?? mikroPriceLists[listNo] ?? 0);
                           }
-                          return <td key={`${code}-${column}`} className="whitespace-nowrap px-2 py-2">{value}</td>;
+                          return (
+                            <td
+                              key={`${code}-${column}`}
+                              className={`whitespace-nowrap px-2 py-2 ${
+                                column === 'productCode'
+                                  ? 'sticky left-0 z-20 bg-white font-mono shadow-[2px_0_0_0_rgba(229,231,235,1)]'
+                                  : column === 'productName'
+                                  ? 'sticky z-20 bg-white shadow-[2px_0_0_0_rgba(229,231,235,1)]'
+                                  : ''
+                              }`}
+                              style={
+                                column === 'productCode'
+                                  ? { minWidth: `${STICKY_CODE_WIDTH}px`, width: `${STICKY_CODE_WIDTH}px` }
+                                  : column === 'productName'
+                                  ? { left: `${STICKY_CODE_WIDTH}px`, minWidth: `${STICKY_NAME_WIDTH}px`, width: `${STICKY_NAME_WIDTH}px` }
+                                  : undefined
+                              }
+                            >
+                              {value}
+                            </td>
+                          );
                         })}
                         <td className="whitespace-nowrap px-2 py-2">
                           <div className="flex items-center gap-2">
@@ -442,7 +492,51 @@ export default function CostUpdateAllProductsPage() {
           )}
         </CardContent>
       </Card>
+      {confirmModalOpen && pendingUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-xl">
+            <p className="text-base font-semibold text-gray-900">Maliyet Artis Onayi</p>
+            <div className="mt-3 space-y-1 text-sm text-gray-700">
+              <p><strong>Urun:</strong> {pendingUpdate.code}</p>
+              <p><strong>Eski Maliyet:</strong> {toMoney(pendingUpdate.oldCost)}</p>
+              <p><strong>Yeni Maliyet:</strong> {toMoney(pendingUpdate.costP)}</p>
+              <p>
+                <strong>Artis:</strong>{' '}
+                {pendingUpdate.oldCost > 0
+                  ? `%${(((pendingUpdate.costP - pendingUpdate.oldCost) / pendingUpdate.oldCost) * 100).toLocaleString('tr-TR', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`
+                  : 'Hesaplanamadi'}
+              </p>
+              <p className="text-xs text-gray-600">10 fiyat listesi de bu maliyete gore guncellenecek.</p>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setConfirmModalOpen(false);
+                  setPendingUpdate(null);
+                }}
+              >
+                Vazgec
+              </Button>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  const payload = pendingUpdate;
+                  setConfirmModalOpen(false);
+                  setPendingUpdate(null);
+                  await executeCostUpdate(payload.code, payload.costP, payload.costT);
+                }}
+              >
+                Onayla ve Guncelle
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
