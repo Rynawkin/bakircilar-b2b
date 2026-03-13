@@ -7,6 +7,7 @@ import jsPDF from 'jspdf';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
+import { Input } from '@/components/ui/Input';
 import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
 
@@ -72,6 +73,11 @@ interface IncomingOrderDetailRow {
   quantity: number;
   deliveredQuantity: number;
   remainingQuantity: number;
+}
+
+interface FamilyStockOption {
+  productCode: string;
+  productName: string;
 }
 
 interface SuggestionSortState {
@@ -246,6 +252,17 @@ export default function UcarerDepotReportPage() {
   const [incomingOrdersLoading, setIncomingOrdersLoading] = useState(false);
   const [incomingOrdersProductCode, setIncomingOrdersProductCode] = useState('');
   const [incomingOrdersDetailRows, setIncomingOrdersDetailRows] = useState<IncomingOrderDetailRow[]>([]);
+  const [editingFamilyId, setEditingFamilyId] = useState<string>('');
+  const [familyEditModalOpen, setFamilyEditModalOpen] = useState(false);
+  const [familyEditName, setFamilyEditName] = useState('');
+  const [familyEditCode, setFamilyEditCode] = useState('');
+  const [familyEditNote, setFamilyEditNote] = useState('');
+  const [familyEditActive, setFamilyEditActive] = useState(true);
+  const [familyEditProductCodes, setFamilyEditProductCodes] = useState<string[]>([]);
+  const [familyEditSearch, setFamilyEditSearch] = useState('');
+  const [familyEditResults, setFamilyEditResults] = useState<FamilyStockOption[]>([]);
+  const [familyEditSearching, setFamilyEditSearching] = useState(false);
+  const [familyEditSaving, setFamilyEditSaving] = useState(false);
   const [pendingSupplierInputByProduct, setPendingSupplierInputByProduct] = useState<Record<string, string>>({});
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
@@ -754,6 +771,80 @@ export default function UcarerDepotReportPage() {
     }
   };
 
+  const openFamilyEditModal = (familyId: string) => {
+    const family = families.find((item) => item.id === familyId);
+    if (!family) return;
+    setEditingFamilyId(family.id);
+    setFamilyEditName(family.name || '');
+    setFamilyEditCode(String(family.code || ''));
+    setFamilyEditNote(String(family.note || ''));
+    setFamilyEditActive(Boolean(family.active));
+    setFamilyEditProductCodes(
+      Array.from(
+        new Set(
+          (family.items || [])
+            .map((item) => String(item.productCode || '').trim().toUpperCase())
+            .filter(Boolean)
+        )
+      )
+    );
+    setFamilyEditSearch('');
+    setFamilyEditResults([]);
+    setFamilyEditModalOpen(true);
+  };
+
+  const closeFamilyEditModal = () => {
+    setFamilyEditModalOpen(false);
+    setEditingFamilyId('');
+    setFamilyEditSearch('');
+    setFamilyEditResults([]);
+    setFamilyEditSaving(false);
+  };
+
+  const addProductCodeToFamilyEdit = (codeRaw: string) => {
+    const code = String(codeRaw || '').trim().toUpperCase();
+    if (!code) return;
+    setFamilyEditProductCodes((prev) => (prev.includes(code) ? prev : [...prev, code]));
+    setFamilyEditSearch('');
+    setFamilyEditResults([]);
+  };
+
+  const removeProductCodeFromFamilyEdit = (codeRaw: string) => {
+    const code = String(codeRaw || '').trim().toUpperCase();
+    if (!code) return;
+    setFamilyEditProductCodes((prev) => prev.filter((item) => item !== code));
+  };
+
+  const saveFamilyEdit = async () => {
+    const id = String(editingFamilyId || '').trim();
+    if (!id) return;
+    if (!String(familyEditName || '').trim()) {
+      toast.error('Aile adi zorunlu.');
+      return;
+    }
+    if (familyEditProductCodes.length === 0) {
+      toast.error('En az bir urun secmelisiniz.');
+      return;
+    }
+    setFamilyEditSaving(true);
+    try {
+      await adminApi.updateProductFamily(id, {
+        name: String(familyEditName || '').trim(),
+        code: String(familyEditCode || '').trim() || null,
+        note: String(familyEditNote || '').trim() || null,
+        active: familyEditActive,
+        productCodes: familyEditProductCodes,
+      });
+      toast.success('Aile guncellendi.');
+      await loadFamilies();
+      closeFamilyEditModal();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Aile guncellenemedi');
+    } finally {
+      setFamilyEditSaving(false);
+    }
+  };
+
   const loadMinMaxExcludedCodes = async () => {
     try {
       const response = await adminApi.getUcarerMinMaxExcludedProductsReport();
@@ -767,6 +858,49 @@ export default function UcarerDepotReportPage() {
     loadFamilies();
     loadMinMaxExcludedCodes();
   }, []);
+
+  useEffect(() => {
+    if (!familyEditModalOpen) return;
+    const query = String(familyEditSearch || '').trim();
+    if (query.length < 2) {
+      setFamilyEditResults([]);
+      return;
+    }
+    let active = true;
+    const timer = setTimeout(async () => {
+      setFamilyEditSearching(true);
+      try {
+        const response = await adminApi.searchStocks({ searchTerm: query, limit: 20, offset: 0 });
+        if (!active) return;
+        const next: FamilyStockOption[] = (response.data || [])
+          .map((row: any) => ({
+            productCode: String(row['Stok Kodu'] || row.productCode || row.mikroCode || '').trim().toUpperCase(),
+            productName: String(row['Stok Adi'] || row.productName || row.name || '').trim(),
+          }))
+          .filter((item: FamilyStockOption) => item.productCode);
+        setFamilyEditResults(next);
+      } catch {
+        if (active) setFamilyEditResults([]);
+      } finally {
+        if (active) setFamilyEditSearching(false);
+      }
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [familyEditSearch, familyEditModalOpen]);
+
+  useEffect(() => {
+    if (!incomingOrdersModalOpen && !familyEditModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (incomingOrdersModalOpen) setIncomingOrdersModalOpen(false);
+      if (familyEditModalOpen) closeFamilyEditModal();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [incomingOrdersModalOpen, familyEditModalOpen]);
 
   useEffect(() => {
     if (families.length === 0) {
@@ -2636,9 +2770,14 @@ export default function UcarerDepotReportPage() {
                           Oneri: {family.suggestedRaw.toLocaleString('tr-TR')} | Kalem: {family.itemCount.toLocaleString('tr-TR')}
                         </p>
                       </div>
-                      <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
-                        {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => openFamilyEditModal(family.id)}>
+                          Aileyi Duzenle
+                        </Button>
+                        <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
+                          {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
+                        </Button>
+                      </div>
                     </div>
                       );
                     })()}
@@ -2671,9 +2810,14 @@ export default function UcarerDepotReportPage() {
                                   Oneri: {family.suggestedRaw.toLocaleString('tr-TR')} | Kalem: {family.itemCount.toLocaleString('tr-TR')}
                                 </p>
                               </div>
-                              <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
-                                {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <Button size="sm" variant="outline" onClick={() => openFamilyEditModal(family.id)}>
+                                  Aileyi Duzenle
+                                </Button>
+                                <Button size="sm" variant={activeFamilyId === family.id ? 'secondary' : 'outline'} onClick={() => toggleFamilyDetail(family.id)}>
+                                  {activeFamilyId === family.id ? 'Detayi Kapat' : 'Detayi Ac'}
+                                </Button>
+                              </div>
                             </div>
                             {activeFamilyId === family.id && renderActiveFamilyPanel()}
                           </Fragment>
@@ -3090,6 +3234,81 @@ export default function UcarerDepotReportPage() {
             </div>
           </div>
         </div>
+        {familyEditModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-3xl rounded-lg bg-white p-4 shadow-xl">
+              <p className="text-base font-semibold text-gray-900">Aileyi Duzenle</p>
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-gray-700">Aile Adi</label>
+                  <Input value={familyEditName} onChange={(e) => setFamilyEditName(e.target.value)} className="h-9 text-xs" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-gray-700">Aile Kodu</label>
+                  <Input value={familyEditCode} onChange={(e) => setFamilyEditCode(e.target.value)} className="h-9 text-xs" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs font-semibold text-gray-700">Not</label>
+                  <Input value={familyEditNote} onChange={(e) => setFamilyEditNote(e.target.value)} className="h-9 text-xs" />
+                </div>
+                <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                  <input type="checkbox" checked={familyEditActive} onChange={(e) => setFamilyEditActive(e.target.checked)} />
+                  Aktif
+                </label>
+              </div>
+
+              <div className="mt-4 rounded border p-3">
+                <p className="text-xs font-semibold text-gray-700">Aileye Urun Ekle/Cikar</p>
+                <Input
+                  value={familyEditSearch}
+                  onChange={(e) => setFamilyEditSearch(e.target.value)}
+                  placeholder="Stok kodu veya adi yazin..."
+                  className="mt-2 h-9 text-xs"
+                />
+                {familyEditSearching && <p className="mt-2 text-xs text-gray-500">Araniyor...</p>}
+                {!familyEditSearching && familyEditResults.length > 0 && (
+                  <div className="mt-2 max-h-40 overflow-auto rounded border">
+                    {familyEditResults.map((item) => (
+                      <button
+                        key={`${item.productCode}-${item.productName}`}
+                        type="button"
+                        className="flex w-full items-center justify-between border-b px-2 py-1 text-left text-xs hover:bg-gray-50"
+                        onClick={() => addProductCodeToFamilyEdit(item.productCode)}
+                      >
+                        <span>{item.productCode} - {item.productName || '-'}</span>
+                        <span className="text-blue-600">Ekle</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-3 max-h-44 overflow-auto rounded border">
+                  {familyEditProductCodes.length === 0 ? (
+                    <p className="px-2 py-3 text-xs text-gray-500">Henuz urun secilmedi.</p>
+                  ) : (
+                    familyEditProductCodes.map((code) => (
+                      <div key={code} className="flex items-center justify-between border-b px-2 py-1 text-xs">
+                        <span>{code}</span>
+                        <Button size="sm" variant="outline" onClick={() => removeProductCodeFromFamilyEdit(code)}>
+                          Cikar
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <Button size="sm" variant="outline" onClick={closeFamilyEditModal}>
+                  Iptal
+                </Button>
+                <Button size="sm" onClick={saveFamilyEdit} disabled={familyEditSaving}>
+                  {familyEditSaving ? 'Kaydediliyor...' : 'Kaydet'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {createdOrdersModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-xl rounded-lg bg-white p-4 shadow-xl">

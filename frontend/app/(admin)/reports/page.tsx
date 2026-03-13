@@ -47,6 +47,16 @@ const reports: ReportCard[] = [
     permission: 'reports:cost-update-alerts',
   },
   {
+    id: 'cost-update-all-products',
+    title: 'Tum Urunler Maliyet/Fiyat Guncelleme',
+    description: 'Tum urunlerde kolon secimi, kolon bazli siralama ve maliyet + 10 liste guncelleme ekrani',
+    icon: <DollarSign className="h-5 w-5" />,
+    href: '/reports/cost-update-all-products',
+    category: 'cost',
+    badge: 'Yeni',
+    permission: 'reports:cost-update-alerts',
+  },
+  {
     id: 'margin-compliance',
     title: 'Marj Uyumsuzluğu Raporu',
     description: 'Tanımlı marj oranlarına uymayan fiyatlar - F1/F2/F3/F4/F5 kontrolü',

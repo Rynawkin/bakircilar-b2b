@@ -35,6 +35,8 @@ import * as XLSX from 'xlsx';
 interface CostUpdateAlert {
   productCode: string;
   productName: string;
+  mainSupplierCode?: string | null;
+  mainSupplierName?: string | null;
   category: string;
   currentCostDate: string | null;
   currentCost: number | null;
@@ -60,6 +62,21 @@ interface Metadata {
   syncType: string | null;
 }
 
+type SortDirection = 'asc' | 'desc';
+type SortKey =
+  | 'productCode'
+  | 'productName'
+  | 'mainSupplierName'
+  | 'currentCostDate'
+  | 'currentCost'
+  | 'lastEntryDate'
+  | 'lastEntryCost'
+  | 'diffAmount'
+  | 'diffPercent'
+  | 'dayDiff'
+  | 'stockQuantity'
+  | 'riskAmount';
+
 export default function CostUpdateAlertsPage() {
   const [data, setData] = useState<CostUpdateAlert[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -77,11 +94,14 @@ export default function CostUpdateAlertsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
   const [vatRateByCode, setVatRateByCode] = useState<Record<string, number>>({});
+  const [mainSupplierByCode, setMainSupplierByCode] = useState<Record<string, { code: string; name: string }>>({});
   const [costPInputByCode, setCostPInputByCode] = useState<Record<string, string>>({});
   const [costTInputByCode, setCostTInputByCode] = useState<Record<string, string>>({});
   const [manualCostPOverrideByCode, setManualCostPOverrideByCode] = useState<Record<string, boolean>>({});
   const [updatePriceListsByCode, setUpdatePriceListsByCode] = useState<Record<string, boolean>>({});
   const [updatingCostByCode, setUpdatingCostByCode] = useState<Record<string, boolean>>({});
+  const [sortKey, setSortKey] = useState<SortKey>('riskAmount');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const bottomScrollRef = useRef<HTMLDivElement | null>(null);
   const syncingScrollRef = useRef(false);
@@ -145,6 +165,7 @@ export default function CostUpdateAlertsPage() {
       try {
         const nextCost: Record<string, number> = {};
         const nextVat: Record<string, number> = {};
+        const nextSupplier: Record<string, { code: string; name: string }> = {};
         for (let i = 0; i < codeList.length; i += 200) {
           const chunk = codeList.slice(i, i + 200);
           const response = await adminApi.getProductsByCodes(chunk);
@@ -152,13 +173,17 @@ export default function CostUpdateAlertsPage() {
             const code = String(product?.mikroCode || '').trim().toUpperCase();
             const costValue = Number(product?.currentCost ?? 0);
             const vatValue = Number(product?.vatRate ?? 0);
+            const supplierCode = String(product?.mainSupplierCode || '').trim().toUpperCase();
+            const supplierName = String(product?.mainSupplierName || '').trim();
             if (code && Number.isFinite(costValue)) nextCost[code] = costValue;
             if (code && Number.isFinite(vatValue)) nextVat[code] = vatValue;
+            if (code && supplierCode) nextSupplier[code] = { code: supplierCode, name: supplierName || supplierCode };
           });
         }
         if (!active) return;
         setCurrentCostByCode((prev) => ({ ...prev, ...nextCost }));
         setVatRateByCode((prev) => ({ ...prev, ...nextVat }));
+        setMainSupplierByCode((prev) => ({ ...prev, ...nextSupplier }));
       } catch {
         if (!active) return;
       }
@@ -261,6 +286,8 @@ export default function CostUpdateAlertsPage() {
       const excelData = exportData.map((item) => ({
         'Ürün Kodu': item.productCode,
         'Ürün Adı': item.productName,
+        'Ana Sağlayıcı Kodu': mainSupplierByCode[String(item.productCode || '').trim().toUpperCase()]?.code || '',
+        'Ana Sağlayıcı Adı': mainSupplierByCode[String(item.productCode || '').trim().toUpperCase()]?.name || '',
         'Kategori': item.category,
         'Güncel Mal. Tarihi': formatDate(item.currentCostDate),
         'Güncel Maliyet (TL)': toNumberFixed(item.currentCost, 2),
@@ -301,6 +328,8 @@ export default function CostUpdateAlertsPage() {
       ws['!cols'] = [
         { wch: 15 },  // Ürün Kodu
         { wch: 50 },  // Ürün Adı
+        { wch: 20 },  // Ana Sağlayıcı Kodu
+        { wch: 35 },  // Ana Sağlayıcı Adı
         { wch: 20 },  // Kategori
         { wch: 18 },  // Güncel Mal. Tarihi
         { wch: 18 },  // Güncel Maliyet
@@ -364,12 +393,54 @@ export default function CostUpdateAlertsPage() {
     return new Date(dateStr).toLocaleDateString('tr-TR');
   };
 
-  const filteredData = data.filter((item) => {
+  const toggleSort = (key: SortKey) => {
+    setSortKey((prevKey) => {
+      if (prevKey !== key) {
+        setSortDirection('asc');
+        return key;
+      }
+      setSortDirection((prevDir) => (prevDir === 'asc' ? 'desc' : 'asc'));
+      return prevKey;
+    });
+  };
+
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return '';
+    return sortDirection === 'asc' ? ' ▲' : ' ▼';
+  };
+
+  const getSortValue = (item: CostUpdateAlert, key: SortKey): string | number => {
+    const code = String(item.productCode || '').trim().toUpperCase();
+    if (key === 'mainSupplierName') return mainSupplierByCode[code]?.name || '';
+    if (key === 'currentCostDate') return item.currentCostDate ? new Date(item.currentCostDate).getTime() : 0;
+    if (key === 'lastEntryDate') return item.lastEntryDate ? new Date(item.lastEntryDate).getTime() : 0;
+    if (key === 'currentCost') return currentCostByCode[code] ?? item.currentCost ?? 0;
+    return (item as any)[key] ?? '';
+  };
+
+  const filteredDataBase = data.filter((item) => {
     const tokens = buildSearchTokens(searchQuery);
     if (tokens.length === 0) return true;
-    const haystack = normalizeSearchText(`${item.productName} ${item.productCode}`);
+    const code = String(item.productCode || '').trim().toUpperCase();
+    const supplier = mainSupplierByCode[code];
+    const haystack = normalizeSearchText(
+      `${item.productName} ${item.productCode} ${supplier?.code || ''} ${supplier?.name || ''}`
+    );
     return matchesSearchTokens(haystack, tokens);
   });
+  const filteredData = useMemo(() => {
+    const next = [...filteredDataBase];
+    next.sort((a, b) => {
+      const av = getSortValue(a, sortKey);
+      const bv = getSortValue(b, sortKey);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return sortDirection === 'asc' ? av - bv : bv - av;
+      }
+      const compare = String(av || '').localeCompare(String(bv || ''), 'tr', { numeric: true, sensitivity: 'base' });
+      return sortDirection === 'asc' ? compare : -compare;
+    });
+    return next;
+  }, [filteredDataBase, sortKey, sortDirection, mainSupplierByCode, currentCostByCode]);
   const stickyCodeWidth = 150;
   const stickyNameWidth = 300;
 
@@ -690,33 +761,40 @@ export default function CostUpdateAlertsPage() {
                   <TableRow>
                     <TableHead>Risk</TableHead>
                     <TableHead
-                      className="sticky left-0 z-20 bg-white"
+                      className="sticky left-0 z-20 bg-white cursor-pointer"
+                      onClick={() => toggleSort('productCode')}
+                      title="Sırala"
                       style={{ minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
                     >
-                      Ürün Kodu
+                      Ürün Kodu{sortIndicator('productCode')}
                     </TableHead>
                     <TableHead
-                      className="sticky z-20 bg-white"
+                      className="sticky z-20 bg-white cursor-pointer"
+                      onClick={() => toggleSort('productName')}
+                      title="Sırala"
                       style={{ left: `${stickyCodeWidth}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
                     >
-                      Ürün Adı
+                      Ürün Adı{sortIndicator('productName')}
                     </TableHead>
-                    <TableHead className="text-right">G. Mal. Tarihi</TableHead>
-                    <TableHead className="text-right">Güncel Maliyet</TableHead>
-                    <TableHead className="text-right">S. Giriş Tarihi</TableHead>
-                    <TableHead className="text-right">S. Giriş Maliyeti</TableHead>
-                    <TableHead className="text-right">Fark (TL)</TableHead>
-                    <TableHead className="text-right">Fark (%)</TableHead>
-                    <TableHead className="text-right">Gün Farkı</TableHead>
-                    <TableHead className="text-right">Eldeki Stok</TableHead>
-                    <TableHead className="text-right">Risk Tutarı</TableHead>
+                    <TableHead className="cursor-pointer" onClick={() => toggleSort('mainSupplierName')} title="Sırala">
+                      Ana Sağlayıcı{sortIndicator('mainSupplierName')}
+                    </TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('currentCostDate')} title="Sırala">G. Mal. Tarihi{sortIndicator('currentCostDate')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('currentCost')} title="Sırala">Güncel Maliyet{sortIndicator('currentCost')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('lastEntryDate')} title="Sırala">S. Giriş Tarihi{sortIndicator('lastEntryDate')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('lastEntryCost')} title="Sırala">S. Giriş Maliyeti{sortIndicator('lastEntryCost')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('diffAmount')} title="Sırala">Fark (TL){sortIndicator('diffAmount')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('diffPercent')} title="Sırala">Fark (%){sortIndicator('diffPercent')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('dayDiff')} title="Sırala">Gün Farkı{sortIndicator('dayDiff')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('stockQuantity')} title="Sırala">Eldeki Stok{sortIndicator('stockQuantity')}</TableHead>
+                    <TableHead className="text-right cursor-pointer" onClick={() => toggleSort('riskAmount')} title="Sırala">Risk Tutarı{sortIndicator('riskAmount')}</TableHead>
                     <TableHead className="text-right">Maliyet Guncelle</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center py-12">
+                      <TableCell colSpan={14} className="text-center py-12">
                         <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                         <p className="text-muted-foreground">Uyarı bulunamadı</p>
                       </TableCell>
@@ -738,6 +816,13 @@ export default function CostUpdateAlertsPage() {
                           style={{ left: `${stickyCodeWidth}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
                         >
                           {item.productName}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {(() => {
+                            const supplier = mainSupplierByCode[String(item.productCode || '').trim().toUpperCase()];
+                            if (!supplier) return '-';
+                            return `${supplier.code}${supplier.name ? ` - ${supplier.name}` : ''}`;
+                          })()}
                         </TableCell>
                         <TableCell className="text-right text-sm">{formatDate(item.currentCostDate)}</TableCell>
                         <TableCell className="text-right font-medium">
