@@ -96,7 +96,6 @@ export default function CostUpdateAllProductsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [rows, setRows] = useState<any[]>([]);
   const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
@@ -119,24 +118,23 @@ export default function CostUpdateAllProductsPage() {
     else setRefreshing(true);
     try {
       const response = await adminApi.getProducts({
-        page,
-        limit: PAGE_SIZE,
+        limit: 10000,
         sortBy: 'name',
         sortOrder: 'asc',
       });
       const products = response.products || [];
       setRows(products);
-      setTotalPages(Number(response?.pagination?.totalPages || 1));
-      setTotalRecords(Number(response?.pagination?.total || 0));
+      setTotalRecords(Number(response?.pagination?.total || products.length || 0));
 
       const supplierMap: Record<string, { code: string; name: string }> = {};
       const vatMap: Record<string, number> = {};
       const codes = products
         .map((item: any) => String(item?.mikroCode || '').trim().toUpperCase())
         .filter(Boolean);
-      for (let i = 0; i < codes.length; i += 200) {
-        const chunk = codes.slice(i, i + 200);
-        const detail = await adminApi.getProductsByCodes(chunk);
+      const chunks: string[][] = [];
+      for (let i = 0; i < codes.length; i += 200) chunks.push(codes.slice(i, i + 200));
+      const detailResponses = await Promise.all(chunks.map((chunk) => adminApi.getProductsByCodes(chunk)));
+      detailResponses.forEach((detail) => {
         (detail.products || []).forEach((product: any) => {
           const code = String(product?.mikroCode || '').trim().toUpperCase();
           const supplierCode = String(product?.mainSupplierCode || '').trim().toUpperCase();
@@ -145,7 +143,7 @@ export default function CostUpdateAllProductsPage() {
           if (code && supplierCode) supplierMap[code] = { code: supplierCode, name: supplierName || supplierCode };
           if (code && Number.isFinite(vatRate)) vatMap[code] = vatRate;
         });
-      }
+      });
       setMainSupplierByCode(supplierMap);
       setVatRateByCode(vatMap);
     } catch (error: any) {
@@ -158,7 +156,7 @@ export default function CostUpdateAllProductsPage() {
 
   useEffect(() => {
     loadData(true);
-  }, [page]);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -230,6 +228,17 @@ export default function CostUpdateAllProductsPage() {
     });
     return filtered;
   }, [rows, search, sortKey, sortDirection, mainSupplierByCode, currentCostOverrideByCode, priceListOverrideByCode]);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredAndSortedRows.length / PAGE_SIZE)), [filteredAndSortedRows.length]);
+
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+
+  const pagedRows = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredAndSortedRows.slice(start, start + PAGE_SIZE);
+  }, [filteredAndSortedRows, page]);
 
   const toggleColumn = (column: ColumnId) => {
     if (column === 'productCode' || column === 'productName') return;
@@ -320,7 +329,10 @@ export default function CostUpdateAllProductsPage() {
         <CardContent className="space-y-3">
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="Urun adi, kod, kategori, ana saglayici..."
           />
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
@@ -337,7 +349,7 @@ export default function CostUpdateAllProductsPage() {
             ))}
           </div>
           <p className="text-xs text-gray-600">
-            Toplam urun: <strong>{totalRecords.toLocaleString('tr-TR')}</strong> | Bu sayfa: <strong>{filteredAndSortedRows.length.toLocaleString('tr-TR')}</strong>
+            Toplam urun: <strong>{totalRecords.toLocaleString('tr-TR')}</strong> | Filtre sonucu: <strong>{filteredAndSortedRows.length.toLocaleString('tr-TR')}</strong> | Bu sayfa: <strong>{pagedRows.length.toLocaleString('tr-TR')}</strong>
           </p>
         </CardContent>
       </Card>
@@ -377,7 +389,7 @@ export default function CostUpdateAllProductsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAndSortedRows.map((item) => {
+                  {pagedRows.map((item) => {
                     const code = String(item?.mikroCode || '').trim().toUpperCase();
                     const supplier = mainSupplierByCode[code];
                     const mikroPriceLists = item?.mikroPriceLists || {};

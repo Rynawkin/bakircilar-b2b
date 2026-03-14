@@ -77,6 +77,8 @@ type SortKey =
   | 'stockQuantity'
   | 'riskAmount';
 
+const PAGE_SIZE = 50;
+
 export default function CostUpdateAlertsPage() {
   const [data, setData] = useState<CostUpdateAlert[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -91,7 +93,6 @@ export default function CostUpdateAlertsPage() {
   const [dayDiffFilter, setDayDiffFilter] = useState<string>('');
   const [percentDiffFilter, setPercentDiffFilter] = useState<string>('');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [currentCostByCode, setCurrentCostByCode] = useState<Record<string, number>>({});
   const [vatRateByCode, setVatRateByCode] = useState<Record<string, number>>({});
   const [mainSupplierByCode, setMainSupplierByCode] = useState<Record<string, { code: string; name: string }>>({});
@@ -119,8 +120,8 @@ export default function CostUpdateAlertsPage() {
 
     try {
       const result = await adminApi.getCostUpdateAlerts({
-        page,
-        limit: 50,
+        page: 1,
+        limit: 0,
         sortBy: 'riskAmount',
         sortOrder: 'desc',
         dayDiff: dayDiffFilter || undefined,
@@ -131,7 +132,6 @@ export default function CostUpdateAlertsPage() {
         setData(result.data.products);
         setSummary(result.data.summary);
         setMetadata(result.data.metadata);
-        setTotalPages(result.data.pagination.totalPages);
       } else {
         throw new Error('Bir hata oluştu');
       }
@@ -144,7 +144,7 @@ export default function CostUpdateAlertsPage() {
 
   useEffect(() => {
     fetchData();
-  }, [page, dayDiffFilter, percentDiffFilter]);
+  }, [dayDiffFilter, percentDiffFilter]);
 
   useEffect(() => {
     const codeList = Array.from(
@@ -418,16 +418,18 @@ export default function CostUpdateAlertsPage() {
     return (item as any)[key] ?? '';
   };
 
-  const filteredDataBase = data.filter((item) => {
+  const filteredDataBase = useMemo(() => {
     const tokens = buildSearchTokens(searchQuery);
-    if (tokens.length === 0) return true;
-    const code = String(item.productCode || '').trim().toUpperCase();
-    const supplier = mainSupplierByCode[code];
-    const haystack = normalizeSearchText(
-      `${item.productName} ${item.productCode} ${supplier?.code || ''} ${supplier?.name || ''}`
-    );
-    return matchesSearchTokens(haystack, tokens);
-  });
+    return data.filter((item) => {
+      if (tokens.length === 0) return true;
+      const code = String(item.productCode || '').trim().toUpperCase();
+      const supplier = mainSupplierByCode[code];
+      const haystack = normalizeSearchText(
+        `${item.productName} ${item.productCode} ${supplier?.code || ''} ${supplier?.name || ''}`
+      );
+      return matchesSearchTokens(haystack, tokens);
+    });
+  }, [data, searchQuery, mainSupplierByCode]);
   const filteredData = useMemo(() => {
     const next = [...filteredDataBase];
     next.sort((a, b) => {
@@ -441,6 +443,14 @@ export default function CostUpdateAlertsPage() {
     });
     return next;
   }, [filteredDataBase, sortKey, sortDirection, mainSupplierByCode, currentCostByCode]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE)), [filteredData.length]);
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+  const pagedData = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredData.slice(start, start + PAGE_SIZE);
+  }, [filteredData, page]);
   const stickyCodeWidth = 150;
   const stickyNameWidth = 300;
 
@@ -696,7 +706,10 @@ export default function CostUpdateAlertsPage() {
                 <Input
                   placeholder="Ürün kodu veya adı..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
                   className="pl-9"
                 />
               </div>
@@ -706,7 +719,10 @@ export default function CostUpdateAlertsPage() {
               <label className="text-sm font-medium">Minimum Gün Farkı</label>
               <Select
                 value={dayDiffFilter}
-                onChange={(e) => setDayDiffFilter(e.target.value)}
+                onChange={(e) => {
+                  setDayDiffFilter(e.target.value);
+                  setPage(1);
+                }}
               >
                 <option value="">Tümü</option>
                 <option value="7">7 gün+</option>
@@ -720,7 +736,10 @@ export default function CostUpdateAlertsPage() {
               <label className="text-sm font-medium">Minimum % Fark</label>
               <Select
                 value={percentDiffFilter}
-                onChange={(e) => setPercentDiffFilter(e.target.value)}
+                onChange={(e) => {
+                  setPercentDiffFilter(e.target.value);
+                  setPage(1);
+                }}
               >
                 <option value="">Tümü</option>
                 <option value="5">%5+</option>
@@ -792,7 +811,7 @@ export default function CostUpdateAlertsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredData.length === 0 ? (
+                  {pagedData.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={14} className="text-center py-12">
                         <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
@@ -800,7 +819,7 @@ export default function CostUpdateAlertsPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredData.map((item) => (
+                    pagedData.map((item) => (
                       <TableRow key={item.productCode} className={getRiskLevelColor(item.diffPercent)}>
                         <TableCell>
                           {getRiskLevelBadge(item.diffPercent)}
