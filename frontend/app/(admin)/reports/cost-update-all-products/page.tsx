@@ -251,6 +251,8 @@ export default function CostUpdateAllProductsPage() {
     });
   };
 
+  const shouldUpdatePriceLists = (code: string) => updatePriceListsByCode[code] !== false;
+
   const executeCostUpdate = async (code: string, costP: number, costT: number) => {
     setUpdatingByCode((prev) => ({ ...prev, [code]: true }));
     try {
@@ -258,7 +260,7 @@ export default function CostUpdateAllProductsPage() {
         productCode: code,
         costP,
         costT,
-        updatePriceLists: Boolean(updatePriceListsByCode[code]),
+        updatePriceLists: shouldUpdatePriceLists(code),
       });
       const nextCost = Number(result?.data?.currentCost ?? costP);
       setCurrentCostOverrideByCode((prev) => ({ ...prev, [code]: nextCost }));
@@ -276,7 +278,7 @@ export default function CostUpdateAllProductsPage() {
         });
       }
 
-      if (Boolean(updatePriceListsByCode[code])) toast.success('Maliyet ve 10 fiyat listesi guncellendi.');
+      if (shouldUpdatePriceLists(code)) toast.success('Maliyet ve 10 fiyat listesi guncellendi.');
       else toast.success('Guncel maliyet guncellendi.');
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Guncelleme basarisiz');
@@ -292,7 +294,7 @@ export default function CostUpdateAllProductsPage() {
     if (!Number.isFinite(costP) || costP <= 0) return toast.error('Gecerli bir Maliyet P girin.');
     if (!Number.isFinite(costT) || costT <= 0) return toast.error('Gecerli bir Maliyet T girin.');
 
-    if (Boolean(updatePriceListsByCode[code])) {
+    if (shouldUpdatePriceLists(code)) {
       const oldCost = Number(currentCostOverrideByCode[code] ?? item?.currentCost ?? 0);
       setPendingUpdate({ code, costP, costT, oldCost });
       setConfirmModalOpen(true);
@@ -472,7 +474,7 @@ export default function CostUpdateAllProductsPage() {
                             <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                               <input
                                 type="checkbox"
-                                checked={Boolean(updatePriceListsByCode[code])}
+                                checked={shouldUpdatePriceLists(code)}
                                 onChange={(e) => setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: e.target.checked }))}
                               />
                               10 liste
