@@ -1613,16 +1613,114 @@ export default function WarehousePage() {
                                       </div>
                                     </div>
 
-                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-                                      <div className={`rounded-lg border px-2 py-1.5 min-w-[118px] ${remainingQtyClass}`}>
-                                        <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
-                                        <p className="text-base leading-none font-black mt-1">{line.remainingQty}</p>
+                                    <div className="mt-1.5 grid grid-cols-1 xl:grid-cols-[245px_minmax(0,1fr)] gap-2">
+                                      <div className="grid grid-cols-2 gap-1.5 text-xs xl:self-start">
+                                        <div className={`rounded-lg border px-2 py-1.5 min-w-0 ${remainingQtyClass}`}>
+                                          <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
+                                          <p className="text-base leading-none font-black mt-1">{line.remainingQty}</p>
+                                        </div>
+                                        <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1.5 min-w-0">
+                                          <p className="text-[10px] font-black uppercase tracking-wide text-cyan-800">Depodaki Miktar</p>
+                                          <p className="text-base leading-none font-black mt-1 text-cyan-900">
+                                            {line.stockAvailable}
+                                          </p>
+                                        </div>
                                       </div>
-                                      <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1.5 min-w-[118px]">
-                                        <p className="text-[10px] font-black uppercase tracking-wide text-cyan-800">Depodaki Miktar</p>
-                                        <p className="text-base leading-none font-black mt-1 text-cyan-900">
-                                          {line.stockAvailable}
-                                        </p>
+
+                                      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-2">
+                                        <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-1.5">
+                                          <p className="text-[10px] font-bold text-slate-600 mb-1">Toplanan Miktar</p>
+                                          <div className="flex items-center gap-1">
+                                            <button
+                                              onClick={() => changePicked(orderNumber, line, -1)}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-7 w-7 rounded-md border border-slate-300 text-sm font-black text-slate-700 disabled:opacity-50"
+                                            >
+                                              -
+                                            </button>
+                                            <button
+                                              onClick={() => openQtyPad('picked', orderNumber, line)}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-8 flex-1 rounded-md bg-cyan-600 text-white flex items-center justify-center text-base font-black disabled:opacity-50"
+                                            >
+                                              {line.pickedQty}
+                                            </button>
+                                            <button
+                                              onClick={() => changePicked(orderNumber, line, 1)}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-7 w-7 rounded-md border border-slate-300 text-sm font-black text-slate-700 disabled:opacity-50"
+                                            >
+                                              +
+                                            </button>
+                                            <button
+                                              onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-7 px-2 rounded-md bg-emerald-600 text-[10px] text-white font-bold disabled:opacity-50 whitespace-nowrap"
+                                            >
+                                              Tamami
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-lg border border-slate-200 p-1.5">
+                                          <p className="text-[10px] font-bold text-slate-600 mb-1">Siparissiz Ek</p>
+                                          <div className="flex items-center gap-1">
+                                            <button
+                                              onClick={() => changeExtra(orderNumber, line, -1)}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-7 w-7 rounded-md border border-slate-300 text-sm font-black text-slate-700 disabled:opacity-50"
+                                            >
+                                              -
+                                            </button>
+                                            <button
+                                              onClick={() => openQtyPad('extra', orderNumber, line)}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-8 flex-1 rounded-md bg-slate-100 flex items-center justify-center text-sm font-black text-slate-900 disabled:opacity-50"
+                                            >
+                                              {line.extraQty}
+                                            </button>
+                                            <button
+                                              onClick={() => changeExtra(orderNumber, line, 1)}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-7 w-7 rounded-md border border-slate-300 text-sm font-black text-slate-700 disabled:opacity-50"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-lg border border-slate-200 p-1.5">
+                                          <p className="text-[10px] font-bold text-slate-600 mb-1">Mevcut Raf</p>
+                                          <p className="h-8 rounded-md bg-slate-100 px-2 flex items-center text-xs font-bold text-slate-800">
+                                            {line.shelfCode || '-'}
+                                          </p>
+                                        </div>
+
+                                        <div className="rounded-lg border border-slate-200 p-1.5">
+                                          <p className="text-[10px] font-bold text-slate-600 mb-1">Raf Guncelle</p>
+                                          <div className="grid grid-cols-[1fr_auto] gap-1">
+                                            <Input
+                                              value={shelfDrafts[draftKey] || ''}
+                                              onChange={(event) =>
+                                                setShelfDrafts((prev) => ({ ...prev, [draftKey]: event.target.value }))
+                                              }
+                                              onBlur={() => {
+                                                if (panelCanEditLines) saveShelf(orderNumber, line);
+                                              }}
+                                              placeholder="A-03-12"
+                                              className="h-8 text-xs"
+                                              disabled={!panelCanEditLines}
+                                            />
+                                            <Button
+                                              variant="secondary"
+                                              onClick={() => saveShelf(orderNumber, line)}
+                                              disabled={saving || !panelCanEditLines}
+                                              className="h-8 px-2 text-[11px]"
+                                            >
+                                              Kaydet
+                                            </Button>
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
 
@@ -1665,100 +1763,6 @@ export default function WarehousePage() {
                                   </div>
                                 </div>
 
-                                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-2">
-                                  <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-2 xl:col-span-5">
-                                    <p className="text-[11px] font-bold text-slate-600 mb-1">Toplanan Miktar</p>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        onClick={() => changePicked(orderNumber, line, -1)}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
-                                      >
-                                        -
-                                      </button>
-                                      <button
-                                        onClick={() => openQtyPad('picked', orderNumber, line)}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-10 flex-1 rounded-md bg-cyan-600 text-white flex items-center justify-center text-lg font-black disabled:opacity-50"
-                                      >
-                                        {line.pickedQty}
-                                      </button>
-                                      <button
-                                        onClick={() => changePicked(orderNumber, line, 1)}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
-                                      >
-                                        +
-                                      </button>
-                                      <button
-                                        onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-8 px-2 rounded-md bg-emerald-600 text-[10px] text-white font-bold disabled:opacity-50 whitespace-nowrap"
-                                      >
-                                        Tamami Toplandi
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="rounded-lg border border-slate-200 p-2 xl:col-span-3">
-                                    <p className="text-[11px] font-bold text-slate-600 mb-1">Siparissiz Ek Miktar</p>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        onClick={() => changeExtra(orderNumber, line, -1)}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
-                                      >
-                                        -
-                                      </button>
-                                      <button
-                                        onClick={() => openQtyPad('extra', orderNumber, line)}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-8 flex-1 rounded-md bg-slate-100 flex items-center justify-center text-sm font-black text-slate-900 disabled:opacity-50"
-                                      >
-                                        {line.extraQty}
-                                      </button>
-                                      <button
-                                        onClick={() => changeExtra(orderNumber, line, 1)}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-8 w-8 rounded-md border border-slate-300 text-base font-black text-slate-700 disabled:opacity-50"
-                                      >
-                                        +
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="rounded-lg border border-slate-200 p-2 xl:col-span-2">
-                                    <p className="text-[11px] font-bold text-slate-600 mb-1">Mevcut Raf Kodu</p>
-                                    <p className="h-8 rounded-md bg-slate-100 px-2 flex items-center text-xs font-bold text-slate-800">
-                                      {line.shelfCode || '-'}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-lg border border-slate-200 p-2 xl:col-span-2">
-                                    <p className="text-[11px] font-bold text-slate-600 mb-1">Raf Kodu Guncelle</p>
-                                    <div className="grid grid-cols-[1fr_auto] gap-2">
-                                      <Input
-                                        value={shelfDrafts[draftKey] || ''}
-                                        onChange={(event) =>
-                                          setShelfDrafts((prev) => ({ ...prev, [draftKey]: event.target.value }))
-                                        }
-                                        onBlur={() => {
-                                          if (panelCanEditLines) saveShelf(orderNumber, line);
-                                        }}
-                                        placeholder="Raf kodu (ornek: A-03-12)"
-                                        className="h-8 text-xs"
-                                        disabled={!panelCanEditLines}
-                                      />
-                                      <Button
-                                        variant="secondary"
-                                        onClick={() => saveShelf(orderNumber, line)}
-                                        disabled={saving || !panelCanEditLines}
-                                        className="h-8 px-2 text-[11px]"
-                                      >
-                                        Kaydet
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </div>
                               </div>
                             );
                           })}
