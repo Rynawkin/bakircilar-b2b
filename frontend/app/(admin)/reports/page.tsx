@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input';
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
   CircleDot,
   Clock,
@@ -37,6 +38,8 @@ interface ReportCard {
   href: string;
   category: ReportCategory;
   badge?: string;
+  tags: string[];
+  highImpact?: boolean;
   permission?: string | string[];
 }
 
@@ -49,6 +52,8 @@ const reports: ReportCard[] = [
     href: '/reports/cost-update-alerts',
     category: 'cost',
     badge: 'Aktif',
+    tags: ['Aksiyon', 'Fiyat'],
+    highImpact: true,
     permission: 'reports:cost-update-alerts',
   },
   {
@@ -59,6 +64,7 @@ const reports: ReportCard[] = [
     href: '/reports/cost-update-all-products',
     category: 'cost',
     badge: 'Yeni',
+    tags: ['Toplu Islem', 'Maliyet'],
     permission: 'reports:cost-update-alerts',
   },
   {
@@ -69,6 +75,7 @@ const reports: ReportCard[] = [
     href: '/reports/profit-analysis',
     category: 'cost',
     badge: 'Onerilen',
+    tags: ['Analiz', 'Marj'],
   },
   {
     id: 'ucarer-depo',
@@ -78,6 +85,8 @@ const reports: ReportCard[] = [
     href: '/reports/ucarer-depo',
     category: 'stock',
     badge: 'Yeni',
+    tags: ['Karar Destek', 'Depo'],
+    highImpact: true,
     permission: 'reports:ucarer-depo',
   },
   {
@@ -88,6 +97,7 @@ const reports: ReportCard[] = [
     href: '/reports/ucarer-depo',
     category: 'stock',
     badge: 'Yeni',
+    tags: ['Planlama', 'MinMax'],
     permission: 'reports:ucarer-minmax',
   },
   {
@@ -98,6 +108,7 @@ const reports: ReportCard[] = [
     href: '/reports/ucarer-minmax-exclusions',
     category: 'stock',
     badge: 'Yeni',
+    tags: ['Kontrol', 'Haric Liste'],
     permission: 'reports:ucarer-depo',
   },
   {
@@ -108,6 +119,7 @@ const reports: ReportCard[] = [
     href: '/reports/product-families',
     category: 'stock',
     badge: 'Yeni',
+    tags: ['Urun Yapisi', 'Stok'],
     permission: 'reports:ucarer-depo',
   },
   {
@@ -118,6 +130,8 @@ const reports: ReportCard[] = [
     href: '/reports/top-products',
     category: 'customer',
     badge: 'Onerilen',
+    tags: ['Satis', 'Trend'],
+    highImpact: true,
   },
   {
     id: 'complement-missing',
@@ -127,6 +141,7 @@ const reports: ReportCard[] = [
     href: '/reports/complement-missing',
     category: 'customer',
     badge: 'Yeni',
+    tags: ['Firsat', 'Capraz Satis'],
     permission: 'reports:complement-missing',
   },
   {
@@ -137,6 +152,7 @@ const reports: ReportCard[] = [
     href: '/reports/customer-activity',
     category: 'customer',
     badge: 'Yeni',
+    tags: ['Takip', 'Musteri Davranisi'],
     permission: 'reports:customer-activity',
   },
   {
@@ -147,6 +163,7 @@ const reports: ReportCard[] = [
     href: '/reports/staff-activity',
     category: 'customer',
     badge: 'Yeni',
+    tags: ['Takip', 'Personel'],
     permission: 'reports:staff-activity',
   },
   {
@@ -157,6 +174,7 @@ const reports: ReportCard[] = [
     href: '/reports/customer-carts',
     category: 'customer',
     badge: 'Yeni',
+    tags: ['Sepet', 'Donusum'],
     permission: 'reports:customer-carts',
   },
   {
@@ -167,6 +185,7 @@ const reports: ReportCard[] = [
     href: '/vade',
     category: 'customer',
     badge: 'Onerilen',
+    tags: ['Tahsilat', 'Risk'],
   },
   {
     id: 'supplier-price-lists',
@@ -176,6 +195,8 @@ const reports: ReportCard[] = [
     href: '/reports/supplier-price-lists',
     category: 'order',
     badge: 'Yeni',
+    tags: ['Tedarik', 'Karsilastirma'],
+    highImpact: true,
     permission: 'reports:supplier-price-lists',
   },
 ];
@@ -193,6 +214,27 @@ const categoryAccent: Record<ReportCategory, string> = {
   stock: 'from-emerald-50 to-lime-100 text-emerald-700',
   customer: 'from-sky-50 to-cyan-100 text-cyan-700',
   order: 'from-slate-100 to-gray-200 text-slate-700',
+};
+
+const categoryPanelStyles: Record<ReportCategory, string> = {
+  cost: 'border-amber-200/70 bg-gradient-to-br from-amber-50/70 via-orange-50/40 to-white',
+  stock: 'border-emerald-200/70 bg-gradient-to-br from-emerald-50/70 via-lime-50/40 to-white',
+  customer: 'border-cyan-200/70 bg-gradient-to-br from-cyan-50/70 via-sky-50/40 to-white',
+  order: 'border-slate-200/80 bg-gradient-to-br from-slate-50/80 via-gray-50/50 to-white',
+};
+
+const categoryTitleStyles: Record<ReportCategory, string> = {
+  cost: 'text-orange-900',
+  stock: 'text-emerald-900',
+  customer: 'text-cyan-900',
+  order: 'text-slate-900',
+};
+
+const categoryPillStyles: Record<ReportCategory, string> = {
+  cost: 'bg-orange-100 text-orange-700 border border-orange-200',
+  stock: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  customer: 'bg-cyan-100 text-cyan-700 border border-cyan-200',
+  order: 'bg-slate-100 text-slate-700 border border-slate-200',
 };
 
 const badgeStyles: Record<string, string> = {
@@ -253,7 +295,7 @@ export default function ReportsPage() {
   );
 
   const categoryGroups = categories
-    .filter((category) => category.id !== 'all')
+    .filter((category): category is { id: ReportCategory; label: string; icon: ReactNode } => category.id !== 'all')
     .map((category) => ({
       ...category,
       reports: filteredReports.filter((report) => report.category === category.id),
@@ -348,28 +390,22 @@ export default function ReportsPage() {
         categoryGroups.map(
           (category) =>
             category.reports.length > 0 && (
-              <section key={category.id} className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <div className="rounded-full bg-gray-100 p-2 text-gray-700">{category.icon}</div>
-                  <h2 className="text-xl font-semibold text-gray-900">{category.label}</h2>
-                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
-                    {category.reports.length}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {category.reports.map((report) => (
-                    <ReportCardComponent key={report.id} report={report} />
-                  ))}
-                </div>
-              </section>
+              <CategoryPanel
+                key={category.id}
+                category={category.id}
+                title={category.label}
+                icon={category.icon}
+                reports={category.reports}
+              />
             )
         )
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredReports.map((report) => (
-            <ReportCardComponent key={report.id} report={report} />
-          ))}
-        </div>
+        <CategoryPanel
+          category={selectedCategory}
+          title={categories.find((c) => c.id === selectedCategory)?.label ?? 'Raporlar'}
+          icon={categories.find((c) => c.id === selectedCategory)?.icon ?? <FileText className="h-4 w-4" />}
+          reports={filteredReports}
+        />
       )}
 
       {filteredReports.length === 0 && (
@@ -383,15 +419,62 @@ export default function ReportsPage() {
   );
 }
 
-function ReportCardComponent({ report }: { report: ReportCard }) {
+function CategoryPanel({
+  category,
+  title,
+  icon,
+  reports,
+}: {
+  category: ReportCategory;
+  title: string;
+  icon: ReactNode;
+  reports: ReportCard[];
+}) {
+  const featured = reports.find((report) => report.highImpact) ?? reports[0];
+  const compactReports = reports.filter((report) => report.id !== featured?.id);
+
+  if (!featured) return null;
+
   return (
-    <Link href={report.href} className="h-full">
-      <Card className="group flex h-full flex-col border border-gray-200 bg-white/95 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-primary-200 hover:shadow-xl">
-        <CardHeader className="pb-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className={cn('rounded-xl bg-gradient-to-br p-2.5', categoryAccent[report.category])}>
-              {report.icon}
-            </div>
+    <section className={cn('space-y-4 rounded-3xl border p-4 shadow-sm sm:p-6', categoryPanelStyles[category])}>
+      <div className="flex items-center gap-2">
+        <div className="rounded-full bg-white p-2 text-gray-700 shadow-sm">{icon}</div>
+        <h2 className={cn('text-xl font-semibold', categoryTitleStyles[category])}>{title}</h2>
+        <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-medium text-gray-600">{reports.length}</span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
+        <FeaturedReportCard report={featured} category={category} expanded={compactReports.length === 0} />
+
+        {compactReports.length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2 xl:col-span-3">
+            {compactReports.map((report) => (
+              <CompactReportCard key={report.id} report={report} category={category} />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function FeaturedReportCard({
+  report,
+  category,
+  expanded,
+}: {
+  report: ReportCard;
+  category: ReportCategory;
+  expanded: boolean;
+}) {
+  return (
+    <Link href={report.href} className={expanded ? 'xl:col-span-5' : 'xl:col-span-2'}>
+      <Card className="group h-full border border-gray-200 bg-white/90 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-xl">
+        <CardHeader className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', categoryPillStyles[category])}>
+              One Cikan Rapor
+            </span>
             {report.badge && (
               <span
                 className={cn(
@@ -403,20 +486,69 @@ function ReportCardComponent({ report }: { report: ReportCard }) {
               </span>
             )}
           </div>
-          <CardTitle className="mt-4 text-lg leading-tight text-gray-900">{report.title}</CardTitle>
-          <CardDescription className="line-clamp-2 text-sm leading-relaxed text-gray-600">
-            {report.description}
-          </CardDescription>
+
+          <div className="flex items-start gap-3">
+            <div className={cn('rounded-xl bg-gradient-to-br p-2.5 shadow-sm', categoryAccent[report.category])}>
+              {report.icon}
+            </div>
+            <div className="min-w-0">
+              <CardTitle className="text-xl leading-tight text-gray-900">{report.title}</CardTitle>
+              <CardDescription className="mt-2 line-clamp-3 text-sm leading-relaxed text-gray-600">
+                {report.description}
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="mt-auto pt-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-between rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-          >
+
+        <CardContent className="space-y-4 pt-0">
+          <div className="flex flex-wrap gap-2">
+            {report.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700">
+                {tag}
+              </span>
+            ))}
+          </div>
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
             Raporu Ac
-            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
-          </Button>
+            <ArrowUpRight className="h-4 w-4 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+function CompactReportCard({ report, category }: { report: ReportCard; category: ReportCategory }) {
+  return (
+    <Link href={report.href}>
+      <Card className="group h-full border border-gray-200 bg-white/90 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className={cn('rounded-lg bg-gradient-to-br p-2 shadow-sm', categoryAccent[category])}>{report.icon}</div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <h3 className="line-clamp-1 text-sm font-semibold text-gray-900">{report.title}</h3>
+                {report.badge && (
+                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                    {report.badge}
+                  </span>
+                )}
+              </div>
+
+              <p className="line-clamp-2 text-xs leading-relaxed text-gray-600">{report.description}</p>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {report.tags.slice(0, 2).map((tag) => (
+                    <span key={tag} className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <ArrowRight className="h-4 w-4 text-gray-400 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-gray-700" />
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </Link>
