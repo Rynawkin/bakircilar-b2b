@@ -1453,51 +1453,56 @@ export default function WarehousePage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <Button
-                            onClick={() => handleStartPicking(orderNumber)}
-                            disabled={actionLoading || panelHasStarted}
-                            className={actionButtonClass}
-                          >
-                            {panelHasStarted ? 'Basladi' : 'Toplamaya Basla'}
-                          </Button>
-                          <Button
-                            variant={panelIsActive ? 'primary' : 'secondary'}
-                            onClick={() => setActiveOrderNumber(orderNumber)}
-                            className={actionButtonClass}
-                          >
-                            {panelIsActive ? 'Aktif Siparis' : 'Aktif'}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            onClick={() => refreshOrderDetail(orderNumber)}
-                            disabled={actionLoading}
-                            className={actionButtonClass}
-                          >
-                            Detay Yenile
-                          </Button>
-                          <Button
-                            onClick={() => openDispatchModal(orderNumber)}
-                            disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
-                            className={actionButtonClass}
-                          >
-                            {panelWorkflowStatus === 'DISPATCHED'
-                              ? `Irsaliyelestirildi (${panelDetail.workflow?.mikroDeliveryNoteNo || '-'})`
-                              : 'Kapat ve Irsaliyelestir'}
-                          </Button>
-                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
-                            Satirlar ({visibleLines.length}/{panelDetail.lines.length})
-                          </span>
-                          <Button
-                            variant={showCompletedLines ? 'secondary' : 'primary'}
-                            onClick={() => setShowCompletedLines((prev) => !prev)}
-                            className={actionButtonClass}
-                          >
-                            {showCompletedLines ? 'Toplananlari Gizle' : 'Toplananlari Goster'}
-                          </Button>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Button
+                              onClick={() => handleStartPicking(orderNumber)}
+                              disabled={actionLoading || panelHasStarted}
+                              className={actionButtonClass}
+                            >
+                              {panelHasStarted ? 'Basladi' : 'Toplamaya Basla'}
+                            </Button>
+                            <Button
+                              variant={panelIsActive ? 'primary' : 'secondary'}
+                              onClick={() => setActiveOrderNumber(orderNumber)}
+                              className={actionButtonClass}
+                            >
+                              {panelIsActive ? 'Aktif Siparis' : 'Aktif'}
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              onClick={() => refreshOrderDetail(orderNumber)}
+                              disabled={actionLoading}
+                              className={actionButtonClass}
+                            >
+                              Detay Yenile
+                            </Button>
+                            <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
+                              Satirlar ({visibleLines.length}/{panelDetail.lines.length})
+                            </span>
+                          </div>
+
+                          <div className="ml-auto flex items-center gap-1.5">
+                            <Button
+                              variant={showCompletedLines ? 'secondary' : 'primary'}
+                              onClick={() => setShowCompletedLines((prev) => !prev)}
+                              className={actionButtonClass}
+                            >
+                              {showCompletedLines ? 'Toplananlari Gizle' : 'Toplananlari Goster'}
+                            </Button>
+                            <Button
+                              onClick={() => openDispatchModal(orderNumber)}
+                              disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
+                              className="h-8 px-3 text-[11px] font-bold"
+                            >
+                              {panelWorkflowStatus === 'DISPATCHED'
+                                ? `Irsaliyelestirildi (${panelDetail.workflow?.mikroDeliveryNoteNo || '-'})`
+                                : 'Kapat ve Irsaliyelestir'}
+                            </Button>
+                          </div>
                         </div>
 
                         <div className={panelLineAreaClass}>
-                          {visibleLines.map((line) => {
+                          {visibleLines.map((line, lineIndex) => {
                             const draftKey = getShelfDraftKey(orderNumber, line.lineKey);
                             const saving = lineSavingKey === draftKey;
                             const remainingQtyClass = getRemainingQtyClass(line);
@@ -1513,11 +1518,19 @@ export default function WarehousePage() {
                                 key={line.lineKey}
                                 className={`rounded-xl border p-2 md:p-2.5 shadow-sm transition-colors ${
                                   isLineCompleted
-                                    ? 'border-emerald-300 bg-emerald-50/60'
+                                    ? lineIndex % 2 === 0
+                                      ? 'border-emerald-300 bg-emerald-50/70'
+                                      : 'border-emerald-300 bg-emerald-100/40'
                                     : line.stockCoverageStatus === 'NONE'
-                                    ? 'border-rose-200 bg-white'
+                                    ? lineIndex % 2 === 0
+                                      ? 'border-rose-200 bg-rose-50/40'
+                                      : 'border-rose-200 bg-white'
                                     : line.stockCoverageStatus === 'PARTIAL'
-                                    ? 'border-amber-200 bg-white'
+                                    ? lineIndex % 2 === 0
+                                      ? 'border-amber-200 bg-amber-50/40'
+                                      : 'border-amber-200 bg-white'
+                                    : lineIndex % 2 === 0
+                                    ? 'border-emerald-200 bg-emerald-50/30'
                                     : 'border-emerald-200 bg-white'
                                 }`}
                               >
