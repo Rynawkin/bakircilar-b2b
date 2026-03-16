@@ -1,45 +1,50 @@
-'use client';
+﻿'use client';
 
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import {
-  TrendingUp,
-  TrendingDown,
-  Package,
   AlertTriangle,
-  Users,
+  ArrowRight,
+  BarChart3,
+  CircleDot,
   Clock,
   DollarSign,
   FileText,
+  Filter,
+  History,
+  Package,
   Search,
   ShoppingCart,
-  History,
+  Sigma,
+  TrendingUp,
+  Users,
   Warehouse,
-  Sigma
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { usePermissions } from '@/hooks/usePermissions';
+import { cn } from '@/lib/utils/cn';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
+
+type ReportCategory = 'cost' | 'stock' | 'customer' | 'order';
 
 interface ReportCard {
   id: string;
   title: string;
   description: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   href: string;
-  category: 'cost' | 'stock' | 'customer' | 'order';
+  category: ReportCategory;
   badge?: string;
   permission?: string | string[];
 }
 
 const reports: ReportCard[] = [
-  // Fiyat & Maliyet Raporları
   {
     id: 'cost-update-alerts',
-    title: 'Maliyet Güncelleme Uyarıları',
-    description: 'Son giriş maliyeti güncel maliyetten yüksek olan ürünler - fiyat güncelleme gerekebilir',
+    title: 'Maliyet Guncelleme Uyarilari',
+    description: 'Son giris maliyeti guncel maliyetten yuksek olan urunleri takip edin',
     icon: <AlertTriangle className="h-5 w-5" />,
     href: '/reports/cost-update-alerts',
     category: 'cost',
@@ -49,7 +54,7 @@ const reports: ReportCard[] = [
   {
     id: 'cost-update-all-products',
     title: 'Tum Urunler Maliyet/Fiyat Guncelleme',
-    description: 'Tum urunlerde kolon secimi, kolon bazli siralama ve maliyet + 10 liste guncelleme ekrani',
+    description: 'Tum urunleri kolon bazli inceleyip maliyet ve liste fiyatlarini guncelleyin',
     icon: <DollarSign className="h-5 w-5" />,
     href: '/reports/cost-update-all-products',
     category: 'cost',
@@ -57,48 +62,18 @@ const reports: ReportCard[] = [
     permission: 'reports:cost-update-alerts',
   },
   {
-    id: 'margin-compliance',
-    title: 'Marj Uyumsuzluğu Raporu',
-    description: 'Tanımlı marj oranlarına uymayan fiyatlar - F1/F2/F3/F4/F5 kontrolü',
-    icon: <TrendingDown className="h-5 w-5" />,
-    href: '/reports/margin-compliance',
-    category: 'cost',
-    badge: 'Önerilen',
-  },
-  {
     id: 'profit-analysis',
-    title: 'Kar Marjı Analizi (Çok Boyutlu)',
-    description: 'Ürün, kategori, marka ve müşteri tipi bazında kar marjı analizi',
+    title: 'Kar Marji Analizi',
+    description: 'Urun, kategori, marka ve musteri tipi bazinda kar marji dagilimini inceleyin',
     icon: <DollarSign className="h-5 w-5" />,
     href: '/reports/profit-analysis',
     category: 'cost',
-    badge: 'Önerilen',
+    badge: 'Onerilen',
   },
-  {
-    id: 'price-history',
-    title: 'Fiyat Değişim Geçmişi',
-    description: 'Ürün fiyatlarının zaman içindeki değişimi ve güncellenmeye ihtiyaç duyan ürünler',
-    icon: <TrendingUp className="h-5 w-5" />,
-    href: '/reports/price-history',
-    category: 'cost',
-    permission: 'reports:price-history',
-  },
-
-  // Stok Raporları
-  {
-    id: 'critical-stock',
-    title: 'Kritik Stok Seviyeleri (Akıllı)',
-    description: 'Günlük satış ortalamasına göre stok tükenmek üzere olan ürünler - blok satış filtreli',
-    icon: <Package className="h-5 w-5" />,
-    href: '/reports/critical-stock',
-    category: 'stock',
-    badge: 'Önerilen',
-  },
-
   {
     id: 'ucarer-depo',
     title: 'Ucarer Depo Karar Raporu',
-    description: 'Merkez/Topca depo icin siparis, dsv ve min-max bazli urun karar ekrani',
+    description: 'Merkez ve topca depo icin siparis, dsv ve min-max kararlarini yonetin',
     icon: <Warehouse className="h-5 w-5" />,
     href: '/reports/ucarer-depo',
     category: 'stock',
@@ -108,7 +83,7 @@ const reports: ReportCard[] = [
   {
     id: 'ucarer-minmax',
     title: 'Ucarer MinMax Dinamik',
-    description: 'Min-max degerlerini dinamik hesaplayan prosedur sonucunu gosterir',
+    description: 'Min-max degerlerini dinamik hesaplayan prosedur sonucunu izleyin',
     icon: <Sigma className="h-5 w-5" />,
     href: '/reports/ucarer-depo',
     category: 'stock',
@@ -118,7 +93,7 @@ const reports: ReportCard[] = [
   {
     id: 'ucarer-minmax-exclusions',
     title: 'MinMax Hesaplanmayacaklar',
-    description: 'HAYIR isaretli stoklari gor, son 1/2/3 ay farkli cari satislarini izle ve tekrar hesaplamaya al',
+    description: 'Haric tutulan stoklari yonetip tekrar hesaplamaya dahil edin',
     icon: <Sigma className="h-5 w-5" />,
     href: '/reports/ucarer-minmax-exclusions',
     category: 'stock',
@@ -128,36 +103,26 @@ const reports: ReportCard[] = [
   {
     id: 'product-families',
     title: 'Stok Aile Yonetimi',
-    description: 'Urun havuzundan secerek stok ailesi olustur ve duzenle',
+    description: 'Urun havuzundan secerek stok ailesi olusturun ve duzenleyin',
     icon: <Warehouse className="h-5 w-5" />,
     href: '/reports/product-families',
     category: 'stock',
     badge: 'Yeni',
     permission: 'reports:ucarer-depo',
   },
-  // Satış & Müşteri Raporları
   {
     id: 'top-products',
-    title: 'En Çok Satan Ürünler',
-    description: 'Yüksek cirolu ürünler ve satış trendleri',
+    title: 'En Cok Satan Urunler',
+    description: 'Yuksek cirolu urunleri ve satis trendlerini analiz edin',
     icon: <TrendingUp className="h-5 w-5" />,
     href: '/reports/top-products',
     category: 'customer',
-    badge: 'Önerilen',
-  },
-  {
-    id: 'top-customers',
-    title: 'En Çok Satan Müşteriler',
-    description: 'Sadık müşteriler ve en yüksek alım yapan cariler',
-    icon: <Users className="h-5 w-5" />,
-    href: '/reports/top-customers',
-    category: 'customer',
-    badge: 'Önerilen',
+    badge: 'Onerilen',
   },
   {
     id: 'complement-missing',
     title: 'Tamamlayici Urun Eksikleri',
-    description: 'Secilen urun veya cari icin tamamlayici urunleri almayanlari listeler',
+    description: 'Secilen urun veya cari icin tamamlayici urun eksiklerini listeler',
     icon: <Package className="h-5 w-5" />,
     href: '/reports/complement-missing',
     category: 'customer',
@@ -167,7 +132,7 @@ const reports: ReportCard[] = [
   {
     id: 'customer-activity',
     title: 'Musteri Aktivite Takibi',
-    description: 'Sayfa, urun, sepet ve aktiflik verilerini loglar',
+    description: 'Sayfa, urun ve sepet hareketlerini detayli olarak izleyin',
     icon: <Clock className="h-5 w-5" />,
     href: '/reports/customer-activity',
     category: 'customer',
@@ -177,7 +142,7 @@ const reports: ReportCard[] = [
   {
     id: 'staff-activity',
     title: 'Personel Aktivite Takibi',
-    description: 'Sales rep, manager, depocu vb. personelin yaptigi API islemlerini izler',
+    description: 'Personelin yaptigi API islemleri ve operasyon adimlarini kaydeder',
     icon: <History className="h-5 w-5" />,
     href: '/reports/staff-activity',
     category: 'customer',
@@ -187,7 +152,7 @@ const reports: ReportCard[] = [
   {
     id: 'customer-carts',
     title: 'Musteri Sepetleri',
-    description: 'Musterilerin guncel sepetleri ve kalem detaylari',
+    description: 'Musterilerin guncel sepetlerini ve kalem detaylarini gosteren gorunum',
     icon: <ShoppingCart className="h-5 w-5" />,
     href: '/reports/customer-carts',
     category: 'customer',
@@ -197,27 +162,16 @@ const reports: ReportCard[] = [
   {
     id: 'overdue-payments',
     title: 'Vade & Alacak Takip Raporu',
-    description: 'Vadesi geçmiş alacaklar, aranması gerekenler ve satış durdurma önerileri',
+    description: 'Vadesi gecmis alacaklari takip edip aksiyon listesi olusturun',
     icon: <AlertTriangle className="h-5 w-5 text-red-500" />,
     href: '/vade',
     category: 'customer',
-    badge: 'Önerilen',
-  },
-
-  // Tedarik Zinciri
-  {
-    id: 'supplier-performance',
-    title: 'Tedarikçi Performans Raporu',
-    description: 'Tedarikçi bazında alım hacmi, teslimat süresi, kalite ve fiyat analizi',
-    icon: <FileText className="h-5 w-5" />,
-    href: '/reports/supplier-performance',
-    category: 'order',
-    permission: 'reports:supplier-price-lists',
+    badge: 'Onerilen',
   },
   {
     id: 'supplier-price-lists',
     title: 'Tedarikci Fiyat Karsilastirma',
-    description: 'Excel/PDF listelerini yukleyip eslesen ve esmeyen urunleri hizli gorun',
+    description: 'Excel ve PDF listelerini yukleyip eslesen-eslesmeyen urunleri gorun',
     icon: <FileText className="h-5 w-5" />,
     href: '/reports/supplier-price-lists',
     category: 'order',
@@ -226,18 +180,33 @@ const reports: ReportCard[] = [
   },
 ];
 
-const categories = [
-  { id: 'all', label: 'Tümü', icon: <FileText className="h-4 w-4" /> },
+const categories: Array<{ id: 'all' | ReportCategory; label: string; icon: ReactNode }> = [
+  { id: 'all', label: 'Tumu', icon: <BarChart3 className="h-4 w-4" /> },
   { id: 'cost', label: 'Fiyat & Maliyet', icon: <DollarSign className="h-4 w-4" /> },
   { id: 'stock', label: 'Stok', icon: <Package className="h-4 w-4" /> },
-  { id: 'customer', label: 'Satış & Müşteri', icon: <Users className="h-4 w-4" /> },
+  { id: 'customer', label: 'Satis & Musteri', icon: <Users className="h-4 w-4" /> },
   { id: 'order', label: 'Tedarik Zinciri', icon: <FileText className="h-4 w-4" /> },
 ];
+
+const categoryAccent: Record<ReportCategory, string> = {
+  cost: 'from-amber-50 to-orange-100 text-orange-700',
+  stock: 'from-emerald-50 to-lime-100 text-emerald-700',
+  customer: 'from-sky-50 to-cyan-100 text-cyan-700',
+  order: 'from-slate-100 to-gray-200 text-slate-700',
+};
+
+const badgeStyles: Record<string, string> = {
+  Aktif: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  Yeni: 'bg-blue-100 text-blue-700 border border-blue-200',
+  Onerilen: 'bg-amber-100 text-amber-700 border border-amber-200',
+  Kritik: 'bg-red-100 text-red-700 border border-red-200',
+  Onemli: 'bg-orange-100 text-orange-700 border border-orange-200',
+};
 
 export default function ReportsPage() {
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | ReportCategory>('all');
 
   const canAccessReport = (permission?: string | string[]) => {
     if (!permission) return true;
@@ -248,130 +217,205 @@ export default function ReportsPage() {
     return hasPermission(permission);
   };
 
-  const visibleReports = reports.filter((report) => canAccessReport(report.permission));
+  const visibleReports = useMemo(
+    () => reports.filter((report) => canAccessReport(report.permission)),
+    [hasPermission, permissionsLoading]
+  );
 
-  const filteredReports = visibleReports.filter((report) => {
-    const tokens = buildSearchTokens(searchQuery);
-    const haystack = normalizeSearchText(`${report.title} ${report.description}`);
-    const matchesSearch = tokens.length === 0 || matchesSearchTokens(haystack, tokens);
-    const matchesCategory = selectedCategory === 'all' || report.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const categoryCounts = useMemo(
+    () =>
+      visibleReports.reduce<Record<ReportCategory, number>>(
+        (acc, report) => {
+          acc[report.category] += 1;
+          return acc;
+        },
+        { cost: 0, stock: 0, customer: 0, order: 0 }
+      ),
+    [visibleReports]
+  );
 
-  const categoryGroups = categories.filter(c => c.id !== 'all').map((category) => ({
-    ...category,
-    reports: filteredReports.filter((r) => r.category === category.id),
-  }));
+  const activeCategoryCount = useMemo(
+    () => Object.values(categoryCounts).filter((count) => count > 0).length,
+    [categoryCounts]
+  );
+
+  const searchTokens = useMemo(() => buildSearchTokens(searchQuery), [searchQuery]);
+
+  const filteredReports = useMemo(
+    () =>
+      visibleReports.filter((report) => {
+        const haystack = normalizeSearchText(`${report.title} ${report.description}`);
+        const matchesSearch = searchTokens.length === 0 || matchesSearchTokens(haystack, searchTokens);
+        const matchesCategory = selectedCategory === 'all' || report.category === selectedCategory;
+        return matchesSearch && matchesCategory;
+      }),
+    [searchTokens, selectedCategory, visibleReports]
+  );
+
+  const categoryGroups = categories
+    .filter((category) => category.id !== 'all')
+    .map((category) => ({
+      ...category,
+      reports: filteredReports.filter((report) => report.category === category.id),
+    }));
 
   return (
-    <>
-      <div className="container mx-auto p-6 space-y-6">
-        {/* Header */}
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">📊 Raporlar ve Analizler</h1>
-          <p className="text-muted-foreground">
-            İşletmenizin performansını izleyin ve analiz edin
+    <div className="container mx-auto space-y-6 p-4 sm:p-6">
+      <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-primary-700 p-6 text-white shadow-xl sm:p-8">
+        <div className="absolute -right-10 -top-16 h-44 w-44 rounded-full bg-white/15 blur-2xl" />
+        <div className="absolute -bottom-16 -left-8 h-36 w-36 rounded-full bg-primary-300/25 blur-2xl" />
+
+        <div className="relative space-y-3">
+          <p className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium uppercase tracking-wide text-white/90">
+            <CircleDot className="h-3.5 w-3.5" />
+            Karar Destek Paneli
+          </p>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Rapor Merkezi</h1>
+          <p className="max-w-2xl text-sm text-slate-100/90 sm:text-base">
+            Operasyon, satis ve stok kararlarinizi tek panelde hizli takip edin.
           </p>
         </div>
 
-      {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Rapor ara..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-
-        <div className="flex gap-2">
-          {categories.map((category) => (
-            <Button
-              key={category.id}
-              variant={selectedCategory === category.id ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedCategory(category.id)}
-              className="gap-2"
-            >
-              {category.icon}
-              <span className="hidden sm:inline">{category.label}</span>
-            </Button>
-          ))}
+        <div className="relative mt-6 grid grid-cols-2 gap-3 text-sm sm:w-fit sm:grid-cols-3">
+          <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm">
+            <p className="text-white/75">Toplam rapor</p>
+            <p className="mt-1 text-2xl font-semibold">{visibleReports.length}</p>
+          </div>
+          <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm">
+            <p className="text-white/75">Gorunen</p>
+            <p className="mt-1 text-2xl font-semibold">{filteredReports.length}</p>
+          </div>
+          <div className="col-span-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm sm:col-span-1">
+            <p className="text-white/75">Aktif kategori</p>
+            <p className="mt-1 text-2xl font-semibold">{selectedCategory === 'all' ? activeCategoryCount : '1'}</p>
+          </div>
         </div>
       </div>
 
-      {/* Reports by Category */}
-      {selectedCategory === 'all' ? (
-        categoryGroups.map((category) => (
-          category.reports.length > 0 && (
-            <div key={category.id} className="space-y-4">
-              <div className="flex items-center gap-2">
-                {category.icon}
-                <h2 className="text-xl font-semibold">{category.label} Raporları</h2>
-                <span className="text-sm text-muted-foreground">({category.reports.length})</span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {category.reports.map((report) => (
-                  <ReportCardComponent key={report.id} report={report} />
-                ))}
-              </div>
+      <Card className="border-gray-200 bg-gradient-to-r from-white to-slate-50 shadow-md">
+        <CardContent className="space-y-4 p-4 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                placeholder="Rapor ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-11 rounded-xl border-gray-200 bg-white pl-10"
+              />
             </div>
-          )
-        ))
+            <div className="inline-flex h-11 items-center gap-2 rounded-xl border border-dashed border-gray-300 bg-white px-3 text-sm text-gray-600">
+              <Filter className="h-4 w-4" />
+              Filtreler
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {categories.map((category) => {
+              const count = category.id === 'all' ? visibleReports.length : categoryCounts[category.id];
+              const isActive = selectedCategory === category.id;
+              return (
+                <Button
+                  key={category.id}
+                  variant={isActive ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setSelectedCategory(category.id)}
+                  className={cn(
+                    'h-10 rounded-full border px-4 text-sm transition-all',
+                    isActive
+                      ? 'border-primary-600 bg-primary-600 text-white hover:bg-primary-700'
+                      : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                  )}
+                >
+                  {category.icon}
+                  <span>{category.label}</span>
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-xs font-semibold',
+                      isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                    )}
+                  >
+                    {count}
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {selectedCategory === 'all' ? (
+        categoryGroups.map(
+          (category) =>
+            category.reports.length > 0 && (
+              <section key={category.id} className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-full bg-gray-100 p-2 text-gray-700">{category.icon}</div>
+                  <h2 className="text-xl font-semibold text-gray-900">{category.label}</h2>
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                    {category.reports.length}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {category.reports.map((report) => (
+                    <ReportCardComponent key={report.id} report={report} />
+                  ))}
+                </div>
+              </section>
+            )
+        )
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredReports.map((report) => (
             <ReportCardComponent key={report.id} report={report} />
           ))}
         </div>
       )}
 
-      {/* No Results */}
       {filteredReports.length === 0 && (
-        <Card className="p-12 text-center">
-          <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Rapor bulunamadı</h3>
-          <p className="text-muted-foreground">
-            Arama kriterlerinizi değiştirip tekrar deneyin
-          </p>
+        <Card className="border-dashed border-gray-300 bg-white/90 p-12 text-center shadow-sm">
+          <FileText className="mx-auto mb-4 h-12 w-12 text-gray-400" />
+          <h3 className="text-lg font-semibold text-gray-900">Rapor bulunamadi</h3>
+          <p className="mt-1 text-sm text-gray-500">Arama kelimesi veya kategori filtresini degistirin.</p>
         </Card>
       )}
-      </div>
-    </>
+    </div>
   );
 }
 
 function ReportCardComponent({ report }: { report: ReportCard }) {
   return (
-    <Link href={report.href}>
-      <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full">
-        <CardHeader>
-          <div className="flex items-start justify-between">
-            <div className="p-2 bg-primary/10 rounded-lg">
+    <Link href={report.href} className="h-full">
+      <Card className="group flex h-full flex-col border border-gray-200 bg-white/95 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-primary-200 hover:shadow-xl">
+        <CardHeader className="pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className={cn('rounded-xl bg-gradient-to-br p-2.5', categoryAccent[report.category])}>
               {report.icon}
             </div>
             {report.badge && (
-              <span className={`
-                px-2 py-1 text-xs font-medium rounded-full
-                ${report.badge === 'Kritik' ? 'bg-red-100 text-red-700' : ''}
-                ${report.badge === 'Önemli' ? 'bg-orange-100 text-orange-700' : ''}
-              `}>
+              <span
+                className={cn(
+                  'rounded-full px-2.5 py-1 text-xs font-semibold',
+                  badgeStyles[report.badge] ?? 'border border-gray-200 bg-gray-100 text-gray-600'
+                )}
+              >
                 {report.badge}
               </span>
             )}
           </div>
-          <CardTitle className="text-lg mt-4">{report.title}</CardTitle>
-          <CardDescription className="line-clamp-2">
+          <CardTitle className="mt-4 text-lg leading-tight text-gray-900">{report.title}</CardTitle>
+          <CardDescription className="line-clamp-2 text-sm leading-relaxed text-gray-600">
             {report.description}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Button variant="ghost" size="sm" className="w-full group">
-            Rapora Git
-            <TrendingUp className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+        <CardContent className="mt-auto pt-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-between rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+          >
+            Raporu Ac
+            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
           </Button>
         </CardContent>
       </Card>
