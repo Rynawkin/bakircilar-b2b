@@ -3463,6 +3463,50 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/category-options
+   * Kategori arama (kod + ad)
+   */
+  async getCategoryOptions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { search, limit } = req.query;
+      const data = await reportsService.getCategoryChurnCategoryOptions({
+        search: search as string,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/category-churn/details
+   * Kategori kaybi detay satirlari
+   */
+  async getCategoryChurnDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { mode, categoryCode, customerCode, inactiveMonths } = req.query;
+      const data = await reportsService.getCategoryChurnDetail({
+        mode: mode as 'category' | 'customer',
+        categoryCode: categoryCode as string,
+        customerCode: customerCode as string,
+        inactiveMonths: inactiveMonths ? parseInt(inactiveMonths as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/customer-activity
    * Musteri aktivite ve davranis raporu
    */

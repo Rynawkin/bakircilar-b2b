@@ -207,6 +207,17 @@ interface CategoryChurnRow {
   lastPurchaseDate: string | null;
   historicalDocumentCount: number;
   historicalQuantity: number;
+  historicalAmount: number;
+}
+
+interface CategoryChurnDetailItem {
+  productCode: string;
+  productName: string;
+  firstPurchaseDate: string | null;
+  lastPurchaseDate: string | null;
+  documentCount: number;
+  totalQuantity: number;
+  totalAmount: number;
 }
 
 interface CategoryChurnReportResponse {
@@ -3698,6 +3709,216 @@ export class ReportsService {
     }
   }
 
+  async getCategoryChurnCategoryOptions(options?: {
+    search?: string;
+    limit?: number;
+  }): Promise<{ categories: Array<{ categoryCode: string; categoryName: string | null }> }> {
+    const search = String(options?.search || '').trim();
+    const limitRaw = Number(options?.limit);
+    const limit =
+      Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.min(100, Math.floor(limitRaw))
+        : 30;
+
+    const categories = await prisma.category.findMany({
+      where: search
+        ? {
+            OR: [
+              { mikroCode: { contains: search, mode: 'insensitive' } },
+              { name: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : undefined,
+      select: {
+        mikroCode: true,
+        name: true,
+      },
+      orderBy: [{ mikroCode: 'asc' }],
+      take: limit,
+    });
+
+    return {
+      categories: categories.map((row) => ({
+        categoryCode: row.mikroCode,
+        categoryName: row.name || null,
+      })),
+    };
+  }
+
+  async getCategoryChurnDetail(options: {
+    mode: CategoryChurnMode;
+    categoryCode?: string;
+    customerCode?: string;
+    inactiveMonths?: number;
+  }): Promise<{
+    items: CategoryChurnDetailItem[];
+    metadata: {
+      mode: CategoryChurnMode;
+      categoryCode: string;
+      categoryName: string | null;
+      customerCode: string;
+      inactiveMonths: number;
+      inactiveStartDate: string;
+      endDate: string;
+    };
+  }> {
+    const mode: CategoryChurnMode = options.mode === 'customer' ? 'customer' : 'category';
+    const categoryCode = normalizeReportCode(options.categoryCode);
+    const customerCode = normalizeReportCode(options.customerCode);
+    const inactiveMonthsRaw = Number(options.inactiveMonths);
+    const inactiveMonths =
+      Number.isFinite(inactiveMonthsRaw) && inactiveMonthsRaw > 0
+        ? Math.min(24, Math.floor(inactiveMonthsRaw))
+        : 4;
+
+    if (!categoryCode) {
+      throw new AppError('Kategori kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (!customerCode) {
+      throw new AppError('Cari kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const reportEnd = new Date();
+    const inactiveStart = subtractMonthsUtc(reportEnd, inactiveMonths);
+    const inactiveStartCompact = formatDateCompact(inactiveStart);
+
+    const selectedCategory = await prisma.category.findFirst({
+      where: { mikroCode: { equals: categoryCode, mode: 'insensitive' } },
+      select: { mikroCode: true, name: true },
+    });
+
+    const categoryProducts = await prisma.product.findMany({
+      where: {
+        category: {
+          mikroCode: {
+            equals: selectedCategory?.mikroCode || categoryCode,
+            mode: 'insensitive',
+          },
+        },
+      },
+      select: {
+        mikroCode: true,
+        name: true,
+      },
+    });
+
+    const normalizedProductCodes = Array.from(
+      new Set(categoryProducts.map((row) => normalizeReportCode(row.mikroCode)).filter(Boolean))
+    );
+    const productNameMap = new Map<string, string>();
+    categoryProducts.forEach((row) => {
+      const code = normalizeReportCode(row.mikroCode);
+      if (!code) return;
+      productNameMap.set(code, row.name || code);
+    });
+
+    const metadata = {
+      mode,
+      categoryCode: selectedCategory?.mikroCode || categoryCode,
+      categoryName: selectedCategory?.name || null,
+      customerCode,
+      inactiveMonths,
+      inactiveStartDate: formatDateKey(inactiveStart),
+      endDate: formatDateKey(reportEnd),
+    };
+
+    if (normalizedProductCodes.length === 0) {
+      return {
+        items: [],
+        metadata,
+      };
+    }
+
+    const toCompactDate = (value: unknown): string | null => {
+      if (!value) return null;
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return formatDateCompact(value);
+      }
+      const raw = String(value).trim();
+      if (!raw) return null;
+      const cleaned = raw.replace(/[^0-9]/g, '');
+      if (/^\d{8}$/.test(cleaned)) return cleaned;
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return formatDateCompact(parsed);
+    };
+
+    const compactToDisplay = (value: string | null): string | null =>
+      value && /^\d{8}$/.test(value)
+        ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+        : null;
+
+    const productInClause = normalizedProductCodes
+      .map((code) => `'${escapeSqlLiteral(code)}'`)
+      .join(', ');
+
+    const baseConditions = [
+      'sth_cins = 0',
+      'sth_tip = 1',
+      'sth_evraktip IN (1, 4)',
+      '(sth_iptal = 0 OR sth_iptal IS NULL)',
+      'sth.sth_stok_kod IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+      'sth.sth_cari_kodu IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+    ];
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    const whereClause = [
+      ...baseConditions,
+      ...exclusionConditions,
+      `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(customerCode)}'`,
+      `RTRIM(sth.sth_stok_kod) IN (${productInClause})`,
+      `sth.sth_tarih < '${inactiveStartCompact}'`,
+    ].join(' AND ');
+
+    await mikroService.connect();
+    try {
+      const query = `
+        SELECT
+          RTRIM(sth.sth_stok_kod) as productCode,
+          MAX(st.sto_isim) as productName,
+          MIN(sth.sth_tarih) as firstPurchaseDate,
+          MAX(sth.sth_tarih) as lastPurchaseDate,
+          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
+          SUM(sth.sth_miktar) as totalQuantity,
+          SUM(sth.sth_tutar) as totalAmount
+        FROM STOK_HAREKETLERI sth
+        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+        WHERE ${whereClause}
+        GROUP BY sth.sth_stok_kod
+      `;
+
+      const rows = await mikroService.executeQuery(query);
+      const items: CategoryChurnDetailItem[] = rows.map((row: any) => {
+        const code = normalizeReportCode(row.productCode);
+        const fallbackName = code ? productNameMap.get(code) : null;
+        return {
+          productCode: code || String(row.productCode || '').trim(),
+          productName: row.productName || fallbackName || '-',
+          firstPurchaseDate: compactToDisplay(toCompactDate(row.firstPurchaseDate)),
+          lastPurchaseDate: compactToDisplay(toCompactDate(row.lastPurchaseDate)),
+          documentCount: Number(row.documentCount) || 0,
+          totalQuantity: toNumber(row.totalQuantity),
+          totalAmount: toNumber(row.totalAmount),
+        };
+      });
+
+      items.sort((a, b) => {
+        const aDate = normalizeReportCode((a.lastPurchaseDate || '').replace(/-/g, ''));
+        const bDate = normalizeReportCode((b.lastPurchaseDate || '').replace(/-/g, ''));
+        if (aDate !== bDate) return bDate.localeCompare(aDate);
+        return b.totalAmount - a.totalAmount;
+      });
+
+      return {
+        items,
+        metadata,
+      };
+    } finally {
+      await mikroService.disconnect();
+    }
+  }
+
   async getCategoryChurnReport(options: {
     mode: CategoryChurnMode;
     categoryCode?: string;
@@ -3853,7 +4074,8 @@ export class ReportsService {
             MAX(c.cari_unvan1) as customerName,
             MAX(sth.sth_tarih) as lastPurchaseDate,
             COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
-            SUM(sth.sth_miktar) as totalQuantity
+            SUM(sth.sth_miktar) as totalQuantity,
+            SUM(sth.sth_tutar) as totalAmount
           FROM STOK_HAREKETLERI sth
           LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
           WHERE ${buildWhereClause([
@@ -3919,6 +4141,7 @@ export class ReportsService {
             lastPurchaseDate: compactToDisplay(toCompactDate(row.lastPurchaseDate)),
             historicalDocumentCount: Number(row.documentCount) || 0,
             historicalQuantity: toNumber(row.totalQuantity),
+            historicalAmount: toNumber(row.totalAmount),
           });
         });
 
@@ -3966,6 +4189,7 @@ export class ReportsService {
           MAX(sth.sth_tarih) as lastPurchaseDate,
           COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount,
           SUM(sth.sth_miktar) as totalQuantity,
+          SUM(sth.sth_tutar) as totalAmount,
           MAX(c.cari_unvan1) as customerName
         FROM STOK_HAREKETLERI sth
         LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
@@ -4045,7 +4269,14 @@ export class ReportsService {
 
       const historicalCategoryMap = new Map<
         string,
-        { categoryCode: string; categoryName: string | null; lastPurchaseCompact: string | null; historicalDocumentCount: number; historicalQuantity: number }
+        {
+          categoryCode: string;
+          categoryName: string | null;
+          lastPurchaseCompact: string | null;
+          historicalDocumentCount: number;
+          historicalQuantity: number;
+          historicalAmount: number;
+        }
       >();
 
       historicalRows.forEach((row: any) => {
@@ -4059,6 +4290,7 @@ export class ReportsService {
           lastPurchaseCompact: null as string | null,
           historicalDocumentCount: 0,
           historicalQuantity: 0,
+          historicalAmount: 0,
         };
 
         const rowDate = toCompactDate(row.lastPurchaseDate);
@@ -4067,6 +4299,7 @@ export class ReportsService {
         }
         current.historicalDocumentCount += Number(row.documentCount) || 0;
         current.historicalQuantity += toNumber(row.totalQuantity);
+        current.historicalAmount += toNumber(row.totalAmount);
         historicalCategoryMap.set(category.code, current);
       });
 
@@ -4080,6 +4313,7 @@ export class ReportsService {
           lastPurchaseDate: compactToDisplay(item.lastPurchaseCompact),
           historicalDocumentCount: item.historicalDocumentCount,
           historicalQuantity: item.historicalQuantity,
+          historicalAmount: item.historicalAmount,
         }));
 
       rows.sort((a, b) => {

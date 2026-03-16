@@ -1919,6 +1919,7 @@ export const adminApi = {
         lastPurchaseDate: string | null;
         historicalDocumentCount: number;
         historicalQuantity: number;
+        historicalAmount: number;
       }>;
       summary: {
         totalRows: number;
@@ -1958,6 +1959,64 @@ export const adminApi = {
     if (params.limit) queryParams.append('limit', params.limit.toString());
 
     const response = await apiClient.get(`/admin/reports/category-churn?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  getCategoryOptions: async (params?: {
+    search?: string;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      categories: Array<{
+        categoryCode: string;
+        categoryName: string | null;
+      }>;
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/category-options${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  getCategoryChurnDetail: async (params: {
+    mode: 'category' | 'customer';
+    categoryCode: string;
+    customerCode: string;
+    inactiveMonths?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      items: Array<{
+        productCode: string;
+        productName: string;
+        firstPurchaseDate: string | null;
+        lastPurchaseDate: string | null;
+        documentCount: number;
+        totalQuantity: number;
+        totalAmount: number;
+      }>;
+      metadata: {
+        mode: 'category' | 'customer';
+        categoryCode: string;
+        categoryName: string | null;
+        customerCode: string;
+        inactiveMonths: number;
+        inactiveStartDate: string;
+        endDate: string;
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('mode', params.mode);
+    queryParams.append('categoryCode', params.categoryCode);
+    queryParams.append('customerCode', params.customerCode);
+    if (params.inactiveMonths) queryParams.append('inactiveMonths', params.inactiveMonths.toString());
+
+    const response = await apiClient.get(`/admin/reports/category-churn/details?${queryParams.toString()}`);
     return response.data;
   },
 

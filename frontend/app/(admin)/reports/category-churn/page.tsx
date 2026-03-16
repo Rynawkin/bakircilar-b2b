@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { ArrowLeft, RefreshCw, AlertTriangle, Layers, Users } from 'lucide-react';
 import { adminApi } from '@/lib/api/admin';
+import { formatCurrency } from '@/lib/utils/format';
 import toast from 'react-hot-toast';
 
 type ReportMode = 'category' | 'customer';
@@ -21,6 +22,22 @@ interface CategoryChurnRow {
   lastPurchaseDate: string | null;
   historicalDocumentCount: number;
   historicalQuantity: number;
+  historicalAmount: number;
+}
+
+interface CategoryOption {
+  categoryCode: string;
+  categoryName: string | null;
+}
+
+interface CategoryChurnDetailItem {
+  productCode: string;
+  productName: string;
+  firstPurchaseDate: string | null;
+  lastPurchaseDate: string | null;
+  documentCount: number;
+  totalQuantity: number;
+  totalAmount: number;
 }
 
 interface CategoryChurnSummary {
@@ -55,8 +72,11 @@ interface SubmittedParams {
 
 export default function CategoryChurnReportPage() {
   const [mode, setMode] = useState<ReportMode>('category');
+  const [categorySearch, setCategorySearch] = useState('');
   const [categoryCode, setCategoryCode] = useState('');
-  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [categoryName, setCategoryName] = useState('');
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
+  const [categorySearching, setCategorySearching] = useState(false);
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerCode, setCustomerCode] = useState('');
@@ -76,24 +96,29 @@ export default function CategoryChurnReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [openDetailKey, setOpenDetailKey] = useState<string | null>(null);
+  const [detailLoadingKey, setDetailLoadingKey] = useState<string | null>(null);
+  const [detailsByKey, setDetailsByKey] = useState<Record<string, CategoryChurnDetailItem[]>>({});
 
   useEffect(() => {
-    let active = true;
-    const loadCategories = async () => {
+    if (mode !== 'category') return;
+    const handle = setTimeout(async () => {
+      setCategorySearching(true);
       try {
-        const result = await adminApi.getReportCategories();
-        if (!active) return;
+        const result = await adminApi.getCategoryOptions({
+          search: categorySearch.trim() || undefined,
+          limit: 20,
+        });
         setCategoryOptions(result?.data?.categories || []);
       } catch (_err) {
-        if (!active) return;
         setCategoryOptions([]);
+      } finally {
+        setCategorySearching(false);
       }
-    };
-    loadCategories();
-    return () => {
-      active = false;
-    };
-  }, []);
+    }, 250);
+
+    return () => clearTimeout(handle);
+  }, [mode, categorySearch]);
 
   useEffect(() => {
     if (mode !== 'customer') return;
@@ -134,6 +159,13 @@ export default function CategoryChurnReportPage() {
     setCustomerOptions([]);
   };
 
+  const handleSelectCategory = (item: CategoryOption) => {
+    setCategoryCode(item.categoryCode);
+    setCategoryName(item.categoryName || '');
+    setCategorySearch(`${item.categoryCode} - ${item.categoryName || '-'}`);
+    setCategoryOptions([]);
+  };
+
   const runReport = () => {
     const inactive = Number(inactiveMonths);
     if (!Number.isFinite(inactive) || inactive <= 0) {
@@ -152,7 +184,21 @@ export default function CategoryChurnReportPage() {
     }
 
     if (mode === 'category') {
-      const normalizedCategory = categoryCode.trim();
+      let normalizedCategory = categoryCode.trim().toUpperCase();
+      if (!normalizedCategory && categorySearch.trim()) {
+        const term = categorySearch.trim().toLowerCase();
+        const matched = categoryOptions.find((item) => {
+          const code = item.categoryCode.toLowerCase();
+          const name = (item.categoryName || '').toLowerCase();
+          return code === term || name === term;
+        });
+        if (matched) {
+          normalizedCategory = matched.categoryCode.toUpperCase();
+          setCategoryCode(matched.categoryCode);
+          setCategoryName(matched.categoryName || '');
+          setCategorySearch(`${matched.categoryCode} - ${matched.categoryName || '-'}`);
+        }
+      }
       if (!normalizedCategory) {
         toast.error('Kategori secin');
         return;
@@ -204,6 +250,9 @@ export default function CategoryChurnReportPage() {
       setSummary(result.data.summary || null);
       setMetadata(result.data.metadata || null);
       setTotalPages(result.data.pagination?.totalPages || 1);
+      setOpenDetailKey(null);
+      setDetailLoadingKey(null);
+      setDetailsByKey({});
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Rapor yuklenemedi');
     } finally {
@@ -217,6 +266,57 @@ export default function CategoryChurnReportPage() {
   }, [submitted, page]);
 
   const tableMode = metadata?.mode || mode;
+  const detailColSpan = tableMode === 'category' ? 8 : 7;
+
+  const getRowKey = (row: CategoryChurnRow, index: number) => {
+    const customerKey = row.customerCode || metadata?.customer?.customerCode || '-';
+    const categoryKey = row.categoryCode || metadata?.category?.categoryCode || '-';
+    return `${tableMode}:${customerKey}:${categoryKey}:${index}`;
+  };
+
+  const toggleDetail = async (row: CategoryChurnRow, index: number) => {
+    const rowKey = getRowKey(row, index);
+    if (openDetailKey === rowKey) {
+      setOpenDetailKey(null);
+      return;
+    }
+
+    setOpenDetailKey(rowKey);
+    if (detailsByKey[rowKey]) return;
+
+    const detailCategoryCode = row.categoryCode || metadata?.category?.categoryCode || '';
+    const detailCustomerCode =
+      tableMode === 'category'
+        ? row.customerCode || ''
+        : metadata?.customer?.customerCode || row.customerCode || '';
+
+    if (!detailCategoryCode || !detailCustomerCode) {
+      toast.error('Detay icin cari veya kategori bilgisi eksik');
+      return;
+    }
+
+    setDetailLoadingKey(rowKey);
+    try {
+      const result = await adminApi.getCategoryChurnDetail({
+        mode: tableMode,
+        categoryCode: detailCategoryCode,
+        customerCode: detailCustomerCode,
+        inactiveMonths: metadata?.inactiveMonths || submitted?.inactiveMonths,
+      });
+      if (!result.success) {
+        throw new Error('Detay yuklenemedi');
+      }
+      setDetailsByKey((prev) => ({
+        ...prev,
+        [rowKey]: result.data.items || [],
+      }));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message || 'Detay yuklenemedi');
+      setOpenDetailKey(null);
+    } finally {
+      setDetailLoadingKey(null);
+    }
+  };
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -275,15 +375,41 @@ export default function CategoryChurnReportPage() {
 
             {mode === 'category' ? (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Kategori</label>
-                <Select value={categoryCode} onChange={(e) => setCategoryCode(e.target.value)}>
-                  <option value="">Kategori secin</option>
-                  {categoryOptions.map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
-                  ))}
-                </Select>
+                <div className="relative">
+                  <Input
+                    label="Kategori Ara"
+                    placeholder="Kategori kodu veya adi ile ara"
+                    value={categorySearch}
+                    onChange={(e) => {
+                      setCategorySearch(e.target.value);
+                      setCategoryCode('');
+                      setCategoryName('');
+                    }}
+                  />
+                  {categorySearching && (
+                    <div className="absolute right-3 top-9 text-xs text-gray-500">Araniyor...</div>
+                  )}
+                  {!categoryCode && categoryOptions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                      {categoryOptions.map((item, index) => (
+                        <button
+                          type="button"
+                          key={`${item.categoryCode}-${index}`}
+                          className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                          onClick={() => handleSelectCategory(item)}
+                        >
+                          <div className="text-sm font-semibold">{item.categoryCode}</div>
+                          <div className="text-xs text-gray-500">{item.categoryName || '-'}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {categoryCode && (
+                  <div className="text-xs text-gray-500">
+                    Secilen kategori: {categoryCode} {categoryName ? `- ${categoryName}` : ''}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-2">
@@ -484,33 +610,99 @@ export default function CategoryChurnReportPage() {
                     <TableHead>Son Alim Tarihi</TableHead>
                     <TableHead className="text-right">Gecmis Evrak</TableHead>
                     <TableHead className="text-right">Gecmis Miktar</TableHead>
+                    <TableHead className="text-right">Gecmis Tutar</TableHead>
+                    <TableHead className="text-right">Detay</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row, index) => (
-                    <TableRow key={`${row.customerCode || row.categoryCode}-${index}`}>
-                      {tableMode === 'category' ? (
-                        <>
-                          <TableCell className="font-mono text-sm">{row.customerCode || '-'}</TableCell>
-                          <TableCell>{row.customerName || '-'}</TableCell>
-                          <TableCell className="font-mono text-sm">{row.categoryCode || '-'}</TableCell>
-                        </>
-                      ) : (
-                        <>
-                          <TableCell className="font-mono text-sm">{row.categoryCode || '-'}</TableCell>
-                          <TableCell>{row.categoryName || '-'}</TableCell>
-                        </>
-                      )}
-                      <TableCell>{row.lastPurchaseDate || '-'}</TableCell>
-                      <TableCell className="text-right">{row.historicalDocumentCount}</TableCell>
-                      <TableCell className="text-right">
-                        {Number(row.historicalQuantity || 0).toLocaleString('tr-TR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {rows.map((row, index) => {
+                    const rowKey = getRowKey(row, index);
+                    const detailOpen = openDetailKey === rowKey;
+                    const detailLoading = detailLoadingKey === rowKey;
+                    const detailItems = detailsByKey[rowKey] || [];
+
+                    return (
+                      <Fragment key={rowKey}>
+                        <TableRow key={`${rowKey}-main`}>
+                          {tableMode === 'category' ? (
+                            <>
+                              <TableCell className="font-mono text-sm">{row.customerCode || '-'}</TableCell>
+                              <TableCell>{row.customerName || '-'}</TableCell>
+                              <TableCell className="font-mono text-sm">{row.categoryCode || '-'}</TableCell>
+                            </>
+                          ) : (
+                            <>
+                              <TableCell className="font-mono text-sm">{row.categoryCode || '-'}</TableCell>
+                              <TableCell>{row.categoryName || '-'}</TableCell>
+                            </>
+                          )}
+                          <TableCell>{row.lastPurchaseDate || '-'}</TableCell>
+                          <TableCell className="text-right">{row.historicalDocumentCount}</TableCell>
+                          <TableCell className="text-right">
+                            {Number(row.historicalQuantity || 0).toLocaleString('tr-TR', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatCurrency(Number(row.historicalAmount || 0))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="outline" size="sm" onClick={() => toggleDetail(row, index)}>
+                              {detailOpen ? 'Detayi Kapat' : 'Detay Ac'}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        {detailOpen && (
+                          <TableRow key={`${rowKey}-detail`}>
+                            <TableCell colSpan={detailColSpan} className="bg-slate-50">
+                              {detailLoading ? (
+                                <div className="py-3 text-sm text-slate-600">Detay yukleniyor...</div>
+                              ) : detailItems.length === 0 ? (
+                                <div className="py-3 text-sm text-slate-600">Bu satir icin detay bulunamadi.</div>
+                              ) : (
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b border-slate-200 text-slate-600">
+                                        <th className="text-left py-2 pr-3">Urun Kodu</th>
+                                        <th className="text-left py-2 pr-3">Urun Adi</th>
+                                        <th className="text-left py-2 pr-3">Ilk Alim</th>
+                                        <th className="text-left py-2 pr-3">Son Alim</th>
+                                        <th className="text-right py-2 pr-3">Evrak</th>
+                                        <th className="text-right py-2 pr-3">Miktar</th>
+                                        <th className="text-right py-2">Tutar</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {detailItems.map((item, detailIndex) => (
+                                        <tr key={`${rowKey}-detail-${detailIndex}`} className="border-b border-slate-100">
+                                          <td className="py-2 pr-3 font-mono">{item.productCode}</td>
+                                          <td className="py-2 pr-3">{item.productName}</td>
+                                          <td className="py-2 pr-3">{item.firstPurchaseDate || '-'}</td>
+                                          <td className="py-2 pr-3">{item.lastPurchaseDate || '-'}</td>
+                                          <td className="py-2 pr-3 text-right">{item.documentCount}</td>
+                                          <td className="py-2 pr-3 text-right">
+                                            {Number(item.totalQuantity || 0).toLocaleString('tr-TR', {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                            })}
+                                          </td>
+                                          <td className="py-2 text-right font-semibold">
+                                            {formatCurrency(Number(item.totalAmount || 0))}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
 
@@ -546,4 +738,3 @@ export default function CategoryChurnReportPage() {
     </div>
   );
 }
-
