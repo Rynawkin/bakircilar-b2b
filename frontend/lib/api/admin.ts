@@ -1900,6 +1900,67 @@ export const adminApi = {
     return response.data;
   },
 
+  getCategoryChurnReport: async (params: {
+    mode: 'category' | 'customer';
+    categoryCode?: string;
+    customerCode?: string;
+    inactiveMonths?: number;
+    activeCustomerMonths?: number;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      rows: Array<{
+        customerCode?: string;
+        customerName?: string;
+        categoryCode?: string;
+        categoryName?: string;
+        lastPurchaseDate: string | null;
+        historicalDocumentCount: number;
+        historicalQuantity: number;
+      }>;
+      summary: {
+        totalRows: number;
+        affectedCustomers: number;
+        affectedCategories: number;
+      };
+      pagination: {
+        page: number;
+        limit: number;
+        totalPages: number;
+        totalRecords: number;
+      };
+      metadata: {
+        mode: 'category' | 'customer';
+        inactiveMonths: number;
+        inactiveStartDate: string;
+        endDate: string;
+        activeCustomerMonths: number | null;
+        category?: {
+          categoryCode: string;
+          categoryName: string | null;
+        };
+        customer?: {
+          customerCode: string;
+          customerName: string | null;
+        };
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('mode', params.mode);
+    if (params.categoryCode) queryParams.append('categoryCode', params.categoryCode);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.inactiveMonths) queryParams.append('inactiveMonths', params.inactiveMonths.toString());
+    if (params.activeCustomerMonths) queryParams.append('activeCustomerMonths', params.activeCustomerMonths.toString());
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+
+    const response = await apiClient.get(`/admin/reports/category-churn?${queryParams.toString()}`);
+    return response.data;
+  },
+
   downloadComplementMissingExport: async (params: {
     mode: 'product' | 'customer';
     matchMode?: 'product' | 'category' | 'group';

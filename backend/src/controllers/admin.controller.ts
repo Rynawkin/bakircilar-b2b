@@ -3428,6 +3428,41 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/category-churn
+   * Kategori alim kaybi raporu
+   */
+  async getCategoryChurnReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        mode,
+        categoryCode,
+        customerCode,
+        inactiveMonths,
+        activeCustomerMonths,
+        page,
+        limit,
+      } = req.query;
+
+      const data = await reportsService.getCategoryChurnReport({
+        mode: mode as 'category' | 'customer',
+        categoryCode: categoryCode as string,
+        customerCode: customerCode as string,
+        inactiveMonths: inactiveMonths ? parseInt(inactiveMonths as string, 10) : undefined,
+        activeCustomerMonths: activeCustomerMonths ? parseInt(activeCustomerMonths as string, 10) : undefined,
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/customer-activity
    * Musteri aktivite ve davranis raporu
    */

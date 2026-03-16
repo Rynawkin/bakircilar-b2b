@@ -460,6 +460,7 @@ router.get('/reports/top-customers', requirePermission('reports:top-customers'),
 router.get('/reports/product-customers/:productCode', requirePermission('reports:top-customers'), adminController.getProductCustomers);
 router.get('/reports/complement-missing', requirePermission('reports:complement-missing'), adminController.getComplementMissingReport);
 router.get('/reports/complement-missing/export', requirePermission('reports:complement-missing'), adminController.exportComplementMissingReport);
+router.get('/reports/category-churn', requirePermission('reports:complement-missing'), adminController.getCategoryChurnReport);
 router.get('/reports/customer-activity', requirePermission('reports:customer-activity'), adminController.getCustomerActivityReport);
 router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);

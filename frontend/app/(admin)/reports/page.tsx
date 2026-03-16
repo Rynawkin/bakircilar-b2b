@@ -145,6 +145,17 @@ const reports: ReportCard[] = [
     permission: 'reports:complement-missing',
   },
   {
+    id: 'category-churn',
+    title: 'Kategori Alim Kaybi',
+    description: 'Musterinin daha once alip son X ayda almadigi kategorileri bulur',
+    icon: <CircleDot className="h-5 w-5" />,
+    href: '/reports/category-churn',
+    category: 'customer',
+    badge: 'Yeni',
+    tags: ['Kayip', 'Geri Kazanim'],
+    permission: 'reports:complement-missing',
+  },
+  {
     id: 'customer-activity',
     title: 'Musteri Aktivite Takibi',
     description: 'Sayfa, urun ve sepet hareketlerini detayli olarak izleyin',
