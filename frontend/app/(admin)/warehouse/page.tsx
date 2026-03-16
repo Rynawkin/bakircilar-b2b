@@ -1481,18 +1481,18 @@ export default function WarehousePage() {
                             </span>
                           </div>
 
-                          <div className="ml-auto flex items-center gap-1.5">
+                          <div className="ml-auto flex items-center gap-2">
                             <Button
                               variant={showCompletedLines ? 'secondary' : 'primary'}
                               onClick={() => setShowCompletedLines((prev) => !prev)}
-                              className={actionButtonClass}
+                              className="h-8 min-w-[190px] px-4 text-[11px] font-bold whitespace-nowrap"
                             >
                               {showCompletedLines ? 'Toplananlari Gizle' : 'Toplananlari Goster'}
                             </Button>
                             <Button
                               onClick={() => openDispatchModal(orderNumber)}
                               disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
-                              className="h-8 px-3 text-[11px] font-bold"
+                              className="h-9 min-w-[260px] px-6 text-[12px] font-black whitespace-nowrap"
                             >
                               {panelWorkflowStatus === 'DISPATCHED'
                                 ? `Irsaliyelestirildi (${panelDetail.workflow?.mikroDeliveryNoteNo || '-'})`
@@ -1513,26 +1513,18 @@ export default function WarehousePage() {
                             const imageIssueReported = Boolean(reportedImageKeys[imageIssueKey]);
                             const imageIssueReporting = reportingImageKey === imageIssueKey;
                             const unitLabel = getUnitConversionLabel(line.unit, line.unit2, line.unit2Factor);
+                            const zebraClass = lineIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/80';
+                            const statusBorderClass = isLineCompleted
+                              ? 'border-emerald-300'
+                              : line.stockCoverageStatus === 'NONE'
+                              ? 'border-rose-300'
+                              : line.stockCoverageStatus === 'PARTIAL'
+                              ? 'border-amber-300'
+                              : 'border-slate-200';
                             return (
                               <div
                                 key={line.lineKey}
-                                className={`rounded-xl border p-2 md:p-2.5 shadow-sm transition-colors ${
-                                  isLineCompleted
-                                    ? lineIndex % 2 === 0
-                                      ? 'border-emerald-300 bg-emerald-50/70'
-                                      : 'border-emerald-300 bg-emerald-100/40'
-                                    : line.stockCoverageStatus === 'NONE'
-                                    ? lineIndex % 2 === 0
-                                      ? 'border-rose-200 bg-rose-50/40'
-                                      : 'border-rose-200 bg-white'
-                                    : line.stockCoverageStatus === 'PARTIAL'
-                                    ? lineIndex % 2 === 0
-                                      ? 'border-amber-200 bg-amber-50/40'
-                                      : 'border-amber-200 bg-white'
-                                    : lineIndex % 2 === 0
-                                    ? 'border-emerald-200 bg-emerald-50/30'
-                                    : 'border-emerald-200 bg-white'
-                                }`}
+                                className={`rounded-xl border p-2 md:p-2.5 shadow-sm transition-colors ${zebraClass} ${statusBorderClass}`}
                               >
                                 <div className="flex gap-3">
                                   <div className="w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">

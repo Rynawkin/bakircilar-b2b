@@ -519,67 +519,26 @@ export default function WarehouseRetailPage() {
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_220px] gap-2">
-                    <div className="rounded-xl border border-slate-200 bg-white p-2">
-                      <p className="text-xs font-bold text-slate-500 mb-1">Hizli Miktar (5 ya da 5*)</p>
-                      <div className="rounded-lg border border-slate-300 bg-slate-50 px-2 py-1 text-lg font-black text-slate-900 mb-2 min-h-[40px]">
-                        {quickQtyInput || '1'}
-                      </div>
-                      <div className="grid grid-cols-4 gap-1.5 max-w-[220px]">
-                        {NUMPAD_KEYS.map((key) => (
-                          <button
-                            key={key}
-                            onClick={() => setQuickQtyInput((prev) => `${prev}${key}`)}
-                            className="h-9 rounded-md border border-slate-300 bg-white text-sm font-black"
-                          >
-                            {key}
-                          </button>
-                        ))}
+                  <div className="rounded-xl border border-slate-200 bg-white p-2">
+                    <p className="text-xs font-bold text-slate-500 mb-1">Fiyat Listesi</p>
+                    <div className="grid grid-cols-5 gap-1">
+                      {[1, 2, 3, 4, 5].map((level) => (
                         <button
-                          onClick={() => setQuickQtyInput((prev) => prev.slice(0, -1))}
-                          className="h-9 rounded-md border border-amber-300 bg-amber-50 text-[11px] font-black text-amber-700"
+                          key={level}
+                          onClick={() => setPriceLevel(level as PriceLevel)}
+                          className={`h-11 rounded-lg border-2 text-sm font-black ${
+                            priceLevel === level
+                              ? 'border-cyan-600 bg-cyan-600 text-white'
+                              : 'border-slate-300 bg-white text-slate-700'
+                          }`}
                         >
-                          Sil
+                          P{level}
                         </button>
-                        <button
-                          onClick={() => setQuickQtyInput('')}
-                          className="h-9 rounded-md border border-rose-300 bg-rose-50 text-[11px] font-black text-rose-700"
-                        >
-                          Temizle
-                        </button>
-                        <button
-                          onClick={() => {
-                            const qty = getQuickQuantity();
-                            toast.success(`Secili miktar: ${formatQty(qty)}`);
-                          }}
-                          className="col-span-2 h-9 rounded-md border border-emerald-300 bg-emerald-50 text-[11px] font-black text-emerald-700"
-                        >
-                          Miktar: {formatQty(getQuickQuantity())}
-                        </button>
-                      </div>
+                      ))}
                     </div>
-
-                    <div className="rounded-xl border border-slate-200 bg-white p-2">
-                      <p className="text-xs font-bold text-slate-500 mb-1">Fiyat Listesi</p>
-                      <div className="grid grid-cols-5 gap-1">
-                        {[1, 2, 3, 4, 5].map((level) => (
-                          <button
-                            key={level}
-                            onClick={() => setPriceLevel(level as PriceLevel)}
-                            className={`h-11 rounded-lg border-2 text-sm font-black ${
-                              priceLevel === level
-                                ? 'border-cyan-600 bg-cyan-600 text-white'
-                                : 'border-slate-300 bg-white text-slate-700'
-                            }`}
-                          >
-                            P{level}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-xs font-semibold text-slate-500">
-                        P seviye sadece yeni eklenen urunlerin ilk fiyatini belirler. Sepette duzenlenebilir.
-                      </p>
-                    </div>
+                    <p className="mt-2 text-xs font-semibold text-slate-500">
+                      P seviye sadece yeni eklenen urunlerin ilk fiyatini belirler. Sepette duzenlenebilir.
+                    </p>
                   </div>
                 </div>
               </Card>
@@ -637,121 +596,165 @@ export default function WarehouseRetailPage() {
               </Card>
             </div>
 
-            <Card className={`p-3 border-2 border-slate-300 h-fit xl:sticky ${moduleFullscreen ? 'xl:top-2' : 'xl:top-20'}`}>
-              <div className="space-y-2.5">
+            <div className={`space-y-3 h-fit xl:sticky ${moduleFullscreen ? 'xl:top-2' : 'xl:top-20'}`}>
+              <Card className="p-3 border-2 border-slate-300">
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-black text-slate-900">Sepet</h2>
+                    <button
+                      onClick={clearCart}
+                      className="h-8 px-2.5 rounded-lg border border-rose-300 text-rose-700 text-xs font-bold"
+                    >
+                      Temizle
+                    </button>
+                  </div>
+
+                  <div className="max-h-[52vh] overflow-y-auto space-y-1.5 pr-1">
+                    {cartItems.map((item) => {
+                      const selectedPriceLevel = getSelectedPriceLevel(item);
+                      return (
+                      <div key={item.productCode} className="rounded-lg border border-slate-200 bg-white p-2">
+                        <p className="text-[13px] font-black text-slate-900 line-clamp-2">{item.productName}</p>
+                        <p className="text-[11px] text-slate-500">{item.productCode}</p>
+                        <div className="mt-1 grid grid-cols-5 gap-1">
+                          {[1, 2, 3, 4, 5].map((level) => {
+                            const value = item.priceOptions[level as PriceLevel];
+                            const disabled = !Number.isFinite(value) || value <= 0;
+                            const active = selectedPriceLevel === (level as PriceLevel);
+                            return (
+                              <button
+                                key={`${item.productCode}-p${level}`}
+                                onClick={() => applyCartPriceListLevel(item.productCode, level as PriceLevel)}
+                                disabled={disabled}
+                                className={`h-7 rounded-md border text-[10px] font-black ${
+                                  active
+                                    ? 'border-cyan-600 bg-cyan-600 text-white'
+                                    : 'border-slate-300 bg-white text-slate-700'
+                                }`}
+                              >
+                                P{level}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => changeCartQty(item.productCode, -1)}
+                              className="h-9 w-9 rounded-md border border-slate-300 text-lg font-black"
+                            >
+                              -
+                            </button>
+                            <button
+                              onClick={() =>
+                                setQtyEditTarget({
+                                  productCode: item.productCode,
+                                  value: formatQty(item.quantity),
+                                })
+                              }
+                              className="h-9 min-w-[74px] px-2 rounded-md bg-slate-100 flex items-center justify-center text-sm font-black"
+                            >
+                              {formatQty(item.quantity)}
+                            </button>
+                            <button
+                              onClick={() => changeCartQty(item.productCode, 1)}
+                              className="h-9 w-9 rounded-md border border-slate-300 text-lg font-black"
+                            >
+                              +
+                            </button>
+                          </div>
+                          <div className="text-right">
+                            <button
+                              onClick={() =>
+                                setPriceEditTarget({
+                                  productCode: item.productCode,
+                                  value: String(Number(item.unitPrice.toFixed(4))),
+                                })
+                              }
+                              className="text-[11px] text-slate-500 underline underline-offset-2"
+                            >
+                              {formatCurrency(item.unitPrice)} / {item.unit}
+                            </button>
+                            <p className="text-sm font-black text-slate-900">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    })}
+                    {!cartItems.length && (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-500 text-sm font-semibold">
+                        Sepet bos
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-3">
+                    <div className="flex justify-between text-sm font-semibold text-slate-700">
+                      <span>Kalem</span>
+                      <span>{totalLineCount}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-semibold text-slate-700">
+                      <span>Miktar</span>
+                      <span>{formatQty(totalQuantity)}</span>
+                    </div>
+                    <div className="mt-2 flex justify-between text-lg font-black text-slate-900">
+                      <span>Toplam</span>
+                      <span>{formatCurrency(totalAmount)}</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    onClick={createSale}
+                    disabled={creatingSale || !cartItems.length}
+                    className="h-12 text-base font-black w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300"
+                  >
+                    {creatingSale ? 'Isleniyor...' : 'Satisi Tamamla (FTR)'}
+                  </Button>
+                </div>
+              </Card>
+
+              <Card className="p-2.5 border border-slate-200">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-black text-slate-900">Sepet</h2>
+                  <p className="text-[11px] font-bold text-slate-500">Hizli Miktar</p>
+                  <span className="text-[11px] font-bold text-cyan-700">Secili: {formatQty(getQuickQuantity())}</span>
+                </div>
+                <div className="mt-1 rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-sm font-black text-slate-900 min-h-[32px]">
+                  {quickQtyInput || '1'}
+                </div>
+                <div className="mt-1.5 grid grid-cols-4 gap-1">
+                  {NUMPAD_KEYS.map((key) => (
+                    <button
+                      key={key}
+                      onClick={() => setQuickQtyInput((prev) => `${prev}${key}`)}
+                      className="h-8 rounded-md border border-slate-300 bg-white text-xs font-black"
+                    >
+                      {key}
+                    </button>
+                  ))}
                   <button
-                    onClick={clearCart}
-                    className="h-8 px-2.5 rounded-lg border border-rose-300 text-rose-700 text-xs font-bold"
+                    onClick={() => setQuickQtyInput((prev) => prev.slice(0, -1))}
+                    className="h-8 rounded-md border border-amber-300 bg-amber-50 text-[10px] font-black text-amber-700"
+                  >
+                    Sil
+                  </button>
+                  <button
+                    onClick={() => setQuickQtyInput('')}
+                    className="h-8 rounded-md border border-rose-300 bg-rose-50 text-[10px] font-black text-rose-700"
                   >
                     Temizle
                   </button>
+                  <button
+                    onClick={() => {
+                      const qty = getQuickQuantity();
+                      toast.success(`Secili miktar: ${formatQty(qty)}`);
+                    }}
+                    className="col-span-2 h-8 rounded-md border border-emerald-300 bg-emerald-50 text-[10px] font-black text-emerald-700"
+                  >
+                    Uygula
+                  </button>
                 </div>
-
-                <div className="max-h-[52vh] overflow-y-auto space-y-1.5 pr-1">
-                  {cartItems.map((item) => {
-                    const selectedPriceLevel = getSelectedPriceLevel(item);
-                    return (
-                    <div key={item.productCode} className="rounded-lg border border-slate-200 bg-white p-2">
-                      <p className="text-[13px] font-black text-slate-900 line-clamp-2">{item.productName}</p>
-                      <p className="text-[11px] text-slate-500">{item.productCode}</p>
-                      <div className="mt-1 grid grid-cols-5 gap-1">
-                        {[1, 2, 3, 4, 5].map((level) => {
-                          const value = item.priceOptions[level as PriceLevel];
-                          const disabled = !Number.isFinite(value) || value <= 0;
-                          const active = selectedPriceLevel === (level as PriceLevel);
-                          return (
-                            <button
-                              key={`${item.productCode}-p${level}`}
-                              onClick={() => applyCartPriceListLevel(item.productCode, level as PriceLevel)}
-                              disabled={disabled}
-                              className={`h-7 rounded-md border text-[10px] font-black ${
-                                active
-                                  ? 'border-cyan-600 bg-cyan-600 text-white'
-                                  : 'border-slate-300 bg-white text-slate-700'
-                              }`}
-                            >
-                              P{level}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="mt-1.5 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => changeCartQty(item.productCode, -1)}
-                            className="h-9 w-9 rounded-md border border-slate-300 text-lg font-black"
-                          >
-                            -
-                          </button>
-                          <button
-                            onClick={() =>
-                              setQtyEditTarget({
-                                productCode: item.productCode,
-                                value: formatQty(item.quantity),
-                              })
-                            }
-                            className="h-9 min-w-[74px] px-2 rounded-md bg-slate-100 flex items-center justify-center text-sm font-black"
-                          >
-                            {formatQty(item.quantity)}
-                          </button>
-                          <button
-                            onClick={() => changeCartQty(item.productCode, 1)}
-                            className="h-9 w-9 rounded-md border border-slate-300 text-lg font-black"
-                          >
-                            +
-                          </button>
-                        </div>
-                        <div className="text-right">
-                          <button
-                            onClick={() =>
-                              setPriceEditTarget({
-                                productCode: item.productCode,
-                                value: String(Number(item.unitPrice.toFixed(4))),
-                              })
-                            }
-                            className="text-[11px] text-slate-500 underline underline-offset-2"
-                          >
-                            {formatCurrency(item.unitPrice)} / {item.unit}
-                          </button>
-                          <p className="text-sm font-black text-slate-900">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                  })}
-                  {!cartItems.length && (
-                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-500 text-sm font-semibold">
-                      Sepet bos
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-3">
-                  <div className="flex justify-between text-sm font-semibold text-slate-700">
-                    <span>Kalem</span>
-                    <span>{totalLineCount}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-semibold text-slate-700">
-                    <span>Miktar</span>
-                    <span>{formatQty(totalQuantity)}</span>
-                  </div>
-                  <div className="mt-2 flex justify-between text-lg font-black text-slate-900">
-                    <span>Toplam</span>
-                    <span>{formatCurrency(totalAmount)}</span>
-                  </div>
-                </div>
-
-                <Button
-                  onClick={createSale}
-                  disabled={creatingSale || !cartItems.length}
-                  className="h-12 text-base font-black w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300"
-                >
-                  {creatingSale ? 'Isleniyor...' : 'Satisi Tamamla (FTR)'}
-                </Button>
-              </div>
-            </Card>
+              </Card>
+            </div>
           </div>
         </div>
       </Card>
