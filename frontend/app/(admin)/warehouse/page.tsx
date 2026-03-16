@@ -232,6 +232,7 @@ export default function WarehousePage() {
   const [isBarcodeMode, setIsBarcodeMode] = useState(false);
   const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
+  const [showCompletedLines, setShowCompletedLines] = useState(true);
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
@@ -904,8 +905,8 @@ export default function WarehousePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
-      <div className="w-full px-2 md:px-4 xl:px-6 py-3 space-y-3">
+    <div className="h-[100dvh] overflow-hidden bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
+      <div className="h-full w-full px-2 md:px-4 xl:px-6 py-3 flex flex-col gap-3">
         <Card className="border border-cyan-200 bg-white/90 backdrop-blur">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -1137,9 +1138,9 @@ export default function WarehousePage() {
           </div>
         </Card>
 
-        <div className={layoutClass}>
-          <Card className="border border-slate-200 bg-white/90">
-            <div className="space-y-2 max-h-[74vh] overflow-y-auto pr-1">
+        <div className={`${layoutClass} flex-1 min-h-0`}>
+          <Card className="h-full min-h-0 border border-slate-200 bg-white/90">
+            <div className="h-full min-h-0 space-y-2 overflow-y-auto pr-1 touch-pan-y overscroll-contain">
               {isLoading ? (
                 <div className="py-16 text-center text-slate-500 font-semibold">Yukleniyor...</div>
               ) : sortedOrders.length === 0 ? (
@@ -1273,9 +1274,9 @@ export default function WarehousePage() {
 
           <div
             ref={detailContainerRef}
-            className={isDetailFullscreen ? 'h-full w-full overflow-y-auto bg-slate-100 p-4' : ''}
+            className={isDetailFullscreen ? 'h-full w-full overflow-y-auto bg-slate-100 p-4' : 'h-full min-h-0'}
           >
-            <Card className="border border-slate-200 bg-white/95">
+            <Card className="h-full min-h-0 border border-slate-200 bg-white/95 overflow-hidden">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 {openOrderNumbers.length > 0 && (
                   <div className="flex flex-1 gap-2 overflow-x-auto pb-1">
@@ -1362,8 +1363,11 @@ export default function WarehousePage() {
                     const panelIsActive = activeOrderNumber === orderNumber;
                     const panelCoverageBadge = orderCoverageBadge[panelDetail.coverageStatus];
                     const panelLineAreaClass = isDetailFullscreen
-                      ? 'space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto pr-1'
-                      : 'space-y-3 max-h-[58vh] overflow-y-auto pr-1';
+                      ? 'space-y-2 max-h-[calc(100vh-400px)] overflow-y-auto pr-1 touch-pan-y overscroll-contain'
+                      : 'space-y-2 max-h-[58vh] overflow-y-auto pr-1 touch-pan-y overscroll-contain';
+                    const visibleLines = showCompletedLines
+                      ? panelDetail.lines
+                      : panelDetail.lines.filter((line) => line.remainingQty > 0 && line.pickedQty < line.remainingQty);
 
                     return (
                       <div
@@ -1543,11 +1547,25 @@ export default function WarehousePage() {
                           </div>
                         </div>
 
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-bold text-slate-600">
+                            Satirlar ({visibleLines.length}/{panelDetail.lines.length})
+                          </p>
+                          <Button
+                            variant={showCompletedLines ? 'secondary' : 'primary'}
+                            onClick={() => setShowCompletedLines((prev) => !prev)}
+                            className="h-8 px-2 text-[11px] font-bold"
+                          >
+                            {showCompletedLines ? 'Toplananlari Gizle' : 'Toplananlari Goster'}
+                          </Button>
+                        </div>
+
                         <div className={panelLineAreaClass}>
-                          {panelDetail.lines.map((line) => {
+                          {visibleLines.map((line) => {
                             const draftKey = getShelfDraftKey(orderNumber, line.lineKey);
                             const saving = lineSavingKey === draftKey;
                             const remainingQtyClass = getRemainingQtyClass(line);
+                            const isLineCompleted = line.remainingQty <= 0 || line.pickedQty >= line.remainingQty;
                             const reservationKey = `${orderNumber}::${line.lineKey}`;
                             const reservationOpen = openReservationKey === reservationKey;
                             const imageIssueKey = `${orderNumber}::${line.lineKey}`;
@@ -1557,16 +1575,18 @@ export default function WarehousePage() {
                             return (
                               <div
                                 key={line.lineKey}
-                                className={`rounded-2xl border bg-white p-2.5 md:p-3 shadow-sm ${
-                                  line.stockCoverageStatus === 'NONE'
-                                    ? 'border-rose-200'
+                                className={`rounded-xl border p-2 md:p-2.5 shadow-sm transition-colors ${
+                                  isLineCompleted
+                                    ? 'border-emerald-300 bg-emerald-50/60'
+                                    : line.stockCoverageStatus === 'NONE'
+                                    ? 'border-rose-200 bg-white'
                                     : line.stockCoverageStatus === 'PARTIAL'
-                                    ? 'border-amber-200'
-                                    : 'border-emerald-200'
+                                    ? 'border-amber-200 bg-white'
+                                    : 'border-emerald-200 bg-white'
                                 }`}
                               >
                                 <div className="flex gap-3">
-                                  <div className="w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                                  <div className="w-14 h-14 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
                                     {line.imageUrl ? (
                                       <button
                                         type="button"
@@ -1583,7 +1603,7 @@ export default function WarehousePage() {
                                   <div className="min-w-0 flex-1">
                                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
                                       <div className="min-w-0">
-                                        <p className="text-sm md:text-base font-black text-slate-900 line-clamp-2">{line.productName}</p>
+                                        <p className="text-sm font-black text-slate-900 line-clamp-2">{line.productName}</p>
                                         <p className="text-xs text-slate-600">
                                           Satir #{line.rowNumber} | {line.productCode} | Birim: {line.unit}
                                         </p>
@@ -1591,7 +1611,12 @@ export default function WarehousePage() {
                                           <p className="text-xs font-semibold text-cyan-700">{unitLabel}</p>
                                         )}
                                       </div>
-                                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                      <div className="flex flex-wrap items-center justify-end gap-1">
+                                        {isLineCompleted && (
+                                          <span className="text-[11px] px-2 py-1 rounded-lg border border-emerald-300 bg-emerald-100 text-emerald-800 font-black">
+                                            TOPLANDI
+                                          </span>
+                                        )}
                                         {line.hasOwnReservation && (
                                           <button
                                             onClick={() =>
@@ -1632,14 +1657,14 @@ export default function WarehousePage() {
                                       </div>
                                     </div>
 
-                                    <div className="mt-2 grid grid-cols-2 gap-1.5 text-xs">
+                                    <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-xs">
                                       <div className={`rounded-xl border px-2.5 py-2 ${remainingQtyClass}`}>
                                         <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
-                                        <p className="text-2xl leading-none font-black mt-1">{line.remainingQty}</p>
+                                        <p className="text-lg leading-none font-black mt-1">{line.remainingQty}</p>
                                       </div>
                                       <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-2.5 py-2">
                                         <p className="text-[10px] font-black uppercase tracking-wide text-cyan-800">Depodaki Miktar</p>
-                                        <p className="text-2xl leading-none font-black mt-1 text-cyan-900">
+                                        <p className="text-lg leading-none font-black mt-1 text-cyan-900">
                                           {line.stockAvailable}
                                         </p>
                                       </div>

@@ -2361,6 +2361,10 @@ class WarehouseWorkflowService {
 
     const sthColumns = await this.getTableColumns('STOK_HAREKETLERI');
     const sipColumns = await this.getTableColumns('SIPARISLER');
+    const sipPaymentOpColumn = this.pickFirstColumn(
+      sipColumns,
+      ['sip_odeme_op', 'sip_odemeop', 'sip_odeme_plan_no', 'sip_odemeplan_no']
+    );
     const belgeNoColumn = sipColumns.has('sip_belge_no') ? 'sip_belge_no' : sipColumns.has('sip_belgeno') ? 'sip_belgeno' : null;
     const hasBelgeTarih = sipColumns.has('sip_belge_tarih');
     const zeroGuid = '00000000-0000-0000-0000-000000000000';
@@ -2392,7 +2396,12 @@ class WarehouseWorkflowService {
           ISNULL(sip_depono, 1) as depo_no,
           ISNULL(sip_stok_sormerk, '') as stok_sormerk,
           ISNULL(sip_cari_sormerk, '') as cari_sormerk,
-          ISNULL(sip_projekodu, '') as proje_kodu
+          ISNULL(sip_projekodu, '') as proje_kodu,
+          ${
+            sipPaymentOpColumn
+              ? `ISNULL(${sipPaymentOpColumn}, 0) as payment_op`
+              : '0 as payment_op'
+          }
         FROM SIPARISLER
         WHERE sip_evrakno_seri = '${params.orderSeries.replace(/'/g, "''")}'
           AND sip_evrakno_sira = ${params.orderSequence}
@@ -2440,6 +2449,9 @@ class WarehouseWorkflowService {
       const stokSormerk = normalizeCode(sipRow.stok_sormerk) || defaultSorMerkez;
       const cariSormerk = normalizeCode(sipRow.cari_sormerk) || stokSormerk;
       const projeKodu = normalizeCode(sipRow.proje_kodu) || '';
+      const paymentOpFromOrder = Math.max(Math.trunc(toNumber(sipRow.payment_op)), 0);
+      const paymentOpFromTemplate = Math.max(Math.trunc(toNumber(templateRow.sth_odeme_op)), 1);
+      const resolvedPaymentOp = paymentOpFromOrder > 0 ? paymentOpFromOrder : paymentOpFromTemplate;
 
       const rowGuid = randomUUID();
       const values: Record<string, unknown> = {
@@ -2497,7 +2509,7 @@ class WarehouseWorkflowService {
         sth_vergi_pntr: vatCode,
         sth_masraf_vergi_pntr: Math.max(Math.trunc(toNumber(templateRow.sth_masraf_vergi_pntr)), 0),
         sth_masraf_vergi: 0,
-        sth_odeme_op: Math.max(Math.trunc(toNumber(templateRow.sth_odeme_op)), 1),
+        sth_odeme_op: resolvedPaymentOp,
         sth_adres_no: Math.max(Math.trunc(toNumber(templateRow.sth_adres_no)), 1),
         sth_giris_depo_no: depoNo,
         sth_cikis_depo_no: depoNo,
