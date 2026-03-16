@@ -237,7 +237,7 @@ export default function WarehousePage() {
   const [dispatchModalSeries, setDispatchModalSeries] = useState('');
   const [dispatchModalDriverId, setDispatchModalDriverId] = useState('');
   const [dispatchModalVehicleId, setDispatchModalVehicleId] = useState('');
-  const [showTopControls, setShowTopControls] = useState(true);
+  const [showTopControls, setShowTopControls] = useState(false);
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
@@ -929,7 +929,7 @@ export default function WarehousePage() {
   };
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
+    <div className="h-[calc(100dvh-56px)] overflow-hidden bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
       <div className="h-full w-full overflow-hidden px-2 md:px-4 xl:px-6 py-2 flex flex-col gap-2">
         <Card className="shrink-0 border border-cyan-200 bg-white/90 backdrop-blur">
           <div className="flex flex-col gap-3">
@@ -1413,13 +1413,13 @@ export default function WarehousePage() {
                           panelIsActive ? 'border-cyan-300 bg-cyan-50/30' : 'border-slate-200 bg-white'
                         }`}
                       >
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                             <div>
-                              <h2 className="text-xl font-black text-slate-900">{panelDetail.order.mikroOrderNumber}</h2>
-                              <p className="text-sm text-slate-700 font-semibold">{panelDetail.order.customerName}</p>
+                              <h2 className="text-lg font-black text-slate-900 leading-tight">{panelDetail.order.mikroOrderNumber}</h2>
+                              <p className="text-xs text-slate-700 font-semibold">{panelDetail.order.customerName}</p>
                               {panelDetail.order.orderNote && (
-                                <p className="mt-1 inline-flex max-w-full rounded-lg border border-amber-300 bg-amber-100 px-2 py-1 text-sm font-black text-amber-900">
+                                <p className="mt-1 inline-flex max-w-full rounded-lg border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-900">
                                   {panelDetail.order.orderNote}
                                 </p>
                               )}
@@ -1427,32 +1427,32 @@ export default function WarehousePage() {
                                 {panelDetail.order.customerCode} | Depo: {panelDetail.order.warehouseCode || 'Tum Depolar'} | {panelDetail.order.itemCount} kalem
                               </p>
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                              <span className={`text-sm px-3 py-2 rounded-xl border font-bold ${statusBadge[panelWorkflowStatus].className}`}>
+                            <div className="flex flex-wrap gap-1.5">
+                              <span className={`text-xs px-2.5 py-1 rounded-xl border font-bold ${statusBadge[panelWorkflowStatus].className}`}>
                                 {statusBadge[panelWorkflowStatus].label}
                               </span>
-                              <span className={`text-sm px-3 py-2 rounded-xl border font-bold ${panelCoverageBadge.className}`}>
+                              <span className={`text-xs px-2.5 py-1 rounded-xl border font-bold ${panelCoverageBadge.className}`}>
                                 {panelCoverageBadge.label}
                               </span>
                               {panelDetail.workflow?.mikroDeliveryNoteNo && (
-                                <span className="text-sm px-3 py-2 rounded-xl border font-bold border-indigo-200 bg-indigo-100 text-indigo-700">
+                                <span className="text-xs px-2.5 py-1 rounded-xl border font-bold border-indigo-200 bg-indigo-100 text-indigo-700">
                                   Irsaliye: {panelDetail.workflow.mikroDeliveryNoteNo}
                                 </span>
                               )}
                             </div>
                           </div>
-                          <div className="mt-3 h-2.5 rounded-full bg-slate-200 overflow-hidden">
+                          <div className="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
                             <div
                               className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500"
                               style={{ width: `${panelDetail.coverage.coveredPercent}%` }}
                             />
                           </div>
-                          <p className="text-xs text-slate-600 mt-2">
+                          <p className="text-[11px] text-slate-600 mt-1.5">
                             Toplam karsilama: %{panelDetail.coverage.coveredPercent} ({panelDetail.coverage.fullLines} tam / {panelDetail.coverage.partialLines} kismi / {panelDetail.coverage.missingLines} eksik)
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <Button
                             onClick={() => handleStartPicking(orderNumber)}
                             disabled={actionLoading || panelHasStarted}
@@ -1484,16 +1484,13 @@ export default function WarehousePage() {
                               ? `Irsaliyelestirildi (${panelDetail.workflow?.mikroDeliveryNoteNo || '-'})`
                               : 'Kapat ve Irsaliyelestir'}
                           </Button>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-bold text-slate-600">
+                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
                             Satirlar ({visibleLines.length}/{panelDetail.lines.length})
-                          </p>
+                          </span>
                           <Button
                             variant={showCompletedLines ? 'secondary' : 'primary'}
                             onClick={() => setShowCompletedLines((prev) => !prev)}
-                            className="h-8 px-2 text-[11px] font-bold"
+                            className={actionButtonClass}
                           >
                             {showCompletedLines ? 'Toplananlari Gizle' : 'Toplananlari Goster'}
                           </Button>
