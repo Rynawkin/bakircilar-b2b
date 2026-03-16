@@ -233,6 +233,10 @@ export default function WarehousePage() {
   const [isDetailFullscreen, setIsDetailFullscreen] = useState(false);
   const [showAllOpenOrders, setShowAllOpenOrders] = useState(false);
   const [showCompletedLines, setShowCompletedLines] = useState(true);
+  const [dispatchModalOrderNumber, setDispatchModalOrderNumber] = useState<string | null>(null);
+  const [dispatchModalSeries, setDispatchModalSeries] = useState('');
+  const [dispatchModalDriverId, setDispatchModalDriverId] = useState('');
+  const [dispatchModalVehicleId, setDispatchModalVehicleId] = useState('');
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
@@ -264,7 +268,7 @@ export default function WarehousePage() {
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-3'
     : 'grid grid-cols-1 xl:grid-cols-[500px_minmax(0,1fr)] gap-3';
-  const actionButtonClass = 'h-9 text-xs font-bold';
+  const actionButtonClass = 'h-8 px-2 text-[11px] font-bold';
   const activeDrivers = useMemo(() => dispatchDrivers.filter((item) => item.active), [dispatchDrivers]);
   const activeVehicles = useMemo(() => dispatchVehicles.filter((item) => item.active), [dispatchVehicles]);
 
@@ -693,10 +697,13 @@ export default function WarehousePage() {
     await updateLine(mikroOrderNumber, line, { shelfCode: draft || null }, 'Raf kodu guncellendi');
   };
 
-  const handleDispatchWithDeliveryNote = async (mikroOrderNumber: string) => {
-    const deliverySeries = getDeliveryDraft(mikroOrderNumber);
-    const selectedDriver = activeDrivers.find((item) => item.id === getDriverDraft(mikroOrderNumber));
-    const selectedVehicle = activeVehicles.find((item) => item.id === getVehicleDraft(mikroOrderNumber));
+  const handleDispatchWithDeliveryNote = async (
+    mikroOrderNumber: string,
+    options?: { deliverySeries?: string; driverId?: string; vehicleId?: string }
+  ) => {
+    const deliverySeries = (options?.deliverySeries || getDeliveryDraft(mikroOrderNumber)).trim();
+    const selectedDriver = activeDrivers.find((item) => item.id === (options?.driverId || getDriverDraft(mikroOrderNumber)));
+    const selectedVehicle = activeVehicles.find((item) => item.id === (options?.vehicleId || getVehicleDraft(mikroOrderNumber)));
     if (!deliverySeries) {
       toast.error('Irsaliye serisi gerekli');
       return;
@@ -725,12 +732,28 @@ export default function WarehousePage() {
         await refreshOrderDetail(mikroOrderNumber);
         if (resolvedNo) {
           setDeliveryNoteDrafts((prev) => ({ ...prev, [mikroOrderNumber]: deliverySeries }));
+          if (options?.driverId) {
+            setDispatchDriverDrafts((prev) => ({ ...prev, [mikroOrderNumber]: options.driverId as string }));
+          }
+          if (options?.vehicleId) {
+            setDispatchVehicleDrafts((prev) => ({ ...prev, [mikroOrderNumber]: options.vehicleId as string }));
+          }
+        }
+        if (options) {
+          setDispatchModalOrderNumber(null);
         }
         toast.success(`Irsaliyelestirildi: ${resolvedNo}`);
       });
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Irsaliyelestirme basarisiz');
     }
+  };
+
+  const openDispatchModal = (mikroOrderNumber: string) => {
+    setDispatchModalOrderNumber(mikroOrderNumber);
+    setDispatchModalSeries(getDeliveryDraft(mikroOrderNumber));
+    setDispatchModalDriverId(getDriverDraft(mikroOrderNumber));
+    setDispatchModalVehicleId(getVehicleDraft(mikroOrderNumber));
   };
 
   const reportImageIssue = async (
@@ -1415,7 +1438,7 @@ export default function WarehousePage() {
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-1.5">
                           <Button
                             onClick={() => handleStartPicking(orderNumber)}
                             disabled={actionLoading || panelHasStarted}
@@ -1438,106 +1461,25 @@ export default function WarehousePage() {
                           >
                             Detay Yenile
                           </Button>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 flex items-center">
-                            {panelCanEditLines
-                              ? 'Toplama aktif. Satirlarda miktar/raf islemleri yapabilirsiniz.'
-                              : 'Satir islemleri icin once Toplamaya Basla adimini tamamlayin.'}
-                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
+                          {panelCanEditLines
+                            ? 'Toplama aktif: satirlarda miktar/raf islemleri yapabilirsiniz.'
+                            : 'Satir islemleri icin once Toplamaya Basla adimini tamamlayin.'}
                         </div>
 
-                        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3">
-                          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-2 items-end mb-2">
-                            <div>
-                              <p className="text-xs font-bold text-slate-600 mb-1">Irsaliye Serisi</p>
-                              <Input
-                                value={deliveryNoteDrafts[orderNumber] || ''}
-                                onChange={(event) =>
-                                  setDeliveryNoteDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
-                                }
-                                onFocus={() => openDeliveryKeyboard(orderNumber)}
-                                onClick={() => openDeliveryKeyboard(orderNumber)}
-                                placeholder="Ornek: BKR"
-                                className="h-9 text-sm font-bold"
-                                disabled={panelWorkflowStatus === 'DISPATCHED'}
-                              />
-                              <p className="text-[11px] text-slate-600 mt-1">
-                                Seri girince sira otomatik atanir, Mikro'da irsaliye olusur, siparis kapatilarak baglanir.
-                              </p>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                              <div>
-                                <p className="text-xs font-bold text-slate-600 mb-1">Sofor</p>
-                                <select
-                                  value={dispatchDriverDrafts[orderNumber] || ''}
-                                  onChange={(event) =>
-                                    setDispatchDriverDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
-                                  }
-                                  className={`${isKioskTouchMode ? 'h-11 text-base' : 'h-10 text-sm'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
-                                  disabled={panelWorkflowStatus === 'DISPATCHED'}
-                                >
-                                  <option value="">Sofor secin</option>
-                                  {activeDrivers.map((driver) => (
-                                    <option key={driver.id} value={driver.id}>
-                                      {driver.firstName} {driver.lastName}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold text-slate-600 mb-1">Arac</p>
-                                <select
-                                  value={dispatchVehicleDrafts[orderNumber] || ''}
-                                  onChange={(event) =>
-                                    setDispatchVehicleDrafts((prev) => ({ ...prev, [orderNumber]: event.target.value }))
-                                  }
-                                  className={`${isKioskTouchMode ? 'h-11 text-base' : 'h-10 text-sm'} w-full rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-700`}
-                                  disabled={panelWorkflowStatus === 'DISPATCHED'}
-                                >
-                                  <option value="">Arac secin</option>
-                                  {activeVehicles.map((vehicle) => (
-                                    <option key={vehicle.id} value={vehicle.id}>
-                                      {vehicle.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-2 items-end">
-                            <div className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-700">
-                              {(() => {
-                                const selectedDriver = activeDrivers.find((item) => item.id === getDriverDraft(orderNumber));
-                                const selectedVehicle = activeVehicles.find((item) => item.id === getVehicleDraft(orderNumber));
-                                return (
-                                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                    {panelDetail.order.documentNo && (
-                                      <span><strong>Siparis Belge:</strong> {panelDetail.order.documentNo}</span>
-                                    )}
-                                    {selectedDriver && (
-                                      <>
-                                        <span><strong>Sofor:</strong> {selectedDriver.firstName} {selectedDriver.lastName}</span>
-                                        <span><strong>TC:</strong> {selectedDriver.tcNo}</span>
-                                      </>
-                                    )}
-                                    {selectedVehicle && (
-                                      <>
-                                        <span><strong>Arac:</strong> {selectedVehicle.name}</span>
-                                        <span><strong>Plaka:</strong> {selectedVehicle.plate}</span>
-                                      </>
-                                    )}
-                                  </div>
-                                );
-                              })()}
+                        <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-[11px] text-slate-700">
+                              {panelDetail.order.documentNo ? (
+                                <span><strong>Siparis Belge:</strong> {panelDetail.order.documentNo}</span>
+                              ) : (
+                                <span>Irsaliyelestirme secimleri modal ekraninda yapilir.</span>
+                              )}
                             </div>
                             <Button
-                              onClick={() => handleDispatchWithDeliveryNote(orderNumber)}
-                              disabled={
-                                actionLoading ||
-                                panelWorkflowStatus === 'DISPATCHED' ||
-                                !panelHasStarted ||
-                                !getDriverDraft(orderNumber) ||
-                                !getVehicleDraft(orderNumber)
-                              }
+                              onClick={() => openDispatchModal(orderNumber)}
+                              disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
                               className={actionButtonClass}
                             >
                               {panelWorkflowStatus === 'DISPATCHED'
@@ -1586,7 +1528,7 @@ export default function WarehousePage() {
                                 }`}
                               >
                                 <div className="flex gap-3">
-                                  <div className="w-14 h-14 md:w-16 md:h-16 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                                  <div className="w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
                                     {line.imageUrl ? (
                                       <button
                                         type="button"
@@ -1654,53 +1596,35 @@ export default function WarehousePage() {
                                         <span className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700">
                                           Topca: {line.warehouseStocks.topca}
                                         </span>
+                                        <button
+                                          onClick={() => reportImageIssue(orderNumber, line)}
+                                          disabled={imageIssueReported || imageIssueReporting}
+                                          className={`text-[10px] px-2 py-1 rounded-lg border font-bold disabled:opacity-60 ${
+                                            imageIssueReported
+                                              ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                                              : 'border-rose-300 bg-rose-50 text-rose-700'
+                                          }`}
+                                        >
+                                          {imageIssueReporting
+                                            ? 'Bildiriliyor'
+                                            : imageIssueReported
+                                            ? 'Resim bildirildi'
+                                            : 'Resim hatasi bildir'}
+                                        </button>
                                       </div>
                                     </div>
 
-                                    <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-xs">
-                                      <div className={`rounded-xl border px-2.5 py-2 ${remainingQtyClass}`}>
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                                      <div className={`rounded-lg border px-2 py-1.5 min-w-[118px] ${remainingQtyClass}`}>
                                         <p className="text-[10px] font-black uppercase tracking-wide">Kalan Siparis</p>
-                                        <p className="text-lg leading-none font-black mt-1">{line.remainingQty}</p>
+                                        <p className="text-base leading-none font-black mt-1">{line.remainingQty}</p>
                                       </div>
-                                      <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-2.5 py-2">
+                                      <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1.5 min-w-[118px]">
                                         <p className="text-[10px] font-black uppercase tracking-wide text-cyan-800">Depodaki Miktar</p>
-                                        <p className="text-lg leading-none font-black mt-1 text-cyan-900">
+                                        <p className="text-base leading-none font-black mt-1 text-cyan-900">
                                           {line.stockAvailable}
                                         </p>
                                       </div>
-                                    </div>
-
-                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                                        Toplanan:
-                                        <strong className="text-slate-900">{line.pickedQty}</strong>
-                                      </span>
-                                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                                        Siparissiz Ek:
-                                        <strong className="text-slate-900">{line.extraQty}</strong>
-                                      </span>
-                                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                                        Eksik:
-                                        <strong className="text-slate-900">{line.shortageQty}</strong>
-                                      </span>
-                                    </div>
-
-                                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                                      <button
-                                        onClick={() => reportImageIssue(orderNumber, line)}
-                                        disabled={imageIssueReported || imageIssueReporting}
-                                        className={`text-[11px] px-2 py-1 rounded-lg border font-bold disabled:opacity-60 ${
-                                          imageIssueReported
-                                            ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
-                                            : 'border-rose-300 bg-rose-100 text-rose-800'
-                                        }`}
-                                      >
-                                        {imageIssueReporting
-                                          ? 'Bildiriliyor...'
-                                          : imageIssueReported
-                                          ? 'Resim Hatasi Bildirildi'
-                                          : 'Resim Hatasi Bildir'}
-                                      </button>
                                     </div>
 
                                     {reservationOpen && line.reservations.length > 0 && (
@@ -1873,6 +1797,77 @@ export default function WarehousePage() {
           </div>
         </div>
       )}
+      <Modal
+        isOpen={Boolean(dispatchModalOrderNumber)}
+        onClose={() => setDispatchModalOrderNumber(null)}
+        title="Siparisi Kapat ve Irsaliyelestir"
+        size="md"
+        footer={
+          <div className="flex w-full items-center justify-between gap-2">
+            <Button variant="secondary" onClick={() => setDispatchModalOrderNumber(null)}>
+              Iptal
+            </Button>
+            <Button
+              onClick={() => {
+                if (!dispatchModalOrderNumber) return;
+                void handleDispatchWithDeliveryNote(dispatchModalOrderNumber, {
+                  deliverySeries: dispatchModalSeries,
+                  driverId: dispatchModalDriverId,
+                  vehicleId: dispatchModalVehicleId,
+                });
+              }}
+              disabled={actionLoading || !dispatchModalSeries.trim() || !dispatchModalDriverId || !dispatchModalVehicleId}
+            >
+              Irsaliyelestir
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            Siparis: <strong>{dispatchModalOrderNumber || '-'}</strong>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-600 mb-1">Irsaliye Serisi</p>
+            <Input
+              value={dispatchModalSeries}
+              onChange={(event) => setDispatchModalSeries(event.target.value.toUpperCase())}
+              placeholder="Ornek: BKR"
+              className="h-10 text-sm font-bold"
+            />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-600 mb-1">Sofor</p>
+            <select
+              value={dispatchModalDriverId}
+              onChange={(event) => setDispatchModalDriverId(event.target.value)}
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
+            >
+              <option value="">Sofor secin</option>
+              {activeDrivers.map((driver) => (
+                <option key={driver.id} value={driver.id}>
+                  {driver.firstName} {driver.lastName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-600 mb-1">Arac</p>
+            <select
+              value={dispatchModalVehicleId}
+              onChange={(event) => setDispatchModalVehicleId(event.target.value)}
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
+            >
+              <option value="">Arac secin</option>
+              {activeVehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.name} ({vehicle.plate})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Modal>
       <Modal
         isOpen={Boolean(keyboardTarget)}
         onClose={() => setKeyboardTarget(null)}
