@@ -237,6 +237,7 @@ export default function WarehousePage() {
   const [dispatchModalSeries, setDispatchModalSeries] = useState('');
   const [dispatchModalDriverId, setDispatchModalDriverId] = useState('');
   const [dispatchModalVehicleId, setDispatchModalVehicleId] = useState('');
+  const [showTopControls, setShowTopControls] = useState(true);
   const [openReservationKey, setOpenReservationKey] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [reportingImageKey, setReportingImageKey] = useState<string | null>(null);
@@ -268,7 +269,7 @@ export default function WarehousePage() {
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-3'
     : 'grid grid-cols-1 xl:grid-cols-[500px_minmax(0,1fr)] gap-3';
-  const actionButtonClass = 'h-8 px-2 text-[11px] font-bold';
+  const actionButtonClass = 'h-7 px-1.5 text-[10px] font-bold';
   const activeDrivers = useMemo(() => dispatchDrivers.filter((item) => item.active), [dispatchDrivers]);
   const activeVehicles = useMemo(() => dispatchVehicles.filter((item) => item.active), [dispatchVehicles]);
 
@@ -929,8 +930,8 @@ export default function WarehousePage() {
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-gradient-to-br from-slate-50 via-cyan-50 to-slate-100">
-      <div className="h-full w-full px-2 md:px-4 xl:px-6 py-3 flex flex-col gap-3">
-        <Card className="border border-cyan-200 bg-white/90 backdrop-blur">
+      <div className="h-full w-full overflow-hidden px-2 md:px-4 xl:px-6 py-2 flex flex-col gap-2">
+        <Card className="shrink-0 border border-cyan-200 bg-white/90 backdrop-blur">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
@@ -939,18 +940,29 @@ export default function WarehousePage() {
                   Dokunmatik toplama ve yukleme akisi ({isPortrait ? 'Dikey' : 'Yatay'} mod)
                 </p>
               </div>
-              <div className="text-xs md:text-sm text-slate-600 bg-slate-100 rounded-lg px-3 py-2 inline-flex">
-                Gorunen siparis: <strong className="ml-1">{totalOrdersCount}</strong>
+              <div className="flex items-center gap-2">
+                <div className="text-xs md:text-sm text-slate-600 bg-slate-100 rounded-lg px-3 py-2 inline-flex">
+                  Gorunen siparis: <strong className="ml-1">{totalOrdersCount}</strong>
+                </div>
+                <Button
+                  variant={isKioskTouchMode ? 'primary' : 'secondary'}
+                  onClick={() => setIsKioskTouchMode((prev) => !prev)}
+                  className="h-9 text-[11px] font-bold"
+                >
+                  {isKioskTouchMode ? 'Dokunmatik Acik' : 'Dokunmatik Kapali'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowTopControls((prev) => !prev)}
+                  className="h-9 px-2 text-[11px] font-bold"
+                >
+                  {showTopControls ? '▲ Kapat' : '▼ Ac'}
+                </Button>
               </div>
-              <Button
-                variant={isKioskTouchMode ? 'primary' : 'secondary'}
-                onClick={() => setIsKioskTouchMode((prev) => !prev)}
-                className="h-10 text-xs font-bold"
-              >
-                {isKioskTouchMode ? '32\" Dokunmatik Modu Acik' : '32\" Dokunmatik Modu Kapali'}
-              </Button>
             </div>
 
+            {showTopControls && (
+            <>
             <div className="grid grid-cols-1 md:grid-cols-9 gap-2">
               <Input
                 ref={searchInputRef}
@@ -1158,6 +1170,8 @@ export default function WarehousePage() {
                 </button>
               ))}
             </div>
+            </>
+            )}
           </div>
         </Card>
 
@@ -1438,20 +1452,20 @@ export default function WarehousePage() {
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-1.5">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
                           <Button
                             onClick={() => handleStartPicking(orderNumber)}
                             disabled={actionLoading || panelHasStarted}
                             className={actionButtonClass}
                           >
-                            {panelHasStarted ? 'Toplama Basladi' : 'Toplamaya Basla'}
+                            {panelHasStarted ? 'Basladi' : 'Toplamaya Basla'}
                           </Button>
                           <Button
                             variant={panelIsActive ? 'primary' : 'secondary'}
                             onClick={() => setActiveOrderNumber(orderNumber)}
                             className={actionButtonClass}
                           >
-                            {panelIsActive ? 'Aktif Siparis' : 'Aktif Et'}
+                            {panelIsActive ? 'Aktif Siparis' : 'Aktif'}
                           </Button>
                           <Button
                             variant="secondary"
@@ -1461,32 +1475,15 @@ export default function WarehousePage() {
                           >
                             Detay Yenile
                           </Button>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
-                          {panelCanEditLines
-                            ? 'Toplama aktif: satirlarda miktar/raf islemleri yapabilirsiniz.'
-                            : 'Satir islemleri icin once Toplamaya Basla adimini tamamlayin.'}
-                        </div>
-
-                        <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-2.5">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-[11px] text-slate-700">
-                              {panelDetail.order.documentNo ? (
-                                <span><strong>Siparis Belge:</strong> {panelDetail.order.documentNo}</span>
-                              ) : (
-                                <span>Irsaliyelestirme secimleri modal ekraninda yapilir.</span>
-                              )}
-                            </div>
-                            <Button
-                              onClick={() => openDispatchModal(orderNumber)}
-                              disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
-                              className={actionButtonClass}
-                            >
-                              {panelWorkflowStatus === 'DISPATCHED'
-                                ? `Irsaliyelestirildi (${panelDetail.workflow?.mikroDeliveryNoteNo || '-'})`
-                                : 'Siparisi Kapat ve Irsaliyelestir'}
-                            </Button>
-                          </div>
+                          <Button
+                            onClick={() => openDispatchModal(orderNumber)}
+                            disabled={actionLoading || panelWorkflowStatus === 'DISPATCHED' || !panelHasStarted}
+                            className={actionButtonClass}
+                          >
+                            {panelWorkflowStatus === 'DISPATCHED'
+                              ? `Irsaliyelestirildi (${panelDetail.workflow?.mikroDeliveryNoteNo || '-'})`
+                              : 'Kapat ve Irsaliyelestir'}
+                          </Button>
                         </div>
 
                         <div className="flex items-center justify-between gap-2">
