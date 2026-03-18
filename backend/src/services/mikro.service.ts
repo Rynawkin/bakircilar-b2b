@@ -1975,7 +1975,9 @@ class MikroService {
         .query(`
           SELECT
             sip_satirno AS lineNo,
-            sip_stok_kod AS productCode
+            sip_stok_kod AS productCode,
+            sip_kapat_fl AS isClosed,
+            sip_iptal AS isCancelled
           FROM SIPARISLER
           WHERE sip_evrakno_seri = @seri
             AND sip_evrakno_sira = @sira
@@ -1986,11 +1988,16 @@ class MikroService {
         .map((row: any) => ({
           lineNo: Number(row?.lineNo),
           productCode: String(row?.productCode || '').trim().toUpperCase(),
+          isClosed: Boolean(row?.isClosed),
+          isCancelled: Boolean(row?.isCancelled),
         }))
         .filter((row: any) => Number.isFinite(row.lineNo) && row.lineNo >= 0);
 
       const lineNosByCode = new Map<string, number[]>();
-      const availableLineNos = existingRows.map((row: any) => row.lineNo);
+      const availableOpenLineNos = existingRows
+        .filter((row: any) => !row.isClosed && !row.isCancelled)
+        .map((row: any) => row.lineNo);
+      const availableAllLineNos = existingRows.map((row: any) => row.lineNo);
       existingRows.forEach((row: any) => {
         const code = String(row.productCode || '').trim().toUpperCase();
         const list = lineNosByCode.get(code) || [];
@@ -1999,9 +2006,13 @@ class MikroService {
       });
 
       const removeFromAvailable = (lineNo: number) => {
-        const index = availableLineNos.indexOf(lineNo);
-        if (index >= 0) {
-          availableLineNos.splice(index, 1);
+        const openIndex = availableOpenLineNos.indexOf(lineNo);
+        if (openIndex >= 0) {
+          availableOpenLineNos.splice(openIndex, 1);
+        }
+        const allIndex = availableAllLineNos.indexOf(lineNo);
+        if (allIndex >= 0) {
+          availableAllLineNos.splice(allIndex, 1);
         }
       };
 
@@ -2017,15 +2028,18 @@ class MikroService {
       };
 
       const consumeAnyLineNo = (): number | null => {
-        if (availableLineNos.length === 0) return null;
-        const lineNo = availableLineNos.shift() as number;
+        const lineNo = availableOpenLineNos.length > 0
+          ? (availableOpenLineNos.shift() as number)
+          : (availableAllLineNos.shift() as number | undefined);
+        if (!Number.isFinite(lineNo as number)) return null;
+        removeFromAvailable(lineNo as number);
         lineNosByCode.forEach((list) => {
-          const index = list.indexOf(lineNo);
+          const index = list.indexOf(lineNo as number);
           if (index >= 0) {
             list.splice(index, 1);
           }
         });
-        return lineNo;
+        return lineNo as number;
       };
 
       for (const item of params.items) {
