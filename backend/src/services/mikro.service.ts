@@ -1968,12 +1968,89 @@ class MikroService {
         }
       }
 
+      const existingRowsResult = await transaction
+        .request()
+        .input('seri', sql.NVarChar(20), evrakSeri)
+        .input('sira', sql.Int, evrakSira)
+        .query(`
+          SELECT
+            sip_satirno AS lineNo,
+            sip_stok_kod AS productCode
+          FROM SIPARISLER
+          WHERE sip_evrakno_seri = @seri
+            AND sip_evrakno_sira = @sira
+          ORDER BY sip_satirno ASC
+        `);
+
+      const existingRows = (existingRowsResult.recordset || [])
+        .map((row: any) => ({
+          lineNo: Number(row?.lineNo),
+          productCode: String(row?.productCode || '').trim().toUpperCase(),
+        }))
+        .filter((row: any) => Number.isFinite(row.lineNo) && row.lineNo >= 0);
+
+      const lineNosByCode = new Map<string, number[]>();
+      const availableLineNos = existingRows.map((row: any) => row.lineNo);
+      existingRows.forEach((row: any) => {
+        const code = String(row.productCode || '').trim().toUpperCase();
+        const list = lineNosByCode.get(code) || [];
+        list.push(row.lineNo);
+        lineNosByCode.set(code, list);
+      });
+
+      const removeFromAvailable = (lineNo: number) => {
+        const index = availableLineNos.indexOf(lineNo);
+        if (index >= 0) {
+          availableLineNos.splice(index, 1);
+        }
+      };
+
+      const consumeLineNoFromCode = (codeRaw?: string): number | null => {
+        const code = String(codeRaw || '').trim().toUpperCase();
+        if (!code) return null;
+        const list = lineNosByCode.get(code);
+        if (!list || list.length === 0) return null;
+        const lineNo = list.shift();
+        if (!Number.isFinite(lineNo as number)) return null;
+        removeFromAvailable(lineNo as number);
+        return lineNo as number;
+      };
+
+      const consumeAnyLineNo = (): number | null => {
+        if (availableLineNos.length === 0) return null;
+        const lineNo = availableLineNos.shift() as number;
+        lineNosByCode.forEach((list) => {
+          const index = list.indexOf(lineNo);
+          if (index >= 0) {
+            list.splice(index, 1);
+          }
+        });
+        return lineNo;
+      };
+
       for (const item of params.items) {
         const targetProductCode = String(item.productCode || '').trim();
         const existingProductCode = String(item.existingProductCode || targetProductCode).trim();
         if (!targetProductCode || !existingProductCode) {
           continue;
         }
+
+        let lineNo = consumeLineNoFromCode(existingProductCode);
+        if (lineNo === null) {
+          lineNo = consumeLineNoFromCode(targetProductCode);
+        }
+        if (lineNo === null) {
+          lineNo = consumeAnyLineNo();
+        }
+        if (lineNo === null) {
+          console.warn('WARN: updateOrderLines satir eslesmedi, satir atlandi:', {
+            orderNumber,
+            existingProductCode,
+            targetProductCode,
+          });
+          continue;
+        }
+
         const quantity = Number(item.quantity) || 0;
         const unitPrice = Number(item.unitPrice) || 0;
         const vatRate = this.normalizeVatRate(Number(item.vatRate) || 0);
@@ -1986,8 +2063,8 @@ class MikroService {
           .request()
           .input('seri', sql.NVarChar(20), evrakSeri)
           .input('sira', sql.Int, evrakSira)
+          .input('satirNo', sql.Int, lineNo)
           .input('stokKod', sql.NVarChar(25), targetProductCode)
-          .input('eskiStokKod', sql.NVarChar(25), existingProductCode)
           .input('miktar', sql.Float, quantity)
           .input('fiyat', sql.Float, unitPrice)
           .input('tutar', sql.Float, lineTotal)
@@ -2010,7 +2087,7 @@ class MikroService {
               sip_iptal = @iptal
             WHERE sip_evrakno_seri = @seri
               AND sip_evrakno_sira = @sira
-              AND sip_stok_kod = @eskiStokKod
+              AND sip_satirno = @satirNo
           `);
       }
 
@@ -2020,7 +2097,6 @@ class MikroService {
       throw error;
     }
   }
-
   /**
    * Cari hesap kaydının varlığını kontrol et, yoksa oluştur
    *
