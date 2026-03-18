@@ -753,6 +753,7 @@ export class MikroMockService {
   async updateOrderLines(params: {
     orderNumber: string;
     items: Array<{
+      existingProductCode?: string;
       productCode: string;
       quantity: number;
       unitPrice: number;

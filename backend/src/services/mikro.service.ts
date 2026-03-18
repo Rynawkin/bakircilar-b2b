@@ -1920,6 +1920,7 @@ class MikroService {
   async updateOrderLines(params: {
     orderNumber: string;
     items: Array<{
+      existingProductCode?: string;
       productCode: string;
       quantity: number;
       unitPrice: number;
@@ -1968,6 +1969,11 @@ class MikroService {
       }
 
       for (const item of params.items) {
+        const targetProductCode = String(item.productCode || '').trim();
+        const existingProductCode = String(item.existingProductCode || targetProductCode).trim();
+        if (!targetProductCode || !existingProductCode) {
+          continue;
+        }
         const quantity = Number(item.quantity) || 0;
         const unitPrice = Number(item.unitPrice) || 0;
         const vatRate = this.normalizeVatRate(Number(item.vatRate) || 0);
@@ -1980,7 +1986,8 @@ class MikroService {
           .request()
           .input('seri', sql.NVarChar(20), evrakSeri)
           .input('sira', sql.Int, evrakSira)
-          .input('stokKod', sql.NVarChar(25), item.productCode)
+          .input('stokKod', sql.NVarChar(25), targetProductCode)
+          .input('eskiStokKod', sql.NVarChar(25), existingProductCode)
           .input('miktar', sql.Float, quantity)
           .input('fiyat', sql.Float, unitPrice)
           .input('tutar', sql.Float, lineTotal)
@@ -1992,6 +1999,7 @@ class MikroService {
           .query(`
             UPDATE SIPARISLER
             SET
+              sip_stok_kod = @stokKod,
               sip_miktar = @miktar,
               sip_b_fiyat = @fiyat,
               sip_tutar = @tutar,
@@ -2002,7 +2010,7 @@ class MikroService {
               sip_iptal = @iptal
             WHERE sip_evrakno_seri = @seri
               AND sip_evrakno_sira = @sira
-              AND sip_stok_kod = @stokKod
+              AND sip_stok_kod = @eskiStokKod
           `);
       }
 

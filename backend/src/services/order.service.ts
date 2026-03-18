@@ -849,18 +849,21 @@ class OrderService {
 
     const shouldUpdateMikro = order.status === 'APPROVED' && (order.mikroOrderIds || []).length > 0;
     let existingItems: Array<any> = [];
-    const mikroIdByProductId = new Map<string, string | null>();
+    const mikroOrderIdByLineIndex = new Map<number, string | null>();
     if (shouldUpdateMikro) {
       existingItems = await prisma.orderItem.findMany({
         where: { orderId },
         include: { product: { select: { vatRate: true } } },
       });
 
-      const existingByProductId = new Map(
-        existingItems
-          .filter((item) => Boolean(item.productId))
-          .map((item) => [String(item.productId), item])
-      );
+      const existingByProductId = new Map<string, Array<any>>();
+      existingItems.forEach((item) => {
+        if (!item.productId) return;
+        const key = String(item.productId);
+        const list = existingByProductId.get(key) || [];
+        list.push(item);
+        existingByProductId.set(key, list);
+      });
       const existingByMikroCode = new Map<string, Array<any>>();
       existingItems.forEach((item) => {
         const code = String(item.mikroCode || '').trim();
@@ -869,12 +872,8 @@ class OrderService {
         list.push(item);
         existingByMikroCode.set(code, list);
       });
-      existingItems.forEach((item) => {
-        if (item.productId) {
-          mikroIdByProductId.set(item.productId, item.mikroOrderId || null);
-        }
-      });
       const mikroUpdates = new Map<string, Array<{
+        existingProductCode?: string;
         productCode: string;
         quantity: number;
         unitPrice: number;
@@ -884,22 +883,29 @@ class OrderService {
 
       const seenExistingItemIds = new Set<string>();
 
-      normalizedItems.forEach((item) => {
-        let existing = existingByProductId.get(item.productId);
+      normalizedItems.forEach((item, index) => {
+        let existing: any | undefined;
+        const byProduct = existingByProductId.get(item.productId) || [];
+        existing = byProduct.find((candidate) => !seenExistingItemIds.has(candidate.id));
         if (!existing) {
           const byCode = existingByMikroCode.get(item.mikroCode) || [];
           existing = byCode.find((candidate) => !seenExistingItemIds.has(candidate.id));
         }
         if (!existing) {
+          existing = existingItems.find((candidate) => !seenExistingItemIds.has(candidate.id));
+        }
+        if (!existing) {
           throw new Error('Cannot update approved order with new products');
         }
         seenExistingItemIds.add(existing.id);
+        mikroOrderIdByLineIndex.set(index, existing.mikroOrderId || null);
         const mikroOrderId = existing.mikroOrderId || (order.mikroOrderIds?.[0] || '');
         const vatRate =
           item.priceType === 'WHITE'
             ? 0
             : Number(existing.product?.vatRate || 0.2);
         const payload = {
+          existingProductCode: String(existing.mikroCode || '').trim() || item.mikroCode,
           productCode: item.mikroCode,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
@@ -968,8 +974,10 @@ class OrderService {
       });
 
       await tx.orderItem.createMany({
-        data: normalizedItems.map((item) => {
-          const mikroOrderId = mikroIdByProductId.get(item.productId) || undefined;
+        data: normalizedItems.map((item, index) => {
+          const mikroOrderId = shouldUpdateMikro
+            ? (mikroOrderIdByLineIndex.get(index) || undefined)
+            : undefined;
           const approved = order.status === 'APPROVED';
           return {
             ...item,
