@@ -1974,10 +1974,10 @@ class MikroService {
         .input('sira', sql.Int, evrakSira)
         .query(`
           SELECT
-            sip_satirno AS lineNo,
-            sip_stok_kod AS productCode,
-            sip_kapat_fl AS isClosed,
-            sip_iptal AS isCancelled
+            sip_satirno [line_no],
+            sip_stok_kod [product_code],
+            sip_kapat_fl [is_closed],
+            sip_iptal [is_cancelled]
           FROM SIPARISLER
           WHERE sip_evrakno_seri = @seri
             AND sip_evrakno_sira = @sira
@@ -1986,10 +1986,10 @@ class MikroService {
 
       const existingRows = (existingRowsResult.recordset || [])
         .map((row: any) => ({
-          lineNo: Number(row?.lineNo),
-          productCode: String(row?.productCode || '').trim().toUpperCase(),
-          isClosed: Boolean(row?.isClosed),
-          isCancelled: Boolean(row?.isCancelled),
+          lineNo: Number(row?.line_no),
+          productCode: String(row?.product_code || '').trim().toUpperCase(),
+          isClosed: Boolean(row?.is_closed),
+          isCancelled: Boolean(row?.is_cancelled),
         }))
         .filter((row: any) => Number.isFinite(row.lineNo) && row.lineNo >= 0);
 
