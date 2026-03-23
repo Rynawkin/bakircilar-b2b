@@ -3467,6 +3467,37 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/category-opportunity
+   * Kategori firsat onerileri (cari hic almadiysa)
+   */
+  async getCategoryOpportunityReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        categoryCode,
+        customerCode,
+        lookbackMonths,
+        minPairCount,
+        limit,
+      } = req.query;
+
+      const data = await reportsService.getCategoryOpportunityReport({
+        categoryCode: categoryCode as string,
+        customerCode: customerCode as string,
+        lookbackMonths: lookbackMonths ? parseInt(lookbackMonths as string, 10) : undefined,
+        minPairCount: minPairCount ? parseInt(minPairCount as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/category-options
    * Kategori arama (kod + ad)
    */

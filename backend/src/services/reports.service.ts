@@ -264,6 +264,48 @@ interface CategoryChurnReportResponse {
   };
 }
 
+interface CategoryOpportunitySourceProduct {
+  productCode: string;
+  productName: string;
+  pairCount: number;
+  customerDocumentCount: number;
+}
+
+interface CategoryOpportunityRow {
+  recommendedProductCode: string;
+  recommendedProductName: string;
+  associationDocumentCount: number;
+  sourceProductCount: number;
+  sourceProducts: CategoryOpportunitySourceProduct[];
+}
+
+interface CategoryOpportunityReportResponse {
+  rows: CategoryOpportunityRow[];
+  summary: {
+    totalRecommendations: number;
+    totalSourceProducts: number;
+    totalAssociationDocuments: number;
+  };
+  metadata: {
+    category: {
+      categoryCode: string;
+      categoryName: string | null;
+      productCount: number;
+    };
+    customer: {
+      customerCode: string;
+      customerName: string | null;
+      sectorCode: string | null;
+    };
+    lookbackMonths: number;
+    minPairCount: number;
+    startDate: string;
+    endDate: string;
+    customerHasCategoryPurchase: boolean;
+    customerCategoryPurchaseDocumentCount: number;
+  };
+}
+
 interface CustomerActivitySummary {
   totalEvents: number;
   uniqueUsers: number;
@@ -4533,6 +4575,372 @@ export class ReportsService {
     const fileName = `kategori-alim-kaybi-${data.metadata.mode}-${data.metadata.inactiveStartDate}-${data.metadata.endDate}.xlsx`;
 
     return { buffer, fileName };
+  }
+
+  async getCategoryOpportunityReport(options: {
+    categoryCode?: string;
+    customerCode?: string;
+    lookbackMonths?: number;
+    minPairCount?: number;
+    limit?: number;
+  }): Promise<CategoryOpportunityReportResponse> {
+    const normalizedCategoryCode = normalizeReportCode(options.categoryCode);
+    const normalizedCustomerCode = normalizeReportCode(options.customerCode);
+    const lookbackMonthsRaw = Number(options.lookbackMonths);
+    const minPairCountRaw = Number(options.minPairCount);
+    const limitRaw = Number(options.limit);
+
+    const lookbackMonths =
+      Number.isFinite(lookbackMonthsRaw) && lookbackMonthsRaw > 0
+        ? Math.min(24, Math.floor(lookbackMonthsRaw))
+        : 6;
+    const minPairCount =
+      Number.isFinite(minPairCountRaw) && minPairCountRaw > 0
+        ? Math.min(1000, Math.floor(minPairCountRaw))
+        : 2;
+    const limit =
+      Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.min(200, Math.floor(limitRaw))
+        : 50;
+
+    if (!normalizedCategoryCode) {
+      throw new AppError('Kategori kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (!normalizedCustomerCode) {
+      throw new AppError('Cari kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const selectedCategory = await prisma.category.findFirst({
+      where: { mikroCode: { equals: normalizedCategoryCode, mode: 'insensitive' } },
+      select: { id: true, mikroCode: true, name: true },
+    });
+
+    const categoryProducts = await prisma.product.findMany({
+      where: {
+        category: {
+          mikroCode: {
+            equals: selectedCategory?.mikroCode || normalizedCategoryCode,
+            mode: 'insensitive',
+          },
+        },
+      },
+      select: {
+        id: true,
+        mikroCode: true,
+        name: true,
+      },
+    });
+
+    const customerUser = await prisma.user.findFirst({
+      where: {
+        role: 'CUSTOMER',
+        parentCustomerId: null,
+        mikroCariCode: { equals: normalizedCustomerCode, mode: 'insensitive' },
+      },
+      select: {
+        mikroCariCode: true,
+        displayName: true,
+        name: true,
+        sectorCode: true,
+      },
+    });
+
+    if (!customerUser) {
+      throw new AppError('Cari bulunamadi.', 404, ErrorCode.NOT_FOUND);
+    }
+
+    const reportEnd = new Date();
+    const lookbackStart = subtractMonthsUtc(reportEnd, lookbackMonths);
+    const startDateCompact = formatDateCompact(lookbackStart);
+    const endDateCompact = formatDateCompact(reportEnd);
+
+    const metadataBase: CategoryOpportunityReportResponse['metadata'] = {
+      category: {
+        categoryCode: selectedCategory?.mikroCode || normalizedCategoryCode,
+        categoryName: selectedCategory?.name || null,
+        productCount: categoryProducts.length,
+      },
+      customer: {
+        customerCode: customerUser.mikroCariCode || normalizedCustomerCode,
+        customerName: customerUser.displayName || customerUser.name || null,
+        sectorCode: customerUser.sectorCode || null,
+      },
+      lookbackMonths,
+      minPairCount,
+      startDate: formatDateKey(lookbackStart),
+      endDate: formatDateKey(reportEnd),
+      customerHasCategoryPurchase: false,
+      customerCategoryPurchaseDocumentCount: 0,
+    };
+
+    if (categoryProducts.length === 0) {
+      return {
+        rows: [],
+        summary: {
+          totalRecommendations: 0,
+          totalSourceProducts: 0,
+          totalAssociationDocuments: 0,
+        },
+        metadata: metadataBase,
+      };
+    }
+
+    const categoryProductIds = categoryProducts.map((row) => row.id);
+    const categoryProductCodes = Array.from(
+      new Set(categoryProducts.map((row) => normalizeReportCode(row.mikroCode)).filter(Boolean))
+    );
+
+    if (categoryProductCodes.length === 0) {
+      return {
+        rows: [],
+        summary: {
+          totalRecommendations: 0,
+          totalSourceProducts: 0,
+          totalAssociationDocuments: 0,
+        },
+        metadata: metadataBase,
+      };
+    }
+
+    const categoryInClause = categoryProductCodes
+      .map((code) => `'${escapeSqlLiteral(code)}'`)
+      .join(', ');
+
+    const baseConditions = [
+      'sth_cins = 0',
+      'sth_tip = 1',
+      'sth_evraktip IN (1, 4)',
+      '(sth_iptal = 0 OR sth_iptal IS NULL)',
+      'sth.sth_stok_kod IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+      'sth.sth_cari_kodu IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+    ];
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    const buildWhereClause = (extra: string[]) => [...baseConditions, ...exclusionConditions, ...extra].join(' AND ');
+
+    await mikroService.connect();
+    try {
+      const categoryPurchaseRows = await mikroService.executeQuery(`
+        SELECT
+          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
+        FROM STOK_HAREKETLERI sth
+        WHERE ${buildWhereClause([
+          `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
+          `RTRIM(sth.sth_stok_kod) IN (${categoryInClause})`,
+        ])}
+      `);
+
+      const customerCategoryPurchaseDocumentCount = Number(categoryPurchaseRows?.[0]?.documentCount) || 0;
+      if (customerCategoryPurchaseDocumentCount > 0) {
+        return {
+          rows: [],
+          summary: {
+            totalRecommendations: 0,
+            totalSourceProducts: 0,
+            totalAssociationDocuments: 0,
+          },
+          metadata: {
+            ...metadataBase,
+            customerHasCategoryPurchase: true,
+            customerCategoryPurchaseDocumentCount,
+          },
+        };
+      }
+
+      const sourceRows = await mikroService.executeQuery(`
+        SELECT
+          RTRIM(sth.sth_stok_kod) as productCode,
+          MAX(st.sto_isim) as productName,
+          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
+        FROM STOK_HAREKETLERI sth
+        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+        WHERE ${buildWhereClause([
+          `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
+          `sth.sth_tarih >= '${startDateCompact}'`,
+          `sth.sth_tarih <= '${endDateCompact}'`,
+          `RTRIM(sth.sth_stok_kod) NOT IN (${categoryInClause})`,
+        ])}
+        GROUP BY sth.sth_stok_kod
+      `);
+
+      const sourceMetricsByCode = new Map<
+        string,
+        { productCode: string; productName: string; customerDocumentCount: number }
+      >();
+      sourceRows.forEach((row: any) => {
+        const code = normalizeReportCode(row.productCode);
+        if (!code) return;
+        sourceMetricsByCode.set(code, {
+          productCode: code,
+          productName: String(row.productName || code),
+          customerDocumentCount: Number(row.documentCount) || 0,
+        });
+      });
+
+      const sourceCodes = Array.from(sourceMetricsByCode.keys());
+      if (sourceCodes.length === 0) {
+        return {
+          rows: [],
+          summary: {
+            totalRecommendations: 0,
+            totalSourceProducts: 0,
+            totalAssociationDocuments: 0,
+          },
+          metadata: metadataBase,
+        };
+      }
+
+      const sourceProducts = await prisma.product.findMany({
+        where: { mikroCode: { in: sourceCodes } },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+        },
+      });
+
+      const sourceById = new Map<
+        string,
+        { productCode: string; productName: string; customerDocumentCount: number }
+      >();
+      sourceProducts.forEach((row) => {
+        const code = normalizeReportCode(row.mikroCode);
+        if (!code) return;
+        const metrics = sourceMetricsByCode.get(code);
+        if (!metrics) return;
+        sourceById.set(row.id, {
+          productCode: code,
+          productName: row.name || metrics.productName,
+          customerDocumentCount: metrics.customerDocumentCount,
+        });
+      });
+
+      const sourceProductIds = Array.from(sourceById.keys());
+      if (sourceProductIds.length === 0) {
+        return {
+          rows: [],
+          summary: {
+            totalRecommendations: 0,
+            totalSourceProducts: 0,
+            totalAssociationDocuments: 0,
+          },
+          metadata: metadataBase,
+        };
+      }
+
+      const pairRows = await prisma.productComplementAuto.findMany({
+        where: {
+          productId: { in: sourceProductIds },
+          relatedProductId: { in: categoryProductIds },
+          pairCount: { gte: minPairCount },
+        },
+        select: {
+          productId: true,
+          relatedProductId: true,
+          pairCount: true,
+          relatedProduct: {
+            select: {
+              mikroCode: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (pairRows.length === 0) {
+        return {
+          rows: [],
+          summary: {
+            totalRecommendations: 0,
+            totalSourceProducts: sourceProductIds.length,
+            totalAssociationDocuments: 0,
+          },
+          metadata: metadataBase,
+        };
+      }
+
+      const recommendationMap = new Map<
+        string,
+        {
+          recommendedProductCode: string;
+          recommendedProductName: string;
+          associationDocumentCount: number;
+          sourceProductsMap: Map<string, CategoryOpportunitySourceProduct>;
+        }
+      >();
+
+      pairRows.forEach((row) => {
+        const source = sourceById.get(row.productId);
+        if (!source) return;
+        const recommendedCode = normalizeReportCode(row.relatedProduct?.mikroCode);
+        if (!recommendedCode) return;
+        const pairCount = Number(row.pairCount) || 0;
+        if (pairCount <= 0) return;
+
+        const current = recommendationMap.get(row.relatedProductId) || {
+          recommendedProductCode: recommendedCode,
+          recommendedProductName: row.relatedProduct?.name || recommendedCode,
+          associationDocumentCount: 0,
+          sourceProductsMap: new Map<string, CategoryOpportunitySourceProduct>(),
+        };
+
+        current.associationDocumentCount += pairCount;
+
+        const sourceCurrent = current.sourceProductsMap.get(source.productCode) || {
+          productCode: source.productCode,
+          productName: source.productName,
+          pairCount: 0,
+          customerDocumentCount: source.customerDocumentCount,
+        };
+        sourceCurrent.pairCount += pairCount;
+        sourceCurrent.customerDocumentCount = source.customerDocumentCount;
+        current.sourceProductsMap.set(source.productCode, sourceCurrent);
+        recommendationMap.set(row.relatedProductId, current);
+      });
+
+      const allRows: CategoryOpportunityRow[] = Array.from(recommendationMap.values())
+        .map((item) => {
+          const sourceProducts = Array.from(item.sourceProductsMap.values()).sort((a, b) => {
+            if (b.pairCount !== a.pairCount) return b.pairCount - a.pairCount;
+            return a.productCode.localeCompare(b.productCode, 'tr');
+          });
+
+          return {
+            recommendedProductCode: item.recommendedProductCode,
+            recommendedProductName: item.recommendedProductName,
+            associationDocumentCount: item.associationDocumentCount,
+            sourceProductCount: sourceProducts.length,
+            sourceProducts: sourceProducts.slice(0, 8),
+          };
+        })
+        .sort((a, b) => {
+          if (b.associationDocumentCount !== a.associationDocumentCount) {
+            return b.associationDocumentCount - a.associationDocumentCount;
+          }
+          if (b.sourceProductCount !== a.sourceProductCount) {
+            return b.sourceProductCount - a.sourceProductCount;
+          }
+          return a.recommendedProductCode.localeCompare(b.recommendedProductCode, 'tr');
+        });
+
+      const rows = allRows.slice(0, limit);
+
+      return {
+        rows,
+        summary: {
+          totalRecommendations: allRows.length,
+          totalSourceProducts: sourceProductIds.length,
+          totalAssociationDocuments: allRows.reduce(
+            (sum, row) => sum + (Number(row.associationDocumentCount) || 0),
+            0
+          ),
+        },
+        metadata: metadataBase,
+      };
+    } finally {
+      await mikroService.disconnect();
+    }
   }
 
   async exportComplementMissingReport(options: {

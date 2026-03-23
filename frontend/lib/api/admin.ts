@@ -2070,6 +2070,63 @@ export const adminApi = {
     return response.data;
   },
 
+  getCategoryOpportunityReport: async (params: {
+    categoryCode: string;
+    customerCode: string;
+    lookbackMonths?: number;
+    minPairCount?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      rows: Array<{
+        recommendedProductCode: string;
+        recommendedProductName: string;
+        associationDocumentCount: number;
+        sourceProductCount: number;
+        sourceProducts: Array<{
+          productCode: string;
+          productName: string;
+          pairCount: number;
+          customerDocumentCount: number;
+        }>;
+      }>;
+      summary: {
+        totalRecommendations: number;
+        totalSourceProducts: number;
+        totalAssociationDocuments: number;
+      };
+      metadata: {
+        category: {
+          categoryCode: string;
+          categoryName: string | null;
+          productCount: number;
+        };
+        customer: {
+          customerCode: string;
+          customerName: string | null;
+          sectorCode: string | null;
+        };
+        lookbackMonths: number;
+        minPairCount: number;
+        startDate: string;
+        endDate: string;
+        customerHasCategoryPurchase: boolean;
+        customerCategoryPurchaseDocumentCount: number;
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('categoryCode', params.categoryCode);
+    queryParams.append('customerCode', params.customerCode);
+    if (params.lookbackMonths) queryParams.append('lookbackMonths', params.lookbackMonths.toString());
+    if (params.minPairCount) queryParams.append('minPairCount', params.minPairCount.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+
+    const response = await apiClient.get(`/admin/reports/category-opportunity?${queryParams.toString()}`);
+    return response.data;
+  },
+
   downloadComplementMissingExport: async (params: {
     mode: 'product' | 'customer';
     matchMode?: 'product' | 'category' | 'group';

@@ -464,6 +464,7 @@ router.get('/reports/category-options', requirePermission('reports:complement-mi
 router.get('/reports/category-churn', requirePermission('reports:complement-missing'), adminController.getCategoryChurnReport);
 router.get('/reports/category-churn/export', requirePermission('reports:complement-missing'), adminController.exportCategoryChurnReport);
 router.get('/reports/category-churn/details', requirePermission('reports:complement-missing'), adminController.getCategoryChurnDetail);
+router.get('/reports/category-opportunity', requirePermission('reports:complement-missing'), adminController.getCategoryOpportunityReport);
 router.get('/reports/customer-activity', requirePermission('reports:customer-activity'), adminController.getCustomerActivityReport);
 router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);
