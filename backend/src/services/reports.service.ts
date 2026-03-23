@@ -201,6 +201,8 @@ type CategoryChurnMode = 'category' | 'customer';
 type CategoryChurnSortBy =
   | 'customerCode'
   | 'customerName'
+  | 'customerSectorCode'
+  | 'customerLastSaleDate'
   | 'categoryCode'
   | 'categoryName'
   | 'lastPurchaseDate'
@@ -212,6 +214,8 @@ type CategoryChurnSortDirection = 'asc' | 'desc';
 interface CategoryChurnRow {
   customerCode?: string;
   customerName?: string | null;
+  customerSectorCode?: string | null;
+  customerLastSaleDate?: string | null;
   categoryCode?: string;
   categoryName?: string | null;
   lastPurchaseDate: string | null;
@@ -3958,6 +3962,8 @@ export class ReportsService {
     const allowedSortFields: CategoryChurnSortBy[] = [
       'customerCode',
       'customerName',
+      'customerSectorCode',
+      'customerLastSaleDate',
       'categoryCode',
       'categoryName',
       'lastPurchaseDate',
@@ -4017,6 +4023,61 @@ export class ReportsService {
     ];
     const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
     const buildWhereClause = (extra: string[]) => [...baseConditions, ...exclusionConditions, ...extra].join(' AND ');
+    const attachCustomerMetadata = async (rows: CategoryChurnRow[]) => {
+      const customerCodes = Array.from(
+        new Set(rows.map((row) => normalizeReportCode(row.customerCode)).filter(Boolean))
+      );
+
+      if (customerCodes.length === 0) {
+        return;
+      }
+
+      const sectorRows = await prisma.user.findMany({
+        where: {
+          role: 'CUSTOMER',
+          parentCustomerId: null,
+          mikroCariCode: { in: customerCodes },
+        },
+        select: {
+          mikroCariCode: true,
+          sectorCode: true,
+        },
+      });
+
+      const sectorByCustomerCode = new Map<string, string | null>();
+      sectorRows.forEach((row) => {
+        const code = normalizeReportCode(row.mikroCariCode);
+        if (!code) return;
+        sectorByCustomerCode.set(code, row.sectorCode || null);
+      });
+
+      const customerInClause = customerCodes.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+      const customerLastSaleRows = await mikroService.executeQuery(`
+        SELECT
+          RTRIM(sth.sth_cari_kodu) as customerCode,
+          MAX(sth.sth_tarih) as customerLastSaleDate
+        FROM STOK_HAREKETLERI sth
+        WHERE ${buildWhereClause([
+          `RTRIM(sth.sth_cari_kodu) IN (${customerInClause})`,
+          `sth.sth_tarih <= '${endDateCompact}'`,
+        ])}
+        GROUP BY sth.sth_cari_kodu
+      `);
+
+      const lastSaleByCustomerCode = new Map<string, string | null>();
+      customerLastSaleRows.forEach((row: any) => {
+        const code = normalizeReportCode(row.customerCode);
+        if (!code) return;
+        lastSaleByCustomerCode.set(code, compactToDisplay(toCompactDate(row.customerLastSaleDate)));
+      });
+
+      rows.forEach((row) => {
+        const customerCode = normalizeReportCode(row.customerCode);
+        if (!customerCode) return;
+        row.customerSectorCode = sectorByCustomerCode.get(customerCode) || null;
+        row.customerLastSaleDate = lastSaleByCustomerCode.get(customerCode) || null;
+      });
+    };
 
     const buildResponse = (
       rows: CategoryChurnRow[],
@@ -4036,6 +4097,12 @@ export class ReportsService {
             break;
           case 'customerName':
             compare = compareText(a.customerName, b.customerName);
+            break;
+          case 'customerSectorCode':
+            compare = compareText(a.customerSectorCode, b.customerSectorCode);
+            break;
+          case 'customerLastSaleDate':
+            compare = normalizeDateForSort(a.customerLastSaleDate).localeCompare(normalizeDateForSort(b.customerLastSaleDate));
             break;
           case 'categoryCode':
             compare = compareText(a.categoryCode, b.categoryCode);
@@ -4221,6 +4288,7 @@ export class ReportsService {
           });
         });
 
+        await attachCustomerMetadata(rows);
         return buildResponse(rows, metadata);
       }
 
@@ -4385,6 +4453,7 @@ export class ReportsService {
           historicalAmount: item.historicalAmount,
         }));
 
+      await attachCustomerMetadata(rows);
       return buildResponse(rows, metadata);
     } finally {
       await mikroService.disconnect();
@@ -4410,9 +4479,11 @@ export class ReportsService {
       ? [
           'Cari Kodu',
           'Cari Adi',
+          'Cari Sektor Kodu',
           'Kategori Kodu',
           'Kategori Adi',
           'Son Alim Tarihi',
+          'Cari Son Satis Tarihi',
           'Gecmis Evrak',
           'Gecmis Miktar',
           'Gecmis Tutar',
@@ -4420,7 +4491,9 @@ export class ReportsService {
       : [
           'Kategori Kodu',
           'Kategori Adi',
+          'Cari Sektor Kodu',
           'Son Alim Tarihi',
+          'Cari Son Satis Tarihi',
           'Gecmis Evrak',
           'Gecmis Miktar',
           'Gecmis Tutar',
@@ -4431,9 +4504,11 @@ export class ReportsService {
         ? [
             row.customerCode || '',
             row.customerName || '',
+            row.customerSectorCode || '',
             row.categoryCode || '',
             row.categoryName || '',
             row.lastPurchaseDate || '',
+            row.customerLastSaleDate || '',
             row.historicalDocumentCount || 0,
             Number(row.historicalQuantity || 0),
             Number(row.historicalAmount || 0),
@@ -4441,7 +4516,9 @@ export class ReportsService {
         : [
             row.categoryCode || '',
             row.categoryName || '',
+            row.customerSectorCode || '',
             row.lastPurchaseDate || '',
+            row.customerLastSaleDate || '',
             row.historicalDocumentCount || 0,
             Number(row.historicalQuantity || 0),
             Number(row.historicalAmount || 0),

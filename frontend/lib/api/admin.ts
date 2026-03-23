@@ -1911,6 +1911,8 @@ export const adminApi = {
     sortBy?:
       | 'customerCode'
       | 'customerName'
+      | 'customerSectorCode'
+      | 'customerLastSaleDate'
       | 'categoryCode'
       | 'categoryName'
       | 'lastPurchaseDate'
@@ -1924,6 +1926,8 @@ export const adminApi = {
       rows: Array<{
         customerCode?: string;
         customerName?: string;
+        customerSectorCode?: string | null;
+        customerLastSaleDate?: string | null;
         categoryCode?: string;
         categoryName?: string;
         lastPurchaseDate: string | null;
@@ -1983,6 +1987,8 @@ export const adminApi = {
     sortBy?:
       | 'customerCode'
       | 'customerName'
+      | 'customerSectorCode'
+      | 'customerLastSaleDate'
       | 'categoryCode'
       | 'categoryName'
       | 'lastPurchaseDate'

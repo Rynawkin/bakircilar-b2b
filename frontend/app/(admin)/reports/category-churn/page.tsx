@@ -17,6 +17,8 @@ type SortDirection = 'asc' | 'desc';
 type SortBy =
   | 'customerCode'
   | 'customerName'
+  | 'customerSectorCode'
+  | 'customerLastSaleDate'
   | 'categoryCode'
   | 'categoryName'
   | 'lastPurchaseDate'
@@ -27,6 +29,8 @@ type SortBy =
 interface CategoryChurnRow {
   customerCode?: string;
   customerName?: string;
+  customerSectorCode?: string | null;
+  customerLastSaleDate?: string | null;
   categoryCode?: string;
   categoryName?: string;
   lastPurchaseDate: string | null;
@@ -281,7 +285,7 @@ export default function CategoryChurnReportPage() {
   }, [submitted, page, sortBy, sortDirection]);
 
   const tableMode = metadata?.mode || mode;
-  const detailColSpan = tableMode === 'category' ? 8 : 7;
+  const detailColSpan = tableMode === 'category' ? 10 : 9;
 
   const handleSort = (field: SortBy) => {
     setPage(1);
@@ -677,6 +681,11 @@ export default function CategoryChurnReportPage() {
                           </button>
                         </TableHead>
                         <TableHead>
+                          <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('customerSectorCode')}>
+                            Sektor Kodu <span className="text-[10px]">{sortIndicator('customerSectorCode')}</span>
+                          </button>
+                        </TableHead>
+                        <TableHead>
                           <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('categoryCode')}>
                             Kategori <span className="text-[10px]">{sortIndicator('categoryCode')}</span>
                           </button>
@@ -694,11 +703,21 @@ export default function CategoryChurnReportPage() {
                             Kategori Adi <span className="text-[10px]">{sortIndicator('categoryName')}</span>
                           </button>
                         </TableHead>
+                        <TableHead>
+                          <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('customerSectorCode')}>
+                            Sektor Kodu <span className="text-[10px]">{sortIndicator('customerSectorCode')}</span>
+                          </button>
+                        </TableHead>
                       </>
                     )}
                     <TableHead>
                       <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('lastPurchaseDate')}>
                         Son Alim Tarihi <span className="text-[10px]">{sortIndicator('lastPurchaseDate')}</span>
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('customerLastSaleDate')}>
+                        Cari Son Satis <span className="text-[10px]">{sortIndicator('customerLastSaleDate')}</span>
                       </button>
                     </TableHead>
                     <TableHead className="text-right">
@@ -733,15 +752,18 @@ export default function CategoryChurnReportPage() {
                             <>
                               <TableCell className="font-mono text-sm">{row.customerCode || '-'}</TableCell>
                               <TableCell>{row.customerName || '-'}</TableCell>
+                              <TableCell className="font-mono text-sm">{row.customerSectorCode || '-'}</TableCell>
                               <TableCell className="font-mono text-sm">{row.categoryCode || '-'}</TableCell>
                             </>
                           ) : (
                             <>
                               <TableCell className="font-mono text-sm">{row.categoryCode || '-'}</TableCell>
                               <TableCell>{row.categoryName || '-'}</TableCell>
+                              <TableCell className="font-mono text-sm">{row.customerSectorCode || '-'}</TableCell>
                             </>
                           )}
                           <TableCell>{row.lastPurchaseDate || '-'}</TableCell>
+                          <TableCell>{row.customerLastSaleDate || '-'}</TableCell>
                           <TableCell className="text-right">{row.historicalDocumentCount}</TableCell>
                           <TableCell className="text-right">
                             {Number(row.historicalQuantity || 0).toLocaleString('tr-TR', {
