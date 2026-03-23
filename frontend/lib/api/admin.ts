@@ -1908,6 +1908,16 @@ export const adminApi = {
     activeCustomerMonths?: number;
     page?: number;
     limit?: number;
+    sortBy?:
+      | 'customerCode'
+      | 'customerName'
+      | 'categoryCode'
+      | 'categoryName'
+      | 'lastPurchaseDate'
+      | 'historicalDocumentCount'
+      | 'historicalQuantity'
+      | 'historicalAmount';
+    sortDirection?: 'asc' | 'desc';
   }): Promise<{
     success: boolean;
     data: {
@@ -1957,8 +1967,42 @@ export const adminApi = {
     if (params.activeCustomerMonths) queryParams.append('activeCustomerMonths', params.activeCustomerMonths.toString());
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params.sortDirection) queryParams.append('sortDirection', params.sortDirection);
 
     const response = await apiClient.get(`/admin/reports/category-churn?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  downloadCategoryChurnExport: async (params: {
+    mode: 'category' | 'customer';
+    categoryCode?: string;
+    customerCode?: string;
+    inactiveMonths?: number;
+    activeCustomerMonths?: number;
+    sortBy?:
+      | 'customerCode'
+      | 'customerName'
+      | 'categoryCode'
+      | 'categoryName'
+      | 'lastPurchaseDate'
+      | 'historicalDocumentCount'
+      | 'historicalQuantity'
+      | 'historicalAmount';
+    sortDirection?: 'asc' | 'desc';
+  }): Promise<Blob> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('mode', params.mode);
+    if (params.categoryCode) queryParams.append('categoryCode', params.categoryCode);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+    if (params.inactiveMonths) queryParams.append('inactiveMonths', params.inactiveMonths.toString());
+    if (params.activeCustomerMonths) queryParams.append('activeCustomerMonths', params.activeCustomerMonths.toString());
+    if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params.sortDirection) queryParams.append('sortDirection', params.sortDirection);
+
+    const response = await apiClient.get(`/admin/reports/category-churn/export?${queryParams.toString()}`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 

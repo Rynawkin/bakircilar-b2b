@@ -198,6 +198,16 @@ interface ComplementMissingReportResponse {
 }
 
 type CategoryChurnMode = 'category' | 'customer';
+type CategoryChurnSortBy =
+  | 'customerCode'
+  | 'customerName'
+  | 'categoryCode'
+  | 'categoryName'
+  | 'lastPurchaseDate'
+  | 'historicalDocumentCount'
+  | 'historicalQuantity'
+  | 'historicalAmount';
+type CategoryChurnSortDirection = 'asc' | 'desc';
 
 interface CategoryChurnRow {
   customerCode?: string;
@@ -3927,6 +3937,8 @@ export class ReportsService {
     activeCustomerMonths?: number;
     page?: number;
     limit?: number;
+    sortBy?: CategoryChurnSortBy;
+    sortDirection?: CategoryChurnSortDirection;
   }): Promise<CategoryChurnReportResponse> {
     const mode: CategoryChurnMode = options.mode === 'customer' ? 'customer' : 'category';
     const normalizedCategoryCode = normalizeReportCode(options.categoryCode);
@@ -3943,6 +3955,20 @@ export class ReportsService {
         : null;
     const page = options.page && options.page > 0 ? Math.floor(options.page) : 1;
     const limit = options.limit && options.limit > 0 ? Math.floor(options.limit) : 50;
+    const allowedSortFields: CategoryChurnSortBy[] = [
+      'customerCode',
+      'customerName',
+      'categoryCode',
+      'categoryName',
+      'lastPurchaseDate',
+      'historicalDocumentCount',
+      'historicalQuantity',
+      'historicalAmount',
+    ];
+    const sortBy = allowedSortFields.includes(options.sortBy as CategoryChurnSortBy)
+      ? (options.sortBy as CategoryChurnSortBy)
+      : 'historicalDocumentCount';
+    const sortDirection: CategoryChurnSortDirection = options.sortDirection === 'asc' ? 'asc' : 'desc';
 
     if (mode === 'category' && !normalizedCategoryCode) {
       throw new AppError('Kategori kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
@@ -3996,12 +4022,62 @@ export class ReportsService {
       rows: CategoryChurnRow[],
       metadata: CategoryChurnReportResponse['metadata']
     ): CategoryChurnReportResponse => {
-      const totalRows = rows.length;
-      const uniqueCustomers = new Set(rows.map((row) => normalizeReportCode(row.customerCode)).filter(Boolean)).size;
-      const uniqueCategories = new Set(rows.map((row) => normalizeReportCode(row.categoryCode)).filter(Boolean)).size;
+      const normalizeDateForSort = (value: string | null | undefined) => {
+        const compact = normalizeReportCode(String(value || '').replace(/-/g, ''));
+        return compact || '';
+      };
+      const compareText = (left: string | null | undefined, right: string | null | undefined) =>
+        String(left || '').localeCompare(String(right || ''), 'tr');
+      const sortedRows = [...rows].sort((a, b) => {
+        let compare = 0;
+        switch (sortBy) {
+          case 'customerCode':
+            compare = compareText(a.customerCode, b.customerCode);
+            break;
+          case 'customerName':
+            compare = compareText(a.customerName, b.customerName);
+            break;
+          case 'categoryCode':
+            compare = compareText(a.categoryCode, b.categoryCode);
+            break;
+          case 'categoryName':
+            compare = compareText(a.categoryName, b.categoryName);
+            break;
+          case 'lastPurchaseDate':
+            compare = normalizeDateForSort(a.lastPurchaseDate).localeCompare(normalizeDateForSort(b.lastPurchaseDate));
+            break;
+          case 'historicalQuantity':
+            compare = (a.historicalQuantity || 0) - (b.historicalQuantity || 0);
+            break;
+          case 'historicalAmount':
+            compare = (a.historicalAmount || 0) - (b.historicalAmount || 0);
+            break;
+          case 'historicalDocumentCount':
+          default:
+            compare = (a.historicalDocumentCount || 0) - (b.historicalDocumentCount || 0);
+            break;
+        }
+
+        if (compare !== 0) {
+          return sortDirection === 'asc' ? compare : -compare;
+        }
+
+        if (mode === 'category') {
+          const nameCompare = compareText(a.customerName, b.customerName);
+          if (nameCompare !== 0) return nameCompare;
+          return compareText(a.customerCode, b.customerCode);
+        }
+        const nameCompare = compareText(a.categoryName, b.categoryName);
+        if (nameCompare !== 0) return nameCompare;
+        return compareText(a.categoryCode, b.categoryCode);
+      });
+
+      const totalRows = sortedRows.length;
+      const uniqueCustomers = new Set(sortedRows.map((row) => normalizeReportCode(row.customerCode)).filter(Boolean)).size;
+      const uniqueCategories = new Set(sortedRows.map((row) => normalizeReportCode(row.categoryCode)).filter(Boolean)).size;
       const totalPages = totalRows > 0 ? Math.ceil(totalRows / limit) : 0;
       const offset = (page - 1) * limit;
-      const paginatedRows = rows.slice(offset, offset + limit);
+      const paginatedRows = sortedRows.slice(offset, offset + limit);
 
       return {
         rows: paginatedRows,
@@ -4143,13 +4219,6 @@ export class ReportsService {
             historicalQuantity: toNumber(row.totalQuantity),
             historicalAmount: toNumber(row.totalAmount),
           });
-        });
-
-        rows.sort((a, b) => {
-          if (b.historicalDocumentCount !== a.historicalDocumentCount) {
-            return b.historicalDocumentCount - a.historicalDocumentCount;
-          }
-          return (a.customerName || '').localeCompare(b.customerName || '');
         });
 
         return buildResponse(rows, metadata);
@@ -4316,17 +4385,77 @@ export class ReportsService {
           historicalAmount: item.historicalAmount,
         }));
 
-      rows.sort((a, b) => {
-        if (b.historicalDocumentCount !== a.historicalDocumentCount) {
-          return b.historicalDocumentCount - a.historicalDocumentCount;
-        }
-        return (a.categoryName || '').localeCompare(b.categoryName || '');
-      });
-
       return buildResponse(rows, metadata);
     } finally {
       await mikroService.disconnect();
     }
+  }
+
+  async exportCategoryChurnReport(options: {
+    mode: CategoryChurnMode;
+    categoryCode?: string;
+    customerCode?: string;
+    inactiveMonths?: number;
+    activeCustomerMonths?: number;
+    sortBy?: CategoryChurnSortBy;
+    sortDirection?: CategoryChurnSortDirection;
+  }): Promise<{ buffer: Buffer; fileName: string }> {
+    const data = await this.getCategoryChurnReport({
+      ...options,
+      page: 1,
+      limit: 100000,
+    });
+
+    const header = data.metadata.mode === 'category'
+      ? [
+          'Cari Kodu',
+          'Cari Adi',
+          'Kategori Kodu',
+          'Kategori Adi',
+          'Son Alim Tarihi',
+          'Gecmis Evrak',
+          'Gecmis Miktar',
+          'Gecmis Tutar',
+        ]
+      : [
+          'Kategori Kodu',
+          'Kategori Adi',
+          'Son Alim Tarihi',
+          'Gecmis Evrak',
+          'Gecmis Miktar',
+          'Gecmis Tutar',
+        ];
+
+    const rows = data.rows.map((row) => (
+      data.metadata.mode === 'category'
+        ? [
+            row.customerCode || '',
+            row.customerName || '',
+            row.categoryCode || '',
+            row.categoryName || '',
+            row.lastPurchaseDate || '',
+            row.historicalDocumentCount || 0,
+            Number(row.historicalQuantity || 0),
+            Number(row.historicalAmount || 0),
+          ]
+        : [
+            row.categoryCode || '',
+            row.categoryName || '',
+            row.lastPurchaseDate || '',
+            row.historicalDocumentCount || 0,
+            Number(row.historicalQuantity || 0),
+            Number(row.historicalAmount || 0),
+          ]
+    ));
+
+    const worksheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kategori Alim Kaybi');
+
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
+    const fileName = `kategori-alim-kaybi-${data.metadata.mode}-${data.metadata.inactiveStartDate}-${data.metadata.endDate}.xlsx`;
+
+    return { buffer, fileName };
   }
 
   async exportComplementMissingReport(options: {

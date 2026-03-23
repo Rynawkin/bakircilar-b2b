@@ -7,12 +7,22 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { ArrowLeft, RefreshCw, AlertTriangle, Layers, Users } from 'lucide-react';
+import { ArrowLeft, Download, RefreshCw, AlertTriangle, Layers, Users } from 'lucide-react';
 import { adminApi } from '@/lib/api/admin';
 import { formatCurrency } from '@/lib/utils/format';
 import toast from 'react-hot-toast';
 
 type ReportMode = 'category' | 'customer';
+type SortDirection = 'asc' | 'desc';
+type SortBy =
+  | 'customerCode'
+  | 'customerName'
+  | 'categoryCode'
+  | 'categoryName'
+  | 'lastPurchaseDate'
+  | 'historicalDocumentCount'
+  | 'historicalQuantity'
+  | 'historicalAmount';
 
 interface CategoryChurnRow {
   customerCode?: string;
@@ -93,9 +103,12 @@ export default function CategoryChurnReportPage() {
   const [summary, setSummary] = useState<CategoryChurnSummary | null>(null);
   const [metadata, setMetadata] = useState<CategoryChurnMetadata | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [sortBy, setSortBy] = useState<SortBy>('historicalDocumentCount');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [openDetailKey, setOpenDetailKey] = useState<string | null>(null);
   const [detailLoadingKey, setDetailLoadingKey] = useState<string | null>(null);
   const [detailsByKey, setDetailsByKey] = useState<Record<string, CategoryChurnDetailItem[]>>({});
@@ -240,6 +253,8 @@ export default function CategoryChurnReportPage() {
         activeCustomerMonths: params.activeCustomerMonths,
         page: currentPage,
         limit: 50,
+        sortBy,
+        sortDirection,
       });
 
       if (!result.success) {
@@ -263,10 +278,58 @@ export default function CategoryChurnReportPage() {
   useEffect(() => {
     if (!submitted) return;
     fetchReport(submitted, page);
-  }, [submitted, page]);
+  }, [submitted, page, sortBy, sortDirection]);
 
   const tableMode = metadata?.mode || mode;
   const detailColSpan = tableMode === 'category' ? 8 : 7;
+
+  const handleSort = (field: SortBy) => {
+    setPage(1);
+    if (sortBy === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortBy(field);
+    setSortDirection('asc');
+  };
+
+  const sortIndicator = (field: SortBy) => {
+    if (sortBy !== field) return '-';
+    return sortDirection === 'asc' ? '^' : 'v';
+  };
+
+  const handleExport = async () => {
+    if (!submitted) {
+      toast.error('Önce raporu çalıştırın');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const blob = await adminApi.downloadCategoryChurnExport({
+        mode: submitted.mode,
+        categoryCode: submitted.categoryCode,
+        customerCode: submitted.customerCode,
+        inactiveMonths: submitted.inactiveMonths,
+        activeCustomerMonths: submitted.activeCustomerMonths,
+        sortBy,
+        sortDirection,
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kategori-alim-kaybi-${submitted.mode}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message || 'Excel export başarısız');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const getRowKey = (row: CategoryChurnRow, index: number) => {
     const customerKey = row.customerCode || metadata?.customer?.customerCode || '-';
@@ -336,10 +399,16 @@ export default function CategoryChurnReportPage() {
             Musterinin daha once alip secili suredir almadigi kategorileri listeler
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => submitted && fetchReport(submitted, page)} disabled={!submitted}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Yenile
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={!submitted || loading || exporting}>
+            <Download className="h-4 w-4 mr-2" />
+            {exporting ? 'Aktariliyor...' : "Excel'e Aktar"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => submitted && fetchReport(submitted, page)} disabled={!submitted}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Yenile
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -597,20 +666,56 @@ export default function CategoryChurnReportPage() {
                   <TableRow>
                     {tableMode === 'category' ? (
                       <>
-                        <TableHead>Cari Kodu</TableHead>
-                        <TableHead>Cari Adi</TableHead>
-                        <TableHead>Kategori</TableHead>
+                        <TableHead>
+                          <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('customerCode')}>
+                            Cari Kodu <span className="text-[10px]">{sortIndicator('customerCode')}</span>
+                          </button>
+                        </TableHead>
+                        <TableHead>
+                          <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('customerName')}>
+                            Cari Adi <span className="text-[10px]">{sortIndicator('customerName')}</span>
+                          </button>
+                        </TableHead>
+                        <TableHead>
+                          <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('categoryCode')}>
+                            Kategori <span className="text-[10px]">{sortIndicator('categoryCode')}</span>
+                          </button>
+                        </TableHead>
                       </>
                     ) : (
                       <>
-                        <TableHead>Kategori Kodu</TableHead>
-                        <TableHead>Kategori Adi</TableHead>
+                        <TableHead>
+                          <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('categoryCode')}>
+                            Kategori Kodu <span className="text-[10px]">{sortIndicator('categoryCode')}</span>
+                          </button>
+                        </TableHead>
+                        <TableHead>
+                          <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('categoryName')}>
+                            Kategori Adi <span className="text-[10px]">{sortIndicator('categoryName')}</span>
+                          </button>
+                        </TableHead>
                       </>
                     )}
-                    <TableHead>Son Alim Tarihi</TableHead>
-                    <TableHead className="text-right">Gecmis Evrak</TableHead>
-                    <TableHead className="text-right">Gecmis Miktar</TableHead>
-                    <TableHead className="text-right">Gecmis Tutar</TableHead>
+                    <TableHead>
+                      <button type="button" className="inline-flex items-center gap-1" onClick={() => handleSort('lastPurchaseDate')}>
+                        Son Alim Tarihi <span className="text-[10px]">{sortIndicator('lastPurchaseDate')}</span>
+                      </button>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <button type="button" className="inline-flex items-center gap-1 justify-end w-full" onClick={() => handleSort('historicalDocumentCount')}>
+                        Gecmis Evrak <span className="text-[10px]">{sortIndicator('historicalDocumentCount')}</span>
+                      </button>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <button type="button" className="inline-flex items-center gap-1 justify-end w-full" onClick={() => handleSort('historicalQuantity')}>
+                        Gecmis Miktar <span className="text-[10px]">{sortIndicator('historicalQuantity')}</span>
+                      </button>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <button type="button" className="inline-flex items-center gap-1 justify-end w-full" onClick={() => handleSort('historicalAmount')}>
+                        Gecmis Tutar <span className="text-[10px]">{sortIndicator('historicalAmount')}</span>
+                      </button>
+                    </TableHead>
                     <TableHead className="text-right">Detay</TableHead>
                   </TableRow>
                 </TableHeader>

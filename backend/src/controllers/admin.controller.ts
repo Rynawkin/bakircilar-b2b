@@ -3441,6 +3441,8 @@ export class AdminController {
         activeCustomerMonths,
         page,
         limit,
+        sortBy,
+        sortDirection,
       } = req.query;
 
       const data = await reportsService.getCategoryChurnReport({
@@ -3451,6 +3453,8 @@ export class AdminController {
         activeCustomerMonths: activeCustomerMonths ? parseInt(activeCustomerMonths as string, 10) : undefined,
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
+        sortBy: sortBy as any,
+        sortDirection: sortDirection as 'asc' | 'desc',
       });
 
       res.json({
@@ -3501,6 +3505,40 @@ export class AdminController {
         success: true,
         data,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/category-churn/export
+   * Kategori kaybi raporu Excel
+   */
+  async exportCategoryChurnReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        mode,
+        categoryCode,
+        customerCode,
+        inactiveMonths,
+        activeCustomerMonths,
+        sortBy,
+        sortDirection,
+      } = req.query;
+
+      const { buffer, fileName } = await reportsService.exportCategoryChurnReport({
+        mode: mode as 'category' | 'customer',
+        categoryCode: categoryCode as string,
+        customerCode: customerCode as string,
+        inactiveMonths: inactiveMonths ? parseInt(inactiveMonths as string, 10) : undefined,
+        activeCustomerMonths: activeCustomerMonths ? parseInt(activeCustomerMonths as string, 10) : undefined,
+        sortBy: sortBy as any,
+        sortDirection: sortDirection as 'asc' | 'desc',
+      });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=\"${fileName}\"`);
+      res.send(buffer);
     } catch (error) {
       next(error);
     }
