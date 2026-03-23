@@ -1292,6 +1292,9 @@ function AdminQuotesPageContent() {
         quote.customer?.mikroName ||
         quote.customer?.name ||
         '';
+      const quoteItemSearchText = (quote.items || [])
+        .map((item) => `${item.productCode || ''} ${item.productName || ''}`)
+        .join(' ');
 
       const haystack = [
         quote.quoteNumber,
@@ -1300,6 +1303,7 @@ function AdminQuotesPageContent() {
         quote.customer?.mikroCariCode,
         customerName,
         quote.createdBy?.name,
+        quoteItemSearchText,
       ]
         .filter(Boolean)
         .join(' ');
@@ -1411,7 +1415,7 @@ function AdminQuotesPageContent() {
             <input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari adı, teklif no, belge no veya müşteri kodu ara..."
+              placeholder="Cari adı, teklif no, belge no, müşteri kodu veya ürün adı ara..."
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
             />
           </div>
