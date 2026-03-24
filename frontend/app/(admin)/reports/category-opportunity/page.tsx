@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -22,18 +22,29 @@ interface OpportunitySourceProduct {
   customerDocumentCount: number;
 }
 
-interface OpportunityRow {
+interface OpportunityRecommendation {
   recommendedProductCode: string;
   recommendedProductName: string;
+  weightedScore: number;
   associationDocumentCount: number;
   sourceProductCount: number;
   sourceProducts: OpportunitySourceProduct[];
 }
 
+interface OpportunityRow {
+  customerCode: string;
+  customerName: string | null;
+  customerSectorCode: string | null;
+  totalOpportunityScore: number;
+  recommendationCount: number;
+  recommendations: OpportunityRecommendation[];
+}
+
 interface OpportunitySummary {
+  totalCustomers: number;
   totalRecommendations: number;
-  totalSourceProducts: number;
-  totalAssociationDocuments: number;
+  scannedCustomers: number;
+  excludedBecauseAlreadyBoughtCategory: number;
 }
 
 interface OpportunityMetadata {
@@ -42,22 +53,16 @@ interface OpportunityMetadata {
     categoryName: string | null;
     productCount: number;
   };
-  customer: {
-    customerCode: string;
-    customerName: string | null;
-    sectorCode: string | null;
-  };
+  customerFilterCode: string | null;
   lookbackMonths: number;
   minPairCount: number;
   startDate: string;
   endDate: string;
-  customerHasCategoryPurchase: boolean;
-  customerCategoryPurchaseDocumentCount: number;
 }
 
 interface SubmittedParams {
   categoryCode: string;
-  customerCode: string;
+  customerCode?: string;
   lookbackMonths: number;
   minPairCount: number;
   limit: number;
@@ -72,7 +77,6 @@ export default function CategoryOpportunityReportPage() {
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerCode, setCustomerCode] = useState('');
-  const [customerName, setCustomerName] = useState('');
   const [customerOptions, setCustomerOptions] = useState<any[]>([]);
   const [customerSearching, setCustomerSearching] = useState(false);
 
@@ -139,7 +143,6 @@ export default function CategoryOpportunityReportPage() {
     const parsed = parseCustomerOption(item);
     if (!parsed.code) return;
     setCustomerCode(parsed.code);
-    setCustomerName(parsed.name);
     setCustomerSearch(parsed.label || parsed.code);
     setCustomerOptions([]);
   };
@@ -191,17 +194,28 @@ export default function CategoryOpportunityReportPage() {
       }
     }
 
-    const normalizedCustomer = (customerCode.trim() || customerSearch.trim()).toUpperCase();
+    let normalizedCustomer = customerCode.trim().toUpperCase();
+    if (!normalizedCustomer && customerSearch.trim()) {
+      const customerTerm = customerSearch.trim().toLowerCase();
+      const matchedCustomer = customerOptions.find((item) => {
+        const parsed = parseCustomerOption(item);
+        return (
+          parsed.code.toLowerCase() === customerTerm ||
+          parsed.name.toLowerCase() === customerTerm ||
+          parsed.label.toLowerCase() === customerTerm
+        );
+      });
+      if (matchedCustomer) {
+        normalizedCustomer = parseCustomerOption(matchedCustomer).code.toUpperCase();
+      }
+    }
+
     const months = Number(lookbackMonths);
     const minPair = Number(minPairCount);
     const safeLimit = Number(limit);
 
     if (!normalizedCategory) {
       toast.error('Kategori secin');
-      return;
-    }
-    if (!normalizedCustomer) {
-      toast.error('Cari secin');
       return;
     }
     if (!Number.isFinite(months) || months <= 0) {
@@ -219,11 +233,14 @@ export default function CategoryOpportunityReportPage() {
 
     const params: SubmittedParams = {
       categoryCode: normalizedCategory,
-      customerCode: normalizedCustomer,
       lookbackMonths: Math.floor(months),
       minPairCount: Math.floor(minPair),
       limit: Math.floor(safeLimit),
     };
+
+    if (normalizedCustomer) {
+      params.customerCode = normalizedCustomer;
+    }
 
     setSubmitted(params);
   };
@@ -243,7 +260,7 @@ export default function CategoryOpportunityReportPage() {
             Kategori Firsat Onerileri
           </h1>
           <p className="text-sm text-muted-foreground">
-            Secili carinin hic almadigi kategoride, diger alim davranisina gore olasi satis firsatlarini listeler
+            Secilen kategoriyi almayan carileri, son donem alim davranisina gore otomatik bulur
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => submitted && fetchReport(submitted)} disabled={!submitted || loading}>
@@ -255,7 +272,7 @@ export default function CategoryOpportunityReportPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Filtreler</CardTitle>
-          <CardDescription>Kategori + cari secip raporu calistirin</CardDescription>
+          <CardDescription>Kategori zorunlu, cari filtre opsiyoneldir</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -291,17 +308,16 @@ export default function CategoryOpportunityReportPage() {
             </div>
 
             <div className="space-y-2 relative">
-              <label className="text-sm font-medium">Cari (kod veya ad)</label>
+              <label className="text-sm font-medium">Cari filtresi (opsiyonel)</label>
               <Input
                 value={customerSearch}
                 onChange={(e) => {
                   setCustomerSearch(e.target.value);
                   if (!e.target.value.trim()) {
                     setCustomerCode('');
-                    setCustomerName('');
                   }
                 }}
-                placeholder="Cari kodu veya unvan yazin"
+                placeholder="Sadece tek cari icin filtrelemek isterseniz secin"
               />
               {customerSearching && <div className="text-xs text-muted-foreground">Cari araniyor...</div>}
               {customerOptions.length > 0 && (
@@ -334,7 +350,7 @@ export default function CategoryOpportunityReportPage() {
               <Input value={minPairCount} onChange={(e) => setMinPairCount(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Liste limiti</label>
+              <label className="text-sm font-medium">Cari limiti</label>
               <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
             </div>
             <div className="flex items-end">
@@ -344,10 +360,10 @@ export default function CategoryOpportunityReportPage() {
             </div>
           </div>
 
-          {(categoryCode || categoryName || customerCode || customerName) && (
+          {(categoryCode || categoryName || customerCode) && (
             <div className="text-xs text-muted-foreground">
-              Secili: {categoryCode || '-'} {categoryName ? `- ${categoryName}` : ''} / {customerCode || '-'}{' '}
-              {customerName ? `- ${customerName}` : ''}
+              Secili kategori: {categoryCode || '-'} {categoryName ? `- ${categoryName}` : ''}
+              {customerCode ? ` / Cari filtresi: ${customerCode}` : ''}
             </div>
           )}
         </CardContent>
@@ -372,43 +388,42 @@ export default function CategoryOpportunityReportPage() {
               {metadata.category.productCount} urun)
             </div>
             <div>
-              <strong>Cari:</strong> {metadata.customer.customerCode} - {metadata.customer.customerName || '-'}
-              {metadata.customer.sectorCode ? ` (Sektor: ${metadata.customer.sectorCode})` : ''}
-            </div>
-            <div>
               <strong>Donem:</strong> {metadata.startDate} - {metadata.endDate} / {metadata.lookbackMonths} ay
             </div>
             <div>
               <strong>Min ortak evrak:</strong> {metadata.minPairCount}
             </div>
-            {metadata.customerHasCategoryPurchase && (
-              <div className="text-amber-700 font-medium">
-                Bu cari secili kategoriden zaten alim yapmis (evrak: {metadata.customerCategoryPurchaseDocumentCount}).
-                Bu nedenle firsat onerisi listelenmedi.
-              </div>
-            )}
+            <div>
+              <strong>Cari filtresi:</strong> {metadata.customerFilterCode || 'Yok (otomatik cari tarama)'}
+            </div>
           </CardContent>
         </Card>
       )}
 
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Onerilen urun</CardDescription>
+              <CardDescription>Oneri cikan cari</CardDescription>
+              <CardTitle className="text-2xl">{summary.totalCustomers}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Toplam oneriler</CardDescription>
               <CardTitle className="text-2xl">{summary.totalRecommendations}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Kullanilan baz urun</CardDescription>
-              <CardTitle className="text-2xl">{summary.totalSourceProducts}</CardTitle>
+              <CardDescription>Taranan cari</CardDescription>
+              <CardTitle className="text-2xl">{summary.scannedCustomers}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Toplam baglanti skoru</CardDescription>
-              <CardTitle className="text-2xl">{summary.totalAssociationDocuments}</CardTitle>
+              <CardDescription>Kategoriyi zaten alan</CardDescription>
+              <CardTitle className="text-2xl">{summary.excludedBecauseAlreadyBoughtCategory}</CardTitle>
             </CardHeader>
           </Card>
         </div>
@@ -417,48 +432,75 @@ export default function CategoryOpportunityReportPage() {
       {submitted && !loading && (
         <Card>
           <CardHeader>
-            <CardTitle>Oneri Listesi</CardTitle>
-            <CardDescription>Secili kategoride, cariye onerilebilecek urunler</CardDescription>
+            <CardTitle>Cari Bazli Oneri Listesi</CardTitle>
+            <CardDescription>Secili kategoriyi almayan carilerde satis firsati</CardDescription>
           </CardHeader>
           <CardContent>
             {rows.length === 0 ? (
-              <div className="text-sm text-muted-foreground py-6">
-                Uygun firsat bulunamadi.
-              </div>
+              <div className="text-sm text-muted-foreground py-6">Uygun firsat bulunamadi.</div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Onerilen urun</TableHead>
-                    <TableHead className="text-right">Baglanti skoru</TableHead>
-                    <TableHead className="text-right">Baz urun sayisi</TableHead>
-                    <TableHead>Baz urunler (ilk 8)</TableHead>
+                    <TableHead>Cari</TableHead>
+                    <TableHead>Sektor</TableHead>
+                    <TableHead className="text-right">Toplam firsat skoru</TableHead>
+                    <TableHead className="text-right">Oneri sayisi</TableHead>
+                    <TableHead>One cikan oneriler</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.map((row) => (
-                    <TableRow key={row.recommendedProductCode}>
-                      <TableCell>
-                        <div className="font-mono text-xs">{row.recommendedProductCode}</div>
-                        <div className="text-sm text-gray-700">{row.recommendedProductName}</div>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">{row.associationDocumentCount}</TableCell>
-                      <TableCell className="text-right">{row.sourceProductCount}</TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          {row.sourceProducts.map((source) => (
-                            <div key={`${row.recommendedProductCode}-${source.productCode}`} className="text-xs">
-                              <span className="font-mono">{source.productCode}</span>
-                              <span className="text-gray-600"> - {source.productName}</span>
-                              <span className="text-gray-500">
-                                {' '}
-                                (ortak: {source.pairCount}, cari evrak: {source.customerDocumentCount})
-                              </span>
+                    <Fragment key={row.customerCode}>
+                      <TableRow>
+                        <TableCell>
+                          <div className="font-mono text-xs">{row.customerCode}</div>
+                          <div className="text-sm text-gray-700">{row.customerName || '-'}</div>
+                        </TableCell>
+                        <TableCell>{row.customerSectorCode || '-'}</TableCell>
+                        <TableCell className="text-right font-semibold">{row.totalOpportunityScore}</TableCell>
+                        <TableCell className="text-right">{row.recommendationCount}</TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-xs">
+                            {row.recommendations.slice(0, 3).map((item) => (
+                              <div key={`${row.customerCode}-${item.recommendedProductCode}`}>
+                                <span className="font-mono">{item.recommendedProductCode}</span>
+                                <span className="text-gray-700"> - {item.recommendedProductName}</span>
+                                <span className="text-gray-500"> (skor: {item.weightedScore})</span>
+                              </div>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={5} className="bg-gray-50/60">
+                          <details>
+                            <summary className="cursor-pointer text-xs font-medium text-gray-700">Kategori detaylari</summary>
+                            <div className="mt-2 space-y-2">
+                              {row.recommendations.map((item) => (
+                                <div key={`${row.customerCode}-detail-${item.recommendedProductCode}`} className="text-xs border rounded-md p-2 bg-white">
+                                  <div>
+                                    <span className="font-mono">{item.recommendedProductCode}</span>
+                                    <span className="text-gray-700"> - {item.recommendedProductName}</span>
+                                    <span className="text-gray-500">
+                                      {' '}
+                                      (skor: {item.weightedScore}, baglanti: {item.associationDocumentCount}, baz: {item.sourceProductCount})
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 text-gray-600">
+                                    {item.sourceProducts.map((source) => (
+                                      <div key={`${row.customerCode}-${item.recommendedProductCode}-${source.productCode}`}>
+                                        {source.productCode} - {source.productName} (ortak: {source.pairCount}, cari evrak: {source.customerDocumentCount})
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                          </details>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>
@@ -469,4 +511,3 @@ export default function CategoryOpportunityReportPage() {
     </div>
   );
 }
-

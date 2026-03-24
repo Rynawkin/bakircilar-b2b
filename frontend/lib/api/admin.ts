@@ -2072,7 +2072,7 @@ export const adminApi = {
 
   getCategoryOpportunityReport: async (params: {
     categoryCode: string;
-    customerCode: string;
+    customerCode?: string;
     lookbackMonths?: number;
     minPairCount?: number;
     limit?: number;
@@ -2080,21 +2080,30 @@ export const adminApi = {
     success: boolean;
     data: {
       rows: Array<{
-        recommendedProductCode: string;
-        recommendedProductName: string;
-        associationDocumentCount: number;
-        sourceProductCount: number;
-        sourceProducts: Array<{
-          productCode: string;
-          productName: string;
-          pairCount: number;
-          customerDocumentCount: number;
+        customerCode: string;
+        customerName: string | null;
+        customerSectorCode: string | null;
+        totalOpportunityScore: number;
+        recommendationCount: number;
+        recommendations: Array<{
+          recommendedProductCode: string;
+          recommendedProductName: string;
+          weightedScore: number;
+          associationDocumentCount: number;
+          sourceProductCount: number;
+          sourceProducts: Array<{
+            productCode: string;
+            productName: string;
+            pairCount: number;
+            customerDocumentCount: number;
+          }>;
         }>;
       }>;
       summary: {
+        totalCustomers: number;
         totalRecommendations: number;
-        totalSourceProducts: number;
-        totalAssociationDocuments: number;
+        scannedCustomers: number;
+        excludedBecauseAlreadyBoughtCategory: number;
       };
       metadata: {
         category: {
@@ -2102,23 +2111,17 @@ export const adminApi = {
           categoryName: string | null;
           productCount: number;
         };
-        customer: {
-          customerCode: string;
-          customerName: string | null;
-          sectorCode: string | null;
-        };
+        customerFilterCode: string | null;
         lookbackMonths: number;
         minPairCount: number;
         startDate: string;
         endDate: string;
-        customerHasCategoryPurchase: boolean;
-        customerCategoryPurchaseDocumentCount: number;
       };
     };
   }> => {
     const queryParams = new URLSearchParams();
     queryParams.append('categoryCode', params.categoryCode);
-    queryParams.append('customerCode', params.customerCode);
+    if (params.customerCode) queryParams.append('customerCode', params.customerCode);
     if (params.lookbackMonths) queryParams.append('lookbackMonths', params.lookbackMonths.toString());
     if (params.minPairCount) queryParams.append('minPairCount', params.minPairCount.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());

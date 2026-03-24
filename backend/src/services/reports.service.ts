@@ -271,20 +271,31 @@ interface CategoryOpportunitySourceProduct {
   customerDocumentCount: number;
 }
 
-interface CategoryOpportunityRow {
+interface CategoryOpportunityRecommendation {
   recommendedProductCode: string;
   recommendedProductName: string;
+  weightedScore: number;
   associationDocumentCount: number;
   sourceProductCount: number;
   sourceProducts: CategoryOpportunitySourceProduct[];
 }
 
+interface CategoryOpportunityRow {
+  customerCode: string;
+  customerName: string | null;
+  customerSectorCode: string | null;
+  totalOpportunityScore: number;
+  recommendationCount: number;
+  recommendations: CategoryOpportunityRecommendation[];
+}
+
 interface CategoryOpportunityReportResponse {
   rows: CategoryOpportunityRow[];
   summary: {
+    totalCustomers: number;
     totalRecommendations: number;
-    totalSourceProducts: number;
-    totalAssociationDocuments: number;
+    scannedCustomers: number;
+    excludedBecauseAlreadyBoughtCategory: number;
   };
   metadata: {
     category: {
@@ -292,17 +303,11 @@ interface CategoryOpportunityReportResponse {
       categoryName: string | null;
       productCount: number;
     };
-    customer: {
-      customerCode: string;
-      customerName: string | null;
-      sectorCode: string | null;
-    };
+    customerFilterCode: string | null;
     lookbackMonths: number;
     minPairCount: number;
     startDate: string;
     endDate: string;
-    customerHasCategoryPurchase: boolean;
-    customerCategoryPurchaseDocumentCount: number;
   };
 }
 
@@ -4606,9 +4611,6 @@ export class ReportsService {
     if (!normalizedCategoryCode) {
       throw new AppError('Kategori kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
     }
-    if (!normalizedCustomerCode) {
-      throw new AppError('Cari kodu gerekli.', 400, ErrorCode.BAD_REQUEST);
-    }
 
     const selectedCategory = await prisma.category.findFirst({
       where: { mikroCode: { equals: normalizedCategoryCode, mode: 'insensitive' } },
@@ -4631,24 +4633,6 @@ export class ReportsService {
       },
     });
 
-    const customerUser = await prisma.user.findFirst({
-      where: {
-        role: 'CUSTOMER',
-        parentCustomerId: null,
-        mikroCariCode: { equals: normalizedCustomerCode, mode: 'insensitive' },
-      },
-      select: {
-        mikroCariCode: true,
-        displayName: true,
-        name: true,
-        sectorCode: true,
-      },
-    });
-
-    if (!customerUser) {
-      throw new AppError('Cari bulunamadi.', 404, ErrorCode.NOT_FOUND);
-    }
-
     const reportEnd = new Date();
     const lookbackStart = subtractMonthsUtc(reportEnd, lookbackMonths);
     const startDateCompact = formatDateCompact(lookbackStart);
@@ -4660,29 +4644,27 @@ export class ReportsService {
         categoryName: selectedCategory?.name || null,
         productCount: categoryProducts.length,
       },
-      customer: {
-        customerCode: customerUser.mikroCariCode || normalizedCustomerCode,
-        customerName: customerUser.displayName || customerUser.name || null,
-        sectorCode: customerUser.sectorCode || null,
-      },
+      customerFilterCode: normalizedCustomerCode || null,
       lookbackMonths,
       minPairCount,
       startDate: formatDateKey(lookbackStart),
       endDate: formatDateKey(reportEnd),
-      customerHasCategoryPurchase: false,
-      customerCategoryPurchaseDocumentCount: 0,
     };
 
+    const emptyResponse = (summaryOverrides?: Partial<CategoryOpportunityReportResponse['summary']>) => ({
+      rows: [],
+      summary: {
+        totalCustomers: 0,
+        totalRecommendations: 0,
+        scannedCustomers: 0,
+        excludedBecauseAlreadyBoughtCategory: 0,
+        ...(summaryOverrides || {}),
+      },
+      metadata: metadataBase,
+    });
+
     if (categoryProducts.length === 0) {
-      return {
-        rows: [],
-        summary: {
-          totalRecommendations: 0,
-          totalSourceProducts: 0,
-          totalAssociationDocuments: 0,
-        },
-        metadata: metadataBase,
-      };
+      return emptyResponse();
     }
 
     const categoryProductIds = categoryProducts.map((row) => row.id);
@@ -4691,15 +4673,7 @@ export class ReportsService {
     );
 
     if (categoryProductCodes.length === 0) {
-      return {
-        rows: [],
-        summary: {
-          totalRecommendations: 0,
-          totalSourceProducts: 0,
-          totalAssociationDocuments: 0,
-        },
-        metadata: metadataBase,
-      };
+      return emptyResponse();
     }
 
     const categoryInClause = categoryProductCodes
@@ -4721,74 +4695,64 @@ export class ReportsService {
 
     await mikroService.connect();
     try {
-      const categoryPurchaseRows = await mikroService.executeQuery(`
-        SELECT
-          COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
-        FROM STOK_HAREKETLERI sth
-        WHERE ${buildWhereClause([
-          `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
-          `RTRIM(sth.sth_stok_kod) IN (${categoryInClause})`,
-        ])}
-      `);
-
-      const customerCategoryPurchaseDocumentCount = Number(categoryPurchaseRows?.[0]?.documentCount) || 0;
-      if (customerCategoryPurchaseDocumentCount > 0) {
-        return {
-          rows: [],
-          summary: {
-            totalRecommendations: 0,
-            totalSourceProducts: 0,
-            totalAssociationDocuments: 0,
-          },
-          metadata: {
-            ...metadataBase,
-            customerHasCategoryPurchase: true,
-            customerCategoryPurchaseDocumentCount,
-          },
-        };
+      const sourceConditions = [
+        `sth.sth_tarih >= '${startDateCompact}'`,
+        `sth.sth_tarih <= '${endDateCompact}'`,
+        `RTRIM(sth.sth_stok_kod) NOT IN (${categoryInClause})`,
+      ];
+      if (normalizedCustomerCode) {
+        sourceConditions.push(`RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`);
       }
 
       const sourceRows = await mikroService.executeQuery(`
         SELECT
+          RTRIM(sth.sth_cari_kodu) as customerCode,
           RTRIM(sth.sth_stok_kod) as productCode,
           MAX(st.sto_isim) as productName,
           COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as documentCount
         FROM STOK_HAREKETLERI sth
         LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-        WHERE ${buildWhereClause([
-          `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalizedCustomerCode)}'`,
-          `sth.sth_tarih >= '${startDateCompact}'`,
-          `sth.sth_tarih <= '${endDateCompact}'`,
-          `RTRIM(sth.sth_stok_kod) NOT IN (${categoryInClause})`,
-        ])}
-        GROUP BY sth.sth_stok_kod
+        WHERE ${buildWhereClause(sourceConditions)}
+        GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
       `);
 
-      const sourceMetricsByCode = new Map<
+      const sourceMetricsByCustomerCode = new Map<
         string,
-        { productCode: string; productName: string; customerDocumentCount: number }
+        Map<
+          string,
+          {
+            productCode: string;
+            productName: string;
+            customerDocumentCount: number;
+          }
+        >
       >();
+      const sourceCodesSet = new Set<string>();
       sourceRows.forEach((row: any) => {
-        const code = normalizeReportCode(row.productCode);
-        if (!code) return;
-        sourceMetricsByCode.set(code, {
-          productCode: code,
-          productName: String(row.productName || code),
-          customerDocumentCount: Number(row.documentCount) || 0,
+        const customerCode = normalizeReportCode(row.customerCode);
+        const productCode = normalizeReportCode(row.productCode);
+        const customerDocumentCount = Number(row.documentCount) || 0;
+        if (!customerCode || !productCode || customerDocumentCount <= 0) return;
+        const customerMap = sourceMetricsByCustomerCode.get(customerCode) || new Map();
+        customerMap.set(productCode, {
+          productCode,
+          productName: String(row.productName || productCode),
+          customerDocumentCount,
         });
+        sourceMetricsByCustomerCode.set(customerCode, customerMap);
+        sourceCodesSet.add(productCode);
       });
 
-      const sourceCodes = Array.from(sourceMetricsByCode.keys());
+      const scannedCustomerCodes = Array.from(sourceMetricsByCustomerCode.keys());
+      if (scannedCustomerCodes.length === 0) {
+        return emptyResponse();
+      }
+
+      const sourceCodes = Array.from(sourceCodesSet);
       if (sourceCodes.length === 0) {
-        return {
-          rows: [],
-          summary: {
-            totalRecommendations: 0,
-            totalSourceProducts: 0,
-            totalAssociationDocuments: 0,
-          },
-          metadata: metadataBase,
-        };
+        return emptyResponse({
+          scannedCustomers: scannedCustomerCodes.length,
+        });
       }
 
       const sourceProducts = await prisma.product.findMany({
@@ -4800,33 +4764,92 @@ export class ReportsService {
         },
       });
 
-      const sourceById = new Map<
-        string,
-        { productCode: string; productName: string; customerDocumentCount: number }
-      >();
+      const productIdByCode = new Map<string, { id: string; name: string | null }>();
       sourceProducts.forEach((row) => {
         const code = normalizeReportCode(row.mikroCode);
         if (!code) return;
-        const metrics = sourceMetricsByCode.get(code);
-        if (!metrics) return;
-        sourceById.set(row.id, {
-          productCode: code,
-          productName: row.name || metrics.productName,
-          customerDocumentCount: metrics.customerDocumentCount,
-        });
+        productIdByCode.set(code, { id: row.id, name: row.name || null });
       });
 
-      const sourceProductIds = Array.from(sourceById.keys());
+      const sourceByCustomerAndProductId = new Map<
+        string,
+        Map<
+          string,
+          { productCode: string; productName: string; customerDocumentCount: number }
+        >
+      >();
+      sourceMetricsByCustomerCode.forEach((productsMap, customerCode) => {
+        const productIdMap = new Map<
+          string,
+          { productCode: string; productName: string; customerDocumentCount: number }
+        >();
+        productsMap.forEach((source, productCode) => {
+          const resolved = productIdByCode.get(productCode);
+          if (!resolved) return;
+          productIdMap.set(resolved.id, {
+            productCode: source.productCode,
+            productName: resolved.name || source.productName,
+            customerDocumentCount: source.customerDocumentCount,
+          });
+        });
+        if (productIdMap.size > 0) {
+          sourceByCustomerAndProductId.set(customerCode, productIdMap);
+        }
+      });
+
+      const candidateCustomerCodes = Array.from(sourceByCustomerAndProductId.keys());
+      if (candidateCustomerCodes.length === 0) {
+        return emptyResponse({
+          scannedCustomers: scannedCustomerCodes.length,
+        });
+      }
+
+      const customersWithCategoryPurchase = new Set<string>();
+      const customerChunks = chunkArray(candidateCustomerCodes, REPORT_CUSTOMER_BATCH_SIZE);
+      for (const customerChunk of customerChunks) {
+        if (customerChunk.length === 0) continue;
+        const customerInClause = customerChunk
+          .map((code) => `'${escapeSqlLiteral(code)}'`)
+          .join(', ');
+
+        const purchasedRows = await mikroService.executeQuery(`
+          SELECT DISTINCT RTRIM(sth.sth_cari_kodu) as customerCode
+          FROM STOK_HAREKETLERI sth
+          WHERE ${buildWhereClause([
+            `RTRIM(sth.sth_cari_kodu) IN (${customerInClause})`,
+            `RTRIM(sth.sth_stok_kod) IN (${categoryInClause})`,
+          ])}
+        `);
+
+        purchasedRows.forEach((row: any) => {
+          const code = normalizeReportCode(row.customerCode);
+          if (!code) return;
+          customersWithCategoryPurchase.add(code);
+        });
+      }
+
+      const eligibleCustomerCodes = candidateCustomerCodes.filter(
+        (customerCode) => !customersWithCategoryPurchase.has(customerCode)
+      );
+      if (eligibleCustomerCodes.length === 0) {
+        return emptyResponse({
+          scannedCustomers: scannedCustomerCodes.length,
+          excludedBecauseAlreadyBoughtCategory: customersWithCategoryPurchase.size,
+        });
+      }
+
+      const sourceProductIds = Array.from(
+        new Set(
+          eligibleCustomerCodes.flatMap((customerCode) =>
+            Array.from(sourceByCustomerAndProductId.get(customerCode)?.keys() || [])
+          )
+        )
+      );
       if (sourceProductIds.length === 0) {
-        return {
-          rows: [],
-          summary: {
-            totalRecommendations: 0,
-            totalSourceProducts: 0,
-            totalAssociationDocuments: 0,
-          },
-          metadata: metadataBase,
-        };
+        return emptyResponse({
+          scannedCustomers: scannedCustomerCodes.length,
+          excludedBecauseAlreadyBoughtCategory: customersWithCategoryPurchase.size,
+        });
       }
 
       const pairRows = await prisma.productComplementAuto.findMany({
@@ -4848,93 +4871,149 @@ export class ReportsService {
         },
       });
 
-      if (pairRows.length === 0) {
-        return {
-          rows: [],
-          summary: {
-            totalRecommendations: 0,
-            totalSourceProducts: sourceProductIds.length,
-            totalAssociationDocuments: 0,
-          },
-          metadata: metadataBase,
-        };
-      }
-
-      const recommendationMap = new Map<
+      const customerUsers = await prisma.user.findMany({
+        where: {
+          role: 'CUSTOMER',
+          parentCustomerId: null,
+          mikroCariCode: { in: eligibleCustomerCodes },
+        },
+        select: {
+          mikroCariCode: true,
+          displayName: true,
+          name: true,
+          sectorCode: true,
+        },
+      });
+      const customerInfoByCode = new Map<
         string,
         {
-          recommendedProductCode: string;
-          recommendedProductName: string;
-          associationDocumentCount: number;
-          sourceProductsMap: Map<string, CategoryOpportunitySourceProduct>;
+          customerName: string | null;
+          customerSectorCode: string | null;
         }
       >();
-
-      pairRows.forEach((row) => {
-        const source = sourceById.get(row.productId);
-        if (!source) return;
-        const recommendedCode = normalizeReportCode(row.relatedProduct?.mikroCode);
-        if (!recommendedCode) return;
-        const pairCount = Number(row.pairCount) || 0;
-        if (pairCount <= 0) return;
-
-        const current = recommendationMap.get(row.relatedProductId) || {
-          recommendedProductCode: recommendedCode,
-          recommendedProductName: row.relatedProduct?.name || recommendedCode,
-          associationDocumentCount: 0,
-          sourceProductsMap: new Map<string, CategoryOpportunitySourceProduct>(),
-        };
-
-        current.associationDocumentCount += pairCount;
-
-        const sourceCurrent = current.sourceProductsMap.get(source.productCode) || {
-          productCode: source.productCode,
-          productName: source.productName,
-          pairCount: 0,
-          customerDocumentCount: source.customerDocumentCount,
-        };
-        sourceCurrent.pairCount += pairCount;
-        sourceCurrent.customerDocumentCount = source.customerDocumentCount;
-        current.sourceProductsMap.set(source.productCode, sourceCurrent);
-        recommendationMap.set(row.relatedProductId, current);
+      customerUsers.forEach((row) => {
+        const code = normalizeReportCode(row.mikroCariCode);
+        if (!code) return;
+        customerInfoByCode.set(code, {
+          customerName: row.displayName || row.name || null,
+          customerSectorCode: row.sectorCode || null,
+        });
       });
 
-      const allRows: CategoryOpportunityRow[] = Array.from(recommendationMap.values())
-        .map((item) => {
-          const sourceProducts = Array.from(item.sourceProductsMap.values()).sort((a, b) => {
-            if (b.pairCount !== a.pairCount) return b.pairCount - a.pairCount;
-            return a.productCode.localeCompare(b.productCode, 'tr');
-          });
+      const pairRowsBySourceProductId = new Map<typeof pairRows[number]['productId'], typeof pairRows>();
+      pairRows.forEach((row) => {
+        const existing = pairRowsBySourceProductId.get(row.productId) || [];
+        existing.push(row);
+        pairRowsBySourceProductId.set(row.productId, existing);
+      });
 
-          return {
-            recommendedProductCode: item.recommendedProductCode,
-            recommendedProductName: item.recommendedProductName,
-            associationDocumentCount: item.associationDocumentCount,
-            sourceProductCount: sourceProducts.length,
-            sourceProducts: sourceProducts.slice(0, 8),
-          };
-        })
-        .sort((a, b) => {
-          if (b.associationDocumentCount !== a.associationDocumentCount) {
-            return b.associationDocumentCount - a.associationDocumentCount;
+      const customerRows: CategoryOpportunityRow[] = [];
+      let totalRecommendations = 0;
+
+      eligibleCustomerCodes.forEach((customerCode) => {
+        const sourceMap = sourceByCustomerAndProductId.get(customerCode);
+        if (!sourceMap || sourceMap.size === 0) return;
+
+        const recommendationMap = new Map<
+          string,
+          {
+            recommendedProductCode: string;
+            recommendedProductName: string;
+            weightedScore: number;
+            associationDocumentCount: number;
+            sourceProductsMap: Map<string, CategoryOpportunitySourceProduct>;
           }
-          if (b.sourceProductCount !== a.sourceProductCount) {
-            return b.sourceProductCount - a.sourceProductCount;
-          }
-          return a.recommendedProductCode.localeCompare(b.recommendedProductCode, 'tr');
+        >();
+
+        sourceMap.forEach((source, sourceProductId) => {
+          const sourcePairs = pairRowsBySourceProductId.get(sourceProductId) || [];
+          sourcePairs.forEach((pair) => {
+            const pairCount = Number(pair.pairCount) || 0;
+            if (pairCount <= 0) return;
+            const recommendedProductCode = normalizeReportCode(pair.relatedProduct?.mikroCode);
+            if (!recommendedProductCode) return;
+
+            const current = recommendationMap.get(pair.relatedProductId) || {
+              recommendedProductCode,
+              recommendedProductName: pair.relatedProduct?.name || recommendedProductCode,
+              weightedScore: 0,
+              associationDocumentCount: 0,
+              sourceProductsMap: new Map<string, CategoryOpportunitySourceProduct>(),
+            };
+
+            current.associationDocumentCount += pairCount;
+            current.weightedScore += pairCount * source.customerDocumentCount;
+
+            const sourceCurrent = current.sourceProductsMap.get(source.productCode) || {
+              productCode: source.productCode,
+              productName: source.productName,
+              pairCount: 0,
+              customerDocumentCount: source.customerDocumentCount,
+            };
+            sourceCurrent.pairCount += pairCount;
+            sourceCurrent.customerDocumentCount = source.customerDocumentCount;
+            current.sourceProductsMap.set(source.productCode, sourceCurrent);
+            recommendationMap.set(pair.relatedProductId, current);
+          });
         });
 
-      const rows = allRows.slice(0, limit);
+        const recommendations: CategoryOpportunityRecommendation[] = Array.from(recommendationMap.values())
+          .map((recommendation) => {
+            const sourceProducts = Array.from(recommendation.sourceProductsMap.values()).sort((a, b) => {
+              if (b.pairCount !== a.pairCount) return b.pairCount - a.pairCount;
+              return a.productCode.localeCompare(b.productCode, 'tr');
+            });
+            return {
+              recommendedProductCode: recommendation.recommendedProductCode,
+              recommendedProductName: recommendation.recommendedProductName,
+              weightedScore: recommendation.weightedScore,
+              associationDocumentCount: recommendation.associationDocumentCount,
+              sourceProductCount: sourceProducts.length,
+              sourceProducts: sourceProducts.slice(0, 8),
+            };
+          })
+          .sort((a, b) => {
+            if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore;
+            if (b.associationDocumentCount !== a.associationDocumentCount) {
+              return b.associationDocumentCount - a.associationDocumentCount;
+            }
+            return a.recommendedProductCode.localeCompare(b.recommendedProductCode, 'tr');
+          });
+
+        if (recommendations.length === 0) return;
+
+        const customerInfo = customerInfoByCode.get(customerCode);
+        const totalOpportunityScore = recommendations.reduce((sum, item) => sum + item.weightedScore, 0);
+
+        customerRows.push({
+          customerCode,
+          customerName: customerInfo?.customerName || null,
+          customerSectorCode: customerInfo?.customerSectorCode || null,
+          totalOpportunityScore,
+          recommendationCount: recommendations.length,
+          recommendations,
+        });
+        totalRecommendations += recommendations.length;
+      });
+
+      const sortedRows = customerRows.sort((a, b) => {
+        if (b.totalOpportunityScore !== a.totalOpportunityScore) {
+          return b.totalOpportunityScore - a.totalOpportunityScore;
+        }
+        if (b.recommendationCount !== a.recommendationCount) {
+          return b.recommendationCount - a.recommendationCount;
+        }
+        return a.customerCode.localeCompare(b.customerCode, 'tr');
+      });
+      const rows = sortedRows.slice(0, limit);
 
       return {
         rows,
         summary: {
-          totalRecommendations: allRows.length,
-          totalSourceProducts: sourceProductIds.length,
-          totalAssociationDocuments: allRows.reduce(
-            (sum, row) => sum + (Number(row.associationDocumentCount) || 0),
-            0
-          ),
+          totalCustomers: sortedRows.length,
+          totalRecommendations,
+          scannedCustomers: scannedCustomerCodes.length,
+          excludedBecauseAlreadyBoughtCategory: customersWithCategoryPurchase.size,
         },
         metadata: metadataBase,
       };
