@@ -3718,6 +3718,19 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/ucarer-product-sales-history
+   */
+  async getUcarerProductSalesHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const productCode = String(req.query.productCode || '').trim();
+      const data = await reportsService.getUcarerProductSalesHistory(productCode);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/reports/ucarer-minmax-exclusion
    */
   async setUcarerMinMaxExclusion(req: Request, res: Response, next: NextFunction) {

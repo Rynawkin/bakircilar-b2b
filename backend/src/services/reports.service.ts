@@ -5899,6 +5899,108 @@ export class ReportsService {
     };
   }
 
+  async getUcarerProductSalesHistory(productCodeInput: string): Promise<{
+    productCode: string;
+    rows: Array<{
+      customerCode: string;
+      customerName: string;
+      documentSeries: string;
+      documentSequence: number;
+      documentLineNo: number;
+      saleDate: string | null;
+      quantity: number;
+      unitPrice: number;
+      totalAmount: number;
+    }>;
+    total: number;
+    summary: {
+      totalQuantity: number;
+      totalAmount: number;
+      averageUnitPrice: number;
+    };
+  }> {
+    const productCode = String(productCodeInput || '').trim().toUpperCase();
+    if (!productCode) {
+      throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const escapedCode = productCode.replace(/'/g, "''");
+    const baseConditions = [
+      'sth.sth_cins = 0',
+      'sth.sth_tip = 1',
+      'sth.sth_evraktip IN (1, 4)',
+      '(sth.sth_iptal = 0 OR sth.sth_iptal IS NULL)',
+      'sth.sth_stok_kod IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+      'sth.sth_cari_kodu IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+    ];
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    const whereClause = [
+      ...baseConditions,
+      ...exclusionConditions,
+      `LTRIM(RTRIM(sth.sth_stok_kod)) = '${escapedCode}'`,
+      'sth.sth_tarih >= DATEADD(MONTH, -3, CAST(GETDATE() AS date))',
+      'ISNULL(sth.sth_miktar, 0) > 0',
+    ].join(' AND ');
+
+    const rawRows = await mikroService.executeQuery(`
+      SELECT TOP 1500
+        RTRIM(sth.sth_cari_kodu) as customerCode,
+        LTRIM(RTRIM(ISNULL(ch.cari_unvan1, ''))) as customerName,
+        RTRIM(ISNULL(sth.sth_evrakno_seri, '')) as documentSeries,
+        CAST(ISNULL(sth.sth_evrakno_sira, 0) AS INT) as documentSequence,
+        CAST(ISNULL(sth.sth_satirno, 0) AS INT) as documentLineNo,
+        sth.sth_tarih as saleDate,
+        CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT) as quantity,
+        CAST(
+          CASE
+            WHEN ISNULL(sth.sth_miktar, 0) = 0 THEN 0
+            ELSE ISNULL(sth.sth_tutar, 0) / NULLIF(sth.sth_miktar, 0)
+          END
+        AS FLOAT) as unitPrice,
+        CAST(ISNULL(sth.sth_tutar, 0) AS FLOAT) as totalAmount
+      FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+      LEFT JOIN CARI_HESAPLAR ch WITH (NOLOCK) ON ch.cari_kod = sth.sth_cari_kodu
+      WHERE ${whereClause}
+      ORDER BY sth.sth_tarih DESC, sth.sth_evrakno_sira DESC, sth.sth_satirno DESC
+    `);
+
+    const rows = (Array.isArray(rawRows) ? rawRows : []).map((row: any) => {
+      const parsedDate = row?.saleDate ? new Date(row.saleDate) : null;
+      const saleDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : null;
+      const quantity = Number(row?.quantity) || 0;
+      const unitPrice = Number(row?.unitPrice) || 0;
+      const totalAmount = Number(row?.totalAmount) || 0;
+      return {
+        customerCode: String(row?.customerCode || '').trim().toUpperCase(),
+        customerName: String(row?.customerName || '').trim() || String(row?.customerCode || '').trim().toUpperCase() || '-',
+        documentSeries: String(row?.documentSeries || '').trim().toUpperCase(),
+        documentSequence: Math.max(0, Math.trunc(Number(row?.documentSequence) || 0)),
+        documentLineNo: Math.max(0, Math.trunc(Number(row?.documentLineNo) || 0)),
+        saleDate,
+        quantity: Number.isFinite(quantity) ? quantity : 0,
+        unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+        totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+      };
+    });
+
+    const totalQuantity = rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+    const totalAmount = rows.reduce((sum, row) => sum + (Number(row.totalAmount) || 0), 0);
+    const averageUnitPrice = totalQuantity > 0 ? totalAmount / totalQuantity : 0;
+
+    return {
+      productCode,
+      rows,
+      total: rows.length,
+      summary: {
+        totalQuantity,
+        totalAmount,
+        averageUnitPrice,
+      },
+    };
+  }
+
   async runUcarerMinMaxReport(): Promise<{
     rows: Record<string, any>[];
     columns: string[];

@@ -75,6 +75,18 @@ interface IncomingOrderDetailRow {
   remainingQuantity: number;
 }
 
+interface ProductSalesHistoryRow {
+  customerCode: string;
+  customerName: string;
+  documentSeries: string;
+  documentSequence: number;
+  documentLineNo: number;
+  saleDate: string | null;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+}
+
 interface FamilyStockOption {
   productCode: string;
   productName: string;
@@ -252,6 +264,19 @@ export default function UcarerDepotReportPage() {
   const [incomingOrdersLoading, setIncomingOrdersLoading] = useState(false);
   const [incomingOrdersProductCode, setIncomingOrdersProductCode] = useState('');
   const [incomingOrdersDetailRows, setIncomingOrdersDetailRows] = useState<IncomingOrderDetailRow[]>([]);
+  const [salesHistoryModalOpen, setSalesHistoryModalOpen] = useState(false);
+  const [salesHistoryLoading, setSalesHistoryLoading] = useState(false);
+  const [salesHistoryProductCode, setSalesHistoryProductCode] = useState('');
+  const [salesHistoryRows, setSalesHistoryRows] = useState<ProductSalesHistoryRow[]>([]);
+  const [salesHistorySummary, setSalesHistorySummary] = useState<{
+    totalQuantity: number;
+    totalAmount: number;
+    averageUnitPrice: number;
+  }>({
+    totalQuantity: 0,
+    totalAmount: 0,
+    averageUnitPrice: 0,
+  });
   const [editingFamilyId, setEditingFamilyId] = useState<string>('');
   const [familyEditModalOpen, setFamilyEditModalOpen] = useState(false);
   const [familyEditName, setFamilyEditName] = useState('');
@@ -892,15 +917,16 @@ export default function UcarerDepotReportPage() {
   }, [familyEditSearch, familyEditModalOpen]);
 
   useEffect(() => {
-    if (!incomingOrdersModalOpen && !familyEditModalOpen) return;
+    if (!incomingOrdersModalOpen && !salesHistoryModalOpen && !familyEditModalOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (incomingOrdersModalOpen) setIncomingOrdersModalOpen(false);
+      if (salesHistoryModalOpen) setSalesHistoryModalOpen(false);
       if (familyEditModalOpen) closeFamilyEditModal();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [incomingOrdersModalOpen, familyEditModalOpen]);
+  }, [incomingOrdersModalOpen, salesHistoryModalOpen, familyEditModalOpen]);
 
   useEffect(() => {
     if (families.length === 0) {
@@ -1191,6 +1217,32 @@ export default function UcarerDepotReportPage() {
       toast.error(error?.response?.data?.error || 'Alinan siparis detaylari getirilemedi');
     } finally {
       setIncomingOrdersLoading(false);
+    }
+  };
+  const openSalesHistoryModal = async (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return;
+    setSalesHistoryProductCode(code);
+    setSalesHistoryModalOpen(true);
+    setSalesHistoryLoading(true);
+    try {
+      const response = await adminApi.getUcarerProductSalesHistory(code);
+      setSalesHistoryRows(Array.isArray(response.data?.rows) ? response.data.rows : []);
+      setSalesHistorySummary({
+        totalQuantity: Number(response.data?.summary?.totalQuantity || 0),
+        totalAmount: Number(response.data?.summary?.totalAmount || 0),
+        averageUnitPrice: Number(response.data?.summary?.averageUnitPrice || 0),
+      });
+    } catch (error: any) {
+      setSalesHistoryRows([]);
+      setSalesHistorySummary({
+        totalQuantity: 0,
+        totalAmount: 0,
+        averageUnitPrice: 0,
+      });
+      toast.error(error?.response?.data?.error || 'Son 3 ay satis detaylari getirilemedi');
+    } finally {
+      setSalesHistoryLoading(false);
     }
   };
   const reassignPendingSupplierForProduct = (fromSupplierCode: string, productCode: string, newSupplierCodeInput: string) => {
@@ -2315,7 +2367,17 @@ export default function UcarerDepotReportPage() {
                       className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
                       style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
                     >
-                      {item.productCode}
+                      <div className="flex flex-col gap-1">
+                        <span>{item.productCode}</span>
+                        <button
+                          type="button"
+                          className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
+                          onClick={() => openSalesHistoryModal(code)}
+                          title="Son 3 ay satis detaylarini goster"
+                        >
+                          Satis (3 Ay)
+                        </button>
+                      </div>
                     </td>
                     <td
                       className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
@@ -2955,7 +3017,17 @@ export default function UcarerDepotReportPage() {
                             className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
                             style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
                           >
-                            {code}
+                            <div className="flex flex-col gap-1">
+                              <span>{code}</span>
+                              <button
+                                type="button"
+                                className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
+                                onClick={() => openSalesHistoryModal(code)}
+                                title="Son 3 ay satis detaylarini goster"
+                              >
+                                Satis (3 Ay)
+                              </button>
+                            </div>
                           </td>
                           <td
                             className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
@@ -3378,6 +3450,72 @@ export default function UcarerDepotReportPage() {
               </div>
               <div className="mt-4 flex justify-end">
                 <Button size="sm" variant="outline" onClick={() => setIncomingOrdersModalOpen(false)}>
+                  Kapat
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        {salesHistoryModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-6xl rounded-lg bg-white p-4 shadow-xl">
+              <p className="text-base font-semibold text-gray-900">
+                Son 3 Ay Satis Detayi - {salesHistoryProductCode || '-'}
+              </p>
+              <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-700">
+                <span>
+                  Toplam Miktar: <strong>{salesHistorySummary.totalQuantity.toLocaleString('tr-TR')}</strong>
+                </span>
+                <span>
+                  Toplam Tutar: <strong>{salesHistorySummary.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL</strong>
+                </span>
+                <span>
+                  Ortalama Birim: <strong>{salesHistorySummary.averageUnitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL</strong>
+                </span>
+              </div>
+              <div className="mt-3 max-h-[60vh] overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-gray-100">
+                    <tr>
+                      <th className="px-2 py-2 text-left">Cari Kodu</th>
+                      <th className="px-2 py-2 text-left">Cari Unvan</th>
+                      <th className="px-2 py-2 text-left">Evrak No</th>
+                      <th className="px-2 py-2 text-left">Tarih</th>
+                      <th className="px-2 py-2 text-right">Miktar</th>
+                      <th className="px-2 py-2 text-right">Birim Fiyat (TL)</th>
+                      <th className="px-2 py-2 text-right">Tutar (TL)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesHistoryLoading ? (
+                      <tr>
+                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Yukleniyor...</td>
+                      </tr>
+                    ) : salesHistoryRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Son 3 ayda satis kaydi bulunamadi.</td>
+                      </tr>
+                    ) : (
+                      salesHistoryRows.map((row, index) => {
+                        const documentNo = [row.documentSeries || '-', row.documentSequence].join('-');
+                        return (
+                          <tr key={`${row.documentSeries}-${row.documentSequence}-${row.documentLineNo}-${index}`} className="border-t">
+                            <td className="px-2 py-2">{row.customerCode || '-'}</td>
+                            <td className="px-2 py-2">{row.customerName || '-'}</td>
+                            <td className="px-2 py-2">{documentNo}</td>
+                            <td className="px-2 py-2">{row.saleDate ? new Date(row.saleDate).toLocaleDateString('tr-TR') : '-'}</td>
+                            <td className="px-2 py-2 text-right">{Number(row.quantity || 0).toLocaleString('tr-TR')}</td>
+                            <td className="px-2 py-2 text-right">{Number(row.unitPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className="px-2 py-2 text-right font-semibold">{Number(row.totalAmount || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button size="sm" variant="outline" onClick={() => setSalesHistoryModalOpen(false)}>
                   Kapat
                 </Button>
               </div>

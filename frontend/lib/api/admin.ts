@@ -2232,6 +2232,34 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/ucarer-incoming-order-details?${queryParams.toString()}`);
     return response.data;
   },
+  getUcarerProductSalesHistory: async (productCode: string): Promise<{
+    success: boolean;
+    data: {
+      productCode: string;
+      rows: Array<{
+        customerCode: string;
+        customerName: string;
+        documentSeries: string;
+        documentSequence: number;
+        documentLineNo: number;
+        saleDate: string | null;
+        quantity: number;
+        unitPrice: number;
+        totalAmount: number;
+      }>;
+      total: number;
+      summary: {
+        totalQuantity: number;
+        totalAmount: number;
+        averageUnitPrice: number;
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('productCode', productCode);
+    const response = await apiClient.get(`/admin/reports/ucarer-product-sales-history?${queryParams.toString()}`);
+    return response.data;
+  },
 
   runUcarerMinMaxReport: async (): Promise<{ success: boolean; data: { rows: any[]; columns: string[]; total: number } }> => {
     const response = await apiClient.post('/admin/reports/ucarer-minmax/run');
