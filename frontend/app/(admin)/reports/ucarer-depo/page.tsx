@@ -97,6 +97,20 @@ interface SuggestionSortState {
   direction: SortDirection;
 }
 
+type SalesHistorySortKey =
+  | 'customerCode'
+  | 'customerName'
+  | 'documentNo'
+  | 'saleDate'
+  | 'quantity'
+  | 'unitPrice'
+  | 'totalAmount';
+
+interface SalesHistorySortState {
+  key: SalesHistorySortKey;
+  direction: SortDirection;
+}
+
 type NonFamilyColorFilter = 'ALL' | 'GREEN' | 'YELLOW' | 'RED' | 'UNCOLORED';
 type NonFamilyColorSort = 'NONE' | 'RISK_DESC' | 'RISK_ASC';
 
@@ -268,6 +282,10 @@ export default function UcarerDepotReportPage() {
   const [salesHistoryLoading, setSalesHistoryLoading] = useState(false);
   const [salesHistoryProductCode, setSalesHistoryProductCode] = useState('');
   const [salesHistoryRows, setSalesHistoryRows] = useState<ProductSalesHistoryRow[]>([]);
+  const [salesHistorySort, setSalesHistorySort] = useState<SalesHistorySortState>({
+    key: 'saleDate',
+    direction: 'desc',
+  });
   const [salesHistorySummary, setSalesHistorySummary] = useState<{
     totalQuantity: number;
     totalAmount: number;
@@ -646,10 +664,20 @@ export default function UcarerDepotReportPage() {
     prev: SuggestionSortState,
     key: SuggestionSortKey
   ): SuggestionSortState => (prev.key === key ? { key, direction: nextSortDirection(prev.direction) } : { key, direction: 'desc' });
+  const updateSalesHistorySort = (
+    prev: SalesHistorySortState,
+    key: SalesHistorySortKey
+  ): SalesHistorySortState => (prev.key === key ? { key, direction: nextSortDirection(prev.direction) } : { key, direction: 'desc' });
   const sortIndicator = (sortState: SuggestionSortState, key: SuggestionSortKey): string =>
     sortState.key !== key || sortState.direction === 'none'
       ? ''
       : sortState.direction === 'asc'
+      ? ' ▲'
+      : ' ▼';
+  const salesSortIndicator = (key: SalesHistorySortKey): string =>
+    salesHistorySort.key !== key || salesHistorySort.direction === 'none'
+      ? ''
+      : salesHistorySort.direction === 'asc'
       ? ' ▲'
       : ' ▼';
   const compareMixed = (a: unknown, b: unknown, direction: SortDirection): number => {
@@ -1280,6 +1308,34 @@ export default function UcarerDepotReportPage() {
       })
     );
   };
+  const salesHistoryRowsSorted = useMemo(() => {
+    const rows = [...salesHistoryRows];
+    return rows.sort((a, b) => {
+      if (salesHistorySort.key === 'customerCode') {
+        return compareMixed(a.customerCode, b.customerCode, salesHistorySort.direction);
+      }
+      if (salesHistorySort.key === 'customerName') {
+        return compareMixed(a.customerName, b.customerName, salesHistorySort.direction);
+      }
+      if (salesHistorySort.key === 'documentNo') {
+        const left = `${a.documentSeries || ''}-${a.documentSequence || 0}`;
+        const right = `${b.documentSeries || ''}-${b.documentSequence || 0}`;
+        return compareMixed(left, right, salesHistorySort.direction);
+      }
+      if (salesHistorySort.key === 'quantity') {
+        return compareMixed(a.quantity, b.quantity, salesHistorySort.direction);
+      }
+      if (salesHistorySort.key === 'unitPrice') {
+        return compareMixed(a.unitPrice, b.unitPrice, salesHistorySort.direction);
+      }
+      if (salesHistorySort.key === 'totalAmount') {
+        return compareMixed(a.totalAmount, b.totalAmount, salesHistorySort.direction);
+      }
+      const leftDate = a.saleDate ? new Date(a.saleDate).getTime() : 0;
+      const rightDate = b.saleDate ? new Date(b.saleDate).getTime() : 0;
+      return compareMixed(leftDate, rightDate, salesHistorySort.direction);
+    });
+  }, [salesHistoryRows, salesHistorySort, compareMixed]);
 
   const activeFamily = useMemo(
     () => families.find((family) => family.id === activeFamilyId) || null,
@@ -3477,13 +3533,27 @@ export default function UcarerDepotReportPage() {
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-gray-100">
                     <tr>
-                      <th className="px-2 py-2 text-left">Cari Kodu</th>
-                      <th className="px-2 py-2 text-left">Cari Unvan</th>
-                      <th className="px-2 py-2 text-left">Evrak No</th>
-                      <th className="px-2 py-2 text-left">Tarih</th>
-                      <th className="px-2 py-2 text-right">Miktar</th>
-                      <th className="px-2 py-2 text-right">Birim Fiyat (TL)</th>
-                      <th className="px-2 py-2 text-right">Tutar (TL)</th>
+                      <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'customerCode'))}>
+                        Cari Kodu{salesSortIndicator('customerCode')}
+                      </th>
+                      <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'customerName'))}>
+                        Cari Unvan{salesSortIndicator('customerName')}
+                      </th>
+                      <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'documentNo'))}>
+                        Evrak No{salesSortIndicator('documentNo')}
+                      </th>
+                      <th className="px-2 py-2 text-left cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'saleDate'))}>
+                        Tarih{salesSortIndicator('saleDate')}
+                      </th>
+                      <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'quantity'))}>
+                        Miktar{salesSortIndicator('quantity')}
+                      </th>
+                      <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'unitPrice'))}>
+                        Birim Fiyat (TL){salesSortIndicator('unitPrice')}
+                      </th>
+                      <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'totalAmount'))}>
+                        Tutar (TL){salesSortIndicator('totalAmount')}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -3496,7 +3566,7 @@ export default function UcarerDepotReportPage() {
                         <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Son 3 ayda satis kaydi bulunamadi.</td>
                       </tr>
                     ) : (
-                      salesHistoryRows.map((row, index) => {
+                      salesHistoryRowsSorted.map((row, index) => {
                         const documentNo = [row.documentSeries || '-', row.documentSequence].join('-');
                         return (
                           <tr key={`${row.documentSeries}-${row.documentSequence}-${row.documentLineNo}-${index}`} className="border-t">
