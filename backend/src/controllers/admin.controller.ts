@@ -21,6 +21,7 @@ import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
 import priceListService from '../services/price-list.service';
 import productComplementService from '../services/product-complement.service';
+import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens } from '../utils/search';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
@@ -788,17 +789,39 @@ export class AdminController {
 
       const productsWithPriceLists = await buildProductsWithPriceLists(products);
       const inClause = normalizedCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
-      const supplierRows = await mikroService.executeQuery(`
+      const vatColumn = MIKRO_TABLES.PRODUCTS_COLUMNS.VAT_RATE || 'sto_toptan_Vergi';
+      const supplierBaseQuery = `
         SELECT
           s.sto_kod AS productCode,
-          ISNULL(s.sto_vergi_pntr, 0) AS vatCode,
           LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS mainSupplierCode,
           LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS mainSupplierName
         FROM STOKLAR s
         LEFT JOIN CARI_HESAPLAR c
           ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
         WHERE s.sto_kod IN (${inClause})
-      `);
+      `;
+
+      let supplierRows: any[] = [];
+      try {
+        supplierRows = await mikroService.executeQuery(`
+          SELECT
+            s.sto_kod AS productCode,
+            ISNULL(s.${vatColumn}, 0) AS vatCode,
+            LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS mainSupplierCode,
+            LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS mainSupplierName
+          FROM STOKLAR s
+          LEFT JOIN CARI_HESAPLAR c
+            ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
+          WHERE s.sto_kod IN (${inClause})
+        `);
+      } catch (error: any) {
+        const message = String(error?.message || '').toLowerCase();
+        if (!message.includes('invalid column name')) {
+          throw error;
+        }
+        // VAT kolonu farkli bir isimdeyse ana akis bozulmasin, tedarikci bilgileriyle devam et.
+        supplierRows = await mikroService.executeQuery(supplierBaseQuery);
+      }
       const supplierByCode = new Map<string, { code: string | null; name: string | null; vatCode: number }>();
       (supplierRows || []).forEach((row: any) => {
         const productCode = String(row?.productCode || '').trim().toUpperCase();
