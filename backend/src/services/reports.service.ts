@@ -6641,6 +6641,113 @@ export class ReportsService {
         vatRate: Number.isFinite(vatRate) ? vatRate : 0,
       });
     });
+    // Prisma'da kaydi olmayan ama ekranda manuel maliyet girilen urunleri de dahil et.
+    productCodes.forEach((code) => {
+      if (productCostMap.has(code)) return;
+      const overrideUnitPrice = unitPriceOverrideByProduct.get(code);
+      if (Number.isFinite(overrideUnitPrice) && Number(overrideUnitPrice) > 0) {
+        productCostMap.set(code, {
+          unitPrice: Number(overrideUnitPrice),
+          vatRate: 0,
+        });
+      }
+    });
+
+    // Cost/VAT Prisma tarafinda 0 veya eksikse Mikro STOKLAR'dan fallback tamamla.
+    const fallbackCandidateCodes = productCodes.filter((code) => {
+      const entry = productCostMap.get(code);
+      const unitPrice = Number(entry?.unitPrice || 0);
+      const vatRate = Number(entry?.vatRate || 0);
+      return !entry || unitPrice <= 0 || vatRate <= 0;
+    });
+    if (fallbackCandidateCodes.length > 0) {
+      const fallbackInClause = fallbackCandidateCodes
+        .map((code) => `'${code.replace(/'/g, "''")}'`)
+        .join(',');
+      const fallbackQueries = [
+        `
+          SELECT
+            sto_kod AS productCode,
+            ISNULL(sto_standartmaliyet, 0) AS currentCost,
+            dbo.fn_VergiYuzde(ISNULL(sto_toptan_vergi, 0)) AS vatPercent
+          FROM STOKLAR
+          WHERE sto_kod IN (${fallbackInClause})
+        `,
+        `
+          SELECT
+            sto_kod AS productCode,
+            ISNULL(sto_standartmaliyet, 0) AS currentCost,
+            dbo.fn_VergiYuzde(ISNULL(sto_perakende_vergi, 0)) AS vatPercent
+          FROM STOKLAR
+          WHERE sto_kod IN (${fallbackInClause})
+        `,
+        `
+          SELECT
+            sto_kod AS productCode,
+            ISNULL(sto_standartmaliyet, 0) AS currentCost,
+            dbo.fn_VergiYuzde(ISNULL(sto_oivvergipntr, 0)) AS vatPercent
+          FROM STOKLAR
+          WHERE sto_kod IN (${fallbackInClause})
+        `,
+        `
+          SELECT
+            sto_kod AS productCode,
+            ISNULL(sto_standartmaliyet, 0) AS currentCost,
+            0 AS vatPercent
+          FROM STOKLAR
+          WHERE sto_kod IN (${fallbackInClause})
+        `,
+      ];
+
+      let fallbackRows: any[] = [];
+      for (const query of fallbackQueries) {
+        try {
+          fallbackRows = await mikroService.executeQuery(query);
+          break;
+        } catch (error: any) {
+          const message = String(error?.message || '').toLowerCase();
+          if (!message.includes('invalid column name')) {
+            throw error;
+          }
+        }
+      }
+
+      (fallbackRows || []).forEach((row: any) => {
+        const code = String(row?.productCode || '').trim().toUpperCase();
+        if (!code) return;
+        const existing = productCostMap.get(code);
+        const overrideUnitPrice = Number(unitPriceOverrideByProduct.get(code) || 0);
+        const existingUnitPrice = Number(existing?.unitPrice || 0);
+        const existingVatRate = Number(existing?.vatRate || 0);
+        const fallbackUnitPrice = Number(row?.currentCost || 0);
+        const fallbackVatPercent = Number(row?.vatPercent || 0);
+        const fallbackVatRate =
+          Number.isFinite(fallbackVatPercent) && fallbackVatPercent > 1
+            ? fallbackVatPercent / 100
+            : fallbackVatPercent;
+
+        const resolvedUnitPrice =
+          Number.isFinite(overrideUnitPrice) && overrideUnitPrice > 0
+            ? overrideUnitPrice
+            : Number.isFinite(existingUnitPrice) && existingUnitPrice > 0
+            ? existingUnitPrice
+            : Number.isFinite(fallbackUnitPrice) && fallbackUnitPrice > 0
+            ? fallbackUnitPrice
+            : 0;
+        const resolvedVatRate =
+          Number.isFinite(existingVatRate) && existingVatRate > 0
+            ? existingVatRate
+            : Number.isFinite(fallbackVatRate) && fallbackVatRate > 0
+            ? fallbackVatRate
+            : 0;
+
+        productCostMap.set(code, {
+          unitPrice: resolvedUnitPrice,
+          vatRate: resolvedVatRate,
+        });
+      });
+    }
+
     const missingCostCodes = productCodes.filter((code) => {
       const cost = productCostMap.get(code)?.unitPrice || 0;
       return !Number.isFinite(cost) || cost <= 0;
