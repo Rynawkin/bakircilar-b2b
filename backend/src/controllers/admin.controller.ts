@@ -789,10 +789,102 @@ export class AdminController {
 
       const productsWithPriceLists = await buildProductsWithPriceLists(products);
       const inClause = normalizedCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
-      const vatColumn = MIKRO_TABLES.PRODUCTS_COLUMNS.VAT_RATE || 'sto_toptan_Vergi';
+      const normalizeColumnName = (value: unknown) =>
+        String(value || '')
+          .trim()
+          .toLowerCase();
+      const sanitizeSqlIdentifier = (value: string) =>
+        String(value || '').replace(/[^a-z0-9_]/gi, '');
+      const vatColumnCandidates = Array.from(
+        new Set(
+          [
+            normalizeColumnName(MIKRO_TABLES.PRODUCTS_COLUMNS.VAT_RATE),
+            'sto_toptan_vergi',
+            'sto_perakende_vergi',
+            'sto_oivvergipntr',
+          ].filter(Boolean)
+        )
+      );
+      const costColumnCandidates = Array.from(
+        new Set(
+          [
+            normalizeColumnName(MIKRO_TABLES.PRODUCTS_COLUMNS.CURRENT_COST),
+            'sto_standartmaliyet',
+          ].filter(Boolean)
+        )
+      );
+      const columnCandidates = Array.from(new Set([...vatColumnCandidates, ...costColumnCandidates]));
+
+      let availableColumns = new Set<string>();
+      try {
+        if (columnCandidates.length > 0) {
+          const columnInClause = columnCandidates.map((column) => `'${escapeSqlString(column)}'`).join(',');
+          const columnRows = await mikroService.executeQuery(`
+            SELECT LOWER(COLUMN_NAME) AS columnName
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = 'STOKLAR'
+              AND LOWER(COLUMN_NAME) IN (${columnInClause})
+          `);
+          availableColumns = new Set(
+            (columnRows || [])
+              .map((row: any) => normalizeColumnName(row?.columnName))
+              .filter(Boolean)
+          );
+        }
+      } catch {
+        availableColumns = new Set<string>();
+      }
+
+      const probeFirstExistingColumn = async (candidates: string[]): Promise<string | null> => {
+        for (const candidate of candidates) {
+          const safeCandidate = sanitizeSqlIdentifier(candidate);
+          if (!safeCandidate) continue;
+          try {
+            await mikroService.executeQuery(`
+              SELECT TOP 1 ISNULL(s.[${safeCandidate}], 0) AS probeValue
+              FROM STOKLAR s
+              WHERE s.sto_kod IN (${inClause})
+            `);
+            return safeCandidate;
+          } catch (error: any) {
+            const message = String(error?.message || '').toLowerCase();
+            if (!message.includes('invalid column name')) {
+              throw error;
+            }
+          }
+        }
+        return null;
+      };
+
+      const selectedVatColumnRaw =
+        vatColumnCandidates.find((column) => availableColumns.has(column)) || null;
+      const selectedCostColumnRaw =
+        costColumnCandidates.find((column) => availableColumns.has(column)) || null;
+      let selectedVatColumn = selectedVatColumnRaw ? sanitizeSqlIdentifier(selectedVatColumnRaw) : null;
+      let selectedCostColumn = selectedCostColumnRaw ? sanitizeSqlIdentifier(selectedCostColumnRaw) : null;
+      if (!selectedVatColumn) {
+        selectedVatColumn = await probeFirstExistingColumn(vatColumnCandidates);
+      }
+      if (!selectedCostColumn) {
+        selectedCostColumn = await probeFirstExistingColumn(costColumnCandidates);
+      }
       const supplierBaseQuery = `
         SELECT
           s.sto_kod AS productCode,
+          ${selectedVatColumn ? `ISNULL(s.[${selectedVatColumn}], 0)` : 'NULL'} AS vatCode,
+          ${selectedCostColumn ? `ISNULL(s.[${selectedCostColumn}], 0)` : 'NULL'} AS mikroCurrentCost,
+          LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS mainSupplierCode,
+          LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS mainSupplierName
+        FROM STOKLAR s
+        LEFT JOIN CARI_HESAPLAR c
+          ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
+        WHERE s.sto_kod IN (${inClause})
+      `;
+      const supplierFallbackQuery = `
+        SELECT
+          s.sto_kod AS productCode,
+          NULL AS vatCode,
+          NULL AS mikroCurrentCost,
           LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS mainSupplierCode,
           LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS mainSupplierName
         FROM STOKLAR s
@@ -803,53 +895,96 @@ export class AdminController {
 
       let supplierRows: any[] = [];
       try {
-        supplierRows = await mikroService.executeQuery(`
-          SELECT
-            s.sto_kod AS productCode,
-            ISNULL(s.${vatColumn}, 0) AS vatCode,
-            LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS mainSupplierCode,
-            LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS mainSupplierName
-          FROM STOKLAR s
-          LEFT JOIN CARI_HESAPLAR c
-            ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
-          WHERE s.sto_kod IN (${inClause})
-        `);
+        supplierRows = await mikroService.executeQuery(supplierBaseQuery);
       } catch (error: any) {
         const message = String(error?.message || '').toLowerCase();
         if (!message.includes('invalid column name')) {
           throw error;
         }
-        // VAT kolonu farkli bir isimdeyse ana akis bozulmasin, tedarikci bilgileriyle devam et.
-        supplierRows = await mikroService.executeQuery(supplierBaseQuery);
+        // Kolon adlari farkliysa ana akis bozulmasin, tedarikci bilgileriyle devam et.
+        supplierRows = await mikroService.executeQuery(supplierFallbackQuery);
       }
-      const supplierByCode = new Map<string, { code: string | null; name: string | null; vatCode: number }>();
+      const supplierByCode = new Map<
+        string,
+        { code: string | null; name: string | null; vatCode: number; mikroCurrentCost: number | null }
+      >();
       (supplierRows || []).forEach((row: any) => {
         const productCode = String(row?.productCode || '').trim().toUpperCase();
         if (!productCode) return;
         const mainSupplierCode = String(row?.mainSupplierCode || '').trim() || null;
         const mainSupplierName = String(row?.mainSupplierName || '').trim() || null;
         const vatCode = Number(row?.vatCode ?? 0);
+        const mikroCurrentCostRaw = Number(row?.mikroCurrentCost);
+        const mikroCurrentCost = Number.isFinite(mikroCurrentCostRaw) ? mikroCurrentCostRaw : null;
         supplierByCode.set(productCode, {
           code: mainSupplierCode,
           name: mainSupplierName,
           vatCode: Number.isFinite(vatCode) ? vatCode : 0,
+          mikroCurrentCost,
         });
       });
 
-      const enrichedProducts = productsWithPriceLists.map((product: any) => {
-        const supplier = supplierByCode.get(String(product?.mikroCode || '').trim().toUpperCase());
+      const productsByCode = new Map<string, any>();
+      productsWithPriceLists.forEach((product: any) => {
+        const code = String(product?.mikroCode || '').trim().toUpperCase();
+        if (code) productsByCode.set(code, product);
+      });
+
+      const enrichedProducts = normalizedCodes.map((requestedCode) => {
+        const normalizedCode = String(requestedCode || '').trim().toUpperCase();
+        const product = productsByCode.get(normalizedCode);
+        const supplier = supplierByCode.get(normalizedCode);
         const currentVatRate = Number(product?.vatRate ?? 0);
         const fallbackVatRate = Number(
           mikroService.convertVatCodeToRate(Number(supplier?.vatCode ?? 0))
         );
+        const currentCost = Number(product?.currentCost);
+        const fallbackCurrentCost = Number(supplier?.mikroCurrentCost);
         const resolvedVatRate =
           Number.isFinite(currentVatRate) && currentVatRate > 0
             ? currentVatRate
             : Number.isFinite(fallbackVatRate)
             ? fallbackVatRate
             : 0;
+        const resolvedCurrentCost =
+          Number.isFinite(currentCost) && currentCost > 0
+            ? currentCost
+            : Number.isFinite(fallbackCurrentCost) && fallbackCurrentCost > 0
+            ? fallbackCurrentCost
+            : Number.isFinite(currentCost)
+            ? currentCost
+            : null;
+
+        const baseProduct =
+          product ||
+          ({
+            id: null,
+            name: normalizedCode,
+            mikroCode: normalizedCode,
+            unit: null,
+            unit2: null,
+            unit2Factor: null,
+            excessStock: 0,
+            warehouseStocks: {},
+            pendingCustomerOrdersByWarehouse: {},
+            warehouseExcessStocks: {},
+            totalStock: 0,
+            lastEntryPrice: null,
+            lastEntryDate: null,
+            currentCost: null,
+            currentCostDate: null,
+            calculatedCost: null,
+            vatRate: 0,
+            prices: {},
+            imageUrl: null,
+            category: null,
+            mikroPriceLists: {},
+          } as any);
+
         return {
-          ...product,
+          ...baseProduct,
+          mikroCode: normalizedCode,
+          currentCost: resolvedCurrentCost,
           vatRate: resolvedVatRate,
           mainSupplierCode: supplier?.code || null,
           mainSupplierName: supplier?.name || null,
