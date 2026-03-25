@@ -281,6 +281,7 @@ export default function UcarerDepotReportPage() {
   const [salesHistoryModalOpen, setSalesHistoryModalOpen] = useState(false);
   const [salesHistoryLoading, setSalesHistoryLoading] = useState(false);
   const [salesHistoryProductCode, setSalesHistoryProductCode] = useState('');
+  const [salesHistoryLookbackMonths, setSalesHistoryLookbackMonths] = useState(4);
   const [salesHistoryRows, setSalesHistoryRows] = useState<ProductSalesHistoryRow[]>([]);
   const [salesHistorySort, setSalesHistorySort] = useState<SalesHistorySortState>({
     key: 'saleDate',
@@ -1256,6 +1257,7 @@ export default function UcarerDepotReportPage() {
     try {
       const response = await adminApi.getUcarerProductSalesHistory(code);
       setSalesHistoryRows(Array.isArray(response.data?.rows) ? response.data.rows : []);
+      setSalesHistoryLookbackMonths(Number(response.data?.metadata?.lookbackMonths || 4));
       setSalesHistorySummary({
         totalQuantity: Number(response.data?.summary?.totalQuantity || 0),
         totalAmount: Number(response.data?.summary?.totalAmount || 0),
@@ -1263,6 +1265,7 @@ export default function UcarerDepotReportPage() {
       });
     } catch (error: any) {
       setSalesHistoryRows([]);
+      setSalesHistoryLookbackMonths(4);
       setSalesHistorySummary({
         totalQuantity: 0,
         totalAmount: 0,
@@ -2431,7 +2434,7 @@ export default function UcarerDepotReportPage() {
                           onClick={() => openSalesHistoryModal(code)}
                           title="Son 3 ay satis detaylarini goster"
                         >
-                          Satis (3 Ay)
+                          Satis (MinMax)
                         </button>
                       </div>
                     </td>
@@ -3081,7 +3084,7 @@ export default function UcarerDepotReportPage() {
                                 onClick={() => openSalesHistoryModal(code)}
                                 title="Son 3 ay satis detaylarini goster"
                               >
-                                Satis (3 Ay)
+                                Satis (MinMax)
                               </button>
                             </div>
                           </td>
@@ -3516,7 +3519,7 @@ export default function UcarerDepotReportPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-6xl rounded-lg bg-white p-4 shadow-xl">
               <p className="text-base font-semibold text-gray-900">
-                Son 3 Ay Satis Detayi - {salesHistoryProductCode || '-'}
+                Son {salesHistoryLookbackMonths} Ay Satis Detayi - {salesHistoryProductCode || '-'}
               </p>
               <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-700">
                 <span>
@@ -3563,7 +3566,9 @@ export default function UcarerDepotReportPage() {
                       </tr>
                     ) : salesHistoryRows.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Son 3 ayda satis kaydi bulunamadi.</td>
+                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">
+                          Son {salesHistoryLookbackMonths} ayda satis kaydi bulunamadi.
+                        </td>
                       </tr>
                     ) : (
                       salesHistoryRowsSorted.map((row, index) => {

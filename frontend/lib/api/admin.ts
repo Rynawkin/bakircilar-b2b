@@ -2253,6 +2253,9 @@ export const adminApi = {
         totalAmount: number;
         averageUnitPrice: number;
       };
+      metadata: {
+        lookbackMonths: number;
+      };
     };
   }> => {
     const queryParams = new URLSearchParams();

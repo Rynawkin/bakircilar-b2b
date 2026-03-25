@@ -5918,7 +5918,11 @@ export class ReportsService {
       totalAmount: number;
       averageUnitPrice: number;
     };
+    metadata: {
+      lookbackMonths: number;
+    };
   }> {
+    const lookbackMonths = 4; // MinMax hesabindaki Fth_MinMaxHesaplama penceresi
     const productCode = String(productCodeInput || '').trim().toUpperCase();
     if (!productCode) {
       throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
@@ -5940,7 +5944,7 @@ export class ReportsService {
       ...baseConditions,
       ...exclusionConditions,
       `LTRIM(RTRIM(sth.sth_stok_kod)) = '${escapedCode}'`,
-      'sth.sth_tarih >= DATEADD(MONTH, -3, CAST(GETDATE() AS date))',
+      `sth.sth_tarih >= DATEADD(MONTH, -${lookbackMonths}, CAST(GETDATE() AS date))`,
       'ISNULL(sth.sth_miktar, 0) > 0',
     ].join(' AND ');
 
@@ -5997,6 +6001,9 @@ export class ReportsService {
         totalQuantity,
         totalAmount,
         averageUnitPrice,
+      },
+      metadata: {
+        lookbackMonths,
       },
     };
   }
