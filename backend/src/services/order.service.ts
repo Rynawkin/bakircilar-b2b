@@ -1109,8 +1109,9 @@ class OrderService {
             ? (mikroOrderIdByLineIndex.get(index) || undefined)
             : undefined;
           const approved = order.status === 'APPROVED';
+          const { vatRate: _vatRate, ...itemForCreate } = item as any;
           return {
-            ...item,
+            ...itemForCreate,
             status: approved ? 'APPROVED' : 'PENDING',
             approvedQuantity: approved ? item.quantity : undefined,
             mikroOrderId,
