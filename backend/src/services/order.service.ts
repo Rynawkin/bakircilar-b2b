@@ -279,6 +279,46 @@ class OrderService {
 
     return output;
   }
+
+  private parseMikroOrderNumber(orderNumberRaw: string): { series: string; sequence: number } | null {
+    const orderNumber = String(orderNumberRaw || '').trim();
+    const lastDash = orderNumber.lastIndexOf('-');
+    if (lastDash <= 0 || lastDash >= orderNumber.length - 1) {
+      return null;
+    }
+
+    const series = orderNumber.slice(0, lastDash).trim();
+    const sequence = Number(orderNumber.slice(lastDash + 1));
+    if (!series || !Number.isFinite(sequence) || sequence <= 0) {
+      return null;
+    }
+
+    return { series, sequence: Math.trunc(sequence) };
+  }
+
+  private async getWarehouseNoFromMikroOrder(orderNumberRaw: string): Promise<number | null> {
+    const parsed = this.parseMikroOrderNumber(orderNumberRaw);
+    if (!parsed) {
+      return null;
+    }
+
+    const safeSeries = parsed.series.replace(/'/g, "''");
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1
+        sip_depono as depo_no
+      FROM SIPARISLER WITH (NOLOCK)
+      WHERE sip_evrakno_seri = '${safeSeries}'
+        AND sip_evrakno_sira = ${parsed.sequence}
+      ORDER BY sip_satirno ASC
+    `);
+
+    const warehouseNo = Number(rows?.[0]?.depo_no);
+    if (!Number.isFinite(warehouseNo) || warehouseNo <= 0) {
+      return null;
+    }
+    return Math.trunc(warehouseNo);
+  }
+
   /**
    * Sepetten sipariş oluştur
    */
@@ -769,7 +809,13 @@ class OrderService {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
-        user: { select: { id: true } },
+        user: {
+          select: {
+            id: true,
+            mikroCariCode: true,
+            paymentPlanNo: true,
+          },
+        },
         items: { select: { id: true } },
       },
     });
@@ -831,6 +877,10 @@ class OrderService {
       const lineNote = item.lineNote?.trim();
       const responsibilityCenter = item.responsibilityCenter?.trim();
       const productName = item.productName?.trim() || product.name;
+      const vatRate =
+        priceType === 'WHITE'
+          ? 0
+          : Number(product.vatRate || 0.2);
 
       return {
         orderId,
@@ -843,13 +893,22 @@ class OrderService {
         totalPrice: unitPrice * quantity,
         lineNote: lineNote || undefined,
         responsibilityCenter: responsibilityCenter || undefined,
+        vatRate,
         status: 'PENDING' as const,
       };
     });
 
+    const normalizedCustomerOrderNumber = input.customerOrderNumber
+      ? String(input.customerOrderNumber).trim()
+      : '';
+    const normalizedDeliveryLocation = input.deliveryLocation
+      ? String(input.deliveryLocation).trim()
+      : '';
+
     const shouldUpdateMikro = order.status === 'APPROVED' && (order.mikroOrderIds || []).length > 0;
     let existingItems: Array<any> = [];
     const mikroOrderIdByLineIndex = new Map<number, string | null>();
+    const appendedMikroOrderIds: string[] = [];
     if (shouldUpdateMikro) {
       existingItems = await prisma.orderItem.findMany({
         where: { orderId },
@@ -882,6 +941,7 @@ class OrderService {
       }>>();
 
       const seenExistingItemIds = new Set<string>();
+      const extraItems: Array<{ index: number; item: (typeof normalizedItems)[number] }> = [];
 
       normalizedItems.forEach((item, index) => {
         let existing: any | undefined;
@@ -895,7 +955,8 @@ class OrderService {
           existing = existingItems.find((candidate) => !seenExistingItemIds.has(candidate.id));
         }
         if (!existing) {
-          throw new Error('Cannot update approved order with new products');
+          extraItems.push({ index, item });
+          return;
         }
         seenExistingItemIds.add(existing.id);
         mikroOrderIdByLineIndex.set(index, existing.mikroOrderId || null);
@@ -903,7 +964,7 @@ class OrderService {
         const vatRate =
           item.priceType === 'WHITE'
             ? 0
-            : Number(existing.product?.vatRate || 0.2);
+            : Number(existing.product?.vatRate ?? item.vatRate ?? 0.2);
         const payload = {
           existingProductCode: String(existing.mikroCode || '').trim() || item.mikroCode,
           productCode: item.mikroCode,
@@ -945,19 +1006,81 @@ class OrderService {
           items,
         });
       }
+
+      if (extraItems.length > 0) {
+        if (!order.user?.mikroCariCode) {
+          throw new Error('Customer Mikro code missing for approved order update');
+        }
+
+        const fallbackMikroOrderId = String(order.mikroOrderIds?.[0] || '').trim();
+        if (!fallbackMikroOrderId) {
+          throw new Error('Existing Mikro order number missing for approved order update');
+        }
+
+        const baseMikroOrderByPriceType = new Map<PriceType, string>();
+        existingItems.forEach((item) => {
+          const priceType: PriceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+          const mikroOrderId = String(item.mikroOrderId || '').trim();
+          if (mikroOrderId && !baseMikroOrderByPriceType.has(priceType)) {
+            baseMikroOrderByPriceType.set(priceType, mikroOrderId);
+          }
+        });
+
+        const extrasByPriceType = new Map<PriceType, Array<{ index: number; item: (typeof normalizedItems)[number] }>>();
+        extraItems.forEach((entry) => {
+          const list = extrasByPriceType.get(entry.item.priceType) || [];
+          list.push(entry);
+          extrasByPriceType.set(entry.item.priceType, list);
+        });
+
+        for (const [priceType, extras] of extrasByPriceType.entries()) {
+          if (!extras.length) continue;
+
+          const baseMikroOrderId = baseMikroOrderByPriceType.get(priceType) || fallbackMikroOrderId;
+          const parsedBaseOrder = this.parseMikroOrderNumber(baseMikroOrderId);
+          if (!parsedBaseOrder?.series) {
+            throw new Error('Cannot determine Mikro order series for approved order update');
+          }
+
+          const warehouseNo = await this.getWarehouseNoFromMikroOrder(baseMikroOrderId);
+          if (!warehouseNo) {
+            throw new Error('Cannot determine warehouse for approved order update');
+          }
+
+          const newMikroOrderId = await mikroService.writeOrder({
+            cariCode: order.user.mikroCariCode,
+            items: extras.map(({ item }) => ({
+              productCode: item.mikroCode,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              vatRate: item.priceType === 'WHITE' ? 0 : Number(item.vatRate || 0.2),
+              lineDescription: item.lineNote || item.productName,
+              responsibilityCenter: item.responsibilityCenter || undefined,
+              reserveQty: 0,
+            })),
+            applyVAT: priceType === 'INVOICED',
+            description: order.adminNote?.trim() || `B2B Siparis ${order.orderNumber} - Guncelleme`,
+            documentDescription: normalizedDeliveryLocation || undefined,
+            documentNo: normalizedCustomerOrderNumber || undefined,
+            evrakSeri: parsedBaseOrder.series,
+            warehouseNo,
+            paymentPlanNo: order.user.paymentPlanNo ?? undefined,
+          });
+
+          if (newMikroOrderId) {
+            appendedMikroOrderIds.push(newMikroOrderId);
+            extras.forEach(({ index }) => {
+              mikroOrderIdByLineIndex.set(index, newMikroOrderId);
+            });
+          }
+        }
+      }
     }
 
     const totalAmount = normalizedItems.reduce(
       (sum, item) => sum + item.unitPrice * item.quantity,
       0
     );
-
-    const normalizedCustomerOrderNumber = input.customerOrderNumber
-      ? String(input.customerOrderNumber).trim()
-      : '';
-    const normalizedDeliveryLocation = input.deliveryLocation
-      ? String(input.deliveryLocation).trim()
-      : '';
 
     await prisma.$transaction(async (tx) => {
       await tx.orderItem.deleteMany({
@@ -970,6 +1093,13 @@ class OrderService {
           totalAmount,
           customerOrderNumber: normalizedCustomerOrderNumber || null,
           deliveryLocation: normalizedDeliveryLocation || null,
+          ...(shouldUpdateMikro && appendedMikroOrderIds.length > 0
+            ? {
+                mikroOrderIds: Array.from(
+                  new Set([...(order.mikroOrderIds || []), ...appendedMikroOrderIds])
+                ),
+              }
+            : {}),
         },
       });
 
