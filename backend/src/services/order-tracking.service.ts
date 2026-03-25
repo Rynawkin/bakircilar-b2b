@@ -277,6 +277,74 @@ class OrderTrackingService {
         AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = 0
         AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED} = 0
         AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 0
+        AND (
+          c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} IS NULL
+          OR c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} NOT LIKE 'SATICI%'
+        )
+      ORDER BY s.${MIKRO_TABLES.ORDERS_COLUMNS.DATE} DESC,
+               s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES},
+               s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE}
+    `;
+
+    const result = await mikroService.executeQuery(query);
+    return result;
+  }
+
+  /**
+   * Mikro'dan tedarikçilere verilen (satın alma) açık siparişleri çek
+   * sip_tip = 1
+   */
+  private async fetchSupplierOrdersFromMikro(): Promise<any[]> {
+    const query = `
+      WITH PendingSupplierOrderNumbers AS (
+        SELECT DISTINCT
+          ${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} as seri,
+          ${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} as sira
+        FROM ${MIKRO_TABLES.ORDERS} s
+        LEFT JOIN ${MIKRO_TABLES.CARI} c
+          ON s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} = c.${MIKRO_TABLES.CARI_COLUMNS.CODE}
+        WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} IS NOT NULL
+          AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = 1
+          AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED} = 0
+          AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 0
+          AND (${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY} - ISNULL(${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) > 0
+          AND c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} LIKE 'SATICI%'
+      )
+      SELECT
+        s.sip_evrakno_seri,
+        s.sip_evrakno_sira,
+        s.sip_satirno,
+        s.sip_tarih,
+        s.sip_teslim_tarih,
+        s.sip_musteri_kod,
+        s.${MIKRO_TABLES.ORDERS_COLUMNS.WAREHOUSE_NO} as depo_kodu,
+        c.cari_unvan1 as musteri_adi,
+        c.${MIKRO_TABLES.CARI_COLUMNS.EMAIL} as musteri_email,
+        c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} as sektor_kodu,
+        s.sip_stok_kod,
+        st.sto_isim as urun_adi,
+        st.sto_birim1_ad as birim,
+        s.sip_miktar,
+        ISNULL(s.sip_teslim_miktar, 0) as teslim_miktar,
+        (s.sip_miktar - ISNULL(s.sip_teslim_miktar, 0)) as kalan_miktar,
+        ISNULL(s.sip_rezervasyon_miktari, 0) as rezerve_miktar,
+        ISNULL(s.sip_rezerveden_teslim_edilen, 0) as rezerve_teslim_miktar,
+        s.sip_b_fiyat as birim_fiyat,
+        s.sip_tutar as tutar,
+        s.sip_vergi as kdv
+      FROM ${MIKRO_TABLES.ORDERS} s
+      INNER JOIN PendingSupplierOrderNumbers p
+        ON s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES} = p.seri
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE} = p.sira
+      LEFT JOIN ${MIKRO_TABLES.PRODUCTS} st
+        ON s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE} = st.${MIKRO_TABLES.PRODUCTS_COLUMNS.CODE}
+      LEFT JOIN ${MIKRO_TABLES.CARI} c
+        ON s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} = c.${MIKRO_TABLES.CARI_COLUMNS.CODE}
+      WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.CUSTOMER_CODE} IS NOT NULL
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = 1
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED} = 0
+        AND s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED} = 0
+        AND c.${MIKRO_TABLES.CARI_COLUMNS.SECTOR_CODE} LIKE 'SATICI%'
       ORDER BY s.${MIKRO_TABLES.ORDERS_COLUMNS.DATE} DESC,
                s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SERIES},
                s.${MIKRO_TABLES.ORDERS_COLUMNS.ORDER_SEQUENCE}
@@ -573,33 +641,11 @@ class OrderTrackingService {
   }
 
   /**
-   * SatÄ±cÄ±/tedarikÃ§i sipariÅŸlerini getir (sektÃ¶r kodu "SATICI" olanlar)
+   * Tedarikçilere verilen açık satın alma siparişlerini getir (sip_tip=1)
    */
   async getSupplierSummary() {
-    const orders = await prisma.pendingMikroOrder.findMany({
-      where: {
-        sectorCode: {
-          startsWith: 'SATICI',
-        },
-      },
-      select: {
-        id: true,
-        mikroOrderNumber: true,
-        customerCode: true,
-        customerName: true,
-        customerEmail: true,
-        sectorCode: true,
-        orderDate: true,
-        deliveryDate: true,
-        items: true,
-        itemCount: true,
-        totalAmount: true,
-        totalVAT: true,
-        grandTotal: true,
-        emailSent: true,
-      },
-      orderBy: [{ customerCode: 'asc' }, { orderDate: 'desc' }],
-    });
+    const rawOrders = await this.fetchSupplierOrdersFromMikro();
+    const orders = this.groupOrdersByCustomer(rawOrders);
 
     // SatÄ±cÄ± bazÄ±nda grupla
     const summary = new Map<
@@ -619,7 +665,7 @@ class OrderTrackingService {
           deliveryDate: Date | null;
           itemCount: number;
           grandTotal: number;
-          items: any;
+          items: PendingOrderItem[];
         }>;
       }
     >();
@@ -629,11 +675,11 @@ class OrderTrackingService {
         summary.set(order.customerCode, {
           customerCode: order.customerCode,
           customerName: order.customerName,
-          customerEmail: order.customerEmail,
-          sectorCode: order.sectorCode,
+          customerEmail: order.customerEmail || null,
+          sectorCode: order.sectorCode || null,
           ordersCount: 0,
           totalAmount: 0,
-          emailSent: order.emailSent,
+          emailSent: false,
           orders: [],
         });
       }
@@ -642,7 +688,7 @@ class OrderTrackingService {
       customerSummary.ordersCount++;
       customerSummary.totalAmount += order.grandTotal;
       customerSummary.orders.push({
-        id: order.id,
+        id: order.mikroOrderNumber,
         mikroOrderNumber: order.mikroOrderNumber,
         orderDate: order.orderDate,
         deliveryDate: order.deliveryDate,
