@@ -646,6 +646,37 @@ class OrderTrackingService {
   async getSupplierSummary() {
     const rawOrders = await this.fetchSupplierOrdersFromMikro();
     const orders = this.groupOrdersByCustomer(rawOrders);
+    const supplierCodes = Array.from(
+      new Set(
+        orders
+          .map((order) => String(order.customerCode || '').trim())
+          .filter((code) => code.length > 0)
+      )
+    );
+
+    const cityBySupplierCode = new Map<string, string | null>();
+    if (supplierCodes.length > 0) {
+      const inClause = supplierCodes
+        .map((code) => `'${code.replace(/'/g, "''")}'`)
+        .join(', ');
+
+      const supplierCityRows = await mikroService.executeQuery(`
+        SELECT
+          adr_cari_kod as cari_kod,
+          MAX(NULLIF(LTRIM(RTRIM(adr_il)), '')) as sehir
+        FROM CARI_HESAP_ADRESLERI WITH (NOLOCK)
+        WHERE adr_adres_no = '1'
+          AND adr_cari_kod IN (${inClause})
+        GROUP BY adr_cari_kod
+      `);
+
+      for (const row of supplierCityRows || []) {
+        const code = String(row.cari_kod || '').trim();
+        if (!code) continue;
+        const city = row.sehir ? String(row.sehir).trim() : null;
+        cityBySupplierCode.set(code, city || null);
+      }
+    }
 
     // SatÄ±cÄ± bazÄ±nda grupla
     const summary = new Map<
@@ -655,6 +686,7 @@ class OrderTrackingService {
         customerName: string;
         customerEmail: string | null;
         sectorCode: string | null;
+        city: string | null;
         ordersCount: number;
         totalAmount: number;
         emailSent: boolean;
@@ -677,6 +709,7 @@ class OrderTrackingService {
           customerName: order.customerName,
           customerEmail: order.customerEmail || null,
           sectorCode: order.sectorCode || null,
+          city: cityBySupplierCode.get(String(order.customerCode || '').trim()) || null,
           ordersCount: 0,
           totalAmount: 0,
           emailSent: false,

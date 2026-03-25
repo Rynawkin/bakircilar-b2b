@@ -47,13 +47,12 @@ interface CustomerSummary {
   customerName: string;
   customerEmail: string | null;
   sectorCode: string | null;
+  city?: string | null;
   ordersCount: number;
   totalAmount: number;
   emailSent: boolean;
   orders: OrderDetail[];
 }
-
-
 interface SupplierPdfItem {
   productCode: string;
   productName: string;
@@ -89,6 +88,8 @@ export default function OrderTrackingPage() {
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [customerSummary, setCustomerSummary] = useState<CustomerSummary[]>([]);
   const [supplierSummary, setSupplierSummary] = useState<CustomerSummary[]>([]);
+  const [supplierCityFilter, setSupplierCityFilter] = useState('ALL');
+  const [supplierCitySort, setSupplierCitySort] = useState<'none' | 'asc' | 'desc'>('none');
   const [activeTab, setActiveTab] = useState<'customers' | 'suppliers'>('customers');
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -577,8 +578,34 @@ export default function OrderTrackingPage() {
   const totalAmount = customerAmount + supplierAmount;
 
   const isSupplierTab = activeTab === 'suppliers';
-  const currentSummary = isSupplierTab ? supplierSummary : customerSummary;
-  const currentAmount = isSupplierTab ? supplierAmount : customerAmount;
+  const supplierCities = Array.from(
+    new Set(
+      supplierSummary
+        .map((supplier) => (supplier.city || '').trim())
+        .filter((city) => city.length > 0)
+    )
+  ).sort((a, b) => a.localeCompare(b, 'tr', { sensitivity: 'base' }));
+
+  const filteredSupplierSummary = supplierSummary
+    .filter((supplier) => {
+      if (supplierCityFilter === 'ALL') return true;
+      return (supplier.city || '').trim() === supplierCityFilter;
+    })
+    .sort((a, b) => {
+      if (supplierCitySort === 'none') return 0;
+
+      const cityA = (a.city || '').trim();
+      const cityB = (b.city || '').trim();
+      const cityCompare = cityA.localeCompare(cityB, 'tr', { sensitivity: 'base' });
+      if (cityCompare !== 0) {
+        return supplierCitySort === 'asc' ? cityCompare : -cityCompare;
+      }
+
+      return a.customerName.localeCompare(b.customerName, 'tr', { sensitivity: 'base' });
+    });
+
+  const currentSummary = isSupplierTab ? filteredSupplierSummary : customerSummary;
+  const currentAmount = currentSummary.reduce((sum, item) => sum + item.totalAmount, 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -991,6 +1018,38 @@ export default function OrderTrackingPage() {
               </div>
             </div>
 
+            {isSupplierTab && (
+              <div className="mb-4 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Sehir Filtre</label>
+                  <select
+                    value={supplierCityFilter}
+                    onChange={(e) => setSupplierCityFilter(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value="ALL">Tum Sehirler</option>
+                    {supplierCities.map((city) => (
+                      <option key={city} value={city}>
+                        {city}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Sehire Gore Sirala</label>
+                  <select
+                    value={supplierCitySort}
+                    onChange={(e) => setSupplierCitySort(e.target.value as 'none' | 'asc' | 'desc')}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value="none">Varsayilan</option>
+                    <option value="asc">A-Z</option>
+                    <option value="desc">Z-A</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
             {currentSummary.length === 0 ? (
               <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg">
                 <p className="text-lg mb-2">✅ Bekleyen sipariş yok</p>
@@ -1023,6 +1082,11 @@ export default function OrderTrackingPage() {
                               {customer.sectorCode && (
                                 <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">
                                   {customer.sectorCode}
+                                </span>
+                              )}
+                              {isSupplierTab && (
+                                <span className="text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded">
+                                  Sehir: {customer.city || '-'}
                                 </span>
                               )}
                               <span>📦 {customer.ordersCount} sipariş</span>
@@ -1212,3 +1276,5 @@ export default function OrderTrackingPage() {
     </div>
   );
 }
+
+
