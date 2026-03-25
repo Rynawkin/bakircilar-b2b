@@ -791,6 +791,7 @@ export class AdminController {
       const supplierRows = await mikroService.executeQuery(`
         SELECT
           s.sto_kod AS productCode,
+          ISNULL(s.sto_vergi_pntr, 0) AS vatCode,
           LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS mainSupplierCode,
           LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS mainSupplierName
         FROM STOKLAR s
@@ -798,19 +799,35 @@ export class AdminController {
           ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
         WHERE s.sto_kod IN (${inClause})
       `);
-      const supplierByCode = new Map<string, { code: string | null; name: string | null }>();
+      const supplierByCode = new Map<string, { code: string | null; name: string | null; vatCode: number }>();
       (supplierRows || []).forEach((row: any) => {
         const productCode = String(row?.productCode || '').trim().toUpperCase();
         if (!productCode) return;
         const mainSupplierCode = String(row?.mainSupplierCode || '').trim() || null;
         const mainSupplierName = String(row?.mainSupplierName || '').trim() || null;
-        supplierByCode.set(productCode, { code: mainSupplierCode, name: mainSupplierName });
+        const vatCode = Number(row?.vatCode ?? 0);
+        supplierByCode.set(productCode, {
+          code: mainSupplierCode,
+          name: mainSupplierName,
+          vatCode: Number.isFinite(vatCode) ? vatCode : 0,
+        });
       });
 
       const enrichedProducts = productsWithPriceLists.map((product: any) => {
         const supplier = supplierByCode.get(String(product?.mikroCode || '').trim().toUpperCase());
+        const currentVatRate = Number(product?.vatRate ?? 0);
+        const fallbackVatRate = Number(
+          mikroService.convertVatCodeToRate(Number(supplier?.vatCode ?? 0))
+        );
+        const resolvedVatRate =
+          Number.isFinite(currentVatRate) && currentVatRate > 0
+            ? currentVatRate
+            : Number.isFinite(fallbackVatRate)
+            ? fallbackVatRate
+            : 0;
         return {
           ...product,
+          vatRate: resolvedVatRate,
           mainSupplierCode: supplier?.code || null,
           mainSupplierName: supplier?.name || null,
         };
