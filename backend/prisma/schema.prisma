@@ -1422,15 +1422,16 @@ model PendingMikroOrder {
 // Tedarikciye PDF/WhatsApp iletim isaretleri (manuel)
 model SupplierTransmissionLog {
   id                  String    @id @default(uuid())
-  customerCode        String
-  customerName        String?
-  transmittedAt       DateTime  @default(now())
-  transmittedByUserId String?
-  transmittedByName   String?
-  createdAt           DateTime  @default(now())
+  customerCode        String    @map("customercode")
+  customerName        String?   @map("customername")
+  transmittedAt       DateTime  @default(now()) @map("transmittedat")
+  transmittedByUserId String?   @map("transmittedbyuserid")
+  transmittedByName   String?   @map("transmittedbyname")
+  createdAt           DateTime  @default(now()) @map("createdat")
 
-  @@index([customerCode])
-  @@index([transmittedAt])
+  @@index([customerCode], map: "suppliertransmissionlog_customercode_idx")
+  @@index([transmittedAt], map: "suppliertransmissionlog_transmittedat_idx")
+  @@map("suppliertransmissionlog")
 }
 
 model ProductFamily {
