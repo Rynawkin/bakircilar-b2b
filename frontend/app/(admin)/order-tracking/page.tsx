@@ -102,6 +102,7 @@ export default function OrderTrackingPage() {
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
   const [downloadingSupplier, setDownloadingSupplier] = useState<string | null>(null);
+  const [downloadingSupplierExcel, setDownloadingSupplierExcel] = useState<string | null>(null);
   const [markingSupplierTransmission, setMarkingSupplierTransmission] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [emailOverrides, setEmailOverrides] = useState<Record<string, string>>({});
@@ -468,7 +469,7 @@ export default function OrderTrackingPage() {
   };
 
   const handleDownloadSupplierPdf = async (supplier: CustomerSummary) => {
-    if (downloadingSupplier) return;
+    if (downloadingSupplier || downloadingSupplierExcel) return;
     setDownloadingSupplier(supplier.customerCode);
 
     try {
@@ -600,6 +601,61 @@ export default function OrderTrackingPage() {
       toast.error('PDF indirilemedi.');
     } finally {
       setDownloadingSupplier(null);
+    }
+  };
+
+  const handleDownloadSupplierExcel = async (supplier: CustomerSummary) => {
+    if (downloadingSupplier || downloadingSupplierExcel) return;
+    setDownloadingSupplierExcel(supplier.customerCode);
+
+    try {
+      const items = buildSupplierPdfItems(supplier);
+      if (items.length === 0) {
+        toast.error('Bekleyen urun yok.');
+        return;
+      }
+
+      const XLSX = await import('xlsx');
+      const rows: Array<Array<string | number>> = [
+        [
+          'Urun Kodu',
+          'Urun Adi',
+          'Kalan Miktar',
+          'Birim',
+          'Birim Fiyat (TL)',
+          'Kalan Tutar (TL)',
+          'Siparis Nolari / Tarihleri',
+        ],
+      ];
+
+      items.forEach((item) => {
+        const orderRefs = item.orderRefs
+          .map((ref) => `${ref.orderNumber} (${formatDate(ref.orderDate)})`)
+          .join(', ');
+
+        rows.push([
+          item.productCode,
+          item.productName,
+          Number(item.totalQty.toFixed(2)),
+          item.unit,
+          Number(item.unitPrice.toFixed(2)),
+          Number(item.totalAmount.toFixed(2)),
+          orderRefs,
+        ]);
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Bekleyen Siparisler');
+
+      const safeCode = supplier.customerCode.replace(/[^a-zA-Z0-9-_]/g, '_');
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(workbook, `supplier_${safeCode}_pending_${dateStamp}.xlsx`);
+    } catch (error) {
+      console.error('Supplier Excel indirilemedi:', error);
+      toast.error('Excel indirilemedi.');
+    } finally {
+      setDownloadingSupplierExcel(null);
     }
   };
 
@@ -1200,10 +1256,28 @@ export default function OrderTrackingPage() {
                               <Button
                                 onClick={() => handleDownloadSupplierPdf(customer)}
                                 isLoading={downloadingSupplier === customer.customerCode}
-                                disabled={!hasPendingItems || downloadingSupplier === customer.customerCode}
+                                disabled={
+                                  !hasPendingItems ||
+                                  downloadingSupplier === customer.customerCode ||
+                                  downloadingSupplierExcel === customer.customerCode
+                                }
                                 className="bg-white text-orange-700 border border-orange-200 hover:bg-orange-50 text-sm py-1 px-3"
                               >
                                 PDF Indir
+                              </Button>
+                            )}
+                            {isSupplierTab && (
+                              <Button
+                                onClick={() => handleDownloadSupplierExcel(customer)}
+                                isLoading={downloadingSupplierExcel === customer.customerCode}
+                                disabled={
+                                  !hasPendingItems ||
+                                  downloadingSupplierExcel === customer.customerCode ||
+                                  downloadingSupplier === customer.customerCode
+                                }
+                                className="bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 text-sm py-1 px-3"
+                              >
+                                Excel Indir
                               </Button>
                             )}
                             {customer.emailSent ? (
