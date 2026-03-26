@@ -678,6 +678,31 @@ class OrderTrackingService {
       }
     }
 
+    const transmissionBySupplierCode = new Map<
+      string,
+      { transmittedAt: Date; transmittedByName: string | null }
+    >();
+    if (supplierCodes.length > 0) {
+      const transmissionRows = await prisma.supplierTransmissionLog.findMany({
+        where: { customerCode: { in: supplierCodes } },
+        orderBy: [{ customerCode: 'asc' }, { transmittedAt: 'desc' }],
+        select: {
+          customerCode: true,
+          transmittedAt: true,
+          transmittedByName: true,
+        },
+      });
+
+      for (const row of transmissionRows) {
+        const code = String(row.customerCode || '').trim();
+        if (!code || transmissionBySupplierCode.has(code)) continue;
+        transmissionBySupplierCode.set(code, {
+          transmittedAt: row.transmittedAt,
+          transmittedByName: row.transmittedByName || null,
+        });
+      }
+    }
+
     // SatÄ±cÄ± bazÄ±nda grupla
     const summary = new Map<
       string,
@@ -690,6 +715,8 @@ class OrderTrackingService {
         ordersCount: number;
         totalAmount: number;
         emailSent: boolean;
+        lastTransmittedAt: Date | null;
+        lastTransmittedByName: string | null;
         orders: Array<{
           id: string;
           mikroOrderNumber: string;
@@ -713,6 +740,10 @@ class OrderTrackingService {
           ordersCount: 0,
           totalAmount: 0,
           emailSent: false,
+          lastTransmittedAt:
+            transmissionBySupplierCode.get(String(order.customerCode || '').trim())?.transmittedAt || null,
+          lastTransmittedByName:
+            transmissionBySupplierCode.get(String(order.customerCode || '').trim())?.transmittedByName || null,
           orders: [],
         });
       }
@@ -732,6 +763,47 @@ class OrderTrackingService {
     }
 
     return Array.from(summary.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  async markSupplierTransmitted(params: {
+    customerCode: string;
+    customerName?: string;
+    transmittedByUserId?: string;
+  }) {
+    const customerCode = String(params.customerCode || '').trim();
+    if (!customerCode) {
+      throw new Error('Supplier code is required');
+    }
+
+    const customerName = params.customerName ? String(params.customerName).trim() : null;
+    const transmittedByUserId = params.transmittedByUserId
+      ? String(params.transmittedByUserId).trim()
+      : null;
+
+    let transmittedByName: string | null = null;
+    if (transmittedByUserId) {
+      const user = await prisma.user.findUnique({
+        where: { id: transmittedByUserId },
+        select: { name: true },
+      });
+      transmittedByName = user?.name ? String(user.name).trim() : null;
+    }
+
+    const log = await prisma.supplierTransmissionLog.create({
+      data: {
+        customerCode,
+        customerName,
+        transmittedByUserId,
+        transmittedByName,
+      },
+      select: {
+        customerCode: true,
+        transmittedAt: true,
+        transmittedByName: true,
+      },
+    });
+
+    return log;
   }
 }
 

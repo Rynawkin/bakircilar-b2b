@@ -237,6 +237,38 @@ class OrderTrackingController {
     }
   }
 
+  /**
+   * POST /api/admin/order-tracking/supplier-transmissions/:customerCode
+   * Tedarikciye manuel iletim (PDF/WhatsApp) kaydi olustur
+   */
+  async markSupplierTransmitted(req: Request, res: Response) {
+    try {
+      const { customerCode } = req.params;
+      const customerName = req.body?.customerName;
+      const transmittedByUserId = req.user?.userId;
+
+      if (!customerCode) {
+        return res.status(400).json({ error: 'Tedarikci kodu gerekli' });
+      }
+
+      const result = await orderTrackingService.markSupplierTransmitted({
+        customerCode,
+        customerName,
+        transmittedByUserId,
+      });
+
+      res.json({
+        success: true,
+        customerCode: result.customerCode,
+        transmittedAt: result.transmittedAt,
+        transmittedByName: result.transmittedByName,
+      });
+    } catch (error: any) {
+      console.error('Tedarikci iletim isaretleme hatasi:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   // ==================== CUSTOMER ENDPOINTS ====================
 
   /**

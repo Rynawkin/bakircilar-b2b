@@ -1419,6 +1419,20 @@ model PendingMikroOrder {
   @@index([sectorCode])
 }
 
+// Tedarikciye PDF/WhatsApp iletim isaretleri (manuel)
+model SupplierTransmissionLog {
+  id                  String    @id @default(uuid())
+  customerCode        String
+  customerName        String?
+  transmittedAt       DateTime  @default(now())
+  transmittedByUserId String?
+  transmittedByName   String?
+  createdAt           DateTime  @default(now())
+
+  @@index([customerCode])
+  @@index([transmittedAt])
+}
+
 model ProductFamily {
   id         String              @id @default(uuid())
   name       String

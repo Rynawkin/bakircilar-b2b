@@ -51,6 +51,8 @@ interface CustomerSummary {
   ordersCount: number;
   totalAmount: number;
   emailSent: boolean;
+  lastTransmittedAt?: string | null;
+  lastTransmittedByName?: string | null;
   orders: OrderDetail[];
 }
 interface SupplierPdfItem {
@@ -100,6 +102,7 @@ export default function OrderTrackingPage() {
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
   const [downloadingSupplier, setDownloadingSupplier] = useState<string | null>(null);
+  const [markingSupplierTransmission, setMarkingSupplierTransmission] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [emailOverrides, setEmailOverrides] = useState<Record<string, string>>({});
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -362,6 +365,16 @@ export default function OrderTrackingPage() {
     return new Intl.DateTimeFormat('tr-TR').format(new Date(date));
   };
 
+  const formatDateTime = (date: string | null) => {
+    if (!date) return '-';
+    const value = new Date(date);
+    if (Number.isNaN(value.getTime())) return '-';
+    return new Intl.DateTimeFormat('tr-TR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(value);
+  };
+
   const formatNumber = (value: number) => {
     return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 }).format(value);
   };
@@ -587,6 +600,43 @@ export default function OrderTrackingPage() {
       toast.error('PDF indirilemedi.');
     } finally {
       setDownloadingSupplier(null);
+    }
+  };
+
+  const handleMarkSupplierTransmitted = async (supplier: CustomerSummary) => {
+    if (!supplier.customerCode || markingSupplierTransmission) return;
+    setMarkingSupplierTransmission(supplier.customerCode);
+    try {
+      const response = await apiClient.post(
+        `/order-tracking/admin/supplier-transmissions/${encodeURIComponent(supplier.customerCode)}`,
+        { customerName: supplier.customerName }
+      );
+
+      const transmittedAt = response?.data?.transmittedAt
+        ? String(response.data.transmittedAt)
+        : new Date().toISOString();
+      const transmittedByName = response?.data?.transmittedByName
+        ? String(response.data.transmittedByName)
+        : null;
+
+      setSupplierSummary((prev) =>
+        prev.map((row) =>
+          row.customerCode === supplier.customerCode
+            ? {
+                ...row,
+                lastTransmittedAt: transmittedAt,
+                lastTransmittedByName: transmittedByName,
+              }
+            : row
+        )
+      );
+
+      toast.success('Tedarikci iletildi olarak isaretlendi.');
+    } catch (error: any) {
+      console.error('Tedarikci iletim isaretleme hatasi:', error);
+      toast.error(error?.response?.data?.error || 'Iletim isaretlenemedi.');
+    } finally {
+      setMarkingSupplierTransmission(null);
     }
   };
 
@@ -1123,6 +1173,12 @@ export default function OrderTrackingPage() {
                                   Sehir: {customer.city || '-'}
                                 </span>
                               )}
+                              {isSupplierTab && (
+                                <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                                  Son Iletim: {formatDateTime(customer.lastTransmittedAt || null)}
+                                  {customer.lastTransmittedByName ? ` (${customer.lastTransmittedByName})` : ''}
+                                </span>
+                              )}
                               <span>📦 {customer.ordersCount} sipariş</span>
                               <span className="font-semibold text-primary-600">
                                 💰 {formatCurrency(customer.totalAmount)}
@@ -1130,6 +1186,16 @@ export default function OrderTrackingPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            {isSupplierTab && (
+                              <Button
+                                onClick={() => handleMarkSupplierTransmitted(customer)}
+                                isLoading={markingSupplierTransmission === customer.customerCode}
+                                disabled={markingSupplierTransmission === customer.customerCode}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm py-1 px-3"
+                              >
+                                Iletildi
+                              </Button>
+                            )}
                             {isSupplierTab && (
                               <Button
                                 onClick={() => handleDownloadSupplierPdf(customer)}
@@ -1310,5 +1376,4 @@ export default function OrderTrackingPage() {
     </div>
   );
 }
-
 

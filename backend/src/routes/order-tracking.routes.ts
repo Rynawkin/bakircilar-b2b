@@ -20,6 +20,7 @@ router.post('/admin/sync', authenticate, requirePermission('admin:order-tracking
 router.post('/admin/send-emails', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.sendEmails);
 router.post('/admin/send-customer-emails', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.sendCustomerEmails);
 router.post('/admin/send-supplier-emails', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.sendSupplierEmails);
+router.post('/admin/supplier-transmissions/:customerCode', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.markSupplierTransmitted);
 router.post('/admin/send-email/:customerCode', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.sendEmailToCustomer);
 router.post('/admin/sync-and-send', authenticate, requirePermission('admin:order-tracking'), orderTrackingController.syncAndSend);
 
