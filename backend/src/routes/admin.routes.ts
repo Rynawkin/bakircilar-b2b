@@ -210,10 +210,10 @@ router.get('/supplier-price-lists/:id/items', requirePermission('admin:supplier-
 router.get('/supplier-price-lists/:id/export', requirePermission('admin:supplier-price-lists'), supplierPriceListController.exportUpload);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
-router.get('/products', requireAnyPermission(['admin:products', 'dashboard:diversey-stok']), adminController.getProducts);
+router.get('/products', requireAnyPermission(['admin:products', 'dashboard:diversey-stok', 'reports:cost-update-all-products']), adminController.getProducts);
 router.post(
   '/products/by-codes',
-  requireAnyPermission(['admin:quotes', 'admin:products']),
+  requireAnyPermission(['admin:quotes', 'admin:products', 'reports:cost-update-all-products']),
   validateBody(productCodesSchema),
   adminController.getProductsByCodes
 );
@@ -480,7 +480,11 @@ router.put('/reports/product-families/:id', requirePermission('reports:ucarer-de
 router.delete('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.deleteProductFamily);
 router.post('/reports/product-families/create-supplier-orders', requirePermission('reports:ucarer-depo'), adminController.createSupplierOrdersFromFamilies);
 router.post('/reports/product-families/create-depot-transfer-order', requirePermission('reports:ucarer-depo'), adminController.createDepotTransferOrder);
-router.post('/reports/ucarer-depo/update-cost', requirePermission('reports:ucarer-depo'), adminController.updateUcarerProductCost);
+router.post(
+  '/reports/ucarer-depo/update-cost',
+  requireAnyPermission(['reports:ucarer-depo', 'reports:cost-update-all-products']),
+  adminController.updateUcarerProductCost
+);
 router.post('/reports/ucarer-depo/update-main-supplier', requirePermission('reports:ucarer-depo'), adminController.updateUcarerMainSupplier);
 // Price Sync endpoints
 router.post('/price-sync', requirePermission('admin:price-sync'), adminController.syncPriceChanges);

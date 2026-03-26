@@ -66,7 +66,7 @@ const reports: ReportCard[] = [
     category: 'cost',
     badge: 'Yeni',
     tags: ['Toplu Islem', 'Maliyet'],
-    permission: 'reports:cost-update-alerts',
+    permission: 'reports:cost-update-all-products',
   },
   {
     id: 'profit-analysis',
