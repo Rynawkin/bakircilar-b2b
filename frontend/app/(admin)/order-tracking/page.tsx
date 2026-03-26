@@ -60,7 +60,11 @@ interface SupplierPdfItem {
   totalQty: number;
   totalAmount: number;
   unitPrice: number;
-  orderNumbers: string[];
+  orderRefs: Array<{
+    orderNumber: string;
+    orderDate: string;
+    orderDateTs: number;
+  }>;
 }
 
 interface Settings {
@@ -387,6 +391,11 @@ export default function OrderTrackingPage() {
     const itemMap = new Map<string, SupplierPdfItem>();
 
     supplier.orders.forEach((order) => {
+      const orderDateRaw = order.orderDate || '';
+      const orderDateTs = Number.isFinite(new Date(orderDateRaw).getTime())
+        ? new Date(orderDateRaw).getTime()
+        : Number.POSITIVE_INFINITY;
+
       order.items.forEach((item) => {
         if (item.remainingQty <= 0) return;
         const key = `${item.productCode}||${item.unit}`;
@@ -398,8 +407,12 @@ export default function OrderTrackingPage() {
           existing.totalQty += item.remainingQty;
           existing.totalAmount += lineTotal;
           existing.unitPrice = existing.totalQty > 0 ? existing.totalAmount / existing.totalQty : existing.unitPrice;
-          if (!existing.orderNumbers.includes(order.mikroOrderNumber)) {
-            existing.orderNumbers.push(order.mikroOrderNumber);
+          if (!existing.orderRefs.some((ref) => ref.orderNumber === order.mikroOrderNumber)) {
+            existing.orderRefs.push({
+              orderNumber: order.mikroOrderNumber,
+              orderDate: orderDateRaw,
+              orderDateTs,
+            });
           }
           return;
         }
@@ -412,12 +425,29 @@ export default function OrderTrackingPage() {
           totalQty: item.remainingQty,
           totalAmount: lineTotal,
           unitPrice,
-          orderNumbers: [order.mikroOrderNumber],
+          orderRefs: [
+            {
+              orderNumber: order.mikroOrderNumber,
+              orderDate: orderDateRaw,
+              orderDateTs,
+            },
+          ],
         });
       });
     });
 
-    return Array.from(itemMap.values()).sort((a, b) => {
+    const items = Array.from(itemMap.values());
+    items.forEach((item) => {
+      item.orderRefs.sort((a, b) => {
+        if (a.orderDateTs !== b.orderDateTs) return a.orderDateTs - b.orderDateTs;
+        return a.orderNumber.localeCompare(b.orderNumber, 'tr');
+      });
+    });
+
+    return items.sort((a, b) => {
+      const minDateA = a.orderRefs.length > 0 ? a.orderRefs[0].orderDateTs : Number.POSITIVE_INFINITY;
+      const minDateB = b.orderRefs.length > 0 ? b.orderRefs[0].orderDateTs : Number.POSITIVE_INFINITY;
+      if (minDateA !== minDateB) return minDateA - minDateB;
       const nameCompare = a.productName.localeCompare(b.productName, 'tr');
       if (nameCompare !== 0) return nameCompare;
       return a.productCode.localeCompare(b.productCode, 'tr');
@@ -504,7 +534,11 @@ export default function OrderTrackingPage() {
 
       const tableStartY = infoTop + boxHeight + 10;
       const rows = items.map((item) => {
-        const ordersText = item.orderNumbers.length ? `Siparis: ${item.orderNumbers.join(', ')}` : '';
+        const ordersText = item.orderRefs.length
+          ? `Siparis: ${item.orderRefs
+              .map((ref) => `${ref.orderNumber} (${formatDate(ref.orderDate)})`)
+              .join(', ')}`
+          : '';
         const productText = [item.productName, item.productCode, ordersText]
           .filter(Boolean)
           .map((value) => cleanPdfText(String(value)))
