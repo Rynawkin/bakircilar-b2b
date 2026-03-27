@@ -105,6 +105,7 @@ type SalesHistorySortKey =
   | 'quantity'
   | 'unitPrice'
   | 'totalAmount';
+type SalesHistoryViewMode = 'minmax' | 'recentCustomers';
 
 interface SalesHistorySortState {
   key: SalesHistorySortKey;
@@ -281,6 +282,7 @@ export default function UcarerDepotReportPage() {
   const [salesHistoryModalOpen, setSalesHistoryModalOpen] = useState(false);
   const [salesHistoryLoading, setSalesHistoryLoading] = useState(false);
   const [salesHistoryProductCode, setSalesHistoryProductCode] = useState('');
+  const [salesHistoryViewMode, setSalesHistoryViewMode] = useState<SalesHistoryViewMode>('minmax');
   const [salesHistoryLookbackMonths, setSalesHistoryLookbackMonths] = useState(4);
   const [salesHistoryRows, setSalesHistoryRows] = useState<ProductSalesHistoryRow[]>([]);
   const [salesHistorySort, setSalesHistorySort] = useState<SalesHistorySortState>({
@@ -1248,10 +1250,11 @@ export default function UcarerDepotReportPage() {
       setIncomingOrdersLoading(false);
     }
   };
-  const openSalesHistoryModal = async (productCode: string) => {
+  const openSalesHistoryModal = async (productCode: string, mode: SalesHistoryViewMode = 'minmax') => {
     const code = String(productCode || '').trim().toUpperCase();
     if (!code) return;
     setSalesHistoryProductCode(code);
+    setSalesHistoryViewMode(mode);
     setSalesHistoryModalOpen(true);
     setSalesHistoryLoading(true);
     try {
@@ -2428,14 +2431,24 @@ export default function UcarerDepotReportPage() {
                     >
                       <div className="flex flex-col gap-1">
                         <span>{item.productCode}</span>
-                        <button
-                          type="button"
-                          className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
-                          onClick={() => openSalesHistoryModal(code)}
-                          title="Son alinan carileri ve satis detaylarini goster"
-                        >
-                          Son Alinan Cariler
-                        </button>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <button
+                            type="button"
+                            className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
+                            onClick={() => openSalesHistoryModal(code, 'minmax')}
+                            title="Satis MinMax detaylarini goster"
+                          >
+                            Satis (MinMax)
+                          </button>
+                          <button
+                            type="button"
+                            className="w-fit rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100"
+                            onClick={() => openSalesHistoryModal(code, 'recentCustomers')}
+                            title="Son alinan carileri ve satis detaylarini goster"
+                          >
+                            Son Alinan Cariler
+                          </button>
+                        </div>
                       </div>
                     </td>
                     <td
@@ -3078,14 +3091,24 @@ export default function UcarerDepotReportPage() {
                           >
                             <div className="flex flex-col gap-1">
                               <span>{code}</span>
-                              <button
-                                type="button"
-                                className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
-                                onClick={() => openSalesHistoryModal(code)}
-                                title="Son alinan carileri ve satis detaylarini goster"
-                              >
-                                Son Alinan Cariler
-                              </button>
+                              <div className="flex flex-wrap items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
+                                  onClick={() => openSalesHistoryModal(code, 'minmax')}
+                                  title="Satis MinMax detaylarini goster"
+                                >
+                                  Satis (MinMax)
+                                </button>
+                                <button
+                                  type="button"
+                                  className="w-fit rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100"
+                                  onClick={() => openSalesHistoryModal(code, 'recentCustomers')}
+                                  title="Son alinan carileri ve satis detaylarini goster"
+                                >
+                                  Son Alinan Cariler
+                                </button>
+                              </div>
                             </div>
                           </td>
                           <td
@@ -3519,7 +3542,7 @@ export default function UcarerDepotReportPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-6xl rounded-lg bg-white p-4 shadow-xl">
               <p className="text-base font-semibold text-gray-900">
-                Son Alinan Cariler - Son {salesHistoryLookbackMonths} Ay Satis Detayi - {salesHistoryProductCode || '-'}
+                {salesHistoryViewMode === 'recentCustomers' ? 'Son Alinan Cariler' : 'Satis (MinMax)'} - Son {salesHistoryLookbackMonths} Ay Satis Detayi - {salesHistoryProductCode || '-'}
               </p>
               <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-700">
                 <span>
