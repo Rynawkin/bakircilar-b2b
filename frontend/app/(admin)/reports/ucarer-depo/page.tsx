@@ -2432,9 +2432,9 @@ export default function UcarerDepotReportPage() {
                           type="button"
                           className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
                           onClick={() => openSalesHistoryModal(code)}
-                          title="Son 3 ay satis detaylarini goster"
+                          title="Son alinan carileri ve satis detaylarini goster"
                         >
-                          Satis (MinMax)
+                          Son Alinan Cariler
                         </button>
                       </div>
                     </td>
@@ -3082,9 +3082,9 @@ export default function UcarerDepotReportPage() {
                                 type="button"
                                 className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-100"
                                 onClick={() => openSalesHistoryModal(code)}
-                                title="Son 3 ay satis detaylarini goster"
+                                title="Son alinan carileri ve satis detaylarini goster"
                               >
-                                Satis (MinMax)
+                                Son Alinan Cariler
                               </button>
                             </div>
                           </td>
@@ -3519,7 +3519,7 @@ export default function UcarerDepotReportPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-6xl rounded-lg bg-white p-4 shadow-xl">
               <p className="text-base font-semibold text-gray-900">
-                Son {salesHistoryLookbackMonths} Ay Satis Detayi - {salesHistoryProductCode || '-'}
+                Son Alinan Cariler - Son {salesHistoryLookbackMonths} Ay Satis Detayi - {salesHistoryProductCode || '-'}
               </p>
               <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-700">
                 <span>
