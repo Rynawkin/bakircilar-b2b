@@ -6930,9 +6930,46 @@ export class ReportsService {
         const seri = match[1];
         const sira = Number(match[2]);
         if (seri && Number.isFinite(sira)) {
+          const fallbackApproverRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+          const fallbackApprover =
+            Number.isFinite(fallbackApproverRaw) && fallbackApproverRaw > 0
+              ? Math.trunc(fallbackApproverRaw)
+              : 1;
+          const approverRows = await mikroService.executeQuery(`
+            SELECT TOP 1 ISNULL(sip_OnaylayanKulNo, 0) AS approverNo
+            FROM SIPARISLER WITH (NOLOCK)
+            WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
+              AND ISNULL(sip_OnaylayanKulNo, 0) > 0
+            ORDER BY sip_lastup_date DESC, sip_create_date DESC
+          `);
+          let approverNoRaw = Number(approverRows?.[0]?.approverNo || 0);
+          if (!Number.isFinite(approverNoRaw) || approverNoRaw <= 0) {
+            const globalApproverRows = await mikroService.executeQuery(`
+              SELECT TOP 1 ISNULL(sip_OnaylayanKulNo, 0) AS approverNo
+              FROM SIPARISLER WITH (NOLOCK)
+              WHERE sip_tip = 1
+                AND ISNULL(sip_OnaylayanKulNo, 0) > 0
+              ORDER BY sip_lastup_date DESC, sip_create_date DESC
+            `);
+            approverNoRaw = Number(globalApproverRows?.[0]?.approverNo || 0);
+          }
+          const approverNo =
+            Number.isFinite(approverNoRaw) && approverNoRaw > 0
+              ? Math.trunc(approverNoRaw)
+              : fallbackApprover;
           await mikroService.executeQuery(`
             UPDATE SIPARISLER
-            SET sip_tip = 1
+            SET
+              sip_tip = 1,
+              sip_OnaylayanKulNo = CASE
+                WHEN ISNULL(sip_OnaylayanKulNo, 0) = 0 THEN ${approverNo}
+                ELSE sip_OnaylayanKulNo
+              END,
+              sip_lastup_user = CASE
+                WHEN ISNULL(sip_lastup_user, 0) = 0 THEN ${approverNo}
+                ELSE sip_lastup_user
+              END,
+              sip_lastup_date = GETDATE()
             WHERE sip_evrakno_seri = '${seri.replace(/'/g, "''")}'
               AND sip_evrakno_sira = ${sira}
           `);
