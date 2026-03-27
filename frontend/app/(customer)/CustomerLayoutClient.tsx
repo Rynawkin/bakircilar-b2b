@@ -9,7 +9,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 
 const CUSTOMER_MAINTENANCE_MODE = true;
-const CUSTOMER_MAINTENANCE_MASCOT_SRC = '/maintenance/maskot.jpeg';
+const CUSTOMER_MAINTENANCE_MASCOT_SRC = '/maintenance/maskot.png';
 
 export default function CustomerLayout({
   children,
