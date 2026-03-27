@@ -1258,7 +1258,10 @@ export default function UcarerDepotReportPage() {
     setSalesHistoryModalOpen(true);
     setSalesHistoryLoading(true);
     try {
-      const response = await adminApi.getUcarerProductSalesHistory(code);
+      const response =
+        mode === 'recentCustomers'
+          ? await adminApi.getUcarerProductPurchaseHistory(code)
+          : await adminApi.getUcarerProductSalesHistory(code);
       setSalesHistoryRows(Array.isArray(response.data?.rows) ? response.data.rows : []);
       setSalesHistoryLookbackMonths(Number(response.data?.metadata?.lookbackMonths || 4));
       setSalesHistorySummary({
@@ -1274,7 +1277,10 @@ export default function UcarerDepotReportPage() {
         totalAmount: 0,
         averageUnitPrice: 0,
       });
-      toast.error(error?.response?.data?.error || 'Son 3 ay satis detaylari getirilemedi');
+      toast.error(
+        error?.response?.data?.error ||
+          (mode === 'recentCustomers' ? 'Son alis detaylari getirilemedi' : 'Son 3 ay satis detaylari getirilemedi')
+      );
     } finally {
       setSalesHistoryLoading(false);
     }
@@ -2444,7 +2450,7 @@ export default function UcarerDepotReportPage() {
                             type="button"
                             className="w-fit rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100"
                             onClick={() => openSalesHistoryModal(code, 'recentCustomers')}
-                            title="Son alinan carileri ve satis detaylarini goster"
+                            title="Son alinan carileri ve alis detaylarini goster"
                           >
                             Son Alinan Cariler
                           </button>
@@ -3104,7 +3110,7 @@ export default function UcarerDepotReportPage() {
                                   type="button"
                                   className="w-fit rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100"
                                   onClick={() => openSalesHistoryModal(code, 'recentCustomers')}
-                                  title="Son alinan carileri ve satis detaylarini goster"
+                                  title="Son alinan carileri ve alis detaylarini goster"
                                 >
                                   Son Alinan Cariler
                                 </button>
@@ -3542,7 +3548,7 @@ export default function UcarerDepotReportPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="w-full max-w-6xl rounded-lg bg-white p-4 shadow-xl">
               <p className="text-base font-semibold text-gray-900">
-                {salesHistoryViewMode === 'recentCustomers' ? 'Son Alinan Cariler' : 'Satis (MinMax)'} - Son {salesHistoryLookbackMonths} Ay Satis Detayi - {salesHistoryProductCode || '-'}
+                {salesHistoryViewMode === 'recentCustomers' ? 'Son Alinan Cariler' : 'Satis (MinMax)'} - Son {salesHistoryLookbackMonths} Ay {salesHistoryViewMode === 'recentCustomers' ? 'Alis' : 'Satis'} Detayi - {salesHistoryProductCode || '-'}
               </p>
               <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-700">
                 <span>
@@ -3590,7 +3596,7 @@ export default function UcarerDepotReportPage() {
                     ) : salesHistoryRows.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-2 py-6 text-center text-gray-500">
-                          Son {salesHistoryLookbackMonths} ayda satis kaydi bulunamadi.
+                          Son {salesHistoryLookbackMonths} ayda {salesHistoryViewMode === 'recentCustomers' ? 'alis' : 'satis'} kaydi bulunamadi.
                         </td>
                       </tr>
                     ) : (

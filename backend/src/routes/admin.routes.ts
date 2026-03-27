@@ -471,6 +471,7 @@ router.get('/reports/customer-carts', requirePermission('reports:customer-carts'
 router.get('/reports/ucarer-depo', requirePermission('reports:ucarer-depo'), adminController.getUcarerDepotReport);
 router.get('/reports/ucarer-incoming-order-details', requirePermission('reports:ucarer-depo'), adminController.getUcarerIncomingOrderDetails);
 router.get('/reports/ucarer-product-sales-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductSalesHistory);
+router.get('/reports/ucarer-product-purchase-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductPurchaseHistory);
 router.post('/reports/ucarer-minmax/run', requirePermission('reports:ucarer-minmax'), adminController.runUcarerMinMaxReport);
 router.get('/reports/ucarer-minmax-excluded', requirePermission('reports:ucarer-depo'), adminController.getUcarerMinMaxExcludedProductsReport);
 router.post('/reports/ucarer-minmax-exclusion', requirePermission('reports:ucarer-depo'), adminController.setUcarerMinMaxExclusion);
