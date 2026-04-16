@@ -1947,6 +1947,7 @@ export class AdminController {
                   mikroCode: true,
                   unit: true,
                   imageUrl: true,
+                  vatRate: true,
                 },
               },
             },

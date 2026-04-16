@@ -94,6 +94,18 @@ export default function AdminOrdersPage() {
       .replace(/\u00E7/g, 'c');
   };
 
+  const calculateOrderTotals = (order: PendingOrderForAdmin) => {
+    const subtotal = (order.items || []).reduce((sum, item) => sum + (Number(item.totalPrice) || 0), 0);
+    const totalVat = (order.items || []).reduce((sum, item) => {
+      if (item.priceType !== 'INVOICED') return sum;
+      const rawVatRate = Number((item as any)?.product?.vatRate);
+      const vatRate = Number.isFinite(rawVatRate) && rawVatRate > 0 ? rawVatRate : 0.2;
+      return sum + (Number(item.totalPrice) || 0) * vatRate;
+    }, 0);
+    const totalWithVat = subtotal + totalVat;
+    return { subtotal, totalVat, totalWithVat };
+  };
+
   const buildOrderPdf = async (order: PendingOrderForAdmin) => {
     const { default: jsPDF } = await import('jspdf');
     const autoTableModule = await import('jspdf-autotable');
@@ -101,6 +113,7 @@ export default function AdminOrdersPage() {
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const marginX = 14;
 
     const colors = {
@@ -285,9 +298,21 @@ export default function AdminOrdersPage() {
       },
     });
 
+    const totals = calculateOrderTotals(order);
     const endY = (doc as any).lastAutoTable?.finalY || tableStartY + 10;
+    let summaryY = endY + 8;
+    if (summaryY + 14 > pageHeight - 10) {
+      doc.addPage();
+      summaryY = 20;
+    }
+
+    doc.setFontSize(9);
+    doc.text(cleanPdfText(`KDV Haric Dip Toplam: ${formatCurrency(totals.subtotal)}`), pageWidth - marginX, summaryY, { align: 'right' });
+    doc.text(cleanPdfText(`KDV Tutari: ${formatCurrency(totals.totalVat)}`), pageWidth - marginX, summaryY + 5, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.text(cleanPdfText(`Toplam: ${formatCurrency(order.totalAmount)}`), pageWidth - marginX, endY + 8, { align: 'right' });
+    doc.text(cleanPdfText(`KDV Dahil Dip Toplam: ${formatCurrency(totals.totalWithVat)}`), pageWidth - marginX, summaryY + 10, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
 
     const fileName = `siparis-proforma-${order.orderNumber}.pdf`;
     return { doc, fileName };
@@ -335,7 +360,15 @@ export default function AdminOrdersPage() {
         item.lineNote || '',
       ]));
 
-      const rows = [...headerRows, [], tableHeader, ...itemRows];
+      const totals = calculateOrderTotals(order);
+      const summaryRows = [
+        [],
+        ['KDV Haric Dip Toplam', '', '', '', totals.subtotal, '', ''],
+        ['KDV Tutari', '', '', '', totals.totalVat, '', ''],
+        ['KDV Dahil Dip Toplam', '', '', '', totals.totalWithVat, '', ''],
+      ];
+
+      const rows = [...headerRows, [], tableHeader, ...itemRows, ...summaryRows];
       const worksheet = XLSX.utils.aoa_to_sheet(rows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Siparis');
