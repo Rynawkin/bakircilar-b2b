@@ -1190,9 +1190,7 @@ const buildTopBottom = (
 };
 
 const shouldExcludeMarginRow = (data: Record<string, any>): boolean => {
-  const stockName = pickStockName(data);
-  if (!stockName) return false;
-  return normalizeKeyToken(stockName).includes('diversey');
+  return false;
 };
 
 const filterMarginRowsBySectorCodes = <
