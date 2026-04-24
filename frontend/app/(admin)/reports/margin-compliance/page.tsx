@@ -176,6 +176,9 @@ export default function MarginAnalysisPage() {
   const hasInitializedColumns = useRef(false);
   const [emailColumnIds, setEmailColumnIds] = useState<ColumnId[]>([]);
   const [savingEmailColumns, setSavingEmailColumns] = useState(false);
+  const [includedSectorCodes, setIncludedSectorCodes] = useState<string[]>([]);
+  const [availableSectorCodes, setAvailableSectorCodes] = useState<string[]>([]);
+  const [savingSectorCodes, setSavingSectorCodes] = useState(false);
   const [syncingReport, setSyncingReport] = useState(false);
   const [sendingReportEmail, setSendingReportEmail] = useState(false);
 
@@ -221,10 +224,19 @@ export default function MarginAnalysisPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const settings = await adminApi.getSettings();
+        const [settings, sectorResult] = await Promise.all([
+          adminApi.getSettings(),
+          adminApi.getSectorCodes(),
+        ]);
         if (Array.isArray(settings.marginReportEmailColumns)) {
           setEmailColumnIds(settings.marginReportEmailColumns);
         }
+        setIncludedSectorCodes(
+          Array.isArray(settings.marginReportIncludedSectorCodes)
+            ? settings.marginReportIncludedSectorCodes
+            : []
+        );
+        setAvailableSectorCodes(Array.isArray(sectorResult.sectorCodes) ? sectorResult.sectorCodes : []);
       } catch (err) {
         console.error('Margin report email settings not loaded:', err);
       }
@@ -248,6 +260,14 @@ export default function MarginAnalysisPage() {
       }
       return [...prev, columnId];
     });
+  };
+
+  const toggleIncludedSectorCode = (sectorCode: string) => {
+    setIncludedSectorCodes((prev) => (
+      prev.includes(sectorCode)
+        ? prev.filter((code) => code !== sectorCode)
+        : [...prev, sectorCode].sort((a, b) => a.localeCompare(b, 'tr'))
+    ));
   };
 
 
@@ -314,6 +334,27 @@ export default function MarginAnalysisPage() {
       toast.error('Mail kolonlari kaydedilemedi');
     } finally {
       setSavingEmailColumns(false);
+    }
+  };
+
+  const handleSaveIncludedSectorCodes = async () => {
+    setSavingSectorCodes(true);
+    try {
+      await adminApi.updateSettings({
+        marginReportIncludedSectorCodes: includedSectorCodes,
+      });
+      toast.success(
+        includedSectorCodes.length > 0
+          ? 'Sektor kodlari kaydedildi'
+          : 'Varsayilan sektor kodlarina donuldu'
+      );
+      setPage(1);
+      fetchData();
+    } catch (err) {
+      console.error('Margin report sector code settings update error:', err);
+      toast.error('Sektor kodlari kaydedilemedi');
+    } finally {
+      setSavingSectorCodes(false);
     }
   };
 
@@ -863,6 +904,54 @@ export default function MarginAnalysisPage() {
               </Button>
               <span className="text-xs text-gray-500">Tek gun secili olmali.</span>
             </div>
+
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm font-medium text-gray-700">
+                Hesaplamaya Dahil Sektor Kodlari ({includedSectorCodes.length || 'Varsayilan'})
+              </summary>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIncludedSectorCodes(availableSectorCodes)}
+                  disabled={availableSectorCodes.length === 0}
+                >
+                  Tumunu Sec
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIncludedSectorCodes([])}
+                >
+                  Varsayilana Don
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveIncludedSectorCodes}
+                  isLoading={savingSectorCodes}
+                  disabled={savingSectorCodes}
+                >
+                  Sektor Kodlarini Kaydet
+                </Button>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {availableSectorCodes.map((sectorCode) => (
+                  <label key={sectorCode} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={includedSectorCodes.includes(sectorCode)}
+                      onChange={() => toggleIncludedSectorCode(sectorCode)}
+                    />
+                    {sectorCode}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Secim kaydedilirse rapor o sektor kodlariyla hesaplanir. Bos birakilirsa varsayilan SATIS kodlari kullanilir.
+              </p>
+            </details>
 
             <details className="mt-4">
               <summary className="cursor-pointer text-sm font-medium text-gray-700">

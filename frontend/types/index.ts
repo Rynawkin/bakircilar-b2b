@@ -703,6 +703,7 @@ export interface Settings {
   marginReportEmailRecipients?: string[];
   marginReportEmailSubject?: string;
   marginReportEmailColumns?: string[];
+  marginReportIncludedSectorCodes?: string[];
 }
 
 // ==================== CUSTOMER TYPES ====================

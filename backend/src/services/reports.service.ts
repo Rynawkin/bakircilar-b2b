@@ -663,6 +663,14 @@ const addDaysUtc = (date: Date, days: number): Date => {
   return next;
 };
 
+const startOfMonthUtc = (date: Date): Date =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+
+const endOfMonthUtc = (date: Date): Date =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+
+const isSameUtcDate = (left: Date, right: Date): boolean => formatDateKey(left) === formatDateKey(right);
+
 const listUtcDates = (start: Date, end: Date): Date[] => {
   const dates: Date[] = [];
   let current = new Date(start);
@@ -688,6 +696,8 @@ const getYesterdayInTimeZone = (timeZone: string): Date => {
   const today = getDateInTimeZone(new Date(), timeZone);
   return addDaysUtc(today, -1);
 };
+
+let marginDefaultSectorCodesCache: { codes: string[]; fetchedAt: number } | null = null;
 
 const toNumber = (value: unknown): number => {
   const num = Number(value);
@@ -926,6 +936,20 @@ const pickRevenue = (data: Record<string, any>): number => {
   return toNumber(fallback);
 };
 
+const pickMarginRowDate = (data: Record<string, any>): Date | null => {
+  const raw = resolveDataValueByCandidates(
+    data,
+    ['Evrak Tarihi', 'Belge_Tarihi'],
+    'evraktarihi'
+  );
+  if (!raw) return null;
+
+  const parsed = raw instanceof Date ? raw : new Date(String(raw));
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+};
+
 const pickUnitPrice = (data: Record<string, any>): number => {
   const resolved = resolveDataValueByCandidates(
     data,
@@ -1120,6 +1144,29 @@ const shouldExcludeMarginRow = (data: Record<string, any>): boolean => {
   const stockName = pickStockName(data);
   if (!stockName) return false;
   return normalizeKeyToken(stockName).includes('diversey');
+};
+
+const filterMarginRowsBySectorCodes = <
+  T extends { avgMargin?: number | null; data?: unknown; sectorCode?: string | null }
+>(
+  rows: T[],
+  includedSectorCodes: string[]
+): T[] => {
+  if (!includedSectorCodes.length) return rows;
+
+  const allowed = new Set(
+    includedSectorCodes
+      .map((code) => String(code || '').trim())
+      .filter(Boolean)
+  );
+
+  if (!allowed.size) return rows;
+
+  return rows.filter((row) => {
+    const data = getRowData(row);
+    const sectorCode = resolveSectorCode(row, data);
+    return allowed.has(sectorCode);
+  });
 };
 
 
@@ -1671,6 +1718,67 @@ export class ReportsService {
     };
   }
 
+  private async getDefaultMarginIncludedSectorCodes(): Promise<string[]> {
+    const now = Date.now();
+    if (marginDefaultSectorCodesCache && now - marginDefaultSectorCodesCache.fetchedAt < 5 * 60 * 1000) {
+      return marginDefaultSectorCodesCache.codes;
+    }
+
+    try {
+      const rows = await mikroService.executeQuery(`
+        SELECT DISTINCT LTRIM(RTRIM(ISNULL(sktr_kod, ''))) AS sectorCode
+        FROM STOK_SEKTORLERI
+        WHERE ISNULL(sktr_iptal, 0) = 0
+          AND LTRIM(RTRIM(ISNULL(sktr_kod, ''))) <> ''
+          AND UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            LTRIM(RTRIM(ISNULL(sktr_ismi, ''))),
+            'Ä°','I'),'IÌ‡','I'),'Å','S'),'Ä','G'),'Ãœ','U'),'Ã–','O'),'Ã‡','C')) = 'SATIS'
+      `);
+
+      const codes = Array.from(
+        new Set(
+          rows
+            .map((row: any) => String(row?.sectorCode || '').trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, 'tr'));
+
+      marginDefaultSectorCodesCache = {
+        codes,
+        fetchedAt: now,
+      };
+
+      return codes;
+    } catch (error) {
+      console.error('Margin report default sector codes could not be loaded:', error);
+      return [];
+    }
+  }
+
+  private async getResolvedMarginIncludedSectorCodes(): Promise<string[]> {
+    const settings = await prisma.settings.findFirst({
+      orderBy: [
+        { updatedAt: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      select: {
+        marginReportIncludedSectorCodes: true,
+      },
+    });
+
+    const savedCodes = Array.isArray(settings?.marginReportIncludedSectorCodes)
+      ? settings.marginReportIncludedSectorCodes
+          .map((code) => String(code || '').trim())
+          .filter(Boolean)
+      : [];
+
+    if (savedCodes.length > 0) {
+      return Array.from(new Set(savedCodes));
+    }
+
+    return this.getDefaultMarginIncludedSectorCodes();
+  }
+
   /**
    * Kar Marjı Analizi Raporu (019703 - Komisyon Faturası Hareket Yönetimi)
    *
@@ -1783,7 +1891,9 @@ export class ReportsService {
       },
     });
 
-    const filteredRows = allRows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const baseRows = allRows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const includedSectorCodes = await this.getResolvedMarginIncludedSectorCodes();
+    const filteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
     const summary = buildMarginComplianceSummary(filteredRows);
     const totalRecords = summary.totalRecords;
 
@@ -1828,8 +1938,8 @@ export class ReportsService {
   } = {}): Promise<{ success: boolean; rowCount: number; reportDate: string; error?: string }> {
     const includeCompleted = options.includeCompleted ?? 1;
     const reportDateKey = formatDateKey(reportDate);
-    const start = formatDateCompact(reportDate);
-    const end = start;
+    const rangeStart = formatDateCompact(startOfMonthUtc(reportDate));
+    const rangeEnd = formatDateCompact(endOfMonthUtc(reportDate));
 
     const mikroFactory = require('./mikroFactory.service').default;
     await mikroFactory.connect();
@@ -1837,13 +1947,17 @@ export class ReportsService {
     try {
       const query = `
         SELECT *
-        FROM dbo.fn_KomisyonFaturasiHareketYonetimi('${start}', '${end}', ${includeCompleted})
+        FROM dbo.fn_KomisyonFaturasiHareketYonetimi('${rangeStart}', '${rangeEnd}', ${includeCompleted})
         ORDER BY [msg_S_0089], [msg_S_0001]
       `;
 
       const result = await mikroFactory.executeQuery(query);
       const sanitizedRows = result.map((row: any) => JSON.parse(JSON.stringify(row)));
-      const filteredRows = sanitizedRows.filter((row: any) => !shouldExcludeMarginRow(row));
+      const dailyRows = sanitizedRows.filter((row: any) => {
+        const rowDate = pickMarginRowDate(row);
+        return rowDate ? isSameUtcDate(rowDate, reportDate) : false;
+      });
+      const filteredRows = dailyRows.filter((row: any) => !shouldExcludeMarginRow(row));
       const rowData = filteredRows.map((row: any) => ({
         reportDate,
         sectorCode: typeof row.SektorKodu === 'string' ? row.SektorKodu : null,
@@ -1973,14 +2087,15 @@ export class ReportsService {
     };
   }
 
-  private async buildMarginSevenDaySummary(reportDate: Date): Promise<MarginSevenDaySummary> {
+  private async buildMarginSevenDaySummary(reportDate: Date, includedSectorCodes: string[] = []): Promise<MarginSevenDaySummary> {
     const startDate = addDaysUtc(reportDate, -6);
     const rows = await prisma.marginComplianceReportRow.findMany({
       where: {
         reportDate: { gte: startDate, lte: reportDate },
       },
     });
-    const filteredRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const baseRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const filteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
     const { orderRows, salesRows } = splitRowsByType(filteredRows);
 
     return {
@@ -1996,7 +2111,9 @@ export class ReportsService {
 
   async buildMarginComplianceEmailPayload(reportDate: Date, columnIds: string[] = []) {
     const rows = await prisma.marginComplianceReportRow.findMany({ where: { reportDate } });
-    const filteredRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const baseRows = rows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
+    const includedSectorCodes = await this.getResolvedMarginIncludedSectorCodes();
+    const filteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
     const summary = buildMarginComplianceSummary(filteredRows);
     const { orderRows, salesRows } = splitRowsByType(filteredRows);
     const alerts: MarginAlertGroups = {
@@ -2004,7 +2121,7 @@ export class ReportsService {
       sales: buildAlertSummary(salesRows),
     };
     const topBottom = this.buildMarginTopBottomSummary(orderRows, salesRows);
-    const sevenDaySummary = await this.buildMarginSevenDaySummary(reportDate);
+    const sevenDaySummary = await this.buildMarginSevenDaySummary(reportDate, includedSectorCodes);
     const emailSummary: MarginComplianceEmailSummary = {
       ...summary,
       alerts,
