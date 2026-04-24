@@ -1726,18 +1726,18 @@ export class ReportsService {
 
     try {
       const rows = await mikroService.executeQuery(`
-        SELECT DISTINCT LTRIM(RTRIM(ISNULL(sktr_kod, ''))) AS sectorCode
+        SELECT DISTINCT
+          LTRIM(RTRIM(ISNULL(sktr_kod, ''))) AS sectorCode,
+          LTRIM(RTRIM(ISNULL(sktr_ismi, ''))) AS sectorName
         FROM STOK_SEKTORLERI
         WHERE ISNULL(sktr_iptal, 0) = 0
           AND LTRIM(RTRIM(ISNULL(sktr_kod, ''))) <> ''
-          AND UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            LTRIM(RTRIM(ISNULL(sktr_ismi, ''))),
-            'Ä°','I'),'IÌ‡','I'),'Å','S'),'Ä','G'),'Ãœ','U'),'Ã–','O'),'Ã‡','C')) = 'SATIS'
       `);
 
       const codes = Array.from(
         new Set(
           rows
+            .filter((row: any) => normalizeKeyToken(row?.sectorName) === 'satis')
             .map((row: any) => String(row?.sectorCode || '').trim())
             .filter(Boolean)
         )
