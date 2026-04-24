@@ -1388,7 +1388,7 @@ const normalizeReportText = (value: unknown): string => {
 };
 
 const resolveReportType = (data: Record<string, any>): 'order' | 'sale' => {
-  const tip = normalizeReportText(pickValueByKeys(data, ['Tip']));
+  const tip = normalizeKeyToken(pickValueByKeys(data, ['Tip']));
   if (tip.includes('siparis')) return 'order';
   if (tip.includes('irsaliye') || tip.includes('fatura')) return 'sale';
   return 'sale';
