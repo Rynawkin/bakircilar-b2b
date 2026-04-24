@@ -1938,7 +1938,7 @@ export class ReportsService {
   } = {}): Promise<{ success: boolean; rowCount: number; reportDate: string; error?: string }> {
     const includeCompleted = options.includeCompleted ?? 1;
     const reportDateKey = formatDateKey(reportDate);
-    const rangeStart = formatDateCompact(startOfMonthUtc(reportDate));
+    const rangeStart = formatDateCompact(reportDate);
     const rangeEnd = formatDateCompact(endOfMonthUtc(reportDate));
 
     const mikroFactory = require('./mikroFactory.service').default;
