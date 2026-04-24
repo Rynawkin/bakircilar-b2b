@@ -518,6 +518,26 @@ const formatDateKey = (date: Date): string => {
 
 const formatDateCompact = (date: Date): string => formatDateKey(date).replace(/-/g, '');
 
+const parseDateKeyToUtcDate = (dateKey: string): Date | null => {
+  const match = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+};
+
+const formatDateKeyInTimeZone = (date: Date, timeZone: string): string => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  return `${year}-${month}-${day}`;
+};
+
 const STAFF_ACTIVITY_HIDDEN_ROUTE_TOKENS = ['/notifications'];
 
 const UCARER_MERKEZ_DEPO_SQL = `
@@ -964,19 +984,19 @@ const pickMarginRowDate = (data: Record<string, any>): Date | null => {
   if (!raw) return null;
 
   if (raw instanceof Date) {
-    return new Date(Date.UTC(raw.getFullYear(), raw.getMonth(), raw.getDate()));
+    return parseDateKeyToUtcDate(formatDateKeyInTimeZone(raw, config.cronTimezone));
   }
 
   const text = String(raw).trim();
-  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    return new Date(Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3])));
+  const plainDateMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (plainDateMatch) {
+    return parseDateKeyToUtcDate(`${plainDateMatch[1]}-${plainDateMatch[2]}-${plainDateMatch[3]}`);
   }
 
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return null;
 
-  return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+  return parseDateKeyToUtcDate(formatDateKeyInTimeZone(parsed, config.cronTimezone));
 };
 
 const pickUnitPrice = (data: Record<string, any>): number => {
