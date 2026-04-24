@@ -267,7 +267,12 @@ export class AdminController {
    */
   async getSettings(req: Request, res: Response, next: NextFunction) {
     try {
-      let settings = await prisma.settings.findFirst();
+      let settings = await prisma.settings.findFirst({
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
 
       // Eğer settings yoksa default oluştur
       if (!settings) {
@@ -295,7 +300,12 @@ export class AdminController {
     try {
       const data = req.body;
 
-      let settings = await prisma.settings.findFirst();
+      let settings = await prisma.settings.findFirst({
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
 
       if (!settings) {
         // Yoksa oluştur
@@ -673,7 +683,12 @@ export class AdminController {
       });
 
       // Settings'den aktif depolar?? al
-      const settings = await prisma.settings.findFirst();
+      const settings = await prisma.settings.findFirst({
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
       const includedWarehouses = settings?.includedWarehouses || [];
 
       // Toplam stok hesapla (sadece included warehouses)
@@ -3248,7 +3263,12 @@ export class AdminController {
         return res.status(409).json({ error: 'Veri hazir degil. Once raporu senkronize edin.' });
       }
 
-      const settings = await prisma.settings.findFirst();
+      const settings = await prisma.settings.findFirst({
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
       const recipients = settings?.marginReportEmailRecipients || [];
       if (!recipients.length) {
         return res.status(400).json({ error: 'Mail alicisi bulunamadi.' });

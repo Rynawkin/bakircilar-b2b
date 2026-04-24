@@ -743,6 +743,8 @@ const findValueByToken = (data: Record<string, any>, token: string): unknown => 
 
 const normalizeKeyToken = (value: unknown): string => {
   return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/ı/g, 'i')
     .replace(/ş/g, 's')
@@ -790,24 +792,34 @@ const resolveDataValueByCandidates = (
 
 
 const pickUnitProfit = (data: Record<string, any>): number => {
-  const direct = pickValueByKeys(data, ['BirimKarOrtMalGore']);
-  if (direct !== null && direct !== undefined) {
-    return toNumber(direct);
-  }
-  const fallback = findValueByToken(data, 'birimkarortmal');
-  return toNumber(fallback);
+  return toNumber(
+    resolveDataValueByCandidates(
+      data,
+      ['BirimKarOrtMalGore', 'BirimKarOrtMalGöre'],
+      'birimkarortmal'
+    )
+  );
 };
 
 const pickAvgMargin = (data: Record<string, any>): number => {
-  const direct = pickValueByKeys(data, ['OrtalamaKarYuzde']);
-  if (direct !== null && direct !== undefined) {
-    return toNumber(direct);
-  }
-  const fallback = findValueByToken(data, 'ortalamakaryuzde');
-  return toNumber(fallback);
+  return toNumber(
+    resolveDataValueByCandidates(
+      data,
+      ['OrtalamaKarYuzde', 'OrtalamaKarYüzde'],
+      'ortalamakaryuzde'
+    )
+  );
 };
 
 const pickEntryProfit = (data: Record<string, any>): number => {
+  const resolved = resolveDataValueByCandidates(
+    data,
+    ['SÖ-ToplamKar', 'SO-ToplamKar', 'SÃ–-ToplamKar'],
+    'sotoplamkar'
+  );
+  if (resolved !== null && resolved !== undefined) {
+    return toNumber(resolved);
+  }
   const direct = pickValueByKeys(data, ['SÖ-ToplamKar']);
   if (direct !== null && direct !== undefined) {
     return toNumber(direct);
@@ -818,6 +830,14 @@ const pickEntryProfit = (data: Record<string, any>): number => {
 
 
 const pickStockName = (data: Record<string, any>): string => {
+  const resolved = resolveDataValueByCandidates(
+    data,
+    ['Stok İsmi', 'Stok Ismi', 'Stok ?smi', 'Stok ??smi'],
+    'stokismi'
+  );
+  if (resolved !== null && resolved !== undefined) {
+    return String(resolved);
+  }
   const direct = pickValueByKeys(data, ['Stok ?smi', 'Stok ??smi', 'Stok Ismi']);
   if (direct !== null && direct !== undefined) {
     return String(direct);
@@ -836,6 +856,14 @@ const pickStockCode = (data: Record<string, any>): string => {
 };
 
 const pickCustomerName = (data: Record<string, any>): string => {
+  const resolved = resolveDataValueByCandidates(
+    data,
+    ['Cari Ä°smi', 'Cari Ismi', 'Cari Ã„Â°smi', 'Cari Ãƒâ€Ã‚Â°smi', 'Cari ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°smi'],
+    'cariismi'
+  );
+  if (resolved !== null && resolved !== undefined) {
+    return String(resolved);
+  }
   const direct = pickValueByKeys(data, [
     'Cari Ismi',
     'Cari Ä°smi',
@@ -882,6 +910,14 @@ const pickUnit = (data: Record<string, any>): string => {
 };
 
 const pickRevenue = (data: Record<string, any>): number => {
+  const resolved = resolveDataValueByCandidates(
+    data,
+    ['Tutar', 'TutarKDV', 'Tutar KDV', 'Tutar KDVli'],
+    'tutar'
+  );
+  if (resolved !== null && resolved !== undefined) {
+    return toNumber(resolved);
+  }
   const direct = pickValueByKeys(data, ['Tutar']);
   if (direct !== null && direct !== undefined) {
     return toNumber(direct);
@@ -891,6 +927,25 @@ const pickRevenue = (data: Record<string, any>): number => {
 };
 
 const pickUnitPrice = (data: Record<string, any>): number => {
+  const resolved = resolveDataValueByCandidates(
+    data,
+    [
+      'BirimFiyat',
+      'Birim Fiyat',
+      'BirimSatis',
+      'BirimSatÄ±ÅŸ',
+      'BirimSatÃ„Â±Ã…Å¸',
+      'BirimSatisKDV',
+      'BirimSatÄ±ÅŸKDV',
+      'BirimSatÃ„Â±Ã…Å¸KDV',
+      'BirimSatÄ±ÅŸKDVli',
+      'BirimSatÃ„Â±Ã…Å¸KDVli',
+    ],
+    'birimsatiskdv'
+  );
+  if (resolved !== null && resolved !== undefined) {
+    return toNumber(resolved);
+  }
   const direct = pickValueByKeys(data, [
     'BirimFiyat',
     'Birim Fiyat',
@@ -1293,6 +1348,15 @@ const resolveReportType = (data: Record<string, any>): 'order' | 'sale' => {
 };
 
 const resolveDocumentKey = (data: Record<string, any>): string | null => {
+  const resolved = resolveDataValueByCandidates(
+    data,
+    ['Evrak No', 'msg_S_0089', 'Belge No'],
+    'evrakno'
+  );
+  if (resolved !== null && resolved !== undefined) {
+    const key = String(resolved).trim();
+    if (key) return key;
+  }
   const docValue = pickValueByKeys(data, ['Evrak No', 'msg_S_0089', 'Belge No']);
   const docKey = docValue !== null && docValue !== undefined ? String(docValue).trim() : '';
   return docKey || null;
@@ -1317,7 +1381,7 @@ const buildMarginSummaryBucket = (
 
   rows.forEach((row) => {
     const data = getRowData(row);
-    const revenue = toNumber(pickValueByKeys(data, ['Tutar']));
+    const revenue = pickRevenue(data);
     const profit = pickTotalProfit(data);
     const entryProfitValue = pickEntryProfit(data);
     totalRevenue += revenue;

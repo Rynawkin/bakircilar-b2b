@@ -194,7 +194,12 @@ if (config.enableCron) {
         return;
       }
 
-      const settings = await prisma.settings.findFirst();
+      const settings = await prisma.settings.findFirst({
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
       const recipients = settings?.marginReportEmailRecipients || [];
       if (!settings?.marginReportEmailEnabled || recipients.length === 0) {
         console.log('Margin compliance report email disabled or no recipients configured.');
