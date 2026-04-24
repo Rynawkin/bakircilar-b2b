@@ -963,10 +963,20 @@ const pickMarginRowDate = (data: Record<string, any>): Date | null => {
   );
   if (!raw) return null;
 
-  const parsed = raw instanceof Date ? raw : new Date(String(raw));
+  if (raw instanceof Date) {
+    return new Date(Date.UTC(raw.getFullYear(), raw.getMonth(), raw.getDate()));
+  }
+
+  const text = String(raw).trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return new Date(Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3])));
+  }
+
+  const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return null;
 
-  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+  return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
 };
 
 const pickUnitPrice = (data: Record<string, any>): number => {
