@@ -1279,7 +1279,8 @@ class EmailService {
             <table style="width: 100%; border-collapse: collapse;">
               ${renderBucketRow('Toplam Satir', formatCount(params.summary.totalRecords))}
               ${renderBucketRow('Toplam Evrak', formatCount(params.summary.totalDocuments))}
-              ${renderBucketRow('Toplam Ciro (KDV Haric)', formatCurrency(params.summary.totalRevenue))}
+              ${renderBucketRow('Satis Cirosu (KDV Haric)', formatCurrency(params.summary.salesSummary.totalRevenue))}
+              ${renderBucketRow('Bekleyen Siparis Tutari (KDV Haric)', formatCurrency(params.summary.orderSummary.totalRevenue))}
               ${renderBucketRow('Toplam Kar (KDV Haric)', formatCurrency(params.summary.totalProfit))}
               ${renderBucketRow('Toplam Kar (Son Giris)', formatCurrency(params.summary.entryProfit))}
               ${renderBucketRow('Ortalama Kar %', formatPercent(params.summary.avgMargin))}
