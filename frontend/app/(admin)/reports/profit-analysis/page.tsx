@@ -421,15 +421,15 @@ export default function MarginAnalysisPage() {
             <span className="font-semibold">{formatCurrency(bucket.totalRevenue)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar (KDV Haric)</span>
+            <span className="text-gray-500">Kar (Ort. Maliyet, KDV Haric)</span>
             <span className="font-semibold">{formatCurrency(bucket.totalProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar (Son Giris)</span>
+            <span className="text-gray-500">Kar (Son Giris Maliyeti)</span>
             <span className="font-semibold">{formatCurrency(bucket.entryProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Ortalama Kar %</span>
+            <span className="text-gray-500">Kar % (Ort. Maliyet)</span>
             <span className="font-semibold">{formatPercent(bucket.avgMargin)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -540,7 +540,7 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'unitProfit',
-      label: 'Birim Kar',
+      label: 'Birim Kar (Ort. Maliyet)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(row['BirimKarOrtMalGöre']),
@@ -548,7 +548,7 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'totalProfit',
-      label: 'Toplam Kar',
+      label: 'Toplam Kar (Ort. Maliyet)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right font-semibold whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(row['ToplamKarOrtMalGöre']),
@@ -556,7 +556,7 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'margin',
-      label: 'Kar %',
+      label: 'Kar % (Ort. Maliyet)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => getMarginBadge(row.OrtalamaKarYuzde),
@@ -722,30 +722,30 @@ export default function MarginAnalysisPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Toplam Kar</CardTitle>
+                  <CardTitle className="text-sm font-medium">Toplam Kar (Ort. Maliyet)</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(summary.totalProfit)}</div>
-                  <p className="text-xs text-muted-foreground">KDV Haric</p>
+                  <p className="text-xs text-muted-foreground">Ortalama maliyet bazli, KDV Haric</p>
                 </CardContent>
               </Card>
 
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Son Giris Kar</CardTitle>
+                  <CardTitle className="text-sm font-medium">Toplam Kar (Son Giris)</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(summary.entryProfit)}</div>
-                  <p className="text-xs text-muted-foreground">Son giris maliyeti</p>
+                  <p className="text-xs text-muted-foreground">Son giris maliyeti bazli</p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Ortalama Kar %</CardTitle>
+                  <CardTitle className="text-sm font-medium">Kar % (Ort. Maliyet)</CardTitle>
                   <Percent className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -780,13 +780,13 @@ export default function MarginAnalysisPage() {
                       </TableRow>
                       <TableRow>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar %</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar (Ort. Maliyet)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar % (Ort. Maliyet)</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar %</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar (Ort. Maliyet)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar % (Ort. Maliyet)</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                       </TableRow>
