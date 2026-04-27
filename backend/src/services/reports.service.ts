@@ -746,13 +746,17 @@ const toNumber = (value: unknown): number => {
 const pickTotalProfit = (row: Record<string, any>): number => {
   if (!row || typeof row !== 'object') return 0;
 
-  const direct = row['ToplamKarOrtMalGore'];
+  const direct = resolveDataValueByCandidates(
+    row,
+    ['TeklifToplamKar'],
+    'tekliftoplamkar'
+  );
   if (direct !== undefined && direct !== null) {
     return toNumber(direct);
   }
 
   const key = Object.keys(row).find((candidate) =>
-    candidate.toLowerCase().includes('toplamkarortmal')
+    normalizeKeyToken(candidate).includes('tekliftoplamkar')
   );
 
   return key ? toNumber(row[key]) : 0;
@@ -844,8 +848,8 @@ const pickUnitProfit = (data: Record<string, any>): number => {
   return toNumber(
     resolveDataValueByCandidates(
       data,
-      ['BirimKarOrtMalGore', 'BirimKarOrtMalGöre'],
-      'birimkarortmal'
+      ['TeklifAdetKar'],
+      'teklifadetkar'
     )
   );
 };
@@ -854,8 +858,8 @@ const pickAvgMargin = (data: Record<string, any>): number => {
   return toNumber(
     resolveDataValueByCandidates(
       data,
-      ['OrtalamaKarYuzde', 'OrtalamaKarYüzde'],
-      'ortalamakaryuzde'
+      ['TeklifKarYuzde', 'TeklifKarYüzde'],
+      'teklifkaryuzde'
     )
   );
 };
@@ -869,12 +873,37 @@ const pickEntryProfit = (data: Record<string, any>): number => {
   if (resolved !== null && resolved !== undefined) {
     return toNumber(resolved);
   }
-  const direct = pickValueByKeys(data, ['SÖ-ToplamKar']);
+  const direct = pickValueByKeys(data, ['SÖ-ToplamKar', 'SÃ–-ToplamKar']);
   if (direct !== null && direct !== undefined) {
     return toNumber(direct);
   }
   const fallback = findValueByNormalizedToken(data, 'sotoplamkar');
   return toNumber(fallback);
+};
+
+const pickCurrentCost = (data: Record<string, any>): number => {
+  return toNumber(
+    resolveDataValueByCandidates(
+      data,
+      ['A.TeklifDahil', 'A.Teklif+'],
+      'ateklifdahil'
+    )
+  );
+};
+
+const pickEntryMargin = (data: Record<string, any>, revenue?: number): number => {
+  const resolved = resolveDataValueByCandidates(
+    data,
+    ['SÖ-KarYuzde', 'SO-KarYuzde', 'SÃ–-KarYuzde', 'SÖ-KarYüzde'],
+    'sokaryuzde'
+  );
+  if (resolved !== null && resolved !== undefined) {
+    return toNumber(resolved);
+  }
+
+  const safeRevenue = Number.isFinite(revenue) ? Number(revenue) : pickRevenue(data);
+  const entryProfit = pickEntryProfit(data);
+  return safeRevenue > 0 ? (entryProfit / safeRevenue) * 100 : 0;
 };
 
 
@@ -1043,8 +1072,8 @@ const buildMarginAlertRow = (
   const revenue = pickRevenue(data);
   const profit = pickTotalProfit(data);
   const entryProfit = pickEntryProfit(data);
-  const avgMargin = Number.isFinite(row.avgMargin) ? Number(row.avgMargin) : pickAvgMargin(data);
-  const entryMargin = revenue > 0 ? (entryProfit / revenue) * 100 : 0;
+  const avgMargin = pickAvgMargin(data);
+  const entryMargin = pickEntryMargin(data, revenue);
   const quantity = pickQuantity(data);
   const unit = pickUnit(data);
 
@@ -1275,19 +1304,19 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
   },
   avgCost: {
-    label: 'Ort. Maliyet',
-    resolve: (data) => resolveDataValueByCandidates(data, ['OrtalamaMaliyetKDVli'], 'ortalamamaliyetkdvli'),
+    label: 'A Teklif (KDV Dahil)',
+    resolve: (data) => pickCurrentCost(data),
   },
   unitProfit: {
-    label: 'Birim Kar',
+    label: 'Birim Kar (A Teklife Gore)',
     resolve: (data) => pickUnitProfit(data),
   },
   totalProfit: {
-    label: 'Toplam Kar',
+    label: 'Toplam Kar (A Teklife Gore)',
     resolve: (data) => pickTotalProfit(data),
   },
   margin: {
-    label: 'Kar %',
+    label: 'Kar % (A Teklife Gore)',
     resolve: (data) => pickAvgMargin(data),
   },
 };
@@ -1530,7 +1559,7 @@ const buildMarginComplianceSummary = (
 
   rows.forEach((row) => {
     const data = getRowData(row);
-    const marginValue = Number.isFinite(row.avgMargin) ? Number(row.avgMargin) : pickAvgMargin(data);
+    const marginValue = pickAvgMargin(data);
 
     if (marginValue > 30) {
       highMarginCount += 1;
@@ -1898,18 +1927,6 @@ export class ReportsService {
       where.groupCode = { contains: category };
     }
 
-    if (status) {
-      if (status === 'HIGH') {
-        where.avgMargin = { gt: 30 };
-      } else if (status === 'LOW') {
-        where.avgMargin = { lt: 10 };
-      } else if (status === 'NEGATIVE') {
-        where.avgMargin = { lt: 0 };
-      } else if (status === 'OK') {
-        where.avgMargin = { gte: 10, lte: 30 };
-      }
-    }
-
     const sortField =
       sortBy === 'OrtalamaKarYuzde' || sortBy === 'avgMargin'
         ? 'avgMargin'
@@ -1940,23 +1957,34 @@ export class ReportsService {
 
     const baseRows = allRows.filter((row) => !shouldExcludeMarginRow(getRowData(row)));
     const includedSectorCodes = await this.getResolvedMarginIncludedSectorCodes();
-    const filteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
+    const sectorFilteredRows = filterMarginRowsBySectorCodes(baseRows, includedSectorCodes);
+    const filteredRows = sectorFilteredRows.filter((row) => {
+      if (!status) return true;
+      const marginValue = pickAvgMargin(getRowData(row));
+      if (status === 'HIGH') return marginValue > 30;
+      if (status === 'LOW') return marginValue >= 0 && marginValue < 10;
+      if (status === 'NEGATIVE') return marginValue < 0;
+      if (status === 'OK') return marginValue >= 10 && marginValue <= 30;
+      return true;
+    });
     const summary = buildMarginComplianceSummary(filteredRows);
     const totalRecords = summary.totalRecords;
 
     const sortedRows = filteredRows.slice().sort((a, b) => {
+      const aData = getRowData(a);
+      const bData = getRowData(b);
       const aValue =
         sortField === 'totalRevenue'
-          ? toNumber(a.totalRevenue)
+          ? pickRevenue(aData)
           : sortField === 'totalProfit'
-          ? toNumber(a.totalProfit)
-          : toNumber(a.avgMargin);
+          ? pickTotalProfit(aData)
+          : pickAvgMargin(aData);
       const bValue =
         sortField === 'totalRevenue'
-          ? toNumber(b.totalRevenue)
+          ? pickRevenue(bData)
           : sortField === 'totalProfit'
-          ? toNumber(b.totalProfit)
-          : toNumber(b.avgMargin);
+          ? pickTotalProfit(bData)
+          : pickAvgMargin(bData);
       return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
     });
 
@@ -2009,7 +2037,7 @@ export class ReportsService {
         reportDate,
         sectorCode: typeof row.SektorKodu === 'string' ? row.SektorKodu : null,
         groupCode: typeof row.GrupKodu === 'string' ? row.GrupKodu : null,
-        avgMargin: toNumber(row.OrtalamaKarYuzde),
+        avgMargin: pickAvgMargin(row),
         totalRevenue: toNumber(row.TutarKDV),
         totalProfit: pickTotalProfit(row),
         data: row,

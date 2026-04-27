@@ -988,10 +988,10 @@ class EmailService {
           ${renderBucketRow('Toplam Satir', formatCount(bucket.totalRecords))}
           ${renderBucketRow('Toplam Evrak', formatCount(bucket.totalDocuments))}
           ${renderBucketRow('Ciro (KDV Haric)', formatCurrency(bucket.totalRevenue))}
-          ${renderBucketRow('Kar (Ortalama Maliyete Gore, KDV Haric)', formatCurrency(bucket.totalProfit))}
-          ${renderBucketRow('Kar (Son Giris Maliyetine Gore, KDV Haric)', formatCurrency(bucket.entryProfit))}
-          ${renderBucketRow('Ortalama Kar % (Ortalama Maliyete Gore)', formatPercent(bucket.avgMargin))}
-          ${renderBucketRow('Ortalama Kar % (Son Giris Maliyetine Gore)', formatPercent(calcEntryMargin(bucket)))}
+          ${renderBucketRow('Kar (A Teklife Gore, KDV Haric)', formatCurrency(bucket.totalProfit))}
+          ${renderBucketRow('Kar (SÖ / Satis Oncesi, KDV Haric)', formatCurrency(bucket.entryProfit))}
+          ${renderBucketRow('Kar % (A Teklife Gore)', formatPercent(bucket.avgMargin))}
+          ${renderBucketRow('Kar % (SÖ / Satis Oncesi)', formatPercent(calcEntryMargin(bucket)))}
           ${renderBucketRow('Zararli Evrak', formatCount(bucket.negativeDocuments))}
           ${renderBucketRow('Zararli Satir', formatCount(bucket.negativeLines))}
         </table>
@@ -1004,11 +1004,11 @@ class EmailService {
       }
 
       const profitLabel = options.useEntry
-        ? 'Kar (Son Giris Maliyeti)'
-        : 'Kar (Ortalama Maliyet)';
+        ? 'Kar (SÖ / Satis Oncesi)'
+        : 'Kar (A Teklife Gore)';
       const marginLabel = options.useEntry
-        ? 'Kar % (Son Giris Maliyeti)'
-        : 'Kar % (Ortalama Maliyet)';
+        ? 'Kar % (SÖ / Satis Oncesi)'
+        : 'Kar % (A Teklife Gore)';
 
       const body = rows
         .map((row) => {
@@ -1096,10 +1096,10 @@ class EmailService {
             <tr>
               <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ad</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ciro</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Ortalama Maliyet)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Ortalama Maliyet)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Son Giris Maliyeti)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Son Giris Maliyeti)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (A Teklife Gore)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (A Teklife Gore)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (SÖ / Satis Oncesi)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (SÖ / Satis Oncesi)</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Satir</th>
             </tr>
           </thead>
@@ -1162,25 +1162,25 @@ class EmailService {
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalRevenue)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Ortalama Maliyete Gore, KDV Haric)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (A Teklife Gore, KDV Haric)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.totalProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.totalProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalProfit)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Son Giris Maliyetine Gore, KDV Haric)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (SÖ / Satis Oncesi, KDV Haric)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.entryProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.entryProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.entryProfit)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Ortalama Kar % (Ortalama Maliyete Gore)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (A Teklife Gore)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.overall.avgMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.orders.avgMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.sales.avgMargin)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Ortalama Kar % (Son Giris Maliyetine Gore)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (SÖ / Satis Oncesi)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(overallEntryMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(orderEntryMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(salesEntryMargin)}</td>
@@ -1218,13 +1218,13 @@ class EmailService {
             </tr>
             <tr>
               <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (Ortalama Maliyet)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (Ortalama Maliyet)</th>
+              <th style="padding: 6px; text-align: right;">Kar (A Teklife Gore)</th>
+              <th style="padding: 6px; text-align: right;">Kar % (A Teklife Gore)</th>
               <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
               <th style="padding: 6px; text-align: right;">Zararli Satir</th>
               <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (Ortalama Maliyet)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (Ortalama Maliyet)</th>
+              <th style="padding: 6px; text-align: right;">Kar (A Teklife Gore)</th>
+              <th style="padding: 6px; text-align: right;">Kar % (A Teklife Gore)</th>
               <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
               <th style="padding: 6px; text-align: right;">Zararli Satir</th>
             </tr>
@@ -1239,13 +1239,13 @@ class EmailService {
     const alertsHtml = `
       <div style="margin-top: 12px;">
         <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Siparis Uyarilari</h3>
-        ${renderAlertSection('Ortalama Maliyete Gore', params.summary.alerts.order.current, { useEntry: false })}
-        ${renderAlertSection('Son Giris Maliyetine Gore', params.summary.alerts.order.entry, { useEntry: true })}
+        ${renderAlertSection('A Teklife Gore', params.summary.alerts.order.current, { useEntry: false })}
+        ${renderAlertSection('SÖ / Satis Oncesi', params.summary.alerts.order.entry, { useEntry: true })}
       </div>
       <div style="margin-top: 16px;">
         <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Satis Uyarilari</h3>
-        ${renderAlertSection('Ortalama Maliyete Gore', params.summary.alerts.sales.current, { useEntry: false })}
-        ${renderAlertSection('Son Giris Maliyetine Gore', params.summary.alerts.sales.entry, { useEntry: true })}
+        ${renderAlertSection('A Teklife Gore', params.summary.alerts.sales.current, { useEntry: false })}
+        ${renderAlertSection('SÖ / Satis Oncesi', params.summary.alerts.sales.entry, { useEntry: true })}
       </div>
     `;
 
@@ -1288,10 +1288,10 @@ class EmailService {
               ${renderBucketRow('Toplam Evrak', formatCount(params.summary.totalDocuments))}
               ${renderBucketRow('Satis Cirosu (KDV Haric)', formatCurrency(params.summary.salesSummary.totalRevenue))}
               ${renderBucketRow('Bekleyen Siparis Tutari (KDV Haric)', formatCurrency(params.summary.orderSummary.totalRevenue))}
-              ${renderBucketRow('Toplam Kar (Ortalama Maliyete Gore, KDV Haric)', formatCurrency(params.summary.totalProfit))}
-              ${renderBucketRow('Toplam Kar (Son Giris Maliyetine Gore, KDV Haric)', formatCurrency(params.summary.entryProfit))}
-              ${renderBucketRow('Ortalama Kar % (Ortalama Maliyete Gore)', formatPercent(params.summary.avgMargin))}
-              ${renderBucketRow('Ortalama Kar % (Son Giris Maliyetine Gore)', formatPercent(calcEntryMargin(params.summary)))}
+              ${renderBucketRow('Toplam Kar (A Teklife Gore, KDV Haric)', formatCurrency(params.summary.totalProfit))}
+              ${renderBucketRow('Toplam Kar (SÖ / Satis Oncesi, KDV Haric)', formatCurrency(params.summary.entryProfit))}
+              ${renderBucketRow('Kar % (A Teklife Gore)', formatPercent(params.summary.avgMargin))}
+              ${renderBucketRow('Kar % (SÖ / Satis Oncesi)', formatPercent(calcEntryMargin(params.summary)))}
             </table>
 
             <div style="margin-top: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px;">
@@ -1299,7 +1299,7 @@ class EmailService {
                 Yuksek: <strong>${formatCount(params.summary.highMarginCount)}</strong> | Dusuk: <strong>${formatCount(params.summary.lowMarginCount)}</strong> | Zarar: <strong>${formatCount(params.summary.negativeMarginCount)}</strong>
               </p>
               <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
-                "Ortalama Maliyete Gore" alanlari ortalama maliyetle, "Son Giris Maliyetine Gore" alanlari son giris maliyetiyle hesaplanir.
+                "A Teklife Gore" alanlari Mikro raporundaki teklif bazli kolonlardan, "SÖ / Satis Oncesi" alanlari ise SÖ kolonlarindan hesaplanir.
               </p>
             </div>
 
