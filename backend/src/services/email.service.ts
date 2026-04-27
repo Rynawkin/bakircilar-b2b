@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Email Service - Brevo (SendinBlue) Integration
  *
- * Bekleyen siparişleri müşterilere mail ile gönderir.
+ * Bekleyen sipariÅŸleri mÃ¼ÅŸterilere mail ile gÃ¶nderir.
  */
 
 import { prisma } from '../utils/prisma';
@@ -19,7 +19,7 @@ interface OrderEmailData {
     items: Array<{
       productName: string;
       unit: string;
-      quantity: number;          // Toplam sipariş miktarı
+      quantity: number;          // Toplam sipariÅŸ miktarÄ±
       deliveredQty: number;      // Teslim edilen miktar
       remainingQty: number;      // Kalan miktar
       unitPrice: number;
@@ -139,18 +139,18 @@ class EmailService {
   private senderName: string;
 
   constructor() {
-    // Brevo API client oluştur
+    // Brevo API client oluÅŸtur
     this.apiInstance = new brevo.TransactionalEmailsApi();
     this.apiInstance.setApiKey(
       brevo.TransactionalEmailsApiApiKeys.apiKey,
       process.env.BREVO_API_KEY || ''
     );
     this.senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@bakircilar.com';
-    this.senderName = process.env.BREVO_SENDER_NAME || 'Bakırcılar B2B';
+    this.senderName = process.env.BREVO_SENDER_NAME || 'BakÄ±rcÄ±lar B2B';
   }
 
   /**
-   * Tüm müşterilere bekleyen siparişlerini mail ile gönder (DEPRECATED - use sendPendingOrdersToCustomers)
+   * TÃ¼m mÃ¼ÅŸterilere bekleyen sipariÅŸlerini mail ile gÃ¶nder (DEPRECATED - use sendPendingOrdersToCustomers)
    */
   async sendPendingOrdersToAllCustomers(): Promise<{
     success: boolean;
@@ -159,22 +159,22 @@ class EmailService {
     message: string;
   }> {
     try {
-      console.log('📧 Mail gönderimi başladı...');
+      console.log('ğŸ“§ Mail gÃ¶nderimi baÅŸladÄ±...');
 
-      // 1. Mail gönderilecek müşterileri bul
+      // 1. Mail gÃ¶nderilecek mÃ¼ÅŸterileri bul
       const customers = await this.getCustomersWithPendingOrders();
-      console.log(`✅ ${customers.length} müşteri bulundu`);
+      console.log(`âœ… ${customers.length} mÃ¼ÅŸteri bulundu`);
 
       let sentCount = 0;
       let failedCount = 0;
 
-      // 2. Her müşteriye mail gönder
+      // 2. Her mÃ¼ÅŸteriye mail gÃ¶nder
       for (const customer of customers) {
         try {
-          await this.sendOrderEmail(customer, 'Bekleyen Siparişleriniz');
+          await this.sendOrderEmail(customer, 'Bekleyen SipariÅŸleriniz');
           sentCount++;
 
-          // Gönderildi olarak işaretle
+          // GÃ¶nderildi olarak iÅŸaretle
           await prisma.pendingMikroOrder.updateMany({
             where: { customerCode: customer.customerCode },
             data: {
@@ -183,7 +183,7 @@ class EmailService {
             },
           });
         } catch (error: any) {
-          console.error(`❌ Mail gönderilemedi (${customer.customerEmail}):`, error.message);
+          console.error(`âŒ Mail gÃ¶nderilemedi (${customer.customerEmail}):`, error.message);
           failedCount++;
 
           // Hata log'a
@@ -192,7 +192,7 @@ class EmailService {
               recipientEmail: customer.customerEmail,
               recipientName: customer.customerName,
               customerCode: customer.customerCode,
-              subject: 'Bekleyen Siparişleriniz',
+              subject: 'Bekleyen SipariÅŸleriniz',
               ordersCount: customer.orders.length,
               totalAmount: customer.totalOrdersAmount,
               success: false,
@@ -202,7 +202,7 @@ class EmailService {
         }
       }
 
-      // 3. Settings'e son mail gönderim zamanını kaydet
+      // 3. Settings'e son mail gÃ¶nderim zamanÄ±nÄ± kaydet
       const settings = await prisma.orderTrackingSettings.findFirst();
       if (settings) {
         await prisma.orderTrackingSettings.update({
@@ -211,16 +211,16 @@ class EmailService {
         });
       }
 
-      console.log(`✅ Mail gönderimi tamamlandı: ${sentCount} başarılı, ${failedCount} başarısız`);
+      console.log(`âœ… Mail gÃ¶nderimi tamamlandÄ±: ${sentCount} baÅŸarÄ±lÄ±, ${failedCount} baÅŸarÄ±sÄ±z`);
 
       return {
         success: true,
         sentCount,
         failedCount,
-        message: `${sentCount} başarılı, ${failedCount} başarısız`,
+        message: `${sentCount} baÅŸarÄ±lÄ±, ${failedCount} baÅŸarÄ±sÄ±z`,
       };
     } catch (error: any) {
-      console.error('❌ Toplu mail gönderimi hatası:', error);
+      console.error('âŒ Toplu mail gÃ¶nderimi hatasÄ±:', error);
       return {
         success: false,
         sentCount: 0,
@@ -231,10 +231,10 @@ class EmailService {
   }
 
   /**
-   * Tek bir müşteriye mail gönder
+   * Tek bir mÃ¼ÅŸteriye mail gÃ¶nder
    */
   async sendOrderEmail(data: OrderEmailData, subject?: string): Promise<void> {
-    const emailSubject = subject || 'Bekleyen Siparişleriniz';
+    const emailSubject = subject || 'Bekleyen SipariÅŸleriniz';
     const htmlContent = this.generateEmailHTML(data);
 
     const sendSmtpEmail = new brevo.SendSmtpEmail();
@@ -261,21 +261,21 @@ class EmailService {
   }
 
   /**
-   * Mail gönderilecek müşterileri ve siparişlerini getir
+   * Mail gÃ¶nderilecek mÃ¼ÅŸterileri ve sipariÅŸlerini getir
    */
   private async getCustomersWithPendingOrders(): Promise<OrderEmailData[]> {
-    // 1. Bekleyen siparişleri çek
+    // 1. Bekleyen sipariÅŸleri Ã§ek
     const orders = await prisma.pendingMikroOrder.findMany({
       where: { emailSent: false },
       orderBy: { orderDate: 'desc' },
     });
 
-    // 2. Müşteri bazında grupla
+    // 2. MÃ¼ÅŸteri bazÄ±nda grupla
     const customerMap = new Map<string, OrderEmailData>();
 
     for (const order of orders) {
       if (!customerMap.has(order.customerCode)) {
-        // Email adresini belirle: Önce order'daki email, yoksa User tablosundan
+        // Email adresini belirle: Ã–nce order'daki email, yoksa User tablosundan
         let customerEmail = order.customerEmail;
 
         if (!customerEmail) {
@@ -286,7 +286,7 @@ class EmailService {
         }
 
         if (!customerEmail) {
-          console.warn(`⚠️ Müşteri email bulunamadı: ${order.customerCode}`);
+          console.warn(`âš ï¸ MÃ¼ÅŸteri email bulunamadÄ±: ${order.customerCode}`);
           continue;
         }
 
@@ -316,7 +316,7 @@ class EmailService {
   }
 
   /**
-   * Email HTML template oluştur
+   * Email HTML template oluÅŸtur
    */
   private generateEmailHTML(data: OrderEmailData): string {
     const formatCurrency = (value: number) => {
@@ -343,7 +343,7 @@ class EmailService {
       for (const item of order.items) {
         const isFullyDelivered = item.remainingQty === 0;
 
-        // Tamamı teslim edilmiş ürünler için farklı stil
+        // TamamÄ± teslim edilmiÅŸ Ã¼rÃ¼nler iÃ§in farklÄ± stil
         const rowStyle = isFullyDelivered
           ? 'padding: 8px; border-bottom: 1px solid #eee; background-color: #f3f4f6; opacity: 0.7;'
           : 'padding: 8px; border-bottom: 1px solid #eee;';
@@ -353,7 +353,7 @@ class EmailService {
           : '';
 
         const deliveryBadge = isFullyDelivered
-          ? '<span style="display: inline-block; background-color: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">✓ TESLİM EDİLDİ</span>'
+          ? '<span style="display: inline-block; background-color: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">âœ“ TESLÄ°M EDÄ°LDÄ°</span>'
           : '';
 
         itemsHTML += `
@@ -375,16 +375,16 @@ class EmailService {
 
       ordersHTML += `
         <div style="background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          <h3 style="color: #2563eb; margin-top: 0;">📦 Sipariş No: ${order.mikroOrderNumber}</h3>
+          <h3 style="color: #2563eb; margin-top: 0;">ğŸ“¦ SipariÅŸ No: ${order.mikroOrderNumber}</h3>
           <p style="margin: 8px 0; color: #666;">
-            <strong>Sipariş Tarihi:</strong> ${formatDate(order.orderDate)}<br>
+            <strong>SipariÅŸ Tarihi:</strong> ${formatDate(order.orderDate)}<br>
             <strong>Planlanan Teslimat:</strong> ${formatDate(order.deliveryDate)}
           </p>
 
           <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
             <thead>
               <tr style="background: #f3f4f6;">
-                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Ürün</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">ÃœrÃ¼n</th>
                 <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Kalan Miktar</th>
                 <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Birim Fiyat</th>
                 <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Kalan Tutar</th>
@@ -414,13 +414,13 @@ class EmailService {
       <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
         <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
           <div style="background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; padding: 30px; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0; font-size: 28px;">📋 Bakırcılar Ambalaj Sipariş Bakiyesi</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">Sayın ${data.customerName},</p>
+            <h1 style="margin: 0; font-size: 28px;">ğŸ“‹ BakÄ±rcÄ±lar Ambalaj SipariÅŸ Bakiyesi</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">SayÄ±n ${data.customerName},</p>
           </div>
 
           <div style="background: #f9fafb; padding: 20px;">
             <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-              Aşağıda bekleyen sipariş bakiyelerinizi bulabilirsiniz:
+              AÅŸaÄŸÄ±da bekleyen sipariÅŸ bakiyelerinizi bulabilirsiniz:
             </p>
 
             ${ordersHTML}
@@ -432,17 +432,17 @@ class EmailService {
 
             <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin-top: 20px; border-radius: 4px;">
               <p style="margin: 0; color: #92400e; font-size: 14px;">
-                ℹ️ Sipariş detayları ve güncel durumunuz için <a href="${process.env.FRONTEND_URL}" style="color: #2563eb; text-decoration: none;"><strong>B2B Portalımızı</strong></a> ziyaret edebilirsiniz.
+                â„¹ï¸ SipariÅŸ detaylarÄ± ve gÃ¼ncel durumunuz iÃ§in <a href="${process.env.FRONTEND_URL}" style="color: #2563eb; text-decoration: none;"><strong>B2B PortalÄ±mÄ±zÄ±</strong></a> ziyaret edebilirsiniz.
               </p>
             </div>
           </div>
 
           <div style="background: #374151; color: white; padding: 20px; border-radius: 0 0 8px 8px; text-align: center;">
             <p style="margin: 0; font-size: 14px; opacity: 0.8;">
-              Sorularınız için: <a href="mailto:info@bakircilarambalaj.com" style="color: white; text-decoration: none;">info@bakircilarambalaj.com</a>
+              SorularÄ±nÄ±z iÃ§in: <a href="mailto:info@bakircilarambalaj.com" style="color: white; text-decoration: none;">info@bakircilarambalaj.com</a>
             </p>
             <p style="margin: 10px 0 0 0; font-size: 12px; opacity: 0.6;">
-              © ${new Date().getFullYear()} Bakırcılar Ambalaj. Tüm hakları saklıdır.
+              Â© ${new Date().getFullYear()} BakÄ±rcÄ±lar Ambalaj. TÃ¼m haklarÄ± saklÄ±dÄ±r.
             </p>
           </div>
         </div>
@@ -452,9 +452,9 @@ class EmailService {
   }
 
   /**
-   * Belirli bir müşteriye bekleyen siparişlerini mail ile gönder
-   * @param customerCode Müşteri kodu
-   * @param emailOverride Opsiyonel email override (tek seferlik farklı bir adrese gönder)
+   * Belirli bir mÃ¼ÅŸteriye bekleyen sipariÅŸlerini mail ile gÃ¶nder
+   * @param customerCode MÃ¼ÅŸteri kodu
+   * @param emailOverride Opsiyonel email override (tek seferlik farklÄ± bir adrese gÃ¶nder)
    */
   async sendPendingOrdersToCustomer(
     customerCode: string,
@@ -598,12 +598,12 @@ class EmailService {
   }
 
   /**
-   * Test email gönder (development için)
+   * Test email gÃ¶nder (development iÃ§in)
    */
   async sendTestEmail(toEmail: string): Promise<void> {
     const testData: OrderEmailData = {
       customerCode: 'TEST001',
-      customerName: 'Test Müşteri',
+      customerName: 'Test MÃ¼ÅŸteri',
       customerEmail: toEmail,
       orders: [
         {
@@ -612,7 +612,7 @@ class EmailService {
           deliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           items: [
             {
-              productName: 'Test Ürün 1 (Kısmi Teslim)',
+              productName: 'Test ÃœrÃ¼n 1 (KÄ±smi Teslim)',
               unit: 'ADET',
               quantity: 20,
               deliveredQty: 10,
@@ -621,7 +621,7 @@ class EmailService {
               lineTotal: 1000,
             },
             {
-              productName: 'Test Ürün 2 (Bekliyor)',
+              productName: 'Test ÃœrÃ¼n 2 (Bekliyor)',
               unit: 'KG',
               quantity: 5,
               deliveredQty: 0,
@@ -630,7 +630,7 @@ class EmailService {
               lineTotal: 1000,
             },
             {
-              productName: 'Test Ürün 3 (Teslim Edildi)',
+              productName: 'Test ÃœrÃ¼n 3 (Teslim Edildi)',
               unit: 'ADET',
               quantity: 15,
               deliveredQty: 15,
@@ -651,7 +651,7 @@ class EmailService {
   }
 
   /**
-   * Sadece müşterilere (SATICI olmayanlar) bekleyen siparişlerini mail ile gönder
+   * Sadece mÃ¼ÅŸterilere (SATICI olmayanlar) bekleyen sipariÅŸlerini mail ile gÃ¶nder
    */
   async sendPendingOrdersToCustomers(): Promise<{
     success: boolean;
@@ -660,13 +660,13 @@ class EmailService {
     message: string;
   }> {
     try {
-      console.log('📧 Müşterilere mail gönderimi başladı...');
+      console.log('ğŸ“§ MÃ¼ÅŸterilere mail gÃ¶nderimi baÅŸladÄ±...');
 
-      // Ayarları al
+      // AyarlarÄ± al
       const settings = await prisma.orderTrackingSettings.findFirst();
-      const emailSubject = settings?.customerEmailSubject || 'Bekleyen Siparişleriniz';
+      const emailSubject = settings?.customerEmailSubject || 'Bekleyen SipariÅŸleriniz';
 
-      // 1. Müşterilerin bekleyen siparişlerini al (SATICI olmayanlar)
+      // 1. MÃ¼ÅŸterilerin bekleyen sipariÅŸlerini al (SATICI olmayanlar)
       const orders = await prisma.pendingMikroOrder.findMany({
         where: {
           emailSent: false,
@@ -684,22 +684,22 @@ class EmailService {
         orderBy: { orderDate: 'desc' },
       });
 
-      console.log(`✅ ${orders.length} müşteri siparişi bulundu`);
+      console.log(`âœ… ${orders.length} mÃ¼ÅŸteri sipariÅŸi bulundu`);
 
-      // 2. Müşteri bazında grupla
+      // 2. MÃ¼ÅŸteri bazÄ±nda grupla
       const customerMap = await this.groupOrdersByCustomer(orders);
       const customers = Array.from(customerMap.values());
 
       let sentCount = 0;
       let failedCount = 0;
 
-      // 3. Her müşteriye mail gönder
+      // 3. Her mÃ¼ÅŸteriye mail gÃ¶nder
       for (const customer of customers) {
         try {
           await this.sendOrderEmail(customer, emailSubject);
           sentCount++;
 
-          // Gönderildi olarak işaretle
+          // GÃ¶nderildi olarak iÅŸaretle
           await prisma.pendingMikroOrder.updateMany({
             where: { customerCode: customer.customerCode },
             data: {
@@ -708,7 +708,7 @@ class EmailService {
             },
           });
         } catch (error: any) {
-          console.error(`❌ Müşteriye mail gönderilemedi (${customer.customerEmail}):`, error.message);
+          console.error(`âŒ MÃ¼ÅŸteriye mail gÃ¶nderilemedi (${customer.customerEmail}):`, error.message);
           failedCount++;
 
           await prisma.emailLog.create({
@@ -726,7 +726,7 @@ class EmailService {
         }
       }
 
-      // 4. Son mail gönderim zamanını kaydet
+      // 4. Son mail gÃ¶nderim zamanÄ±nÄ± kaydet
       if (settings) {
         await prisma.orderTrackingSettings.update({
           where: { id: settings.id },
@@ -734,16 +734,16 @@ class EmailService {
         });
       }
 
-      console.log(`✅ Müşterilere mail gönderimi tamamlandı: ${sentCount} başarılı, ${failedCount} başarısız`);
+      console.log(`âœ… MÃ¼ÅŸterilere mail gÃ¶nderimi tamamlandÄ±: ${sentCount} baÅŸarÄ±lÄ±, ${failedCount} baÅŸarÄ±sÄ±z`);
 
       return {
         success: true,
         sentCount,
         failedCount,
-        message: `${sentCount} başarılı, ${failedCount} başarısız`,
+        message: `${sentCount} baÅŸarÄ±lÄ±, ${failedCount} baÅŸarÄ±sÄ±z`,
       };
     } catch (error: any) {
-      console.error('❌ Müşterilere toplu mail gönderimi hatası:', error);
+      console.error('âŒ MÃ¼ÅŸterilere toplu mail gÃ¶nderimi hatasÄ±:', error);
       return {
         success: false,
         sentCount: 0,
@@ -754,7 +754,7 @@ class EmailService {
   }
 
   /**
-   * Sadece tedarikçilere (SATICI sektör kodlu) bekleyen siparişlerini mail ile gönder
+   * Sadece tedarikÃ§ilere (SATICI sektÃ¶r kodlu) bekleyen sipariÅŸlerini mail ile gÃ¶nder
    */
   async sendPendingOrdersToSuppliers(): Promise<{
     success: boolean;
@@ -878,7 +878,7 @@ class EmailService {
   }
 
   /**
-   * Siparişleri müşteri/tedarikçi bazında grupla (helper metod)
+   * SipariÅŸleri mÃ¼ÅŸteri/tedarikÃ§i bazÄ±nda grupla (helper metod)
    */
   private async groupOrdersByCustomer(orders: any[]): Promise<Map<string, OrderEmailData>> {
     const customerMap = new Map<string, OrderEmailData>();
@@ -896,7 +896,7 @@ class EmailService {
         }
 
         if (!customerEmail) {
-          console.warn(`⚠️ Email bulunamadı: ${order.customerCode}`);
+          console.warn(`âš ï¸ Email bulunamadÄ±: ${order.customerCode}`);
           continue;
         }
 
@@ -988,10 +988,10 @@ class EmailService {
           ${renderBucketRow('Toplam Satir', formatCount(bucket.totalRecords))}
           ${renderBucketRow('Toplam Evrak', formatCount(bucket.totalDocuments))}
           ${renderBucketRow('Ciro (KDV Haric)', formatCurrency(bucket.totalRevenue))}
-          ${renderBucketRow('Kar (A Teklife Gore, KDV Haric)', formatCurrency(bucket.totalProfit))}
-          ${renderBucketRow('Kar (SÖ / Satis Oncesi, KDV Haric)', formatCurrency(bucket.entryProfit))}
-          ${renderBucketRow('Kar % (A Teklife Gore)', formatPercent(bucket.avgMargin))}
-          ${renderBucketRow('Kar % (SÖ / Satis Oncesi)', formatPercent(calcEntryMargin(bucket)))}
+          ${renderBucketRow('Kar (Guncel, KDV Haric)', formatCurrency(bucket.totalProfit))}
+          ${renderBucketRow('Kar (Son Giris, KDV Haric)', formatCurrency(bucket.entryProfit))}
+          ${renderBucketRow('Kar % (Guncel)', formatPercent(bucket.avgMargin))}
+          ${renderBucketRow('Kar % (Son Giris)', formatPercent(calcEntryMargin(bucket)))}
           ${renderBucketRow('Zararli Evrak', formatCount(bucket.negativeDocuments))}
           ${renderBucketRow('Zararli Satir', formatCount(bucket.negativeLines))}
         </table>
@@ -1004,11 +1004,11 @@ class EmailService {
       }
 
       const profitLabel = options.useEntry
-        ? 'Kar (SÖ / Satis Oncesi)'
-        : 'Kar (A Teklife Gore)';
+        ? 'Kar (Son Giris)'
+        : 'Kar (Guncel)';
       const marginLabel = options.useEntry
-        ? 'Kar % (SÖ / Satis Oncesi)'
-        : 'Kar % (A Teklife Gore)';
+        ? 'Kar % (Son Giris)'
+        : 'Kar % (Guncel)';
 
       const body = rows
         .map((row) => {
@@ -1062,7 +1062,7 @@ class EmailService {
           ${renderAlertTable(set.negative, options)}
         </div>
         <div style="margin-bottom: 10px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px; color: #f97316;">%5 Altı Kar Satirlar</h5>
+          <h5 style="margin: 0 0 4px 0; font-size: 12px; color: #f97316;">%5 AltÄ± Kar Satirlar</h5>
           ${renderAlertTable(set.low, options)}
         </div>
         <div>
@@ -1096,10 +1096,10 @@ class EmailService {
             <tr>
               <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ad</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ciro</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (A Teklife Gore)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (A Teklife Gore)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (SÖ / Satis Oncesi)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (SÖ / Satis Oncesi)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Guncel)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Guncel)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Son Giris)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Son Giris)</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Satir</th>
             </tr>
           </thead>
@@ -1114,27 +1114,27 @@ class EmailService {
       <div style="margin-top: 12px;">
         <h4 style="margin: 0 0 6px 0; font-size: 13px; color: #111827;">${title}</h4>
         <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Karlı Urunler</h5>
+          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En KarlÄ± Urunler</h5>
           ${renderTopBottomTable(group.products.top)}
         </div>
         <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk Marjlı Urunler</h5>
+          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk MarjlÄ± Urunler</h5>
           ${renderTopBottomTable(group.products.bottom)}
         </div>
         <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Karlı Musteriler</h5>
+          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En KarlÄ± Musteriler</h5>
           ${renderTopBottomTable(group.customers.top)}
         </div>
         <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk Marjlı Musteriler</h5>
+          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk MarjlÄ± Musteriler</h5>
           ${renderTopBottomTable(group.customers.bottom)}
         </div>
         <div style="margin-bottom: 12px;">
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Karlı Satis Personeli</h5>
+          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En KarlÄ± Satis Personeli</h5>
           ${renderTopBottomTable(group.salespeople.top)}
         </div>
         <div>
-          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk Marjlı Satis Personeli</h5>
+          <h5 style="margin: 0 0 4px 0; font-size: 12px;">En Dusuk MarjlÄ± Satis Personeli</h5>
           ${renderTopBottomTable(group.salespeople.bottom)}
         </div>
       </div>
@@ -1162,25 +1162,25 @@ class EmailService {
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalRevenue)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (A Teklife Gore, KDV Haric)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Guncel, KDV Haric)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.totalProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.totalProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalProfit)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (SÖ / Satis Oncesi, KDV Haric)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Son Giris, KDV Haric)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.entryProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.entryProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.entryProfit)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (A Teklife Gore)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (Guncel)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.overall.avgMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.orders.avgMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.sales.avgMargin)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (SÖ / Satis Oncesi)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (Son Giris)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(overallEntryMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(orderEntryMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(salesEntryMargin)}</td>
@@ -1218,13 +1218,13 @@ class EmailService {
             </tr>
             <tr>
               <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (A Teklife Gore)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (A Teklife Gore)</th>
+              <th style="padding: 6px; text-align: right;">Kar (Guncel)</th>
+              <th style="padding: 6px; text-align: right;">Kar % (Guncel)</th>
               <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
               <th style="padding: 6px; text-align: right;">Zararli Satir</th>
               <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (A Teklife Gore)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (A Teklife Gore)</th>
+              <th style="padding: 6px; text-align: right;">Kar (Guncel)</th>
+              <th style="padding: 6px; text-align: right;">Kar % (Guncel)</th>
               <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
               <th style="padding: 6px; text-align: right;">Zararli Satir</th>
             </tr>
@@ -1239,13 +1239,13 @@ class EmailService {
     const alertsHtml = `
       <div style="margin-top: 12px;">
         <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Siparis Uyarilari</h3>
-        ${renderAlertSection('A Teklife Gore', params.summary.alerts.order.current, { useEntry: false })}
-        ${renderAlertSection('SÖ / Satis Oncesi', params.summary.alerts.order.entry, { useEntry: true })}
+        ${renderAlertSection('Guncel', params.summary.alerts.order.current, { useEntry: false })}
+        ${renderAlertSection('Son Giris', params.summary.alerts.order.entry, { useEntry: true })}
       </div>
       <div style="margin-top: 16px;">
         <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Satis Uyarilari</h3>
-        ${renderAlertSection('A Teklife Gore', params.summary.alerts.sales.current, { useEntry: false })}
-        ${renderAlertSection('SÖ / Satis Oncesi', params.summary.alerts.sales.entry, { useEntry: true })}
+        ${renderAlertSection('Guncel', params.summary.alerts.sales.current, { useEntry: false })}
+        ${renderAlertSection('Son Giris', params.summary.alerts.sales.entry, { useEntry: true })}
       </div>
     `;
 
@@ -1288,10 +1288,10 @@ class EmailService {
               ${renderBucketRow('Toplam Evrak', formatCount(params.summary.totalDocuments))}
               ${renderBucketRow('Satis Cirosu (KDV Haric)', formatCurrency(params.summary.salesSummary.totalRevenue))}
               ${renderBucketRow('Bekleyen Siparis Tutari (KDV Haric)', formatCurrency(params.summary.orderSummary.totalRevenue))}
-              ${renderBucketRow('Toplam Kar (A Teklife Gore, KDV Haric)', formatCurrency(params.summary.totalProfit))}
-              ${renderBucketRow('Toplam Kar (SÖ / Satis Oncesi, KDV Haric)', formatCurrency(params.summary.entryProfit))}
-              ${renderBucketRow('Kar % (A Teklife Gore)', formatPercent(params.summary.avgMargin))}
-              ${renderBucketRow('Kar % (SÖ / Satis Oncesi)', formatPercent(calcEntryMargin(params.summary)))}
+              ${renderBucketRow('Toplam Kar (Guncel, KDV Haric)', formatCurrency(params.summary.totalProfit))}
+              ${renderBucketRow('Toplam Kar (Son Giris, KDV Haric)', formatCurrency(params.summary.entryProfit))}
+              ${renderBucketRow('Kar % (Guncel)', formatPercent(params.summary.avgMargin))}
+              ${renderBucketRow('Kar % (Son Giris)', formatPercent(calcEntryMargin(params.summary)))}
             </table>
 
             <div style="margin-top: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px;">
@@ -1299,7 +1299,7 @@ class EmailService {
                 Yuksek: <strong>${formatCount(params.summary.highMarginCount)}</strong> | Dusuk: <strong>${formatCount(params.summary.lowMarginCount)}</strong> | Zarar: <strong>${formatCount(params.summary.negativeMarginCount)}</strong>
               </p>
               <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
-                "A Teklife Gore" alanlari Mikro raporundaki teklif bazli kolonlardan, "SÖ / Satis Oncesi" alanlari ise SÖ kolonlarindan hesaplanir.
+                "Guncel" alanlari Mikro raporundaki teklif kolonlarindan, "Son Giris" alanlari ise SÖ kolonlarindan hesaplanir.
               </p>
             </div>
 
@@ -1351,3 +1351,6 @@ class EmailService {
 }
 
 export default new EmailService();
+
+
+

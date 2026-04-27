@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
@@ -32,39 +32,39 @@ import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/l
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
-// 019703 Raporu veri yapısı
+// 019703 Raporu veri yapÄ±sÄ±
 interface MarginAnalysisRow {
   [key: string]: any;
   msg_S_0089: string; // Evrak No
   msg_S_0001: string; // Stok Kodu
-  Tip: string; // Bekleyen Sipariş / Fatura
+  Tip: string; // Bekleyen SipariÅŸ / Fatura
   GrupKodu: string; // Kategori/Grup
-  SektorKodu: string; // Sektör
+  SektorKodu: string; // SektÃ¶r
   'Cari Kodu': string;
-  'Cari İsmi': string;
+  'Cari Ä°smi': string;
   'Evrak Tarihi': string;
   'Evrak No': string;
   'Belge No': string;
   'Stok Kodu': string;
-  'Stok İsmi': string;
+  'Stok Ä°smi': string;
   Miktar: number;
   Birimi: string;
-  BirimSatış: number;
-  BirimSatışKDV: number;
+  'BirimSatÄ±ÅŸ': number;
+  'BirimSatÄ±ÅŸKDV': number;
   Tutar: number;
   TutarKDV: number;
-  'SÖ-BirimMaliyet': number; // Son giriş maliyeti
-  'Sö-BirimMaliyetKdv': number;
-  'SÖ-BirimKar': number;
-  'SÖ-ToplamKar': number;
-  'SÖ-KarYuzde': number; // Son giriş maliyetine göre kar %
+  'SÃ–-BirimMaliyet': number; // Son giriÅŸ maliyeti
+  'SÃ¶-BirimMaliyetKdv': number;
+  'SÃ–-BirimKar': number;
+  'SÃ–-ToplamKar': number;
+  'SÃ–-KarYuzde': number; // Son giriÅŸ maliyetine gÃ¶re kar %
   OrtalamaMaliyet: number;
   OrtalamaMaliyetKDVli: number;
-  BirimKarOrtMalGöre: number;
-  ToplamKarOrtMalGöre: number;
-  OrtalamaKarYuzde: number; // Ortalama maliyete göre kar %
-  'Satıcı Kodu': string;
-  'Satıcı İsmi': string;
+  'BirimKarOrtMalGÃ¶re': number;
+  'ToplamKarOrtMalGÃ¶re': number;
+  OrtalamaKarYuzde: number; // Ortalama maliyete gÃ¶re kar %
+  'SatÄ±cÄ± Kodu': string;
+  'SatÄ±cÄ± Ä°smi': string;
 }
 
 interface SummaryBucket {
@@ -136,16 +136,16 @@ const BASE_DATA_KEYS = new Set([
   'Evrak No',
   'Tip',
   'Evrak Tarihi',
-  'Cari İsmi',
+  'Cari Ä°smi',
   'Stok Kodu',
-  'Stok İsmi',
+  'Stok Ä°smi',
   'Miktar',
   'Birimi',
-  'BirimSatışKDV',
+  'BirimSatÄ±ÅŸKDV',
   'TutarKDV',
   'OrtalamaMaliyetKDVli',
-  'BirimKarOrtMalGöre',
-  'ToplamKarOrtMalGöre',
+  'BirimKarOrtMalGÃ¶re',
+  'ToplamKarOrtMalGÃ¶re',
   'OrtalamaKarYuzde',
 ]);
 
@@ -206,10 +206,10 @@ export default function MarginAnalysisPage() {
         setMetadata(result.data.metadata);
         setTotalPages(result.data.pagination.totalPages);
       } else {
-        throw new Error('Bir hata oluştu');
+        throw new Error('Bir hata oluÅŸtu');
       }
     } catch (err: any) {
-      const message = err.response?.data?.error || err.message || 'Rapor yüklenemedi';
+      const message = err.response?.data?.error || err.message || 'Rapor yÃ¼klenemedi';
       setError(message);
       toast.error(message);
     } finally {
@@ -359,7 +359,7 @@ export default function MarginAnalysisPage() {
   };
 
   const formatCurrency = (value: number | null | undefined) => {
-    if (value === null || value === undefined) return '₺0.00';
+    if (value === null || value === undefined) return 'â‚º0.00';
     return new Intl.NumberFormat('tr-TR', {
       style: 'currency',
       currency: 'TRY',
@@ -421,15 +421,15 @@ export default function MarginAnalysisPage() {
             <span className="font-semibold">{formatCurrency(bucket.totalRevenue)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar (A Teklife Gore, KDV Haric)</span>
+            <span className="text-gray-500">Kar (Guncel, KDV Haric)</span>
             <span className="font-semibold">{formatCurrency(bucket.totalProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar (SÖ / Satis Oncesi)</span>
+            <span className="text-gray-500">Kar (Son Giris)</span>
             <span className="font-semibold">{formatCurrency(bucket.entryProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar % (A Teklife Gore)</span>
+            <span className="text-gray-500">Kar % (Guncel)</span>
             <span className="font-semibold">{formatPercent(bucket.avgMargin)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -449,11 +449,11 @@ export default function MarginAnalysisPage() {
     if (margin < 0) {
       return <Badge variant="destructive">Zarar: {formatPercent(margin)}</Badge>;
     } else if (margin < 10) {
-      return <Badge variant="destructive">Düşük: {formatPercent(margin)}</Badge>;
+      return <Badge variant="destructive">DÃ¼ÅŸÃ¼k: {formatPercent(margin)}</Badge>;
     } else if (margin <= 30) {
       return <Badge variant="default">Normal: {formatPercent(margin)}</Badge>;
     } else {
-      return <Badge variant="success">Yüksek: {formatPercent(margin)}</Badge>;
+      return <Badge variant="success">YÃ¼ksek: {formatPercent(margin)}</Badge>;
     }
   };
 
@@ -487,8 +487,8 @@ export default function MarginAnalysisPage() {
       label: 'Cari',
       headerClassName: 'whitespace-nowrap',
       cellClassName: 'max-w-[200px] truncate',
-      render: (row: MarginAnalysisRow) => row['Cari İsmi'],
-      exportValue: (row: MarginAnalysisRow) => row['Cari İsmi'],
+      render: (row: MarginAnalysisRow) => row['Cari Ä°smi'],
+      exportValue: (row: MarginAnalysisRow) => row['Cari Ä°smi'],
     },
     {
       id: 'stockCode',
@@ -500,11 +500,11 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'stockName',
-      label: 'Ürün Adı',
+      label: 'ÃœrÃ¼n AdÄ±',
       headerClassName: 'whitespace-nowrap',
       cellClassName: 'max-w-[250px] truncate',
-      render: (row: MarginAnalysisRow) => row['Stok İsmi'],
-      exportValue: (row: MarginAnalysisRow) => row['Stok İsmi'],
+      render: (row: MarginAnalysisRow) => row['Stok Ä°smi'],
+      exportValue: (row: MarginAnalysisRow) => row['Stok Ä°smi'],
     },
     {
       id: 'quantity',
@@ -516,11 +516,11 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'unitPrice',
-      label: 'Birim Satış',
+      label: 'Birim SatÄ±ÅŸ',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => formatCurrency(row['BirimSatışKDV']),
-      exportValue: (row: MarginAnalysisRow) => row['BirimSatışKDV'],
+      render: (row: MarginAnalysisRow) => formatCurrency(row['BirimSatÄ±ÅŸKDV']),
+      exportValue: (row: MarginAnalysisRow) => row['BirimSatÄ±ÅŸKDV'],
     },
     {
       id: 'totalAmount',
@@ -532,7 +532,7 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'avgCost',
-      label: 'A Teklif (KDV Dahil)',
+      label: 'Guncel Maliyet (KDV Dahil)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(row['A.TeklifDahil'] ?? row['A.Teklif+']),
@@ -540,7 +540,7 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'unitProfit',
-      label: 'Birim Kar (A Teklife Gore)',
+      label: 'Birim Kar (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(row.TeklifAdetKar),
@@ -548,7 +548,7 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'totalProfit',
-      label: 'Toplam Kar (A Teklife Gore)',
+      label: 'Toplam Kar (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right font-semibold whitespace-nowrap',
       render: (row: MarginAnalysisRow) => formatCurrency(row.TeklifToplamKar),
@@ -556,7 +556,7 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'margin',
-      label: 'Kar % (A Teklife Gore)',
+      label: 'Kar % (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
       render: (row: MarginAnalysisRow) => getMarginBadge(row.TeklifKarYuzde),
@@ -619,7 +619,7 @@ export default function MarginAnalysisPage() {
 
   const exportToExcel = () => {
     if (filteredData.length === 0) {
-      toast.error('Dışa aktarılacak veri yok');
+      toast.error('DÄ±ÅŸa aktarÄ±lacak veri yok');
       return;
     }
 
@@ -633,9 +633,9 @@ export default function MarginAnalysisPage() {
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar Marjı Analizi');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar MarjÄ± Analizi');
     XLSX.writeFile(workbook, `kar-marji-analizi-${startDate}-${endDate}.xlsx`);
-    toast.success('Excel dosyası indirildi');
+    toast.success('Excel dosyasÄ± indirildi');
   };
 
   // Search filtering
@@ -644,9 +644,9 @@ export default function MarginAnalysisPage() {
     if (tokens.length === 0) return true;
     const haystack = normalizeSearchText([
       row['Stok Kodu'],
-      row['Stok İsmi'],
+      row['Stok Ä°smi'],
       row['Evrak No'],
-      row['Cari İsmi'],
+      row['Cari Ä°smi'],
     ].filter(Boolean).join(' '));
     return matchesSearchTokens(haystack, tokens);
   }) : [];
@@ -665,16 +665,16 @@ export default function MarginAnalysisPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Kar Marjı Analizi</h1>
+              <h1 className="text-3xl font-bold text-gray-900">Kar MarjÄ± Analizi</h1>
               <p className="text-sm text-gray-600 mt-1">
-                Bekleyen siparişler ve faturaların kar marjı detayları (019703 Raporu)
+                Bekleyen sipariÅŸler ve faturalarÄ±n kar marjÄ± detaylarÄ± (019703 Raporu)
               </p>
             </div>
           </div>
           <div className="flex gap-2">
             <Button onClick={exportToExcel} variant="outline" size="sm">
               <Download className="mr-2 h-4 w-4" />
-              Excel İndir
+              Excel Ä°ndir
             </Button>
             <Button onClick={fetchData} variant="outline" size="sm" disabled={loading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -722,30 +722,30 @@ export default function MarginAnalysisPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Toplam Kar (A Teklife Gore)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Toplam Kar (Guncel)</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(summary.totalProfit)}</div>
-                  <p className="text-xs text-muted-foreground">A teklif bazli, KDV Haric</p>
+                  <p className="text-xs text-muted-foreground">Teklif kolonlari bazli, KDV Haric</p>
                 </CardContent>
               </Card>
 
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Toplam Kar (SÖ / Satis Oncesi)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Toplam Kar (Son Giris)</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(summary.entryProfit)}</div>
-                  <p className="text-xs text-muted-foreground">SÖ kolonlari bazli</p>
+                  <p className="text-xs text-muted-foreground">SÃ– kolonlari bazli</p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Kar % (A Teklife Gore)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Kar % (Guncel)</CardTitle>
                   <Percent className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -780,13 +780,13 @@ export default function MarginAnalysisPage() {
                       </TableRow>
                       <TableRow>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar (A Teklife Gore)</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar % (A Teklife Gore)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar (Guncel)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar % (Guncel)</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar (A Teklife Gore)</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar % (A Teklife Gore)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar (Guncel)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar % (Guncel)</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                       </TableRow>
@@ -823,7 +823,7 @@ export default function MarginAnalysisPage() {
           <CardContent>
             <div className="grid gap-4 md:grid-cols-5">
               <div>
-                <label className="text-sm font-medium mb-2 block">Başlangıç Tarihi</label>
+                <label className="text-sm font-medium mb-2 block">BaÅŸlangÄ±Ã§ Tarihi</label>
                 <Input
                   type="date"
                   value={startDate}
@@ -832,7 +832,7 @@ export default function MarginAnalysisPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">Bitiş Tarihi</label>
+                <label className="text-sm font-medium mb-2 block">BitiÅŸ Tarihi</label>
                 <Input
                   type="date"
                   value={endDate}
@@ -847,16 +847,16 @@ export default function MarginAnalysisPage() {
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 >
-                  <option value="">Tümü</option>
-                  <option value="HIGH">Yüksek Kar (&gt;30%)</option>
+                  <option value="">TÃ¼mÃ¼</option>
+                  <option value="HIGH">YÃ¼ksek Kar (&gt;30%)</option>
                   <option value="OK">Normal Kar (10-30%)</option>
-                  <option value="LOW">Düşük Kar (&lt;10%)</option>
+                  <option value="LOW">DÃ¼ÅŸÃ¼k Kar (&lt;10%)</option>
                   <option value="NEGATIVE">Zarar (&lt;0%)</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">Sıralama</label>
+                <label className="text-sm font-medium mb-2 block">SÄ±ralama</label>
                 <select
                   value={sortOrder}
                   onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
@@ -877,7 +877,7 @@ export default function MarginAnalysisPage() {
 
             <div className="mt-4">
               <Input
-                placeholder="Stok kodu, ürün adı, evrak no veya cari ara..."
+                placeholder="Stok kodu, Ã¼rÃ¼n adÄ±, evrak no veya cari ara..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -984,7 +984,7 @@ export default function MarginAnalysisPage() {
                   Kayitli mail kolonlari: {emailColumnIds.length > 0 ? emailColumnIds.length : 'Varsayilan'}
                 </span>
               </div>
-              <p className="mt-2 text-xs text-gray-500">En az bir kolon seçili olmalı.</p>
+              <p className="mt-2 text-xs text-gray-500">En az bir kolon seÃ§ili olmalÄ±.</p>
             </details>
           </CardContent>
         </Card>
@@ -992,9 +992,9 @@ export default function MarginAnalysisPage() {
         {/* Data Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Kar Marjı Detayları</CardTitle>
+            <CardTitle>Kar MarjÄ± DetaylarÄ±</CardTitle>
             <CardDescription>
-              {metadata && `Rapor Tarihi: ${formatDate(metadata.reportDate)} | Tarih Aralığı: ${metadata.startDate} - ${metadata.endDate}`}
+              {metadata && `Rapor Tarihi: ${formatDate(metadata.reportDate)} | Tarih AralÄ±ÄŸÄ±: ${metadata.startDate} - ${metadata.endDate}`}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1010,7 +1010,7 @@ export default function MarginAnalysisPage() {
             ) : filteredData.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <Package className="h-12 w-12 text-gray-400 mb-4" />
-                <p className="text-gray-600">Veri bulunamadı</p>
+                <p className="text-gray-600">Veri bulunamadÄ±</p>
               </div>
             ) : (
               <>
@@ -1050,7 +1050,7 @@ export default function MarginAnalysisPage() {
                         variant="outline"
                         size="sm"
                       >
-                        Önceki
+                        Ã–nceki
                       </Button>
                       <Button
                         onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
@@ -1071,3 +1071,5 @@ export default function MarginAnalysisPage() {
     </div>
   );
 }
+
+

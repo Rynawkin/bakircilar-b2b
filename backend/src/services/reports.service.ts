@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Reports Service
  *
- * Raporları PostgreSQL'den (senkronize edilmiş verilerden) üretir.
- * Mikro'ya her seferinde bağlanmaya gerek yok, sabah sync'te çekilen veriler kullanılır.
+ * RaporlarÄ± PostgreSQL'den (senkronize edilmiÅŸ verilerden) Ã¼retir.
+ * Mikro'ya her seferinde baÄŸlanmaya gerek yok, sabah sync'te Ã§ekilen veriler kullanÄ±lÄ±r.
  */
 
 import { CustomerActivityType, Prisma, UserRole } from '@prisma/client';
@@ -61,12 +61,12 @@ interface MarginComplianceAlert {
   category: string;
   currentCost: number;
   customerType: string;
-  expectedMargin: number; // % kar marjÄ± (e.g., 60 for 1.6x multiplier)
+  expectedMargin: number; // % kar marjÃ„Â± (e.g., 60 for 1.6x multiplier)
   expectedPrice: number;
   actualPrice: number;
   deviation: number; // % deviation
   deviationAmount: number; // TL deviation
-  status: 'OK' | 'HIGH' | 'LOW'; // OK: Â±2%, HIGH: >2%, LOW: <-2%
+  status: 'OK' | 'HIGH' | 'LOW'; // OK: Ã‚Â±2%, HIGH: >2%, LOW: <-2%
   priceSource: 'CATEGORY_RULE' | 'PRODUCT_OVERRIDE' | 'MIKRO_MARGIN';
 }
 
@@ -544,18 +544,18 @@ const UCARER_MERKEZ_DEPO_SQL = `
 SELECT
 DMD.[STOK KODU],
 DMD.[STOK ADI],
-DMD.[Merkez Depo] AS [Merkez Depo Miktarı],
-DMD.[Alınan Siparişte Bekleyen],
-DMD.[Alınan Siparis Tarihi] AS [Alınan Sipariş İlk Tarihi],
-DMD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [Alınan Sipariş Sonrası Depo İhtiaç Durumu 1.SORUN],
-ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0) AS [Diğer Depolardan Gelecek Dsv Toplamları],
-(DMD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0)) AS [Gelecek Dsv Sonrası İhtiyaç Durumu 2. SORUN],
-DMD.[Verilen Siparişte Bekleyen],
+DMD.[Merkez Depo] AS [Merkez Depo MiktarÄ±],
+DMD.[AlÄ±nan SipariÅŸte Bekleyen],
+DMD.[AlÄ±nan Siparis Tarihi] AS [AlÄ±nan SipariÅŸ Ä°lk Tarihi],
+DMD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [AlÄ±nan SipariÅŸ SonrasÄ± Depo Ä°htiaÃ§ Durumu 1.SORUN],
+ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0) AS [DiÄŸer Depolardan Gelecek Dsv ToplamlarÄ±],
+(DMD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0)) AS [Gelecek Dsv SonrasÄ± Ä°htiyaÃ§ Durumu 2. SORUN],
+DMD.[Verilen SipariÅŸte Bekleyen],
 CASE
 WHEN DMD.[Verilen Tarihi]='01.01.1900' THEN ''
-WHEN DMD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DMD.[Verilen Tarihi] END AS [Verilen Sipariş Son Tarihi],
+WHEN DMD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DMD.[Verilen Tarihi] END AS [Verilen SipariÅŸ Son Tarihi],
 DMD.[DEPO + VERILEN SIPARIS MIKTARI],
-DMD.[REEL MIKTAR] AS [Satınalma Siparişi Sonrası İhtiyaç Durumu 3.SORUN],
+DMD.[REEL MIKTAR] AS [SatÄ±nalma SipariÅŸi SonrasÄ± Ä°htiyaÃ§ Durumu 3.SORUN],
 DMD.[Merkez Minimum Miktar],
 DMD.[Merkez Maximum Miktar],
 CASE
@@ -564,12 +564,12 @@ WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] AND DMD.[Merkez Minimum Mikta
 WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] AND DMD.[REEL MIKTAR]>DMD.[Merkez Maximum Miktar] THEN ((DMD.[Merkez Maximum Miktar])-(DMD.[REEL MIKTAR]))
 WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] THEN '0'
 WHEN DMD.[REEL MIKTAR]=DMD.[Merkez Minimum Miktar] THEN '0'
-END AS [Eksiltilecek İlve Verilecek İşlem Yapılmayacak Miktar Durumu 4. SORUN],
-dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0) as [Dükkan Depo],
+END AS [Eksiltilecek Ä°lve Verilecek Ä°ÅŸlem YapÄ±lmayacak Miktar Durumu 4. SORUN],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0) as [DÃ¼kkan Depo],
 dbo.fn_DepodakiMiktar(DMD.[STOK KODU],1,0) as [Merkez Depo],
-dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0) as [Ereğli Depo],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0) as [EreÄŸli Depo],
 dbo.fn_DepodakiMiktar(DMD.[STOK KODU],6,0) as [Topca Depo],
-(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0)) AS [4 Depo Toplam Miktarı]
+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0)) AS [4 Depo Toplam MiktarÄ±]
 FROM DEPO_MERKEZ_DURUM DMD
 `;
 
@@ -577,18 +577,18 @@ const UCARER_TOPCA_DEPO_SQL = `
 SELECT
 DTD.[STOK KODU],
 DTD.[STOK ADI],
-DTD.[Topca Depo] AS [Topca Depo Miktarı],
-DTD.[Alınan Siparişte Bekleyen],
-DTD.[Alınan Siparis Tarihi] AS [Alınan Sipariş İlk Tarihi],
-DTD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [Alınan Sipariş Sonrası Depo İhtiaç Durumu 1.SORUN],
-ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0) AS [Diğer Depolardan Gelecek Dsv Toplamları],
-(DTD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0)) AS [Gelecek Dsv Sonrası İhtiyaç Durumu 2. SORUN],
-DTD.[Verilen Siparişte Bekleyen],
+DTD.[Topca Depo] AS [Topca Depo MiktarÄ±],
+DTD.[AlÄ±nan SipariÅŸte Bekleyen],
+DTD.[AlÄ±nan Siparis Tarihi] AS [AlÄ±nan SipariÅŸ Ä°lk Tarihi],
+DTD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [AlÄ±nan SipariÅŸ SonrasÄ± Depo Ä°htiaÃ§ Durumu 1.SORUN],
+ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0) AS [DiÄŸer Depolardan Gelecek Dsv ToplamlarÄ±],
+(DTD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0)) AS [Gelecek Dsv SonrasÄ± Ä°htiyaÃ§ Durumu 2. SORUN],
+DTD.[Verilen SipariÅŸte Bekleyen],
 CASE
 WHEN DTD.[Verilen Tarihi]='01.01.1900' THEN ''
-WHEN DTD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DTD.[Verilen Tarihi] END AS [Verilen Sipariş Son Tarihi],
+WHEN DTD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DTD.[Verilen Tarihi] END AS [Verilen SipariÅŸ Son Tarihi],
 DTD.[DEPO + VERILEN SIPARIS MIKTARI],
-DTD.[REEL MIKTAR] AS [Satınalma Siparişi Sonrası İhtiyaç Durumu 3.SORUN],
+DTD.[REEL MIKTAR] AS [SatÄ±nalma SipariÅŸi SonrasÄ± Ä°htiyaÃ§ Durumu 3.SORUN],
 DTD.[Merkez Minimum Miktar],
 DTD.[Merkez Maximum Miktar],
 CASE
@@ -597,12 +597,12 @@ WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] AND DTD.[Merkez Minimum Mikta
 WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] AND DTD.[REEL MIKTAR]>DTD.[Merkez Maximum Miktar] THEN ((DTD.[Merkez Maximum Miktar])-(DTD.[REEL MIKTAR]))
 WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] THEN '0'
 WHEN DTD.[REEL MIKTAR]=DTD.[Merkez Minimum Miktar] THEN '0'
-END AS [Eksiltilecek İlve Verilecek İşlem Yapılmayacak Miktar Durumu 4. SORUN],
-dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0) as [Dükkan Depo],
+END AS [Eksiltilecek Ä°lve Verilecek Ä°ÅŸlem YapÄ±lmayacak Miktar Durumu 4. SORUN],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0) as [DÃ¼kkan Depo],
 dbo.fn_DepodakiMiktar(DTD.[STOK KODU],1,0) as [Merkez Depo],
-dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0) as [Ereğli Depo],
-dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0) as [Topça Depo],
-(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0)) AS [4 Depo Toplam Miktarı]
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0) as [EreÄŸli Depo],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0) as [TopÃ§a Depo],
+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0)) AS [4 Depo Toplam MiktarÄ±]
 FROM DEPO_TOPCA_DURUM DTD
 `;
 
@@ -799,18 +799,18 @@ const normalizeKeyToken = (value: unknown): string => {
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/ı/g, 'i')
-    .replace(/ş/g, 's')
-    .replace(/ğ/g, 'g')
-    .replace(/ü/g, 'u')
-    .replace(/ö/g, 'o')
-    .replace(/ç/g, 'c')
     .replace(/Ä±/g, 'i')
-    .replace(/Å/g, 's')
-    .replace(/Ä/g, 'g')
+    .replace(/ÅŸ/g, 's')
+    .replace(/ÄŸ/g, 'g')
     .replace(/Ã¼/g, 'u')
     .replace(/Ã¶/g, 'o')
     .replace(/Ã§/g, 'c')
+    .replace(/Ã„Â±/g, 'i')
+    .replace(/Ã…ÂŸ/g, 's')
+    .replace(/Ã„ÂŸ/g, 'g')
+    .replace(/ÃƒÂ¼/g, 'u')
+    .replace(/ÃƒÂ¶/g, 'o')
+    .replace(/ÃƒÂ§/g, 'c')
     .replace(/[^a-z0-9]+/g, '');
 };
 
@@ -858,7 +858,7 @@ const pickAvgMargin = (data: Record<string, any>): number => {
   return toNumber(
     resolveDataValueByCandidates(
       data,
-      ['TeklifKarYuzde', 'TeklifKarYüzde'],
+      ['TeklifKarYuzde', 'TeklifKarYÃ¼zde'],
       'teklifkaryuzde'
     )
   );
@@ -867,13 +867,13 @@ const pickAvgMargin = (data: Record<string, any>): number => {
 const pickEntryProfit = (data: Record<string, any>): number => {
   const resolved = resolveDataValueByCandidates(
     data,
-    ['SÖ-ToplamKar', 'SO-ToplamKar', 'SÃ–-ToplamKar'],
+    ['SÃ–-ToplamKar', 'SO-ToplamKar', 'SÃƒâ€“-ToplamKar'],
     'sotoplamkar'
   );
   if (resolved !== null && resolved !== undefined) {
     return toNumber(resolved);
   }
-  const direct = pickValueByKeys(data, ['SÖ-ToplamKar', 'SÃ–-ToplamKar']);
+  const direct = pickValueByKeys(data, ['SÃ–-ToplamKar', 'SÃƒâ€“-ToplamKar']);
   if (direct !== null && direct !== undefined) {
     return toNumber(direct);
   }
@@ -894,7 +894,7 @@ const pickCurrentCost = (data: Record<string, any>): number => {
 const pickEntryMargin = (data: Record<string, any>, revenue?: number): number => {
   const resolved = resolveDataValueByCandidates(
     data,
-    ['SÖ-KarYuzde', 'SO-KarYuzde', 'SÃ–-KarYuzde', 'SÖ-KarYüzde'],
+    ['SÃ–-KarYuzde', 'SO-KarYuzde', 'SÃƒâ€“-KarYuzde', 'SÃ–-KarYÃ¼zde'],
     'sokaryuzde'
   );
   if (resolved !== null && resolved !== undefined) {
@@ -910,7 +910,7 @@ const pickEntryMargin = (data: Record<string, any>, revenue?: number): number =>
 const pickStockName = (data: Record<string, any>): string => {
   const resolved = resolveDataValueByCandidates(
     data,
-    ['Stok İsmi', 'Stok Ismi', 'Stok ?smi', 'Stok ??smi'],
+    ['Stok Ä°smi', 'Stok Ismi', 'Stok ?smi', 'Stok ??smi'],
     'stokismi'
   );
   if (resolved !== null && resolved !== undefined) {
@@ -936,7 +936,7 @@ const pickStockCode = (data: Record<string, any>): string => {
 const pickCustomerName = (data: Record<string, any>): string => {
   const resolved = resolveDataValueByCandidates(
     data,
-    ['Cari Ä°smi', 'Cari Ismi', 'Cari Ã„Â°smi', 'Cari Ãƒâ€Ã‚Â°smi', 'Cari ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°smi'],
+    ['Cari Ã„Â°smi', 'Cari Ismi', 'Cari Ãƒâ€Ã‚Â°smi', 'Cari ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°smi', 'Cari ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°smi'],
     'cariismi'
   );
   if (resolved !== null && resolved !== undefined) {
@@ -944,9 +944,9 @@ const pickCustomerName = (data: Record<string, any>): string => {
   }
   const direct = pickValueByKeys(data, [
     'Cari Ismi',
-    'Cari Ä°smi',
     'Cari Ã„Â°smi',
     'Cari Ãƒâ€Ã‚Â°smi',
+    'Cari ÃƒÆ’Ã¢â‚¬ÂÃƒâ€šÃ‚Â°smi',
   ]);
   if (direct !== null && direct !== undefined) {
     return String(direct);
@@ -1035,13 +1035,13 @@ const pickUnitPrice = (data: Record<string, any>): number => {
       'BirimFiyat',
       'Birim Fiyat',
       'BirimSatis',
-      'BirimSatÄ±ÅŸ',
       'BirimSatÃ„Â±Ã…Å¸',
+      'BirimSatÃƒâ€Ã‚Â±Ãƒâ€¦Ã…Â¸',
       'BirimSatisKDV',
-      'BirimSatÄ±ÅŸKDV',
       'BirimSatÃ„Â±Ã…Å¸KDV',
-      'BirimSatÄ±ÅŸKDVli',
+      'BirimSatÃƒâ€Ã‚Â±Ãƒâ€¦Ã…Â¸KDV',
       'BirimSatÃ„Â±Ã…Å¸KDVli',
+      'BirimSatÃƒâ€Ã‚Â±Ãƒâ€¦Ã…Â¸KDVli',
     ],
     'birimsatiskdv'
   );
@@ -1052,10 +1052,10 @@ const pickUnitPrice = (data: Record<string, any>): number => {
     'BirimFiyat',
     'Birim Fiyat',
     'BirimSatis',
-    'BirimSatÄ±ÅŸ',
+    'BirimSatÃ„Â±Ã…Å¸',
     'BirimSatisKDV',
-    'BirimSatÄ±ÅŸKDV',
-    'BirimSatÄ±ÅŸKDVli',
+    'BirimSatÃ„Â±Ã…Å¸KDV',
+    'BirimSatÃ„Â±Ã…Å¸KDVli',
   ]);
   if (direct !== null && direct !== undefined) {
     return toNumber(direct);
@@ -1277,15 +1277,15 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
   },
   customerName: {
     label: 'Cari',
-    resolve: (data) => resolveDataValueByCandidates(data, ['Cari Ä°smi', 'Cari Ã„Â°smi', 'Cari Ismi', 'Cari İsmi'], 'cariismi'),
+    resolve: (data) => resolveDataValueByCandidates(data, ['Cari Ã„Â°smi', 'Cari Ãƒâ€Ã‚Â°smi', 'Cari Ismi', 'Cari Ä°smi'], 'cariismi'),
   },
   stockCode: {
     label: 'Stok Kodu',
     resolve: (data) => resolveDataValueByCandidates(data, ['Stok Kodu'], 'stokkodu'),
   },
   stockName: {
-    label: 'ÃœrÃ¼n AdÄ±',
-    resolve: (data) => resolveDataValueByCandidates(data, ['Stok Ä°smi', 'Stok Ã„Â°smi', 'Stok Ismi', 'Stok İsmi'], 'stokismi'),
+    label: 'ÃƒÅ“rÃƒÂ¼n AdÃ„Â±',
+    resolve: (data) => resolveDataValueByCandidates(data, ['Stok Ã„Â°smi', 'Stok Ãƒâ€Ã‚Â°smi', 'Stok Ismi', 'Stok Ä°smi'], 'stokismi'),
   },
   quantity: {
     label: 'Miktar',
@@ -1296,27 +1296,27 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     },
   },
   unitPrice: {
-    label: 'Birim SatÄ±ÅŸ',
-    resolve: (data) => resolveDataValueByCandidates(data, ['BirimSatÄ±ÅŸKDV', 'BirimSatÃ„Â±Ã…Å¾KDV', 'BirimSatisKDV', 'BirimSatışKDV'], 'birimsatiskdv'),
+    label: 'Birim SatÃ„Â±Ã…Å¸',
+    resolve: (data) => resolveDataValueByCandidates(data, ['BirimSatÃ„Â±Ã…Å¸KDV', 'BirimSatÃƒâ€Ã‚Â±Ãƒâ€¦Ã…Â¾KDV', 'BirimSatisKDV', 'BirimSatÄ±ÅŸKDV'], 'birimsatiskdv'),
   },
   totalAmount: {
     label: 'Tutar (KDV)',
     resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
   },
   avgCost: {
-    label: 'A Teklif (KDV Dahil)',
+    label: 'Guncel Maliyet (KDV Dahil)',
     resolve: (data) => pickCurrentCost(data),
   },
   unitProfit: {
-    label: 'Birim Kar (A Teklife Gore)',
+    label: 'Birim Kar (Guncel)',
     resolve: (data) => pickUnitProfit(data),
   },
   totalProfit: {
-    label: 'Toplam Kar (A Teklife Gore)',
+    label: 'Toplam Kar (Guncel)',
     resolve: (data) => pickTotalProfit(data),
   },
   margin: {
-    label: 'Kar % (A Teklife Gore)',
+    label: 'Kar % (Guncel)',
     resolve: (data) => pickAvgMargin(data),
   },
 };
@@ -1455,12 +1455,12 @@ type MarginComplianceEmailSummary = MarginComplianceSummary & {
 const normalizeReportText = (value: unknown): string => {
   const raw = String(value || '').toLowerCase();
   return raw
-    .replace(/ı/g, 'i')
-    .replace(/ş/g, 's')
-    .replace(/ğ/g, 'g')
-    .replace(/ü/g, 'u')
-    .replace(/ö/g, 'o')
-    .replace(/ç/g, 'c');
+    .replace(/Ä±/g, 'i')
+    .replace(/ÅŸ/g, 's')
+    .replace(/ÄŸ/g, 'g')
+    .replace(/Ã¼/g, 'u')
+    .replace(/Ã¶/g, 'o')
+    .replace(/Ã§/g, 'c');
 };
 
 const resolveReportType = (data: Record<string, any>): 'order' | 'sale' => {
@@ -1616,10 +1616,10 @@ const buildMarginComplianceSummary = (
 
 export class ReportsService {
   /**
-   * Maliyet Güncelleme Uyarıları Raporu
+   * Maliyet GÃ¼ncelleme UyarÄ±larÄ± Raporu
    *
-   * Son giriş maliyeti güncel maliyetten yüksek olan ürünleri listeler.
-   * Veriler sabah sync'te PostgreSQL'e çekilir, buradan okunur.
+   * Son giriÅŸ maliyeti gÃ¼ncel maliyetten yÃ¼ksek olan Ã¼rÃ¼nleri listeler.
+   * Veriler sabah sync'te PostgreSQL'e Ã§ekilir, buradan okunur.
    */
   async getCostUpdateAlerts(options: {
     dayDiff?: number;
@@ -1645,7 +1645,7 @@ export class ReportsService {
     const isAll = limitValue <= 0;
     const offset = isAll ? 0 : (pageValue - 1) * limitValue;
 
-    // WHERE koşulları
+    // WHERE koÅŸullarÄ±
     const where: any = {
       active: true,
       lastEntryDate: { not: null },
@@ -1661,7 +1661,7 @@ export class ReportsService {
       };
     }
 
-    // Ürünleri çek (tüm eşleşenler, sayfalama sonradan yapılır)
+    // ÃœrÃ¼nleri Ã§ek (tÃ¼m eÅŸleÅŸenler, sayfalama sonradan yapÄ±lÄ±r)
     const products = await prisma.product.findMany({
       where,
       include: {
@@ -1678,36 +1678,36 @@ export class ReportsService {
       const currentCostDate = product.currentCostDate;
       const lastEntryDate = product.lastEntryDate;
 
-      // Son giriş maliyeti güncel maliyetten yüksek mi?
+      // Son giriÅŸ maliyeti gÃ¼ncel maliyetten yÃ¼ksek mi?
       if (lastEntryPrice <= currentCost) continue;
 
-      // Son giriş tarihi güncel maliyet tarihinden sonra mı?
+      // Son giriÅŸ tarihi gÃ¼ncel maliyet tarihinden sonra mÄ±?
       if (!currentCostDate || !lastEntryDate) continue;
       if (lastEntryDate <= currentCostDate) continue;
 
-      // Gün farkı
+      // GÃ¼n farkÄ±
       const dayDifference = Math.floor(
         (lastEntryDate.getTime() - currentCostDate.getTime()) / (1000 * 60 * 60 * 24)
       );
 
-      // Gün farkı filtresi
+      // GÃ¼n farkÄ± filtresi
       if (dayDiff > 0 && dayDifference < dayDiff) continue;
 
       // Fark hesaplama
       const diffAmount = lastEntryPrice - currentCost;
       const diffPercent = (diffAmount / currentCost) * 100;
 
-      // Yüzde farkı filtresi
+      // YÃ¼zde farkÄ± filtresi
       if (percentDiff > 0 && diffPercent < percentDiff) continue;
 
-      // Toplam stok (tüm depolar)
+      // Toplam stok (tÃ¼m depolar)
       const warehouseStocks = product.warehouseStocks as Record<string, number>;
       const stockQuantity = Object.values(warehouseStocks).reduce((sum, qty) => sum + qty, 0);
 
-      // Risk tutarı
+      // Risk tutarÄ±
       const riskAmount = diffAmount * stockQuantity;
 
-      // Satış fiyatı (faturalı bayi fiyatı varsayılan)
+      // SatÄ±ÅŸ fiyatÄ± (faturalÄ± bayi fiyatÄ± varsayÄ±lan)
       const prices = product.prices as any;
       const salePrice = prices?.BAYI?.INVOICED || prices?.PERAKENDE?.INVOICED || currentCost * 1.3;
 
@@ -1728,7 +1728,7 @@ export class ReportsService {
       });
     }
 
-    // Sıralama
+    // SÄ±ralama
     alerts.sort((a, b) => {
       const aValue = (a as any)[sortBy] || 0;
       const bValue = (b as any)[sortBy] || 0;
@@ -1780,7 +1780,7 @@ export class ReportsService {
   }
 
   /**
-   * Rapor kategorilerini döndür
+   * Rapor kategorilerini dÃ¶ndÃ¼r
    */
   async getReportCategories(): Promise<{ categories: string[] }> {
     const categories = await prisma.category.findMany({
@@ -1856,15 +1856,15 @@ export class ReportsService {
   }
 
   /**
-   * Kar Marjı Analizi Raporu (019703 - Komisyon Faturası Hareket Yönetimi)
+   * Kar MarjÄ± Analizi Raporu (019703 - Komisyon FaturasÄ± Hareket YÃ¶netimi)
    *
    * Mikro'daki fn_KomisyonFaturasiHareketYonetimi fonksiyonunu kullanarak
-   * bekleyen siparişler ve faturalar üzerinden detaylı kar marjı analizi yapar.
+   * bekleyen sipariÅŸler ve faturalar Ã¼zerinden detaylÄ± kar marjÄ± analizi yapar.
    *
-   * Özellikler:
-   * - Son giriş maliyeti ve ortalama maliyete göre kar hesaplar
-   * - Gerçek satış işlemlerini analiz eder
-   * - Evrak bazında detaylı bilgi verir
+   * Ã–zellikler:
+   * - Son giriÅŸ maliyeti ve ortalama maliyete gÃ¶re kar hesaplar
+   * - GerÃ§ek satÄ±ÅŸ iÅŸlemlerini analiz eder
+   * - Evrak bazÄ±nda detaylÄ± bilgi verir
    */
   async getMarginComplianceReport(options: {
     startDate?: string;
@@ -2236,10 +2236,10 @@ export class ReportsService {
   }
 
   /**
-   * En Çok Satan Ürünler Raporu
+   * En Ã‡ok Satan ÃœrÃ¼nler Raporu
    *
-   * Belirtilen tarih aralığında en çok satılan ürünleri listeler.
-   * Hem satış tutarı hem de karlılık bazında sıralanabilir.
+   * Belirtilen tarih aralÄ±ÄŸÄ±nda en Ã§ok satÄ±lan Ã¼rÃ¼nleri listeler.
+   * Hem satÄ±ÅŸ tutarÄ± hem de karlÄ±lÄ±k bazÄ±nda sÄ±ralanabilir.
    */
   async getTopProducts(options: {
     startDate?: string;
@@ -2290,9 +2290,9 @@ export class ReportsService {
 
     await mikroService.connect();
 
-    // WHERE koşulları - STOK_HAREKETLERI kullan (gerçek satışlar)
+    // WHERE koÅŸullarÄ± - STOK_HAREKETLERI kullan (gerÃ§ek satÄ±ÅŸlar)
     const whereConditions = [
-      'sth_cins = 0',  // Satış hareketleri
+      'sth_cins = 0',  // SatÄ±ÅŸ hareketleri
       'sth_tip = 1'    // Normal hareket (fatura/irsaliye)
     ];
 
@@ -2314,7 +2314,7 @@ export class ReportsService {
     console.log('Exclusion conditions:', exclusionConditions);
     console.log('Full WHERE clause:', whereClause);
 
-    // Stok hareketlerini çek ve grupla (gerçek satışlar)
+    // Stok hareketlerini Ã§ek ve grupla (gerÃ§ek satÄ±ÅŸlar)
     const query = `
       SELECT
         sth.sth_stok_kod as productCode,
@@ -2369,7 +2369,7 @@ export class ReportsService {
       return {
         productCode: p.productCode,
         productName: p.productName || 'Bilinmiyor',
-        brand: p.brand || 'Belirtilmemiş',
+        brand: p.brand || 'BelirtilmemiÅŸ',
         category: 'Kategori', // TODO: Get from category table
         quantity: p.quantity,
         revenue,
@@ -2381,17 +2381,17 @@ export class ReportsService {
       };
     });
 
-    // Sıralama
+    // SÄ±ralama
     products.sort((a, b) => {
       switch (sortBy) {
         case 'profit':
           return b.profit - a.profit;
         case 'profit_asc':
-          return a.profit - b.profit;  // Düşükten yükseğe
+          return a.profit - b.profit;  // DÃ¼ÅŸÃ¼kten yÃ¼kseÄŸe
         case 'margin':
           return b.profitMargin - a.profitMargin;
         case 'margin_asc':
-          return a.profitMargin - b.profitMargin;  // Düşükten yükseğe
+          return a.profitMargin - b.profitMargin;  // DÃ¼ÅŸÃ¼kten yÃ¼kseÄŸe
         case 'quantity':
           return b.quantity - a.quantity;
         case 'revenue':
@@ -2431,10 +2431,10 @@ export class ReportsService {
   }
 
   /**
-   * En Çok Satın Alan Müşteriler Raporu
+   * En Ã‡ok SatÄ±n Alan MÃ¼ÅŸteriler Raporu
    *
-   * Belirtilen tarih aralığında en çok satın alan müşterileri listeler.
-   * Hem alış tutarı hem de karlılık bazında sıralanabilir.
+   * Belirtilen tarih aralÄ±ÄŸÄ±nda en Ã§ok satÄ±n alan mÃ¼ÅŸterileri listeler.
+   * Hem alÄ±ÅŸ tutarÄ± hem de karlÄ±lÄ±k bazÄ±nda sÄ±ralanabilir.
    */
   async getTopCustomers(options: {
     startDate?: string;
@@ -2485,9 +2485,9 @@ export class ReportsService {
 
     await mikroService.connect();
 
-    // WHERE koşulları - STOK_HAREKETLERI kullan (gerçek satışlar)
+    // WHERE koÅŸullarÄ± - STOK_HAREKETLERI kullan (gerÃ§ek satÄ±ÅŸlar)
     const whereConditions = [
-      'sth_cins = 0',  // Satış hareketleri
+      'sth_cins = 0',  // SatÄ±ÅŸ hareketleri
       'sth_tip = 1'    // Normal hareket (fatura/irsaliye)
     ];
 
@@ -2504,7 +2504,7 @@ export class ReportsService {
 
     const whereClause = whereConditions.join(' AND ');
 
-    // Müşteri bazında stok hareketlerini çek (gerçek satışlar)
+    // MÃ¼ÅŸteri bazÄ±nda stok hareketlerini Ã§ek (gerÃ§ek satÄ±ÅŸlar)
     const query = `
       SELECT
         sth.sth_cari_kodu as customerCode,
@@ -2527,7 +2527,7 @@ export class ReportsService {
 
     const rawData = await mikroService.executeQuery(query);
 
-    // Artık maliyet de sorguya dahil, ayrı sorgu gerek yok
+    // ArtÄ±k maliyet de sorguya dahil, ayrÄ± sorgu gerek yok
     const customersWithCost = rawData.map((customer: any) => ({
       ...customer,
       totalCost: customer.totalCost || 0,
@@ -2556,7 +2556,7 @@ export class ReportsService {
       return {
         customerCode: c.customerCode,
         customerName: c.customerName || 'Bilinmiyor',
-        sector: c.sector || 'Belirtilmemiş',
+        sector: c.sector || 'BelirtilmemiÅŸ',
         sectorCode: c.sectorCode || '',
         orderCount: c.orderCount,
         revenue,
@@ -2564,12 +2564,12 @@ export class ReportsService {
         profit,
         profitMargin,
         avgOrderAmount,
-        topCategory: 'TODO', // TODO: En çok alınan kategori
+        topCategory: 'TODO', // TODO: En Ã§ok alÄ±nan kategori
         lastOrderDate: c.lastOrderDate,
       };
     });
 
-    // Sıralama
+    // SÄ±ralama
     customers.sort((a, b) => {
       switch (sortBy) {
         case 'profit':
@@ -2617,12 +2617,12 @@ export class ReportsService {
   }
 
   /**
-   * Fiyat Geçmişi Raporu
+   * Fiyat GeÃ§miÅŸi Raporu
    *
-   * Mikro'daki STOK_FIYAT_DEGISIKLIKLERI tablosundan tüm fiyat değişikliklerini listeler.
-   * Önemli: Her ürünün 10 fiyat listesi olmalı ve hepsi aynı gün güncellenmelidir.
-   * - Liste 1-5: Perakende (KDV Dahil Maliyet × Marj_{1-5})
-   * - Liste 6-10: Faturalı (KDV Hariç Maliyet × Marj_{1-5})
+   * Mikro'daki STOK_FIYAT_DEGISIKLIKLERI tablosundan tÃ¼m fiyat deÄŸiÅŸikliklerini listeler.
+   * Ã–nemli: Her Ã¼rÃ¼nÃ¼n 10 fiyat listesi olmalÄ± ve hepsi aynÄ± gÃ¼n gÃ¼ncellenmelidir.
+   * - Liste 1-5: Perakende (KDV Dahil Maliyet Ã— Marj_{1-5})
+   * - Liste 6-10: FaturalÄ± (KDV HariÃ§ Maliyet Ã— Marj_{1-5})
    */
   async getPriceHistory(options: {
     startDate?: string;
@@ -2664,14 +2664,14 @@ export class ReportsService {
       3: 'Perakende 3',
       4: 'Perakende 4',
       5: 'Perakende 5',
-      6: 'Faturalı 1',
-      7: 'Faturalı 2',
-      8: 'Faturalı 3',
-      9: 'Faturalı 4',
-      10: 'Faturalı 5',
+      6: 'FaturalÄ± 1',
+      7: 'FaturalÄ± 2',
+      8: 'FaturalÄ± 3',
+      9: 'FaturalÄ± 4',
+      10: 'FaturalÄ± 5',
     };
 
-    // 1. Fiyat değişikliklerini çek
+    // 1. Fiyat deÄŸiÅŸikliklerini Ã§ek
     let whereConditions = ['1=1'];
 
     if (startDate) {
@@ -2709,7 +2709,7 @@ export class ReportsService {
 
     const rawChanges = await mikroService.executeQuery(priceChangesQuery);
 
-    // 2. Ürün adı filtresi (SQL'de LIKE performans sorunu olabilir, sonradan filtrele)
+    // 2. ÃœrÃ¼n adÄ± filtresi (SQL'de LIKE performans sorunu olabilir, sonradan filtrele)
     let filteredChanges = rawChanges;
     const productTokens = buildSearchTokens(productName);
     if (productTokens.length > 0) {
@@ -2726,7 +2726,7 @@ export class ReportsService {
       });
     }
 
-    // 3. Ürün + Tarih bazında grupla
+    // 3. ÃœrÃ¼n + Tarih bazÄ±nda grupla
     const groupedByProductAndDate: {
       [key: string]: {
         productCode: string;
@@ -2761,19 +2761,19 @@ export class ReportsService {
       });
     }
 
-    // 4. Her grup için PriceChange objesi oluştur
+    // 4. Her grup iÃ§in PriceChange objesi oluÅŸtur
     const priceChanges: PriceChange[] = [];
 
     for (const key in groupedByProductAndDate) {
       const group = groupedByProductAndDate[key];
 
-      // Consistency check: 10 liste de güncellenmiş mi?
+      // Consistency check: 10 liste de gÃ¼ncellenmiÅŸ mi?
       const updatedLists = group.changes.map(c => c.listNo);
       const isConsistent = updatedLists.length === 10;
       const missingLists = Array.from({ length: 10 }, (_, i) => i + 1)
         .filter(n => !updatedLists.includes(n));
 
-      // PriceListChange'leri oluştur
+      // PriceListChange'leri oluÅŸtur
       const priceListChanges: PriceListChange[] = group.changes.map(c => {
         const changeAmount = c.newPrice - c.oldPrice;
         const changePercent = c.oldPrice > 0
@@ -2790,12 +2790,12 @@ export class ReportsService {
         };
       });
 
-      // Ortalama değişim yüzdesi
+      // Ortalama deÄŸiÅŸim yÃ¼zdesi
       const avgChangePercent = priceListChanges.length > 0
         ? priceListChanges.reduce((sum, c) => sum + c.changePercent, 0) / priceListChanges.length
         : 0;
 
-      // Değişim yönü
+      // DeÄŸiÅŸim yÃ¶nÃ¼
       let direction: 'increase' | 'decrease' | 'mixed' = 'mixed';
       const increases = priceListChanges.filter(c => c.changeAmount > 0).length;
       const decreases = priceListChanges.filter(c => c.changeAmount < 0).length;
@@ -2832,17 +2832,17 @@ export class ReportsService {
       filtered = filtered.filter(c => !c.isConsistent);
     }
 
-    // Değişim yönü filtresi
+    // DeÄŸiÅŸim yÃ¶nÃ¼ filtresi
     if (changeDirection !== 'all') {
       filtered = filtered.filter(c => c.changeDirection === changeDirection);
     }
 
-    // Min değişim yüzdesi filtresi
+    // Min deÄŸiÅŸim yÃ¼zdesi filtresi
     if (minChangePercent !== undefined) {
       filtered = filtered.filter(c => Math.abs(c.avgChangePercent) >= minChangePercent);
     }
 
-    // 6. Sıralama
+    // 6. SÄ±ralama
     filtered.sort((a, b) => {
       let aValue: any, bValue: any;
 
@@ -2889,7 +2889,7 @@ export class ReportsService {
       ? decreases.reduce((sum, c) => sum + c.avgChangePercent, 0) / decreases.length
       : 0;
 
-    // En yüksek artışlar
+    // En yÃ¼ksek artÄ±ÅŸlar
     const topIncreases = [...filtered]
       .filter(c => c.avgChangePercent > 0)
       .sort((a, b) => b.avgChangePercent - a.avgChangePercent)
@@ -2899,7 +2899,7 @@ export class ReportsService {
         percent: c.avgChangePercent,
       }));
 
-    // En yüksek azalışlar
+    // En yÃ¼ksek azalÄ±ÅŸlar
     const topDecreases = [...filtered]
       .filter(c => c.avgChangePercent < 0)
       .sort((a, b) => a.avgChangePercent - b.avgChangePercent)
@@ -2909,7 +2909,7 @@ export class ReportsService {
         percent: c.avgChangePercent,
       }));
 
-    // Son 30 ve 7 gün
+    // Son 30 ve 7 gÃ¼n
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -2950,7 +2950,7 @@ export class ReportsService {
   }
 
   /**
-   * Ürün Detay Raporu - Belirli bir ürünün hangi müşterilere satıldığını gösterir
+   * ÃœrÃ¼n Detay Raporu - Belirli bir Ã¼rÃ¼nÃ¼n hangi mÃ¼ÅŸterilere satÄ±ldÄ±ÄŸÄ±nÄ± gÃ¶sterir
    */
   private async resolveComplementIdsForProducts(
     products: Array<{ id: string; complementMode: 'AUTO' | 'MANUAL' }>,
@@ -7599,9 +7599,9 @@ export class ReportsService {
 
     await mikroService.connect();
 
-    // WHERE koşulları
+    // WHERE koÅŸullarÄ±
     const whereConditions = [
-      'sth_cins = 0',  // Satış hareketleri
+      'sth_cins = 0',  // SatÄ±ÅŸ hareketleri
       'sth_tip = 1',    // Normal hareket (fatura/irsaliye)
       `sth_stok_kod = '${productCode}'`,
     ];
@@ -7619,7 +7619,7 @@ export class ReportsService {
 
     const whereClause = whereConditions.join(' AND ');
 
-    // Müşteri detaylarını çek
+    // MÃ¼ÅŸteri detaylarÄ±nÄ± Ã§ek
     const query = `
       SELECT
         sth.sth_cari_kodu as customerCode,
@@ -7641,10 +7641,10 @@ export class ReportsService {
     const rawData = await mikroService.executeQuery(query);
     await mikroService.disconnect();
 
-    // Kar ve kar marjını hesapla
+    // Kar ve kar marjÄ±nÄ± hesapla
     const customers = rawData.map((row: any) => ({
       customerCode: row.customerCode,
-      customerName: row.customerName || 'Bilinmeyen Müşteri',
+      customerName: row.customerName || 'Bilinmeyen MÃ¼ÅŸteri',
       sectorCode: row.sectorCode || '-',
       orderCount: row.orderCount,
       totalQuantity: parseFloat(row.totalQuantity || 0),
@@ -7689,6 +7689,8 @@ export class ReportsService {
 }
 
 export default new ReportsService();
+
+
 
 
 
