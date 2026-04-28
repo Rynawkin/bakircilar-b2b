@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent, ChangeEvent } from 'react';
+import type { DragEvent, ChangeEvent, FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -411,6 +411,7 @@ function AdminQuoteNewPageContent() {
   const [purchasedProducts, setPurchasedProducts] = useState<QuoteProduct[]>([]);
   const [selectedPurchasedCodes, setSelectedPurchasedCodes] = useState<Set<string>>(new Set());
   const [selectedSearchCodes, setSelectedSearchCodes] = useState<Set<string>>(new Set());
+  const [poolQuantityInputs, setPoolQuantityInputs] = useState<Record<string, string>>({});
   const [purchasedSearch, setPurchasedSearch] = useState('');
   const [productTab, setProductTab] = useState<'purchased' | 'search'>('purchased');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1097,6 +1098,40 @@ function AdminQuoteNewPageContent() {
   const selectedPurchasedCount = selectedPurchasedCodes.size;
   const selectedSearchCount = selectedSearchCodes.size;
 
+  const getPoolQuantityInputValue = (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return '1';
+    const saved = poolQuantityInputs[code];
+    return saved !== undefined ? saved : '1';
+  };
+
+  const getPoolQuantityValue = (productCode: string) => {
+    const raw = getPoolQuantityInputValue(productCode).trim();
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  };
+
+  const setPoolQuantityInputValue = (productCode: string, value: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return;
+    const digitsOnly = String(value || '').replace(/[^\d]/g, '');
+    setPoolQuantityInputs((prev) => ({ ...prev, [code]: digitsOnly }));
+  };
+
+  const normalizePoolQuantityInputValue = (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    if (!code) return;
+    setPoolQuantityInputs((prev) => ({
+      ...prev,
+      [code]: String(getPoolQuantityValue(code)),
+    }));
+  };
+
+  const selectPoolQuantityInput = (event: ReactFocusEvent<HTMLInputElement> | ReactMouseEvent<HTMLInputElement>) => {
+    event.stopPropagation();
+    event.currentTarget.select();
+  };
+
   const togglePurchasedSelection = (code: string) => {
     setSelectedPurchasedCodes((prev) => {
       const next = new Set(prev);
@@ -1126,7 +1161,10 @@ function AdminQuoteNewPageContent() {
     const selectedProducts = purchasedProducts.filter((product) =>
       selectedPurchasedCodes.has(product.mikroCode)
     );
-    addProductsToQuote(selectedProducts);
+    const quantityByCode = Object.fromEntries(
+      selectedProducts.map((product) => [product.mikroCode, getPoolQuantityValue(product.mikroCode)])
+    );
+    addProductsToQuote(selectedProducts, quantityByCode);
     setSelectedPurchasedCodes(new Set());
   };
 
@@ -1256,11 +1294,14 @@ function AdminQuoteNewPageContent() {
     const selectedProducts = searchResults.filter((product) =>
       selectedSearchCodes.has(product.mikroCode)
     );
-    addProductsToQuote(selectedProducts);
+    const quantityByCode = Object.fromEntries(
+      selectedProducts.map((product) => [product.mikroCode, getPoolQuantityValue(product.mikroCode)])
+    );
+    addProductsToQuote(selectedProducts, quantityByCode);
     setSelectedSearchCodes(new Set());
   };
 
-  const buildQuoteItem = (product: QuoteProduct): QuoteItemForm => {
+  const buildQuoteItem = (product: QuoteProduct, quantity = 1): QuoteItemForm => {
     const purchasedMatch = purchasedProducts.find((item) => item.mikroCode === product.mikroCode);
     const sourceProduct = purchasedMatch || product;
 
@@ -1272,7 +1313,7 @@ function AdminQuoteNewPageContent() {
       unit: sourceProduct.unit,
       unit2: sourceProduct.unit2 || null,
       unit2Factor: sourceProduct.unit2Factor ?? null,
-      quantity: 1,
+      quantity,
       priceSource: '',
       unitPrice: undefined,
       vatRate: sourceProduct.vatRate || 0,
@@ -1370,19 +1411,22 @@ function AdminQuoteNewPageContent() {
     };
   };
 
-  const addProductsToQuote = (productsToAdd: QuoteProduct[]) => {
+  const addProductsToQuote = (productsToAdd: QuoteProduct[], quantityByCode?: Record<string, number>) => {
     const validProducts = productsToAdd.filter((product) => product?.mikroCode);
     if (validProducts.length === 0) {
       toast.error('Urun bulunamadi.');
       return;
     }
 
-    setQuoteItems((prev) => [...prev, ...validProducts.map(buildQuoteItem)]);
+    setQuoteItems((prev) => [
+      ...prev,
+      ...validProducts.map((product) => buildQuoteItem(product, quantityByCode?.[product.mikroCode] ?? 1)),
+    ]);
     toast.success(`${validProducts.length} urun eklendi.`);
   };
 
-  const addProductToQuote = (product: QuoteProduct) => {
-    addProductsToQuote([product]);
+  const addProductToQuote = (product: QuoteProduct, quantity?: number) => {
+    addProductsToQuote([product], quantity ? { [product.mikroCode]: quantity } : undefined);
   };
 
   const handleRecommendationAdd = (product: QuoteProduct) => {
@@ -3567,11 +3611,25 @@ function AdminQuoteNewPageContent() {
                               size="sm"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                addProductToQuote(product);
+                                addProductToQuote(product, getPoolQuantityValue(product.mikroCode));
                               }}
                             >
                               {isOrderMode ? 'Siparise Ekle' : 'Teklife Ekle'}
                             </Button>
+                            <div className="mt-2 w-20" onClick={(event) => event.stopPropagation()}>
+                              <Input
+                                type="text"
+                                inputMode="numeric"
+                                value={getPoolQuantityInputValue(product.mikroCode)}
+                                onChange={(event) => setPoolQuantityInputValue(product.mikroCode, event.target.value)}
+                                onBlur={() => normalizePoolQuantityInputValue(product.mikroCode)}
+                                onFocus={selectPoolQuantityInput}
+                                onClick={selectPoolQuantityInput}
+                                onKeyDown={(event) => event.stopPropagation()}
+                                className="h-8 px-2 py-1 text-center text-sm"
+                                aria-label={`${product.name} miktar`}
+                              />
+                            </div>
                             {poolPriceLabel && (
                               <div className="mt-2 text-[11px] font-semibold text-slate-700">
                                 {poolPriceLabel}:{' '}
@@ -3721,11 +3779,25 @@ function AdminQuoteNewPageContent() {
                             size="sm"
                             onClick={(event) => {
                               event.stopPropagation();
-                              addProductToQuote(product);
+                              addProductToQuote(product, getPoolQuantityValue(product.mikroCode));
                             }}
                           >
                             {isOrderMode ? 'Siparise Ekle' : 'Teklife Ekle'}
                           </Button>
+                          <div className="mt-2 w-20" onClick={(event) => event.stopPropagation()}>
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              value={getPoolQuantityInputValue(product.mikroCode)}
+                              onChange={(event) => setPoolQuantityInputValue(product.mikroCode, event.target.value)}
+                              onBlur={() => normalizePoolQuantityInputValue(product.mikroCode)}
+                              onFocus={selectPoolQuantityInput}
+                              onClick={selectPoolQuantityInput}
+                              onKeyDown={(event) => event.stopPropagation()}
+                              className="h-8 px-2 py-1 text-center text-sm"
+                              aria-label={`${product.name} miktar`}
+                            />
+                          </div>
                           {poolPriceLabel && (
                             <div className="mt-2 text-[11px] font-semibold text-slate-700">
                               {poolPriceLabel}:{' '}

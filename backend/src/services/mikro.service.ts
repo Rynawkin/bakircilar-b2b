@@ -28,6 +28,7 @@ class MikroService {
   public purchasedCodesTtlMs = 10 * 60 * 1000;
 
   public pool: sql.ConnectionPool | null = null;
+  public connectPromise: Promise<sql.ConnectionPool> | null = null;
   public sipBelgeColumns: { no: 'sip_belge_no' | 'sip_belgeno' | null; tarih: boolean } | null = null;
   public sipExtraColumns: { teklifUid: boolean } | null = null;
 
@@ -73,37 +74,58 @@ class MikroService {
    * Mikro veritabanına bağlan
    */
   async connect(): Promise<void> {
-    if (this.pool) {
-      if (this.pool.connected) {
-        return;
-      }
-
-      if (this.pool.connecting) {
-        await this.pool.connect();
-        return;
-      }
-
-      try {
-        await this.pool.close();
-      } catch (error) {
-        console.warn('WARN: Mikro connection could not be closed, retrying:', error);
-      } finally {
-        this.pool = null;
-      }
+    if (this.pool?.connected) {
+      return;
     }
 
-    try {
-      this.pool = new sql.ConnectionPool(config.mikro);
-      this.pool.on('error', (error) => {
+    if (this.connectPromise) {
+      await this.connectPromise;
+      return;
+    }
+
+    const stalePool = this.pool;
+    this.pool = null;
+
+    this.connectPromise = (async () => {
+      if (stalePool) {
+        try {
+          await stalePool.close();
+        } catch (error) {
+          console.warn('WARN: Mikro connection could not be closed, retrying:', error);
+        }
+      }
+
+      const nextPool = new sql.ConnectionPool(config.mikro);
+      nextPool.on('error', (error) => {
         console.error('WARN: Mikro pool error:', error);
-        this.pool = null;
+        if (this.pool === nextPool) {
+          this.pool = null;
+        }
       });
-      await this.pool.connect();
-      console.log('✅ Mikro ERP bağlantısı başarılı');
-    } catch (error) {
-      console.error('❌ Mikro ERP bağlantı hatası:', error);
-      this.pool = null;
-      throw new Error('Mikro ERP bağlantısı kurulamadı');
+
+      try {
+        await nextPool.connect();
+        this.pool = nextPool;
+        console.log('✅ Mikro ERP bağlantısı başarılı');
+        return nextPool;
+      } catch (error) {
+        console.error('❌ Mikro ERP bağlantı hatası:', error);
+        if (this.pool === nextPool) {
+          this.pool = null;
+        }
+        try {
+          await nextPool.close();
+        } catch {
+          // ignore secondary close failures on failed connect
+        }
+        throw new Error('Mikro ERP bağlantısı kurulamadı');
+      }
+    })();
+
+    try {
+      await this.connectPromise;
+    } finally {
+      this.connectPromise = null;
     }
   }
 
@@ -115,6 +137,34 @@ class MikroService {
       console.warn('WARN: Mikro connection could not be closed:', error);
     } finally {
       this.pool = null;
+      this.connectPromise = null;
+    }
+  }
+
+  public isRecoverableQueryError(error: any): boolean {
+    const code = String(error?.code || '').toUpperCase();
+    const message = String(error?.message || '').toLowerCase();
+    return (
+      code === 'ECONNCLOSED' ||
+      code === 'ESOCKET' ||
+      code === 'ETIMEDOUT' ||
+      code === 'ETIMEOUT' ||
+      message.includes('connection is closed') ||
+      message.includes('connection lost')
+    );
+  }
+
+  public async resetPool(): Promise<void> {
+    const currentPool = this.pool;
+    this.pool = null;
+    this.connectPromise = null;
+    if (!currentPool) {
+      return;
+    }
+    try {
+      await currentPool.close();
+    } catch (error) {
+      console.warn('WARN: Mikro connection could not be closed:', error);
     }
   }
 
@@ -2952,28 +3002,24 @@ class MikroService {
    * Ham SQL sorgusu çalıştır
    */
   async executeQuery(query: string): Promise<any[]> {
-    try {
-      await this.connect();
-      const result = await this.pool!.request().query(query);
-      return result.recordset;
-    } catch (error: any) {
-      if (error?.code === 'ECONNCLOSED' || error?.code === 'ESOCKET' || error?.code === 'ETIMEDOUT') {
-        console.warn('WARN: Mikro connection lost, reconnecting...');
-        try {
-          if (this.pool) {
-            await this.pool.close();
-          }
-        } catch (closeError) {
-          console.warn('WARN: Mikro connection could not be closed:', closeError);
-        } finally {
-          this.pool = null;
-        }
+    let lastError: any;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const shouldRetry = attempt === 0;
+      try {
         await this.connect();
         const result = await this.pool!.request().query(query);
         return result.recordset;
+      } catch (error: any) {
+        lastError = error;
+        if (!shouldRetry || !this.isRecoverableQueryError(error)) {
+          throw error;
+        }
+        console.warn('WARN: Mikro connection lost, reconnecting...');
+        await this.resetPool();
       }
-      throw error;
     }
+
+    throw lastError || new Error('Mikro sorgusu calistirilamadi');
   }
 }
 

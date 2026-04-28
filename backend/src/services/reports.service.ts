@@ -544,32 +544,33 @@ const UCARER_MERKEZ_DEPO_SQL = `
 SELECT
 DMD.[STOK KODU],
 DMD.[STOK ADI],
-DMD.[Merkez Depo] AS [Merkez Depo MiktarÄ±],
-DMD.[AlÄ±nan SipariÅŸte Bekleyen],
-DMD.[AlÄ±nan Siparis Tarihi] AS [AlÄ±nan SipariÅŸ Ä°lk Tarihi],
-DMD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [AlÄ±nan SipariÅŸ SonrasÄ± Depo Ä°htiaÃ§ Durumu 1.SORUN],
-ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0) AS [DiÄŸer Depolardan Gelecek Dsv ToplamlarÄ±],
-(DMD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DMD.[STOK KODU] AND DEPO='1'),0)) AS [Gelecek Dsv SonrasÄ± Ä°htiyaÃ§ Durumu 2. SORUN],
-DMD.[Verilen SipariÅŸte Bekleyen],
+DMD.[Merkez Depo] AS [Merkez Depo Miktari],
+DMD.[Al\u0131nan Sipari\u015fte Bekleyen] AS [Alinan Sipariste Bekleyen],
+DMD.[Al\u0131nan Siparis Tarihi] AS [Alinan Siparis Ilk Tarihi],
+DMD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [Alinan Siparis Sonrasi Depo Ihtiyac Durumu 1.SORUN],
+ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD = DMD.[STOK KODU] AND DEPO = '1'), 0) AS [Diger Depolardan Gelecek Dsv Toplamlari],
+(DMD.[SIPARIS SONRASI DEPODAKI MIKTAR]) + (ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD = DMD.[STOK KODU] AND DEPO = '1'), 0)) AS [Gelecek Dsv Sonrasi Ihtiyac Durumu 2. SORUN],
+DMD.[Verilen Sipari\u015fte Bekleyen] AS [Verilen Sipariste Bekleyen],
 CASE
-WHEN DMD.[Verilen Tarihi]='01.01.1900' THEN ''
-WHEN DMD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DMD.[Verilen Tarihi] END AS [Verilen SipariÅŸ Son Tarihi],
+WHEN DMD.[Verilen Tarihi] = '01.01.1900' THEN ''
+WHEN DMD.[Verilen Tarihi] NOT LIKE '01.01.1900' THEN DMD.[Verilen Tarihi]
+END AS [Verilen Siparis Son Tarihi],
 DMD.[DEPO + VERILEN SIPARIS MIKTARI],
-DMD.[REEL MIKTAR] AS [SatÄ±nalma SipariÅŸi SonrasÄ± Ä°htiyaÃ§ Durumu 3.SORUN],
+DMD.[REEL MIKTAR] AS [Satinalma Siparisi Sonrasi Ihtiyac Durumu 3.SORUN],
 DMD.[Merkez Minimum Miktar],
 DMD.[Merkez Maximum Miktar],
 CASE
-WHEN DMD.[REEL MIKTAR]<DMD.[Merkez Minimum Miktar] THEN ((DMD.[Merkez Maximum Miktar])-(DMD.[REEL MIKTAR]))
-WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] AND DMD.[Merkez Minimum Miktar]='0' THEN ((DMD.[Merkez Maximum Miktar])-(DMD.[REEL MIKTAR]))
-WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] AND DMD.[REEL MIKTAR]>DMD.[Merkez Maximum Miktar] THEN ((DMD.[Merkez Maximum Miktar])-(DMD.[REEL MIKTAR]))
-WHEN DMD.[REEL MIKTAR]>DMD.[Merkez Minimum Miktar] THEN '0'
-WHEN DMD.[REEL MIKTAR]=DMD.[Merkez Minimum Miktar] THEN '0'
-END AS [Eksiltilecek Ä°lve Verilecek Ä°ÅŸlem YapÄ±lmayacak Miktar Durumu 4. SORUN],
-dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0) as [DÃ¼kkan Depo],
-dbo.fn_DepodakiMiktar(DMD.[STOK KODU],1,0) as [Merkez Depo],
-dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0) as [EreÄŸli Depo],
-dbo.fn_DepodakiMiktar(DMD.[STOK KODU],6,0) as [Topca Depo],
-(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU],7,0)) AS [4 Depo Toplam MiktarÄ±]
+WHEN DMD.[REEL MIKTAR] < DMD.[Merkez Minimum Miktar] THEN (DMD.[Merkez Maximum Miktar] - DMD.[REEL MIKTAR])
+WHEN DMD.[REEL MIKTAR] > DMD.[Merkez Minimum Miktar] AND DMD.[Merkez Minimum Miktar] = '0' THEN (DMD.[Merkez Maximum Miktar] - DMD.[REEL MIKTAR])
+WHEN DMD.[REEL MIKTAR] > DMD.[Merkez Minimum Miktar] AND DMD.[REEL MIKTAR] > DMD.[Merkez Maximum Miktar] THEN (DMD.[Merkez Maximum Miktar] - DMD.[REEL MIKTAR])
+WHEN DMD.[REEL MIKTAR] > DMD.[Merkez Minimum Miktar] THEN '0'
+WHEN DMD.[REEL MIKTAR] = DMD.[Merkez Minimum Miktar] THEN '0'
+END AS [Eksiltilecek Ilave Verilecek Islem Yapilmayacak Miktar Durumu 4. SORUN],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 7, 0) AS [Dukkan Depo],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 1, 0) AS [Merkez Depo],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 2, 0) AS [Eregli Depo],
+dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 6, 0) AS [Topca Depo],
+(dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 6, 0)) + (dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 2, 0)) + (dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 1, 0)) + (dbo.fn_DepodakiMiktar(DMD.[STOK KODU], 7, 0)) AS [4 Depo Toplam Miktari]
 FROM DEPO_MERKEZ_DURUM DMD
 `;
 
@@ -577,32 +578,33 @@ const UCARER_TOPCA_DEPO_SQL = `
 SELECT
 DTD.[STOK KODU],
 DTD.[STOK ADI],
-DTD.[Topca Depo] AS [Topca Depo MiktarÄ±],
-DTD.[AlÄ±nan SipariÅŸte Bekleyen],
-DTD.[AlÄ±nan Siparis Tarihi] AS [AlÄ±nan SipariÅŸ Ä°lk Tarihi],
-DTD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [AlÄ±nan SipariÅŸ SonrasÄ± Depo Ä°htiaÃ§ Durumu 1.SORUN],
-ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0) AS [DiÄŸer Depolardan Gelecek Dsv ToplamlarÄ±],
-(DTD.[SIPARIS SONRASI DEPODAKI MIKTAR])+(ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD=DTD.[STOK KODU] AND DEPO='6'),0)) AS [Gelecek Dsv SonrasÄ± Ä°htiyaÃ§ Durumu 2. SORUN],
-DTD.[Verilen SipariÅŸte Bekleyen],
+DTD.[Topca Depo] AS [Topca Depo Miktari],
+DTD.[Al\u0131nan Sipari\u015fte Bekleyen] AS [Alinan Sipariste Bekleyen],
+DTD.[Al\u0131nan Siparis Tarihi] AS [Alinan Siparis Ilk Tarihi],
+DTD.[SIPARIS SONRASI DEPODAKI MIKTAR] AS [Alinan Siparis Sonrasi Depo Ihtiyac Durumu 1.SORUN],
+ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD = DTD.[STOK KODU] AND DEPO = '6'), 0) AS [Diger Depolardan Gelecek Dsv Toplamlari],
+(DTD.[SIPARIS SONRASI DEPODAKI MIKTAR]) + (ISNULL((SELECT KALAN FROM DEPOLAR_ARASI_SIPARIS_PORTO WHERE SKOD = DTD.[STOK KODU] AND DEPO = '6'), 0)) AS [Gelecek Dsv Sonrasi Ihtiyac Durumu 2. SORUN],
+DTD.[Verilen Sipari\u015fte Bekleyen] AS [Verilen Sipariste Bekleyen],
 CASE
-WHEN DTD.[Verilen Tarihi]='01.01.1900' THEN ''
-WHEN DTD.[Verilen Tarihi]NOT LIKE '01.01.1900' THEN DTD.[Verilen Tarihi] END AS [Verilen SipariÅŸ Son Tarihi],
+WHEN DTD.[Verilen Tarihi] = '01.01.1900' THEN ''
+WHEN DTD.[Verilen Tarihi] NOT LIKE '01.01.1900' THEN DTD.[Verilen Tarihi]
+END AS [Verilen Siparis Son Tarihi],
 DTD.[DEPO + VERILEN SIPARIS MIKTARI],
-DTD.[REEL MIKTAR] AS [SatÄ±nalma SipariÅŸi SonrasÄ± Ä°htiyaÃ§ Durumu 3.SORUN],
+DTD.[REEL MIKTAR] AS [Satinalma Siparisi Sonrasi Ihtiyac Durumu 3.SORUN],
 DTD.[Merkez Minimum Miktar],
 DTD.[Merkez Maximum Miktar],
 CASE
-WHEN DTD.[REEL MIKTAR]<DTD.[Merkez Minimum Miktar] THEN ((DTD.[Merkez Maximum Miktar])-(DTD.[REEL MIKTAR]))
-WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] AND DTD.[Merkez Minimum Miktar]='0' THEN ((DTD.[Merkez Maximum Miktar])-(DTD.[REEL MIKTAR]))
-WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] AND DTD.[REEL MIKTAR]>DTD.[Merkez Maximum Miktar] THEN ((DTD.[Merkez Maximum Miktar])-(DTD.[REEL MIKTAR]))
-WHEN DTD.[REEL MIKTAR]>DTD.[Merkez Minimum Miktar] THEN '0'
-WHEN DTD.[REEL MIKTAR]=DTD.[Merkez Minimum Miktar] THEN '0'
-END AS [Eksiltilecek Ä°lve Verilecek Ä°ÅŸlem YapÄ±lmayacak Miktar Durumu 4. SORUN],
-dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0) as [DÃ¼kkan Depo],
-dbo.fn_DepodakiMiktar(DTD.[STOK KODU],1,0) as [Merkez Depo],
-dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0) as [EreÄŸli Depo],
-dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0) as [TopÃ§a Depo],
-(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],6,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],2,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],1,0))+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU],7,0)) AS [4 Depo Toplam MiktarÄ±]
+WHEN DTD.[REEL MIKTAR] < DTD.[Merkez Minimum Miktar] THEN (DTD.[Merkez Maximum Miktar] - DTD.[REEL MIKTAR])
+WHEN DTD.[REEL MIKTAR] > DTD.[Merkez Minimum Miktar] AND DTD.[Merkez Minimum Miktar] = '0' THEN (DTD.[Merkez Maximum Miktar] - DTD.[REEL MIKTAR])
+WHEN DTD.[REEL MIKTAR] > DTD.[Merkez Minimum Miktar] AND DTD.[REEL MIKTAR] > DTD.[Merkez Maximum Miktar] THEN (DTD.[Merkez Maximum Miktar] - DTD.[REEL MIKTAR])
+WHEN DTD.[REEL MIKTAR] > DTD.[Merkez Minimum Miktar] THEN '0'
+WHEN DTD.[REEL MIKTAR] = DTD.[Merkez Minimum Miktar] THEN '0'
+END AS [Eksiltilecek Ilave Verilecek Islem Yapilmayacak Miktar Durumu 4. SORUN],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 7, 0) AS [Dukkan Depo],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 1, 0) AS [Merkez Depo],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 2, 0) AS [Eregli Depo],
+dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 6, 0) AS [Topca Depo],
+(dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 6, 0)) + (dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 2, 0)) + (dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 1, 0)) + (dbo.fn_DepodakiMiktar(DTD.[STOK KODU], 7, 0)) AS [4 Depo Toplam Miktari]
 FROM DEPO_TOPCA_DURUM DTD
 `;
 
