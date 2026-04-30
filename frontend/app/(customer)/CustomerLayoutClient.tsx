@@ -8,7 +8,7 @@ import { CustomerNavigation } from '@/components/layout/CustomerNavigation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 
-const CUSTOMER_MAINTENANCE_MODE = true;
+const CUSTOMER_MAINTENANCE_MODE = false;
 const CUSTOMER_MAINTENANCE_MASCOT_SRC = '/maintenance/maskot.png';
 
 export default function CustomerLayout({
