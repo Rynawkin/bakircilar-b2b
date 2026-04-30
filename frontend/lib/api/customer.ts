@@ -24,13 +24,19 @@ export const customerApi = {
   // Products
   getProducts: async (params?: {
     categoryId?: string;
+    categoryIds?: string[];
     search?: string;
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
     limit?: number;
     offset?: number;
   }): Promise<{ products: Product[] }> => {
-    const response = await apiClient.get('/products', { params });
+    const response = await apiClient.get('/products', {
+      params: {
+        ...params,
+        categoryIds: params?.categoryIds?.length ? params.categoryIds.join(',') : undefined,
+      },
+    });
     return response.data;
   },
 

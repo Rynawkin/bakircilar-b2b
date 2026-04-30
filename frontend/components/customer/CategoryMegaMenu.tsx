@@ -1,119 +1,8 @@
 'use client';
 
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Category } from '@/types';
-
-type TreeData = {
-  roots: Category[];
-  nodesById: Map<string, Category>;
-  childrenById: Map<string, string[]>;
-};
-
-const DELIMITERS = ['.', '/', '-', '_', '|', '>'];
-
-const resolveDelimiter = (codes: string[]): string | null => {
-  for (const delimiter of DELIMITERS) {
-    if (codes.some((code) => code.includes(delimiter))) {
-      return delimiter;
-    }
-  }
-  return null;
-};
-
-const resolvePrefixParent = (code: string, codeSet: Set<string>): string | null => {
-  for (let end = code.length - 1; end > 0; end -= 1) {
-    const prefix = code.slice(0, end);
-    if (codeSet.has(prefix)) {
-      return prefix;
-    }
-  }
-  return null;
-};
-
-const buildTree = (categories: Category[]): TreeData => {
-  const nodesById = new Map<string, Category>();
-  const childrenById = new Map<string, string[]>();
-  const codeToId = new Map<string, string>();
-
-  categories.forEach((category) => {
-    nodesById.set(category.id, category);
-    childrenById.set(category.id, []);
-    if (category.mikroCode && !codeToId.has(category.mikroCode)) {
-      codeToId.set(category.mikroCode, category.id);
-    }
-  });
-
-  const codes = Array.from(codeToId.keys());
-  const delimiter = resolveDelimiter(codes);
-  const codeSet = new Set(codes);
-  const roots: Category[] = [];
-
-  categories.forEach((category) => {
-    const code = category.mikroCode;
-    let parentId: string | null = null;
-
-    if (code) {
-      let parentCode: string | null = null;
-      if (delimiter) {
-        const parts = code.split(delimiter).filter(Boolean);
-        if (parts.length > 1) {
-          parentCode = parts.slice(0, -1).join(delimiter);
-        }
-      } else {
-        parentCode = resolvePrefixParent(code, codeSet);
-      }
-
-      if (parentCode && codeToId.has(parentCode)) {
-        parentId = codeToId.get(parentCode) || null;
-      }
-    }
-
-    if (parentId) {
-      childrenById.get(parentId)?.push(category.id);
-    } else {
-      roots.push(category);
-    }
-  });
-
-  const sortByName = (a: string, b: string) => {
-    const nameA = nodesById.get(a)?.name || '';
-    const nameB = nodesById.get(b)?.name || '';
-    return nameA.localeCompare(nameB);
-  };
-
-  roots.sort((a, b) => a.name.localeCompare(b.name));
-  Array.from(childrenById.entries()).forEach(([id, childIds]) => {
-    childrenById.set(id, [...childIds].sort(sortByName));
-  });
-
-  return { roots, nodesById, childrenById };
-};
-
-const collectLeaves = (
-  startId: string,
-  nodesById: Map<string, Category>,
-  childrenById: Map<string, string[]>
-): Category[] => {
-  const result: Category[] = [];
-  const walk = (id: string) => {
-    const children = childrenById.get(id) || [];
-    if (children.length === 0) {
-      const node = nodesById.get(id);
-      if (node) {
-        result.push(node);
-      }
-      return;
-    }
-    children.forEach(walk);
-  };
-
-  walk(startId);
-  return result;
-};
-
-const mapNodes = (ids: string[], nodesById: Map<string, Category>) => {
-  return ids.map((id) => nodesById.get(id)).filter(Boolean) as Category[];
-};
+import { buildCategoryTree, getCategoryPath } from '@/lib/utils/categoryTree';
 
 type CategoryMegaMenuProps = {
   categories: Category[];
@@ -121,181 +10,213 @@ type CategoryMegaMenuProps = {
   onSelect: (categoryId: string) => void;
 };
 
+const mapNodes = (ids: string[], nodesById: Map<string, Category>) =>
+  ids.map((id) => nodesById.get(id)).filter(Boolean) as Category[];
+
 export function CategoryMegaMenu({
   categories,
   selectedCategoryId,
   onSelect,
 }: CategoryMegaMenuProps) {
   const { roots, nodesById, childrenById } = useMemo(
-    () => buildTree(categories),
+    () => buildCategoryTree(categories),
     [categories]
   );
 
-  const [activeRootId, setActiveRootId] = useState<string | null>(null);
-  const [activeChildId, setActiveChildId] = useState<string | null>(null);
-
-  const clearActive = useCallback(() => {
-    setActiveRootId(null);
-    setActiveChildId(null);
-  }, []);
-
-  const handleSelect = useCallback(
-    (categoryId: string) => {
-      onSelect(categoryId);
-    },
-    [onSelect]
+  const selectedPath = useMemo(
+    () => (selectedCategoryId ? getCategoryPath(selectedCategoryId, categories) : []),
+    [selectedCategoryId, categories]
   );
 
-  const handleRootHover = useCallback(
-    (rootId: string) => {
-      setActiveRootId(rootId);
-      const children = childrenById.get(rootId) || [];
-      setActiveChildId(children[0] || null);
-    },
-    [childrenById]
-  );
+  const selectedRootId = selectedPath[0]?.id || null;
+  const selectedChildId = selectedPath[1]?.id || null;
+  const selectedNode = selectedCategoryId ? nodesById.get(selectedCategoryId) : null;
 
-  const handleChildHover = useCallback((childId: string) => {
-    setActiveChildId(childId);
-  }, []);
+  const [activeRootId, setActiveRootId] = useState<string | null>(selectedRootId || roots[0]?.id || null);
 
   useEffect(() => {
-    if (!activeRootId) {
-      setActiveChildId(null);
+    if (selectedRootId) {
+      setActiveRootId(selectedRootId);
       return;
     }
-    const children = childrenById.get(activeRootId) || [];
-    if (children.length === 0) {
-      setActiveChildId(null);
-      return;
+    if (!activeRootId && roots[0]?.id) {
+      setActiveRootId(roots[0].id);
     }
-    if (!activeChildId || !children.includes(activeChildId)) {
-      setActiveChildId(children[0]);
-    }
-  }, [activeRootId, activeChildId, childrenById]);
+  }, [selectedRootId, activeRootId, roots]);
 
-  const rootChildren = activeRootId
+  const activeRoot = activeRootId ? nodesById.get(activeRootId) || null : null;
+  const activeChildren = activeRootId
     ? mapNodes(childrenById.get(activeRootId) || [], nodesById)
     : [];
 
-  const leafNodes = activeChildId
-    ? collectLeaves(activeChildId, nodesById, childrenById)
-    : activeRootId
-      ? collectLeaves(activeRootId, nodesById, childrenById)
-      : [];
+  const selectedBranchId =
+    selectedPath.length >= 3 ? selectedPath[1]?.id : selectedPath.length === 2 ? selectedPath[1]?.id : null;
+  const activeBranchId =
+    selectedRootId === activeRootId && selectedBranchId
+      ? selectedBranchId
+      : activeChildren[0]?.id || null;
+
+  const activeBranch = activeBranchId ? nodesById.get(activeBranchId) || null : null;
+  const activeLeafNodes = activeBranchId
+    ? mapNodes(childrenById.get(activeBranchId) || [], nodesById)
+    : [];
 
   return (
-    <div className="w-full" onMouseLeave={clearActive}>
-      <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500">Kategoriler</div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onMouseEnter={clearActive}
-            onClick={() => handleSelect('')}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors border ${
-              !selectedCategoryId
-                ? 'bg-primary-600 text-white border-primary-600'
-                : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:text-primary-700'
-            }`}
-          >
-            Tumu
-          </button>
-          {roots.map((root) => {
-            const isActive = root.id === activeRootId;
-            const isSelected = root.id === selectedCategoryId;
-            return (
-              <button
-                key={root.id}
-                type="button"
-                onMouseEnter={() => handleRootHover(root.id)}
-                onClick={() => handleSelect(root.id)}
-                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors border ${
-                  isSelected
-                    ? 'bg-primary-600 text-white border-primary-600'
-                    : isActive
-                      ? 'bg-gray-100 text-gray-900 border-gray-200'
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:text-primary-700'
-                }`}
-              >
-                {root.name}
-              </button>
-            );
-          })}
+    <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="flex flex-col gap-3 border-b border-gray-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">Kategoriler</div>
+          <h2 className="mt-1 text-lg font-bold text-gray-900">Urunleri kategoriye gore gezin</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Ana kategoriye tikladiginizda, o bolumdeki tum urunler listelenir.
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => onSelect('')}
+          className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
+            !selectedCategoryId
+              ? 'border-primary-600 bg-primary-600 text-white'
+              : 'border-gray-200 bg-white text-gray-700 hover:border-primary-300 hover:text-primary-700'
+          }`}
+        >
+          Tumu
+        </button>
       </div>
 
-      {activeRootId && (
-        <div className="mt-3 w-full rounded-2xl border border-gray-200 bg-white shadow-2xl">
-          <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-0">
-            <div className="border-r border-gray-100 p-4">
-              <div className="text-xs font-semibold text-gray-500 mb-2">Alt Kategoriler</div>
-              {rootChildren.length === 0 ? (
-                <div className="text-xs text-gray-400">Alt kategori bulunamadi.</div>
-              ) : (
-                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
-                  <button
-                    type="button"
-                    onClick={() => activeRootId && handleSelect(activeRootId)}
-                    className={`w-full rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors ${
-                      activeRootId && selectedCategoryId === activeRootId
-                        ? 'bg-primary-600 text-white'
-                        : 'bg-primary-50 text-primary-700 hover:bg-primary-100'
-                    }`}
-                  >
-                    Tum {nodesById.get(activeRootId || '')?.name || 'Kategori'}
-                  </button>
-                  {rootChildren.map((child) => {
-                    const isActive = child.id === activeChildId;
-                    const isSelected = child.id === selectedCategoryId;
-                    return (
-                      <button
-                        key={child.id}
-                        type="button"
-                        onMouseEnter={() => handleChildHover(child.id)}
-                        onClick={() => handleSelect(child.id)}
-                        className={`w-full rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors ${
-                          isSelected
-                            ? 'bg-primary-600 text-white'
-                            : isActive
-                              ? 'bg-gray-100 text-gray-900'
-                              : 'bg-white text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        {child.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+        {roots.map((root) => {
+          const isActive = root.id === activeRootId;
+          const isSelected = root.id === selectedCategoryId;
+          return (
+            <button
+              key={root.id}
+              type="button"
+              onClick={() => {
+                setActiveRootId(root.id);
+                onSelect(root.id);
+              }}
+              className={`shrink-0 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors ${
+                isSelected
+                  ? 'border-primary-600 bg-primary-600 text-white'
+                  : isActive
+                    ? 'border-primary-200 bg-primary-50 text-primary-800'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-primary-300 hover:text-primary-700'
+              }`}
+            >
+              {root.name}
+            </button>
+          );
+        })}
+      </div>
 
-            <div className="p-4">
-              <div className="text-xs font-semibold text-gray-500 mb-2">En Alt Kategoriler</div>
-              {leafNodes.length === 0 ? (
-                <div className="text-xs text-gray-400">Kategori bulunamadi.</div>
-              ) : (
-                <div className="flex flex-wrap gap-2 max-h-72 overflow-y-auto pr-1">
-                  {leafNodes.map((leaf) => {
-                    const isSelected = leaf.id === selectedCategoryId;
-                    return (
-                      <button
-                        key={leaf.id}
-                        type="button"
-                        onClick={() => handleSelect(leaf.id)}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors border ${
-                          isSelected
-                            ? 'bg-primary-600 text-white border-primary-600'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:text-primary-700'
-                        }`}
-                      >
-                        {leaf.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+      {activeRoot && (
+        <div className="mt-5 rounded-2xl bg-gray-50 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 border-b border-gray-200 pb-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Secili Bolum</div>
+              <div className="mt-1 text-lg font-bold text-gray-900">{activeRoot.name}</div>
             </div>
+            <button
+              type="button"
+              onClick={() => onSelect(activeRoot.id)}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+                selectedCategoryId === activeRoot.id
+                  ? 'border-primary-600 bg-primary-600 text-white'
+                  : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'
+              }`}
+            >
+              Tum {activeRoot.name}
+            </button>
+          </div>
+
+          {activeChildren.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-3 text-sm font-semibold text-gray-700">Alt kategoriler</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {activeChildren.map((child) => {
+                  const isSelected = child.id === selectedCategoryId;
+                  const isBranchActive = child.id === activeBranchId;
+                  return (
+                    <button
+                      key={child.id}
+                      type="button"
+                      onClick={() => onSelect(child.id)}
+                      className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
+                        isSelected
+                          ? 'border-primary-600 bg-primary-600 text-white'
+                          : isBranchActive
+                            ? 'border-primary-200 bg-white text-primary-800 shadow-sm'
+                            : 'border-gray-200 bg-white text-gray-800 hover:border-primary-300 hover:bg-primary-50'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold">{child.name}</div>
+                      <div className={`mt-1 text-xs ${isSelected ? 'text-primary-100' : 'text-gray-500'}`}>
+                        Altindaki tum urunleri goster
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {activeBranch && activeLeafNodes.length > 0 && (
+            <div className="mt-5 border-t border-gray-200 pt-4">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-gray-700">{activeBranch.name} alt kategorileri</div>
+                  <div className="text-xs text-gray-500">Dilerseniz daha spesifik filtre de secebilirsiniz.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onSelect(activeBranch.id)}
+                  className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                    selectedCategoryId === activeBranch.id
+                      ? 'border-primary-600 bg-primary-600 text-white'
+                      : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'
+                  }`}
+                >
+                  Tum {activeBranch.name}
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {activeLeafNodes.map((leaf) => {
+                  const isSelected = leaf.id === selectedCategoryId;
+                  return (
+                    <button
+                      key={leaf.id}
+                      type="button"
+                      onClick={() => onSelect(leaf.id)}
+                      className={`rounded-full border px-3 py-2 text-xs font-semibold transition-colors ${
+                        isSelected
+                          ? 'border-primary-600 bg-primary-600 text-white'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-primary-300 hover:text-primary-700'
+                      }`}
+                    >
+                      {leaf.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectedNode && (
+        <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Aktif Kategori</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-emerald-900">
+            {selectedPath.map((category, index) => (
+              <span key={category.id} className="flex items-center gap-2">
+                {index > 0 && <span className="text-emerald-400">/</span>}
+                <span className={index === selectedPath.length - 1 ? 'font-bold' : 'font-medium'}>
+                  {category.name}
+                </span>
+              </span>
+            ))}
           </div>
         </div>
       )}

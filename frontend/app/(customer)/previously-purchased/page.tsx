@@ -24,6 +24,7 @@ import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
+import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
 
 const PAGE_SIZE = 60;
 
@@ -45,6 +46,10 @@ export default function PreviouslyPurchasedPage() {
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const selectedCategoryIds = useMemo(
+    () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
+    [selectedCategory, categories]
+  );
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
     sortBy: 'none',
     priceType: 'invoiced',
@@ -146,6 +151,7 @@ export default function PreviouslyPurchasedPage() {
       try {
         const productsData = await customerApi.getProducts({
           categoryId: selectedCategory || undefined,
+          categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
           search: debouncedSearch || undefined,
           mode: 'purchased',
           limit: PAGE_SIZE,
@@ -167,7 +173,7 @@ export default function PreviouslyPurchasedPage() {
         }
       }
     },
-    [selectedCategory, debouncedSearch]
+    [selectedCategory, selectedCategoryIds, debouncedSearch]
   );
 
   useEffect(() => {

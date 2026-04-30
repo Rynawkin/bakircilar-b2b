@@ -259,6 +259,7 @@ class StockService {
    */
   async getExcessStockProducts(filters?: {
     categoryId?: string;
+    categoryIds?: string[];
     search?: string;
     minStock?: number;
     limit?: number;
@@ -281,7 +282,9 @@ class StockService {
       where.mikroCode = { notIn: excludedCodes };
     }
 
-    if (filters?.categoryId) {
+    if (filters?.categoryIds?.length) {
+      where.categoryId = { in: filters.categoryIds };
+    } else if (filters?.categoryId) {
       where.categoryId = filters.categoryId;
     }
 

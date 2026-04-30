@@ -24,6 +24,7 @@ import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
+import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
 
 const PAGE_SIZE = 60;
 
@@ -44,6 +45,10 @@ export default function AgreementProductsPage() {
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const selectedCategoryIds = useMemo(
+    () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
+    [selectedCategory, categories]
+  );
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
     sortBy: 'none',
@@ -146,6 +151,7 @@ export default function AgreementProductsPage() {
       try {
         const productsData = await customerApi.getProducts({
           categoryId: selectedCategory || undefined,
+          categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
           search: debouncedSearch || undefined,
           warehouse: selectedWarehouse || undefined,
           mode: 'agreements',
@@ -168,7 +174,7 @@ export default function AgreementProductsPage() {
         }
       }
     },
-    [selectedCategory, debouncedSearch, selectedWarehouse]
+    [selectedCategory, selectedCategoryIds, debouncedSearch, selectedWarehouse]
   );
 
   useEffect(() => {

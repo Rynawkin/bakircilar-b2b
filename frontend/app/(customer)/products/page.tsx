@@ -24,6 +24,7 @@ import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
+import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -50,6 +51,10 @@ export default function ProductsPage() {
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const selectedCategoryIds = useMemo(
+    () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
+    [selectedCategory, categories]
+  );
   const [advancedFilters, setAdvancedFilters] = useState<FilterState>({
     sortBy: 'none',
     priceType: 'invoiced',
@@ -139,6 +144,7 @@ export default function ProductsPage() {
     try {
       const searchParams = {
         categoryId: selectedCategory || undefined,
+        categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
         search: debouncedSearch || undefined,
         mode: 'all' as const,
       };
@@ -151,7 +157,7 @@ export default function ProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  }, [selectedCategory, debouncedSearch]);
+  }, [selectedCategory, selectedCategoryIds, debouncedSearch]);
 
   // Load products whenever filters change
   useEffect(() => {

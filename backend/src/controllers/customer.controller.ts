@@ -348,7 +348,21 @@ export class CustomerController {
    */
   async getProducts(req: Request, res: Response, next: NextFunction) {
     try {
-      const { categoryId, search, warehouse, mode } = req.query;
+      const { categoryId, categoryIds: rawCategoryIds, search, warehouse, mode } = req.query;
+      const categoryIds = Array.from(
+        new Set(
+          (Array.isArray(rawCategoryIds) ? rawCategoryIds : [rawCategoryIds])
+            .flatMap((value) => String(value || '').split(','))
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
+      const categoryFilter =
+        categoryIds.length > 0
+          ? { categoryId: categoryIds.length === 1 ? categoryIds[0] : { in: categoryIds } }
+          : categoryId
+            ? { categoryId: categoryId as string }
+            : {};
       const isDiscounted = mode === 'discounted' || mode === 'excess';
       const isPurchased = mode === 'purchased';
       const isAgreementMode = mode === 'agreements';
@@ -382,7 +396,8 @@ export class CustomerController {
             params: {
               limit,
               offset,
-              categoryId: Boolean(categoryId),
+              categoryId: Boolean(categoryId) || categoryIds.length > 0,
+              categoryIdsCount: categoryIds.length,
               warehouse: Boolean(warehouse),
               searchTokens: searchTokens.length,
             },
@@ -516,7 +531,7 @@ export class CustomerController {
           product: {
             active: true,
             ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
-            ...(categoryId ? { categoryId: categoryId as string } : {}),
+            ...categoryFilter,
           },
         };
 
@@ -707,6 +722,7 @@ export class CustomerController {
       const products = isDiscounted
         ? await stockService.getExcessStockProducts({
             categoryId: categoryId as string,
+            categoryIds,
             search: search as string,
             limit,
             offset,
@@ -717,7 +733,7 @@ export class CustomerController {
               where: {
                 active: true,
                 mikroCode: { in: purchasedCodes },
-                ...(categoryId ? { categoryId: categoryId as string } : {}),
+                ...categoryFilter,
                 ...(searchTokens.length > 0
                   ? {
                       AND: searchTokens.map((token) => ({
@@ -785,7 +801,7 @@ export class CustomerController {
               where: {
                 active: true,
                 ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
-                ...(categoryId ? { categoryId: categoryId as string } : {}),
+                ...categoryFilter,
                 ...(searchTokens.length > 0
                   ? {
                       AND: searchTokens.map((token) => ({
