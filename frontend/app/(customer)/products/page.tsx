@@ -26,6 +26,9 @@ import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { buildCategoryTree, getCategoryPath, getDescendantCategoryIds } from '@/lib/utils/categoryTree';
 
+const PRODUCTS_PAGE_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
+const PRODUCTS_GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6';
+
 export default function ProductsPage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -267,11 +270,11 @@ export default function ProductsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="container-custom py-6">
+      <div className={PRODUCTS_PAGE_CONTAINER_CLASS}>
 
         {/* Top search bar */}
-        <div className="mb-5 flex items-center gap-3">
-          <div className="relative flex-1 max-w-lg">
+        <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-center">
+          <div className="relative w-full max-w-3xl xl:flex-1">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
@@ -313,10 +316,10 @@ export default function ProductsPage() {
           )}
         </div>
 
-        <div className="flex gap-5">
+        <div className="flex gap-4 2xl:gap-6">
 
           {/* ── LEFT: Category Sidebar ─────────────────────────────── */}
-          <aside className="hidden lg:block w-56 flex-shrink-0">
+          <aside className="hidden w-64 flex-shrink-0 lg:block 2xl:w-72">
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm sticky top-6">
               <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Kategoriler</h2>
@@ -492,7 +495,7 @@ export default function ProductsPage() {
 
             {/* Products Grid */}
             {isInitialLoad ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className={PRODUCTS_GRID_CLASS}>
                 {Array.from({ length: 8 }).map((_, i) => (
                   <ProductCardSkeleton key={i} />
                 ))}
@@ -523,7 +526,7 @@ export default function ProductsPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div className={PRODUCTS_GRID_CLASS}>
                   {filteredProducts.map((product) => {
                     const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
                     const vatPercent = Math.round((Number(product.vatRate) || 0) * 100);
@@ -781,7 +784,7 @@ export default function ProductsPage() {
           </div>
 
           {/* ── RIGHT: Cart Sidebar ────────────────────────────────── */}
-          <aside className="hidden xl:block w-64 flex-shrink-0">
+          <aside className="hidden w-72 flex-shrink-0 xl:block 2xl:w-80">
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm sticky top-6 max-h-[calc(100vh-3rem)] flex flex-col">
               {/* Header */}
               <div className="px-4 py-3.5 border-b border-gray-100 flex items-center justify-between">
