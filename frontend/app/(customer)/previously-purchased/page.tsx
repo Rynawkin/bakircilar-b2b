@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
 import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
+import { CustomerCategorySidebar } from '@/components/customer/CustomerCategorySidebar';
 import { CustomerCartSidebar } from '@/components/customer/CustomerCartSidebar';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -27,6 +28,8 @@ import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisi
 import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
 
 const PAGE_SIZE = 60;
+const CUSTOMER_PRODUCTS_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
+const CUSTOMER_PRODUCTS_GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6';
 
 export default function PreviouslyPurchasedPage() {
   const router = useRouter();
@@ -321,10 +324,17 @@ export default function PreviouslyPurchasedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
-      <div className="container-custom py-8">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-          <div className="lg:col-span-3">
+    <div className="min-h-screen bg-gray-50">
+      <div className={CUSTOMER_PRODUCTS_CONTAINER_CLASS}>
+        <div className="flex gap-4 2xl:gap-6">
+          <CustomerCategorySidebar
+            categories={categories}
+            selectedCategoryId={selectedCategory}
+            onSelect={setSelectedCategory}
+            className="hidden w-64 flex-shrink-0 lg:block 2xl:w-72"
+          />
+
+          <div className="min-w-0 flex-1">
             <div className="mb-6 rounded-2xl border border-primary-100 bg-white p-6 shadow-sm">
               <h1 className="text-2xl font-bold text-gray-900">Daha Once Aldiklarim</h1>
               <p className="mt-1 text-sm text-gray-600">
@@ -345,7 +355,7 @@ export default function PreviouslyPurchasedPage() {
               </div>
             </div>
 
-            <div className="mb-6">
+            <div className="mb-4 lg:hidden">
               <CategoryMegaMenu
                 categories={categories}
                 selectedCategoryId={selectedCategory}
@@ -454,7 +464,7 @@ export default function PreviouslyPurchasedPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                <div className={CUSTOMER_PRODUCTS_GRID_CLASS}>
                   {filteredProducts.map((product) => {
                     const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
                     const selectedPriceType = allowedPriceTypes.includes(quickAddPriceTypes[product.id])
@@ -654,9 +664,9 @@ export default function PreviouslyPurchasedPage() {
             )}
           </div>
 
-          <div className="lg:col-span-1">
+          <aside className="hidden w-72 flex-shrink-0 xl:block 2xl:w-80">
             <CustomerCartSidebar items={cartItems} onRemoveItem={removeItem} onGoToCart={() => router.push('/cart')} />
-          </div>
+          </aside>
         </div>
       </div>
 
