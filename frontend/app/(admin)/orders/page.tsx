@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { OrderCardSkeleton } from '@/components/ui/Skeleton';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import { normalizeSearchText } from '@/lib/utils/search';
 import * as XLSX from 'xlsx';
 
 type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
@@ -23,6 +24,7 @@ export default function AdminOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<OrderStatus>('PENDING');
   const [sourceTab, setSourceTab] = useState<OrderSource>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
@@ -57,6 +59,43 @@ export default function AdminOrdersPage() {
       setIsLoading(false);
     }
   };
+
+  const filteredOrders = useMemo(() => {
+    const normalizedTerm = normalizeSearchText(searchTerm);
+    if (!normalizedTerm) return orders;
+
+    return orders.filter((order) => {
+      const customerName =
+        order.user?.displayName ||
+        order.user?.mikroName ||
+        order.user?.name ||
+        '';
+      const creatorName =
+        order.requestedBy?.name ||
+        order.customerRequest?.requestedBy?.name ||
+        '';
+      const orderItemSearchText = (order.items || [])
+        .map((item) => `${item.mikroCode || ''} ${item.productName || ''} ${item.lineNote || ''}`)
+        .join(' ');
+
+      const haystack = [
+        order.orderNumber,
+        order.customerOrderNumber,
+        order.user?.mikroCariCode,
+        customerName,
+        creatorName,
+        order.adminNote,
+        order.deliveryLocation,
+        order.sourceQuote?.quoteNumber,
+        order.mikroOrderIds?.join(' '),
+        orderItemSearchText,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      return normalizeSearchText(haystack).includes(normalizedTerm);
+    });
+  }, [orders, searchTerm]);
 
   const toggleExpanded = (orderId: string) => {
     setExpandedOrders((prev) => {
@@ -571,6 +610,15 @@ export default function AdminOrdersPage() {
     customer: allOrders.filter(isCustomerOrder).length,
     b2b: allOrders.filter((order) => !isCustomerOrder(order)).length,
   };
+  const emptyStateMessage = searchTerm.trim()
+    ? 'Arama ile eslesen siparis bulunamadi.'
+    : activeTab === 'PENDING'
+      ? 'Bekleyen siparis yok'
+      : activeTab === 'APPROVED'
+        ? 'Onaylanmis siparis yok'
+        : activeTab === 'REJECTED'
+          ? 'Reddedilmis siparis yok'
+          : 'Henuz hic siparis yok';
   const pageHeader = (
     <div className="container-custom py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -723,18 +771,31 @@ export default function AdminOrdersPage() {
       </div>
 
       <div className="container-custom py-8">
-        {orders.length === 0 ? (
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex-1">
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Cari adi, siparis no, belge no, musteri kodu veya urun adi ara..."
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
+            />
+          </div>
+          {searchTerm && (
+            <Button variant="secondary" onClick={() => setSearchTerm('')}>
+              Temizle
+            </Button>
+          )}
+        </div>
+
+        {filteredOrders.length === 0 ? (
           <Card>
             <p className="text-center text-gray-600 py-8">
-              {activeTab === 'PENDING' && '⏳ Bekleyen sipariş yok'}
-              {activeTab === 'APPROVED' && '✅ Onaylanmış sipariş yok'}
-              {activeTab === 'REJECTED' && '❌ Reddedilmiş sipariş yok'}
-              {activeTab === 'ALL' && '📋 Henüz hiç sipariş yok'}
+              {emptyStateMessage}
             </p>
           </Card>
         ) : (
           <div className="space-y-6">
-            {orders.map((order) => {
+            {filteredOrders.map((order) => {
               const isExpanded = expandedOrders.has(order.id);
               const customerName =
                 order.user?.displayName ||
