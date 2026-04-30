@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { ChevronRight, Grid2X2, Layers, X } from 'lucide-react';
 import type { Category } from '@/types';
 import { buildCategoryTree, getCategoryPath } from '@/lib/utils/categoryTree';
 
@@ -29,20 +30,21 @@ export function CategoryMegaMenu({
   );
 
   const selectedRootId = selectedPath[0]?.id || null;
-  const selectedChildId = selectedPath[1]?.id || null;
   const selectedNode = selectedCategoryId ? nodesById.get(selectedCategoryId) : null;
 
   const [activeRootId, setActiveRootId] = useState<string | null>(selectedRootId || roots[0]?.id || null);
+  const [previewBranchId, setPreviewBranchId] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedRootId) {
       setActiveRootId(selectedRootId);
+      setPreviewBranchId(selectedPath[1]?.id || null);
       return;
     }
     if (!activeRootId && roots[0]?.id) {
       setActiveRootId(roots[0].id);
     }
-  }, [selectedRootId, activeRootId, roots]);
+  }, [selectedRootId, selectedPath, activeRootId, roots]);
 
   const activeRoot = activeRootId ? nodesById.get(activeRootId) || null : null;
   const activeChildren = activeRootId
@@ -52,9 +54,11 @@ export function CategoryMegaMenu({
   const selectedBranchId =
     selectedPath.length >= 3 ? selectedPath[1]?.id : selectedPath.length === 2 ? selectedPath[1]?.id : null;
   const activeBranchId =
-    selectedRootId === activeRootId && selectedBranchId
-      ? selectedBranchId
-      : activeChildren[0]?.id || null;
+    previewBranchId && activeChildren.some((child) => child.id === previewBranchId)
+      ? previewBranchId
+      : selectedRootId === activeRootId && selectedBranchId
+        ? selectedBranchId
+        : activeChildren[0]?.id || null;
 
   const activeBranch = activeBranchId ? nodesById.get(activeBranchId) || null : null;
   const activeLeafNodes = activeBranchId
@@ -62,29 +66,56 @@ export function CategoryMegaMenu({
     : [];
 
   return (
-    <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex flex-col gap-3 border-b border-gray-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">Kategoriler</div>
-          <h2 className="mt-1 text-lg font-bold text-gray-900">Urunleri kategoriye gore gezin</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Ana kategoriye tikladiginizda, o bolumdeki tum urunler listelenir.
-          </p>
+    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-3 py-3 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700">
+            <Layers className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-gray-900">Kategoriler</div>
+            {selectedPath.length > 0 && (
+              <div className="mt-0.5 hidden items-center gap-1 text-xs text-gray-500 sm:flex">
+                {selectedPath.map((category, index) => (
+                  <span key={category.id} className="flex min-w-0 items-center gap-1">
+                    {index > 0 && <ChevronRight className="h-3 w-3 shrink-0 text-gray-300" />}
+                    <span className="max-w-[140px] truncate">{category.name}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+
+        {selectedCategoryId ? (
+          <button
+            type="button"
+            onClick={() => onSelect('')}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-200 px-3 text-sm font-semibold text-gray-700 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+          >
+            <X className="h-4 w-4" />
+            Temizle
+          </button>
+        ) : (
+          <span className="hidden rounded-md bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 sm:inline-flex">
+            Tum urunler
+          </span>
+        )}
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto border-b border-gray-200 px-3 py-2 sm:px-4">
         <button
           type="button"
           onClick={() => onSelect('')}
-          className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
+          className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors ${
             !selectedCategoryId
-              ? 'border-primary-600 bg-primary-600 text-white'
-              : 'border-gray-200 bg-white text-gray-700 hover:border-primary-300 hover:text-primary-700'
+              ? 'bg-gray-900 text-white'
+              : 'text-gray-700 hover:bg-gray-100'
           }`}
         >
+          <Grid2X2 className="h-4 w-4" />
           Tumu
         </button>
-      </div>
-
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
         {roots.map((root) => {
           const isActive = root.id === activeRootId;
           const isSelected = root.id === selectedCategoryId;
@@ -94,14 +125,16 @@ export function CategoryMegaMenu({
               type="button"
               onClick={() => {
                 setActiveRootId(root.id);
+                setPreviewBranchId(null);
                 onSelect(root.id);
               }}
-              className={`shrink-0 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              title={root.name}
+              className={`h-10 max-w-[180px] shrink-0 truncate rounded-md px-3 text-sm font-semibold transition-colors ${
                 isSelected
-                  ? 'border-primary-600 bg-primary-600 text-white'
+                  ? 'bg-gray-900 text-white'
                   : isActive
-                    ? 'border-primary-200 bg-primary-50 text-primary-800'
-                    : 'border-gray-200 bg-white text-gray-700 hover:border-primary-300 hover:text-primary-700'
+                    ? 'bg-primary-50 text-primary-800'
+                    : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
               }`}
             >
               {root.name}
@@ -111,115 +144,142 @@ export function CategoryMegaMenu({
       </div>
 
       {activeRoot && (
-        <div className="mt-5 rounded-2xl bg-gray-50 p-4 sm:p-5">
-          <div className="flex flex-col gap-3 border-b border-gray-200 pb-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Secili Bolum</div>
-              <div className="mt-1 text-lg font-bold text-gray-900">{activeRoot.name}</div>
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="border-b border-gray-200 bg-gray-50 md:border-b-0 md:border-r">
             <button
               type="button"
               onClick={() => onSelect(activeRoot.id)}
-              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm font-bold transition-colors ${
                 selectedCategoryId === activeRoot.id
-                  ? 'border-primary-600 bg-primary-600 text-white'
-                  : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'
+                  ? 'bg-primary-600 text-white'
+                  : 'text-gray-900 hover:bg-primary-50 hover:text-primary-800'
               }`}
             >
-              Tum {activeRoot.name}
+              <span className="min-w-0 truncate">Tum {activeRoot.name}</span>
+              <ChevronRight className="h-4 w-4 shrink-0" />
             </button>
-          </div>
 
-          {activeChildren.length > 0 && (
-            <div className="mt-4">
-              <div className="mb-3 text-sm font-semibold text-gray-700">Alt kategoriler</div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {activeChildren.map((child) => {
-                  const isSelected = child.id === selectedCategoryId;
-                  const isBranchActive = child.id === activeBranchId;
-                  return (
-                    <button
-                      key={child.id}
-                      type="button"
-                      onClick={() => onSelect(child.id)}
-                      className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
-                        isSelected
-                          ? 'border-primary-600 bg-primary-600 text-white'
-                          : isBranchActive
-                            ? 'border-primary-200 bg-white text-primary-800 shadow-sm'
-                            : 'border-gray-200 bg-white text-gray-800 hover:border-primary-300 hover:bg-primary-50'
-                      }`}
-                    >
-                      <div className="text-sm font-semibold">{child.name}</div>
-                      <div className={`mt-1 text-xs ${isSelected ? 'text-primary-100' : 'text-gray-500'}`}>
-                        Altindaki tum urunleri goster
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {activeBranch && activeLeafNodes.length > 0 && (
-            <div className="mt-5 border-t border-gray-200 pt-4">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-gray-700">{activeBranch.name} alt kategorileri</div>
-                  <div className="text-xs text-gray-500">Dilerseniz daha spesifik filtre de secebilirsiniz.</div>
+            <div className="max-h-80 overflow-y-auto p-2">
+              {activeChildren.length === 0 ? (
+                <div className="px-2 py-6 text-sm text-gray-500">Alt kategori yok</div>
+              ) : (
+                <div className="space-y-1">
+                  {activeChildren.map((child) => {
+                    const isSelected = child.id === selectedCategoryId;
+                    const isBranchActive = child.id === activeBranchId;
+                    const childCount = childrenById.get(child.id)?.length || 0;
+                    return (
+                      <button
+                        key={child.id}
+                        type="button"
+                        onMouseEnter={() => setPreviewBranchId(child.id)}
+                        onFocus={() => setPreviewBranchId(child.id)}
+                        onClick={() => {
+                          setPreviewBranchId(child.id);
+                          onSelect(child.id);
+                        }}
+                        title={child.name}
+                        className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${
+                          isSelected
+                            ? 'bg-primary-600 font-semibold text-white'
+                            : isBranchActive
+                              ? 'bg-white font-semibold text-primary-800 shadow-sm'
+                              : 'text-gray-700 hover:bg-white hover:text-gray-950'
+                        }`}
+                      >
+                        <span className="min-w-0 truncate">{child.name}</span>
+                        <span className={`shrink-0 text-xs ${isSelected ? 'text-primary-100' : 'text-gray-400'}`}>
+                          {childCount > 0 ? childCount : ''}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onSelect(activeBranch.id)}
-                  className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
-                    selectedCategoryId === activeBranch.id
-                      ? 'border-primary-600 bg-primary-600 text-white'
-                      : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'
-                  }`}
-                >
-                  Tum {activeBranch.name}
-                </button>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {activeLeafNodes.map((leaf) => {
-                  const isSelected = leaf.id === selectedCategoryId;
-                  return (
-                    <button
-                      key={leaf.id}
-                      type="button"
-                      onClick={() => onSelect(leaf.id)}
-                      className={`rounded-full border px-3 py-2 text-xs font-semibold transition-colors ${
-                        isSelected
-                          ? 'border-primary-600 bg-primary-600 text-white'
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-primary-300 hover:text-primary-700'
-                      }`}
-                    >
-                      {leaf.name}
-                    </button>
-                  );
-                })}
-              </div>
+              )}
             </div>
-          )}
+          </aside>
+
+          <div className="min-w-0 p-4">
+            {activeBranch ? (
+              <>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-gray-900">{activeBranch.name}</div>
+                    <div className="text-xs text-gray-500">{activeLeafNodes.length} alt kategori</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(activeBranch.id)}
+                    className={`h-9 shrink-0 rounded-md border px-3 text-sm font-semibold transition-colors ${
+                      selectedCategoryId === activeBranch.id
+                        ? 'border-primary-600 bg-primary-600 text-white'
+                        : 'border-gray-200 bg-white text-primary-700 hover:border-primary-200 hover:bg-primary-50'
+                    }`}
+                  >
+                    Tumunu goster
+                  </button>
+                </div>
+
+                {activeLeafNodes.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {activeLeafNodes.map((leaf) => {
+                      const isSelected = leaf.id === selectedCategoryId;
+                      return (
+                        <button
+                          key={leaf.id}
+                          type="button"
+                          onClick={() => onSelect(leaf.id)}
+                          title={leaf.name}
+                          className={`flex h-10 min-w-0 items-center justify-between gap-2 rounded-md border px-3 text-left text-sm transition-colors ${
+                            isSelected
+                              ? 'border-primary-600 bg-primary-600 font-semibold text-white'
+                              : 'border-gray-200 bg-white text-gray-700 hover:border-primary-200 hover:bg-primary-50 hover:text-primary-800'
+                          }`}
+                        >
+                          <span className="min-w-0 truncate">{leaf.name}</span>
+                          <ChevronRight className={`h-4 w-4 shrink-0 ${isSelected ? 'text-primary-100' : 'text-gray-300'}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
+                    Bu kategoride alt kirilim yok.
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
+                Alt kategori secin.
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {selectedNode && (
-        <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Aktif Kategori</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-emerald-900">
+        <div className="flex items-center gap-2 border-t border-gray-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
+          <span className="shrink-0 text-xs font-bold uppercase text-emerald-700">Aktif</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
             {selectedPath.map((category, index) => (
-              <span key={category.id} className="flex items-center gap-2">
-                {index > 0 && <span className="text-emerald-400">/</span>}
-                <span className={index === selectedPath.length - 1 ? 'font-bold' : 'font-medium'}>
+              <span key={category.id} className="flex min-w-0 items-center gap-1">
+                {index > 0 && <ChevronRight className="h-3 w-3 shrink-0 text-emerald-500" />}
+                <span className={`max-w-[180px] truncate ${index === selectedPath.length - 1 ? 'font-bold' : 'font-medium'}`}>
                   {category.name}
                 </span>
               </span>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => onSelect('')}
+            className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-emerald-800 hover:bg-emerald-100"
+            aria-label="Kategori filtresini temizle"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
-    </div>
+    </section>
   );
 }
