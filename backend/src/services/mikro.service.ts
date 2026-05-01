@@ -378,6 +378,7 @@ class MikroService {
 
     const inClause = codes.map((_, index) => `@code${index}`).join(', ');
     const request = this.pool!.request();
+    (request as any).timeout = 15000;
     request.input('cariCode', sql.NVarChar(25), cariCode);
     codes.forEach((code, index) => {
       request.input(`code${index}`, sql.NVarChar(25), code);
@@ -397,9 +398,10 @@ class MikroService {
             PARTITION BY tkl_stok_kod
             ORDER BY tkl_evrak_tarihi DESC, tkl_evrakno_sira DESC, tkl_satirno DESC
           ) as rn
-        FROM VERILEN_TEKLIFLER
+        FROM VERILEN_TEKLIFLER WITH (NOLOCK)
         WHERE tkl_cari_kod = @cariCode
           AND tkl_stok_kod IN (${inClause})
+          AND tkl_evrak_tarihi >= DATEADD(YEAR, -5, GETDATE())
       )
       SELECT * FROM ranked
       WHERE rn <= ${limit}
@@ -816,31 +818,46 @@ class MikroService {
 
     const request = this.pool!.request();
     request.input('cariCode', sql.NVarChar, cariCode);
+    (request as any).timeout = 15000;
 
       const query = `
-        SELECT DISTINCT
-          sth_stok_kod as productCode
-        FROM STOK_HAREKETLERI
-        WHERE
-          sth_tip = 1
-          AND sth_cari_kodu = @cariCode
-          AND (
-            (sth_evraktip = 4)
-            OR
-            (sth_evraktip = 1 AND sth_fat_uid != '00000000-0000-0000-0000-000000000000')
-            OR
-            (sth_fat_uid = '00000000-0000-0000-0000-000000000000')
-          )
-          AND sth_stok_kod IS NOT NULL
+        SELECT TOP (800)
+          productCode
+        FROM (
+          SELECT
+            LTRIM(RTRIM(sth_stok_kod)) as productCode,
+            MAX(sth_tarih) as lastSaleDate
+          FROM STOK_HAREKETLERI WITH (NOLOCK)
+          WHERE
+            sth_tip = 1
+            AND sth_cari_kodu = @cariCode
+            AND sth_stok_kod IS NOT NULL
+            AND LTRIM(RTRIM(sth_stok_kod)) <> ''
+            AND sth_tarih >= DATEADD(YEAR, -5, GETDATE())
+            AND (
+              (sth_evraktip = 4)
+              OR
+              (sth_evraktip = 1 AND sth_fat_uid != '00000000-0000-0000-0000-000000000000')
+              OR
+              (sth_fat_uid = '00000000-0000-0000-0000-000000000000')
+            )
+          GROUP BY LTRIM(RTRIM(sth_stok_kod))
+        ) purchased
+        ORDER BY lastSaleDate DESC
       `;
 
-      const result = await request.query(query);
+      let result: sql.IResult<any>;
+      try {
+        result = await request.query(query);
+      } catch (error) {
+        console.error('Purchased product codes fetch failed:', { cariCode, error });
+        return [];
+      }
       const codes = new Set<string>();
       for (const row of result.recordset || []) {
         const raw = String(row.productCode || '');
         const trimmed = raw.trim();
         if (!trimmed) continue;
-        codes.add(raw);
         codes.add(trimmed);
       }
       const resultCodes = Array.from(codes);
@@ -896,6 +913,7 @@ class MikroService {
         }
 
     const request = this.pool!.request();
+    (request as any).timeout = 15000;
     request.input('cariCode', sql.NVarChar, cariCode);
     request.input('limit', sql.Int, limit);
 
@@ -920,7 +938,7 @@ class MikroService {
             ELSE sth_vergi / NULLIF(sth_tutar, 0)
           END as vatRate,
           ROW_NUMBER() OVER (PARTITION BY sth_stok_kod ORDER BY sth_tarih DESC) as rn
-        FROM STOK_HAREKETLERI
+        FROM STOK_HAREKETLERI WITH (NOLOCK)
         LEFT JOIN SIPARISLER s WITH (NOLOCK)
           ON s.sip_Guid = sth_sip_uid
           AND ISNULL(s.sip_iptal, 0) = 0
