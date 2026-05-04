@@ -28,6 +28,9 @@ export interface ExclusionFilters {
 }
 
 class ExclusionService {
+  private activeProductCodeCache: { expiresAt: number; codes: string[] } | null = null;
+  private readonly activeProductCodeCacheTtlMs = 60 * 1000;
+
   /**
    * Create a new exclusion rule
    */
@@ -124,14 +127,23 @@ class ExclusionService {
    * Get active product code exclusions as normalized unique list
    */
   async getActiveProductCodeExclusions(): Promise<string[]> {
+    if (this.activeProductCodeCache && this.activeProductCodeCache.expiresAt > Date.now()) {
+      return this.activeProductCodeCache.codes;
+    }
+
     const { productCodes } = await this.getActiveExclusions();
-    return Array.from(
+    const codes = Array.from(
       new Set(
         productCodes
           .map((code) => String(code || '').trim().toUpperCase())
           .filter(Boolean)
       )
     );
+    this.activeProductCodeCache = {
+      expiresAt: Date.now() + this.activeProductCodeCacheTtlMs,
+      codes,
+    };
+    return codes;
   }
 
   /**

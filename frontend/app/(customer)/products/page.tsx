@@ -28,6 +28,10 @@ import { buildCategoryTree, getCategoryPath, getDescendantCategoryIds } from '@/
 
 const PRODUCTS_PAGE_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
 const PRODUCTS_GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6';
+const PAGE_SIZE = 60;
+
+const isCanceledRequest = (error: any) =>
+  error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -50,9 +54,13 @@ export default function ProductsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
+  const productsRequestRef = useRef<AbortController | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const selectedCategoryIds = useMemo(
     () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
@@ -136,6 +144,14 @@ export default function ProductsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    return () => {
+      const controller = productsRequestRef.current;
+      productsRequestRef.current = null;
+      controller?.abort();
+    };
+  }, []);
+
   const loadStaticData = useCallback(async () => {
     try {
       const categoriesData = await customerApi.getCategories();
@@ -145,32 +161,62 @@ export default function ProductsPage() {
     }
   }, []);
 
-  const fetchProducts = useCallback(async () => {
-    setIsSearching(true);
+  const fetchProducts = useCallback(async (options?: { reset?: boolean; offset?: number }) => {
+    const reset = options?.reset ?? false;
+    const nextOffset = options?.offset ?? 0;
+    productsRequestRef.current?.abort();
+    const controller = new AbortController();
+    productsRequestRef.current = controller;
+
+    if (reset) {
+      setIsSearching(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     try {
       const searchParams = {
         categoryId: selectedCategory || undefined,
         categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
         search: debouncedSearch || undefined,
         mode: 'all' as const,
+        limit: PAGE_SIZE,
+        offset: nextOffset,
       };
 
-      const productsData = await customerApi.getProducts(searchParams);
-      setProducts(productsData.products);
+      const productsData = await customerApi.getProducts(searchParams, { signal: controller.signal });
+      const nextProducts = productsData.products;
+      setProducts((prev) => (reset ? nextProducts : [...prev, ...nextProducts]));
+      setOffset(nextOffset + nextProducts.length);
+      setHasMore(nextProducts.length === PAGE_SIZE);
     } catch (error) {
+      if (isCanceledRequest(error)) return;
       console.error('Ürün yükleme hatası:', error);
     } finally {
-      setIsSearching(false);
-      setIsInitialLoad(false);
+      if (productsRequestRef.current === controller) {
+        productsRequestRef.current = null;
+        if (reset) {
+          setIsSearching(false);
+          setIsInitialLoad(false);
+        } else {
+          setIsLoadingMore(false);
+        }
+      }
     }
   }, [selectedCategory, selectedCategoryIds, debouncedSearch]);
 
   // Load products whenever filters change
   useEffect(() => {
     if (categories.length > 0) {
-      fetchProducts();
+      setOffset(0);
+      setHasMore(true);
+      fetchProducts({ reset: true, offset: 0 });
     }
   }, [selectedCategory, debouncedSearch, categories, fetchProducts]);
+
+  const handleLoadMore = () => {
+    if (isSearching || isLoadingMore || !hasMore) return;
+    fetchProducts({ reset: false, offset });
+  };
 
   const handleQuickAdd = async (product: Product) => {
     const productId = product.id;
@@ -779,6 +825,13 @@ export default function ProductsPage() {
                     );
                   })}
                 </div>
+                {hasMore && (
+                  <div className="mt-6 flex justify-center">
+                    <Button className="px-6" onClick={handleLoadMore} isLoading={isLoadingMore}>
+                      Daha Fazla Urun Yukle
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>

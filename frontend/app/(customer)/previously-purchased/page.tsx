@@ -30,6 +30,8 @@ import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
 const PAGE_SIZE = 60;
 const CUSTOMER_PRODUCTS_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
 const CUSTOMER_PRODUCTS_GRID_CLASS = 'grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6';
+const isCanceledRequest = (error: any) =>
+  error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
 
 export default function PreviouslyPurchasedPage() {
   const router = useRouter();
@@ -48,6 +50,7 @@ export default function PreviouslyPurchasedPage() {
   const [lastPurchaseSort, setLastPurchaseSort] = useState<'none' | 'date-desc' | 'date-asc'>('none');
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
+  const productsRequestRef = useRef<AbortController | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const selectedCategoryIds = useMemo(
     () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
@@ -113,6 +116,14 @@ export default function PreviouslyPurchasedPage() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      const controller = productsRequestRef.current;
+      productsRequestRef.current = null;
+      controller?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
     const term = debouncedSearch.trim();
     if (!term) {
       lastSearchRef.current = '';
@@ -146,7 +157,36 @@ export default function PreviouslyPurchasedPage() {
       const nextOffset = options?.offset ?? 0;
 
       if (reset) {
+        productsRequestRef.current?.abort();
+        const controller = new AbortController();
+        productsRequestRef.current = controller;
         setIsSearching(true);
+        try {
+          const productsData = await customerApi.getProducts({
+            categoryId: selectedCategory || undefined,
+            categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
+            search: debouncedSearch || undefined,
+            mode: 'purchased',
+            limit: PAGE_SIZE,
+            offset: nextOffset,
+          }, { signal: controller.signal });
+
+          const nextProducts = Array.isArray(productsData?.products) ? productsData.products : [];
+          setProducts(nextProducts);
+          setOffset(nextOffset + nextProducts.length);
+          setHasMore(nextProducts.length === PAGE_SIZE);
+        } catch (error) {
+          if (!isCanceledRequest(error)) {
+            console.error('Product fetch error:', error);
+          }
+        } finally {
+          if (productsRequestRef.current === controller) {
+            productsRequestRef.current = null;
+            setIsSearching(false);
+            setIsLoading(false);
+          }
+        }
+        return;
       } else {
         setIsLoadingMore(true);
       }

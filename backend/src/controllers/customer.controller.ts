@@ -80,6 +80,36 @@ const buildLastSalesMap = (sales: MikroCustomerSaleMovement[]) => {
 const normalizeMikroCode = (value: string | null | undefined): string =>
   String(value || '').trim().toUpperCase();
 
+const CUSTOMER_STATIC_CACHE_TTL_MS = 60 * 1000;
+const customerStaticCache = new Map<string, { expiresAt: number; value: any }>();
+
+const getCachedValue = async <T>(key: string, loader: () => Promise<T>, ttlMs = CUSTOMER_STATIC_CACHE_TTL_MS): Promise<T> => {
+  const cached = customerStaticCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value as T;
+  }
+  const value = await loader();
+  customerStaticCache.set(key, { expiresAt: Date.now() + ttlMs, value });
+  return value;
+};
+
+const getCustomerProductContext = async (customerId: string) =>
+  getCachedValue(`product-context:${customerId}`, async () => {
+    const [settings, priceListRules] = await Promise.all([
+      prisma.settings.findFirst({
+        select: {
+          includedWarehouses: true,
+          customerPriceLists: true,
+        },
+      }),
+      prisma.customerPriceListRule.findMany({
+        where: { customerId },
+      }),
+    ]);
+
+    return { settings, priceListRules };
+  });
+
 const withTimeout = async <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
   let timer: NodeJS.Timeout | null = null;
   try {
@@ -492,17 +522,7 @@ export class CustomerController {
         }
       }
 
-      const [settings, priceListRules] = await Promise.all([
-        prisma.settings.findFirst({
-          select: {
-            includedWarehouses: true,
-            customerPriceLists: true,
-          },
-        }),
-        prisma.customerPriceListRule.findMany({
-          where: { customerId: customer.id },
-        }),
-      ]);
+      const { settings, priceListRules } = await getCustomerProductContext(customer.id);
       lap('settings');
 
       const basePriceListPair = resolveCustomerPriceLists(customer, settings);
@@ -1582,17 +1602,19 @@ export class CustomerController {
    */
   async getCategories(req: Request, res: Response, next: NextFunction) {
     try {
-      const categories = await prisma.category.findMany({
-        where: { active: true },
-        select: {
-          id: true,
-          name: true,
-          mikroCode: true,
-        },
-        orderBy: {
-          name: 'asc',
-        },
-      });
+      const categories = await getCachedValue('customer:categories', () =>
+        prisma.category.findMany({
+          where: { active: true },
+          select: {
+            id: true,
+            name: true,
+            mikroCode: true,
+          },
+          orderBy: {
+            name: 'asc',
+          },
+        })
+      );
 
       res.json({ categories });
     } catch (error) {
@@ -1605,7 +1627,13 @@ export class CustomerController {
    */
   async getWarehouses(req: Request, res: Response, next: NextFunction) {
     try {
-      const settings = await prisma.settings.findFirst();
+      const settings = await getCachedValue('customer:warehouses', () =>
+        prisma.settings.findFirst({
+          select: {
+            includedWarehouses: true,
+          },
+        })
+      );
 
       if (!settings) {
         return res.json({ warehouses: [] });

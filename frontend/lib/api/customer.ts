@@ -30,12 +30,13 @@ export const customerApi = {
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
     limit?: number;
     offset?: number;
-  }): Promise<{ products: Product[] }> => {
+  }, options?: { signal?: AbortSignal }): Promise<{ products: Product[] }> => {
     const response = await apiClient.get('/products', {
       params: {
         ...params,
         categoryIds: params?.categoryIds?.length ? params.categoryIds.join(',') : undefined,
       },
+      signal: options?.signal,
     });
     return response.data;
   },
