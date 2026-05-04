@@ -407,6 +407,10 @@ class OrderService {
       productId?: string;
       productCode?: string;
       productName?: string;
+      unit?: string;
+      unit2?: string | null;
+      unit2Factor?: number | null;
+      selectedUnit?: string | null;
       quantity: number;
       unitPrice: number;
       priceType?: 'INVOICED' | 'WHITE';
@@ -549,6 +553,13 @@ class OrderService {
         productId: product.id,
         productName: item.productName?.trim() || product.name,
         productCode: product.mikroCode,
+        unit: item.unit?.trim() || product.unit || 'ADET',
+        unit2: item.unit2?.trim() || product.unit2 || null,
+        unit2Factor:
+          Number.isFinite(Number(item.unit2Factor ?? product.unit2Factor))
+            ? Number(item.unit2Factor ?? product.unit2Factor)
+            : null,
+        selectedUnit: item.selectedUnit?.trim() || item.unit?.trim() || product.unit || 'ADET',
         quantity,
         unitPrice,
         vatRate,
@@ -651,6 +662,10 @@ class OrderService {
             productId: item.productId,
             productName: item.productName || item.productCode,
             mikroCode: item.productCode,
+            unit: item.unit,
+            unit2: item.unit2 || undefined,
+            unit2Factor: item.unit2Factor ?? undefined,
+            selectedUnit: item.selectedUnit || item.unit,
             quantity: item.quantity,
             priceType: item.priceType,
             unitPrice: item.unitPrice,
@@ -798,6 +813,10 @@ class OrderService {
         productId?: string;
         productCode?: string;
         productName?: string;
+        unit?: string;
+        unit2?: string | null;
+        unit2Factor?: number | null;
+        selectedUnit?: string | null;
         quantity: number;
         unitPrice: number;
         priceType?: 'INVOICED' | 'WHITE';
@@ -887,6 +906,13 @@ class OrderService {
         productId: product.id,
         productName,
         mikroCode: product.mikroCode,
+        unit: item.unit?.trim() || product.unit || 'ADET',
+        unit2: item.unit2?.trim() || product.unit2 || null,
+        unit2Factor:
+          Number.isFinite(Number(item.unit2Factor ?? product.unit2Factor))
+            ? Number(item.unit2Factor ?? product.unit2Factor)
+            : null,
+        selectedUnit: item.selectedUnit?.trim() || item.unit?.trim() || product.unit || 'ADET',
         quantity,
         priceType,
         unitPrice,

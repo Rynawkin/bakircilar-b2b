@@ -126,6 +126,10 @@ export interface OrderItem {
   id: string;
   productName: string;
   mikroCode: string;
+  unit?: string | null;
+  unit2?: string | null;
+  unit2Factor?: number | null;
+  selectedUnit?: string | null;
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
   unitPrice: number;
@@ -254,6 +258,9 @@ export interface QuoteItem {
   productCode: string;
   productName: string;
   unit?: string;
+  unit2?: string | null;
+  unit2Factor?: number | null;
+  selectedUnit?: string | null;
   lineOrder?: number;
   quantity: number;
   unitPrice: number;
@@ -298,6 +305,8 @@ export interface QuoteItem {
   product?: {
     imageUrl?: string | null;
     unit?: string | null;
+    unit2?: string | null;
+    unit2Factor?: number | null;
     lastEntryPrice?: number | null;
     lastEntryDate?: string | null;
     currentCost?: number | null;

@@ -992,12 +992,16 @@ model OrderItem {
   // Snapshot (sipariş anındaki bilgiler)
   productName     String
   mikroCode       String
-  quantity        Int
+  unit            String?
+  unit2           String?
+  unit2Factor     Float?
+  selectedUnit    String?
+  quantity        Float
   priceType       PriceType
   unitPrice       Float
   totalPrice      Float
   lineNote          String?
-  approvedQuantity  Int?
+  approvedQuantity  Float?
   responsibilityCenter String?
 
   // Item-level approval (kısmi onay için)
@@ -1168,7 +1172,10 @@ model QuoteItem {
   productCode       String
   productName       String
   unit              String           @default("ADET")
-  quantity          Int
+  unit2             String?
+  unit2Factor       Float?
+  selectedUnit      String?
+  quantity          Float
   unitPrice         Float
   totalPrice        Float
   lineOrder       Int              @default(0)

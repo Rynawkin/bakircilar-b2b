@@ -7,6 +7,107 @@ const normalizeUnit = (value?: string | null) => {
   return value.trim().toUpperCase();
 };
 
+export const normalizeUnitName = normalizeUnit;
+
+export const hasSecondaryUnit = (
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+) => {
+  const factor = Number(unit2Factor);
+  return Boolean(
+    normalizeUnit(unit) &&
+      normalizeUnit(unit2) &&
+      Number.isFinite(factor) &&
+      factor !== 0
+  );
+};
+
+export const getAvailableUnits = (
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+) => {
+  const units = [unit || 'ADET'];
+  if (hasSecondaryUnit(unit, unit2, unit2Factor) && unit2) {
+    units.push(unit2);
+  }
+  return Array.from(new Set(units.filter(Boolean)));
+};
+
+const isSecondaryUnit = (
+  selectedUnit?: string | null,
+  unit2?: string | null
+) => normalizeUnit(selectedUnit) !== '' && normalizeUnit(selectedUnit) === normalizeUnit(unit2);
+
+export const convertQuantityToBaseUnit = (
+  quantity: number,
+  selectedUnit?: string | null,
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+) => {
+  const value = Number(quantity);
+  if (!Number.isFinite(value)) return 0;
+  const factor = Number(unit2Factor);
+  if (!hasSecondaryUnit(unit, unit2, factor) || !isSecondaryUnit(selectedUnit, unit2)) {
+    return value;
+  }
+  const absFactor = Math.abs(factor);
+  return factor > 0 ? value / absFactor : value * absFactor;
+};
+
+export const convertQuantityFromBaseUnit = (
+  quantity: number,
+  selectedUnit?: string | null,
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+) => {
+  const value = Number(quantity);
+  if (!Number.isFinite(value)) return 0;
+  const factor = Number(unit2Factor);
+  if (!hasSecondaryUnit(unit, unit2, factor) || !isSecondaryUnit(selectedUnit, unit2)) {
+    return value;
+  }
+  const absFactor = Math.abs(factor);
+  return factor > 0 ? value * absFactor : value / absFactor;
+};
+
+export const convertPriceToBaseUnit = (
+  unitPrice: number,
+  selectedUnit?: string | null,
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+) => {
+  const value = Number(unitPrice);
+  if (!Number.isFinite(value)) return 0;
+  const factor = Number(unit2Factor);
+  if (!hasSecondaryUnit(unit, unit2, factor) || !isSecondaryUnit(selectedUnit, unit2)) {
+    return value;
+  }
+  const absFactor = Math.abs(factor);
+  return factor > 0 ? value * absFactor : value / absFactor;
+};
+
+export const convertPriceFromBaseUnit = (
+  unitPrice: number,
+  selectedUnit?: string | null,
+  unit?: string | null,
+  unit2?: string | null,
+  unit2Factor?: number | null
+) => {
+  const value = Number(unitPrice);
+  if (!Number.isFinite(value)) return 0;
+  const factor = Number(unit2Factor);
+  if (!hasSecondaryUnit(unit, unit2, factor) || !isSecondaryUnit(selectedUnit, unit2)) {
+    return value;
+  }
+  const absFactor = Math.abs(factor);
+  return factor > 0 ? value / absFactor : value * absFactor;
+};
+
 export const getUnitConversionLabel = (
   unit?: string | null,
   unit2?: string | null,

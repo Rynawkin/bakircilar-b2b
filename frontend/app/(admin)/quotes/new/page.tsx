@@ -13,7 +13,14 @@ import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { Modal } from '@/components/ui/Modal';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
-import { getUnitConversionLabel } from '@/lib/utils/unit';
+import {
+  convertPriceFromBaseUnit,
+  convertPriceToBaseUnit,
+  convertQuantityFromBaseUnit,
+  convertQuantityToBaseUnit,
+  getAvailableUnits,
+  getUnitConversionLabel,
+} from '@/lib/utils/unit';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import type { CustomerContact, Quote, QuoteItem } from '@/types';
 
@@ -73,6 +80,7 @@ interface QuoteItemForm {
   unit?: string;
   unit2?: string | null;
   unit2Factor?: number | null;
+  selectedUnit?: string | null;
   quantity: number;
   priceSource?: 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL' | '';
   priceListNo?: number;
@@ -262,6 +270,11 @@ const formatManualPriceInput = (value?: number | null) => {
   return value.toLocaleString('tr-TR', { useGrouping: false, maximumFractionDigits: 6 });
 };
 
+const formatQuantityInput = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '';
+  return value.toLocaleString('tr-TR', { useGrouping: false, maximumFractionDigits: 6 });
+};
+
 const parseDecimalInput = (input: string) => {
   const raw = input.replace(/\s+/g, '');
   if (!raw) return { value: undefined };
@@ -363,6 +376,41 @@ const roundUp2 = (value: number) => {
   if (!Number.isFinite(value)) return 0;
   return Math.ceil((value + Number.EPSILON) * 100) / 100;
 };
+
+const roundUnitValue = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
+};
+
+const getSelectedUnit = (item: Pick<QuoteItemForm, 'unit' | 'selectedUnit'>) =>
+  item.selectedUnit || item.unit || 'ADET';
+
+const getDisplayQuantity = (item: QuoteItemForm) =>
+  roundUnitValue(
+    convertQuantityFromBaseUnit(
+      item.quantity || 0,
+      getSelectedUnit(item),
+      item.unit,
+      item.unit2,
+      item.unit2Factor
+    )
+  );
+
+const getDisplayUnitPrice = (item: QuoteItemForm) =>
+  convertPriceFromBaseUnit(
+    item.unitPrice || 0,
+    getSelectedUnit(item),
+    item.unit,
+    item.unit2,
+    item.unit2Factor
+  );
+
+const buildUnitPayload = (item: QuoteItemForm) => ({
+  unit: item.unit,
+  unit2: item.unit2 || undefined,
+  unit2Factor: Number.isFinite(Number(item.unit2Factor)) ? Number(item.unit2Factor) : undefined,
+  selectedUnit: getSelectedUnit(item),
+});
 
 const getPercentTone = (value?: number | null) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -1229,12 +1277,13 @@ function AdminQuoteNewPageContent() {
           productCode: item.mikroCode,
           productName: item.productName || product?.name || item.mikroCode,
           unit: product?.unit || 'ADET',
-          unit2: product?.unit2 || null,
-          unit2Factor: product?.unit2Factor ?? null,
+          unit2: item.unit2 || product?.unit2 || null,
+          unit2Factor: item.unit2Factor ?? product?.unit2Factor ?? null,
+          selectedUnit: item.selectedUnit || item.unit || product?.unit || 'ADET',
           quantity: Number(item.quantity) || 1,
           priceSource: 'MANUAL',
           unitPrice: Number(item.unitPrice) || 0,
-          manualPriceInput: formatManualPriceInput(item.unitPrice),
+          manualPriceInput: undefined,
           vatRate,
           vatZeroed: priceType === 'WHITE',
           priceType,
@@ -1313,6 +1362,7 @@ function AdminQuoteNewPageContent() {
       unit: sourceProduct.unit,
       unit2: sourceProduct.unit2 || null,
       unit2Factor: sourceProduct.unit2Factor ?? null,
+      selectedUnit: sourceProduct.unit || 'ADET',
       quantity,
       priceSource: '',
       unitPrice: undefined,
@@ -1385,13 +1435,14 @@ function AdminQuoteNewPageContent() {
       productCode: item.productCode,
       productName: item.productName,
       unit: item.unit || item.product?.unit || 'ADET',
-      unit2: null,
-      unit2Factor: null,
+      unit2: item.unit2 || item.product?.unit2 || null,
+      unit2Factor: item.unit2Factor ?? item.product?.unit2Factor ?? null,
+      selectedUnit: item.selectedUnit || item.unit || item.product?.unit || 'ADET',
       quantity: item.quantity,
       priceSource: item.priceSource,
       priceListNo,
       unitPrice: item.unitPrice,
-      manualPriceInput: isManualLine ? formatManualPriceInput(item.unitPrice) : undefined,
+      manualPriceInput: undefined,
       vatRate: item.vatRate,
       vatZeroed: item.vatZeroed,
       priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
@@ -1446,6 +1497,7 @@ function AdminQuoteNewPageContent() {
       unit: fallbackUnit,
       unit2: null,
       unit2Factor: null,
+      selectedUnit: fallbackUnit,
       quantity: 1,
       priceSource: 'MANUAL',
       unitPrice: undefined,
@@ -1525,7 +1577,7 @@ function AdminQuoteNewPageContent() {
       priceSource: nextSource,
       priceListNo: undefined,
       unitPrice: nextSource === 'MANUAL' ? item.unitPrice : undefined,
-      manualPriceInput: nextSource === 'MANUAL' ? formatManualPriceInput(item.unitPrice) : undefined,
+      manualPriceInput: nextSource === 'MANUAL' ? formatManualPriceInput(getDisplayUnitPrice(item)) : undefined,
       selectedSaleIndex: undefined,
       manualMarginEntry: undefined,
       manualMarginCost: undefined,
@@ -1568,7 +1620,9 @@ function AdminQuoteNewPageContent() {
   const handleManualPriceChange = (item: QuoteItemForm, value: string) => {
     const trimmed = value.trim();
     const parsed = trimmed.length > 0 ? parseDecimalInput(trimmed).value : undefined;
-    const nextPrice = trimmed.length === 0 ? undefined : parsed;
+    const nextPrice = trimmed.length === 0 || parsed === undefined
+      ? undefined
+      : convertPriceToBaseUnit(parsed, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor);
     updateItem(item.id, {
       unitPrice: nextPrice,
       manualPriceInput: value,
@@ -1584,9 +1638,32 @@ function AdminQuoteNewPageContent() {
       return;
     }
     const parsed = parseDecimalInput(trimmed).value;
+    const baseQuantity = parsed !== undefined
+      ? convertQuantityToBaseUnit(parsed, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor)
+      : item.quantity;
     updateItem(item.id, {
-      quantity: parsed !== undefined ? Math.max(0, parsed) : item.quantity,
+      quantity: Math.max(0, roundUnitValue(baseQuantity)),
     });
+  };
+
+  const handleSelectedUnitChange = (item: QuoteItemForm, value: string) => {
+    updateItem(item.id, {
+      selectedUnit: value || item.unit || 'ADET',
+      manualPriceInput: undefined,
+    });
+  };
+
+  const handleReserveQuantityChange = (item: QuoteItemForm, value: string) => {
+    const parsed = parseDecimalInput(value).value;
+    const displayReserve = parsed !== undefined ? Math.max(0, parsed) : 0;
+    const reserveQty = convertQuantityToBaseUnit(
+      displayReserve,
+      getSelectedUnit(item),
+      item.unit,
+      item.unit2,
+      item.unit2Factor
+    );
+    updateItem(item.id, { reserveQty: Math.max(0, roundUnitValue(reserveQty)) });
   };
 
   const handleManualMarginChange = (
@@ -2176,6 +2253,7 @@ function AdminQuoteNewPageContent() {
               productId: item.isManualLine ? undefined : item.productId,
               productCode: item.productCode,
               productName: item.productName,
+              ...buildUnitPayload(item),
               quantity: item.quantity,
               unitPrice: roundUp2(item.unitPrice || 0),
               priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
@@ -2200,6 +2278,7 @@ function AdminQuoteNewPageContent() {
             productId: item.isManualLine ? undefined : item.productId,
             productCode: item.productCode,
             productName: item.productName,
+            ...buildUnitPayload(item),
             quantity: item.quantity,
             unitPrice: roundUp2(item.unitPrice || 0),
             priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED',
@@ -2237,7 +2316,7 @@ function AdminQuoteNewPageContent() {
             productId: item.isManualLine ? undefined : item.productId,
             productCode: item.productCode,
             productName: item.productName,
-            unit: item.unit,
+            ...buildUnitPayload(item),
             quantity: item.quantity,
             unitPrice: roundUp2(item.unitPrice || 0),
             priceSource: item.priceSource,
@@ -2793,6 +2872,21 @@ function AdminQuoteNewPageContent() {
                     const isQuoteHistoryExpanded = Boolean(expandedQuoteHistory[item.id]);
                     const roundedUnitPrice = roundUp2(item.unitPrice || 0);
                     const lineTotal = roundedUnitPrice * (item.quantity || 0);
+                    const selectedUnit = getSelectedUnit(item);
+                    const availableUnits = item.isManualLine
+                      ? (stockUnits.length > 0 ? stockUnits : ['ADET'])
+                      : getAvailableUnits(item.unit, item.unit2, item.unit2Factor);
+                    const displayQuantity = getDisplayQuantity(item);
+                    const displayUnitPrice = roundUp2(getDisplayUnitPrice(item));
+                    const displayReserveQty = roundUnitValue(
+                      convertQuantityFromBaseUnit(
+                        item.reserveQty || 0,
+                        selectedUnit,
+                        item.unit,
+                        item.unit2,
+                        item.unit2Factor
+                      )
+                    );
 
                     return (
                       <Fragment key={item.id}>
@@ -2956,37 +3050,48 @@ function AdminQuoteNewPageContent() {
                               <input
                                 type="text"
                                 inputMode="decimal"
-                                value={item.quantity === 0 ? '' : item.quantity}
+                                value={displayQuantity === 0 ? '' : formatQuantityInput(displayQuantity)}
                                 onChange={(e) => handleQuantityChange(item, e.target.value)}
-                                className="w-20 rounded-lg border border-gray-300 px-2 py-1"
+                                className="w-24 rounded-lg border border-gray-300 px-2 py-1"
                               />
-                              {item.isManualLine ? (
+                              {availableUnits.length > 1 || item.isManualLine ? (
                                 <select
-                                  value={item.unit || ''}
-                                  onChange={(e) => updateItem(item.id, { unit: e.target.value })}
+                                  value={selectedUnit}
+                                  onChange={(e) => {
+                                    if (item.isManualLine) {
+                                      updateItem(item.id, {
+                                        unit: e.target.value,
+                                        selectedUnit: e.target.value,
+                                        manualPriceInput: undefined,
+                                      });
+                                    } else {
+                                      handleSelectedUnitChange(item, e.target.value);
+                                    }
+                                  }}
                                   className="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs"
                                 >
-                                  {(stockUnits.length > 0 ? stockUnits : ['ADET']).map((unit) => (
+                                  {availableUnits.map((unit) => (
                                     <option key={unit} value={unit}>
                                       {unit}
                                     </option>
                                   ))}
                                 </select>
                               ) : item.unit ? (
-                                <span className="text-[11px] text-gray-500">{item.unit}</span>
+                                <span className="text-[11px] text-gray-500">{selectedUnit}</span>
                               ) : null}
+                              {selectedUnit !== item.unit && (
+                                <span className="text-[11px] text-sky-700">
+                                  Mikro: {formatQuantityInput(item.quantity)} {item.unit}
+                                </span>
+                              )}
                               {isOrderMode && (
                                 <div className="mt-1">
                                   <label className="block text-[11px] text-gray-500 mb-0.5">Rezerve</label>
                                   <input
-                                    type="number"
-                                    min={0}
-                                    value={item.reserveQty ?? 0}
-                                    onChange={(e) =>
-                                      updateItem(item.id, {
-                                        reserveQty: Math.max(0, Math.trunc(Number(e.target.value) || 0)),
-                                      })
-                                    }
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={displayReserveQty ? formatQuantityInput(displayReserveQty) : ''}
+                                    onChange={(e) => handleReserveQuantityChange(item, e.target.value)}
                                     className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-xs"
                                   />
                                 </div>
@@ -3023,7 +3128,7 @@ function AdminQuoteNewPageContent() {
                             {item.isManualLine ? (
                               <Input
                                 placeholder="Birim fiyat"
-                                value={item.manualPriceInput ?? formatManualPriceInput(item.unitPrice)}
+                                value={item.manualPriceInput ?? formatManualPriceInput(getDisplayUnitPrice(item))}
                                 onChange={(e) => handleManualPriceChange(item, e.target.value)}
                                 inputMode="decimal"
                                 type="text"
@@ -3039,9 +3144,16 @@ function AdminQuoteNewPageContent() {
                                 {Object.keys(PRICE_LIST_LABELS).map((key) => {
                                   const listNo = Number(key);
                                   const listPrice = getMikroListPrice(item.mikroPriceLists, listNo);
+                                  const displayListPrice = convertPriceFromBaseUnit(
+                                    listPrice,
+                                    getSelectedUnit(item),
+                                    item.unit,
+                                    item.unit2,
+                                    item.unit2Factor
+                                  );
                                   return (
                                     <option key={key} value={key}>
-                                      {PRICE_LIST_LABELS[listNo]} ({listPrice ? formatCurrency(listPrice) : 'Fiyat yok'})
+                                      {PRICE_LIST_LABELS[listNo]} ({listPrice ? formatCurrency(displayListPrice) : 'Fiyat yok'})
                                     </option>
                                   );
                                 })}
@@ -3057,9 +3169,23 @@ function AdminQuoteNewPageContent() {
                                     <option value="">Satis sec</option>
                                     {item.lastSales.map((sale, idx) => {
                                       const listLabel = getMatchingPriceListLabel(item.mikroPriceLists, sale.unitPrice);
+                                      const displaySalePrice = convertPriceFromBaseUnit(
+                                        sale.unitPrice,
+                                        getSelectedUnit(item),
+                                        item.unit,
+                                        item.unit2,
+                                        item.unit2Factor
+                                      );
+                                      const displaySaleQuantity = convertQuantityFromBaseUnit(
+                                        sale.quantity,
+                                        getSelectedUnit(item),
+                                        item.unit,
+                                        item.unit2,
+                                        item.unit2Factor
+                                      );
                                       return (
                                         <option key={idx} value={idx}>
-                                          {formatDateShort(sale.saleDate)} - {formatCurrency(sale.unitPrice)} ({sale.quantity})
+                                          {formatDateShort(sale.saleDate)} - {formatCurrency(displaySalePrice)} ({formatQuantityInput(displaySaleQuantity)})
                                           {listLabel ? ` (${listLabel})` : ''}
                                         </option>
                                       );
@@ -3084,7 +3210,7 @@ function AdminQuoteNewPageContent() {
                               <div className="space-y-2">
                                 <Input
                                   placeholder="Birim fiyat"
-                                  value={item.manualPriceInput ?? formatManualPriceInput(item.unitPrice)}
+                                  value={item.manualPriceInput ?? formatManualPriceInput(getDisplayUnitPrice(item))}
                                   onChange={(e) => handleManualPriceChange(item, e.target.value)}
                                   inputMode="decimal"
                                   type="text"
@@ -3122,7 +3248,7 @@ function AdminQuoteNewPageContent() {
                             )}
                           </td>
                           <td className="px-3 py-2 text-right">
-                            {roundedUnitPrice ? formatCurrency(roundedUnitPrice) : '-'}
+                            {displayUnitPrice ? `${formatCurrency(displayUnitPrice)} / ${selectedUnit}` : '-'}
                           </td>
                           <td className="px-3 py-2 text-right">
                             {roundedUnitPrice ? formatCurrency(lineTotal) : '-'}

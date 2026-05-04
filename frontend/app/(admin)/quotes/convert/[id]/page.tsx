@@ -118,7 +118,7 @@ export default function QuoteConvertPage() {
     const raw = itemReserveQuantities[item.id];
     const parsed = Number(raw);
     if (Number.isFinite(parsed) && parsed > 0) {
-      return Math.max(0, Math.trunc(parsed));
+      return Math.max(0, parsed);
     }
     return 0;
   };
@@ -173,7 +173,7 @@ export default function QuoteConvertPage() {
   const updateItemQuantity = (itemId: string, quantity: number) => {
     setItemQuantities((prev) => ({
       ...prev,
-      [itemId]: Math.max(1, Math.floor(quantity || 0)),
+      [itemId]: Math.max(0.000001, quantity || 0),
     }));
   };
 
@@ -187,7 +187,7 @@ export default function QuoteConvertPage() {
   const updateItemReserveQty = (itemId: string, reserveQty: number) => {
     setItemReserveQuantities((prev) => ({
       ...prev,
-      [itemId]: Math.max(0, Math.trunc(reserveQty || 0)),
+      [itemId]: Math.max(0, reserveQty || 0),
     }));
   };
 
@@ -389,10 +389,11 @@ export default function QuoteConvertPage() {
                               </button>
                               <input
                                 type="number"
+                                step="0.000001"
                                 className="w-16 rounded border border-slate-200 px-2 py-1 text-right text-xs"
                                 value={resolvedQuantity}
                                 onChange={(e) => updateItemQuantity(item.id, Number(e.target.value))}
-                                min={1}
+                                min={0.000001}
                                 disabled={!isSelected}
                               />
                               <button
@@ -425,6 +426,7 @@ export default function QuoteConvertPage() {
                                 </button>
                                 <input
                                   type="number"
+                                  step="0.000001"
                                   className="w-16 rounded border border-slate-200 px-2 py-1 text-right text-xs"
                                   value={resolveItemReserveQty(item)}
                                   onChange={(e) => updateItemReserveQty(item.id, Number(e.target.value))}

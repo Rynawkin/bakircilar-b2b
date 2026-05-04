@@ -419,6 +419,10 @@ export const adminApi = {
         productId?: string;
         productCode?: string;
         productName?: string;
+        unit?: string;
+        unit2?: string | null;
+        unit2Factor?: number | null;
+        selectedUnit?: string | null;
         quantity: number;
         unitPrice: number;
         priceType?: 'INVOICED' | 'WHITE';
@@ -456,6 +460,10 @@ export const adminApi = {
       productId?: string;
       productCode?: string;
       productName?: string;
+      unit?: string;
+      unit2?: string | null;
+      unit2Factor?: number | null;
+      selectedUnit?: string | null;
       quantity: number;
       unitPrice: number;
       priceType?: 'INVOICED' | 'WHITE';
