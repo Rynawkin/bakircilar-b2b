@@ -29,6 +29,8 @@ import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 
 type SortBy = NonNullable<CustomerRecoveryReportParams['sortBy']>;
 type SortDirection = NonNullable<CustomerRecoveryReportParams['sortDirection']>;
+type SeasonalityMode = 'include' | 'exclude' | 'only';
+type ScenarioId = 'declining' | 'stalled' | 'highPotential' | 'dueFollowUp' | 'seasonal';
 
 interface StaffMember {
   id: string;
@@ -47,11 +49,14 @@ interface FilterState {
   minMeaningfulMonthlyAmount: string;
   includeCurrentMonth: boolean;
   search: string;
+  resultSearch: string;
   sectorCode: string;
   assignedToId: string;
   riskTypes: CustomerRecoveryRiskType[];
   onlyWithOpenAction: boolean;
   onlyDueFollowUp: boolean;
+  minLostPotential: string;
+  seasonalityMode: SeasonalityMode;
   sortBy: SortBy;
   sortDirection: SortDirection;
 }
@@ -105,14 +110,104 @@ const defaultFilters: FilterState = {
   minMeaningfulMonthlyAmount: '1000',
   includeCurrentMonth: false,
   search: '',
+  resultSearch: '',
   sectorCode: '',
   assignedToId: '',
   riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
   onlyWithOpenAction: false,
   onlyDueFollowUp: false,
+  minLostPotential: '0',
+  seasonalityMode: 'include',
   sortBy: 'riskScore',
   sortDirection: 'desc',
 };
+
+const scenarioPresets: Array<{
+  id: ScenarioId;
+  title: string;
+  description: string;
+  helper: string;
+  filters: Partial<FilterState>;
+}> = [
+  {
+    id: 'declining',
+    title: 'Cirosu dusen cariler',
+    description: 'Son 3 ay satisi gecmis ortalamasina gore dusen cariler.',
+    helper: 'Gunluk takip icin varsayilan senaryo.',
+    filters: {
+      recentMonths: '3',
+      baselineMonths: '18',
+      minDropPercent: '50',
+      minHistoricalActiveMonths: '2',
+      minHistoricalAmount: '1000',
+      minMeaningfulMonthlyAmount: '1000',
+      minLostPotential: '0',
+      riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
+      onlyDueFollowUp: false,
+      onlyWithOpenAction: false,
+      seasonalityMode: 'include',
+      sortBy: 'riskScore',
+      sortDirection: 'desc',
+    },
+  },
+  {
+    id: 'stalled',
+    title: 'Tamamen duranlar',
+    description: 'Son donemde hic satisi olmayan, daha once aktif cariler.',
+    helper: 'Kaybedilmis cari listesi icin net gorunum.',
+    filters: {
+      recentMonths: '3',
+      baselineMonths: '18',
+      minDropPercent: '70',
+      riskTypes: ['NO_RECENT_SALES'],
+      seasonalityMode: 'exclude',
+      sortBy: 'lastSaleDate',
+      sortDirection: 'asc',
+    },
+  },
+  {
+    id: 'highPotential',
+    title: 'Yuksek kayip potansiyeli',
+    description: 'Tahmini kayip cirosu yuksek carileri one cikarir.',
+    helper: 'Saha ziyareti ve ozel teklif listesi icin.',
+    filters: {
+      recentMonths: '3',
+      baselineMonths: '24',
+      minDropPercent: '35',
+      minHistoricalAmount: '10000',
+      minLostPotential: '10000',
+      riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
+      seasonalityMode: 'include',
+      sortBy: 'lostPotential',
+      sortDirection: 'desc',
+    },
+  },
+  {
+    id: 'dueFollowUp',
+    title: 'Takip gunu gelenler',
+    description: 'Daha once aksiyon yazilmis ve takip tarihi gecmis cariler.',
+    helper: 'Gunluk arama/hatirlatma listesi.',
+    filters: {
+      onlyDueFollowUp: true,
+      onlyWithOpenAction: true,
+      riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
+      sortBy: 'riskScore',
+      sortDirection: 'desc',
+    },
+  },
+  {
+    id: 'seasonal',
+    title: 'Donemsel alim yapanlar',
+    description: 'Seyrek veya takvimsel alim ritmi olan carileri ayirir.',
+    helper: 'Kayip mi, normal alim periyodu mu ayrimi icin.',
+    filters: {
+      seasonalityMode: 'only',
+      riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
+      sortBy: 'lostPotential',
+      sortDirection: 'desc',
+    },
+  },
+];
 
 const defaultActionForm: ActionFormState = {
   actionType: 'CALL',
@@ -143,6 +238,8 @@ const percent = (value: number | null | undefined) => `${Math.round(value || 0)}
 export default function CustomerRecoveryReportPage() {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [submittedFilters, setSubmittedFilters] = useState<FilterState>(defaultFilters);
+  const [selectedScenario, setSelectedScenario] = useState<ScenarioId>('declining');
+  const [showManualSettings, setShowManualSettings] = useState(false);
   const [rows, setRows] = useState<CustomerRecoveryRow[]>([]);
   const [summary, setSummary] = useState<CustomerRecoveryReportData['summary'] | null>(null);
   const [metadata, setMetadata] = useState<CustomerRecoveryReportData['metadata'] | null>(null);
@@ -171,11 +268,14 @@ export default function CustomerRecoveryReportPage() {
     minMeaningfulMonthlyAmount: parseNumber(source.minMeaningfulMonthlyAmount, 1000),
     includeCurrentMonth: source.includeCurrentMonth,
     search: source.search.trim() || undefined,
+    resultSearch: source.resultSearch.trim() || undefined,
     sectorCode: source.sectorCode.trim() || undefined,
     assignedToId: source.assignedToId || undefined,
     riskTypes: source.riskTypes.length > 0 ? source.riskTypes : undefined,
     onlyWithOpenAction: source.onlyWithOpenAction,
     onlyDueFollowUp: source.onlyDueFollowUp,
+    minLostPotential: parseNumber(source.minLostPotential, 0),
+    seasonalityMode: source.seasonalityMode,
     page: requestedPage,
     limit: 50,
     sortBy: source.sortBy,
@@ -248,6 +348,20 @@ export default function CustomerRecoveryReportPage() {
     setPage(1);
     setSelectedCodes([]);
     setSubmittedFilters({ ...filters });
+  };
+
+  const applyScenario = (scenarioId: ScenarioId) => {
+    const scenario = scenarioPresets.find((item) => item.id === scenarioId);
+    if (!scenario) return;
+    setSelectedScenario(scenarioId);
+    setFilters((previous) => ({
+      ...previous,
+      ...scenario.filters,
+      resultSearch: previous.resultSearch,
+      search: previous.search,
+      sectorCode: previous.sectorCode,
+      assignedToId: previous.assignedToId,
+    }));
   };
 
   const toggleRisk = (riskType: CustomerRecoveryRiskType) => {
@@ -437,24 +551,25 @@ export default function CustomerRecoveryReportPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 lg:min-w-[620px]">
+        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5 lg:min-w-[760px]">
           <HeroMetric label="Riskli cari" value={summary?.totalCustomers ?? 0} />
           <HeroMetric label="Kayip potansiyel" value={formatCurrency(summary?.totalLostPotential || 0)} />
           <HeroMetric label="Aksiyon yok" value={summary?.noActionCount ?? 0} />
           <HeroMetric label="Geciken takip" value={summary?.dueFollowUpCount ?? 0} />
+          <HeroMetric label="Donemsel" value={summary?.seasonalCount ?? 0} />
         </div>
       </div>
 
       <Card className="overflow-hidden border-slate-200 shadow-sm">
-        <CardHeader className="border-b bg-gradient-to-r from-white to-slate-50">
+        <CardHeader className="border-b bg-gradient-to-r from-white to-emerald-50/60">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <Filter className="h-5 w-5 text-emerald-600" />
-                Rapor mantigi
+                Hazir senaryolar
               </CardTitle>
               <CardDescription>
-                Arama ve filtreler tum veri setinde calisir; sadece ekrandaki sayfada arama yapmaz.
+                Teknik alan doldurmadan raporu calistirin. Isterseniz manuel detayli ayarlari acabilirsiniz.
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -470,28 +585,38 @@ export default function CustomerRecoveryReportPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5 p-5">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <LabeledInput label="Son donem ay" value={filters.recentMonths} onChange={(value) => updateFilter('recentMonths', value)} />
-            <LabeledInput label="Gecmis baz ay" value={filters.baselineMonths} onChange={(value) => updateFilter('baselineMonths', value)} />
-            <LabeledInput label="Dusme yuzdesi" value={filters.minDropPercent} onChange={(value) => updateFilter('minDropPercent', value)} />
-            <LabeledInput label="Min aktif ay" value={filters.minHistoricalActiveMonths} onChange={(value) => updateFilter('minHistoricalActiveMonths', value)} />
-            <LabeledInput label="Min gecmis ciro" value={filters.minHistoricalAmount} onChange={(value) => updateFilter('minHistoricalAmount', value)} />
-            <LabeledInput label="Anlamli ay ciro" value={filters.minMeaningfulMonthlyAmount} onChange={(value) => updateFilter('minMeaningfulMonthlyAmount', value)} />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {scenarioPresets.map((scenario) => {
+              const active = selectedScenario === scenario.id;
+              return (
+                <button
+                  key={scenario.id}
+                  type="button"
+                  onClick={() => applyScenario(scenario.id)}
+                  className={cn(
+                    'rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md',
+                    active
+                      ? 'border-emerald-300 bg-emerald-50 shadow-sm'
+                      : 'border-gray-200 bg-white hover:border-emerald-200'
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-gray-900">{scenario.title}</span>
+                    {active && <Badge variant="success">Secili</Badge>}
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-600">{scenario.description}</p>
+                  <p className="mt-3 text-xs font-medium text-emerald-700">{scenario.helper}</p>
+                </button>
+              );
+            })}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1.5fr_0.8fr_0.8fr_0.8fr]">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Cari ara</label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <Input
-                  value={filters.search}
-                  onChange={(event) => updateFilter('search', event.target.value)}
-                  placeholder="Cari kodu, cari adi, sehir veya sektor..."
-                  className="pl-10"
-                />
-              </div>
-            </div>
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-900">
+            Bu ayarlarla son {filters.recentMonths} ay, onceki {filters.baselineMonths} aylik aktif satis ortalamasiyla karsilastirilir.
+            Gecmise gore en az %{filters.minDropPercent} dusen veya son donemde hareketi duran cariler listelenir.
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-5">
             <LabeledInput label="Sektor kodu" value={filters.sectorCode} onChange={(value) => updateFilter('sectorCode', value.toUpperCase())} />
             <Select label="Temsilci / takip sahibi" value={filters.assignedToId} onChange={(event) => updateFilter('assignedToId', event.target.value)}>
               <option value="">Tumu</option>
@@ -500,6 +625,12 @@ export default function CustomerRecoveryReportPage() {
                   {member.name || member.email || member.id}
                 </option>
               ))}
+            </Select>
+            <LabeledInput label="Min. tahmini kayip" value={filters.minLostPotential} onChange={(value) => updateFilter('minLostPotential', value)} />
+            <Select label="Donemsel cariler" value={filters.seasonalityMode} onChange={(event) => updateFilter('seasonalityMode', event.target.value as SeasonalityMode)}>
+              <option value="include">Dahil et</option>
+              <option value="exclude">Ayri tut</option>
+              <option value="only">Sadece donemsel</option>
             </Select>
             <Select label="Sirala" value={`${filters.sortBy}:${filters.sortDirection}`} onChange={(event) => {
               const [sortBy, sortDirection] = event.target.value.split(':') as [SortBy, SortDirection];
@@ -515,24 +646,7 @@ export default function CustomerRecoveryReportPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {Object.keys(riskTypeLabels).map((riskType) => {
-              const typedRisk = riskType as CustomerRecoveryRiskType;
-              const active = filters.riskTypes.includes(typedRisk);
-              return (
-                <button
-                  key={riskType}
-                  type="button"
-                  onClick={() => toggleRisk(typedRisk)}
-                  className={cn(
-                    'rounded-full border px-3 py-1.5 text-sm font-medium transition',
-                    active ? riskTypeClasses[typedRisk] : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'
-                  )}
-                >
-                  {riskTypeLabels[typedRisk]}
-                </button>
-              );
-            })}
-            <label className="ml-0 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 lg:ml-3">
+            <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700">
               <input
                 type="checkbox"
                 checked={filters.onlyWithOpenAction}
@@ -556,7 +670,42 @@ export default function CustomerRecoveryReportPage() {
               />
               Bu ayi dahil et
             </label>
+            <Button variant="ghost" size="sm" onClick={() => setShowManualSettings((value) => !value)}>
+              {showManualSettings ? 'Manuel ayarlari gizle' : 'Detayli manuel calistir'}
+            </Button>
           </div>
+
+          {showManualSettings && (
+            <div className="space-y-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <LabeledInput label="Son donem ay" value={filters.recentMonths} onChange={(value) => updateFilter('recentMonths', value)} />
+                <LabeledInput label="Gecmis baz ay" value={filters.baselineMonths} onChange={(value) => updateFilter('baselineMonths', value)} />
+                <LabeledInput label="Dusme yuzdesi" value={filters.minDropPercent} onChange={(value) => updateFilter('minDropPercent', value)} />
+                <LabeledInput label="Min aktif ay" value={filters.minHistoricalActiveMonths} onChange={(value) => updateFilter('minHistoricalActiveMonths', value)} />
+                <LabeledInput label="Min gecmis ciro" value={filters.minHistoricalAmount} onChange={(value) => updateFilter('minHistoricalAmount', value)} />
+                <LabeledInput label="Anlamli ay ciro" value={filters.minMeaningfulMonthlyAmount} onChange={(value) => updateFilter('minMeaningfulMonthlyAmount', value)} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {Object.keys(riskTypeLabels).map((riskType) => {
+                  const typedRisk = riskType as CustomerRecoveryRiskType;
+                  const active = filters.riskTypes.includes(typedRisk);
+                  return (
+                    <button
+                      key={riskType}
+                      type="button"
+                      onClick={() => toggleRisk(typedRisk)}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 text-sm font-medium transition',
+                        active ? riskTypeClasses[typedRisk] : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'
+                      )}
+                    >
+                      {riskTypeLabels[typedRisk]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -574,6 +723,35 @@ export default function CustomerRecoveryReportPage() {
                 <Badge variant="outline">{pagination.totalRecords} kayit</Badge>
                 <Badge variant="outline">Sayfa {pagination.page || page} / {pagination.totalPages || 0}</Badge>
               </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  value={filters.resultSearch}
+                  onChange={(event) => updateFilter('resultSearch', event.target.value)}
+                  placeholder="Rapor sonucu icinde cari kodu, cari adi, sehir veya sektor ara..."
+                  className="pl-10"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') runReport();
+                  }}
+                />
+              </div>
+              <Button variant="outline" onClick={runReport} disabled={loading}>
+                Sonucta ara
+              </Button>
+              {filters.resultSearch && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    updateFilter('resultSearch', '');
+                    setSubmittedFilters((previous) => ({ ...previous, resultSearch: '' }));
+                    setPage(1);
+                  }}
+                >
+                  Temizle
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -593,7 +771,9 @@ export default function CustomerRecoveryReportPage() {
                   <TableHead className="cursor-pointer text-right" onClick={() => sort('recentAverage')}>Son ort.</TableHead>
                   <TableHead className="cursor-pointer text-right" onClick={() => sort('dropPercent')}>Dusme</TableHead>
                   <TableHead className="cursor-pointer text-right" onClick={() => sort('lostPotential')}>Kayip</TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => sort('lastSaleDate')}>Son satis</TableHead>
+                  <TableHead>Kayip kategori</TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => sort('lastSaleDate')}>Son alim</TableHead>
+                  <TableHead>Onerilen aksiyon</TableHead>
                   <TableHead>Takip</TableHead>
                   <TableHead className="text-right">Detay</TableHead>
                 </TableRow>
@@ -601,11 +781,11 @@ export default function CustomerRecoveryReportPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-12 text-center text-gray-500">Rapor hesaplanıyor...</TableCell>
+                    <TableCell colSpan={12} className="py-12 text-center text-gray-500">Rapor hesaplaniyor...</TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-12 text-center text-gray-500">Filtrelere uygun cari bulunamadi.</TableCell>
+                    <TableCell colSpan={12} className="py-12 text-center text-gray-500">Filtrelere uygun cari bulunamadi.</TableCell>
                   </TableRow>
                 ) : (
                   rows.map((row) => (
@@ -633,6 +813,9 @@ export default function CustomerRecoveryReportPage() {
                             {riskTypeLabels[row.riskType]} / {row.riskScore}
                           </span>
                           <div className="text-xs text-gray-500">{row.confidence} guven</div>
+                          {row.isSeasonal && (
+                            <div className="text-xs font-medium text-blue-600">Donemsel olabilir</div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(row.historicalAverage)}</TableCell>
@@ -644,9 +827,23 @@ export default function CustomerRecoveryReportPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right font-semibold text-gray-900">{formatCurrency(row.lostPotential)}</TableCell>
-                      <TableCell>
-                        <div className="text-sm text-gray-900">{safeDate(row.lastSaleDate)}</div>
-                        <div className="text-xs text-gray-500">{row.daysSinceLastSale ?? '-'} gun</div>
+                      <TableCell className="min-w-[190px]">
+                        <div className="text-sm font-medium text-gray-900">{row.topLostCategory?.categoryName || '-'}</div>
+                        <div className="text-xs text-gray-500">
+                          {row.topLostCategory ? formatCurrency(row.topLostCategory.lostAmount) : row.seasonalityReason || '-'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-[180px]">
+                        <div className="line-clamp-1 text-sm text-gray-900">{row.lastPurchasedProduct?.productName || '-'}</div>
+                        <div className="text-xs text-gray-500">
+                          {safeDate(row.lastPurchasedProduct?.lastPurchaseDate || row.lastSaleDate)} / {row.daysSinceLastSale ?? '-'} gun
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-[220px]">
+                        <div className="text-sm text-gray-800">{row.recommendedAction || '-'}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          Teklif {row.openQuoteCount}, siparis {row.openOrderCount}, bakiye {formatCurrency(row.balance || 0)}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
@@ -705,6 +902,26 @@ export default function CustomerRecoveryReportPage() {
                   </div>
                 );
               })}
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-100 bg-blue-50/40 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg text-blue-950">Donemsel alim ayrimi</CardTitle>
+              <CardDescription>Alimlari seyrek veya belirli periyotla tekrar eden cariler</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2">
+                <span className="text-sm text-gray-700">Donemsel cari</span>
+                <span className="font-semibold text-blue-700">{summary?.seasonalCount || 0}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2">
+                <span className="text-sm text-gray-700">Donemsel kayip</span>
+                <span className="font-semibold text-blue-700">{formatCurrency(summary?.seasonalLostPotential || 0)}</span>
+              </div>
+              <p className="text-xs leading-relaxed text-blue-900/80">
+                "Ayri tut" bu carileri ana kayip listesinden cikarir; "Sadece donemsel" kontrol listesi olarak gosterir.
+              </p>
             </CardContent>
           </Card>
 
@@ -790,6 +1007,26 @@ export default function CustomerRecoveryReportPage() {
                 <DetailMetric label="Tahmini kayip" value={formatCurrency(detailRow.lostPotential)} />
                 <DetailMetric label="Son satis" value={safeDate(detailRow.lastSaleDate)} />
               </div>
+
+              <Card className="border-amber-100 bg-amber-50/50">
+                <CardContent className="grid gap-3 p-4 md:grid-cols-3">
+                  <InsightBlock
+                    label="Ana kayip kategori"
+                    value={detailRow.topLostCategory?.categoryName || '-'}
+                    helper={detailRow.topLostCategory ? formatCurrency(detailRow.topLostCategory.lostAmount) : '-'}
+                  />
+                  <InsightBlock
+                    label="Son alinan urun"
+                    value={detailRow.lastPurchasedProduct?.productName || '-'}
+                    helper={safeDate(detailRow.lastPurchasedProduct?.lastPurchaseDate || detailRow.lastSaleDate)}
+                  />
+                  <InsightBlock
+                    label={detailRow.isSeasonal ? 'Donemsel uyari' : 'Onerilen aksiyon'}
+                    value={detailRow.isSeasonal ? 'Donemsel alim olabilir' : (detailRow.recommendedAction || '-')}
+                    helper={detailRow.seasonalityReason || detailRow.recommendedAction || '-'}
+                  />
+                </CardContent>
+              </Card>
 
               <Card className="border-slate-200">
                 <CardHeader>
@@ -1000,6 +1237,16 @@ function DetailMetric({ label, value }: { label: string; value: string | number 
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs text-gray-500">{label}</p>
       <p className="mt-1 text-lg font-semibold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function InsightBlock({ label, value, helper }: { label: string; value: string; helper: string }) {
+  return (
+    <div className="rounded-2xl bg-white p-4 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-amber-700">{label}</p>
+      <p className="mt-1 line-clamp-2 text-sm font-semibold text-gray-900">{value}</p>
+      <p className="mt-2 line-clamp-2 text-xs text-gray-500">{helper}</p>
     </div>
   );
 }

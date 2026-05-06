@@ -7,6 +7,7 @@ import exclusionService from './exclusion.service';
 type RiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 type SortBy = 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
 type SortDirection = 'asc' | 'desc';
+type SeasonalityMode = 'include' | 'exclude' | 'only';
 
 interface ReportOptions {
   recentMonths?: number;
@@ -18,11 +19,14 @@ interface ReportOptions {
   includeCurrentMonth?: boolean;
   customerCode?: string;
   search?: string;
+  resultSearch?: string;
   sectorCode?: string;
   assignedToId?: string;
   riskTypes?: string;
   onlyWithOpenAction?: boolean;
   onlyDueFollowUp?: boolean;
+  minLostPotential?: number;
+  seasonalityMode?: SeasonalityMode | string;
   page?: number;
   limit?: number;
   sortBy?: SortBy;
@@ -69,9 +73,34 @@ interface RecoveryRow {
   dropPercent: number;
   seasonalAverage: number | null;
   seasonalDropPercent: number | null;
+  isSeasonal: boolean;
+  seasonalityScore: number;
+  seasonalityReason: string | null;
   lostPotential: number;
   openQuoteCount: number;
   openOrderCount: number;
+  topLostCategory: {
+    categoryCode: string;
+    categoryName: string;
+    historicalAmount: number;
+    recentAmount: number;
+    lostAmount: number;
+  } | null;
+  topLostProduct: {
+    productCode: string;
+    productName: string;
+    historicalAmount: number;
+    recentAmount: number;
+    lostAmount: number;
+    lastPurchaseDate: string | null;
+  } | null;
+  lastPurchasedProduct: {
+    productCode: string;
+    productName: string;
+    lastPurchaseDate: string | null;
+    amount: number;
+  } | null;
+  recommendedAction: string;
   lastAction: any | null;
   openActionCount: number;
   overdueActionCount: number;
@@ -96,6 +125,13 @@ const formatMonthKey = (date: Date) => `${date.getUTCFullYear()}-${String(date.g
 const startOfMonthUtc = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 const endOfMonthUtc = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
 const addMonthsUtc = (date: Date, months: number) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+const chunkArray = <T>(items: T[], size: number) => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+};
 
 const compactDateToDisplay = (value: any) => {
   if (!value) return null;
@@ -122,10 +158,17 @@ class CustomerRecoveryService {
     const minHistoricalActiveMonths = clamp(Math.floor(toNumber(options.minHistoricalActiveMonths, 2)), 1, 24);
     const minHistoricalAmount = Math.max(0, toNumber(options.minHistoricalAmount, 1000));
     const minMeaningfulMonthlyAmount = Math.max(0, toNumber(options.minMeaningfulMonthlyAmount, 1000));
+    const minLostPotential = Math.max(0, toNumber(options.minLostPotential, 0));
     const page = Math.max(1, Math.floor(toNumber(options.page, 1)));
     const limit = clamp(Math.floor(toNumber(options.limit, 50)), 1, 5000);
     const sortBy: SortBy = options.sortBy || 'riskScore';
     const sortDirection: SortDirection = options.sortDirection === 'asc' ? 'asc' : 'desc';
+    const seasonalityModeValue = String(options.seasonalityMode || 'include').toLowerCase();
+    const seasonalityMode: SeasonalityMode = seasonalityModeValue === 'exclude'
+      ? 'exclude'
+      : seasonalityModeValue === 'only'
+        ? 'only'
+        : 'include';
 
     const now = new Date();
     const reportEnd = parseBoolean(options.includeCurrentMonth)
@@ -164,6 +207,7 @@ class CustomerRecoveryService {
       allMonthKeys,
       customerCode: normalizeCode(options.customerCode),
       search: String(options.search || '').trim(),
+      resultSearch: String(options.resultSearch || '').trim(),
       sectorCode: normalizeCode(options.sectorCode),
       assignedToId: String(options.assignedToId || '').trim(),
       riskTypeSet: new Set(
@@ -174,6 +218,8 @@ class CustomerRecoveryService {
       ),
       onlyWithOpenAction: Boolean(options.onlyWithOpenAction),
       onlyDueFollowUp: Boolean(options.onlyDueFollowUp),
+      minLostPotential,
+      seasonalityMode,
       includeCurrentMonth: Boolean(options.includeCurrentMonth),
     };
   }
@@ -206,6 +252,55 @@ class CustomerRecoveryService {
     }
 
     return [...conditions, ...extra];
+  }
+
+  private calculateSeasonality(
+    entryMonths: Map<string, MonthlyBucket>,
+    normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>
+  ) {
+    const activeIndexes = normalized.allMonthKeys
+      .map((month, index) => ({ month, index, amount: entryMonths.get(month)?.amount || 0 }))
+      .filter((item) => item.amount >= normalized.minMeaningfulMonthlyAmount);
+
+    if (activeIndexes.length < 2) {
+      return { isSeasonal: false, seasonalityScore: 0, seasonalityReason: null };
+    }
+
+    const activeRatio = activeIndexes.length / normalized.allMonthKeys.length;
+    const gaps = activeIndexes.slice(1).map((item, index) => item.index - activeIndexes[index].index);
+    const maxGap = gaps.length > 0 ? Math.max(...gaps) : normalized.allMonthKeys.length;
+    const minGap = gaps.length > 0 ? Math.min(...gaps) : maxGap;
+    const calendarMonthCounts = activeIndexes.reduce<Record<string, number>>((acc, item) => {
+      const monthPart = item.month.slice(5, 7);
+      acc[monthPart] = (acc[monthPart] || 0) + 1;
+      return acc;
+    }, {});
+    const repeatedCalendarMonthCount = Object.values(calendarMonthCounts).filter((count) => count >= 2).length;
+    const hasRegularInterval = gaps.length >= 2 && maxGap >= 3 && maxGap - minGap <= 1;
+    const score = clamp(
+      Math.round(
+        (1 - activeRatio) * 45 +
+        clamp(maxGap * 7, 0, 35) +
+        repeatedCalendarMonthCount * 12 +
+        (hasRegularInterval ? 12 : 0)
+      ),
+      0,
+      100
+    );
+    const isSeasonal = activeRatio <= 0.35 && (maxGap >= 4 || repeatedCalendarMonthCount > 0 || hasRegularInterval) && score >= 55;
+
+    let reason: string | null = null;
+    if (isSeasonal) {
+      if (hasRegularInterval) {
+        reason = `Yaklasik ${maxGap} ayda bir alim ritmi var`;
+      } else if (repeatedCalendarMonthCount > 0) {
+        reason = 'Benzer takvim aylarinda tekrar eden alim var';
+      } else {
+        reason = `Alimlar seyrek; en uzun bosluk ${maxGap} ay`;
+      }
+    }
+
+    return { isSeasonal, seasonalityScore: isSeasonal ? score : 0, seasonalityReason: reason };
   }
 
   private async fetchMonthlySales(normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>, context?: RequestContext) {
@@ -392,6 +487,150 @@ class CustomerRecoveryService {
     });
   }
 
+  private async attachProductInsights(
+    rows: RecoveryRow[],
+    normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>,
+    context?: RequestContext
+  ) {
+    const customerCodes = Array.from(new Set(rows.map((row) => normalizeCode(row.customerCode)).filter(Boolean)));
+    if (customerCodes.length === 0) return;
+
+    const connect = (mikroService as any).connect;
+    if (typeof connect === 'function') {
+      await connect.call(mikroService);
+    }
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    const productRows: any[] = [];
+
+    for (const chunk of chunkArray(customerCodes, 150)) {
+      const customerList = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+      const baseWhere = this.buildBaseWhere([
+        ...exclusionConditions,
+        `RTRIM(sth.sth_cari_kodu) IN (${customerList})`,
+        `sth.sth_tarih >= '${formatDateCompact(normalized.baselineStart)}'`,
+        `sth.sth_tarih <= '${formatDateCompact(normalized.queryEnd)}'`,
+      ], context).join(' AND ');
+
+      const chunkRows = await mikroService.executeQuery(`
+        SELECT
+          RTRIM(sth.sth_cari_kodu) as customerCode,
+          RTRIM(sth.sth_stok_kod) as productCode,
+          MAX(st.sto_isim) as productName,
+          MAX(sth.sth_tarih) as lastPurchaseDate,
+          SUM(CASE
+            WHEN sth.sth_tarih < '${formatDateCompact(normalized.recentStart)}'
+              THEN CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END
+            ELSE 0
+          END) as historicalAmount,
+          SUM(CASE
+            WHEN sth.sth_tarih >= '${formatDateCompact(normalized.recentStart)}'
+              THEN CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END
+            ELSE 0
+          END) as recentAmount,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as totalAmount
+        FROM STOK_HAREKETLERI sth
+        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+        LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+        WHERE ${baseWhere}
+        GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
+      `);
+      productRows.push(...chunkRows);
+    }
+
+    const productCodes = Array.from(new Set(productRows.map((item) => normalizeCode(item.productCode)).filter(Boolean)));
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: productCodes } },
+      select: { mikroCode: true, name: true, category: { select: { mikroCode: true, name: true } } },
+    });
+    const productMap = new Map(products.map((product) => [normalizeCode(product.mikroCode), product]));
+
+    const insightsByCustomer = new Map<string, {
+      topLostProduct: RecoveryRow['topLostProduct'];
+      lastPurchasedProduct: RecoveryRow['lastPurchasedProduct'];
+      categories: Map<string, NonNullable<RecoveryRow['topLostCategory']>>;
+    }>();
+
+    productRows.forEach((item) => {
+      const customerCode = normalizeCode(item.customerCode);
+      const productCode = normalizeCode(item.productCode);
+      if (!customerCode || !productCode) return;
+
+      const product = productMap.get(productCode);
+      const productName = product?.name || item.productName || productCode;
+      const historicalAmount = toNumber(item.historicalAmount);
+      const recentAmount = toNumber(item.recentAmount);
+      const lostAmount = Math.max(0, historicalAmount - recentAmount);
+      const lastPurchaseDate = compactDateToDisplay(item.lastPurchaseDate);
+      const current = insightsByCustomer.get(customerCode) || {
+        topLostProduct: null,
+        lastPurchasedProduct: null,
+        categories: new Map<string, NonNullable<RecoveryRow['topLostCategory']>>(),
+      };
+
+      const productInsight = {
+        productCode,
+        productName,
+        historicalAmount,
+        recentAmount,
+        lostAmount,
+        lastPurchaseDate,
+      };
+      if (lostAmount > 0 && (!current.topLostProduct || lostAmount > current.topLostProduct.lostAmount)) {
+        current.topLostProduct = productInsight;
+      }
+
+      if (lastPurchaseDate && (!current.lastPurchasedProduct?.lastPurchaseDate || lastPurchaseDate > current.lastPurchasedProduct.lastPurchaseDate)) {
+        current.lastPurchasedProduct = {
+          productCode,
+          productName,
+          lastPurchaseDate,
+          amount: toNumber(item.totalAmount),
+        };
+      }
+
+      const categoryCode = normalizeCode(product?.category?.mikroCode) || 'DIGER';
+      const categoryName = product?.category?.name || 'Diger';
+      const category = current.categories.get(categoryCode) || {
+        categoryCode,
+        categoryName,
+        historicalAmount: 0,
+        recentAmount: 0,
+        lostAmount: 0,
+      };
+      category.historicalAmount += historicalAmount;
+      category.recentAmount += recentAmount;
+      category.lostAmount += lostAmount;
+      current.categories.set(categoryCode, category);
+      insightsByCustomer.set(customerCode, current);
+    });
+
+    rows.forEach((row) => {
+      const insight = insightsByCustomer.get(normalizeCode(row.customerCode));
+      if (insight) {
+        row.topLostProduct = insight.topLostProduct;
+        row.lastPurchasedProduct = insight.lastPurchasedProduct;
+        row.topLostCategory = Array.from(insight.categories.values()).sort((a, b) => b.lostAmount - a.lostAmount)[0] || null;
+      }
+      row.recommendedAction = this.buildRecommendedAction(row);
+    });
+  }
+
+  private buildRecommendedAction(row: RecoveryRow) {
+    if (row.overdueActionCount > 0) return 'Geciken takibi kapat ve sonucu notla';
+    if (row.openQuoteCount > 0) return 'Acik teklifi telefonla takip et';
+    if (row.openOrderCount > 0) return 'Acik siparisi kontrol et';
+    if (row.isSeasonal) return 'Donemsel alim takvimini teyit et';
+    if (row.riskType === 'NO_RECENT_SALES') {
+      return row.topLostCategory
+        ? `${row.topLostCategory.categoryName} kategorisi icin arama/ziyaret planla`
+        : 'Cariyle yeniden temas kur';
+    }
+    if (row.lostPotential >= 25000) return 'Ziyaret ve ozel teklif hazirla';
+    if (row.topLostProduct) return `${row.topLostProduct.productName} icin tekrar teklif ver`;
+    if (row.riskType === 'INSIGNIFICANT_ACTIVITY') return 'Dusuk tutarli son alimin nedenini sor';
+    return 'Cariyle temas kur ve ihtiyacini notla';
+  }
+
   private buildRows(monthlyRows: any[], normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>): RecoveryRow[] {
     const map = new Map<string, {
       customerCode: string;
@@ -459,6 +698,7 @@ class CustomerRecoveryService {
       const seasonalDropPercent = seasonalAverage && seasonalAverage > 0
         ? clamp(((seasonalAverage - recentAverage) / seasonalAverage) * 100, 0, 100)
         : null;
+      const seasonality = this.calculateSeasonality(entry.months, normalized);
 
       const labels: string[] = [];
       let riskType: RiskType = 'WATCH';
@@ -475,6 +715,7 @@ class CustomerRecoveryService {
       if (seasonalDropPercent !== null && seasonalDropPercent >= normalized.minDropPercent) {
         labels.push('Gecen yilin ayni donemine gore dusuk');
       }
+      if (seasonality.isSeasonal) labels.push('Donemsel alim ritmi olabilir');
       if (historicalActiveMonths <= 2) labels.push('Dusuk guven: az aktif ay');
 
       if (riskType === 'WATCH' && (!seasonalDropPercent || seasonalDropPercent < normalized.minDropPercent)) {
@@ -529,9 +770,16 @@ class CustomerRecoveryService {
         dropPercent,
         seasonalAverage,
         seasonalDropPercent,
+        isSeasonal: seasonality.isSeasonal,
+        seasonalityScore: seasonality.seasonalityScore,
+        seasonalityReason: seasonality.seasonalityReason,
         lostPotential,
         openQuoteCount: 0,
         openOrderCount: 0,
+        topLostCategory: null,
+        topLostProduct: null,
+        lastPurchasedProduct: null,
+        recommendedAction: '',
         lastAction: null,
         openActionCount: 0,
         overdueActionCount: 0,
@@ -560,6 +808,14 @@ class CustomerRecoveryService {
           .includes(search)
       );
     }
+    if (normalized.resultSearch) {
+      const search = normalized.resultSearch.toLocaleLowerCase('tr-TR');
+      result = result.filter((row) =>
+        `${row.customerCode} ${row.customerName || ''} ${row.sectorCode || ''} ${row.city || ''} ${row.district || ''}`
+          .toLocaleLowerCase('tr-TR')
+          .includes(search)
+      );
+    }
     if (normalized.assignedToId) {
       result = result.filter((row) => row.lastAction?.assignedTo?.id === normalized.assignedToId || row.assignedSalesRep?.id === normalized.assignedToId);
     }
@@ -571,6 +827,14 @@ class CustomerRecoveryService {
     }
     if (normalized.onlyDueFollowUp) {
       result = result.filter((row) => row.overdueActionCount > 0);
+    }
+    if (normalized.minLostPotential > 0) {
+      result = result.filter((row) => row.lostPotential >= normalized.minLostPotential);
+    }
+    if (normalized.seasonalityMode === 'exclude') {
+      result = result.filter((row) => !row.isSeasonal);
+    } else if (normalized.seasonalityMode === 'only') {
+      result = result.filter((row) => row.isSeasonal);
     }
 
     const direction = normalized.sortDirection === 'asc' ? 1 : -1;
@@ -616,6 +880,10 @@ class CustomerRecoveryService {
     const recoveredCount = rows.filter((row) => row.developmentStatus === 'RECOVERED').length;
     const dueFollowUpCount = rows.filter((row) => row.overdueActionCount > 0).length;
     const noActionCount = rows.filter((row) => row.openActionCount === 0 && !row.lastAction).length;
+    const seasonalCount = rows.filter((row) => row.isSeasonal).length;
+    const seasonalLostPotential = rows
+      .filter((row) => row.isSeasonal)
+      .reduce((sum, row) => sum + row.lostPotential, 0);
 
     const teamMap = new Map<string, {
       userId: string;
@@ -653,6 +921,8 @@ class CustomerRecoveryService {
       recoveredCount,
       dueFollowUpCount,
       noActionCount,
+      seasonalCount,
+      seasonalLostPotential,
       teamSummary: Array.from(teamMap.values()).sort((a, b) => b.lostPotential - a.lostPotential),
     };
   }
@@ -669,6 +939,7 @@ class CustomerRecoveryService {
     const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / normalized.limit) : 0;
     const offset = (normalized.page - 1) * normalized.limit;
     const paginatedRows = rows.slice(offset, offset + normalized.limit);
+    await this.attachProductInsights(paginatedRows, normalized, context);
 
     return {
       rows: paginatedRows,
@@ -686,6 +957,8 @@ class CustomerRecoveryService {
         minHistoricalActiveMonths: normalized.minHistoricalActiveMonths,
         minHistoricalAmount: normalized.minHistoricalAmount,
         minMeaningfulMonthlyAmount: normalized.minMeaningfulMonthlyAmount,
+        minLostPotential: normalized.minLostPotential,
+        seasonalityMode: normalized.seasonalityMode,
         includeCurrentMonth: normalized.includeCurrentMonth,
         baselineStartDate: formatDateKey(normalized.baselineStart),
         recentStartDate: formatDateKey(normalized.recentStart),
@@ -909,6 +1182,16 @@ class CustomerRecoveryService {
       'Son Donem Ortalama': row.recentAverage,
       'Dusme %': row.dropPercent,
       'Tahmini Kayip': row.lostPotential,
+      'Donemsel Mi': row.isSeasonal ? 'Evet' : 'Hayir',
+      'Donemsellik Sebebi': row.seasonalityReason || '',
+      'Kayip Kategori': row.topLostCategory?.categoryName || '',
+      'Kayip Kategori Tutar': row.topLostCategory?.lostAmount || 0,
+      'Kayip Urun': row.topLostProduct?.productName || '',
+      'Son Alinan Urun': row.lastPurchasedProduct?.productName || '',
+      'Onerilen Aksiyon': row.recommendedAction || '',
+      'Acik Teklif': row.openQuoteCount,
+      'Acik Siparis': row.openOrderCount,
+      'Bakiye': row.balance,
       'Son Satis': row.lastSaleDate || '',
       'Acik Aksiyon': row.openActionCount,
       'Geciken Aksiyon': row.overdueActionCount,

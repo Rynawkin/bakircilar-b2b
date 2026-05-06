@@ -57,11 +57,14 @@ export interface CustomerRecoveryReportParams {
   includeCurrentMonth?: boolean;
   customerCode?: string;
   search?: string;
+  resultSearch?: string;
   sectorCode?: string;
   assignedToId?: string;
   riskTypes?: CustomerRecoveryRiskType[] | string;
   onlyWithOpenAction?: boolean;
   onlyDueFollowUp?: boolean;
+  minLostPotential?: number;
+  seasonalityMode?: 'include' | 'exclude' | 'only';
   page?: number;
   limit?: number;
   sortBy?: 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
@@ -112,9 +115,34 @@ export interface CustomerRecoveryRow {
   dropPercent: number;
   seasonalAverage: number | null;
   seasonalDropPercent: number | null;
+  isSeasonal: boolean;
+  seasonalityScore: number;
+  seasonalityReason: string | null;
   lostPotential: number;
   openQuoteCount: number;
   openOrderCount: number;
+  topLostCategory: {
+    categoryCode: string;
+    categoryName: string;
+    historicalAmount: number;
+    recentAmount: number;
+    lostAmount: number;
+  } | null;
+  topLostProduct: {
+    productCode: string;
+    productName: string;
+    historicalAmount: number;
+    recentAmount: number;
+    lostAmount: number;
+    lastPurchaseDate: string | null;
+  } | null;
+  lastPurchasedProduct: {
+    productCode: string;
+    productName: string;
+    lastPurchaseDate: string | null;
+    amount: number;
+  } | null;
+  recommendedAction: string;
   lastAction: CustomerRecoveryAction | null;
   openActionCount: number;
   overdueActionCount: number;
@@ -134,6 +162,8 @@ export interface CustomerRecoveryReportData {
     recoveredCount: number;
     dueFollowUpCount: number;
     noActionCount: number;
+    seasonalCount: number;
+    seasonalLostPotential: number;
     teamSummary: Array<{
       userId: string;
       name: string;
@@ -157,6 +187,8 @@ export interface CustomerRecoveryReportData {
     minHistoricalActiveMonths: number;
     minHistoricalAmount: number;
     minMeaningfulMonthlyAmount: number;
+    minLostPotential: number;
+    seasonalityMode: 'include' | 'exclude' | 'only';
     includeCurrentMonth: boolean;
     baselineStartDate: string;
     recentStartDate: string;
@@ -217,11 +249,14 @@ const appendCustomerRecoveryParams = (queryParams: URLSearchParams, params: Cust
   if (params.includeCurrentMonth !== undefined) queryParams.append('includeCurrentMonth', params.includeCurrentMonth ? 'true' : 'false');
   if (params.customerCode) queryParams.append('customerCode', params.customerCode);
   if (params.search) queryParams.append('search', params.search);
+  if (params.resultSearch) queryParams.append('resultSearch', params.resultSearch);
   if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
   if (params.assignedToId) queryParams.append('assignedToId', params.assignedToId);
   if (params.riskTypes) queryParams.append('riskTypes', Array.isArray(params.riskTypes) ? params.riskTypes.join(',') : params.riskTypes);
   if (params.onlyWithOpenAction !== undefined) queryParams.append('onlyWithOpenAction', params.onlyWithOpenAction ? 'true' : 'false');
   if (params.onlyDueFollowUp !== undefined) queryParams.append('onlyDueFollowUp', params.onlyDueFollowUp ? 'true' : 'false');
+  if (params.minLostPotential !== undefined) queryParams.append('minLostPotential', params.minLostPotential.toString());
+  if (params.seasonalityMode) queryParams.append('seasonalityMode', params.seasonalityMode);
   if (params.page !== undefined) queryParams.append('page', params.page.toString());
   if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
   if (params.sortBy) queryParams.append('sortBy', params.sortBy);
