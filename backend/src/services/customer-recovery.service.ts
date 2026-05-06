@@ -3,6 +3,7 @@ import { OrderStatus, QuoteStatus, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
 import exclusionService from './exclusion.service';
+import notificationService from './notification.service';
 
 type RiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 type SortBy = 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
@@ -1003,6 +1004,53 @@ class CustomerRecoveryService {
     };
   }
 
+  private getActionCustomerLabel(action: { customerCode?: string | null; customerName?: string | null }) {
+    return [action.customerCode, action.customerName].filter(Boolean).join(' - ') || 'Cari';
+  }
+
+  private async notifyUsers(userIds: Array<string | null | undefined>, payload: {
+    title: string;
+    body?: string | null;
+    linkUrl?: string | null;
+  }) {
+    try {
+      await notificationService.createForUsers(userIds, payload);
+    } catch (error) {
+      console.error('Customer recovery notification failed', { error });
+    }
+  }
+
+  private async notifyActionAssigned(action: any, actorId?: string | null) {
+    if (!action.assignedToId || action.assignedToId === actorId) return;
+    await this.notifyUsers([action.assignedToId], {
+      title: 'Cari geri kazanim aksiyonu atandi',
+      body: `${this.getActionCustomerLabel(action)} icin ${action.actionType || 'takip'} aksiyonu atandi.`,
+      linkUrl: '/reports/customer-recovery',
+    });
+  }
+
+  private async notifyActionUpdated(existing: any, action: any, input: any, actorId?: string | null) {
+    const assignedChanged = input?.assignedToId !== undefined && existing.assignedToId !== action.assignedToId;
+    if (assignedChanged) {
+      await this.notifyActionAssigned(action, actorId);
+    }
+
+    const statusChanged = input?.status !== undefined && existing.status !== action.status;
+    const outcomeChanged = input?.outcome !== undefined && String(existing.outcome || '') !== String(action.outcome || '');
+    const followUpChanged = input?.followUpDate !== undefined;
+    if (!statusChanged && !outcomeChanged && !followUpChanged) return;
+
+    const bodyParts = [`${this.getActionCustomerLabel(action)} aksiyonu guncellendi.`];
+    if (statusChanged) bodyParts.push(`Durum: ${action.status}.`);
+    if (action.outcome) bodyParts.push(`Not: ${String(action.outcome).slice(0, 120)}`);
+
+    await this.notifyUsers([action.authorId, action.assignedToId].filter((userId) => userId && userId !== actorId), {
+      title: 'Cari geri kazanim aksiyonu guncellendi',
+      body: bodyParts.join(' '),
+      linkUrl: '/reports/customer-recovery',
+    });
+  }
+
   async getCustomerActions(customerCode: string) {
     const code = normalizeCode(customerCode);
     const actions = await prisma.customerRecoveryAction.findMany({
@@ -1041,10 +1089,11 @@ class CustomerRecoveryService {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
+    await this.notifyActionAssigned(action, authorId);
     return { action };
   }
 
-  async updateAction(actionId: string, input: any) {
+  async updateAction(actionId: string, input: any, actorId?: string) {
     const existing = await prisma.customerRecoveryAction.findUnique({ where: { id: actionId } });
     if (!existing) throw new Error('Action not found');
     const status = input?.status !== undefined ? String(input.status || '').trim().toUpperCase() : undefined;
@@ -1072,6 +1121,7 @@ class CustomerRecoveryService {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
+    await this.notifyActionUpdated(existing, action, input, actorId);
     return { action };
   }
 
@@ -1099,6 +1149,13 @@ class CustomerRecoveryService {
         snapshot: input?.snapshotByCustomer?.[customerCode] || undefined,
       })),
     });
+    if (assignedToId !== authorId) {
+      await this.notifyUsers([assignedToId], {
+        title: 'Cari geri kazanim takipleri atandi',
+        body: `${customerCodes.length} cari icin takip aksiyonu atandi.`,
+        linkUrl: '/reports/customer-recovery',
+      });
+    }
     return { createdCount: customerCodes.length };
   }
 

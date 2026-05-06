@@ -5,13 +5,16 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
   ArrowLeft,
+  ArrowUpDown,
   CheckCircle2,
   Clock,
   Download,
   Eye,
   FileText,
   Filter,
+  MessageSquare,
   RefreshCw,
+  Save,
   Search,
   TrendingDown,
   Users,
@@ -23,7 +26,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { adminApi, type CustomerRecoveryDetailData, type CustomerRecoveryReportData, type CustomerRecoveryReportParams, type CustomerRecoveryRiskType, type CustomerRecoveryRow } from '@/lib/api/admin';
+import { adminApi, type CustomerRecoveryAction, type CustomerRecoveryDetailData, type CustomerRecoveryReportData, type CustomerRecoveryReportParams, type CustomerRecoveryRiskType, type CustomerRecoveryRow } from '@/lib/api/admin';
 import { cn } from '@/lib/utils/cn';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 
@@ -31,6 +34,9 @@ type SortBy = NonNullable<CustomerRecoveryReportParams['sortBy']>;
 type SortDirection = NonNullable<CustomerRecoveryReportParams['sortDirection']>;
 type SeasonalityMode = 'include' | 'exclude' | 'only';
 type ScenarioId = 'declining' | 'stalled' | 'highPotential' | 'dueFollowUp' | 'seasonal';
+
+const PAGE_SIZE = 50;
+const REPORT_CACHE_LIMIT = 5000;
 
 interface StaffMember {
   id: string;
@@ -69,6 +75,13 @@ interface ActionFormState {
   followUpDate: string;
   assignedToId: string;
   outcome: string;
+}
+
+interface ActionUpdateDraft {
+  status: string;
+  outcome: string;
+  followUpDate: string;
+  assignedToId: string;
 }
 
 const riskTypeLabels: Record<CustomerRecoveryRiskType, string> = {
@@ -235,15 +248,71 @@ const safeDate = (date?: string | null) => {
 
 const percent = (value: number | null | undefined) => `${Math.round(value || 0)}%`;
 
+const toDateInputValue = (date?: string | null) => (date ? date.slice(0, 10) : '');
+
+const buildActionUpdateDrafts = (actions: CustomerRecoveryAction[] = []) =>
+  Object.fromEntries(
+    actions.map((action) => [
+      action.id,
+      {
+        status: action.status || 'OPEN',
+        outcome: action.outcome || '',
+        followUpDate: toDateInputValue(action.followUpDate),
+        assignedToId: action.assignedTo?.id || '',
+      },
+    ])
+  ) as Record<string, ActionUpdateDraft>;
+
+const compareRowsBySort = (
+  a: CustomerRecoveryRow,
+  b: CustomerRecoveryRow,
+  sortBy: SortBy,
+  sortDirection: SortDirection
+) => {
+  const direction = sortDirection === 'asc' ? 1 : -1;
+  let compare = 0;
+
+  switch (sortBy) {
+    case 'lostPotential':
+      compare = a.lostPotential - b.lostPotential;
+      break;
+    case 'dropPercent':
+      compare = a.dropPercent - b.dropPercent;
+      break;
+    case 'lastSaleDate':
+      compare = String(a.lastSaleDate || '').localeCompare(String(b.lastSaleDate || ''));
+      break;
+    case 'historicalAverage':
+      compare = a.historicalAverage - b.historicalAverage;
+      break;
+    case 'recentAverage':
+      compare = a.recentAverage - b.recentAverage;
+      break;
+    case 'customerName':
+      compare = String(a.customerName || '').localeCompare(String(b.customerName || ''), 'tr');
+      break;
+    case 'riskScore':
+    default:
+      compare = a.riskScore - b.riskScore;
+      break;
+  }
+
+  if (compare !== 0) return compare * direction;
+  return b.lostPotential - a.lostPotential;
+};
+
 export default function CustomerRecoveryReportPage() {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [submittedFilters, setSubmittedFilters] = useState<FilterState>(defaultFilters);
+  const [clientSort, setClientSort] = useState<{ sortBy: SortBy; sortDirection: SortDirection }>({
+    sortBy: defaultFilters.sortBy,
+    sortDirection: defaultFilters.sortDirection,
+  });
   const [selectedScenario, setSelectedScenario] = useState<ScenarioId>('declining');
   const [showManualSettings, setShowManualSettings] = useState(false);
   const [rows, setRows] = useState<CustomerRecoveryRow[]>([]);
   const [summary, setSummary] = useState<CustomerRecoveryReportData['summary'] | null>(null);
   const [metadata, setMetadata] = useState<CustomerRecoveryReportData['metadata'] | null>(null);
-  const [pagination, setPagination] = useState({ page: 1, limit: 50, totalPages: 0, totalRecords: 0 });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -254,12 +323,14 @@ export default function CustomerRecoveryReportPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionSaving, setActionSaving] = useState(false);
   const [actionForm, setActionForm] = useState<ActionFormState>(defaultActionForm);
+  const [actionUpdateDrafts, setActionUpdateDrafts] = useState<Record<string, ActionUpdateDraft>>({});
+  const [actionUpdateSavingId, setActionUpdateSavingId] = useState<string | null>(null);
   const [bulkAssignedToId, setBulkAssignedToId] = useState('');
   const [bulkFollowUpDate, setBulkFollowUpDate] = useState('');
   const [bulkNote, setBulkNote] = useState('Geri kazanim takibi icin aransin / ziyaret edilsin.');
   const [bulkSaving, setBulkSaving] = useState(false);
 
-  const buildParams = (source: FilterState, requestedPage = page): CustomerRecoveryReportParams => ({
+  const buildParams = (source: FilterState, requestedPage = page, limit = PAGE_SIZE): CustomerRecoveryReportParams => ({
     recentMonths: parseNumber(source.recentMonths, 3),
     baselineMonths: parseNumber(source.baselineMonths, 18),
     minDropPercent: parseNumber(source.minDropPercent, 50),
@@ -277,7 +348,7 @@ export default function CustomerRecoveryReportPage() {
     minLostPotential: parseNumber(source.minLostPotential, 0),
     seasonalityMode: source.seasonalityMode,
     page: requestedPage,
-    limit: 50,
+    limit,
     sortBy: source.sortBy,
     sortDirection: source.sortDirection,
   });
@@ -308,6 +379,23 @@ export default function CustomerRecoveryReportPage() {
     [rows, selectedCodes]
   );
 
+  const displayRows = useMemo(
+    () => [...rows].sort((a, b) => compareRowsBySort(a, b, clientSort.sortBy, clientSort.sortDirection)),
+    [clientSort, rows]
+  );
+
+  const pagination = useMemo(() => ({
+    page,
+    limit: PAGE_SIZE,
+    totalPages: displayRows.length > 0 ? Math.ceil(displayRows.length / PAGE_SIZE) : 0,
+    totalRecords: displayRows.length,
+  }), [displayRows.length, page]);
+
+  const visibleRows = useMemo(() => {
+    const offset = (page - 1) * PAGE_SIZE;
+    return displayRows.slice(offset, offset + PAGE_SIZE);
+  }, [displayRows, page]);
+
   useEffect(() => {
     const loadStaff = async () => {
       try {
@@ -324,11 +412,10 @@ export default function CustomerRecoveryReportPage() {
     const fetchReport = async () => {
       setLoading(true);
       try {
-        const result = await adminApi.getCustomerRecoveryReport(buildParams(submittedFilters, page));
+        const result = await adminApi.getCustomerRecoveryReport(buildParams(submittedFilters, 1, REPORT_CACHE_LIMIT));
         setRows(result.data.rows || []);
         setSummary(result.data.summary);
         setMetadata(result.data.metadata);
-        setPagination(result.data.pagination);
       } catch (error: any) {
         toast.error(error?.response?.data?.error || 'Cari geri kazanim raporu alinamadi');
         setRows([]);
@@ -338,7 +425,7 @@ export default function CustomerRecoveryReportPage() {
     };
 
     fetchReport();
-  }, [page, submittedFilters]);
+  }, [submittedFilters]);
 
   const updateFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilters((previous) => ({ ...previous, [key]: value }));
@@ -347,6 +434,7 @@ export default function CustomerRecoveryReportPage() {
   const runReport = () => {
     setPage(1);
     setSelectedCodes([]);
+    setClientSort({ sortBy: filters.sortBy, sortDirection: filters.sortDirection });
     setSubmittedFilters({ ...filters });
   };
 
@@ -385,7 +473,7 @@ export default function CustomerRecoveryReportPage() {
   };
 
   const toggleCurrentPage = () => {
-    const pageCodes = rows.map((row) => row.customerCode);
+    const pageCodes = visibleRows.map((row) => row.customerCode);
     const allSelected = pageCodes.length > 0 && pageCodes.every((code) => selectedCodes.includes(code));
     setSelectedCodes((previous) => {
       if (allSelected) return previous.filter((code) => !pageCodes.includes(code));
@@ -396,6 +484,7 @@ export default function CustomerRecoveryReportPage() {
   const openDetail = async (row: CustomerRecoveryRow) => {
     setDetailRow(row);
     setDetail(null);
+    setActionUpdateDrafts({});
     setActionForm({
       ...defaultActionForm,
       assignedToId: row.lastAction?.assignedTo?.id || row.assignedSalesRep?.id || '',
@@ -404,6 +493,7 @@ export default function CustomerRecoveryReportPage() {
     try {
       const result = await adminApi.getCustomerRecoveryDetail(row.customerCode, buildParams(submittedFilters, 1));
       setDetail(result.data);
+      setActionUpdateDrafts(buildActionUpdateDrafts(result.data.actions || []));
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Cari detaylari alinamadi');
     } finally {
@@ -415,11 +505,11 @@ export default function CustomerRecoveryReportPage() {
     if (customerCode && detailRow?.customerCode === customerCode) {
       const detailResult = await adminApi.getCustomerRecoveryDetail(customerCode, buildParams(submittedFilters, 1));
       setDetail(detailResult.data);
+      setActionUpdateDrafts(buildActionUpdateDrafts(detailResult.data.actions || []));
     }
-    const reportResult = await adminApi.getCustomerRecoveryReport(buildParams(submittedFilters, page));
+    const reportResult = await adminApi.getCustomerRecoveryReport(buildParams(submittedFilters, 1, REPORT_CACHE_LIMIT));
     setRows(reportResult.data.rows || []);
     setSummary(reportResult.data.summary);
-    setPagination(reportResult.data.pagination);
   };
 
   const saveAction = async () => {
@@ -455,16 +545,53 @@ export default function CustomerRecoveryReportPage() {
   };
 
   const completeAction = async (actionId: string, customerCode: string) => {
+    const draft = actionUpdateDrafts[actionId];
     try {
       await adminApi.updateCustomerRecoveryAction(actionId, {
         status: 'DONE',
-        outcome: 'Tamamlandi',
+        outcome: draft?.outcome.trim() || 'Tamamlandi',
+        followUpDate: draft?.followUpDate || null,
+        assignedToId: draft?.assignedToId || null,
         postSnapshot: detail?.row || detailRow,
       });
       toast.success('Aksiyon kapatildi');
       await refreshAfterAction(customerCode);
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Aksiyon kapatilamadi');
+    }
+  };
+
+  const updateActionDraft = (actionId: string, patch: Partial<ActionUpdateDraft>) => {
+    setActionUpdateDrafts((previous) => ({
+      ...previous,
+      [actionId]: {
+        status: previous[actionId]?.status || 'OPEN',
+        outcome: previous[actionId]?.outcome || '',
+        followUpDate: previous[actionId]?.followUpDate || '',
+        assignedToId: previous[actionId]?.assignedToId || '',
+        ...patch,
+      },
+    }));
+  };
+
+  const saveActionUpdate = async (action: CustomerRecoveryAction) => {
+    const draft = actionUpdateDrafts[action.id];
+    if (!draft) return;
+    setActionUpdateSavingId(action.id);
+    try {
+      await adminApi.updateCustomerRecoveryAction(action.id, {
+        status: draft.status,
+        outcome: draft.outcome.trim() || null,
+        followUpDate: draft.followUpDate || null,
+        assignedToId: draft.assignedToId || null,
+        postSnapshot: detail?.row || detailRow,
+      });
+      toast.success('Aksiyon durumu guncellendi');
+      await refreshAfterAction(action.customerCode);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Aksiyon guncellenemedi');
+    } finally {
+      setActionUpdateSavingId(null);
     }
   };
 
@@ -518,13 +645,7 @@ export default function CustomerRecoveryReportPage() {
   };
 
   const sort = (sortBy: SortBy) => {
-    setFilters((previous) => ({
-      ...previous,
-      sortBy,
-      sortDirection: previous.sortBy === sortBy && previous.sortDirection === 'desc' ? 'asc' : 'desc',
-    }));
-    setSubmittedFilters((previous) => ({
-      ...previous,
+    setClientSort((previous) => ({
       sortBy,
       sortDirection: previous.sortBy === sortBy && previous.sortDirection === 'desc' ? 'asc' : 'desc',
     }));
@@ -761,18 +882,18 @@ export default function CustomerRecoveryReportPage() {
                   <TableHead className="w-10">
                     <input
                       type="checkbox"
-                      checked={rows.length > 0 && rows.every((row) => selectedCodes.includes(row.customerCode))}
+                      checked={visibleRows.length > 0 && visibleRows.every((row) => selectedCodes.includes(row.customerCode))}
                       onChange={toggleCurrentPage}
                     />
                   </TableHead>
                   <TableHead>Cari</TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => sort('riskScore')}>Risk</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => sort('historicalAverage')}>Gecmis ort.</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => sort('recentAverage')}>Son ort.</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => sort('dropPercent')}>Dusme</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => sort('lostPotential')}>Kayip</TableHead>
+                  <SortableTableHead label="Risk" sortBy="riskScore" activeSort={clientSort} onSort={sort} />
+                  <SortableTableHead label="Gecmis ort." sortBy="historicalAverage" activeSort={clientSort} onSort={sort} align="right" />
+                  <SortableTableHead label="Son ort." sortBy="recentAverage" activeSort={clientSort} onSort={sort} align="right" />
+                  <SortableTableHead label="Dusme" sortBy="dropPercent" activeSort={clientSort} onSort={sort} align="right" />
+                  <SortableTableHead label="Kayip" sortBy="lostPotential" activeSort={clientSort} onSort={sort} align="right" />
                   <TableHead>Kayip kategori</TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => sort('lastSaleDate')}>Son alim</TableHead>
+                  <SortableTableHead label="Son alim" sortBy="lastSaleDate" activeSort={clientSort} onSort={sort} />
                   <TableHead>Onerilen aksiyon</TableHead>
                   <TableHead>Takip</TableHead>
                   <TableHead className="text-right">Detay</TableHead>
@@ -783,12 +904,12 @@ export default function CustomerRecoveryReportPage() {
                   <TableRow>
                     <TableCell colSpan={12} className="py-12 text-center text-gray-500">Rapor hesaplaniyor...</TableCell>
                   </TableRow>
-                ) : rows.length === 0 ? (
+                ) : displayRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={12} className="py-12 text-center text-gray-500">Filtrelere uygun cari bulunamadi.</TableCell>
                   </TableRow>
                 ) : (
-                  rows.map((row) => (
+                  visibleRows.map((row) => (
                     <TableRow key={row.customerCode} className={selectedCodes.includes(row.customerCode) ? 'bg-emerald-50/50' : undefined}>
                       <TableCell>
                         <input
@@ -853,12 +974,17 @@ export default function CustomerRecoveryReportPage() {
                           <div className="text-xs text-gray-500">
                             {row.openActionCount} acik, {row.overdueActionCount} geciken
                           </div>
+                          {row.lastAction?.note && (
+                            <div className="line-clamp-2 max-w-[180px] text-xs text-gray-500">
+                              Son not: {row.lastAction.note}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button size="sm" variant="outline" onClick={() => openDetail(row)}>
                           <Eye className="mr-1.5 h-4 w-4" />
-                          Ac
+                          Ac / Not
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -992,6 +1118,7 @@ export default function CustomerRecoveryReportPage() {
         onClose={() => {
           setDetailRow(null);
           setDetail(null);
+          setActionUpdateDrafts({});
         }}
         title={detailRow ? `${detailRow.customerCode} - ${detailRow.customerName || 'Cari detayi'}` : 'Cari detayi'}
         size="full"
@@ -1134,7 +1261,7 @@ export default function CustomerRecoveryReportPage() {
                   <CardDescription>Yapilan calisma sonraki raporlarda gelisme durumuyla birlikte gorunur</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                     <Select label="Tip" value={actionForm.actionType} onChange={(event) => setActionForm((previous) => ({ ...previous, actionType: event.target.value }))}>
                       <option value="CALL">Arama</option>
                       <option value="VISIT">Ziyaret</option>
@@ -1146,6 +1273,11 @@ export default function CustomerRecoveryReportPage() {
                       <option value="HIGH">Yuksek</option>
                       <option value="NORMAL">Normal</option>
                       <option value="LOW">Dusuk</option>
+                    </Select>
+                    <Select label="Durum" value={actionForm.status} onChange={(event) => setActionForm((previous) => ({ ...previous, status: event.target.value }))}>
+                      <option value="OPEN">Acik</option>
+                      <option value="DONE">Tamamlandi</option>
+                      <option value="CANCELLED">Iptal</option>
                     </Select>
                   </div>
                   <Select label="Atanan" value={actionForm.assignedToId} onChange={(event) => setActionForm((previous) => ({ ...previous, assignedToId: event.target.value }))}>
@@ -1169,6 +1301,15 @@ export default function CustomerRecoveryReportPage() {
                       className="min-h-[120px] w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Sonuc / durum notu</label>
+                    <textarea
+                      value={actionForm.outcome}
+                      onChange={(event) => setActionForm((previous) => ({ ...previous, outcome: event.target.value }))}
+                      placeholder="Aksiyon sonucu, musteri cevabi veya sonraki adim..."
+                      className="min-h-[80px] w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
                   <Button className="w-full" isLoading={actionSaving} onClick={saveAction}>
                     Aksiyonu kaydet
                   </Button>
@@ -1181,33 +1322,82 @@ export default function CustomerRecoveryReportPage() {
                   <CardDescription>Notlar ve takiplerin son durumu</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {(detail?.actions || []).map((action) => (
-                    <div key={action.id} className="rounded-2xl border border-gray-100 bg-white p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant={action.status === 'DONE' ? 'success' : 'warning'}>{action.status}</Badge>
-                            <Badge variant="outline">{action.actionType}</Badge>
-                            <Badge variant="outline">{action.priority}</Badge>
+                  {(detail?.actions || []).map((action) => {
+                    const draft = actionUpdateDrafts[action.id] || {
+                      status: action.status || 'OPEN',
+                      outcome: action.outcome || '',
+                      followUpDate: toDateInputValue(action.followUpDate),
+                      assignedToId: action.assignedTo?.id || '',
+                    };
+                    return (
+                      <div key={action.id} className="rounded-2xl border border-gray-100 bg-white p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant={action.status === 'DONE' ? 'success' : 'warning'}>{action.status}</Badge>
+                              <Badge variant="outline">{action.actionType}</Badge>
+                              <Badge variant="outline">{action.priority}</Badge>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {safeDate(action.createdAt)} / {action.author?.name || '-'}
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-500">
-                            {safeDate(action.createdAt)} / {action.author?.name || '-'}
-                          </div>
+                          {action.status !== 'DONE' && (
+                            <Button size="sm" variant="outline" onClick={() => completeAction(action.id, detailRow.customerCode)}>
+                              <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                              Kapat
+                            </Button>
+                          )}
                         </div>
-                        {action.status !== 'DONE' && (
-                          <Button size="sm" variant="outline" onClick={() => completeAction(action.id, detailRow.customerCode)}>
-                            <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                            Kapat
-                          </Button>
+                        <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">{action.note}</p>
+                        {action.outcome && (
+                          <p className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm leading-relaxed text-gray-700">
+                            <span className="font-semibold text-gray-900">Durum notu: </span>
+                            {action.outcome}
+                          </p>
                         )}
+                        <div className="mt-3 grid gap-2 text-xs text-gray-500 sm:grid-cols-2">
+                          <span>Takip: {safeDate(action.followUpDate)}</span>
+                          <span>Atanan: {action.assignedTo?.name || '-'}</span>
+                        </div>
+                        <div className="mt-4 space-y-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3">
+                          <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <MessageSquare className="h-4 w-4 text-emerald-600" />
+                            Aksiyon durumu / notu
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <Select label="Durum" value={draft.status} onChange={(event) => updateActionDraft(action.id, { status: event.target.value })}>
+                              <option value="OPEN">Acik</option>
+                              <option value="DONE">Tamamlandi</option>
+                              <option value="CANCELLED">Iptal</option>
+                            </Select>
+                            <div>
+                              <label className="mb-1 block text-sm font-medium text-gray-700">Takip tarihi</label>
+                              <Input type="date" value={draft.followUpDate} onChange={(event) => updateActionDraft(action.id, { followUpDate: event.target.value })} />
+                            </div>
+                            <Select label="Atanan" value={draft.assignedToId} onChange={(event) => updateActionDraft(action.id, { assignedToId: event.target.value })}>
+                              <option value="">Atama yok</option>
+                              {assignmentOptions.map((member) => (
+                                <option key={member.id} value={member.id}>
+                                  {member.name || member.email || member.id}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+                          <textarea
+                            value={draft.outcome}
+                            onChange={(event) => updateActionDraft(action.id, { outcome: event.target.value })}
+                            placeholder="Atanan kullanici bu aksiyonla ilgili son durumu veya gorusme notunu buraya yazar."
+                            className="min-h-[80px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                          <Button size="sm" variant="outline" isLoading={actionUpdateSavingId === action.id} onClick={() => saveActionUpdate(action)}>
+                            <Save className="mr-1.5 h-4 w-4" />
+                            Durumu kaydet
+                          </Button>
+                        </div>
                       </div>
-                      <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">{action.note}</p>
-                      <div className="mt-3 grid gap-2 text-xs text-gray-500 sm:grid-cols-2">
-                        <span>Takip: {safeDate(action.followUpDate)}</span>
-                        <span>Atanan: {action.assignedTo?.name || '-'}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {(!detail?.actions || detail.actions.length === 0) && (
                     <div className="rounded-2xl border border-dashed border-gray-200 p-5 text-sm text-gray-500">
                       Henuz not veya aksiyon yok.
@@ -1248,6 +1438,31 @@ function InsightBlock({ label, value, helper }: { label: string; value: string; 
       <p className="mt-1 line-clamp-2 text-sm font-semibold text-gray-900">{value}</p>
       <p className="mt-2 line-clamp-2 text-xs text-gray-500">{helper}</p>
     </div>
+  );
+}
+
+function SortableTableHead({
+  label,
+  sortBy,
+  activeSort,
+  onSort,
+  align = 'left',
+}: {
+  label: string;
+  sortBy: SortBy;
+  activeSort: { sortBy: SortBy; sortDirection: SortDirection };
+  onSort: (sortBy: SortBy) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = activeSort.sortBy === sortBy;
+  return (
+    <TableHead className={cn('cursor-pointer select-none', align === 'right' && 'text-right')} onClick={() => onSort(sortBy)}>
+      <span className={cn('inline-flex items-center gap-1', align === 'right' && 'justify-end')}>
+        {label}
+        <ArrowUpDown className={cn('h-3.5 w-3.5', active ? 'text-emerald-600' : 'text-gray-400')} />
+        {active && <span className="text-[10px] text-emerald-700">{activeSort.sortDirection === 'asc' ? 'Artan' : 'Azalan'}</span>}
+      </span>
+    </TableHead>
   );
 }
 

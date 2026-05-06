@@ -3977,7 +3977,7 @@ export class AdminController {
    */
   async updateCustomerRecoveryAction(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await customerRecoveryService.updateAction(req.params.id, req.body);
+      const data = await customerRecoveryService.updateAction(req.params.id, req.body, req.user?.userId);
       res.json({
         success: true,
         data,
