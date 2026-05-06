@@ -157,6 +157,18 @@ const reports: ReportCard[] = [
     permission: 'reports:complement-missing',
   },
   {
+    id: 'customer-recovery',
+    title: 'Cari Geri Kazanim',
+    description: 'Hareketi duran veya ortalamasinin altina dusen carileri not, takip ve gelisme durumuyla yonetin',
+    icon: <AlertTriangle className="h-5 w-5" />,
+    href: '/reports/customer-recovery',
+    category: 'customer',
+    badge: 'Yeni',
+    tags: ['Kayip', 'Takip', 'Geri Kazanim'],
+    highImpact: true,
+    permission: 'reports:customer-recovery',
+  },
+  {
     id: 'category-opportunity',
     title: 'Kategori Firsat Onerileri',
     description: 'Cariye hic alinmamis kategori icin davranis tabanli urun onerileri uretir',

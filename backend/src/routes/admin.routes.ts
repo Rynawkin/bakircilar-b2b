@@ -454,7 +454,7 @@ router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update
 router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
 router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
 router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);
-router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:ucarer-depo', 'reports:ucarer-minmax']), adminController.getReportCategories);
+router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:customer-recovery', 'reports:ucarer-depo', 'reports:ucarer-minmax']), adminController.getReportCategories);
 router.get('/reports/top-products', requirePermission('reports:top-products'), adminController.getTopProducts);
 router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);
 router.get('/reports/product-customers/:productCode', requirePermission('reports:top-customers'), adminController.getProductCustomers);
@@ -465,6 +465,13 @@ router.get('/reports/category-churn', requirePermission('reports:complement-miss
 router.get('/reports/category-churn/export', requirePermission('reports:complement-missing'), adminController.exportCategoryChurnReport);
 router.get('/reports/category-churn/details', requirePermission('reports:complement-missing'), adminController.getCategoryChurnDetail);
 router.get('/reports/category-opportunity', requirePermission('reports:complement-missing'), adminController.getCategoryOpportunityReport);
+router.get('/reports/customer-recovery', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryReport);
+router.get('/reports/customer-recovery/export', requirePermission('reports:customer-recovery'), adminController.exportCustomerRecoveryReport);
+router.post('/reports/customer-recovery/bulk-assign', requirePermission('reports:customer-recovery'), adminController.bulkAssignCustomerRecovery);
+router.patch('/reports/customer-recovery/actions/:id', requirePermission('reports:customer-recovery'), adminController.updateCustomerRecoveryAction);
+router.get('/reports/customer-recovery/:customerCode/detail', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryDetail);
+router.get('/reports/customer-recovery/:customerCode/actions', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryActions);
+router.post('/reports/customer-recovery/:customerCode/actions', requirePermission('reports:customer-recovery'), adminController.createCustomerRecoveryAction);
 router.get('/reports/customer-activity', requirePermission('reports:customer-activity'), adminController.getCustomerActivityReport);
 router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);

@@ -1,0 +1,931 @@
+import * as XLSX from 'xlsx';
+import { OrderStatus, QuoteStatus, UserRole } from '@prisma/client';
+import { prisma } from '../utils/prisma';
+import mikroService from './mikroFactory.service';
+import exclusionService from './exclusion.service';
+
+type RiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
+type SortBy = 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
+type SortDirection = 'asc' | 'desc';
+
+interface ReportOptions {
+  recentMonths?: number;
+  baselineMonths?: number;
+  minDropPercent?: number;
+  minHistoricalActiveMonths?: number;
+  minHistoricalAmount?: number;
+  minMeaningfulMonthlyAmount?: number;
+  includeCurrentMonth?: boolean;
+  customerCode?: string;
+  search?: string;
+  sectorCode?: string;
+  assignedToId?: string;
+  riskTypes?: string;
+  onlyWithOpenAction?: boolean;
+  onlyDueFollowUp?: boolean;
+  page?: number;
+  limit?: number;
+  sortBy?: SortBy;
+  sortDirection?: SortDirection;
+}
+
+interface RequestContext {
+  userId?: string;
+  role?: string;
+  assignedSectorCodes?: string[];
+}
+
+interface MonthlyBucket {
+  amount: number;
+  quantity: number;
+  documentCount: number;
+  lastSaleDate: string | null;
+}
+
+interface RecoveryRow {
+  customerCode: string;
+  customerName: string | null;
+  sectorCode: string | null;
+  city: string | null;
+  district: string | null;
+  phone: string | null;
+  balance: number;
+  assignedSalesRep: { id: string; name: string; email?: string | null } | null;
+  riskType: RiskType;
+  riskLabels: string[];
+  riskScore: number;
+  confidence: 'LOW' | 'MEDIUM' | 'HIGH';
+  lastSaleDate: string | null;
+  daysSinceLastSale: number | null;
+  historicalActiveMonths: number;
+  historicalDocumentCount: number;
+  historicalAmount: number;
+  historicalAverage: number;
+  historicalMedian: number;
+  recentActiveMonths: number;
+  recentDocumentCount: number;
+  recentAmount: number;
+  recentAverage: number;
+  dropPercent: number;
+  seasonalAverage: number | null;
+  seasonalDropPercent: number | null;
+  lostPotential: number;
+  openQuoteCount: number;
+  openOrderCount: number;
+  lastAction: any | null;
+  openActionCount: number;
+  overdueActionCount: number;
+  nextFollowUpDate: string | null;
+  developmentStatus: 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
+  postActionAmount: number;
+  postActionDocumentCount: number;
+  monthlySales: Array<{ month: string; amount: number; documentCount: number }>;
+}
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const toNumber = (value: any, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const normalizeCode = (value?: string | null) => String(value || '').trim().toUpperCase();
+const escapeSqlLiteral = (value: string) => String(value || '').replace(/'/g, "''");
+const formatDateKey = (date: Date) => date.toISOString().slice(0, 10);
+const formatDateCompact = (date: Date) => formatDateKey(date).replace(/-/g, '');
+const formatMonthKey = (date: Date) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+
+const startOfMonthUtc = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+const endOfMonthUtc = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+const addMonthsUtc = (date: Date, months: number) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+
+const compactDateToDisplay = (value: any) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return formatDateKey(date);
+};
+
+const median = (values: number[]) => {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) / 2;
+};
+
+const parseBoolean = (value?: boolean) => Boolean(value);
+
+class CustomerRecoveryService {
+  private normalizeOptions(options: ReportOptions) {
+    const recentMonths = clamp(Math.floor(toNumber(options.recentMonths, 3)), 1, 12);
+    const baselineMonths = clamp(Math.floor(toNumber(options.baselineMonths, 18)), 3, 48);
+    const minDropPercent = clamp(toNumber(options.minDropPercent, 50), 1, 99);
+    const minHistoricalActiveMonths = clamp(Math.floor(toNumber(options.minHistoricalActiveMonths, 2)), 1, 24);
+    const minHistoricalAmount = Math.max(0, toNumber(options.minHistoricalAmount, 1000));
+    const minMeaningfulMonthlyAmount = Math.max(0, toNumber(options.minMeaningfulMonthlyAmount, 1000));
+    const page = Math.max(1, Math.floor(toNumber(options.page, 1)));
+    const limit = clamp(Math.floor(toNumber(options.limit, 50)), 1, 5000);
+    const sortBy: SortBy = options.sortBy || 'riskScore';
+    const sortDirection: SortDirection = options.sortDirection === 'asc' ? 'asc' : 'desc';
+
+    const now = new Date();
+    const reportEnd = parseBoolean(options.includeCurrentMonth)
+      ? now
+      : endOfMonthUtc(addMonthsUtc(startOfMonthUtc(now), -1));
+    const reportEndMonthStart = startOfMonthUtc(reportEnd);
+    const recentStart = addMonthsUtc(reportEndMonthStart, -(recentMonths - 1));
+    const baselineStart = addMonthsUtc(recentStart, -baselineMonths);
+    const queryEnd = parseBoolean(options.includeCurrentMonth) ? now : endOfMonthUtc(reportEndMonthStart);
+
+    const baselineMonthKeys = Array.from({ length: baselineMonths }, (_, index) =>
+      formatMonthKey(addMonthsUtc(baselineStart, index))
+    );
+    const recentMonthKeys = Array.from({ length: recentMonths }, (_, index) =>
+      formatMonthKey(addMonthsUtc(recentStart, index))
+    );
+    const allMonthKeys = [...baselineMonthKeys, ...recentMonthKeys];
+
+    return {
+      recentMonths,
+      baselineMonths,
+      minDropPercent,
+      minHistoricalActiveMonths,
+      minHistoricalAmount,
+      minMeaningfulMonthlyAmount,
+      page,
+      limit,
+      sortBy,
+      sortDirection,
+      reportEnd,
+      queryEnd,
+      recentStart,
+      baselineStart,
+      baselineMonthKeys,
+      recentMonthKeys,
+      allMonthKeys,
+      customerCode: normalizeCode(options.customerCode),
+      search: String(options.search || '').trim(),
+      sectorCode: normalizeCode(options.sectorCode),
+      assignedToId: String(options.assignedToId || '').trim(),
+      riskTypeSet: new Set(
+        String(options.riskTypes || '')
+          .split(',')
+          .map((item) => item.trim().toUpperCase())
+          .filter(Boolean)
+      ),
+      onlyWithOpenAction: Boolean(options.onlyWithOpenAction),
+      onlyDueFollowUp: Boolean(options.onlyDueFollowUp),
+      includeCurrentMonth: Boolean(options.includeCurrentMonth),
+    };
+  }
+
+  private emptyBucket(): MonthlyBucket {
+    return { amount: 0, quantity: 0, documentCount: 0, lastSaleDate: null };
+  }
+
+  private buildBaseWhere(extra: string[], context?: RequestContext) {
+    const conditions = [
+      'sth.sth_cins = 0',
+      'sth.sth_tip = 1',
+      'sth.sth_evraktip IN (1, 4)',
+      '(sth.sth_iptal = 0 OR sth.sth_iptal IS NULL)',
+      'sth.sth_stok_kod IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
+      'sth.sth_cari_kodu IS NOT NULL',
+      "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+    ];
+
+    const assignedSectorCodes = (context?.role === 'SALES_REP' ? context?.assignedSectorCodes || [] : [])
+      .map(normalizeCode)
+      .filter(Boolean);
+    if (context?.role === 'SALES_REP') {
+      if (assignedSectorCodes.length === 0) {
+        conditions.push('1 = 0');
+      } else {
+        conditions.push(`RTRIM(c.cari_sektor_kodu) IN (${assignedSectorCodes.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ')})`);
+      }
+    }
+
+    return [...conditions, ...extra];
+  }
+
+  private async fetchMonthlySales(normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>, context?: RequestContext) {
+    const connect = (mikroService as any).connect;
+    if (typeof connect === 'function') {
+      await connect.call(mikroService);
+    }
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    const extra = [
+      `sth.sth_tarih >= '${formatDateCompact(normalized.baselineStart)}'`,
+      `sth.sth_tarih <= '${formatDateCompact(normalized.queryEnd)}'`,
+      ...exclusionConditions,
+    ];
+    if (normalized.customerCode) {
+      extra.push(`RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalized.customerCode)}'`);
+    }
+    if (normalized.sectorCode) {
+      extra.push(`RTRIM(c.cari_sektor_kodu) = '${escapeSqlLiteral(normalized.sectorCode)}'`);
+    }
+
+    const whereClause = this.buildBaseWhere(extra, context).join(' AND ');
+    const query = `
+      SELECT
+        RTRIM(sth.sth_cari_kodu) as customerCode,
+        MAX(NULLIF(LTRIM(RTRIM(ISNULL(c.cari_unvan1, '') + ' ' + ISNULL(c.cari_unvan2, ''))), '')) as customerName,
+        MAX(RTRIM(c.cari_sektor_kodu)) as sectorCode,
+        CONVERT(char(7), sth.sth_tarih, 120) as monthKey,
+        SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as amount,
+        SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as quantity,
+        COUNT(DISTINCT RTRIM(sth.sth_evrakno_seri) + '-' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))) as documentCount,
+        MAX(sth.sth_tarih) as lastSaleDate
+      FROM STOK_HAREKETLERI sth
+      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+      WHERE ${whereClause}
+      GROUP BY sth.sth_cari_kodu, CONVERT(char(7), sth.sth_tarih, 120)
+    `;
+
+    return mikroService.executeQuery(query);
+  }
+
+  private async attachLocalMetadata(rows: RecoveryRow[]) {
+    const customerCodes = rows.map((row) => normalizeCode(row.customerCode)).filter(Boolean);
+    if (customerCodes.length === 0) return;
+
+    const [customers, salesReps] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: 'CUSTOMER', mikroCariCode: { in: customerCodes } },
+        select: {
+          id: true,
+          mikroCariCode: true,
+          displayName: true,
+          mikroName: true,
+          name: true,
+          city: true,
+          district: true,
+          phone: true,
+          balance: true,
+          sectorCode: true,
+        },
+      }),
+      prisma.user.findMany({
+        where: { role: { in: [UserRole.SALES_REP, UserRole.MANAGER, UserRole.ADMIN, UserRole.HEAD_ADMIN] } },
+        select: { id: true, name: true, email: true, assignedSectorCodes: true },
+      }),
+    ]);
+
+    const customerByCode = new Map(customers.map((customer) => [normalizeCode(customer.mikroCariCode), customer]));
+    const salesRepBySector = new Map<string, { id: string; name: string; email?: string | null }>();
+    salesReps.forEach((rep) => {
+      (rep.assignedSectorCodes || []).forEach((sector) => {
+        const code = normalizeCode(sector);
+        if (code && !salesRepBySector.has(code)) {
+          salesRepBySector.set(code, { id: rep.id, name: rep.name, email: rep.email });
+        }
+      });
+    });
+
+    const customerIds = customers.map((customer) => customer.id);
+    const [quoteGroups, orderGroups] = await Promise.all([
+      prisma.quote.groupBy({
+        by: ['customerId'],
+        where: {
+          customerId: { in: customerIds },
+          status: { in: [QuoteStatus.PENDING_APPROVAL, QuoteStatus.SENT_TO_MIKRO, QuoteStatus.CUSTOMER_ACCEPTED] },
+        },
+        _count: { _all: true },
+      }),
+      prisma.order.groupBy({
+        by: ['userId'],
+        where: {
+          userId: { in: customerIds },
+          status: { in: [OrderStatus.PENDING, OrderStatus.APPROVED] },
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    const quoteCountByCustomer = new Map(quoteGroups.map((row) => [row.customerId, row._count._all]));
+    const orderCountByCustomer = new Map(orderGroups.map((row) => [row.userId, row._count._all]));
+
+    rows.forEach((row) => {
+      const customer = customerByCode.get(normalizeCode(row.customerCode));
+      if (customer) {
+        row.customerName = customer.displayName || customer.mikroName || customer.name || row.customerName;
+        row.city = customer.city || null;
+        row.district = customer.district || null;
+        row.phone = customer.phone || null;
+        row.balance = toNumber(customer.balance);
+        row.sectorCode = customer.sectorCode || row.sectorCode || null;
+        row.openQuoteCount = quoteCountByCustomer.get(customer.id) || 0;
+        row.openOrderCount = orderCountByCustomer.get(customer.id) || 0;
+      }
+      row.assignedSalesRep = row.sectorCode ? salesRepBySector.get(normalizeCode(row.sectorCode)) || null : null;
+    });
+  }
+
+  private async attachActionMetadata(rows: RecoveryRow[], normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>) {
+    const customerCodes = rows.map((row) => normalizeCode(row.customerCode)).filter(Boolean);
+    if (customerCodes.length === 0) return;
+
+    const actions = await prisma.customerRecoveryAction.findMany({
+      where: { customerCode: { in: customerCodes } },
+      include: {
+        author: { select: { id: true, name: true, email: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(customerCodes.length * 20, 5000),
+    });
+
+    const actionsByCustomer = new Map<string, typeof actions>();
+    actions.forEach((action) => {
+      const code = normalizeCode(action.customerCode);
+      const list = actionsByCustomer.get(code) || [];
+      list.push(action);
+      actionsByCustomer.set(code, list);
+    });
+
+    const now = new Date();
+    rows.forEach((row) => {
+      const list = actionsByCustomer.get(normalizeCode(row.customerCode)) || [];
+      const openActions = list.filter((action) => action.status === 'OPEN');
+      const overdueActions = openActions.filter((action) => action.followUpDate && action.followUpDate < now);
+      const lastAction = list[0] || null;
+      row.lastAction = lastAction
+        ? {
+            id: lastAction.id,
+            actionType: lastAction.actionType,
+            note: lastAction.note,
+            status: lastAction.status,
+            priority: lastAction.priority,
+            outcome: lastAction.outcome,
+            followUpDate: lastAction.followUpDate ? lastAction.followUpDate.toISOString() : null,
+            completedAt: lastAction.completedAt ? lastAction.completedAt.toISOString() : null,
+            createdAt: lastAction.createdAt.toISOString(),
+            author: lastAction.author,
+            assignedTo: lastAction.assignedTo,
+          }
+        : null;
+      row.openActionCount = openActions.length;
+      row.overdueActionCount = overdueActions.length;
+      row.nextFollowUpDate = openActions
+        .map((action) => action.followUpDate)
+        .filter((date): date is Date => Boolean(date))
+        .sort((a, b) => a.getTime() - b.getTime())[0]?.toISOString() || null;
+
+      if (!lastAction) {
+        row.developmentStatus = 'NO_ACTION';
+        return;
+      }
+
+      const postActionMonths = row.monthlySales.filter((month) => month.month >= lastAction.createdAt.toISOString().slice(0, 7));
+      row.postActionAmount = postActionMonths.reduce((sum, month) => sum + month.amount, 0);
+      row.postActionDocumentCount = postActionMonths.reduce((sum, month) => sum + month.documentCount, 0);
+      if (row.postActionAmount > 0 && row.recentAverage >= row.historicalAverage * 0.8) {
+        row.developmentStatus = 'RECOVERED';
+      } else if (row.postActionAmount > 0 || row.dropPercent < normalized.minDropPercent) {
+        row.developmentStatus = 'IMPROVED';
+      } else if (row.dropPercent >= 90 || row.riskType === 'NO_RECENT_SALES') {
+        row.developmentStatus = 'WORSENED';
+      } else {
+        row.developmentStatus = 'UNCHANGED';
+      }
+    });
+  }
+
+  private buildRows(monthlyRows: any[], normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>): RecoveryRow[] {
+    const map = new Map<string, {
+      customerCode: string;
+      customerName: string | null;
+      sectorCode: string | null;
+      months: Map<string, MonthlyBucket>;
+      lastSaleDate: string | null;
+    }>();
+
+    monthlyRows.forEach((row) => {
+      const customerCode = normalizeCode(row.customerCode);
+      const monthKey = String(row.monthKey || '').slice(0, 7);
+      if (!customerCode || !monthKey) return;
+      const entry = map.get(customerCode) || {
+        customerCode,
+        customerName: row.customerName || null,
+        sectorCode: normalizeCode(row.sectorCode) || null,
+        months: new Map<string, MonthlyBucket>(),
+        lastSaleDate: null,
+      };
+      const bucket = entry.months.get(monthKey) || this.emptyBucket();
+      bucket.amount += toNumber(row.amount);
+      bucket.quantity += toNumber(row.quantity);
+      bucket.documentCount += Math.floor(toNumber(row.documentCount));
+      const lastDate = compactDateToDisplay(row.lastSaleDate);
+      if (lastDate && (!bucket.lastSaleDate || lastDate > bucket.lastSaleDate)) bucket.lastSaleDate = lastDate;
+      if (lastDate && (!entry.lastSaleDate || lastDate > entry.lastSaleDate)) entry.lastSaleDate = lastDate;
+      entry.customerName = entry.customerName || row.customerName || null;
+      entry.sectorCode = entry.sectorCode || normalizeCode(row.sectorCode) || null;
+      entry.months.set(monthKey, bucket);
+      map.set(customerCode, entry);
+    });
+
+    const today = new Date();
+    const rows: RecoveryRow[] = [];
+    map.forEach((entry) => {
+      const historicalBuckets = normalized.baselineMonthKeys.map((month) => entry.months.get(month) || this.emptyBucket());
+      const recentBuckets = normalized.recentMonthKeys.map((month) => entry.months.get(month) || this.emptyBucket());
+      const meaningfulHistorical = historicalBuckets.filter((bucket) => bucket.amount >= normalized.minMeaningfulMonthlyAmount);
+      const historicalAmount = historicalBuckets.reduce((sum, bucket) => sum + bucket.amount, 0);
+      const historicalDocumentCount = historicalBuckets.reduce((sum, bucket) => sum + bucket.documentCount, 0);
+      const historicalActiveMonths = meaningfulHistorical.length;
+
+      if (historicalActiveMonths < normalized.minHistoricalActiveMonths) return;
+      if (historicalAmount < normalized.minHistoricalAmount) return;
+
+      const historicalAverage = meaningfulHistorical.reduce((sum, bucket) => sum + bucket.amount, 0) / historicalActiveMonths;
+      const historicalMedian = median(meaningfulHistorical.map((bucket) => bucket.amount));
+      const recentAmount = recentBuckets.reduce((sum, bucket) => sum + bucket.amount, 0);
+      const recentDocumentCount = recentBuckets.reduce((sum, bucket) => sum + bucket.documentCount, 0);
+      const recentAverage = recentAmount / normalized.recentMonths;
+      const recentActiveMonths = recentBuckets.filter((bucket) => bucket.amount >= normalized.minMeaningfulMonthlyAmount).length;
+      const dropPercent = historicalAverage > 0
+        ? clamp(((historicalAverage - recentAverage) / historicalAverage) * 100, 0, 100)
+        : 0;
+
+      const samePeriodLastYear = normalized.recentMonthKeys.map((month) => {
+        const [year, monthPart] = month.split('-');
+        return `${Number(year) - 1}-${monthPart}`;
+      });
+      const seasonalBuckets = samePeriodLastYear.map((month) => entry.months.get(month)).filter(Boolean) as MonthlyBucket[];
+      const seasonalAverage = seasonalBuckets.length > 0
+        ? seasonalBuckets.reduce((sum, bucket) => sum + bucket.amount, 0) / normalized.recentMonths
+        : null;
+      const seasonalDropPercent = seasonalAverage && seasonalAverage > 0
+        ? clamp(((seasonalAverage - recentAverage) / seasonalAverage) * 100, 0, 100)
+        : null;
+
+      const labels: string[] = [];
+      let riskType: RiskType = 'WATCH';
+      if (recentDocumentCount === 0 || recentAmount <= 0) {
+        riskType = 'NO_RECENT_SALES';
+        labels.push('Son donemde satis yok');
+      } else if (recentActiveMonths === 0 || recentAverage < normalized.minMeaningfulMonthlyAmount) {
+        riskType = 'INSIGNIFICANT_ACTIVITY';
+        labels.push('Anlamsiz dusuk hareket');
+      } else if (dropPercent >= normalized.minDropPercent) {
+        riskType = 'DECLINING';
+        labels.push('Ortalamanin altinda');
+      }
+      if (seasonalDropPercent !== null && seasonalDropPercent >= normalized.minDropPercent) {
+        labels.push('Gecen yilin ayni donemine gore dusuk');
+      }
+      if (historicalActiveMonths <= 2) labels.push('Dusuk guven: az aktif ay');
+
+      if (riskType === 'WATCH' && (!seasonalDropPercent || seasonalDropPercent < normalized.minDropPercent)) {
+        return;
+      }
+
+      const expectedRecentAmount = historicalAverage * normalized.recentMonths;
+      const lostPotential = Math.max(0, expectedRecentAmount - recentAmount);
+      const daysSinceLastSale = entry.lastSaleDate
+        ? Math.max(0, Math.floor((today.getTime() - new Date(entry.lastSaleDate).getTime()) / 86400000))
+        : null;
+      const confidence = historicalActiveMonths >= 5 && historicalDocumentCount >= 5
+        ? 'HIGH'
+        : historicalActiveMonths >= 3
+          ? 'MEDIUM'
+          : 'LOW';
+      const riskScore = clamp(
+        Math.round(
+          dropPercent * 0.5 +
+          (riskType === 'NO_RECENT_SALES' ? 25 : riskType === 'INSIGNIFICANT_ACTIVITY' ? 18 : 8) +
+          clamp(lostPotential / 5000, 0, 20) +
+          (confidence === 'HIGH' ? 5 : 0)
+        ),
+        0,
+        100
+      );
+
+      rows.push({
+        customerCode: entry.customerCode,
+        customerName: entry.customerName,
+        sectorCode: entry.sectorCode,
+        city: null,
+        district: null,
+        phone: null,
+        balance: 0,
+        assignedSalesRep: null,
+        riskType,
+        riskLabels: labels,
+        riskScore,
+        confidence,
+        lastSaleDate: entry.lastSaleDate,
+        daysSinceLastSale,
+        historicalActiveMonths,
+        historicalDocumentCount,
+        historicalAmount,
+        historicalAverage,
+        historicalMedian,
+        recentActiveMonths,
+        recentDocumentCount,
+        recentAmount,
+        recentAverage,
+        dropPercent,
+        seasonalAverage,
+        seasonalDropPercent,
+        lostPotential,
+        openQuoteCount: 0,
+        openOrderCount: 0,
+        lastAction: null,
+        openActionCount: 0,
+        overdueActionCount: 0,
+        nextFollowUpDate: null,
+        developmentStatus: 'NO_ACTION',
+        postActionAmount: 0,
+        postActionDocumentCount: 0,
+        monthlySales: normalized.allMonthKeys.map((month) => ({
+          month,
+          amount: entry.months.get(month)?.amount || 0,
+          documentCount: entry.months.get(month)?.documentCount || 0,
+        })),
+      });
+    });
+
+    return rows;
+  }
+
+  private filterAndSortRows(rows: RecoveryRow[], normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>) {
+    let result = rows;
+    if (normalized.search) {
+      const search = normalized.search.toLocaleLowerCase('tr-TR');
+      result = result.filter((row) =>
+        `${row.customerCode} ${row.customerName || ''} ${row.sectorCode || ''} ${row.city || ''} ${row.district || ''}`
+          .toLocaleLowerCase('tr-TR')
+          .includes(search)
+      );
+    }
+    if (normalized.assignedToId) {
+      result = result.filter((row) => row.lastAction?.assignedTo?.id === normalized.assignedToId || row.assignedSalesRep?.id === normalized.assignedToId);
+    }
+    if (normalized.riskTypeSet.size > 0) {
+      result = result.filter((row) => normalized.riskTypeSet.has(row.riskType));
+    }
+    if (normalized.onlyWithOpenAction) {
+      result = result.filter((row) => row.openActionCount > 0);
+    }
+    if (normalized.onlyDueFollowUp) {
+      result = result.filter((row) => row.overdueActionCount > 0);
+    }
+
+    const direction = normalized.sortDirection === 'asc' ? 1 : -1;
+    result = [...result].sort((a, b) => {
+      let compare = 0;
+      switch (normalized.sortBy) {
+        case 'lostPotential':
+          compare = a.lostPotential - b.lostPotential;
+          break;
+        case 'dropPercent':
+          compare = a.dropPercent - b.dropPercent;
+          break;
+        case 'lastSaleDate':
+          compare = String(a.lastSaleDate || '').localeCompare(String(b.lastSaleDate || ''));
+          break;
+        case 'historicalAverage':
+          compare = a.historicalAverage - b.historicalAverage;
+          break;
+        case 'recentAverage':
+          compare = a.recentAverage - b.recentAverage;
+          break;
+        case 'customerName':
+          compare = String(a.customerName || '').localeCompare(String(b.customerName || ''), 'tr');
+          break;
+        case 'riskScore':
+        default:
+          compare = a.riskScore - b.riskScore;
+          break;
+      }
+      if (compare !== 0) return compare * direction;
+      return b.lostPotential - a.lostPotential;
+    });
+
+    return result;
+  }
+
+  private buildSummary(rows: RecoveryRow[]) {
+    const totalLostPotential = rows.reduce((sum, row) => sum + row.lostPotential, 0);
+    const countsByRisk = rows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.riskType] = (acc[row.riskType] || 0) + 1;
+      return acc;
+    }, {});
+    const recoveredCount = rows.filter((row) => row.developmentStatus === 'RECOVERED').length;
+    const dueFollowUpCount = rows.filter((row) => row.overdueActionCount > 0).length;
+    const noActionCount = rows.filter((row) => row.openActionCount === 0 && !row.lastAction).length;
+
+    const teamMap = new Map<string, {
+      userId: string;
+      name: string;
+      customerCount: number;
+      openActionCount: number;
+      overdueActionCount: number;
+      recoveredCount: number;
+      lostPotential: number;
+    }>();
+    rows.forEach((row) => {
+      const owner = row.lastAction?.assignedTo || row.assignedSalesRep;
+      if (!owner?.id) return;
+      const current = teamMap.get(owner.id) || {
+        userId: owner.id,
+        name: owner.name,
+        customerCount: 0,
+        openActionCount: 0,
+        overdueActionCount: 0,
+        recoveredCount: 0,
+        lostPotential: 0,
+      };
+      current.customerCount += 1;
+      current.openActionCount += row.openActionCount;
+      current.overdueActionCount += row.overdueActionCount;
+      current.recoveredCount += row.developmentStatus === 'RECOVERED' ? 1 : 0;
+      current.lostPotential += row.lostPotential;
+      teamMap.set(owner.id, current);
+    });
+
+    return {
+      totalCustomers: rows.length,
+      countsByRisk,
+      totalLostPotential,
+      recoveredCount,
+      dueFollowUpCount,
+      noActionCount,
+      teamSummary: Array.from(teamMap.values()).sort((a, b) => b.lostPotential - a.lostPotential),
+    };
+  }
+
+  async getReport(options: ReportOptions = {}, context?: RequestContext) {
+    const normalized = this.normalizeOptions(options);
+    const monthlyRows = await this.fetchMonthlySales(normalized, context);
+    let rows = this.buildRows(monthlyRows, normalized);
+    await this.attachLocalMetadata(rows);
+    await this.attachActionMetadata(rows, normalized);
+    rows = this.filterAndSortRows(rows, normalized);
+
+    const totalRecords = rows.length;
+    const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / normalized.limit) : 0;
+    const offset = (normalized.page - 1) * normalized.limit;
+    const paginatedRows = rows.slice(offset, offset + normalized.limit);
+
+    return {
+      rows: paginatedRows,
+      summary: this.buildSummary(rows),
+      pagination: {
+        page: normalized.page,
+        limit: normalized.limit,
+        totalPages,
+        totalRecords,
+      },
+      metadata: {
+        recentMonths: normalized.recentMonths,
+        baselineMonths: normalized.baselineMonths,
+        minDropPercent: normalized.minDropPercent,
+        minHistoricalActiveMonths: normalized.minHistoricalActiveMonths,
+        minHistoricalAmount: normalized.minHistoricalAmount,
+        minMeaningfulMonthlyAmount: normalized.minMeaningfulMonthlyAmount,
+        includeCurrentMonth: normalized.includeCurrentMonth,
+        baselineStartDate: formatDateKey(normalized.baselineStart),
+        recentStartDate: formatDateKey(normalized.recentStart),
+        reportEndDate: formatDateKey(normalized.queryEnd),
+        baselineMonthKeys: normalized.baselineMonthKeys,
+        recentMonthKeys: normalized.recentMonthKeys,
+      },
+    };
+  }
+
+  async getCustomerActions(customerCode: string) {
+    const code = normalizeCode(customerCode);
+    const actions = await prisma.customerRecoveryAction.findMany({
+      where: { customerCode: code },
+      include: {
+        author: { select: { id: true, name: true, email: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return { actions };
+  }
+
+  async createAction(customerCode: string, input: any, authorId?: string) {
+    const code = normalizeCode(customerCode);
+    if (!code) throw new Error('Customer code is required');
+    const note = String(input?.note || '').trim();
+    if (!note) throw new Error('Note is required');
+    const followUpDate = input?.followUpDate ? new Date(input.followUpDate) : null;
+    const action = await prisma.customerRecoveryAction.create({
+      data: {
+        customerCode: code,
+        customerName: String(input?.customerName || '').trim() || null,
+        actionType: String(input?.actionType || 'NOTE').trim().toUpperCase().slice(0, 30) || 'NOTE',
+        note,
+        status: String(input?.status || 'OPEN').trim().toUpperCase().slice(0, 30) || 'OPEN',
+        priority: String(input?.priority || 'NORMAL').trim().toUpperCase().slice(0, 30) || 'NORMAL',
+        outcome: String(input?.outcome || '').trim() || null,
+        followUpDate: followUpDate && !Number.isNaN(followUpDate.getTime()) ? followUpDate : null,
+        authorId: authorId || undefined,
+        assignedToId: input?.assignedToId || undefined,
+        snapshot: input?.snapshot || undefined,
+      },
+      include: {
+        author: { select: { id: true, name: true, email: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+    });
+    return { action };
+  }
+
+  async updateAction(actionId: string, input: any) {
+    const existing = await prisma.customerRecoveryAction.findUnique({ where: { id: actionId } });
+    if (!existing) throw new Error('Action not found');
+    const status = input?.status !== undefined ? String(input.status || '').trim().toUpperCase() : undefined;
+    const followUpDate = input?.followUpDate !== undefined && input.followUpDate
+      ? new Date(input.followUpDate)
+      : input?.followUpDate === null || input?.followUpDate === ''
+        ? null
+        : undefined;
+    const action = await prisma.customerRecoveryAction.update({
+      where: { id: actionId },
+      data: {
+        ...(input?.actionType !== undefined ? { actionType: String(input.actionType || 'NOTE').trim().toUpperCase().slice(0, 30) } : {}),
+        ...(input?.note !== undefined ? { note: String(input.note || '').trim() } : {}),
+        ...(status !== undefined ? { status } : {}),
+        ...(input?.priority !== undefined ? { priority: String(input.priority || 'NORMAL').trim().toUpperCase().slice(0, 30) } : {}),
+        ...(input?.outcome !== undefined ? { outcome: String(input.outcome || '').trim() || null } : {}),
+        ...(followUpDate !== undefined ? { followUpDate: followUpDate && !Number.isNaN(followUpDate.getTime()) ? followUpDate : null } : {}),
+        ...(input?.assignedToId !== undefined ? { assignedToId: input.assignedToId || null } : {}),
+        ...(input?.postSnapshot !== undefined ? { postSnapshot: input.postSnapshot || null } : {}),
+        ...(status === 'DONE' && !existing.completedAt ? { completedAt: new Date() } : {}),
+        ...(status && status !== 'DONE' ? { completedAt: null } : {}),
+      },
+      include: {
+        author: { select: { id: true, name: true, email: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+    });
+    return { action };
+  }
+
+  async bulkAssign(input: any, authorId?: string) {
+    const rawCustomerCodes = Array.isArray(input?.customerCodes) ? input.customerCodes : [];
+    const customerCodes: string[] = Array.from(
+      new Set(rawCustomerCodes.map((value: any) => normalizeCode(value)).filter((code: string) => Boolean(code)))
+    );
+    if (customerCodes.length === 0) throw new Error('Customer codes are required');
+    const assignedToId = String(input?.assignedToId || '').trim();
+    if (!assignedToId) throw new Error('Assigned user is required');
+    const note = String(input?.note || 'Geri kazanim takibi icin atandi').trim();
+    const followUpDate = input?.followUpDate ? new Date(input.followUpDate) : null;
+    await prisma.customerRecoveryAction.createMany({
+      data: customerCodes.map((customerCode) => ({
+        customerCode,
+        customerName: input?.customerNames?.[customerCode] || null,
+        actionType: 'ASSIGNMENT',
+        note,
+        status: 'OPEN',
+        priority: String(input?.priority || 'HIGH').trim().toUpperCase().slice(0, 30) || 'HIGH',
+        followUpDate: followUpDate && !Number.isNaN(followUpDate.getTime()) ? followUpDate : null,
+        authorId: authorId || null,
+        assignedToId,
+        snapshot: input?.snapshotByCustomer?.[customerCode] || undefined,
+      })),
+    });
+    return { createdCount: customerCodes.length };
+  }
+
+  async getCustomerDetail(customerCode: string, options: ReportOptions = {}, context?: RequestContext) {
+    const code = normalizeCode(customerCode);
+    const report = await this.getReport({ ...options, customerCode: code, limit: 1 }, context);
+    const row = report.rows[0] || null;
+    if (!row) {
+      return { row: null, actions: [], categories: [], documents: [], metadata: report.metadata };
+    }
+
+    const normalized = this.normalizeOptions({ ...options, customerCode: code });
+    const connect = (mikroService as any).connect;
+    if (typeof connect === 'function') {
+      await connect.call(mikroService);
+    }
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    const baseWhere = this.buildBaseWhere([
+      ...exclusionConditions,
+      `RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(code)}'`,
+      `sth.sth_tarih >= '${formatDateCompact(normalized.baselineStart)}'`,
+      `sth.sth_tarih <= '${formatDateCompact(normalized.queryEnd)}'`,
+    ], context).join(' AND ');
+
+    const productRows = await mikroService.executeQuery(`
+      SELECT
+        RTRIM(sth.sth_stok_kod) as productCode,
+        MAX(st.sto_isim) as productName,
+        MAX(sth.sth_tarih) as lastPurchaseDate,
+        SUM(CASE WHEN sth.sth_tarih < '${formatDateCompact(normalized.recentStart)}' THEN ISNULL(sth.sth_tutar, 0) ELSE 0 END) as historicalAmount,
+        SUM(CASE WHEN sth.sth_tarih >= '${formatDateCompact(normalized.recentStart)}' THEN ISNULL(sth.sth_tutar, 0) ELSE 0 END) as recentAmount
+      FROM STOK_HAREKETLERI sth
+      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+      WHERE ${baseWhere}
+      GROUP BY sth.sth_stok_kod
+    `);
+
+    const productCodes = productRows.map((item: any) => normalizeCode(item.productCode)).filter(Boolean);
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: productCodes } },
+      select: { mikroCode: true, name: true, category: { select: { mikroCode: true, name: true } } },
+    });
+    const productMap = new Map(products.map((product) => [normalizeCode(product.mikroCode), product]));
+    const categoryMap = new Map<string, any>();
+    productRows.forEach((item: any) => {
+      const product = productMap.get(normalizeCode(item.productCode));
+      const categoryCode = normalizeCode(product?.category?.mikroCode) || 'DIGER';
+      const current = categoryMap.get(categoryCode) || {
+        categoryCode,
+        categoryName: product?.category?.name || 'Diger',
+        historicalAmount: 0,
+        recentAmount: 0,
+        lostAmount: 0,
+        productCount: 0,
+        products: [],
+      };
+      const historicalAmount = toNumber(item.historicalAmount);
+      const recentAmount = toNumber(item.recentAmount);
+      current.historicalAmount += historicalAmount;
+      current.recentAmount += recentAmount;
+      current.lostAmount += Math.max(0, historicalAmount - recentAmount);
+      current.productCount += 1;
+      current.products.push({
+        productCode: normalizeCode(item.productCode),
+        productName: product?.name || item.productName || normalizeCode(item.productCode),
+        historicalAmount,
+        recentAmount,
+        lostAmount: Math.max(0, historicalAmount - recentAmount),
+        lastPurchaseDate: compactDateToDisplay(item.lastPurchaseDate),
+      });
+      categoryMap.set(categoryCode, current);
+    });
+
+    const documents = await mikroService.executeQuery(`
+      SELECT TOP 25
+        RTRIM(sth.sth_evrakno_seri) + '-' + CAST(sth.sth_evrakno_sira AS VARCHAR(30)) as documentNo,
+        MAX(sth.sth_tarih) as documentDate,
+        SUM(ISNULL(sth.sth_tutar, 0)) as amount,
+        COUNT(*) as lineCount
+      FROM STOK_HAREKETLERI sth
+      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+      WHERE ${baseWhere}
+      GROUP BY sth.sth_evrakno_seri, sth.sth_evrakno_sira
+      ORDER BY MAX(sth.sth_tarih) DESC
+    `);
+
+    const actions = await this.getCustomerActions(code);
+    return {
+      row,
+      actions: actions.actions,
+      categories: Array.from(categoryMap.values()).sort((a, b) => b.lostAmount - a.lostAmount).slice(0, 20),
+      documents: documents.map((document: any) => ({
+        documentNo: document.documentNo,
+        documentDate: compactDateToDisplay(document.documentDate),
+        amount: toNumber(document.amount),
+        lineCount: Math.floor(toNumber(document.lineCount)),
+      })),
+      metadata: report.metadata,
+    };
+  }
+
+  async exportReport(options: ReportOptions = {}, context?: RequestContext) {
+    const data = await this.getReport({ ...options, page: 1, limit: 5000 }, context);
+    const rows = data.rows.map((row) => ({
+      'Cari Kodu': row.customerCode,
+      'Cari Adi': row.customerName || '',
+      'Sektor': row.sectorCode || '',
+      'Sehir': row.city || '',
+      'Risk Tipi': row.riskType,
+      'Risk Skoru': row.riskScore,
+      'Gecmis Aktif Ay': row.historicalActiveMonths,
+      'Gecmis Aylik Ortalama': row.historicalAverage,
+      'Son Donem Ortalama': row.recentAverage,
+      'Dusme %': row.dropPercent,
+      'Tahmini Kayip': row.lostPotential,
+      'Son Satis': row.lastSaleDate || '',
+      'Acik Aksiyon': row.openActionCount,
+      'Geciken Aksiyon': row.overdueActionCount,
+      'Son Not': row.lastAction?.note || '',
+      'Takip Tarihi': row.nextFollowUpDate || '',
+      'Gelisme': row.developmentStatus,
+      'Not Sonrasi Satis': row.postActionAmount,
+    }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Cari Geri Kazanim');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.summary.teamSummary), 'Temsilci Ozeti');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    return {
+      buffer,
+      fileName: `cari-geri-kazanim-${data.metadata.recentStartDate}-${data.metadata.reportEndDate}.xlsx`,
+    };
+  }
+}
+
+export default new CustomerRecoveryService();

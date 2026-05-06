@@ -338,6 +338,8 @@ model User {
   eInvoiceUploads    EInvoiceDocument[] @relation("EInvoiceUploader")
   supplierPriceListUploads SupplierPriceListUpload[] @relation("SupplierPriceListUploader")
   priceListRules     CustomerPriceListRule[]
+  recoveryActionsAuthored CustomerRecoveryAction[] @relation("CustomerRecoveryActionAuthor")
+  recoveryActionsAssigned CustomerRecoveryAction[] @relation("CustomerRecoveryActionAssignee")
 
   quotesUpdated      Quote[]       @relation("QuoteUpdater")
   quoteHistories     QuoteHistory[] @relation("QuoteHistoryActor")
@@ -1044,6 +1046,39 @@ model CustomerPriceAgreement {
   @@index([productId])
   @@index([validFrom])
   @@index([validTo])
+}
+
+// ==================== CUSTOMER RECOVERY ====================
+
+model CustomerRecoveryAction {
+  id             String   @id @default(uuid())
+
+  customerCode   String
+  customerName   String?
+  actionType     String   @default("NOTE") // NOTE | CALL | WHATSAPP | VISIT | QUOTE | TASK | ASSIGNMENT
+  note           String
+  status         String   @default("OPEN") // OPEN | DONE | CANCELLED
+  priority       String   @default("NORMAL") // LOW | NORMAL | HIGH | CRITICAL
+  outcome        String?
+  followUpDate   DateTime?
+  completedAt    DateTime?
+
+  authorId       String?
+  author         User?    @relation("CustomerRecoveryActionAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  assignedToId   String?
+  assignedTo     User?    @relation("CustomerRecoveryActionAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  snapshot       Json?
+  postSnapshot   Json?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([customerCode])
+  @@index([status])
+  @@index([followUpDate])
+  @@index([assignedToId])
+  @@index([createdAt])
 }
 
 // ==================== CUSTOMER REQUESTS ====================

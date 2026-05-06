@@ -44,6 +44,190 @@ type SupplierPriceListOverrides = {
   pdfColumnRoles?: Record<string, string> | null;
 };
 
+export type CustomerRecoveryRiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
+export type CustomerRecoveryDevelopmentStatus = 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
+
+export interface CustomerRecoveryReportParams {
+  recentMonths?: number;
+  baselineMonths?: number;
+  minDropPercent?: number;
+  minHistoricalActiveMonths?: number;
+  minHistoricalAmount?: number;
+  minMeaningfulMonthlyAmount?: number;
+  includeCurrentMonth?: boolean;
+  customerCode?: string;
+  search?: string;
+  sectorCode?: string;
+  assignedToId?: string;
+  riskTypes?: CustomerRecoveryRiskType[] | string;
+  onlyWithOpenAction?: boolean;
+  onlyDueFollowUp?: boolean;
+  page?: number;
+  limit?: number;
+  sortBy?: 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
+  sortDirection?: 'asc' | 'desc';
+}
+
+export interface CustomerRecoveryAction {
+  id: string;
+  customerCode: string;
+  customerName?: string | null;
+  actionType: string;
+  note: string;
+  status: string;
+  priority: string;
+  outcome?: string | null;
+  followUpDate?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  author?: { id: string; name: string | null; email?: string | null } | null;
+  assignedTo?: { id: string; name: string | null; email?: string | null } | null;
+}
+
+export interface CustomerRecoveryRow {
+  customerCode: string;
+  customerName: string | null;
+  sectorCode: string | null;
+  city: string | null;
+  district: string | null;
+  phone: string | null;
+  balance: number;
+  assignedSalesRep: { id: string; name: string; email?: string | null } | null;
+  riskType: CustomerRecoveryRiskType;
+  riskLabels: string[];
+  riskScore: number;
+  confidence: 'LOW' | 'MEDIUM' | 'HIGH';
+  lastSaleDate: string | null;
+  daysSinceLastSale: number | null;
+  historicalActiveMonths: number;
+  historicalDocumentCount: number;
+  historicalAmount: number;
+  historicalAverage: number;
+  historicalMedian: number;
+  recentActiveMonths: number;
+  recentDocumentCount: number;
+  recentAmount: number;
+  recentAverage: number;
+  dropPercent: number;
+  seasonalAverage: number | null;
+  seasonalDropPercent: number | null;
+  lostPotential: number;
+  openQuoteCount: number;
+  openOrderCount: number;
+  lastAction: CustomerRecoveryAction | null;
+  openActionCount: number;
+  overdueActionCount: number;
+  nextFollowUpDate: string | null;
+  developmentStatus: CustomerRecoveryDevelopmentStatus;
+  postActionAmount: number;
+  postActionDocumentCount: number;
+  monthlySales: Array<{ month: string; amount: number; documentCount: number }>;
+}
+
+export interface CustomerRecoveryReportData {
+  rows: CustomerRecoveryRow[];
+  summary: {
+    totalCustomers: number;
+    countsByRisk: Partial<Record<CustomerRecoveryRiskType, number>>;
+    totalLostPotential: number;
+    recoveredCount: number;
+    dueFollowUpCount: number;
+    noActionCount: number;
+    teamSummary: Array<{
+      userId: string;
+      name: string;
+      customerCount: number;
+      openActionCount: number;
+      overdueActionCount: number;
+      recoveredCount: number;
+      lostPotential: number;
+    }>;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+    totalRecords: number;
+  };
+  metadata: {
+    recentMonths: number;
+    baselineMonths: number;
+    minDropPercent: number;
+    minHistoricalActiveMonths: number;
+    minHistoricalAmount: number;
+    minMeaningfulMonthlyAmount: number;
+    includeCurrentMonth: boolean;
+    baselineStartDate: string;
+    recentStartDate: string;
+    reportEndDate: string;
+    baselineMonthKeys: string[];
+    recentMonthKeys: string[];
+  };
+}
+
+export interface CustomerRecoveryDetailData {
+  row: CustomerRecoveryRow | null;
+  actions: CustomerRecoveryAction[];
+  categories: Array<{
+    categoryCode: string;
+    categoryName: string;
+    historicalAmount: number;
+    recentAmount: number;
+    lostAmount: number;
+    productCount: number;
+    products: Array<{
+      productCode: string;
+      productName: string;
+      historicalAmount: number;
+      recentAmount: number;
+      lostAmount: number;
+      lastPurchaseDate: string | null;
+    }>;
+  }>;
+  documents: Array<{
+    documentNo: string;
+    documentDate: string | null;
+    amount: number;
+    lineCount: number;
+  }>;
+  metadata: CustomerRecoveryReportData['metadata'];
+}
+
+export interface CustomerRecoveryActionInput {
+  customerName?: string | null;
+  actionType?: string;
+  note: string;
+  status?: string;
+  priority?: string;
+  outcome?: string | null;
+  followUpDate?: string | null;
+  assignedToId?: string | null;
+  snapshot?: unknown;
+  postSnapshot?: unknown;
+}
+
+const appendCustomerRecoveryParams = (queryParams: URLSearchParams, params: CustomerRecoveryReportParams) => {
+  if (params.recentMonths !== undefined) queryParams.append('recentMonths', params.recentMonths.toString());
+  if (params.baselineMonths !== undefined) queryParams.append('baselineMonths', params.baselineMonths.toString());
+  if (params.minDropPercent !== undefined) queryParams.append('minDropPercent', params.minDropPercent.toString());
+  if (params.minHistoricalActiveMonths !== undefined) queryParams.append('minHistoricalActiveMonths', params.minHistoricalActiveMonths.toString());
+  if (params.minHistoricalAmount !== undefined) queryParams.append('minHistoricalAmount', params.minHistoricalAmount.toString());
+  if (params.minMeaningfulMonthlyAmount !== undefined) queryParams.append('minMeaningfulMonthlyAmount', params.minMeaningfulMonthlyAmount.toString());
+  if (params.includeCurrentMonth !== undefined) queryParams.append('includeCurrentMonth', params.includeCurrentMonth ? 'true' : 'false');
+  if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+  if (params.search) queryParams.append('search', params.search);
+  if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
+  if (params.assignedToId) queryParams.append('assignedToId', params.assignedToId);
+  if (params.riskTypes) queryParams.append('riskTypes', Array.isArray(params.riskTypes) ? params.riskTypes.join(',') : params.riskTypes);
+  if (params.onlyWithOpenAction !== undefined) queryParams.append('onlyWithOpenAction', params.onlyWithOpenAction ? 'true' : 'false');
+  if (params.onlyDueFollowUp !== undefined) queryParams.append('onlyDueFollowUp', params.onlyDueFollowUp ? 'true' : 'false');
+  if (params.page !== undefined) queryParams.append('page', params.page.toString());
+  if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+  if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+  if (params.sortDirection) queryParams.append('sortDirection', params.sortDirection);
+};
+
 const appendSupplierPriceListOverrides = (formData: FormData, overrides?: SupplierPriceListOverrides) => {
   if (!overrides) return;
   const appendValue = (key: string, value?: string | number | null) => {
@@ -2017,6 +2201,76 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/reports/category-churn/export?${queryParams.toString()}`, {
       responseType: 'blob',
     });
+    return response.data;
+  },
+
+  getCustomerRecoveryReport: async (params: CustomerRecoveryReportParams): Promise<{
+    success: boolean;
+    data: CustomerRecoveryReportData;
+  }> => {
+    const queryParams = new URLSearchParams();
+    appendCustomerRecoveryParams(queryParams, params);
+    const response = await apiClient.get(`/admin/reports/customer-recovery?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  downloadCustomerRecoveryExport: async (params: CustomerRecoveryReportParams): Promise<Blob> => {
+    const queryParams = new URLSearchParams();
+    appendCustomerRecoveryParams(queryParams, params);
+    const response = await apiClient.get(`/admin/reports/customer-recovery/export?${queryParams.toString()}`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  getCustomerRecoveryDetail: async (
+    customerCode: string,
+    params: CustomerRecoveryReportParams
+  ): Promise<{ success: boolean; data: CustomerRecoveryDetailData }> => {
+    const queryParams = new URLSearchParams();
+    appendCustomerRecoveryParams(queryParams, params);
+    const response = await apiClient.get(
+      `/admin/reports/customer-recovery/${encodeURIComponent(customerCode)}/detail?${queryParams.toString()}`
+    );
+    return response.data;
+  },
+
+  getCustomerRecoveryActions: async (
+    customerCode: string
+  ): Promise<{ success: boolean; data: { actions: CustomerRecoveryAction[] } }> => {
+    const response = await apiClient.get(`/admin/reports/customer-recovery/${encodeURIComponent(customerCode)}/actions`);
+    return response.data;
+  },
+
+  createCustomerRecoveryAction: async (
+    customerCode: string,
+    payload: CustomerRecoveryActionInput
+  ): Promise<{ success: boolean; data: { action: CustomerRecoveryAction } }> => {
+    const response = await apiClient.post(
+      `/admin/reports/customer-recovery/${encodeURIComponent(customerCode)}/actions`,
+      payload
+    );
+    return response.data;
+  },
+
+  updateCustomerRecoveryAction: async (
+    actionId: string,
+    payload: Partial<CustomerRecoveryActionInput>
+  ): Promise<{ success: boolean; data: { action: CustomerRecoveryAction } }> => {
+    const response = await apiClient.patch(`/admin/reports/customer-recovery/actions/${encodeURIComponent(actionId)}`, payload);
+    return response.data;
+  },
+
+  bulkAssignCustomerRecovery: async (payload: {
+    customerCodes: string[];
+    customerNames?: Record<string, string | null>;
+    assignedToId: string;
+    note?: string;
+    priority?: string;
+    followUpDate?: string | null;
+    snapshotByCustomer?: Record<string, unknown>;
+  }): Promise<{ success: boolean; data: { createdCount: number } }> => {
+    const response = await apiClient.post('/admin/reports/customer-recovery/bulk-assign', payload);
     return response.data;
   },
 

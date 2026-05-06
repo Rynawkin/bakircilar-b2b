@@ -15,6 +15,7 @@ import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
+import customerRecoveryService from '../services/customer-recovery.service';
 import emailService from '../services/email.service';
 import priceSyncService from '../services/priceSync.service';
 import priceHistoryNewService from '../services/priceHistoryNew.service';
@@ -58,6 +59,14 @@ const PRODUCT_SELECT = {
     },
   },
 };
+
+const buildReportRequestContext = (req: Request) => ({
+  userId: req.user?.userId,
+  role: req.user?.role,
+  assignedSectorCodes: req.user?.assignedSectorCodes || [],
+});
+
+const parseBooleanQuery = (value: unknown) => value === true || value === 'true' || value === '1';
 
 const buildProductsWithPriceLists = async (products: any[]) => {
   if (!products || products.length === 0) return [];
@@ -3766,6 +3775,215 @@ export class AdminController {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=\"${fileName}\"`);
       res.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/customer-recovery
+   * Kaybedilen / hareketi dusen carileri geri kazanma raporu
+   */
+  async getCustomerRecoveryReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        recentMonths,
+        baselineMonths,
+        minDropPercent,
+        minHistoricalActiveMonths,
+        minHistoricalAmount,
+        minMeaningfulMonthlyAmount,
+        includeCurrentMonth,
+        customerCode,
+        search,
+        sectorCode,
+        assignedToId,
+        riskTypes,
+        onlyWithOpenAction,
+        onlyDueFollowUp,
+        page,
+        limit,
+        sortBy,
+        sortDirection,
+      } = req.query;
+
+      const data = await customerRecoveryService.getReport({
+        recentMonths: recentMonths ? parseInt(recentMonths as string, 10) : undefined,
+        baselineMonths: baselineMonths ? parseInt(baselineMonths as string, 10) : undefined,
+        minDropPercent: minDropPercent ? parseFloat(minDropPercent as string) : undefined,
+        minHistoricalActiveMonths: minHistoricalActiveMonths ? parseInt(minHistoricalActiveMonths as string, 10) : undefined,
+        minHistoricalAmount: minHistoricalAmount ? parseFloat(minHistoricalAmount as string) : undefined,
+        minMeaningfulMonthlyAmount: minMeaningfulMonthlyAmount ? parseFloat(minMeaningfulMonthlyAmount as string) : undefined,
+        includeCurrentMonth: parseBooleanQuery(includeCurrentMonth),
+        customerCode: customerCode as string,
+        search: search as string,
+        sectorCode: sectorCode as string,
+        assignedToId: assignedToId as string,
+        riskTypes: riskTypes as string,
+        onlyWithOpenAction: parseBooleanQuery(onlyWithOpenAction),
+        onlyDueFollowUp: parseBooleanQuery(onlyDueFollowUp),
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        sortBy: sortBy as any,
+        sortDirection: sortDirection as 'asc' | 'desc',
+      }, buildReportRequestContext(req));
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/customer-recovery/export
+   * Cari geri kazanim raporu Excel export
+   */
+  async exportCustomerRecoveryReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        recentMonths,
+        baselineMonths,
+        minDropPercent,
+        minHistoricalActiveMonths,
+        minHistoricalAmount,
+        minMeaningfulMonthlyAmount,
+        includeCurrentMonth,
+        customerCode,
+        search,
+        sectorCode,
+        assignedToId,
+        riskTypes,
+        onlyWithOpenAction,
+        onlyDueFollowUp,
+        sortBy,
+        sortDirection,
+      } = req.query;
+
+      const { buffer, fileName } = await customerRecoveryService.exportReport({
+        recentMonths: recentMonths ? parseInt(recentMonths as string, 10) : undefined,
+        baselineMonths: baselineMonths ? parseInt(baselineMonths as string, 10) : undefined,
+        minDropPercent: minDropPercent ? parseFloat(minDropPercent as string) : undefined,
+        minHistoricalActiveMonths: minHistoricalActiveMonths ? parseInt(minHistoricalActiveMonths as string, 10) : undefined,
+        minHistoricalAmount: minHistoricalAmount ? parseFloat(minHistoricalAmount as string) : undefined,
+        minMeaningfulMonthlyAmount: minMeaningfulMonthlyAmount ? parseFloat(minMeaningfulMonthlyAmount as string) : undefined,
+        includeCurrentMonth: parseBooleanQuery(includeCurrentMonth),
+        customerCode: customerCode as string,
+        search: search as string,
+        sectorCode: sectorCode as string,
+        assignedToId: assignedToId as string,
+        riskTypes: riskTypes as string,
+        onlyWithOpenAction: parseBooleanQuery(onlyWithOpenAction),
+        onlyDueFollowUp: parseBooleanQuery(onlyDueFollowUp),
+        sortBy: sortBy as any,
+        sortDirection: sortDirection as 'asc' | 'desc',
+      }, buildReportRequestContext(req));
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=\"${fileName}\"`);
+      res.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/customer-recovery/:customerCode/detail
+   * Cari geri kazanim detay kirilimi
+   */
+  async getCustomerRecoveryDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { customerCode } = req.params;
+      const {
+        recentMonths,
+        baselineMonths,
+        minDropPercent,
+        minHistoricalActiveMonths,
+        minHistoricalAmount,
+        minMeaningfulMonthlyAmount,
+        includeCurrentMonth,
+      } = req.query;
+
+      const data = await customerRecoveryService.getCustomerDetail(customerCode, {
+        recentMonths: recentMonths ? parseInt(recentMonths as string, 10) : undefined,
+        baselineMonths: baselineMonths ? parseInt(baselineMonths as string, 10) : undefined,
+        minDropPercent: minDropPercent ? parseFloat(minDropPercent as string) : undefined,
+        minHistoricalActiveMonths: minHistoricalActiveMonths ? parseInt(minHistoricalActiveMonths as string, 10) : undefined,
+        minHistoricalAmount: minHistoricalAmount ? parseFloat(minHistoricalAmount as string) : undefined,
+        minMeaningfulMonthlyAmount: minMeaningfulMonthlyAmount ? parseFloat(minMeaningfulMonthlyAmount as string) : undefined,
+        includeCurrentMonth: parseBooleanQuery(includeCurrentMonth),
+      }, buildReportRequestContext(req));
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/customer-recovery/:customerCode/actions
+   * Cari geri kazanim not ve aksiyon gecmisi
+   */
+  async getCustomerRecoveryActions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await customerRecoveryService.getCustomerActions(req.params.customerCode);
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/customer-recovery/:customerCode/actions
+   * Cari geri kazanim notu / gorev aksiyonu olusturur
+   */
+  async createCustomerRecoveryAction(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await customerRecoveryService.createAction(req.params.customerCode, req.body, req.user?.userId);
+      res.status(201).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/admin/reports/customer-recovery/actions/:id
+   * Cari geri kazanim aksiyonunu gunceller
+   */
+  async updateCustomerRecoveryAction(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await customerRecoveryService.updateAction(req.params.id, req.body);
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/customer-recovery/bulk-assign
+   * Secilen cariler icin toplu takip atamasi olusturur
+   */
+  async bulkAssignCustomerRecovery(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await customerRecoveryService.bulkAssign(req.body, req.user?.userId);
+      res.status(201).json({
+        success: true,
+        data,
+      });
     } catch (error) {
       next(error);
     }
