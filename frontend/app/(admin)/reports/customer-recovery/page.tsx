@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ArrowUpDown,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   Download,
   Eye,
@@ -26,14 +27,14 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { adminApi, type CustomerRecoveryAction, type CustomerRecoveryDetailData, type CustomerRecoveryReportData, type CustomerRecoveryReportParams, type CustomerRecoveryRiskType, type CustomerRecoveryRow } from '@/lib/api/admin';
+import { adminApi, type CustomerRecoveryAction, type CustomerRecoveryDetailData, type CustomerRecoveryPurchasePattern, type CustomerRecoveryReportData, type CustomerRecoveryReportParams, type CustomerRecoveryRiskType, type CustomerRecoveryRow } from '@/lib/api/admin';
 import { cn } from '@/lib/utils/cn';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 
 type SortBy = NonNullable<CustomerRecoveryReportParams['sortBy']>;
 type SortDirection = NonNullable<CustomerRecoveryReportParams['sortDirection']>;
 type SeasonalityMode = 'include' | 'exclude' | 'only';
-type ScenarioId = 'declining' | 'stalled' | 'highPotential' | 'dueFollowUp' | 'seasonal';
+type ScenarioId = 'declining' | 'stalled' | 'highPotential' | 'dueFollowUp' | 'seasonal' | 'frequentLost';
 
 const PAGE_SIZE = 50;
 const REPORT_CACHE_LIMIT = 5000;
@@ -63,6 +64,7 @@ interface FilterState {
   onlyDueFollowUp: boolean;
   minLostPotential: string;
   seasonalityMode: SeasonalityMode;
+  purchasePattern: CustomerRecoveryPurchasePattern;
   sortBy: SortBy;
   sortDirection: SortDirection;
 }
@@ -130,7 +132,8 @@ const defaultFilters: FilterState = {
   onlyWithOpenAction: false,
   onlyDueFollowUp: false,
   minLostPotential: '0',
-  seasonalityMode: 'include',
+  seasonalityMode: 'exclude',
+  purchasePattern: 'ALL',
   sortBy: 'riskScore',
   sortDirection: 'desc',
 };
@@ -158,7 +161,8 @@ const scenarioPresets: Array<{
       riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
       onlyDueFollowUp: false,
       onlyWithOpenAction: false,
-      seasonalityMode: 'include',
+      seasonalityMode: 'exclude',
+      purchasePattern: 'ALL',
       sortBy: 'riskScore',
       sortDirection: 'desc',
     },
@@ -174,6 +178,7 @@ const scenarioPresets: Array<{
       minDropPercent: '70',
       riskTypes: ['NO_RECENT_SALES'],
       seasonalityMode: 'exclude',
+      purchasePattern: 'ALL',
       sortBy: 'lastSaleDate',
       sortDirection: 'asc',
     },
@@ -191,6 +196,7 @@ const scenarioPresets: Array<{
       minLostPotential: '10000',
       riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
       seasonalityMode: 'include',
+      purchasePattern: 'ALL',
       sortBy: 'lostPotential',
       sortDirection: 'desc',
     },
@@ -204,6 +210,7 @@ const scenarioPresets: Array<{
       onlyDueFollowUp: true,
       onlyWithOpenAction: true,
       riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
+      purchasePattern: 'ALL',
       sortBy: 'riskScore',
       sortDirection: 'desc',
     },
@@ -215,7 +222,27 @@ const scenarioPresets: Array<{
     helper: 'Kayip mi, normal alim periyodu mu ayrimi icin.',
     filters: {
       seasonalityMode: 'only',
+      purchasePattern: 'PERIODIC',
       riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING', 'WATCH'],
+      sortBy: 'lostPotential',
+      sortDirection: 'desc',
+    },
+  },
+  {
+    id: 'frequentLost',
+    title: 'Sik alirken duranlar',
+    description: 'Ardisik aylarda veya duzenli sik alim yaparken son donemde duran cariler.',
+    helper: 'Ihale/donemsel carileri ayirip gercek kayiplari yakalar.',
+    filters: {
+      recentMonths: '3',
+      baselineMonths: '18',
+      minDropPercent: '45',
+      minHistoricalActiveMonths: '3',
+      minHistoricalAmount: '3000',
+      minMeaningfulMonthlyAmount: '1000',
+      riskTypes: ['NO_RECENT_SALES', 'INSIGNIFICANT_ACTIVITY', 'DECLINING'],
+      seasonalityMode: 'exclude',
+      purchasePattern: 'FREQUENT',
       sortBy: 'lostPotential',
       sortDirection: 'desc',
     },
@@ -347,6 +374,7 @@ export default function CustomerRecoveryReportPage() {
     onlyDueFollowUp: source.onlyDueFollowUp,
     minLostPotential: parseNumber(source.minLostPotential, 0),
     seasonalityMode: source.seasonalityMode,
+    purchasePattern: source.purchasePattern,
     page: requestedPage,
     limit,
     sortBy: source.sortBy,
@@ -694,6 +722,12 @@ export default function CustomerRecoveryReportPage() {
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link href="/reports/customer-recovery/actions">
+                <Button variant="outline">
+                  <ClipboardCheck className="mr-2 h-4 w-4" />
+                  Bana atananlar
+                </Button>
+              </Link>
               <Button variant="outline" onClick={exportReport} isLoading={exporting}>
                 <Download className="mr-2 h-4 w-4" />
                 Excel
@@ -706,7 +740,7 @@ export default function CustomerRecoveryReportPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5 p-5">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             {scenarioPresets.map((scenario) => {
               const active = selectedScenario === scenario.id;
               return (
@@ -737,7 +771,7 @@ export default function CustomerRecoveryReportPage() {
             Gecmise gore en az %{filters.minDropPercent} dusen veya son donemde hareketi duran cariler listelenir.
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-5">
+          <div className="grid gap-4 lg:grid-cols-6">
             <LabeledInput label="Sektor kodu" value={filters.sectorCode} onChange={(value) => updateFilter('sectorCode', value.toUpperCase())} />
             <Select label="Temsilci / takip sahibi" value={filters.assignedToId} onChange={(event) => updateFilter('assignedToId', event.target.value)}>
               <option value="">Tumu</option>
@@ -750,8 +784,14 @@ export default function CustomerRecoveryReportPage() {
             <LabeledInput label="Min. tahmini kayip" value={filters.minLostPotential} onChange={(value) => updateFilter('minLostPotential', value)} />
             <Select label="Donemsel cariler" value={filters.seasonalityMode} onChange={(event) => updateFilter('seasonalityMode', event.target.value as SeasonalityMode)}>
               <option value="include">Dahil et</option>
-              <option value="exclude">Ayri tut</option>
+              <option value="exclude">Normal ritimdekileri ayir</option>
               <option value="only">Sadece donemsel</option>
+            </Select>
+            <Select label="Alim ritmi" value={filters.purchasePattern} onChange={(event) => updateFilter('purchasePattern', event.target.value as CustomerRecoveryPurchasePattern)}>
+              <option value="ALL">Tumu</option>
+              <option value="FREQUENT">Sik alirken duranlar</option>
+              <option value="PERIODIC">Donemsel / ihale</option>
+              <option value="SPORADIC">Seyrek / belirsiz</option>
             </Select>
             <Select label="Sirala" value={`${filters.sortBy}:${filters.sortDirection}`} onChange={(event) => {
               const [sortBy, sortDirection] = event.target.value.split(':') as [SortBy, SortDirection];
@@ -935,7 +975,12 @@ export default function CustomerRecoveryReportPage() {
                           </span>
                           <div className="text-xs text-gray-500">{row.confidence} guven</div>
                           {row.isSeasonal && (
-                            <div className="text-xs font-medium text-blue-600">Donemsel olabilir</div>
+                            <div className={cn('text-xs font-medium', row.seasonalityStatus === 'OVERDUE' ? 'text-red-600' : 'text-blue-600')}>
+                              {row.seasonalityStatus === 'OVERDUE' ? 'Donemsel periyot gecmis' : 'Donemsel/ihale ritmi'}
+                            </div>
+                          )}
+                          {row.purchasePattern === 'FREQUENT' && (
+                            <div className="text-xs font-medium text-emerald-700">Sik alim gecmisi</div>
                           )}
                         </div>
                       </TableCell>
@@ -945,6 +990,11 @@ export default function CustomerRecoveryReportPage() {
                         <span className="font-semibold text-red-600">{percent(row.dropPercent)}</span>
                         {row.seasonalDropPercent !== null && (
                           <div className="text-xs text-gray-500">Sezonsal {percent(row.seasonalDropPercent)}</div>
+                        )}
+                        {row.averagePurchaseIntervalMonths && (
+                          <div className="text-xs text-gray-500">
+                            Ritm {row.averagePurchaseIntervalMonths} ay / son {row.monthsSinceLastMeaningfulPurchase ?? '-'} ay
+                          </div>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-semibold text-gray-900">{formatCurrency(row.lostPotential)}</TableCell>
@@ -1046,7 +1096,7 @@ export default function CustomerRecoveryReportPage() {
                 <span className="font-semibold text-blue-700">{formatCurrency(summary?.seasonalLostPotential || 0)}</span>
               </div>
               <p className="text-xs leading-relaxed text-blue-900/80">
-                "Ayri tut" bu carileri ana kayip listesinden cikarir; "Sadece donemsel" kontrol listesi olarak gosterir.
+                Normal ritimdeki donemsel cariler ana kayip listesinden ayrilir; beklenen alim periyodu asildiysa yine risk olarak kalir.
               </p>
             </CardContent>
           </Card>
@@ -1148,8 +1198,14 @@ export default function CustomerRecoveryReportPage() {
                     helper={safeDate(detailRow.lastPurchasedProduct?.lastPurchaseDate || detailRow.lastSaleDate)}
                   />
                   <InsightBlock
-                    label={detailRow.isSeasonal ? 'Donemsel uyari' : 'Onerilen aksiyon'}
-                    value={detailRow.isSeasonal ? 'Donemsel alim olabilir' : (detailRow.recommendedAction || '-')}
+                    label={detailRow.isSeasonal ? 'Donemsel ritim' : 'Onerilen aksiyon'}
+                    value={
+                      detailRow.seasonalityStatus === 'OVERDUE'
+                        ? 'Beklenen periyot asilmis'
+                        : detailRow.isSeasonal
+                          ? 'Ritim tolerans icinde'
+                          : (detailRow.recommendedAction || '-')
+                    }
                     helper={detailRow.seasonalityReason || detailRow.recommendedAction || '-'}
                   />
                 </CardContent>

@@ -3804,6 +3804,7 @@ export class AdminController {
         onlyDueFollowUp,
         minLostPotential,
         seasonalityMode,
+        purchasePattern,
         page,
         limit,
         sortBy,
@@ -3828,6 +3829,7 @@ export class AdminController {
         onlyDueFollowUp: parseBooleanQuery(onlyDueFollowUp),
         minLostPotential: minLostPotential ? parseFloat(minLostPotential as string) : undefined,
         seasonalityMode: seasonalityMode as string,
+        purchasePattern: purchasePattern as string,
         page: page ? parseInt(page as string, 10) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
         sortBy: sortBy as any,
@@ -3867,6 +3869,7 @@ export class AdminController {
         onlyDueFollowUp,
         minLostPotential,
         seasonalityMode,
+        purchasePattern,
         sortBy,
         sortDirection,
       } = req.query;
@@ -3889,6 +3892,7 @@ export class AdminController {
         onlyDueFollowUp: parseBooleanQuery(onlyDueFollowUp),
         minLostPotential: minLostPotential ? parseFloat(minLostPotential as string) : undefined,
         seasonalityMode: seasonalityMode as string,
+        purchasePattern: purchasePattern as string,
         sortBy: sortBy as any,
         sortDirection: sortDirection as 'asc' | 'desc',
       }, buildReportRequestContext(req));
@@ -3917,6 +3921,7 @@ export class AdminController {
         minMeaningfulMonthlyAmount,
         includeCurrentMonth,
         seasonalityMode,
+        purchasePattern,
       } = req.query;
 
       const data = await customerRecoveryService.getCustomerDetail(customerCode, {
@@ -3928,6 +3933,7 @@ export class AdminController {
         minMeaningfulMonthlyAmount: minMeaningfulMonthlyAmount ? parseFloat(minMeaningfulMonthlyAmount as string) : undefined,
         includeCurrentMonth: parseBooleanQuery(includeCurrentMonth),
         seasonalityMode: seasonalityMode as string,
+        purchasePattern: purchasePattern as string,
       }, buildReportRequestContext(req));
 
       res.json({
@@ -3946,6 +3952,22 @@ export class AdminController {
   async getCustomerRecoveryActions(req: Request, res: Response, next: NextFunction) {
     try {
       const data = await customerRecoveryService.getCustomerActions(req.params.customerCode);
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/customer-recovery/actions/assigned
+   * Giris yapan kullaniciya atanmis geri kazanim aksiyonlari
+   */
+  async getAssignedCustomerRecoveryActions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await customerRecoveryService.getAssignedActions(req.user!.userId, req.query);
       res.json({
         success: true,
         data,

@@ -46,6 +46,7 @@ type SupplierPriceListOverrides = {
 
 export type CustomerRecoveryRiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 export type CustomerRecoveryDevelopmentStatus = 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
+export type CustomerRecoveryPurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
 
 export interface CustomerRecoveryReportParams {
   recentMonths?: number;
@@ -65,6 +66,7 @@ export interface CustomerRecoveryReportParams {
   onlyDueFollowUp?: boolean;
   minLostPotential?: number;
   seasonalityMode?: 'include' | 'exclude' | 'only';
+  purchasePattern?: CustomerRecoveryPurchasePattern;
   page?: number;
   limit?: number;
   sortBy?: 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
@@ -118,6 +120,13 @@ export interface CustomerRecoveryRow {
   isSeasonal: boolean;
   seasonalityScore: number;
   seasonalityReason: string | null;
+  seasonalityStatus: 'ON_TRACK' | 'OVERDUE' | null;
+  averagePurchaseIntervalMonths: number | null;
+  monthsSinceLastMeaningfulPurchase: number | null;
+  seasonalOverdueMonths: number | null;
+  purchasePattern: Exclude<CustomerRecoveryPurchasePattern, 'ALL'>;
+  maxConsecutiveHistoricalActiveMonths: number;
+  historicalActiveRatio: number;
   lostPotential: number;
   openQuoteCount: number;
   openOrderCount: number;
@@ -189,6 +198,7 @@ export interface CustomerRecoveryReportData {
     minMeaningfulMonthlyAmount: number;
     minLostPotential: number;
     seasonalityMode: 'include' | 'exclude' | 'only';
+    purchasePattern: CustomerRecoveryPurchasePattern;
     includeCurrentMonth: boolean;
     baselineStartDate: string;
     recentStartDate: string;
@@ -257,6 +267,7 @@ const appendCustomerRecoveryParams = (queryParams: URLSearchParams, params: Cust
   if (params.onlyDueFollowUp !== undefined) queryParams.append('onlyDueFollowUp', params.onlyDueFollowUp ? 'true' : 'false');
   if (params.minLostPotential !== undefined) queryParams.append('minLostPotential', params.minLostPotential.toString());
   if (params.seasonalityMode) queryParams.append('seasonalityMode', params.seasonalityMode);
+  if (params.purchasePattern) queryParams.append('purchasePattern', params.purchasePattern);
   if (params.page !== undefined) queryParams.append('page', params.page.toString());
   if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
   if (params.sortBy) queryParams.append('sortBy', params.sortBy);
@@ -2274,6 +2285,23 @@ export const adminApi = {
     customerCode: string
   ): Promise<{ success: boolean; data: { actions: CustomerRecoveryAction[] } }> => {
     const response = await apiClient.get(`/admin/reports/customer-recovery/${encodeURIComponent(customerCode)}/actions`);
+    return response.data;
+  },
+
+  getAssignedCustomerRecoveryActions: async (params?: {
+    status?: string;
+    search?: string;
+    dueOnly?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      actions: CustomerRecoveryAction[];
+      pagination: { page: number; limit: number; totalPages: number; totalRecords: number };
+    };
+  }> => {
+    const response = await apiClient.get('/admin/reports/customer-recovery/actions/assigned', { params });
     return response.data;
   },
 

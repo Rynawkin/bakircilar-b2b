@@ -9,6 +9,8 @@ type RiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WA
 type SortBy = 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
 type SortDirection = 'asc' | 'desc';
 type SeasonalityMode = 'include' | 'exclude' | 'only';
+type SeasonalityStatus = 'ON_TRACK' | 'OVERDUE' | null;
+type PurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
 
 interface ReportOptions {
   recentMonths?: number;
@@ -28,6 +30,7 @@ interface ReportOptions {
   onlyDueFollowUp?: boolean;
   minLostPotential?: number;
   seasonalityMode?: SeasonalityMode | string;
+  purchasePattern?: PurchasePattern | string;
   page?: number;
   limit?: number;
   sortBy?: SortBy;
@@ -77,6 +80,13 @@ interface RecoveryRow {
   isSeasonal: boolean;
   seasonalityScore: number;
   seasonalityReason: string | null;
+  seasonalityStatus: SeasonalityStatus;
+  averagePurchaseIntervalMonths: number | null;
+  monthsSinceLastMeaningfulPurchase: number | null;
+  seasonalOverdueMonths: number | null;
+  purchasePattern: Exclude<PurchasePattern, 'ALL'>;
+  maxConsecutiveHistoricalActiveMonths: number;
+  historicalActiveRatio: number;
   lostPotential: number;
   openQuoteCount: number;
   openOrderCount: number;
@@ -133,6 +143,19 @@ const chunkArray = <T>(items: T[], size: number) => {
   }
   return chunks;
 };
+const average = (values: number[]) => values.length > 0
+  ? values.reduce((sum, value) => sum + value, 0) / values.length
+  : 0;
+
+const maxConsecutiveTrue = (values: boolean[]) => {
+  let current = 0;
+  let max = 0;
+  values.forEach((value) => {
+    current = value ? current + 1 : 0;
+    max = Math.max(max, current);
+  });
+  return max;
+};
 
 const compactDateToDisplay = (value: any) => {
   if (!value) return null;
@@ -170,6 +193,14 @@ class CustomerRecoveryService {
       : seasonalityModeValue === 'only'
         ? 'only'
         : 'include';
+    const purchasePatternValue = String(options.purchasePattern || 'ALL').toUpperCase();
+    const purchasePattern: PurchasePattern = purchasePatternValue === 'FREQUENT'
+      ? 'FREQUENT'
+      : purchasePatternValue === 'PERIODIC'
+        ? 'PERIODIC'
+        : purchasePatternValue === 'SPORADIC'
+          ? 'SPORADIC'
+          : 'ALL';
 
     const now = new Date();
     const reportEnd = parseBoolean(options.includeCurrentMonth)
@@ -221,6 +252,7 @@ class CustomerRecoveryService {
       onlyDueFollowUp: Boolean(options.onlyDueFollowUp),
       minLostPotential,
       seasonalityMode,
+      purchasePattern,
       includeCurrentMonth: Boolean(options.includeCurrentMonth),
     };
   }
@@ -239,6 +271,7 @@ class CustomerRecoveryService {
       "LTRIM(RTRIM(sth.sth_stok_kod)) <> ''",
       'sth.sth_cari_kodu IS NOT NULL',
       "LTRIM(RTRIM(sth.sth_cari_kodu)) <> ''",
+      "UPPER(LTRIM(RTRIM(ISNULL(c.cari_sektor_kodu, '')))) <> 'FATURA'",
     ];
 
     const assignedSectorCodes = (context?.role === 'SALES_REP' ? context?.assignedSectorCodes || [] : [])
@@ -260,6 +293,7 @@ class CustomerRecoveryService {
     context?: RequestContext
   ) {
     if (normalized.customerCode) return [normalized.customerCode];
+    if (normalized.sectorCode === 'FATURA') return [];
 
     const assignedSectorCodes = (context?.role === 'SALES_REP' ? context?.assignedSectorCodes || [] : [])
       .map(normalizeCode)
@@ -270,6 +304,7 @@ class CustomerRecoveryService {
       where: {
         role: UserRole.CUSTOMER,
         mikroCariCode: { not: null },
+        NOT: { sectorCode: { in: ['FATURA', 'Fatura', 'fatura'] } },
         ...(normalized.sectorCode ? { sectorCode: normalized.sectorCode } : {}),
         ...(context?.role === 'SALES_REP' ? { sectorCode: { in: assignedSectorCodes } } : {}),
       },
@@ -290,36 +325,62 @@ class CustomerRecoveryService {
       .filter((item) => item.amount >= normalized.minMeaningfulMonthlyAmount);
 
     if (activeIndexes.length < 2) {
-      return { isSeasonal: false, seasonalityScore: 0, seasonalityReason: null };
+      return {
+        isSeasonal: false,
+        seasonalityScore: 0,
+        seasonalityReason: null,
+        seasonalityStatus: null as SeasonalityStatus,
+        averagePurchaseIntervalMonths: null,
+        monthsSinceLastMeaningfulPurchase: activeIndexes.length === 1
+          ? normalized.allMonthKeys.length - 1 - activeIndexes[0].index
+          : null,
+        seasonalOverdueMonths: null,
+      };
     }
 
     const activeRatio = activeIndexes.length / normalized.allMonthKeys.length;
     const gaps = activeIndexes.slice(1).map((item, index) => item.index - activeIndexes[index].index);
     const maxGap = gaps.length > 0 ? Math.max(...gaps) : normalized.allMonthKeys.length;
     const minGap = gaps.length > 0 ? Math.min(...gaps) : maxGap;
+    const averageGap = average(gaps);
+    const roundedAverageGap = Math.max(1, Math.round(averageGap));
+    const maxDeviation = gaps.length > 0
+      ? Math.max(...gaps.map((gap) => Math.abs(gap - averageGap)))
+      : 0;
+    const tolerance = Math.max(1, Math.round(averageGap * 0.25));
+    const overdueThreshold = Math.ceil(averageGap + tolerance);
+    const lastActiveIndex = activeIndexes[activeIndexes.length - 1].index;
+    const monthsSinceLastMeaningfulPurchase = normalized.allMonthKeys.length - 1 - lastActiveIndex;
     const calendarMonthCounts = activeIndexes.reduce<Record<string, number>>((acc, item) => {
       const monthPart = item.month.slice(5, 7);
       acc[monthPart] = (acc[monthPart] || 0) + 1;
       return acc;
     }, {});
     const repeatedCalendarMonthCount = Object.values(calendarMonthCounts).filter((count) => count >= 2).length;
-    const hasRegularInterval = gaps.length >= 2 && maxGap >= 3 && maxGap - minGap <= 1;
+    const hasRegularInterval = gaps.length >= 2 && averageGap >= 3 && maxDeviation <= Math.max(1, averageGap * 0.35);
+    const hasSparsePeriodicRhythm = activeRatio <= 0.4 && averageGap >= 3 && maxGap - minGap <= Math.max(2, tolerance + 1);
+    const isOverdue = monthsSinceLastMeaningfulPurchase > overdueThreshold;
     const score = clamp(
       Math.round(
         (1 - activeRatio) * 45 +
-        clamp(maxGap * 7, 0, 35) +
+        clamp(averageGap * 7, 0, 35) +
         repeatedCalendarMonthCount * 12 +
-        (hasRegularInterval ? 12 : 0)
+        (hasRegularInterval ? 15 : 0) +
+        (isOverdue ? 12 : 0)
       ),
       0,
       100
     );
-    const isSeasonal = activeRatio <= 0.35 && (maxGap >= 4 || repeatedCalendarMonthCount > 0 || hasRegularInterval) && score >= 55;
+    const isSeasonal = averageGap >= 3 &&
+      (hasRegularInterval || hasSparsePeriodicRhythm || repeatedCalendarMonthCount > 0) &&
+      score >= 50;
 
     let reason: string | null = null;
     if (isSeasonal) {
-      if (hasRegularInterval) {
-        reason = `Yaklasik ${maxGap} ayda bir alim ritmi var`;
+      if (isOverdue) {
+        reason = `Yaklasik ${roundedAverageGap} ayda bir alim ritmi var; son anlamli alimin uzerinden ${monthsSinceLastMeaningfulPurchase} ay gecti`;
+      } else if (hasRegularInterval || hasSparsePeriodicRhythm) {
+        reason = `Yaklasik ${roundedAverageGap} ayda bir alim ritmi var; ${monthsSinceLastMeaningfulPurchase} ay tolerans icinde`;
       } else if (repeatedCalendarMonthCount > 0) {
         reason = 'Benzer takvim aylarinda tekrar eden alim var';
       } else {
@@ -327,7 +388,15 @@ class CustomerRecoveryService {
       }
     }
 
-    return { isSeasonal, seasonalityScore: isSeasonal ? score : 0, seasonalityReason: reason };
+    return {
+      isSeasonal,
+      seasonalityScore: isSeasonal ? score : 0,
+      seasonalityReason: reason,
+      seasonalityStatus: isSeasonal ? (isOverdue ? 'OVERDUE' : 'ON_TRACK') as SeasonalityStatus : null,
+      averagePurchaseIntervalMonths: isSeasonal ? Number(averageGap.toFixed(1)) : null,
+      monthsSinceLastMeaningfulPurchase,
+      seasonalOverdueMonths: isSeasonal && isOverdue ? monthsSinceLastMeaningfulPurchase - overdueThreshold : null,
+    };
   }
 
   private async fetchMonthlySales(normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>, context?: RequestContext) {
@@ -654,7 +723,9 @@ class CustomerRecoveryService {
     if (row.overdueActionCount > 0) return 'Geciken takibi kapat ve sonucu notla';
     if (row.openQuoteCount > 0) return 'Acik teklifi telefonla takip et';
     if (row.openOrderCount > 0) return 'Acik siparisi kontrol et';
-    if (row.isSeasonal) return 'Donemsel alim takvimini teyit et';
+    if (row.seasonalityStatus === 'OVERDUE') return 'Donemsel alim periyodu asildi; ihale/talep takvimini ara';
+    if (row.isSeasonal) return 'Donemsel alim takvimini notla, kayip gibi takip etme';
+    if (row.purchasePattern === 'FREQUENT') return 'Eskiden sik alim yapan cariyi arama/ziyaret listesine al';
     if (row.riskType === 'NO_RECENT_SALES') {
       return row.topLostCategory
         ? `${row.topLostCategory.categoryName} kategorisi icin arama/ziyaret planla`
@@ -705,9 +776,12 @@ class CustomerRecoveryService {
       const historicalBuckets = normalized.baselineMonthKeys.map((month) => entry.months.get(month) || this.emptyBucket());
       const recentBuckets = normalized.recentMonthKeys.map((month) => entry.months.get(month) || this.emptyBucket());
       const meaningfulHistorical = historicalBuckets.filter((bucket) => bucket.amount >= normalized.minMeaningfulMonthlyAmount);
+      const historicalActiveFlags = historicalBuckets.map((bucket) => bucket.amount >= normalized.minMeaningfulMonthlyAmount);
       const historicalAmount = historicalBuckets.reduce((sum, bucket) => sum + bucket.amount, 0);
       const historicalDocumentCount = historicalBuckets.reduce((sum, bucket) => sum + bucket.documentCount, 0);
       const historicalActiveMonths = meaningfulHistorical.length;
+      const maxConsecutiveHistoricalActiveMonths = maxConsecutiveTrue(historicalActiveFlags);
+      const historicalActiveRatio = historicalActiveMonths / normalized.baselineMonths;
 
       if (historicalActiveMonths < normalized.minHistoricalActiveMonths) return;
       if (historicalAmount < normalized.minHistoricalAmount) return;
@@ -734,6 +808,11 @@ class CustomerRecoveryService {
         ? clamp(((seasonalAverage - recentAverage) / seasonalAverage) * 100, 0, 100)
         : null;
       const seasonality = this.calculateSeasonality(entry.months, normalized);
+      const purchasePattern: Exclude<PurchasePattern, 'ALL'> = seasonality.isSeasonal
+        ? 'PERIODIC'
+        : maxConsecutiveHistoricalActiveMonths >= 3 || historicalActiveRatio >= 0.55
+          ? 'FREQUENT'
+          : 'SPORADIC';
 
       const labels: string[] = [];
       let riskType: RiskType = 'WATCH';
@@ -750,7 +829,10 @@ class CustomerRecoveryService {
       if (seasonalDropPercent !== null && seasonalDropPercent >= normalized.minDropPercent) {
         labels.push('Gecen yilin ayni donemine gore dusuk');
       }
-      if (seasonality.isSeasonal) labels.push('Donemsel alim ritmi olabilir');
+      if (seasonality.isSeasonal) {
+        labels.push(seasonality.seasonalityStatus === 'OVERDUE' ? 'Donemsel ritim gecikmis' : 'Donemsel/ihale ritmi tolerans icinde');
+      }
+      if (purchasePattern === 'FREQUENT') labels.push('Eskiden sik alim yapan cari');
       if (historicalActiveMonths <= 2) labels.push('Dusuk guven: az aktif ay');
 
       if (riskType === 'WATCH' && (!seasonalDropPercent || seasonalDropPercent < normalized.minDropPercent)) {
@@ -808,6 +890,13 @@ class CustomerRecoveryService {
         isSeasonal: seasonality.isSeasonal,
         seasonalityScore: seasonality.seasonalityScore,
         seasonalityReason: seasonality.seasonalityReason,
+        seasonalityStatus: seasonality.seasonalityStatus,
+        averagePurchaseIntervalMonths: seasonality.averagePurchaseIntervalMonths,
+        monthsSinceLastMeaningfulPurchase: seasonality.monthsSinceLastMeaningfulPurchase,
+        seasonalOverdueMonths: seasonality.seasonalOverdueMonths,
+        purchasePattern,
+        maxConsecutiveHistoricalActiveMonths,
+        historicalActiveRatio,
         lostPotential,
         openQuoteCount: 0,
         openOrderCount: 0,
@@ -867,9 +956,12 @@ class CustomerRecoveryService {
       result = result.filter((row) => row.lostPotential >= normalized.minLostPotential);
     }
     if (normalized.seasonalityMode === 'exclude') {
-      result = result.filter((row) => !row.isSeasonal);
+      result = result.filter((row) => !row.isSeasonal || row.seasonalityStatus === 'OVERDUE');
     } else if (normalized.seasonalityMode === 'only') {
       result = result.filter((row) => row.isSeasonal);
+    }
+    if (normalized.purchasePattern !== 'ALL') {
+      result = result.filter((row) => row.purchasePattern === normalized.purchasePattern);
     }
 
     const direction = normalized.sortDirection === 'asc' ? 1 : -1;
@@ -994,6 +1086,7 @@ class CustomerRecoveryService {
         minMeaningfulMonthlyAmount: normalized.minMeaningfulMonthlyAmount,
         minLostPotential: normalized.minLostPotential,
         seasonalityMode: normalized.seasonalityMode,
+        purchasePattern: normalized.purchasePattern,
         includeCurrentMonth: normalized.includeCurrentMonth,
         baselineStartDate: formatDateKey(normalized.baselineStart),
         recentStartDate: formatDateKey(normalized.recentStart),
@@ -1020,19 +1113,19 @@ class CustomerRecoveryService {
     }
   }
 
-  private async notifyActionAssigned(action: any, actorId?: string | null) {
-    if (!action.assignedToId || action.assignedToId === actorId) return;
+  private async notifyActionAssigned(action: any) {
+    if (!action.assignedToId) return;
     await this.notifyUsers([action.assignedToId], {
       title: 'Cari geri kazanim aksiyonu atandi',
       body: `${this.getActionCustomerLabel(action)} icin ${action.actionType || 'takip'} aksiyonu atandi.`,
-      linkUrl: '/reports/customer-recovery',
+      linkUrl: '/reports/customer-recovery/actions',
     });
   }
 
   private async notifyActionUpdated(existing: any, action: any, input: any, actorId?: string | null) {
     const assignedChanged = input?.assignedToId !== undefined && existing.assignedToId !== action.assignedToId;
     if (assignedChanged) {
-      await this.notifyActionAssigned(action, actorId);
+      await this.notifyActionAssigned(action);
     }
 
     const statusChanged = input?.status !== undefined && existing.status !== action.status;
@@ -1047,7 +1140,7 @@ class CustomerRecoveryService {
     await this.notifyUsers([action.authorId, action.assignedToId].filter((userId) => userId && userId !== actorId), {
       title: 'Cari geri kazanim aksiyonu guncellendi',
       body: bodyParts.join(' '),
-      linkUrl: '/reports/customer-recovery',
+      linkUrl: '/reports/customer-recovery/actions',
     });
   }
 
@@ -1062,6 +1155,54 @@ class CustomerRecoveryService {
       orderBy: { createdAt: 'desc' },
     });
     return { actions };
+  }
+
+  async getAssignedActions(userId: string, query: any = {}) {
+    const status = String(query?.status || 'OPEN').trim().toUpperCase();
+    const search = String(query?.search || '').trim();
+    const dueOnly = Boolean(query?.dueOnly);
+    const page = Math.max(1, Math.floor(toNumber(query?.page, 1)));
+    const limit = clamp(Math.floor(toNumber(query?.limit, 50)), 1, 200);
+    const where: any = {
+      assignedToId: userId,
+      ...(status && status !== 'ALL' ? { status } : {}),
+      ...(dueOnly ? { status: 'OPEN', followUpDate: { lte: new Date() } } : {}),
+    };
+    if (search) {
+      where.OR = [
+        { customerCode: { contains: search, mode: 'insensitive' } },
+        { customerName: { contains: search, mode: 'insensitive' } },
+        { note: { contains: search, mode: 'insensitive' } },
+        { outcome: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [actions, totalRecords] = await prisma.$transaction([
+      prisma.customerRecoveryAction.findMany({
+        where,
+        include: {
+          author: { select: { id: true, name: true, email: true } },
+          assignedTo: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: [
+          { followUpDate: 'asc' },
+          { createdAt: 'desc' },
+        ],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.customerRecoveryAction.count({ where }),
+    ]);
+
+    return {
+      actions,
+      pagination: {
+        page,
+        limit,
+        totalPages: totalRecords > 0 ? Math.ceil(totalRecords / limit) : 0,
+        totalRecords,
+      },
+    };
   }
 
   async createAction(customerCode: string, input: any, authorId?: string) {
@@ -1089,7 +1230,7 @@ class CustomerRecoveryService {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
-    await this.notifyActionAssigned(action, authorId);
+    await this.notifyActionAssigned(action);
     return { action };
   }
 
@@ -1149,13 +1290,11 @@ class CustomerRecoveryService {
         snapshot: input?.snapshotByCustomer?.[customerCode] || undefined,
       })),
     });
-    if (assignedToId !== authorId) {
-      await this.notifyUsers([assignedToId], {
-        title: 'Cari geri kazanim takipleri atandi',
-        body: `${customerCodes.length} cari icin takip aksiyonu atandi.`,
-        linkUrl: '/reports/customer-recovery',
-      });
-    }
+    await this.notifyUsers([assignedToId], {
+      title: 'Cari geri kazanim takipleri atandi',
+      body: `${customerCodes.length} cari icin takip aksiyonu atandi.`,
+      linkUrl: '/reports/customer-recovery/actions',
+    });
     return { createdCount: customerCodes.length };
   }
 
@@ -1280,6 +1419,10 @@ class CustomerRecoveryService {
       'Kayip Urun': row.topLostProduct?.productName || '',
       'Son Alinan Urun': row.lastPurchasedProduct?.productName || '',
       'Onerilen Aksiyon': row.recommendedAction || '',
+      'Alim Ritmi': row.purchasePattern,
+      'Ortalama Alim Araligi Ay': row.averagePurchaseIntervalMonths || '',
+      'Son Anlamli Alimdan Gecen Ay': row.monthsSinceLastMeaningfulPurchase ?? '',
+      'Donemsel Durum': row.seasonalityStatus || '',
       'Acik Teklif': row.openQuoteCount,
       'Acik Siparis': row.openOrderCount,
       'Bakiye': row.balance,

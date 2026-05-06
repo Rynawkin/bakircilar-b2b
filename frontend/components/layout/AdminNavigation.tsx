@@ -91,6 +91,7 @@ const navItems: NavItem[] = [
       'reports:top-customers',
       'reports:supplier-price-lists',
       'reports:complement-missing',
+      'reports:customer-recovery',
       'reports:ucarer-depo',
       'reports:ucarer-minmax',
     ],
@@ -171,7 +172,7 @@ export function AdminNavigation() {
   useEffect(() => {
     if (!user) return;
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000);
+    const interval = setInterval(fetchNotifications, 15000);
     return () => clearInterval(interval);
   }, [user?.id]);
 

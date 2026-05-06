@@ -385,9 +385,9 @@ router.post('/tasks/:id/links', requirePermission('admin:requests'), validateBod
 router.delete('/tasks/:id/links/:linkId', requirePermission('admin:requests'), taskController.deleteLink);
 
 // Notifications
-router.get('/notifications', requirePermission('admin:notifications'), notificationController.getNotifications);
-router.post('/notifications/read', requirePermission('admin:notifications'), validateBody(notificationReadSchema), notificationController.markRead);
-router.post('/notifications/read-all', requirePermission('admin:notifications'), notificationController.markAllRead);
+router.get('/notifications', notificationController.getNotifications);
+router.post('/notifications/read', validateBody(notificationReadSchema), notificationController.markRead);
+router.post('/notifications/read-all', notificationController.markAllRead);
 router.post('/notifications/push/register', validateBody(pushTokenSchema), notificationController.registerPushToken);
 router.post('/notifications/push/unregister', validateBody(z.object({ token: z.string().min(1) })), notificationController.unregisterPushToken);
 router.post('/notifications/push/test', requirePermission('admin:notifications'), validateBody(testPushSchema), notificationController.sendTestPush);
@@ -468,6 +468,7 @@ router.get('/reports/category-opportunity', requirePermission('reports:complemen
 router.get('/reports/customer-recovery', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryReport);
 router.get('/reports/customer-recovery/export', requirePermission('reports:customer-recovery'), adminController.exportCustomerRecoveryReport);
 router.post('/reports/customer-recovery/bulk-assign', requirePermission('reports:customer-recovery'), adminController.bulkAssignCustomerRecovery);
+router.get('/reports/customer-recovery/actions/assigned', requirePermission('reports:customer-recovery'), adminController.getAssignedCustomerRecoveryActions);
 router.patch('/reports/customer-recovery/actions/:id', requirePermission('reports:customer-recovery'), adminController.updateCustomerRecoveryAction);
 router.get('/reports/customer-recovery/:customerCode/detail', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryDetail);
 router.get('/reports/customer-recovery/:customerCode/actions', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryActions);
