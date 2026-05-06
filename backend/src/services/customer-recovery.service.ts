@@ -173,6 +173,7 @@ const median = (values: number[]) => {
 };
 
 const parseBoolean = (value?: boolean) => Boolean(value);
+const parseLooseBoolean = (value: any) => value === true || value === 1 || String(value || '').toLowerCase() === 'true';
 
 class CustomerRecoveryService {
   private normalizeOptions(options: ReportOptions) {
@@ -1160,7 +1161,7 @@ class CustomerRecoveryService {
   async getAssignedActions(userId: string, query: any = {}) {
     const status = String(query?.status || 'OPEN').trim().toUpperCase();
     const search = String(query?.search || '').trim();
-    const dueOnly = Boolean(query?.dueOnly);
+    const dueOnly = parseLooseBoolean(query?.dueOnly);
     const page = Math.max(1, Math.floor(toNumber(query?.page, 1)));
     const limit = clamp(Math.floor(toNumber(query?.limit, 50)), 1, 200);
     const where: any = {

@@ -45,7 +45,7 @@ export default function AssignedCustomerRecoveryActionsPage() {
       const result = await adminApi.getAssignedCustomerRecoveryActions({
         status,
         search: search.trim() || undefined,
-        dueOnly,
+        dueOnly: dueOnly || undefined,
         page: requestedPage,
         limit: 50,
       });
