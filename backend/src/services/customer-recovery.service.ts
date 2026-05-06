@@ -254,6 +254,32 @@ class CustomerRecoveryService {
     return [...conditions, ...extra];
   }
 
+  private async resolveCandidateCustomerCodes(
+    normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>,
+    context?: RequestContext
+  ) {
+    if (normalized.customerCode) return [normalized.customerCode];
+
+    const assignedSectorCodes = (context?.role === 'SALES_REP' ? context?.assignedSectorCodes || [] : [])
+      .map(normalizeCode)
+      .filter(Boolean);
+    if (context?.role === 'SALES_REP' && assignedSectorCodes.length === 0) return [];
+
+    const customers = await prisma.user.findMany({
+      where: {
+        role: UserRole.CUSTOMER,
+        mikroCariCode: { not: null },
+        ...(normalized.sectorCode ? { sectorCode: normalized.sectorCode } : {}),
+        ...(context?.role === 'SALES_REP' ? { sectorCode: { in: assignedSectorCodes } } : {}),
+      },
+      select: { mikroCariCode: true },
+    });
+
+    return Array.from(
+      new Set(customers.map((customer) => normalizeCode(customer.mikroCariCode)).filter(Boolean))
+    );
+  }
+
   private calculateSeasonality(
     entryMonths: Map<string, MonthlyBucket>,
     normalized: ReturnType<CustomerRecoveryService['normalizeOptions']>
@@ -309,37 +335,45 @@ class CustomerRecoveryService {
       await connect.call(mikroService);
     }
     const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
-    const extra = [
-      `sth.sth_tarih >= '${formatDateCompact(normalized.baselineStart)}'`,
-      `sth.sth_tarih <= '${formatDateCompact(normalized.queryEnd)}'`,
-      ...exclusionConditions,
-    ];
-    if (normalized.customerCode) {
-      extra.push(`RTRIM(sth.sth_cari_kodu) = '${escapeSqlLiteral(normalized.customerCode)}'`);
-    }
-    if (normalized.sectorCode) {
-      extra.push(`RTRIM(c.cari_sektor_kodu) = '${escapeSqlLiteral(normalized.sectorCode)}'`);
+    const candidateCodes = await this.resolveCandidateCustomerCodes(normalized, context);
+    if (candidateCodes.length === 0) return [];
+
+    const rows: any[] = [];
+    for (const chunk of chunkArray(candidateCodes, 150)) {
+      const customerList = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+      const extra = [
+        `sth.sth_tarih >= '${formatDateCompact(normalized.baselineStart)}'`,
+        `sth.sth_tarih <= '${formatDateCompact(normalized.queryEnd)}'`,
+        `RTRIM(sth.sth_cari_kodu) IN (${customerList})`,
+        ...exclusionConditions,
+      ];
+      if (normalized.sectorCode) {
+        extra.push(`RTRIM(c.cari_sektor_kodu) = '${escapeSqlLiteral(normalized.sectorCode)}'`);
+      }
+
+      const whereClause = this.buildBaseWhere(extra, context).join(' AND ');
+      const query = `
+        SELECT
+          RTRIM(sth.sth_cari_kodu) as customerCode,
+          MAX(NULLIF(LTRIM(RTRIM(ISNULL(c.cari_unvan1, '') + ' ' + ISNULL(c.cari_unvan2, ''))), '')) as customerName,
+          MAX(RTRIM(c.cari_sektor_kodu)) as sectorCode,
+          CONVERT(char(7), sth.sth_tarih, 120) as monthKey,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as amount,
+          SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as quantity,
+          COUNT(DISTINCT RTRIM(sth.sth_evrakno_seri) + '-' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))) as documentCount,
+          MAX(sth.sth_tarih) as lastSaleDate
+        FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+        LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON sth.sth_cari_kodu = c.cari_kod
+        LEFT JOIN STOKLAR st WITH (NOLOCK) ON sth.sth_stok_kod = st.sto_kod
+        WHERE ${whereClause}
+        GROUP BY sth.sth_cari_kodu, CONVERT(char(7), sth.sth_tarih, 120)
+      `;
+
+      const chunkRows = await mikroService.executeQuery(query);
+      rows.push(...chunkRows);
     }
 
-    const whereClause = this.buildBaseWhere(extra, context).join(' AND ');
-    const query = `
-      SELECT
-        RTRIM(sth.sth_cari_kodu) as customerCode,
-        MAX(NULLIF(LTRIM(RTRIM(ISNULL(c.cari_unvan1, '') + ' ' + ISNULL(c.cari_unvan2, ''))), '')) as customerName,
-        MAX(RTRIM(c.cari_sektor_kodu)) as sectorCode,
-        CONVERT(char(7), sth.sth_tarih, 120) as monthKey,
-        SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as amount,
-        SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END) as quantity,
-        COUNT(DISTINCT RTRIM(sth.sth_evrakno_seri) + '-' + CAST(sth.sth_evrakno_sira AS VARCHAR(30))) as documentCount,
-        MAX(sth.sth_tarih) as lastSaleDate
-      FROM STOK_HAREKETLERI sth
-      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
-      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-      WHERE ${whereClause}
-      GROUP BY sth.sth_cari_kodu, CONVERT(char(7), sth.sth_tarih, 120)
-    `;
-
-    return mikroService.executeQuery(query);
+    return rows;
   }
 
   private async attachLocalMetadata(rows: RecoveryRow[]) {
@@ -528,9 +562,9 @@ class CustomerRecoveryService {
             ELSE 0
           END) as recentAmount,
           SUM(CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END) as totalAmount
-        FROM STOK_HAREKETLERI sth
-        LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-        LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+        FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+        LEFT JOIN STOKLAR st WITH (NOLOCK) ON sth.sth_stok_kod = st.sto_kod
+        LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON sth.sth_cari_kodu = c.cari_kod
         WHERE ${baseWhere}
         GROUP BY sth.sth_cari_kodu, sth.sth_stok_kod
       `);
@@ -1096,9 +1130,9 @@ class CustomerRecoveryService {
         MAX(sth.sth_tarih) as lastPurchaseDate,
         SUM(CASE WHEN sth.sth_tarih < '${formatDateCompact(normalized.recentStart)}' THEN ISNULL(sth.sth_tutar, 0) ELSE 0 END) as historicalAmount,
         SUM(CASE WHEN sth.sth_tarih >= '${formatDateCompact(normalized.recentStart)}' THEN ISNULL(sth.sth_tutar, 0) ELSE 0 END) as recentAmount
-      FROM STOK_HAREKETLERI sth
-      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
-      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
+      FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+      LEFT JOIN STOKLAR st WITH (NOLOCK) ON sth.sth_stok_kod = st.sto_kod
+      LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON sth.sth_cari_kodu = c.cari_kod
       WHERE ${baseWhere}
       GROUP BY sth.sth_stok_kod
     `);
@@ -1145,9 +1179,9 @@ class CustomerRecoveryService {
         MAX(sth.sth_tarih) as documentDate,
         SUM(ISNULL(sth.sth_tutar, 0)) as amount,
         COUNT(*) as lineCount
-      FROM STOK_HAREKETLERI sth
-      LEFT JOIN CARI_HESAPLAR c ON sth.sth_cari_kodu = c.cari_kod
-      LEFT JOIN STOKLAR st ON sth.sth_stok_kod = st.sto_kod
+      FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+      LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON sth.sth_cari_kodu = c.cari_kod
+      LEFT JOIN STOKLAR st WITH (NOLOCK) ON sth.sth_stok_kod = st.sto_kod
       WHERE ${baseWhere}
       GROUP BY sth.sth_evrakno_seri, sth.sth_evrakno_sira
       ORDER BY MAX(sth.sth_tarih) DESC
