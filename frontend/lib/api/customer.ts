@@ -49,6 +49,22 @@ export const customerApi = {
     const response = await apiClient.get(`/products/${id}/recommendations`);
     return response.data;
   },
+  reportProductImageIssue: async (
+    id: string,
+    data?: { note?: string }
+  ): Promise<{
+    report: {
+      id: string;
+      productCode: string;
+      productName: string;
+      status: 'OPEN' | 'REVIEWED' | 'FIXED';
+      createdAt: string;
+    };
+    alreadyReported: boolean;
+  }> => {
+    const response = await apiClient.post(`/products/${id}/report-image-issue`, data || {});
+    return response.data;
+  },
 
   getCartRecommendations: async (): Promise<{ groups: Array<{ baseProduct: { id: string; name: string; mikroCode: string }; products: Product[] }> }> => {
     const response = await apiClient.get('/recommendations/cart');

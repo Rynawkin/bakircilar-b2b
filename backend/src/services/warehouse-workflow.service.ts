@@ -1816,6 +1816,107 @@ class WarehouseWorkflowService {
     };
   }
 
+  async reportProductImageIssue(
+    productId: string,
+    payload: { userId?: string; note?: string }
+  ) {
+    const normalizedProductId = normalizeCode(productId);
+    const normalizedUserId = normalizeCode(payload.userId);
+    const normalizedNote = normalizeCode(payload.note) || 'Musteri urun detayindan resim hatasi bildirdi';
+
+    if (!normalizedProductId) {
+      throw new Error('Urun kimligi gerekli');
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { id: normalizedProductId },
+      select: {
+        id: true,
+        name: true,
+        mikroCode: true,
+        imageUrl: true,
+        active: true,
+      },
+    });
+
+    if (!product || !product.active) {
+      throw new Error('Urun bulunamadi');
+    }
+
+    const sourceOrderNo = 'CUSTOMER_PRODUCT_DETAIL';
+    const lineKey = `PRODUCT:${product.id}`;
+
+    const existingOpenReport = await prisma.warehouseImageIssueReport.findFirst({
+      where: {
+        mikroOrderNumber: sourceOrderNo,
+        lineKey,
+        status: 'OPEN',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existingOpenReport) {
+      return {
+        report: existingOpenReport,
+        alreadyReported: true,
+      };
+    }
+
+    const [reporterName, user] = await Promise.all([
+      this.resolveUserLabel(normalizedUserId || null),
+      normalizedUserId
+        ? prisma.user.findUnique({
+            where: { id: normalizedUserId },
+            select: {
+              mikroCariCode: true,
+              displayName: true,
+              mikroName: true,
+              name: true,
+              parentCustomer: {
+                select: {
+                  mikroCariCode: true,
+                  displayName: true,
+                  mikroName: true,
+                  name: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const customer = user?.parentCustomer || user;
+    const customerCode = normalizeCode(customer?.mikroCariCode) || null;
+    const customerName =
+      normalizeCode(customer?.displayName) ||
+      normalizeCode(customer?.mikroName) ||
+      normalizeCode(customer?.name) ||
+      null;
+
+    const created = await prisma.warehouseImageIssueReport.create({
+      data: {
+        mikroOrderNumber: sourceOrderNo,
+        orderSeries: 'CUSTOMER',
+        customerCode,
+        customerName,
+        lineKey,
+        rowNumber: null,
+        productCode: product.mikroCode,
+        productName: product.name,
+        imageUrl: product.imageUrl || null,
+        note: normalizedNote,
+        status: 'OPEN',
+        reporterUserId: normalizedUserId || null,
+        reporterName,
+      },
+    });
+
+    return {
+      report: created,
+      alreadyReported: false,
+    };
+  }
+
   async getImageIssueReports(params?: {
     status?: ImageIssueStatus | 'ALL';
     search?: string;

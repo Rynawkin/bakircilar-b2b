@@ -20,6 +20,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
 import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
+import { ProductNameTooltip } from '@/components/customer/ProductNameTooltip';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
@@ -684,9 +685,9 @@ export default function ProductsPage() {
                             href={`/products/${product.id}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-sm font-semibold text-gray-900 leading-snug hover:text-primary-600 transition-colors line-clamp-2"
+                            className="text-sm font-semibold text-gray-900 leading-snug hover:text-primary-600 transition-colors"
                           >
-                            {product.name}
+                            <ProductNameTooltip name={product.name} />
                           </Link>
 
                           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
@@ -906,9 +907,10 @@ export default function ProductsPage() {
                     {(cartItems || []).map((item) => (
                       <div key={item.id} className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
                         <div className="flex items-start justify-between gap-1 mb-1.5">
-                          <span className="text-xs font-semibold text-gray-900 leading-snug flex-1 line-clamp-2">
-                            {item.product.name}
-                          </span>
+                          <ProductNameTooltip
+                            name={item.product.name}
+                            className="flex-1 text-xs font-semibold text-gray-900 leading-snug"
+                          />
                           <button
                             onClick={async () => {
                               const confirmed = await new Promise((resolve) => {

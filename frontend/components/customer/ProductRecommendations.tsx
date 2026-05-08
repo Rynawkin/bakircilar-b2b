@@ -5,6 +5,7 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
+import { ProductNameTooltip } from './ProductNameTooltip';
 
 interface ProductRecommendationsProps {
   products: Product[];
@@ -85,8 +86,8 @@ export function ProductRecommendations({
 
                 {/* Product Info */}
                 <div className="px-2 pb-2">
-                  <h4 className="font-semibold text-gray-900 text-xs line-clamp-2 leading-tight mb-1 min-h-[32px]">
-                    {product.name}
+                  <h4 className="font-semibold text-gray-900 text-xs leading-tight mb-1 min-h-[32px]">
+                    <ProductNameTooltip name={product.name} />
                   </h4>
                   <div className="space-y-1">
                     {resolvedPriceTypes.includes('INVOICED') && (

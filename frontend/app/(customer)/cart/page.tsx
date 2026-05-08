@@ -30,6 +30,7 @@ export default function CartPage() {
   const { cart, fetchCart, removeItem, updateQuantity, updateItemNote, addToCart } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
+  const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>({});
   const [customerOrderNumber, setCustomerOrderNumber] = useState('');
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const [recommendationGroups, setRecommendationGroups] = useState<RecommendationGroup[]>([]);
@@ -51,10 +52,13 @@ export default function CartPage() {
   useEffect(() => {
     if (!cart?.items) return;
     const nextNotes: Record<string, string> = {};
+    const nextQuantities: Record<string, string> = {};
     cart.items.forEach((item) => {
       nextNotes[item.id] = item.lineNote || '';
+      nextQuantities[item.id] = String(item.quantity);
     });
     setLineNotes(nextNotes);
+    setQuantityInputs(nextQuantities);
   }, [cart?.items]);
 
   const cartSignature = useMemo(() => {
@@ -119,7 +123,22 @@ export default function CartPage() {
 
   const handleQuantityChange = async (itemId: string, newQuantity: number) => {
     if (newQuantity < 1) return;
+    setQuantityInputs((prev) => ({ ...prev, [itemId]: String(newQuantity) }));
     await updateQuantity(itemId, newQuantity);
+  };
+
+  const handleQuantityInputChange = (itemId: string, value: string) => {
+    const sanitized = value.replace(/[^0-9]/g, '');
+    setQuantityInputs((prev) => ({ ...prev, [itemId]: sanitized }));
+  };
+
+  const commitQuantityInput = async (itemId: string, currentQuantity: number) => {
+    const rawValue = quantityInputs[itemId] ?? String(currentQuantity);
+    const parsed = parseInt(rawValue, 10);
+    const nextQuantity = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    setQuantityInputs((prev) => ({ ...prev, [itemId]: String(nextQuantity) }));
+    if (nextQuantity === currentQuantity) return;
+    await handleQuantityChange(itemId, nextQuantity);
   };
 
   const handleLineNoteChange = (itemId: string, value: string) => {
@@ -273,7 +292,22 @@ Siparis No: ${result.orderNumber}`, {
                                   >
                                     -
                                   </button>
-                                  <span className="w-12 text-center font-bold text-base">{item.quantity}</span>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={quantityInputs[item.id] ?? String(item.quantity)}
+                                    onFocus={(event) => event.target.select()}
+                                    onChange={(event) => handleQuantityInputChange(item.id, event.target.value)}
+                                    onBlur={() => void commitQuantityInput(item.id, item.quantity)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') {
+                                        event.currentTarget.blur();
+                                      }
+                                    }}
+                                    className="h-9 w-14 rounded-md border border-gray-200 bg-white text-center text-base font-bold text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                                    aria-label={`${item.product.name} miktari`}
+                                  />
                                   <button
                                     onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
                                     className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
@@ -393,7 +427,22 @@ Siparis No: ${result.orderNumber}`, {
                                   >
                                     -
                                   </button>
-                                  <span className="w-12 text-center font-bold text-base">{item.quantity}</span>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={quantityInputs[item.id] ?? String(item.quantity)}
+                                    onFocus={(event) => event.target.select()}
+                                    onChange={(event) => handleQuantityInputChange(item.id, event.target.value)}
+                                    onBlur={() => void commitQuantityInput(item.id, item.quantity)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') {
+                                        event.currentTarget.blur();
+                                      }
+                                    }}
+                                    className="h-9 w-14 rounded-md border border-gray-200 bg-white text-center text-base font-bold text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                                    aria-label={`${item.product.name} miktari`}
+                                  />
                                   <button
                                     onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
                                     className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"

@@ -82,6 +82,10 @@ const testPushSchema = z.object({
   linkUrl: z.string().max(500).optional(),
 });
 
+const productImageIssueSchema = z.object({
+  note: z.string().max(500).optional().nullable(),
+});
+
 const customerActivityEventSchema = z.object({
   type: z.enum([
     'PAGE_VIEW',
@@ -150,6 +154,11 @@ router.get(
     },
   }),
   customerController.getProductRecommendations
+);
+router.post(
+  '/products/:id/report-image-issue',
+  validateBody(productImageIssueSchema),
+  customerController.reportProductImageIssue
 );
 
 // Categories (with cache - 30 minutes TTL)

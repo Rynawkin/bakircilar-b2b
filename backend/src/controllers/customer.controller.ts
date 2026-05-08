@@ -11,6 +11,7 @@ import mikroService from '../services/mikroFactory.service';
 import orderService from '../services/order.service';
 import productComplementService from '../services/product-complement.service';
 import customerActivityService from '../services/customer-activity.service';
+import warehouseWorkflowService from '../services/warehouse-workflow.service';
 import exclusionService from '../services/exclusion.service';
 import { splitSearchTokens } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
@@ -1375,6 +1376,21 @@ export class CustomerController {
       });
     } catch (error) {
       next(error);
+    }
+  }
+
+  async reportProductImageIssue(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = await warehouseWorkflowService.reportProductImageIssue(id, {
+        userId: req.user?.userId,
+        note: req.body?.note,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      const status = error.message?.includes('bulunamadi') ? 404 : error.message?.includes('gerekli') ? 400 : 500;
+      res.status(status).json({ error: error.message || 'Resim hatasi bildirilemedi' });
     }
   }
 

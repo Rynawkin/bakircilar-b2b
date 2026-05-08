@@ -32,6 +32,8 @@ export default function ProductDetailPage() {
   const [recommendations, setRecommendations] = useState<Product[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [isReportingImageIssue, setIsReportingImageIssue] = useState(false);
+  const [imageIssueReported, setImageIssueReported] = useState(false);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -85,6 +87,7 @@ export default function ProductDetailPage() {
       const data = await customerApi.getProductById(id);
       setProduct(data);
       setIsZoomed(false);
+      setImageIssueReported(false);
       setQuantity(1);
     } catch (error) {
       console.error('Urun yukleme hatasi:', error);
@@ -151,6 +154,24 @@ export default function ProductDetailPage() {
       toast.success('Urun sepete eklendi!');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Sepete eklenirken hata olustu');
+    }
+  };
+
+  const handleReportImageIssue = async () => {
+    if (!product) return;
+    setIsReportingImageIssue(true);
+    try {
+      const result = await customerApi.reportProductImageIssue(product.id);
+      setImageIssueReported(true);
+      toast.success(
+        result.alreadyReported
+          ? 'Bu urun icin acik resim hata talebi zaten var'
+          : 'Resim hata talebi gonderildi'
+      );
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Resim hata talebi gonderilemedi');
+    } finally {
+      setIsReportingImageIssue(false);
     }
   };
 
@@ -341,6 +362,23 @@ export default function ProductDetailPage() {
                       )}
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={handleReportImageIssue}
+                    disabled={imageIssueReported || isReportingImageIssue}
+                    className={`w-full rounded-xl border px-3 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                      imageIssueReported
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                        : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                    }`}
+                  >
+                    {isReportingImageIssue
+                      ? 'Bildiriliyor...'
+                      : imageIssueReported
+                      ? 'Resim hatasi bildirildi'
+                      : 'Resim hatasi bildir'}
+                  </button>
                 </div>
 
                 <div className="space-y-5">

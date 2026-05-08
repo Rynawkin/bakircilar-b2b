@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { Product } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { formatCurrency } from '@/lib/utils/format';
@@ -36,6 +37,8 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
   const [priceType, setPriceType] = useState<'INVOICED' | 'WHITE'>(defaultPriceType);
   const [isZoomed, setIsZoomed] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [isReportingImageIssue, setIsReportingImageIssue] = useState(false);
+  const [imageIssueReported, setImageIssueReported] = useState(false);
   const [recommendations, setRecommendations] = useState<Product[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
 
@@ -44,6 +47,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
     setQuantity(1);
     setPriceType(defaultPriceType);
     setIsZoomed(false);
+    setImageIssueReported(false);
     setRecommendations([]);
   }, [product]);
 
@@ -167,6 +171,24 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
   const handleRecommendationClick = (item: Product) => {
     onClose();
     router.push(`/products/${item.id}`);
+  };
+
+  const handleReportImageIssue = async () => {
+    if (!product) return;
+    setIsReportingImageIssue(true);
+    try {
+      const result = await customerApi.reportProductImageIssue(product.id);
+      setImageIssueReported(true);
+      toast.success(
+        result.alreadyReported
+          ? 'Bu urun icin acik resim hata talebi zaten var'
+          : 'Resim hata talebi gonderildi'
+      );
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Resim hata talebi gonderilemedi');
+    } finally {
+      setIsReportingImageIssue(false);
+    }
   };
 
   if (!isOpen || !product) return null;
@@ -297,6 +319,23 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                 {isZoomed ? 'Kucultmek icin tiklayin' : 'Buyutmek icin tiklayin'}
               </p>
             )}
+
+            <button
+              type="button"
+              onClick={handleReportImageIssue}
+              disabled={imageIssueReported || isReportingImageIssue}
+              className={`w-full rounded-xl border px-3 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                imageIssueReported
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                  : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+              }`}
+            >
+              {isReportingImageIssue
+                ? 'Bildiriliyor...'
+                : imageIssueReported
+                ? 'Resim hatasi bildirildi'
+                : 'Resim hatasi bildir'}
+            </button>
 
             {/* Warehouse Stock Breakdown */}
             {warehouseEntries.length > 0 && (

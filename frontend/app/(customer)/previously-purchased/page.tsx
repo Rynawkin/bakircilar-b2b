@@ -14,6 +14,7 @@ import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilt
 import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
 import { CustomerCategorySidebar } from '@/components/customer/CustomerCategorySidebar';
 import { CustomerCartSidebar } from '@/components/customer/CustomerCartSidebar';
+import { ProductNameTooltip } from '@/components/customer/ProductNameTooltip';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
@@ -574,10 +575,10 @@ export default function PreviouslyPurchasedPage() {
 
                           <div className="min-h-[60px] px-3">
                             <button
-                              className="line-clamp-2 text-left text-sm font-semibold text-gray-900 hover:text-primary-700"
+                              className="text-left text-sm font-semibold text-gray-900 hover:text-primary-700"
                               onClick={() => openProductModal(product)}
                             >
-                              {product.name}
+                              <ProductNameTooltip name={product.name} />
                             </button>
                             <div className="mt-1 text-xs text-gray-500">Kod: {product.mikroCode}</div>
                             <div className="mt-1 text-xs text-gray-500">Kategori: {product.category.name}</div>
