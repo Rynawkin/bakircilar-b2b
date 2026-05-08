@@ -76,11 +76,14 @@ interface IncomingOrderDetailRow {
 }
 
 interface ProductSalesHistoryRow {
+  lineGuid?: string;
   customerCode: string;
   customerName: string;
   documentSeries: string;
   documentSequence: number;
   documentLineNo: number;
+  stockResponsibilityCenter?: string;
+  customerResponsibilityCenter?: string;
   saleDate: string | null;
   quantity: number;
   unitPrice: number;
@@ -285,6 +288,7 @@ export default function UcarerDepotReportPage() {
   const [salesHistoryViewMode, setSalesHistoryViewMode] = useState<SalesHistoryViewMode>('minmax');
   const [salesHistoryLookbackMonths, setSalesHistoryLookbackMonths] = useState(4);
   const [salesHistoryRows, setSalesHistoryRows] = useState<ProductSalesHistoryRow[]>([]);
+  const [markingTopluLineKey, setMarkingTopluLineKey] = useState('');
   const [salesHistorySort, setSalesHistorySort] = useState<SalesHistorySortState>({
     key: 'saleDate',
     direction: 'desc',
@@ -1283,6 +1287,39 @@ export default function UcarerDepotReportPage() {
       );
     } finally {
       setSalesHistoryLoading(false);
+    }
+  };
+
+  const markSalesHistoryLineAsToplu = async (row: ProductSalesHistoryRow) => {
+    const productCode = String(salesHistoryProductCode || '').trim().toUpperCase();
+    if (!productCode || salesHistoryViewMode !== 'minmax') return;
+    if (!row.lineGuid) {
+      toast.error('Satir kimligi bulunamadi, islem yapilamadi');
+      return;
+    }
+
+    const lineKey = row.lineGuid || `${row.documentSeries}-${row.documentSequence}-${row.documentLineNo}`;
+    const documentNo = `${row.documentSeries}-${row.documentSequence}`;
+    const confirmed = window.confirm(
+      `${documentNo} evrakindaki ${productCode} satirinin stok sorumluluk merkezini TOPLU yapmak istiyor musunuz?\n\nSadece bu evraktaki bu satir guncellenecek.`
+    );
+    if (!confirmed) return;
+
+    setMarkingTopluLineKey(lineKey);
+    try {
+      const response = await adminApi.markUcarerSalesLineAsToplu({
+        productCode,
+        lineGuid: row.lineGuid,
+        documentSeries: row.documentSeries,
+        documentSequence: row.documentSequence,
+        documentLineNo: row.documentLineNo,
+      });
+      toast.success(response.data?.alreadyToplu ? 'Satir zaten TOPLU olarak isaretli' : 'Satir TOPLU yapildi');
+      await openSalesHistoryModal(productCode, 'minmax');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Satir TOPLU yapilamadi');
+    } finally {
+      setMarkingTopluLineKey('');
     }
   };
   const reassignPendingSupplierForProduct = (fromSupplierCode: string, productCode: string, newSupplierCodeInput: string) => {
@@ -3586,22 +3623,28 @@ export default function UcarerDepotReportPage() {
                       <th className="px-2 py-2 text-right cursor-pointer" onClick={() => setSalesHistorySort((prev) => updateSalesHistorySort(prev, 'totalAmount'))}>
                         Tutar (TL){salesSortIndicator('totalAmount')}
                       </th>
+                      <th className="px-2 py-2 text-left">Srm</th>
+                      {salesHistoryViewMode === 'minmax' && <th className="px-2 py-2 text-left">Islem</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {salesHistoryLoading ? (
                       <tr>
-                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Yukleniyor...</td>
+                        <td colSpan={salesHistoryViewMode === 'minmax' ? 9 : 8} className="px-2 py-6 text-center text-gray-500">Yukleniyor...</td>
                       </tr>
                     ) : salesHistoryRows.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">
+                        <td colSpan={salesHistoryViewMode === 'minmax' ? 9 : 8} className="px-2 py-6 text-center text-gray-500">
                           Son {salesHistoryLookbackMonths} ayda {salesHistoryViewMode === 'recentCustomers' ? 'alis' : 'satis'} kaydi bulunamadi.
                         </td>
                       </tr>
                     ) : (
                       salesHistoryRowsSorted.map((row, index) => {
                         const documentNo = [row.documentSeries || '-', row.documentSequence].join('-');
+                        const stockSrm = String(row.stockResponsibilityCenter || '').trim().toUpperCase();
+                        const lineKey = row.lineGuid || `${row.documentSeries}-${row.documentSequence}-${row.documentLineNo}-${index}`;
+                        const isMarkingToplu = markingTopluLineKey === lineKey;
+                        const isToplu = stockSrm === 'TOPLU';
                         return (
                           <tr key={`${row.documentSeries}-${row.documentSequence}-${row.documentLineNo}-${index}`} className="border-t">
                             <td className="px-2 py-2">{row.customerCode || '-'}</td>
@@ -3611,6 +3654,23 @@ export default function UcarerDepotReportPage() {
                             <td className="px-2 py-2 text-right">{Number(row.quantity || 0).toLocaleString('tr-TR')}</td>
                             <td className="px-2 py-2 text-right">{Number(row.unitPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td className="px-2 py-2 text-right font-semibold">{Number(row.totalAmount || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className="px-2 py-2">
+                              <span className={`rounded px-2 py-1 text-[11px] font-semibold ${isToplu ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`}>
+                                {stockSrm || '-'}
+                              </span>
+                            </td>
+                            {salesHistoryViewMode === 'minmax' && (
+                              <td className="px-2 py-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!row.lineGuid || isToplu || isMarkingToplu || salesHistoryLoading}
+                                  onClick={() => markSalesHistoryLineAsToplu(row)}
+                                >
+                                  {isMarkingToplu ? 'Yapiliyor...' : isToplu ? 'TOPLU' : 'Toplu yap'}
+                                </Button>
+                              </td>
+                            )}
                           </tr>
                         );
                       })

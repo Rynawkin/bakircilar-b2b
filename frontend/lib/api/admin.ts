@@ -2562,11 +2562,14 @@ export const adminApi = {
     data: {
       productCode: string;
       rows: Array<{
+        lineGuid: string;
         customerCode: string;
         customerName: string;
         documentSeries: string;
         documentSequence: number;
         documentLineNo: number;
+        stockResponsibilityCenter: string;
+        customerResponsibilityCenter: string;
         saleDate: string | null;
         quantity: number;
         unitPrice: number;
@@ -2586,6 +2589,32 @@ export const adminApi = {
     const queryParams = new URLSearchParams();
     queryParams.append('productCode', productCode);
     const response = await apiClient.get(`/admin/reports/ucarer-product-sales-history?${queryParams.toString()}`);
+    return response.data;
+  },
+  markUcarerSalesLineAsToplu: async (data: {
+    productCode: string;
+    lineGuid: string;
+    documentSeries: string;
+    documentSequence: number;
+    documentLineNo: number;
+  }): Promise<{
+    success: boolean;
+    data: {
+      updated: boolean;
+      alreadyToplu: boolean;
+      line: {
+        lineGuid: string;
+        productCode: string;
+        documentSeries: string;
+        documentSequence: number;
+        documentLineNo: number;
+        previousStockResponsibilityCenter: string;
+        stockResponsibilityCenter: string;
+        customerResponsibilityCenter: string;
+      };
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/ucarer-product-sales-history/mark-toplu', data);
     return response.data;
   },
   getUcarerProductPurchaseHistory: async (productCode: string): Promise<{

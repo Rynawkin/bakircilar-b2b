@@ -6160,11 +6160,14 @@ export class ReportsService {
   async getUcarerProductSalesHistory(productCodeInput: string): Promise<{
     productCode: string;
     rows: Array<{
+      lineGuid: string;
       customerCode: string;
       customerName: string;
       documentSeries: string;
       documentSequence: number;
       documentLineNo: number;
+      stockResponsibilityCenter: string;
+      customerResponsibilityCenter: string;
       saleDate: string | null;
       quantity: number;
       unitPrice: number;
@@ -6190,6 +6193,7 @@ export class ReportsService {
     const baseConditions = [
       'sth.sth_cins = 0',
       'sth.sth_tip = 1',
+      'ISNULL(sth.sth_normal_iade, 0) = 0',
       'sth.sth_evraktip IN (1, 4)',
       '(sth.sth_iptal = 0 OR sth.sth_iptal IS NULL)',
       'sth.sth_stok_kod IS NOT NULL',
@@ -6204,15 +6208,19 @@ export class ReportsService {
       `LTRIM(RTRIM(sth.sth_stok_kod)) = '${escapedCode}'`,
       `sth.sth_tarih >= DATEADD(MONTH, -${lookbackMonths}, CAST(GETDATE() AS date))`,
       'ISNULL(sth.sth_miktar, 0) > 0',
+      "UPPER(LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, '')))) <> 'TOPLU'",
     ].join(' AND ');
 
     const rawRows = await mikroService.executeQuery(`
       SELECT TOP 1500
+        CONVERT(varchar(36), sth.sth_Guid) as lineGuid,
         RTRIM(sth.sth_cari_kodu) as customerCode,
         LTRIM(RTRIM(ISNULL(ch.cari_unvan1, ''))) as customerName,
         RTRIM(ISNULL(sth.sth_evrakno_seri, '')) as documentSeries,
         CAST(ISNULL(sth.sth_evrakno_sira, 0) AS INT) as documentSequence,
         CAST(ISNULL(sth.sth_satirno, 0) AS INT) as documentLineNo,
+        LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, ''))) as stockResponsibilityCenter,
+        LTRIM(RTRIM(ISNULL(sth.sth_cari_srm_merkezi, ''))) as customerResponsibilityCenter,
         sth.sth_tarih as saleDate,
         CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT) as quantity,
         CAST(
@@ -6235,11 +6243,14 @@ export class ReportsService {
       const unitPrice = Number(row?.unitPrice) || 0;
       const totalAmount = Number(row?.totalAmount) || 0;
       return {
+        lineGuid: String(row?.lineGuid || '').trim(),
         customerCode: String(row?.customerCode || '').trim().toUpperCase(),
         customerName: String(row?.customerName || '').trim() || String(row?.customerCode || '').trim().toUpperCase() || '-',
         documentSeries: String(row?.documentSeries || '').trim().toUpperCase(),
         documentSequence: Math.max(0, Math.trunc(Number(row?.documentSequence) || 0)),
         documentLineNo: Math.max(0, Math.trunc(Number(row?.documentLineNo) || 0)),
+        stockResponsibilityCenter: String(row?.stockResponsibilityCenter || '').trim().toUpperCase(),
+        customerResponsibilityCenter: String(row?.customerResponsibilityCenter || '').trim().toUpperCase(),
         saleDate,
         quantity: Number.isFinite(quantity) ? quantity : 0,
         unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
@@ -6262,6 +6273,150 @@ export class ReportsService {
       },
       metadata: {
         lookbackMonths,
+      },
+    };
+  }
+
+  async markUcarerSalesLineAsToplu(input: {
+    productCode?: string;
+    lineGuid?: string;
+    documentSeries?: string;
+    documentSequence?: number;
+    documentLineNo?: number;
+  }): Promise<{
+    updated: boolean;
+    alreadyToplu: boolean;
+    line: {
+      lineGuid: string;
+      productCode: string;
+      documentSeries: string;
+      documentSequence: number;
+      documentLineNo: number;
+      previousStockResponsibilityCenter: string;
+      stockResponsibilityCenter: string;
+      customerResponsibilityCenter: string;
+    };
+  }> {
+    const productCode = String(input.productCode || '').trim().toUpperCase();
+    const lineGuid = String(input.lineGuid || '').trim();
+    const documentSeries = String(input.documentSeries || '').trim().toUpperCase();
+    const documentSequence = Math.trunc(Number(input.documentSequence) || 0);
+    const documentLineNo = Math.trunc(Number(input.documentLineNo) || 0);
+
+    if (!productCode || !lineGuid || !documentSeries || documentSequence <= 0 || documentLineNo < 0) {
+      throw new AppError('Stok kodu, evrak ve satir bilgisi zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(lineGuid)) {
+      throw new AppError('Satir kimligi gecersiz.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const escapedCode = productCode.replace(/'/g, "''");
+    const escapedSeries = documentSeries.replace(/'/g, "''");
+    const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+    const mikroUserNo = Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0 ? Math.trunc(mikroUserNoRaw) : 1;
+
+    const rows = await mikroService.executeQuery(`
+      SET NOCOUNT ON;
+
+      DECLARE @updated TABLE (
+        lineGuid varchar(36),
+        productCode nvarchar(25),
+        documentSeries nvarchar(25),
+        documentSequence int,
+        documentLineNo int,
+        previousStockResponsibilityCenter nvarchar(25),
+        stockResponsibilityCenter nvarchar(25),
+        customerResponsibilityCenter nvarchar(25)
+      );
+
+      UPDATE sth
+      SET
+        sth_stok_srm_merkezi = N'TOPLU',
+        sth_lastup_date = GETDATE(),
+        sth_lastup_user = CASE WHEN ISNULL(sth_lastup_user, 0) = 0 THEN ${mikroUserNo} ELSE sth_lastup_user END
+      OUTPUT
+        CONVERT(varchar(36), inserted.sth_Guid),
+        RTRIM(inserted.sth_stok_kod),
+        RTRIM(inserted.sth_evrakno_seri),
+        CAST(inserted.sth_evrakno_sira AS int),
+        CAST(inserted.sth_satirno AS int),
+        LTRIM(RTRIM(ISNULL(deleted.sth_stok_srm_merkezi, ''))),
+        LTRIM(RTRIM(ISNULL(inserted.sth_stok_srm_merkezi, ''))),
+        LTRIM(RTRIM(ISNULL(inserted.sth_cari_srm_merkezi, '')))
+      INTO @updated
+      FROM STOK_HAREKETLERI sth
+      WHERE sth.sth_Guid = CAST('${lineGuid}' AS uniqueidentifier)
+        AND LTRIM(RTRIM(sth.sth_stok_kod)) = '${escapedCode}'
+        AND UPPER(LTRIM(RTRIM(ISNULL(sth.sth_evrakno_seri, '')))) = '${escapedSeries}'
+        AND ISNULL(sth.sth_evrakno_sira, 0) = ${documentSequence}
+        AND ISNULL(sth.sth_satirno, 0) = ${documentLineNo}
+        AND ISNULL(sth.sth_tip, 0) = 1
+        AND ISNULL(sth.sth_cins, 0) = 0
+        AND ISNULL(sth.sth_normal_iade, 0) = 0
+        AND ISNULL(sth.sth_evraktip, 0) IN (1, 4)
+        AND ISNULL(sth.sth_iptal, 0) = 0
+        AND UPPER(LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, '')))) <> 'TOPLU';
+
+      IF EXISTS (SELECT 1 FROM @updated)
+      BEGIN
+        SELECT
+          CAST(1 AS bit) AS updated,
+          CAST(0 AS bit) AS alreadyToplu,
+          lineGuid,
+          productCode,
+          documentSeries,
+          documentSequence,
+          documentLineNo,
+          previousStockResponsibilityCenter,
+          stockResponsibilityCenter,
+          customerResponsibilityCenter
+        FROM @updated;
+      END
+      ELSE
+      BEGIN
+        SELECT TOP 1
+          CAST(0 AS bit) AS updated,
+          CASE WHEN UPPER(LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, '')))) = 'TOPLU' THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS alreadyToplu,
+          CONVERT(varchar(36), sth.sth_Guid) AS lineGuid,
+          RTRIM(sth.sth_stok_kod) AS productCode,
+          RTRIM(sth.sth_evrakno_seri) AS documentSeries,
+          CAST(sth.sth_evrakno_sira AS int) AS documentSequence,
+          CAST(sth.sth_satirno AS int) AS documentLineNo,
+          LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, ''))) AS previousStockResponsibilityCenter,
+          LTRIM(RTRIM(ISNULL(sth.sth_stok_srm_merkezi, ''))) AS stockResponsibilityCenter,
+          LTRIM(RTRIM(ISNULL(sth.sth_cari_srm_merkezi, ''))) AS customerResponsibilityCenter
+        FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+        WHERE sth.sth_Guid = CAST('${lineGuid}' AS uniqueidentifier)
+          AND LTRIM(RTRIM(sth.sth_stok_kod)) = '${escapedCode}'
+          AND UPPER(LTRIM(RTRIM(ISNULL(sth.sth_evrakno_seri, '')))) = '${escapedSeries}'
+          AND ISNULL(sth.sth_evrakno_sira, 0) = ${documentSequence}
+          AND ISNULL(sth.sth_satirno, 0) = ${documentLineNo}
+          AND ISNULL(sth.sth_tip, 0) = 1
+          AND ISNULL(sth.sth_cins, 0) = 0
+          AND ISNULL(sth.sth_normal_iade, 0) = 0
+          AND ISNULL(sth.sth_evraktip, 0) IN (1, 4)
+          AND ISNULL(sth.sth_iptal, 0) = 0;
+      END
+    `);
+
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row?.lineGuid) {
+      throw new AppError('Eslesen satis satiri bulunamadi.', 404, ErrorCode.NOT_FOUND);
+    }
+
+    return {
+      updated: Boolean(row.updated),
+      alreadyToplu: Boolean(row.alreadyToplu),
+      line: {
+        lineGuid: String(row.lineGuid || '').trim(),
+        productCode: String(row.productCode || '').trim().toUpperCase(),
+        documentSeries: String(row.documentSeries || '').trim().toUpperCase(),
+        documentSequence: Math.max(0, Math.trunc(Number(row.documentSequence) || 0)),
+        documentLineNo: Math.max(0, Math.trunc(Number(row.documentLineNo) || 0)),
+        previousStockResponsibilityCenter: String(row.previousStockResponsibilityCenter || '').trim().toUpperCase(),
+        stockResponsibilityCenter: String(row.stockResponsibilityCenter || '').trim().toUpperCase(),
+        customerResponsibilityCenter: String(row.customerResponsibilityCenter || '').trim().toUpperCase(),
       },
     };
   }

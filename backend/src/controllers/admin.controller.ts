@@ -4181,6 +4181,25 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/reports/ucarer-product-sales-history/mark-toplu
+   */
+  async markUcarerSalesLineAsToplu(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.markUcarerSalesLineAsToplu({
+        productCode: String(req.body?.productCode || ''),
+        lineGuid: String(req.body?.lineGuid || ''),
+        documentSeries: String(req.body?.documentSeries || ''),
+        documentSequence: Number(req.body?.documentSequence || 0),
+        documentLineNo: Number(req.body?.documentLineNo || 0),
+      });
+
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/ucarer-product-purchase-history
    */
   async getUcarerProductPurchaseHistory(req: Request, res: Response, next: NextFunction) {
