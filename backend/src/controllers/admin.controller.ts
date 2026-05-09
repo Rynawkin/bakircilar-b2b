@@ -4299,6 +4299,115 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/price-families
+   */
+  async getPriceFamilies(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.getPriceFamilies();
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/price-families
+   */
+  async createPriceFamily(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { name, code, note, active, productCodes } = req.body || {};
+      const result = await reportsService.upsertPriceFamily({
+        name,
+        code,
+        note,
+        active,
+        productCodes: Array.isArray(productCodes) ? productCodes : [],
+      });
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/admin/reports/price-families/:id
+   */
+  async updatePriceFamily(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { name, code, note, active, productCodes } = req.body || {};
+      const result = await reportsService.upsertPriceFamily({
+        id: req.params.id,
+        name,
+        code,
+        note,
+        active,
+        productCodes: Array.isArray(productCodes) ? productCodes : [],
+      });
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /api/admin/reports/price-families/:id
+   */
+  async deletePriceFamily(req: Request, res: Response, next: NextFunction) {
+    try {
+      await reportsService.deletePriceFamily(req.params.id);
+      res.json({ success: true, message: 'Fiyat ailesi silindi.' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/price-family-costs
+   */
+  async getPriceFamilyCostReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const statusRaw = String(req.query.status || 'problem');
+      const status = statusRaw === 'all' || statusRaw === 'ok' ? statusRaw : 'problem';
+      const data = await reportsService.getPriceFamilyCostReport({
+        status,
+        search: String(req.query.search || ''),
+        includeInactive: req.query.includeInactive === '1' || req.query.includeInactive === 'true',
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/price-family-costs/update-cost
+   */
+  async updatePriceFamilyProductCost(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { familyId, productCode, cost, costP, costT, updatePriceLists } = req.body as {
+        familyId?: string;
+        productCode?: string;
+        cost?: number;
+        costP?: number;
+        costT?: number;
+        updatePriceLists?: boolean;
+      };
+      const data = await reportsService.updatePriceFamilyProductCost({
+        familyId: String(familyId || ''),
+        productCode: String(productCode || ''),
+        cost: cost === undefined ? undefined : Number(cost),
+        costP: costP === undefined ? undefined : Number(costP),
+        costT: costT === undefined ? undefined : Number(costT),
+        updatePriceLists: Boolean(updatePriceLists),
+        userId: req.user?.userId || null,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/reports/product-families/create-supplier-orders
    */
   async createSupplierOrdersFromFamilies(req: Request, res: Response, next: NextFunction) {

@@ -454,7 +454,7 @@ router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update
 router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
 router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
 router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);
-router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:customer-recovery', 'reports:ucarer-depo', 'reports:ucarer-minmax']), adminController.getReportCategories);
+router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:customer-recovery', 'reports:ucarer-depo', 'reports:ucarer-minmax', 'reports:price-family-costs']), adminController.getReportCategories);
 router.get('/reports/top-products', requirePermission('reports:top-products'), adminController.getTopProducts);
 router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);
 router.get('/reports/product-customers/:productCode', requirePermission('reports:top-customers'), adminController.getProductCustomers);
@@ -488,6 +488,12 @@ router.get('/reports/product-families', requirePermission('reports:ucarer-depo')
 router.post('/reports/product-families', requirePermission('reports:ucarer-depo'), adminController.createProductFamily);
 router.put('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.updateProductFamily);
 router.delete('/reports/product-families/:id', requirePermission('reports:ucarer-depo'), adminController.deleteProductFamily);
+router.get('/reports/price-families', requirePermission('reports:price-family-costs'), adminController.getPriceFamilies);
+router.post('/reports/price-families', requirePermission('reports:price-family-costs'), adminController.createPriceFamily);
+router.put('/reports/price-families/:id', requirePermission('reports:price-family-costs'), adminController.updatePriceFamily);
+router.delete('/reports/price-families/:id', requirePermission('reports:price-family-costs'), adminController.deletePriceFamily);
+router.get('/reports/price-family-costs', requirePermission('reports:price-family-costs'), adminController.getPriceFamilyCostReport);
+router.post('/reports/price-family-costs/update-cost', requirePermission('reports:price-family-costs'), adminController.updatePriceFamilyProductCost);
 router.post('/reports/product-families/create-supplier-orders', requirePermission('reports:ucarer-depo'), adminController.createSupplierOrdersFromFamilies);
 router.post('/reports/product-families/create-depot-transfer-order', requirePermission('reports:ucarer-depo'), adminController.createDepotTransferOrder);
 router.post(

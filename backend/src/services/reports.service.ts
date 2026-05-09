@@ -6972,6 +6972,497 @@ export class ReportsService {
     });
   }
 
+  async getPriceFamilies(): Promise<Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    note: string | null;
+    active: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    items: Array<{
+      id: string;
+      productCode: string;
+      productName: string | null;
+      currentCost: number | null;
+      currentCostDate: Date | null;
+      vatRate: number;
+      priority: number;
+      active: boolean;
+    }>;
+  }>> {
+    const rows = await prisma.priceFamily.findMany({
+      orderBy: [{ active: 'desc' }, { name: 'asc' }],
+      include: {
+        items: {
+          orderBy: [{ priority: 'asc' }, { productCode: 'asc' }],
+          include: {
+            product: {
+              select: {
+                mikroCode: true,
+                name: true,
+                currentCost: true,
+                currentCostDate: true,
+                vatRate: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const productCodes = Array.from(
+      new Set(
+        rows
+          .flatMap((row) => row.items.map((item) => String(item.productCode || '').trim().toUpperCase()))
+          .filter(Boolean)
+      )
+    );
+    const fallbackProducts = productCodes.length
+      ? await prisma.product.findMany({
+          where: { mikroCode: { in: productCodes } },
+          select: {
+            mikroCode: true,
+            name: true,
+            currentCost: true,
+            currentCostDate: true,
+            vatRate: true,
+          },
+        })
+      : [];
+    const fallbackProductMap = new Map(fallbackProducts.map((product) => [product.mikroCode.toUpperCase(), product]));
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      code: row.code || null,
+      note: row.note || null,
+      active: row.active,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      items: row.items.map((item) => {
+        const code = String(item.productCode || '').trim().toUpperCase();
+        const product = item.product || fallbackProductMap.get(code) || null;
+        return {
+          id: item.id,
+          productCode: code,
+          productName: product?.name || item.productName || null,
+          currentCost: product?.currentCost ?? null,
+          currentCostDate: product?.currentCostDate ?? null,
+          vatRate: Number(product?.vatRate || 0),
+          priority: item.priority,
+          active: item.active,
+        };
+      }),
+    }));
+  }
+
+  async upsertPriceFamily(input: {
+    id?: string;
+    name: string;
+    code?: string | null;
+    note?: string | null;
+    active?: boolean;
+    productCodes: string[];
+  }): Promise<{ id: string }> {
+    const name = String(input.name || '').trim();
+    if (!name) {
+      throw new AppError('Fiyat ailesi adi zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const normalizedCodes = Array.from(
+      new Set(
+        (input.productCodes || [])
+          .map((code) => String(code || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    );
+
+    if (normalizedCodes.length === 0) {
+      throw new AppError('En az bir stok kodu girilmelidir.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const existingFamily = input.id
+      ? await prisma.priceFamily.findUnique({ where: { id: input.id }, select: { id: true } })
+      : null;
+    if (input.id && !existingFamily) {
+      throw new AppError('Fiyat ailesi bulunamadi.', 404, ErrorCode.NOT_FOUND);
+    }
+
+    const normalizedFamilyCode = input.code ? String(input.code).trim().toUpperCase() : null;
+    if (normalizedFamilyCode) {
+      const codeOwner = await prisma.priceFamily.findFirst({
+        where: {
+          code: normalizedFamilyCode,
+          ...(input.id ? { id: { not: input.id } } : {}),
+        },
+        select: { name: true },
+      });
+      if (codeOwner) {
+        throw new AppError(`Bu fiyat ailesi kodu zaten kullaniliyor: ${codeOwner.name}`, 400, ErrorCode.BAD_REQUEST);
+      }
+    }
+
+    const duplicateItems = await prisma.priceFamilyItem.findMany({
+      where: {
+        productCode: { in: normalizedCodes },
+        ...(input.id ? { familyId: { not: input.id } } : {}),
+      },
+      include: {
+        family: { select: { name: true } },
+      },
+      orderBy: [{ productCode: 'asc' }],
+    });
+    if (duplicateItems.length > 0) {
+      const conflicts = duplicateItems
+        .slice(0, 8)
+        .map((item) => `${item.productCode} (${item.family?.name || 'baska aile'})`)
+        .join(', ');
+      throw new AppError(
+        `Her stok sadece bir fiyat ailesinde olabilir. Cakisan stoklar: ${conflicts}`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
+
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: normalizedCodes } },
+      select: { id: true, mikroCode: true, name: true },
+    });
+    const productMap = new Map(products.map((row) => [row.mikroCode.toUpperCase(), row]));
+
+    const payload = {
+      name,
+      code: normalizedFamilyCode,
+      note: input.note ? String(input.note).trim() : null,
+      active: input.active !== false,
+    };
+
+    const familyId = input.id
+      ? (
+          await prisma.priceFamily.update({
+            where: { id: input.id },
+            data: payload,
+            select: { id: true },
+          })
+        ).id
+      : (
+          await prisma.priceFamily.create({
+            data: payload,
+            select: { id: true },
+          })
+        ).id;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.priceFamilyItem.deleteMany({ where: { familyId } });
+      await tx.priceFamilyItem.createMany({
+        data: normalizedCodes.map((code, index) => ({
+          familyId,
+          productCode: code,
+          productId: productMap.get(code)?.id || null,
+          productName: productMap.get(code)?.name || null,
+          priority: index + 1,
+          active: true,
+        })),
+      });
+    });
+
+    return { id: familyId };
+  }
+
+  async deletePriceFamily(id: string): Promise<void> {
+    await prisma.priceFamily.delete({
+      where: { id },
+    });
+  }
+
+  async getPriceFamilyCostReport(options?: {
+    status?: 'all' | 'problem' | 'ok';
+    search?: string;
+    includeInactive?: boolean;
+  }): Promise<{
+    families: Array<{
+      id: string;
+      name: string;
+      code: string | null;
+      note: string | null;
+      active: boolean;
+      status: 'problem' | 'ok';
+      itemCount: number;
+      outdatedCount: number;
+      missingCostDateCount: number;
+      latestCostDate: string | null;
+      oldestCostDate: string | null;
+      dateGroups: Array<{ date: string | null; count: number; productCodes: string[] }>;
+      items: Array<{
+        id: string;
+        productCode: string;
+        productName: string | null;
+        currentCost: number | null;
+        currentCostDate: string | null;
+        vatRate: number;
+        issueType: 'ok' | 'outdated' | 'missing-date';
+        daysBehind: number | null;
+      }>;
+      recentLogs: Array<{
+        id: string;
+        productCode: string;
+        productName: string | null;
+        previousCost: number | null;
+        newCost: number;
+        previousCostDate: string | null;
+        newCostDate: string;
+        updatePriceLists: boolean;
+        userId: string | null;
+        createdAt: string;
+      }>;
+    }>;
+    summary: {
+      totalFamilies: number;
+      problemFamilies: number;
+      okFamilies: number;
+      inactiveFamilies: number;
+      productCount: number;
+      outdatedProductCount: number;
+      missingCostDateCount: number;
+    };
+  }> {
+    const status = options?.status === 'all' || options?.status === 'ok' ? options.status : 'problem';
+    const searchTokens = buildSearchTokens(options?.search || '');
+    const includeInactive = Boolean(options?.includeInactive);
+    const reportTimeZone = config.cronTimezone || 'Europe/Istanbul';
+
+    const families = await prisma.priceFamily.findMany({
+      where: includeInactive ? undefined : { active: true },
+      include: {
+        items: {
+          where: { active: true },
+          orderBy: [{ priority: 'asc' }, { productCode: 'asc' }],
+        },
+      },
+      orderBy: [{ active: 'desc' }, { name: 'asc' }],
+    });
+
+    const productCodes = Array.from(
+      new Set(
+        families
+          .flatMap((family) => family.items.map((item) => String(item.productCode || '').trim().toUpperCase()))
+          .filter(Boolean)
+      )
+    );
+    const products = productCodes.length
+      ? await prisma.product.findMany({
+          where: { mikroCode: { in: productCodes } },
+          select: {
+            id: true,
+            mikroCode: true,
+            name: true,
+            currentCost: true,
+            currentCostDate: true,
+            vatRate: true,
+          },
+        })
+      : [];
+    const productMap = new Map(products.map((product) => [product.mikroCode.toUpperCase(), product]));
+
+    const logs = families.length
+      ? await prisma.priceFamilyCostUpdateLog.findMany({
+          where: { familyId: { in: families.map((family) => family.id) } },
+          orderBy: [{ createdAt: 'desc' }],
+          take: Math.min(500, Math.max(100, families.length * 8)),
+        })
+      : [];
+    const logsByFamilyId = new Map<string, typeof logs>();
+    logs.forEach((log) => {
+      if (!log.familyId) return;
+      const list = logsByFamilyId.get(log.familyId) || [];
+      if (list.length < 5) list.push(log);
+      logsByFamilyId.set(log.familyId, list);
+    });
+
+    const diffDays = (leftKey: string | null, rightKey: string | null): number | null => {
+      if (!leftKey || !rightKey) return null;
+      const left = parseDateKeyToUtcDate(leftKey);
+      const right = parseDateKeyToUtcDate(rightKey);
+      if (!left || !right) return null;
+      return Math.max(0, Math.round((right.getTime() - left.getTime()) / (1000 * 60 * 60 * 24)));
+    };
+
+    const dateToKey = (value: Date | null | undefined): string | null =>
+      value ? formatDateKeyInTimeZone(value, reportTimeZone) : null;
+
+    const allRows = families.map((family) => {
+      const itemBasics = family.items.map((item) => {
+        const productCode = String(item.productCode || '').trim().toUpperCase();
+        const product = productMap.get(productCode) || null;
+        const currentCostDate = dateToKey(product?.currentCostDate || null);
+        return {
+          id: item.id,
+          productCode,
+          productName: product?.name || item.productName || null,
+          currentCost: product?.currentCost ?? null,
+          currentCostDate,
+          vatRate: Number(product?.vatRate || 0),
+        };
+      });
+
+      const presentDateKeys = Array.from(
+        new Set(itemBasics.map((item) => item.currentCostDate).filter(Boolean) as string[])
+      ).sort();
+      const latestCostDate = presentDateKeys.length > 0 ? presentDateKeys[presentDateKeys.length - 1] : null;
+      const oldestCostDate = presentDateKeys.length > 0 ? presentDateKeys[0] : null;
+
+      const items = itemBasics.map((item) => {
+        const issueType: 'ok' | 'outdated' | 'missing-date' = !item.currentCostDate
+          ? 'missing-date'
+          : latestCostDate && item.currentCostDate !== latestCostDate
+          ? 'outdated'
+          : 'ok';
+        return {
+          ...item,
+          issueType,
+          daysBehind: issueType === 'outdated' ? diffDays(item.currentCostDate, latestCostDate) : null,
+        };
+      });
+
+      const missingCostDateCount = items.filter((item) => item.issueType === 'missing-date').length;
+      const outdatedCount = items.filter((item) => item.issueType !== 'ok').length;
+      const rowStatus: 'problem' | 'ok' =
+        missingCostDateCount > 0 || presentDateKeys.length > 1 ? 'problem' : 'ok';
+      const dateGroupMap = new Map<string, { date: string | null; count: number; productCodes: string[] }>();
+      itemBasics.forEach((item) => {
+        const key = item.currentCostDate || '__missing__';
+        const group = dateGroupMap.get(key) || {
+          date: item.currentCostDate,
+          count: 0,
+          productCodes: [],
+        };
+        group.count += 1;
+        if (group.productCodes.length < 12) group.productCodes.push(item.productCode);
+        dateGroupMap.set(key, group);
+      });
+
+      const familyLogs = (logsByFamilyId.get(family.id) || []).map((log) => ({
+        id: log.id,
+        productCode: log.productCode,
+        productName: log.productName || null,
+        previousCost: log.previousCost ?? null,
+        newCost: Number(log.newCost || 0),
+        previousCostDate: log.previousCostDate ? dateToKey(log.previousCostDate) : null,
+        newCostDate: dateToKey(log.newCostDate) || formatDateKeyInTimeZone(log.newCostDate, reportTimeZone),
+        updatePriceLists: log.updatePriceLists,
+        userId: log.userId || null,
+        createdAt: log.createdAt.toISOString(),
+      }));
+
+      return {
+        id: family.id,
+        name: family.name,
+        code: family.code || null,
+        note: family.note || null,
+        active: family.active,
+        status: rowStatus,
+        itemCount: items.length,
+        outdatedCount,
+        missingCostDateCount,
+        latestCostDate,
+        oldestCostDate,
+        dateGroups: Array.from(dateGroupMap.values()).sort((a, b) => {
+          if (a.date === b.date) return 0;
+          if (!a.date) return -1;
+          if (!b.date) return 1;
+          return b.date.localeCompare(a.date);
+        }),
+        items: items.sort((a, b) => {
+          const rank = { 'missing-date': 0, outdated: 1, ok: 2 } as const;
+          if (rank[a.issueType] !== rank[b.issueType]) return rank[a.issueType] - rank[b.issueType];
+          return a.productCode.localeCompare(b.productCode);
+        }),
+        recentLogs: familyLogs,
+      };
+    });
+
+    const searchedRows = searchTokens.length
+      ? allRows.filter((family) => {
+          const haystack = normalizeSearchText(
+            [
+              family.name,
+              family.code || '',
+              family.note || '',
+              family.items.map((item) => `${item.productCode} ${item.productName || ''}`).join(' '),
+            ].join(' ')
+          );
+          return matchesSearchTokens(haystack, searchTokens);
+        })
+      : allRows;
+
+    const filteredRows = searchedRows
+      .filter((family) => (status === 'all' ? true : family.status === status))
+      .sort((a, b) => {
+        if (a.status !== b.status) return a.status === 'problem' ? -1 : 1;
+        if (b.missingCostDateCount !== a.missingCostDateCount) return b.missingCostDateCount - a.missingCostDateCount;
+        if (b.outdatedCount !== a.outdatedCount) return b.outdatedCount - a.outdatedCount;
+        return a.name.localeCompare(b.name, 'tr');
+      });
+
+    return {
+      families: filteredRows,
+      summary: {
+        totalFamilies: allRows.length,
+        problemFamilies: allRows.filter((family) => family.status === 'problem').length,
+        okFamilies: allRows.filter((family) => family.status === 'ok').length,
+        inactiveFamilies: allRows.filter((family) => !family.active).length,
+        productCount: allRows.reduce((sum, family) => sum + family.itemCount, 0),
+        outdatedProductCount: allRows.reduce((sum, family) => sum + family.outdatedCount, 0),
+        missingCostDateCount: allRows.reduce((sum, family) => sum + family.missingCostDateCount, 0),
+      },
+    };
+  }
+
+  async updatePriceFamilyProductCost(input: {
+    familyId: string;
+    productCode: string;
+    cost?: number;
+    costP?: number;
+    costT?: number;
+    updatePriceLists?: boolean;
+    userId?: string | null;
+  }) {
+    const familyId = String(input.familyId || '').trim();
+    const productCode = String(input.productCode || '').trim().toUpperCase();
+    if (!familyId || !productCode) {
+      throw new AppError('Fiyat ailesi ve stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const item = await prisma.priceFamilyItem.findFirst({
+      where: {
+        familyId,
+        productCode,
+        active: true,
+      },
+      include: {
+        family: { select: { id: true, name: true, active: true } },
+      },
+    });
+    if (!item || !item.family) {
+      throw new AppError('Stok bu fiyat ailesinde bulunamadi.', 404, ErrorCode.NOT_FOUND);
+    }
+    if (!item.family.active) {
+      throw new AppError('Pasif fiyat ailesinde maliyet guncellenemez.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    return this.updateUcarerProductCost({
+      productCode,
+      cost: input.cost,
+      costP: input.costP,
+      costT: input.costT,
+      updatePriceLists: input.updatePriceLists,
+      source: 'PRICE_FAMILY',
+      priceFamilyId: familyId,
+      userId: input.userId || null,
+    });
+  }
+
   async createSupplierOrdersFromFamilyAllocations(input: {
     depot: 'MERKEZ' | 'TOPCA';
     supplierConfigs?: Record<
@@ -7555,6 +8046,9 @@ export class ReportsService {
     costP?: number;
     costT?: number;
     updatePriceLists?: boolean;
+    source?: 'UCARER_DEPO' | 'PRICE_FAMILY';
+    priceFamilyId?: string | null;
+    userId?: string | null;
   }): Promise<{
     productCode: string;
     currentCost: number;
@@ -7580,6 +8074,28 @@ export class ReportsService {
     if (!Number.isFinite(costT) || costT <= 0) {
       throw new AppError('Gecerli bir Maliyet T girin.', 400, ErrorCode.BAD_REQUEST);
     }
+
+    const shouldAuditPriceFamily = input.source === 'PRICE_FAMILY' || Boolean(input.priceFamilyId);
+    const previousProduct = shouldAuditPriceFamily
+      ? await prisma.product.findFirst({
+          where: { mikroCode: productCode },
+          select: { name: true, currentCost: true, currentCostDate: true },
+        })
+      : null;
+    const priceFamilyContext = shouldAuditPriceFamily
+      ? input.priceFamilyId
+        ? await prisma.priceFamily.findUnique({
+            where: { id: input.priceFamilyId },
+            select: { id: true, name: true },
+          })
+        : await prisma.priceFamilyItem
+            .findUnique({
+              where: { productCode },
+              include: { family: { select: { id: true, name: true } } },
+            })
+            .then((row) => row?.family || null)
+      : null;
+    const newCostDate = new Date();
 
     await mikroService.executeQuery(`
       UPDATE STOKLAR
@@ -7621,7 +8137,7 @@ export class ReportsService {
       where: { mikroCode: productCode },
       data: {
         currentCost: costP,
-        currentCostDate: new Date(),
+        currentCostDate: newCostDate,
       },
     });
 
@@ -7688,7 +8204,7 @@ export class ReportsService {
       }
     }
 
-    return {
+    const response = {
       productCode,
       currentCost: costP,
       costP,
@@ -7697,6 +8213,27 @@ export class ReportsService {
       updatedLists,
       missingLists,
     };
+
+    if (shouldAuditPriceFamily) {
+      await prisma.priceFamilyCostUpdateLog.create({
+        data: {
+          familyId: priceFamilyContext?.id || input.priceFamilyId || null,
+          familyName: priceFamilyContext?.name || null,
+          productCode,
+          productName: previousProduct?.name || null,
+          previousCost: previousProduct?.currentCost ?? null,
+          newCost: costP,
+          previousCostDate: previousProduct?.currentCostDate || null,
+          newCostDate,
+          updatePriceLists,
+          updatedLists: updatedLists as unknown as Prisma.InputJsonValue,
+          missingLists: missingLists as unknown as Prisma.InputJsonValue,
+          userId: input.userId || null,
+        },
+      });
+    }
+
+    return response;
   }
 
   async updateUcarerMainSupplier(input: {

@@ -2740,6 +2740,146 @@ export const adminApi = {
     return response.data;
   },
 
+  getPriceFamilies: async (): Promise<{
+    success: boolean;
+    data: Array<{
+      id: string;
+      name: string;
+      code?: string | null;
+      note?: string | null;
+      active: boolean;
+      items: Array<{
+        id: string;
+        productCode: string;
+        productName?: string | null;
+        currentCost?: number | null;
+        currentCostDate?: string | null;
+        vatRate?: number;
+        priority: number;
+        active: boolean;
+      }>;
+    }>;
+  }> => {
+    const response = await apiClient.get('/admin/reports/price-families');
+    return response.data;
+  },
+
+  createPriceFamily: async (payload: {
+    name: string;
+    code?: string | null;
+    note?: string | null;
+    active?: boolean;
+    productCodes: string[];
+  }): Promise<{ success: boolean; data: { id: string } }> => {
+    const response = await apiClient.post('/admin/reports/price-families', payload);
+    return response.data;
+  },
+
+  updatePriceFamily: async (
+    id: string,
+    payload: {
+      name: string;
+      code?: string | null;
+      note?: string | null;
+      active?: boolean;
+      productCodes: string[];
+    }
+  ): Promise<{ success: boolean; data: { id: string } }> => {
+    const response = await apiClient.put(`/admin/reports/price-families/${id}`, payload);
+    return response.data;
+  },
+
+  deletePriceFamily: async (id: string): Promise<{ success: boolean; message: string }> => {
+    const response = await apiClient.delete(`/admin/reports/price-families/${id}`);
+    return response.data;
+  },
+
+  getPriceFamilyCostReport: async (params?: {
+    status?: 'all' | 'problem' | 'ok';
+    search?: string;
+    includeInactive?: boolean;
+  }): Promise<{
+    success: boolean;
+    data: {
+      families: Array<{
+        id: string;
+        name: string;
+        code?: string | null;
+        note?: string | null;
+        active: boolean;
+        status: 'problem' | 'ok';
+        itemCount: number;
+        outdatedCount: number;
+        missingCostDateCount: number;
+        latestCostDate: string | null;
+        oldestCostDate: string | null;
+        dateGroups: Array<{ date: string | null; count: number; productCodes: string[] }>;
+        items: Array<{
+          id: string;
+          productCode: string;
+          productName?: string | null;
+          currentCost?: number | null;
+          currentCostDate: string | null;
+          vatRate: number;
+          issueType: 'ok' | 'outdated' | 'missing-date';
+          daysBehind: number | null;
+        }>;
+        recentLogs: Array<{
+          id: string;
+          productCode: string;
+          productName?: string | null;
+          previousCost?: number | null;
+          newCost: number;
+          previousCostDate: string | null;
+          newCostDate: string;
+          updatePriceLists: boolean;
+          userId?: string | null;
+          createdAt: string;
+        }>;
+      }>;
+      summary: {
+        totalFamilies: number;
+        problemFamilies: number;
+        okFamilies: number;
+        inactiveFamilies: number;
+        productCount: number;
+        outdatedProductCount: number;
+        missingCostDateCount: number;
+      };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.includeInactive) queryParams.append('includeInactive', '1');
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/price-family-costs${query ? `?${query}` : ''}`);
+    return response.data;
+  },
+
+  updatePriceFamilyProductCost: async (payload: {
+    familyId: string;
+    productCode: string;
+    cost?: number;
+    costP?: number;
+    costT?: number;
+    updatePriceLists?: boolean;
+  }): Promise<{
+    success: boolean;
+    data: {
+      productCode: string;
+      currentCost: number;
+      costP: number;
+      costT: number;
+      priceListsUpdated: boolean;
+      updatedLists: Array<{ listNo: number; value: number; affected: number }>;
+      missingLists: number[];
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/price-family-costs/update-cost', payload);
+    return response.data;
+  },
+
   createSupplierOrdersFromFamilyAllocations: async (payload: {
     depot: 'MERKEZ' | 'TOPCA';
     supplierConfigs: Record<

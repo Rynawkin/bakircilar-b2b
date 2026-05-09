@@ -94,6 +94,7 @@ const navItems: NavItem[] = [
       'reports:customer-recovery',
       'reports:ucarer-depo',
       'reports:ucarer-minmax',
+      'reports:price-family-costs',
     ],
   },
 ];

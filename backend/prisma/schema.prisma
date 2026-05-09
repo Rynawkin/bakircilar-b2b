@@ -692,6 +692,7 @@ model Product {
   quoteItems              QuoteItem[]
   priceOverrides          ProductPriceOverride[]
   familyItems             ProductFamilyItem[]
+  priceFamilyItems        PriceFamilyItem[]
   priceAgreements         CustomerPriceAgreement[]
   customerRequestItems    CustomerRequestItem[]
   supplierPriceListMatches SupplierPriceListMatch[]
@@ -1506,6 +1507,59 @@ model ProductFamilyItem {
   @@unique([familyId, productCode])
   @@index([productCode])
   @@index([familyId, priority])
+}
+
+model PriceFamily {
+  id         String                     @id @default(uuid())
+  name       String
+  code       String?                    @unique
+  note       String?
+  active     Boolean                    @default(true)
+  createdAt  DateTime                   @default(now())
+  updatedAt  DateTime                   @updatedAt
+  items      PriceFamilyItem[]
+  costLogs   PriceFamilyCostUpdateLog[]
+
+  @@index([active])
+}
+
+model PriceFamilyItem {
+  id          String       @id @default(uuid())
+  familyId    String
+  family      PriceFamily  @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCode String       @unique
+  productName String?
+  priority    Int          @default(100)
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([familyId, productCode])
+  @@index([familyId, priority])
+}
+
+model PriceFamilyCostUpdateLog {
+  id                        String       @id @default(uuid())
+  familyId                  String?
+  family                    PriceFamily? @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  familyName                String?
+  productCode               String
+  productName               String?
+  previousCost              Float?
+  newCost                   Float
+  previousCostDate          DateTime?
+  newCostDate               DateTime
+  updatePriceLists          Boolean      @default(false)
+  updatedLists              Json         @default("[]")
+  missingLists              Json         @default("[]")
+  userId                    String?
+  createdAt                 DateTime     @default(now())
+
+  @@index([familyId, createdAt])
+  @@index([productCode, createdAt])
+  @@index([userId, createdAt])
 }
 
 model WarehouseOrderWorkflow {

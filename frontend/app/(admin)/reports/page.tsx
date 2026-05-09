@@ -124,6 +124,18 @@ const reports: ReportCard[] = [
     permission: 'reports:ucarer-depo',
   },
   {
+    id: 'price-family-costs',
+    title: 'Fiyat Ailesi Maliyet Kontrolu',
+    description: 'Fiyat ailelerinde eski kalan guncel maliyet tarihlerini yakalayip ayni ekrandan duzeltin',
+    icon: <DollarSign className="h-5 w-5" />,
+    href: '/reports/price-family-costs',
+    category: 'cost',
+    badge: 'Yeni',
+    tags: ['Fiyat Ailesi', 'Maliyet'],
+    highImpact: true,
+    permission: 'reports:price-family-costs',
+  },
+  {
     id: 'top-products',
     title: 'En Cok Satan Urunler',
     description: 'Yuksek cirolu urunleri ve satis trendlerini analiz edin',

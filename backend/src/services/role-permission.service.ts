@@ -31,6 +31,7 @@ export const AVAILABLE_PERMISSIONS = {
   'reports:customer-carts': 'Musteri Sepetleri',
   'reports:ucarer-depo': 'Ucarer Depo Karar Raporu',
   'reports:ucarer-minmax': 'Ucarer MinMax Dinamik Hesaplama',
+  'reports:price-family-costs': 'Fiyat Ailesi Maliyet Kontrolu',
 
   // Admin Pages
   'admin:customers': 'Musteri Yonetimi',
@@ -84,6 +85,7 @@ export const PERMISSION_DESCRIPTIONS = {
   'reports:customer-carts': 'Musteri sepet raporuna erisim izni verir',
   'reports:ucarer-depo': 'Ucarer depo karar raporuna erisim izni verir',
   'reports:ucarer-minmax': 'Ucarer MinMax hesaplama raporuna erisim izni verir',
+  'reports:price-family-costs': 'Fiyat ailelerinde maliyet tarihi uyumsuzluklarini gorme ve duzeltme izni verir',
 
   // Admin Pages
   'admin:customers': 'Musteri listesi ve musteri yonetim sayfalarina erisim izni verir',
@@ -265,6 +267,7 @@ class RolePermissionService {
         'reports:staff-activity',
         'reports:ucarer-depo',
         'reports:ucarer-minmax',
+        'reports:price-family-costs',
         'admin:orders',
         'admin:quotes',
         'admin:customers',
