@@ -2754,6 +2754,8 @@ export const adminApi = {
         productName?: string | null;
         currentCost?: number | null;
         currentCostDate?: string | null;
+        lastEntryPrice?: number | null;
+        lastEntryDate?: string | null;
         vatRate?: number;
         priority: number;
         active: boolean;
@@ -2820,6 +2822,8 @@ export const adminApi = {
           productName?: string | null;
           currentCost?: number | null;
           currentCostDate: string | null;
+          lastEntryPrice?: number | null;
+          lastEntryDate: string | null;
           vatRate: number;
           issueType: 'ok' | 'outdated' | 'missing-date';
           daysBehind: number | null;

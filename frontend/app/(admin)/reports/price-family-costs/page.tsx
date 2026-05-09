@@ -11,6 +11,30 @@ import { Input } from '@/components/ui/Input';
 import { adminApi } from '@/lib/api/admin';
 
 type FamilyStatus = 'all' | 'problem' | 'ok';
+type DetailColumnKey =
+  | 'stock'
+  | 'status'
+  | 'currentCost'
+  | 'currentCostDate'
+  | 'lastEntryPrice'
+  | 'lastEntryDate'
+  | 'daysBehind'
+  | 'newCost'
+  | 'action';
+
+const DETAIL_COLUMN_STORAGE_KEY = 'price-family-costs.detail-column-widths.v1';
+const DEFAULT_DETAIL_COLUMN_WIDTHS: Record<DetailColumnKey, number> = {
+  stock: 260,
+  status: 120,
+  currentCost: 140,
+  currentCostDate: 150,
+  lastEntryPrice: 140,
+  lastEntryDate: 140,
+  daysBehind: 100,
+  newCost: 430,
+  action: 110,
+};
+const DETAIL_COLUMN_KEYS = Object.keys(DEFAULT_DETAIL_COLUMN_WIDTHS) as DetailColumnKey[];
 
 interface PriceFamilyReportItem {
   id: string;
@@ -18,6 +42,8 @@ interface PriceFamilyReportItem {
   productName?: string | null;
   currentCost?: number | null;
   currentCostDate: string | null;
+  lastEntryPrice?: number | null;
+  lastEntryDate: string | null;
   vatRate: number;
   issueType: 'ok' | 'outdated' | 'missing-date';
   daysBehind: number | null;
@@ -95,6 +121,22 @@ const issueLabel = (issueType: PriceFamilyReportItem['issueType']) => {
   return 'Guncel';
 };
 
+const loadSavedDetailColumnWidths = (): Record<DetailColumnKey, number> => {
+  if (typeof window === 'undefined') return DEFAULT_DETAIL_COLUMN_WIDTHS;
+  try {
+    const raw = window.localStorage.getItem(DETAIL_COLUMN_STORAGE_KEY);
+    if (!raw) return DEFAULT_DETAIL_COLUMN_WIDTHS;
+    const parsed = JSON.parse(raw) as Partial<Record<DetailColumnKey, number>>;
+    return DETAIL_COLUMN_KEYS.reduce((acc, key) => {
+      const value = Number(parsed[key]);
+      acc[key] = Number.isFinite(value) && value >= 70 ? value : DEFAULT_DETAIL_COLUMN_WIDTHS[key];
+      return acc;
+    }, {} as Record<DetailColumnKey, number>);
+  } catch {
+    return DEFAULT_DETAIL_COLUMN_WIDTHS;
+  }
+};
+
 export default function PriceFamilyCostsPage() {
   const [data, setData] = useState<PriceFamilyReportData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -109,11 +151,18 @@ export default function PriceFamilyCostsPage() {
   const [manualCostTByCode, setManualCostTByCode] = useState<Record<string, boolean>>({});
   const [updatePriceListsByCode, setUpdatePriceListsByCode] = useState<Record<string, boolean>>({});
   const [updatingCostByCode, setUpdatingCostByCode] = useState<Record<string, boolean>>({});
+  const [dirtyCostByCode, setDirtyCostByCode] = useState<Record<string, boolean>>({});
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [detailColumnWidths, setDetailColumnWidths] = useState<Record<DetailColumnKey, number>>(loadSavedDetailColumnWidths);
 
   const families = data?.families || [];
   const selectedFamily = useMemo(
     () => families.find((family) => family.id === selectedFamilyId) || null,
     [families, selectedFamilyId]
+  );
+  const detailTableWidth = useMemo(
+    () => DETAIL_COLUMN_KEYS.reduce((sum, key) => sum + detailColumnWidths[key], 0),
+    [detailColumnWidths]
   );
 
   const loadReport = async () => {
@@ -143,15 +192,19 @@ export default function PriceFamilyCostsPage() {
     if (!selectedFamily) return;
     const nextCostP: Record<string, string> = {};
     const nextCostT: Record<string, string> = {};
+    const nextUpdatePriceLists: Record<string, boolean> = {};
     selectedFamily.items.forEach((item) => {
       const code = item.productCode;
       const costP = Number(item.currentCost || 0);
       nextCostP[code] = formatInputNumber(costP);
       nextCostT[code] = formatInputNumber(computeCostT(costP, item.vatRate));
+      nextUpdatePriceLists[code] = true;
     });
     setCostPInputByCode(nextCostP);
     setCostTInputByCode(nextCostT);
     setManualCostTByCode({});
+    setUpdatePriceListsByCode(nextUpdatePriceLists);
+    setDirtyCostByCode({});
   }, [selectedFamily]);
 
   const filteredDetailItems = useMemo(() => {
@@ -164,18 +217,40 @@ export default function PriceFamilyCostsPage() {
     });
   }, [selectedFamily, detailSearch, onlyIssues]);
 
-  const updateProductCost = async (item: PriceFamilyReportItem) => {
-    if (!selectedFamily) return;
+  const markCostDirty = (productCode: string) => {
+    setDirtyCostByCode((prev) => ({ ...prev, [productCode]: true }));
+  };
+
+  const applyCurrentCostToInputs = (item: PriceFamilyReportItem) => {
     const code = item.productCode;
-    const parsedCostP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
-    const parsedCostT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
-    if (!Number.isFinite(parsedCostP) || parsedCostP <= 0) {
-      toast.error('Gecerli bir Maliyet P girin.');
+    const currentCost = Number(item.currentCost || 0);
+    if (!Number.isFinite(currentCost) || currentCost <= 0) {
+      toast.error('Bu satirda aktarilacak guncel maliyet yok.');
       return;
     }
+    setCostPInputByCode((prev) => ({ ...prev, [code]: formatInputNumber(currentCost) }));
+    setCostTInputByCode((prev) => ({ ...prev, [code]: formatInputNumber(computeCostT(currentCost, item.vatRate)) }));
+    setManualCostTByCode((prev) => ({ ...prev, [code]: false }));
+    markCostDirty(code);
+  };
+
+  const parseCostInputs = (code: string) => {
+    const parsedCostP = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+    const parsedCostT = Number(String(costTInputByCode[code] || '').replace(',', '.'));
+    return { parsedCostP, parsedCostT };
+  };
+
+  const updateProductCost = async (item: PriceFamilyReportItem, options?: { silent?: boolean; reload?: boolean }) => {
+    if (!selectedFamily) return;
+    const code = item.productCode;
+    const { parsedCostP, parsedCostT } = parseCostInputs(code);
+    if (!Number.isFinite(parsedCostP) || parsedCostP <= 0) {
+      if (!options?.silent) toast.error('Gecerli bir Maliyet P girin.');
+      return false;
+    }
     if (!Number.isFinite(parsedCostT) || parsedCostT <= 0) {
-      toast.error('Gecerli bir Maliyet T girin.');
-      return;
+      if (!options?.silent) toast.error('Gecerli bir Maliyet T girin.');
+      return false;
     }
 
     setUpdatingCostByCode((prev) => ({ ...prev, [code]: true }));
@@ -185,25 +260,110 @@ export default function PriceFamilyCostsPage() {
         productCode: code,
         costP: parsedCostP,
         costT: parsedCostT,
-        updatePriceLists: Boolean(updatePriceListsByCode[code]),
+        updatePriceLists: updatePriceListsByCode[code] !== false,
       });
       const missing = result.data?.missingLists || [];
-      if (Boolean(updatePriceListsByCode[code])) {
+      if (!options?.silent && updatePriceListsByCode[code] !== false) {
         toast.success(
           missing.length > 0
             ? `Maliyet guncellendi. Eksik liste satiri: ${missing.join(', ')}`
             : 'Maliyet ve 10 fiyat listesi guncellendi.'
         );
-      } else {
+      } else if (!options?.silent) {
         toast.success('Guncel maliyet guncellendi.');
       }
-      await loadReport();
+      setDirtyCostByCode((prev) => ({ ...prev, [code]: false }));
+      if (options?.reload !== false) await loadReport();
+      return true;
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
+      if (!options?.silent) toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
+      return false;
     } finally {
       setUpdatingCostByCode((prev) => ({ ...prev, [code]: false }));
     }
   };
+
+  const updateDirtyCosts = async () => {
+    if (!selectedFamily) return;
+    const itemsToUpdate = selectedFamily.items.filter((item) => {
+      const code = item.productCode;
+      const { parsedCostP, parsedCostT } = parseCostInputs(code);
+      return Boolean(dirtyCostByCode[code]) && parsedCostP > 0 && parsedCostT > 0;
+    });
+    if (itemsToUpdate.length === 0) {
+      toast.error('Guncellenecek fiyat girisi yok.');
+      return;
+    }
+
+    setBulkUpdating(true);
+    let successCount = 0;
+    let failCount = 0;
+    const toastId = toast.loading(`${itemsToUpdate.length} satir guncelleniyor...`);
+    try {
+      for (const item of itemsToUpdate) {
+        // Mikro fiyat guncellemelerini ayni anda bindirmemek icin sirali ilerliyoruz.
+        const ok = await updateProductCost(item, { silent: true, reload: false });
+        if (ok) successCount += 1;
+        else failCount += 1;
+      }
+      await loadReport();
+      toast.success(`${successCount} satir guncellendi${failCount ? `, ${failCount} satir hata aldi` : ''}.`, { id: toastId });
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Toplu guncelleme tamamlanamadi', { id: toastId });
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const startColumnResize = (event: React.MouseEvent<HTMLSpanElement>, key: DetailColumnKey) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = detailColumnWidths[key];
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const nextWidth = Math.max(70, Math.min(900, startWidth + moveEvent.clientX - startX));
+      setDetailColumnWidths((prev) => ({ ...prev, [key]: nextWidth }));
+    };
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const saveDetailColumnWidths = () => {
+    window.localStorage.setItem(DETAIL_COLUMN_STORAGE_KEY, JSON.stringify(detailColumnWidths));
+    toast.success('Kolon gorunumu kaydedildi.');
+  };
+
+  const resetDetailColumnWidths = () => {
+    setDetailColumnWidths(DEFAULT_DETAIL_COLUMN_WIDTHS);
+    window.localStorage.removeItem(DETAIL_COLUMN_STORAGE_KEY);
+    toast.success('Kolon genislikleri sifirlandi.');
+  };
+
+  const renderResizableHeader = (key: DetailColumnKey, label: string, align: 'left' | 'center' | 'right' = 'left') => (
+    <th
+      className={`relative px-3 py-2 ${
+        align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
+      }`}
+    >
+      <div
+        className={`flex items-center ${
+          align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'
+        } gap-2`}
+      >
+        <span>{label}</span>
+      </div>
+      <span
+        role="separator"
+        aria-label={`${label} kolon genisligi`}
+        className="absolute right-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-blue-300"
+        onMouseDown={(event) => startColumnResize(event, key)}
+      />
+    </th>
+  );
 
   const exportToExcel = () => {
     const rows = families.flatMap((family) =>
@@ -215,6 +375,8 @@ export default function PriceFamilyCostsPage() {
         'Stok Adi': item.productName || '',
         'Satir Durumu': issueLabel(item.issueType),
         'Guncel Maliyet Tarihi': formatDate(item.currentCostDate),
+        'Son Giris': item.lastEntryPrice ?? '',
+        'Son Giris Tarihi': formatDate(item.lastEntryDate),
         'Aile En Yeni Tarih': formatDate(family.latestCostDate),
         'Gun Farki': item.daysBehind ?? '',
         'Guncel Maliyet': item.currentCost ?? '',
@@ -450,28 +612,44 @@ export default function PriceFamilyCostsPage() {
                   />
                   Sadece sorunlu stoklar
                 </label>
-                <div className="lg:col-span-4 flex items-center justify-end text-sm text-gray-500">
+                <div className="lg:col-span-4 flex flex-wrap items-center justify-end gap-2 text-sm text-gray-500">
+                  <Button size="sm" variant="outline" onClick={updateDirtyCosts} disabled={bulkUpdating}>
+                    {bulkUpdating ? 'Guncelleniyor...' : 'Fiyat girilenleri guncelle'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={saveDetailColumnWidths}>
+                    Gorunumu Kaydet
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={resetDetailColumnWidths}>
+                    Sifirla
+                  </Button>
                   {filteredDetailItems.length} satir gosteriliyor
                 </div>
               </div>
 
               <div className="overflow-x-auto rounded-md border">
-                <table className="min-w-full text-sm">
+                <table className="table-fixed text-sm" style={{ width: detailTableWidth }}>
+                  <colgroup>
+                    {DETAIL_COLUMN_KEYS.map((key) => (
+                      <col key={key} style={{ width: detailColumnWidths[key] }} />
+                    ))}
+                  </colgroup>
                   <thead className="bg-slate-100 text-xs uppercase text-slate-600">
                     <tr>
-                      <th className="px-3 py-2 text-left">Stok</th>
-                      <th className="px-3 py-2 text-center">Durum</th>
-                      <th className="px-3 py-2 text-right">Maliyet</th>
-                      <th className="px-3 py-2 text-center">Maliyet Tarihi</th>
-                      <th className="px-3 py-2 text-center">Gun Farki</th>
-                      <th className="px-3 py-2 text-right">Yeni Maliyet</th>
-                      <th className="px-3 py-2 text-right">Islem</th>
+                      {renderResizableHeader('stock', 'Stok')}
+                      {renderResizableHeader('status', 'Durum', 'center')}
+                      {renderResizableHeader('currentCost', 'Guncel Maliyet', 'right')}
+                      {renderResizableHeader('currentCostDate', 'Guncel Maliyet Tarihi', 'center')}
+                      {renderResizableHeader('lastEntryPrice', 'Son Giris', 'right')}
+                      {renderResizableHeader('lastEntryDate', 'Son Giris Tarihi', 'center')}
+                      {renderResizableHeader('daysBehind', 'Gun Farki', 'center')}
+                      {renderResizableHeader('newCost', 'Yeni Maliyet', 'right')}
+                      {renderResizableHeader('action', 'Islem', 'right')}
                     </tr>
                   </thead>
                   <tbody>
                     {filteredDetailItems.length === 0 && (
                       <tr>
-                        <td className="px-3 py-6 text-center text-gray-500" colSpan={7}>
+                        <td className="px-3 py-6 text-center text-gray-500" colSpan={9}>
                           Filtreye uygun stok yok.
                         </td>
                       </tr>
@@ -499,8 +677,20 @@ export default function PriceFamilyCostsPage() {
                               {issueLabel(item.issueType)}
                             </span>
                           </td>
-                          <td className="px-3 py-3 text-right">{formatCurrency(item.currentCost)}</td>
+                          <td className="px-3 py-3 text-right">
+                            <button
+                              type="button"
+                              className="font-semibold text-blue-700 underline-offset-2 hover:underline disabled:cursor-default disabled:text-gray-500 disabled:no-underline"
+                              onClick={() => applyCurrentCostToInputs(item)}
+                              disabled={!item.currentCost}
+                              title="Bu guncel maliyeti sagdaki fiyat kutusuna aktar"
+                            >
+                              {formatCurrency(item.currentCost)}
+                            </button>
+                          </td>
                           <td className="px-3 py-3 text-center">{formatDate(item.currentCostDate)}</td>
+                          <td className="px-3 py-3 text-right">{formatCurrency(item.lastEntryPrice)}</td>
+                          <td className="px-3 py-3 text-center">{formatDate(item.lastEntryDate)}</td>
                           <td className="px-3 py-3 text-center">{item.daysBehind ?? '-'}</td>
                           <td className="px-3 py-3">
                             <div className="flex min-w-[360px] items-center justify-end gap-2">
@@ -514,6 +704,7 @@ export default function PriceFamilyCostsPage() {
                                   onChange={(event) => {
                                     const rawValue = event.target.value;
                                     setCostPInputByCode((prev) => ({ ...prev, [code]: rawValue }));
+                                    markCostDirty(code);
                                     if (manualCostTByCode[code]) return;
                                     const parsed = Number(String(rawValue || '').replace(',', '.'));
                                     if (!Number.isFinite(parsed)) return;
@@ -535,6 +726,7 @@ export default function PriceFamilyCostsPage() {
                                   onChange={(event) => {
                                     setManualCostTByCode((prev) => ({ ...prev, [code]: true }));
                                     setCostTInputByCode((prev) => ({ ...prev, [code]: event.target.value }));
+                                    markCostDirty(code);
                                   }}
                                   className="ml-1 w-24 rounded border px-2 py-1 text-right"
                                 />
@@ -543,7 +735,7 @@ export default function PriceFamilyCostsPage() {
                               <label className="inline-flex items-center gap-1 text-[11px] text-gray-600">
                                 <input
                                   type="checkbox"
-                                  checked={Boolean(updatePriceListsByCode[code])}
+                                  checked={updatePriceListsByCode[code] !== false}
                                   onChange={(event) =>
                                     setUpdatePriceListsByCode((prev) => ({ ...prev, [code]: event.target.checked }))
                                   }

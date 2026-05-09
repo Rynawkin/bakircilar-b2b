@@ -6986,6 +6986,8 @@ export class ReportsService {
       productName: string | null;
       currentCost: number | null;
       currentCostDate: Date | null;
+      lastEntryPrice: number | null;
+      lastEntryDate: Date | null;
       vatRate: number;
       priority: number;
       active: boolean;
@@ -7003,6 +7005,8 @@ export class ReportsService {
                 name: true,
                 currentCost: true,
                 currentCostDate: true,
+                lastEntryPrice: true,
+                lastEntryDate: true,
                 vatRate: true,
               },
             },
@@ -7026,6 +7030,8 @@ export class ReportsService {
             name: true,
             currentCost: true,
             currentCostDate: true,
+            lastEntryPrice: true,
+            lastEntryDate: true,
             vatRate: true,
           },
         })
@@ -7049,6 +7055,8 @@ export class ReportsService {
           productName: product?.name || item.productName || null,
           currentCost: product?.currentCost ?? null,
           currentCostDate: product?.currentCostDate ?? null,
+          lastEntryPrice: product?.lastEntryPrice ?? null,
+          lastEntryDate: product?.lastEntryDate ?? null,
           vatRate: Number(product?.vatRate || 0),
           priority: item.priority,
           active: item.active,
@@ -7200,6 +7208,8 @@ export class ReportsService {
         productName: string | null;
         currentCost: number | null;
         currentCostDate: string | null;
+        lastEntryPrice: number | null;
+        lastEntryDate: string | null;
         vatRate: number;
         issueType: 'ok' | 'outdated' | 'missing-date';
         daysBehind: number | null;
@@ -7259,6 +7269,8 @@ export class ReportsService {
             name: true,
             currentCost: true,
             currentCostDate: true,
+            lastEntryPrice: true,
+            lastEntryDate: true,
             vatRate: true,
           },
         })
@@ -7296,12 +7308,15 @@ export class ReportsService {
         const productCode = String(item.productCode || '').trim().toUpperCase();
         const product = productMap.get(productCode) || null;
         const currentCostDate = dateToKey(product?.currentCostDate || null);
+        const lastEntryDate = dateToKey(product?.lastEntryDate || null);
         return {
           id: item.id,
           productCode,
           productName: product?.name || item.productName || null,
           currentCost: product?.currentCost ?? null,
           currentCostDate,
+          lastEntryPrice: product?.lastEntryPrice ?? null,
+          lastEntryDate,
           vatRate: Number(product?.vatRate || 0),
         };
       });

@@ -129,6 +129,13 @@ const normalizeValue = (value: unknown): string => {
 const normalizeKey = (value: string): string =>
   String(value || '')
     .toLocaleLowerCase('tr-TR')
+    .replace(/\u0131/g, 'i')
+    .replace(/\u0130/g, 'i')
+    .replace(/\u015f/g, 's')
+    .replace(/\u011f/g, 'g')
+    .replace(/\u00fc/g, 'u')
+    .replace(/\u00f6/g, 'o')
+    .replace(/\u00e7/g, 'c')
     .replace(/ı/g, 'i')
     .replace(/İ/g, 'i')
     .replace(/ş/g, 's')
@@ -143,6 +150,15 @@ const normalizeKey = (value: string): string =>
     .replace(/Ç/g, 'c')
     .replace(/\s+/g, ' ')
     .trim();
+
+const buildFamilyEditSearchVariants = (query: string): string[] => {
+  const raw = String(query || '').trim();
+  if (!raw) return [];
+  const normalized = normalizeKey(raw);
+  const trI = raw.replace(/i/g, '\u0131').replace(/I/g, '\u0130');
+  const latinI = raw.replace(/\u0131/g, 'i').replace(/\u0130/g, 'I');
+  return Array.from(new Set([raw, normalized, trI, latinI].filter((item) => String(item || '').trim().length >= 2)));
+};
 
 const toNumberFlexible = (value: unknown): number => {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
@@ -930,15 +946,29 @@ export default function UcarerDepotReportPage() {
     const timer = setTimeout(async () => {
       setFamilyEditSearching(true);
       try {
-        const response = await adminApi.searchStocks({ searchTerm: query, limit: 20, offset: 0 });
+        const variants = buildFamilyEditSearchVariants(query);
+        const responses = await Promise.all(
+          variants.map((searchTerm) => adminApi.searchStocks({ searchTerm, limit: 40, offset: 0 }))
+        );
         if (!active) return;
-        const next: FamilyStockOption[] = (response.data || [])
+        const foldedTokens = normalizeKey(query).split(' ').filter(Boolean);
+        const deduped = new Map<string, FamilyStockOption>();
+        responses
+          .flatMap((response) => response.data || [])
           .map((row: any) => ({
-            productCode: String(row['Stok Kodu'] || row.productCode || row.mikroCode || '').trim().toUpperCase(),
-            productName: String(row['Stok Adi'] || row.productName || row.name || '').trim(),
+            productCode: String(row['Stok Kodu'] || row['msg_S_0078'] || row.productCode || row.mikroCode || '').trim().toUpperCase(),
+            productName: String(row['Stok Adi'] || row['Stok Adı'] || row['msg_S_0870'] || row.productName || row.name || '').trim(),
           }))
-          .filter((item: FamilyStockOption) => item.productCode);
-        setFamilyEditResults(next);
+          .filter((item: FamilyStockOption) => item.productCode)
+          .forEach((item: FamilyStockOption) => {
+            if (!deduped.has(item.productCode)) deduped.set(item.productCode, item);
+          });
+        const next = Array.from(deduped.values()).filter((item) => {
+          if (foldedTokens.length === 0) return true;
+          const haystack = `${normalizeKey(item.productCode)} ${normalizeKey(item.productName || '')}`;
+          return foldedTokens.every((token) => haystack.includes(token));
+        });
+        setFamilyEditResults(next.slice(0, 80));
       } catch {
         if (active) setFamilyEditResults([]);
       } finally {
@@ -3463,6 +3493,9 @@ export default function UcarerDepotReportPage() {
                   className="mt-2 h-9 text-xs"
                 />
                 {familyEditSearching && <p className="mt-2 text-xs text-gray-500">Araniyor...</p>}
+                {!familyEditSearching && familyEditSearch.trim().length >= 2 && familyEditResults.length === 0 && (
+                  <p className="mt-2 text-xs text-gray-500">Sonuc bulunamadi.</p>
+                )}
                 {!familyEditSearching && familyEditResults.length > 0 && (
                   <div className="mt-2 max-h-40 overflow-auto rounded border">
                     {familyEditResults.map((item) => (
