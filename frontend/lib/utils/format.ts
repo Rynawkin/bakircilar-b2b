@@ -24,6 +24,14 @@ const parseManualDateParts = (value: string): { year: number; month: number; day
     if (isValidDateParts(year, month, day)) return { year, month, day, hour: 0, minute: 0 };
   }
 
+  const isoMidnightMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})T00:00:00(?:\.000)?Z$/);
+  if (isoMidnightMatch) {
+    const year = Number(isoMidnightMatch[1]);
+    const month = Number(isoMidnightMatch[2]);
+    const day = Number(isoMidnightMatch[3]);
+    if (isValidDateParts(year, month, day)) return { year, month, day, hour: 0, minute: 0 };
+  }
+
   const trMatch = text.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?)?$/);
   if (trMatch) {
     const day = Number(trMatch[1]);
