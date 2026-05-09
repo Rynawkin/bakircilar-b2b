@@ -325,10 +325,12 @@ export default function UcarerDepotReportPage() {
   const [familyEditNote, setFamilyEditNote] = useState('');
   const [familyEditActive, setFamilyEditActive] = useState(true);
   const [familyEditProductCodes, setFamilyEditProductCodes] = useState<string[]>([]);
+  const [familyEditProductNamesByCode, setFamilyEditProductNamesByCode] = useState<Record<string, string>>({});
   const [familyEditSearch, setFamilyEditSearch] = useState('');
   const [familyEditResults, setFamilyEditResults] = useState<FamilyStockOption[]>([]);
   const [familyEditSearching, setFamilyEditSearching] = useState(false);
   const [familyEditSaving, setFamilyEditSaving] = useState(false);
+  const familyEditNameFetchAttemptedRef = useRef<Set<string>>(new Set());
   const [pendingSupplierInputByProduct, setPendingSupplierInputByProduct] = useState<Record<string, string>>({});
   const [defaultColumnWidth] = useState(180);
   const [headerHeight, setHeaderHeight] = useState(44);
@@ -855,15 +857,26 @@ export default function UcarerDepotReportPage() {
     setFamilyEditCode(String(family.code || ''));
     setFamilyEditNote(String(family.note || ''));
     setFamilyEditActive(Boolean(family.active));
-    setFamilyEditProductCodes(
-      Array.from(
-        new Set(
-          (family.items || [])
-            .map((item) => String(item.productCode || '').trim().toUpperCase())
-            .filter(Boolean)
-        )
+    familyEditNameFetchAttemptedRef.current.clear();
+    const productNamesByCode: Record<string, string> = {};
+    const productCodes = Array.from(
+      new Set(
+        (family.items || [])
+          .map((item) => {
+            const code = String(item.productCode || '').trim().toUpperCase();
+            if (code) {
+              const rowName = productNameColumn
+                ? String(rowByProductCode.get(code)?.[productNameColumn] || '').trim()
+                : '';
+              productNamesByCode[code] = String(item.productName || '').trim() || rowName;
+            }
+            return code;
+          })
+          .filter(Boolean)
       )
     );
+    setFamilyEditProductCodes(productCodes);
+    setFamilyEditProductNamesByCode(productNamesByCode);
     setFamilyEditSearch('');
     setFamilyEditResults([]);
     setFamilyEditModalOpen(true);
@@ -874,12 +887,18 @@ export default function UcarerDepotReportPage() {
     setEditingFamilyId('');
     setFamilyEditSearch('');
     setFamilyEditResults([]);
+    setFamilyEditProductNamesByCode({});
+    familyEditNameFetchAttemptedRef.current.clear();
     setFamilyEditSaving(false);
   };
 
-  const addProductCodeToFamilyEdit = (codeRaw: string) => {
+  const addProductCodeToFamilyEdit = (codeRaw: string, nameRaw?: string) => {
     const code = String(codeRaw || '').trim().toUpperCase();
     if (!code) return;
+    const name = String(nameRaw || '').trim();
+    if (name) {
+      setFamilyEditProductNamesByCode((prev) => ({ ...prev, [code]: name }));
+    }
     setFamilyEditProductCodes((prev) => (prev.includes(code) ? prev : [...prev, code]));
     setFamilyEditSearch('');
     setFamilyEditResults([]);
@@ -889,6 +908,12 @@ export default function UcarerDepotReportPage() {
     const code = String(codeRaw || '').trim().toUpperCase();
     if (!code) return;
     setFamilyEditProductCodes((prev) => prev.filter((item) => item !== code));
+  };
+
+  const getFamilyEditProductLabel = (codeRaw: string) => {
+    const code = String(codeRaw || '').trim().toUpperCase();
+    const name = String(familyEditProductNamesByCode[code] || '').trim();
+    return name ? `${code} - ${name}` : code;
   };
 
   const saveFamilyEdit = async () => {
@@ -968,6 +993,19 @@ export default function UcarerDepotReportPage() {
           const haystack = `${normalizeKey(item.productCode)} ${normalizeKey(item.productName || '')}`;
           return foldedTokens.every((token) => haystack.includes(token));
         });
+        setFamilyEditProductNamesByCode((prev) => {
+          let changed = false;
+          const merged = { ...prev };
+          next.forEach((item) => {
+            const code = String(item.productCode || '').trim().toUpperCase();
+            const name = String(item.productName || '').trim();
+            if (code && name && merged[code] !== name) {
+              merged[code] = name;
+              changed = true;
+            }
+          });
+          return changed ? merged : prev;
+        });
         setFamilyEditResults(next.slice(0, 80));
       } catch {
         if (active) setFamilyEditResults([]);
@@ -980,6 +1018,39 @@ export default function UcarerDepotReportPage() {
       clearTimeout(timer);
     };
   }, [familyEditSearch, familyEditModalOpen]);
+
+  useEffect(() => {
+    if (!familyEditModalOpen || familyEditProductCodes.length === 0) return;
+    const missingCodes = familyEditProductCodes.filter((codeRaw) => {
+      const code = String(codeRaw || '').trim().toUpperCase();
+      return code && !String(familyEditProductNamesByCode[code] || '').trim() && !familyEditNameFetchAttemptedRef.current.has(code);
+    });
+    if (missingCodes.length === 0) return;
+    missingCodes.forEach((code) => familyEditNameFetchAttemptedRef.current.add(code));
+
+    let active = true;
+    (async () => {
+      try {
+        const response = await adminApi.getProductsByCodes(missingCodes);
+        if (!active) return;
+        const namesByCode: Record<string, string> = {};
+        (response.products || []).forEach((product: any) => {
+          const code = String(product?.mikroCode || product?.productCode || product?.code || '').trim().toUpperCase();
+          const name = String(product?.name || product?.productName || product?.stokAdi || '').trim();
+          if (code && name) namesByCode[code] = name;
+        });
+        if (Object.keys(namesByCode).length > 0) {
+          setFamilyEditProductNamesByCode((prev) => ({ ...prev, ...namesByCode }));
+        }
+      } catch {
+        // Kod gosterimi calismaya devam eder; isim yalnizca ekranda yardimci bilgidir.
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [familyEditModalOpen, familyEditProductCodes, familyEditProductNamesByCode]);
 
   useEffect(() => {
     if (!incomingOrdersModalOpen && !salesHistoryModalOpen && !familyEditModalOpen) return;
@@ -3503,7 +3574,7 @@ export default function UcarerDepotReportPage() {
                         key={`${item.productCode}-${item.productName}`}
                         type="button"
                         className="flex w-full items-center justify-between border-b px-2 py-1 text-left text-xs hover:bg-gray-50"
-                        onClick={() => addProductCodeToFamilyEdit(item.productCode)}
+                        onClick={() => addProductCodeToFamilyEdit(item.productCode, item.productName)}
                       >
                         <span>{item.productCode} - {item.productName || '-'}</span>
                         <span className="text-blue-600">Ekle</span>
@@ -3518,7 +3589,9 @@ export default function UcarerDepotReportPage() {
                   ) : (
                     familyEditProductCodes.map((code) => (
                       <div key={code} className="flex items-center justify-between border-b px-2 py-1 text-xs">
-                        <span>{code}</span>
+                        <span className="min-w-0 truncate" title={getFamilyEditProductLabel(code)}>
+                          {getFamilyEditProductLabel(code)}
+                        </span>
                         <Button size="sm" variant="outline" onClick={() => removeProductCodeFromFamilyEdit(code)}>
                           Cikar
                         </Button>

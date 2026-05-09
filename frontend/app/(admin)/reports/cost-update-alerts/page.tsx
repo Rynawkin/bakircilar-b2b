@@ -29,6 +29,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
+import { formatDateShort } from '@/lib/utils/format';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
@@ -390,7 +391,7 @@ export default function CostUpdateAlertsPage() {
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('tr-TR');
+    return formatDateShort(dateStr);
   };
 
   const toggleSort = (key: SortKey) => {

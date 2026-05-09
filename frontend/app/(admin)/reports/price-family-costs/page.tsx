@@ -9,6 +9,7 @@ import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle }
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { adminApi } from '@/lib/api/admin';
+import { formatDateShort } from '@/lib/utils/format';
 
 type FamilyStatus = 'all' | 'problem' | 'ok';
 type DetailColumnKey =
@@ -100,9 +101,7 @@ const formatInputNumber = (value: number) =>
 
 const formatDate = (value?: string | null) => {
   if (!value) return '-';
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return value;
-  return `${match[3]}.${match[2]}.${match[1]}`;
+  return formatDateShort(value);
 };
 
 const getVatPercent = (vatRate: number) => {

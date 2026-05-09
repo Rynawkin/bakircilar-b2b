@@ -29,7 +29,7 @@ class SyncService {
 
     // Eğer zaten Date objesi ise direkt döndür
     if (dateStr instanceof Date) {
-      return dateStr;
+      return Number.isNaN(dateStr.getTime()) ? null : dateStr;
     }
 
     // String kontrolü
@@ -37,28 +37,40 @@ class SyncService {
       return null;
     }
 
-    // Eğer zaten ISO formatındaysa direkt parse et
-    const isoDate = new Date(dateStr);
-    if (!isNaN(isoDate.getTime())) {
-      return isoDate;
-    }
+    const cleaned = dateStr.trim();
+    const isValidDateParts = (year: number, month: number, day: number) => {
+      if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+      if (year < 1900 || year > 2500 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+    };
 
-    // Türkçe format: "22.3.2024" veya "22.03.2024"
-    const parts = dateStr.split('.');
-    if (parts.length === 3) {
-      const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
-      const year = parseInt(parts[2], 10);
-
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        const parsed = new Date(year, month, day);
-        if (!isNaN(parsed.getTime())) {
-          return parsed;
-        }
+    // Mikro current cost date is stored as dd.mm.yyyy. Parse it before new Date(),
+    // otherwise strings like 08.05.2026 are interpreted as August 5 by JavaScript.
+    const trMatch = cleaned.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})(?:\s.*)?$/);
+    if (trMatch) {
+      const day = Number(trMatch[1]);
+      const month = Number(trMatch[2]);
+      const year = Number(trMatch[3]);
+      if (isValidDateParts(year, month, day)) {
+        return new Date(Date.UTC(year, month - 1, day));
       }
+      return null;
     }
 
-    return null;
+    const isoDateOnlyMatch = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+    if (isoDateOnlyMatch) {
+      const year = Number(isoDateOnlyMatch[1]);
+      const month = Number(isoDateOnlyMatch[2]);
+      const day = Number(isoDateOnlyMatch[3]);
+      if (isValidDateParts(year, month, day)) {
+        return new Date(Date.UTC(year, month - 1, day));
+      }
+      return null;
+    }
+
+    const parsedDate = new Date(cleaned);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
   }
 
   /**
