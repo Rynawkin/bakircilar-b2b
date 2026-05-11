@@ -503,15 +503,33 @@ export default function OrderTrackingPage() {
   };
 
   const collectSupplierOrderNumbers = (supplier: CustomerSummary) => {
-    const orderNumbers = Array.from(
-      new Set(
-        supplier.orders
-          .filter((order) => order.items.some((item) => item.remainingQty > 0))
-          .map((order) => String(order.mikroOrderNumber || '').trim())
-          .filter(Boolean)
-      )
-    );
-    return orderNumbers.join(', ');
+    const seen = new Set<string>();
+    return supplier.orders
+      .filter((order) => order.items.some((item) => item.remainingQty > 0))
+      .map((order) => {
+        const orderNumber = String(order.mikroOrderNumber || '').trim();
+        const orderDateRaw = order.orderDate || '';
+        const orderDateTs = Number.isFinite(new Date(orderDateRaw).getTime())
+          ? new Date(orderDateRaw).getTime()
+          : Number.POSITIVE_INFINITY;
+        return {
+          key: `${orderNumber}||${orderDateRaw}`,
+          orderNumber,
+          orderDateText: formatDate(orderDateRaw || null),
+          orderDateTs,
+        };
+      })
+      .filter((order) => {
+        if (!order.orderNumber || seen.has(order.key)) return false;
+        seen.add(order.key);
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.orderDateTs !== b.orderDateTs) return a.orderDateTs - b.orderDateTs;
+        return a.orderNumber.localeCompare(b.orderNumber, 'tr');
+      })
+      .map((order) => `${order.orderNumber} (${order.orderDateText})`)
+      .join(', ');
   };
 
   const handleDownloadSelectedSuppliersApprovalPdf = async (suppliers: CustomerSummary[]) => {
@@ -556,7 +574,7 @@ export default function OrderTrackingPage() {
         return {
           supplier,
           items,
-          orderNumbers: collectSupplierOrderNumbers(supplier),
+          orderRefsText: collectSupplierOrderNumbers(supplier),
           totalAmount,
         };
       });
@@ -564,11 +582,11 @@ export default function OrderTrackingPage() {
 
       autoTable(doc, {
         startY: 30,
-        head: [['Cari Kodu', 'Cari Unvan', 'Siparis No', 'Kalem', 'Tutar (TL)'].map(cleanPdfText)],
+        head: [['Cari Kodu', 'Cari Unvan', 'Siparis No / Tarih', 'Kalem', 'Tutar (TL)'].map(cleanPdfText)],
         body: supplierRows.map((row) => [
           cleanPdfText(row.supplier.customerCode),
           cleanPdfText(row.supplier.customerName),
-          cleanPdfText(row.orderNumbers || '-'),
+          cleanPdfText(row.orderRefsText || '-'),
           cleanPdfText(row.items.length.toLocaleString('tr-TR')),
           cleanPdfText(formatCurrencyPdf(row.totalAmount)),
         ]),
@@ -587,13 +605,13 @@ export default function OrderTrackingPage() {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
         doc.setTextColor(15, 23, 42);
-        doc.text(
-          cleanPdfText(`${index + 1}) ${row.supplier.customerCode} - ${row.supplier.customerName} | ${row.orderNumbers || '-'}`),
-          12,
-          startY
-        );
+        const titleLines = doc.splitTextToSize(
+          cleanPdfText(`${index + 1}) ${row.supplier.customerCode} - ${row.supplier.customerName} | ${row.orderRefsText || '-'}`),
+          pageWidth - 24
+        ) as string[];
+        doc.text(titleLines, 12, startY);
         autoTable(doc, {
-          startY: startY + 2,
+          startY: startY + titleLines.length * 4 + 2,
           head: [['Stok', 'Urun', 'Miktar', 'Birim', 'Tutar'].map(cleanPdfText)],
           body: row.items.map((item) => [
             cleanPdfText(item.productCode),
