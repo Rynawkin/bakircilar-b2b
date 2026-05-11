@@ -103,6 +103,8 @@ export default function OrderTrackingPage() {
   const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
   const [downloadingSupplier, setDownloadingSupplier] = useState<string | null>(null);
   const [downloadingSupplierExcel, setDownloadingSupplierExcel] = useState<string | null>(null);
+  const [downloadingSelectedSuppliers, setDownloadingSelectedSuppliers] = useState(false);
+  const [selectedSupplierCodes, setSelectedSupplierCodes] = useState<Set<string>>(new Set());
   const [markingSupplierTransmission, setMarkingSupplierTransmission] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
   const [emailOverrides, setEmailOverrides] = useState<Record<string, string>>({});
@@ -468,6 +470,165 @@ export default function OrderTrackingPage() {
     });
   };
 
+  const supplierHasPendingItems = (supplier: CustomerSummary) =>
+    supplier.orders.some((order) => order.items.some((item) => item.remainingQty > 0));
+
+  const toggleSupplierSelection = (supplierCode: string, selected: boolean) => {
+    const code = String(supplierCode || '').trim();
+    if (!code) return;
+    setSelectedSupplierCodes((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(code);
+      } else {
+        next.delete(code);
+      }
+      return next;
+    });
+  };
+
+  const setVisibleSupplierSelection = (suppliers: CustomerSummary[], selected: boolean) => {
+    setSelectedSupplierCodes((prev) => {
+      const next = new Set(prev);
+      suppliers.forEach((supplier) => {
+        if (!supplierHasPendingItems(supplier)) return;
+        if (selected) {
+          next.add(supplier.customerCode);
+        } else {
+          next.delete(supplier.customerCode);
+        }
+      });
+      return next;
+    });
+  };
+
+  const collectSupplierOrderNumbers = (supplier: CustomerSummary) => {
+    const orderNumbers = Array.from(
+      new Set(
+        supplier.orders
+          .filter((order) => order.items.some((item) => item.remainingQty > 0))
+          .map((order) => String(order.mikroOrderNumber || '').trim())
+          .filter(Boolean)
+      )
+    );
+    return orderNumbers.join(', ');
+  };
+
+  const handleDownloadSelectedSuppliersApprovalPdf = async (suppliers: CustomerSummary[]) => {
+    if (downloadingSelectedSuppliers || downloadingSupplier || downloadingSupplierExcel) return;
+    const selectedSuppliers = suppliers.filter(
+      (supplier) => selectedSupplierCodes.has(supplier.customerCode) && supplierHasPendingItems(supplier)
+    );
+    if (selectedSuppliers.length === 0) {
+      toast.error('Indirmek icin en az bir tedarikci secin.');
+      return;
+    }
+
+    setDownloadingSelectedSuppliers(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
+      if (typeof autoTable !== 'function') {
+        throw new Error('autoTable is not available');
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const writeHeader = (subTitle: string) => {
+        doc.setFillColor(240, 253, 250);
+        doc.rect(0, 0, pageWidth, 26, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.setTextColor(13, 148, 136);
+        doc.text(cleanPdfText('Toplu Siparis Yonetici Onay Ozeti'), 12, 11);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(71, 85, 105);
+        doc.text(cleanPdfText(subTitle), 12, 17);
+        doc.text(cleanPdfText(new Date().toLocaleString('tr-TR')), pageWidth - 12, 17, { align: 'right' });
+      };
+
+      writeHeader('Cari bazinda bekleyen tedarikci siparis ve tutar listesi');
+      const supplierRows = selectedSuppliers.map((supplier) => {
+        const items = buildSupplierPdfItems(supplier);
+        const totalAmount = items.reduce((sum, item) => sum + item.totalAmount, 0);
+        return {
+          supplier,
+          items,
+          orderNumbers: collectSupplierOrderNumbers(supplier),
+          totalAmount,
+        };
+      });
+      const grandTotal = supplierRows.reduce((sum, row) => sum + row.totalAmount, 0);
+
+      autoTable(doc, {
+        startY: 30,
+        head: [['Cari Kodu', 'Cari Unvan', 'Siparis No', 'Kalem', 'Tutar (TL)'].map(cleanPdfText)],
+        body: supplierRows.map((row) => [
+          cleanPdfText(row.supplier.customerCode),
+          cleanPdfText(row.supplier.customerName),
+          cleanPdfText(row.orderNumbers || '-'),
+          cleanPdfText(row.items.length.toLocaleString('tr-TR')),
+          cleanPdfText(formatCurrencyPdf(row.totalAmount)),
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [13, 148, 136], textColor: [255, 255, 255], fontSize: 9 },
+        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+        columnStyles: { 3: { halign: 'right', cellWidth: 16 }, 4: { halign: 'right', cellWidth: 30 } },
+      });
+
+      let startY = ((doc as any).lastAutoTable?.finalY || 36) + 8;
+      supplierRows.forEach((row, index) => {
+        if (startY > 250) {
+          doc.addPage();
+          startY = 16;
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(15, 23, 42);
+        doc.text(
+          cleanPdfText(`${index + 1}) ${row.supplier.customerCode} - ${row.supplier.customerName} | ${row.orderNumbers || '-'}`),
+          12,
+          startY
+        );
+        autoTable(doc, {
+          startY: startY + 2,
+          head: [['Stok', 'Urun', 'Miktar', 'Birim', 'Tutar'].map(cleanPdfText)],
+          body: row.items.map((item) => [
+            cleanPdfText(item.productCode),
+            cleanPdfText(item.productName),
+            cleanPdfText(item.totalQty.toLocaleString('tr-TR')),
+            cleanPdfText(formatCurrencyPdf(item.unitPrice)),
+            cleanPdfText(formatCurrencyPdf(item.totalAmount)),
+          ]),
+          theme: 'striped',
+          headStyles: { fillColor: [55, 65, 81], textColor: [255, 255, 255], fontSize: 8 },
+          styles: { fontSize: 7.5, cellPadding: 1.8, overflow: 'linebreak' },
+          margin: { left: 12, right: 12 },
+          columnStyles: { 2: { halign: 'right', cellWidth: 16 }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'right', cellWidth: 24 } },
+        });
+        startY = ((doc as any).lastAutoTable?.finalY || startY + 12) + 6;
+      });
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text(
+        cleanPdfText(`Genel Toplam: ${formatCurrencyPdf(grandTotal)}`),
+        pageWidth - 12,
+        Math.min(288, startY + 4),
+        { align: 'right' }
+      );
+      doc.save(`tedarikci-yonetici-onay-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (error) {
+      console.error('Secili tedarikci PDF indirilemedi:', error);
+      toast.error('Secili tedarikci PDF indirilemedi.');
+    } finally {
+      setDownloadingSelectedSuppliers(false);
+    }
+  };
+
   const handleDownloadSupplierPdf = async (supplier: CustomerSummary) => {
     if (downloadingSupplier || downloadingSupplierExcel) return;
     setDownloadingSupplier(supplier.customerCode);
@@ -746,6 +907,10 @@ export default function OrderTrackingPage() {
 
   const currentSummary = isSupplierTab ? filteredSupplierSummary : customerSummary;
   const currentAmount = currentSummary.reduce((sum, item) => sum + item.totalAmount, 0);
+  const visibleSelectableSuppliers = filteredSupplierSummary.filter(supplierHasPendingItems);
+  const selectedVisibleSupplierCount = visibleSelectableSuppliers.filter((supplier) =>
+    selectedSupplierCodes.has(supplier.customerCode)
+  ).length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1187,6 +1352,30 @@ export default function OrderTrackingPage() {
                     <option value="desc">Z-A</option>
                   </select>
                 </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    onClick={() => setVisibleSupplierSelection(filteredSupplierSummary, true)}
+                    disabled={visibleSelectableSuppliers.length === 0}
+                    className="bg-white text-orange-700 border border-orange-200 hover:bg-orange-50 text-sm"
+                  >
+                    Tumunu Sec
+                  </Button>
+                  <Button
+                    onClick={() => setVisibleSupplierSelection(filteredSupplierSummary, false)}
+                    disabled={selectedVisibleSupplierCount === 0}
+                    className="bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 text-sm"
+                  >
+                    Secimi Temizle
+                  </Button>
+                  <Button
+                    onClick={() => handleDownloadSelectedSuppliersApprovalPdf(filteredSupplierSummary)}
+                    isLoading={downloadingSelectedSuppliers}
+                    disabled={selectedVisibleSupplierCount === 0 || downloadingSelectedSuppliers}
+                    className="bg-teal-600 hover:bg-teal-700 text-white text-sm"
+                  >
+                    Secilileri Indir ({selectedVisibleSupplierCount})
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -1207,9 +1396,20 @@ export default function OrderTrackingPage() {
                       {/* Customer Header */}
                       <div className={`p-4 border-b ${activeTab === 'customers' ? 'bg-gradient-to-r from-blue-50 to-blue-100' : 'bg-gradient-to-r from-orange-50 to-orange-100'}`}>
                         <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <h3 className="text-lg font-bold text-gray-900 mb-1">{customer.customerName}</h3>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
+                          <div className="flex flex-1 items-start gap-3">
+                            {isSupplierTab && (
+                              <input
+                                type="checkbox"
+                                className="mt-1 h-4 w-4"
+                                checked={selectedSupplierCodes.has(customer.customerCode)}
+                                disabled={!hasPendingItems}
+                                onChange={(e) => toggleSupplierSelection(customer.customerCode, e.target.checked)}
+                                title="Toplu yonetici onayi PDF secimi"
+                              />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <h3 className="text-lg font-bold text-gray-900 mb-1">{customer.customerName}</h3>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
                               <span>📋 Kod: {customer.customerCode}</span>
                               <span>
                                 📧 Email:{' '}
@@ -1240,6 +1440,7 @@ export default function OrderTrackingPage() {
                                 💰 {formatCurrency(customer.totalAmount)}
                               </span>
                             </div>
+                          </div>
                           </div>
                           <div className="flex items-center gap-2">
                             {isSupplierTab && (

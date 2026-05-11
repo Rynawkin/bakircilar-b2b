@@ -95,6 +95,53 @@ interface FamilyStockOption {
   productName: string;
 }
 
+interface SupplierOrderConfig {
+  series: string;
+  applyVAT: boolean;
+  deliveryType: string;
+  deliveryDate: string;
+}
+
+interface SupplierOrderAllocation {
+  familyId?: string | null;
+  productCode: string;
+  quantity: number;
+  unitPriceOverride?: number | null;
+  supplierCodeOverride?: string | null;
+  persistSupplierOverride?: boolean;
+}
+
+interface CreatedSupplierOrderSummary {
+  supplierCode: string;
+  supplierName: string | null;
+  orderNumber: string;
+  itemCount: number;
+  totalQuantity: number;
+}
+
+interface CreatedSupplierOrderLine {
+  supplierCode: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+interface CreatedSupplierOrderBatch {
+  id: string;
+  createdAt: string;
+  depot: DepotType;
+  orders: CreatedSupplierOrderSummary[];
+  lines: CreatedSupplierOrderLine[];
+}
+
+interface MissingPriceProduct {
+  productCode: string;
+  productName: string;
+  quantity: number;
+}
+
 interface SuggestionSortState {
   key: SuggestionSortKey;
   direction: SortDirection;
@@ -117,6 +164,8 @@ interface SalesHistorySortState {
 
 type NonFamilyColorFilter = 'ALL' | 'GREEN' | 'YELLOW' | 'RED' | 'UNCOLORED';
 type NonFamilyColorSort = 'NONE' | 'RISK_DESC' | 'RISK_ASC';
+
+const CREATED_SUPPLIER_ORDER_HISTORY_KEY = 'ucarer.created-supplier-orders.v1';
 
 const normalizeValue = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
@@ -256,19 +305,10 @@ export default function UcarerDepotReportPage() {
   const [nonFamilySearch, setNonFamilySearch] = useState('');
   const [showUnsuggestedFamilies, setShowUnsuggestedFamilies] = useState(false);
   const [expandedSupplierRows, setExpandedSupplierRows] = useState<Record<string, boolean>>({});
-  const [supplierOrderConfigs, setSupplierOrderConfigs] = useState<
-    Record<string, { series: string; applyVAT: boolean; deliveryType: string; deliveryDate: string }>
-  >({});
-  const [pendingAllocations, setPendingAllocations] = useState<
-    Array<{
-      familyId?: string | null;
-      productCode: string;
-      quantity: number;
-      supplierCodeOverride?: string | null;
-      persistSupplierOverride?: boolean;
-    }>
-  >([]);
+  const [supplierOrderConfigs, setSupplierOrderConfigs] = useState<Record<string, SupplierOrderConfig>>({});
+  const [pendingAllocations, setPendingAllocations] = useState<SupplierOrderAllocation[]>([]);
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
+  const [orderPanelTab, setOrderPanelTab] = useState<'work' | 'history'>('work');
   const [panelHighlight, setPanelHighlight] = useState(false);
   const [creatingOrders, setCreatingOrders] = useState(false);
   const [creatingTransferOrder, setCreatingTransferOrder] = useState(false);
@@ -278,19 +318,10 @@ export default function UcarerDepotReportPage() {
   const [minMaxExcludedRows, setMinMaxExcludedRows] = useState<Array<{ productCode: string }>>([]);
   const [resetMinMaxToZeroByCode, setResetMinMaxToZeroByCode] = useState<Record<string, boolean>>({});
   const [updatingMinMaxExclusionByCode, setUpdatingMinMaxExclusionByCode] = useState<Record<string, boolean>>({});
-  const [lastCreatedOrders, setLastCreatedOrders] = useState<
-    Array<{ supplierCode: string; supplierName: string | null; orderNumber: string; itemCount: number; totalQuantity: number }>
-  >([]);
-  const [lastCreatedAllocations, setLastCreatedAllocations] = useState<
-    Array<{
-      familyId?: string | null;
-      productCode: string;
-      quantity: number;
-      unitPriceOverride?: number | null;
-      supplierCodeOverride?: string | null;
-      persistSupplierOverride?: boolean;
-    }>
-  >([]);
+  const [missingPriceProducts, setMissingPriceProducts] = useState<MissingPriceProduct[]>([]);
+  const [createdOrderHistory, setCreatedOrderHistory] = useState<CreatedSupplierOrderBatch[]>([]);
+  const [lastCreatedOrders, setLastCreatedOrders] = useState<CreatedSupplierOrderSummary[]>([]);
+  const [lastCreatedAllocations, setLastCreatedAllocations] = useState<SupplierOrderAllocation[]>([]);
   const [downloadingOrderPdfs, setDownloadingOrderPdfs] = useState(false);
   const [downloadingOrderSummaryPdf, setDownloadingOrderSummaryPdf] = useState(false);
   const [createdOrdersModalOpen, setCreatedOrdersModalOpen] = useState(false);
@@ -546,6 +577,28 @@ export default function UcarerDepotReportPage() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('ucarer_ops_panel_cols_v1', JSON.stringify(panelColumns));
   }, [panelColumns]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(CREATED_SUPPLIER_ORDER_HISTORY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setCreatedOrderHistory(parsed.slice(0, 50));
+      }
+    } catch {
+      setCreatedOrderHistory([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      CREATED_SUPPLIER_ORDER_HISTORY_KEY,
+      JSON.stringify(createdOrderHistory.slice(0, 50))
+    );
+  }, [createdOrderHistory]);
 
   useEffect(() => {
     setNonFamilyAllocations((prev) => {
@@ -1458,6 +1511,34 @@ export default function UcarerDepotReportPage() {
       })
     );
   };
+  const setPendingPriceOverrideForProduct = (productCode: string, value: string) => {
+    const stockCode = String(productCode || '').trim().toUpperCase();
+    if (!stockCode) return;
+    const parsed = Number(String(value || '').replace(',', '.'));
+    const nextValue = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    setPendingAllocations((prev) =>
+      prev.map((row) => {
+        const rowProductCode = String(row.productCode || '').trim().toUpperCase();
+        if (rowProductCode !== stockCode) return row;
+        return {
+          ...row,
+          unitPriceOverride: nextValue,
+        };
+      })
+    );
+  };
+  const removePendingProductFromSupplierOrder = (productCode: string) => {
+    const stockCode = String(productCode || '').trim().toUpperCase();
+    if (!stockCode) return;
+    setPendingAllocations((prev) =>
+      prev.filter((row) => String(row.productCode || '').trim().toUpperCase() !== stockCode)
+    );
+    setPendingSupplierInputByProduct((prev) => {
+      const next = { ...prev };
+      delete next[stockCode];
+      return next;
+    });
+  };
   const salesHistoryRowsSorted = useMemo(() => {
     const rows = [...salesHistoryRows];
     return rows.sort((a, b) => {
@@ -1705,6 +1786,10 @@ export default function UcarerDepotReportPage() {
       )
     : 0;
   const activeFamilyRemaining = Math.max(0, activeFamilyNeed - activeFamilyAllocated);
+  const missingPriceCodeSet = useMemo(
+    () => new Set(missingPriceProducts.map((item) => String(item.productCode || '').trim().toUpperCase()).filter(Boolean)),
+    [missingPriceProducts]
+  );
   const fillActiveBySuggestions = () => {
     if (!activeFamily) return;
     const next: Record<string, number> = {};
@@ -1738,22 +1823,39 @@ export default function UcarerDepotReportPage() {
     });
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
-  const buildOrderAllocations = (): Array<{
-    familyId?: string | null;
-    productCode: string;
-    quantity: number;
-    unitPriceOverride?: number | null;
-    supplierCodeOverride?: string | null;
-    persistSupplierOverride?: boolean;
-  }> => {
-    const allocations: Array<{
-      familyId?: string | null;
-      productCode: string;
-      quantity: number;
-      unitPriceOverride?: number | null;
-      supplierCodeOverride?: string | null;
-      persistSupplierOverride?: boolean;
-    }> = [];
+  const resolveOrderUnitPrice = (productCode: string, unitPriceOverride?: unknown) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    const override = Number(unitPriceOverride);
+    if (Number.isFinite(override) && override > 0) return override;
+
+    const manualInput = Number(String(costPInputByCode[code] || '').replace(',', '.'));
+    if (Number.isFinite(manualInput) && manualInput > 0) return manualInput;
+
+    const currentCost = Number(currentCostByCode[code] || 0);
+    if (Number.isFinite(currentCost) && currentCost > 0) return currentCost;
+
+    const row = rowByProductCode.get(code) || {};
+    const rowEntries = Object.entries(row as Record<string, any>);
+    const candidate = rowEntries.find(([key, value]) => {
+      const keyNorm = normalizeKey(key);
+      if (!keyNorm.includes('maliyet') && !keyNorm.includes('cost')) return false;
+      const parsed = toNumberFlexible(value);
+      return Number.isFinite(parsed) && parsed > 0;
+    });
+    if (candidate) {
+      const parsed = toNumberFlexible(candidate[1]);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return 0;
+  };
+
+  const getProductDisplayName = (productCode: string) => {
+    const code = String(productCode || '').trim().toUpperCase();
+    return String(rowByProductCode.get(code)?.[productNameColumn || ''] || '').trim() || code || '-';
+  };
+
+  const buildOrderAllocations = (): SupplierOrderAllocation[] => {
+    const allocations: SupplierOrderAllocation[] = [];
     families.forEach((family) => {
       const familyAllocation = manualAllocations[family.id] || {};
       getVisibleFamilyItems(family).forEach((item) => {
@@ -1813,32 +1915,36 @@ export default function UcarerDepotReportPage() {
   const pendingSupplierItemsByCode = useMemo(() => {
     const grouped = new Map<
       string,
-      Map<string, { productCode: string; productName: string; quantity: number }>
+      Map<string, { productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>
     >();
     pendingAllocations.forEach((row) => {
       const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
       const productCode = String(row.productCode || '').trim().toUpperCase();
       const qty = Math.max(0, Math.trunc(Number(row.quantity || 0)));
       if (!supplierCode || !productCode || qty <= 0) return;
-      const supplierItems = grouped.get(supplierCode) || new Map<string, { productCode: string; productName: string; quantity: number }>();
+      const supplierItems =
+        grouped.get(supplierCode) ||
+        new Map<string, { productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>();
       const existing = supplierItems.get(productCode);
-      const productName =
-        String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
+      const productName = getProductDisplayName(productCode);
+      const unitPrice = resolveOrderUnitPrice(productCode, row.unitPriceOverride);
       if (existing) {
         existing.quantity += qty;
+        existing.total += unitPrice * qty;
+        existing.unitPrice = existing.quantity > 0 ? existing.total / existing.quantity : unitPrice;
       } else {
-        supplierItems.set(productCode, { productCode, productName, quantity: qty });
+        supplierItems.set(productCode, { productCode, productName, quantity: qty, unitPrice, total: unitPrice * qty });
       }
       grouped.set(supplierCode, supplierItems);
     });
-    const result: Record<string, Array<{ productCode: string; productName: string; quantity: number }>> = {};
+    const result: Record<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>> = {};
     grouped.forEach((items, supplierCode) => {
       result[supplierCode] = Array.from(items.values()).sort((a, b) =>
         a.productCode.localeCompare(b.productCode, 'tr')
       );
     });
     return result;
-  }, [pendingAllocations, rowByProductCode, productNameColumn]);
+  }, [pendingAllocations, rowByProductCode, productNameColumn, costPInputByCode, currentCostByCode]);
   useEffect(() => {
     if (!seriesModalOpen) return;
     const today = new Date();
@@ -1853,7 +1959,7 @@ export default function UcarerDepotReportPage() {
         next[row.supplierCode] = current || {
           series: 'H',
           applyVAT: true,
-          deliveryType: 'B',
+          deliveryType: 'D',
           deliveryDate: defaultDate,
         };
       });
@@ -1879,6 +1985,36 @@ export default function UcarerDepotReportPage() {
       toast.error('Siparis olusturmak icin once dagitim miktari girin.');
       return;
     }
+    const missingPriceMap = new Map<string, MissingPriceProduct>();
+    allocations.forEach((row) => {
+      const code = String(row.productCode || '').trim().toUpperCase();
+      if (!code) return;
+      const unitPrice = resolveOrderUnitPrice(code, row.unitPriceOverride);
+      if (unitPrice > 0) return;
+      const existing = missingPriceMap.get(code);
+      if (existing) {
+        existing.quantity += Math.max(0, Number(row.quantity || 0));
+      } else {
+        missingPriceMap.set(code, {
+          productCode: code,
+          productName: getProductDisplayName(code),
+          quantity: Math.max(0, Number(row.quantity || 0)),
+        });
+      }
+    });
+    if (missingPriceMap.size > 0) {
+      const missing = Array.from(missingPriceMap.values());
+      setMissingPriceProducts(missing);
+      setOrderPanelTab('work');
+      toast.error(
+        `Fiyati olmayan stoklar var: ${missing
+          .slice(0, 8)
+          .map((item) => item.productCode)
+          .join(', ')}${missing.length > 8 ? '...' : ''}`
+      );
+      return;
+    }
+    setMissingPriceProducts([]);
     setPendingAllocations(allocations);
     const defaults: Record<string, { series: string; applyVAT: boolean; deliveryType: string; deliveryDate: string }> = {};
     const today = new Date();
@@ -1892,7 +2028,7 @@ export default function UcarerDepotReportPage() {
       defaults[supplierCode] = {
         series: 'H',
         applyVAT: true,
-        deliveryType: 'B',
+        deliveryType: 'D',
         deliveryDate: defaultDate,
       };
     });
@@ -1998,7 +2134,7 @@ export default function UcarerDepotReportPage() {
             const cfg = supplierOrderConfigs[row.supplierCode] || {
               series: 'H',
               applyVAT: true,
-              deliveryType: '',
+              deliveryType: 'D',
               deliveryDate: '',
             };
             return [
@@ -2026,6 +2162,14 @@ export default function UcarerDepotReportPage() {
       }
       setLastCreatedOrders(created);
       setLastCreatedAllocations([...pendingAllocations]);
+      const batch: CreatedSupplierOrderBatch = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
+        depot,
+        orders: created,
+        lines: buildCreatedOrderLines(pendingAllocations),
+      };
+      setCreatedOrderHistory((prev) => [batch, ...prev].slice(0, 50));
       setCreatedOrdersModalOpen(true);
       setSeriesModalOpen(false);
       setPendingAllocations([]);
@@ -2077,40 +2221,14 @@ export default function UcarerDepotReportPage() {
     doc.text(cleanPdfText(new Date().toLocaleString('tr-TR')), pageWidth - 12, 17, { align: 'right' });
   };
   const buildLinesBySupplier = () => {
-    const resolvePdfUnitPrice = (productCode: string, unitPriceOverride: unknown) => {
-      const code = String(productCode || '').trim().toUpperCase();
-      const override = Number(unitPriceOverride);
-      if (Number.isFinite(override) && override > 0) return override;
-
-      const manualInput = Number(String(costPInputByCode[code] || '').replace(',', '.'));
-      if (Number.isFinite(manualInput) && manualInput > 0) return manualInput;
-
-      const currentCost = Number(currentCostByCode[code] || 0);
-      if (Number.isFinite(currentCost) && currentCost > 0) return currentCost;
-
-      const row = rowByProductCode.get(code) || {};
-      const rowEntries = Object.entries(row as Record<string, any>);
-      const candidate = rowEntries.find(([key, value]) => {
-        const keyNorm = normalizeKey(key);
-        if (!keyNorm.includes('maliyet') && !keyNorm.includes('cost')) return false;
-        const parsed = toNumberFlexible(value);
-        return Number.isFinite(parsed) && parsed > 0;
-      });
-      if (candidate) {
-        const parsed = toNumberFlexible(candidate[1]);
-        if (Number.isFinite(parsed) && parsed > 0) return parsed;
-      }
-      return 0;
-    };
-
     const linesBySupplier = new Map<string, Array<{ productCode: string; productName: string; quantity: number; unitPrice: number; total: number }>>();
     lastCreatedAllocations.forEach((row) => {
       const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
       const productCode = String(row.productCode || '').trim().toUpperCase();
       const quantity = Math.max(0, Number(row.quantity || 0));
       if (!supplierCode || !productCode || quantity <= 0) return;
-      const unitPrice = resolvePdfUnitPrice(productCode, row.unitPriceOverride);
-      const productName = String(rowByProductCode.get(productCode)?.[productNameColumn || ''] || '').trim() || '-';
+      const unitPrice = resolveOrderUnitPrice(productCode, row.unitPriceOverride);
+      const productName = getProductDisplayName(productCode);
       const supplierRows = linesBySupplier.get(supplierCode) || [];
       supplierRows.push({
         productCode,
@@ -2124,14 +2242,46 @@ export default function UcarerDepotReportPage() {
     return linesBySupplier;
   };
 
-  const downloadCreatedOrderPdfs = async () => {
-    if (!lastCreatedOrders.length) return;
+  const buildLinesBySupplierFromSnapshot = (lines: CreatedSupplierOrderLine[]) => {
+    const linesBySupplier = new Map<string, CreatedSupplierOrderLine[]>();
+    lines.forEach((line) => {
+      const supplierCode = String(line.supplierCode || '').trim().toUpperCase();
+      if (!supplierCode) return;
+      const supplierLines = linesBySupplier.get(supplierCode) || [];
+      supplierLines.push(line);
+      linesBySupplier.set(supplierCode, supplierLines);
+    });
+    return linesBySupplier;
+  };
+
+  const buildCreatedOrderLines = (allocations: SupplierOrderAllocation[]): CreatedSupplierOrderLine[] => {
+    return allocations
+      .map((row) => {
+        const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
+        const productCode = String(row.productCode || '').trim().toUpperCase();
+        const quantity = Math.max(0, Number(row.quantity || 0));
+        const unitPrice = resolveOrderUnitPrice(productCode, row.unitPriceOverride);
+        return {
+          supplierCode,
+          productCode,
+          productName: getProductDisplayName(productCode),
+          quantity,
+          unitPrice,
+          total: unitPrice * quantity,
+        };
+      })
+      .filter((line) => line.supplierCode && line.productCode && line.quantity > 0);
+  };
+
+  const downloadCreatedOrderPdfs = async (batch?: CreatedSupplierOrderBatch) => {
+    const orders = batch?.orders || lastCreatedOrders;
+    if (!orders.length) return;
     setDownloadingOrderPdfs(true);
     try {
       const autoTableModule = await import('jspdf-autotable');
       const autoTable = (autoTableModule as any).default || autoTableModule;
-      const linesBySupplier = buildLinesBySupplier();
-      for (const order of lastCreatedOrders) {
+      const linesBySupplier = batch ? buildLinesBySupplierFromSnapshot(batch.lines) : buildLinesBySupplier();
+      for (const order of orders) {
         const supplierCode = String(order.supplierCode || '').trim().toUpperCase();
         const supplierName = String(order.supplierName || supplierCode).trim();
         const orderNumber = String(order.orderNumber || '').trim();
@@ -2174,17 +2324,18 @@ export default function UcarerDepotReportPage() {
     }
   };
 
-  const downloadCreatedOrdersSummaryPdf = async () => {
-    if (!lastCreatedOrders.length) return;
+  const downloadCreatedOrdersSummaryPdf = async (batch?: CreatedSupplierOrderBatch) => {
+    const orders = batch?.orders || lastCreatedOrders;
+    if (!orders.length) return;
     setDownloadingOrderSummaryPdf(true);
     try {
       const autoTableModule = await import('jspdf-autotable');
       const autoTable = (autoTableModule as any).default || autoTableModule;
-      const linesBySupplier = buildLinesBySupplier();
+      const linesBySupplier = batch ? buildLinesBySupplierFromSnapshot(batch.lines) : buildLinesBySupplier();
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
       await drawPdfHeader(doc, 'Toplu Siparis Yonetici Onay Ozeti', 'Cari bazinda siparis ve tutar listesi');
 
-      const summaryRows = lastCreatedOrders.map((order) => {
+      const summaryRows = orders.map((order) => {
         const supplierCode = String(order.supplierCode || '').trim().toUpperCase();
         const supplierName = String(order.supplierName || supplierCode).trim();
         const orderNumber = String(order.orderNumber || '').trim();
@@ -2267,6 +2418,61 @@ export default function UcarerDepotReportPage() {
       return next;
     });
   };
+  const renderCreatedOrderHistoryPanel = () => (
+    <div className="rounded-xl border bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-base font-semibold text-gray-900">Olusturulan Siparis Gecmisi</p>
+          <p className="text-xs text-gray-600">
+            Bu tarayicida olusturulan son siparis setleri tarih/saat bazinda saklanir.
+          </p>
+        </div>
+        {createdOrderHistory.length > 0 && (
+          <Button size="sm" variant="outline" onClick={() => setCreatedOrderHistory([])}>
+            Gecmisi Temizle
+          </Button>
+        )}
+      </div>
+      <div className="mt-3 space-y-2">
+        {createdOrderHistory.length === 0 ? (
+          <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
+            Henuz kayitli olusturulan siparis yok.
+          </div>
+        ) : (
+          createdOrderHistory.map((batch) => {
+            const orderCount = batch.orders.length;
+            const lineCount = batch.lines.length;
+            const totalAmount = batch.lines.reduce((sum, line) => sum + Number(line.total || 0), 0);
+            return (
+              <div key={batch.id} className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {new Date(batch.createdAt).toLocaleString('tr-TR')} / {batch.depot}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Cari: {orderCount.toLocaleString('tr-TR')} / Kalem: {lineCount.toLocaleString('tr-TR')} / Tutar: {formatPdfMoney(totalAmount)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      {batch.orders.map((order) => `${order.supplierCode}: ${order.orderNumber}`).join(' | ')}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => downloadCreatedOrderPdfs(batch)} disabled={downloadingOrderPdfs}>
+                      Tek Tek PDF
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => downloadCreatedOrdersSummaryPdf(batch)} disabled={downloadingOrderSummaryPdf}>
+                      Yonetici Onayi
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
   const renderActiveFamilyPanel = () => {
     if (!activeFamily || !activeFamilySuggestion) return null;
     const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
@@ -2552,10 +2758,11 @@ export default function UcarerDepotReportPage() {
                 const itemNeed = entry.suggested;
                 const allocation = entry.allocation;
                 const diff = entry.diff;
+                const hasMissingPrice = missingPriceCodeSet.has(code);
                 return (
-                  <tr key={item.id} className={`border-t ${getRowHighlightClass(row)} ${isIncomingOrderRow(row) ? 'font-bold' : ''}`}>
+                  <tr key={item.id} className={`border-t ${hasMissingPrice ? 'bg-pink-200' : getRowHighlightClass(row)} ${isIncomingOrderRow(row) ? 'font-bold' : ''}`}>
                     <td
-                      className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                      className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${hasMissingPrice ? 'bg-pink-200' : getStickyCellBgClass(row)}`}
                       style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
                     >
                       <input
@@ -2570,7 +2777,7 @@ export default function UcarerDepotReportPage() {
                       />
                     </td>
                     <td
-                      className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
+                      className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${hasMissingPrice ? 'bg-pink-200' : getStickyCellBgClass(row)}`}
                       style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
                     >
                       <div className="flex flex-col gap-1">
@@ -2596,7 +2803,7 @@ export default function UcarerDepotReportPage() {
                       </div>
                     </td>
                     <td
-                      className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                      className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${hasMissingPrice ? 'bg-pink-200' : getStickyCellBgClass(row)}`}
                       style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
                     >
                       {item.productName || '-'}
@@ -2975,6 +3182,27 @@ export default function UcarerDepotReportPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2 border-b pb-3">
+              <Button
+                size="sm"
+                variant={orderPanelTab === 'work' ? 'primary' : 'outline'}
+                onClick={() => setOrderPanelTab('work')}
+              >
+                Operasyon
+              </Button>
+              <Button
+                size="sm"
+                variant={orderPanelTab === 'history' ? 'primary' : 'outline'}
+                onClick={() => setOrderPanelTab('history')}
+              >
+                Olusturulan Siparisler ({createdOrderHistory.length.toLocaleString('tr-TR')})
+              </Button>
+            </div>
+
+            {orderPanelTab === 'history' ? (
+              renderCreatedOrderHistoryPanel()
+            ) : (
+              <>
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-white p-3">
               <p className="text-sm text-gray-700">
                 Aile olusturma ve urun ekleme islemleri ayri ekrana tasindi.
@@ -2999,6 +3227,33 @@ export default function UcarerDepotReportPage() {
                 {familyLoading ? 'Yenileniyor...' : 'Aileleri Yenile'}
               </Button>
             </div>
+
+            {missingPriceProducts.length > 0 && (
+              <div className="rounded-md border border-pink-300 bg-pink-50 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-pink-900">
+                      Fiyati olmayan stoklar var ({missingPriceProducts.length.toLocaleString('tr-TR')})
+                    </p>
+                    <p className="mt-1 text-xs text-pink-800">
+                      Bu satirlar pembe isaretlendi. Fiyat girilmeden tedarikci siparisi modalina gecilmeyecek.
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setMissingPriceProducts([])}>
+                    Uyariyi Temizle
+                  </Button>
+                </div>
+                <div className="mt-2 max-h-28 overflow-auto rounded border border-pink-200 bg-white">
+                  {missingPriceProducts.map((item) => (
+                    <div key={item.productCode} className="flex items-center justify-between gap-3 border-b px-2 py-1 text-xs">
+                      <span className="font-semibold text-pink-900">{item.productCode}</span>
+                      <span className="min-w-0 flex-1 truncate text-gray-700">{item.productName}</span>
+                      <span className="text-gray-600">Miktar: {item.quantity.toLocaleString('tr-TR')}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {lastCreatedOrders.length > 0 && (
               <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
@@ -3212,10 +3467,11 @@ export default function UcarerDepotReportPage() {
                       const suggested = item.suggested;
                       const rawAllocated = nonFamilyAllocations[code];
                       const allocated = rawAllocated === '' || rawAllocated === undefined ? '' : item.allocation;
+                      const hasMissingPrice = missingPriceCodeSet.has(code);
                       return (
-                        <tr key={code} className={`border-t ${getRowHighlightClass(row)} ${isIncomingOrderRow(row) ? 'font-bold' : ''}`}>
+                        <tr key={code} className={`border-t ${hasMissingPrice ? 'bg-pink-200' : getRowHighlightClass(row)} ${isIncomingOrderRow(row) ? 'font-bold' : ''}`}>
                           <td
-                            className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                            className={`px-2 py-2 text-center sticky left-0 z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${hasMissingPrice ? 'bg-pink-200' : getStickyCellBgClass(row)}`}
                             style={{ minWidth: `${stickySelectionWidth}px`, width: `${stickySelectionWidth}px` }}
                           >
                             <input
@@ -3230,7 +3486,7 @@ export default function UcarerDepotReportPage() {
                             />
                           </td>
                           <td
-                            className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${getStickyCellBgClass(row)}`}
+                            className={`px-2 py-2 font-semibold text-gray-900 sticky z-20 ${hasMissingPrice ? 'bg-pink-200' : getStickyCellBgClass(row)}`}
                             style={{ left: `${stickyCodeLeft}px`, minWidth: `${stickyCodeWidth}px`, width: `${stickyCodeWidth}px` }}
                           >
                             <div className="flex flex-col gap-1">
@@ -3256,7 +3512,7 @@ export default function UcarerDepotReportPage() {
                             </div>
                           </td>
                           <td
-                            className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${getStickyCellBgClass(row)}`}
+                            className={`px-2 py-2 text-gray-700 sticky z-20 shadow-[2px_0_0_0_rgba(229,231,235,1)] ${hasMissingPrice ? 'bg-pink-200' : getStickyCellBgClass(row)}`}
                             style={{ left: `${stickyNameLeft}px`, minWidth: `${stickyNameWidth}px`, width: `${stickyNameWidth}px` }}
                           >
                             {productNameColumn ? normalizeValue(row?.[productNameColumn]) : '-'}
@@ -3448,6 +3704,8 @@ export default function UcarerDepotReportPage() {
                 </option>
               ))}
             </datalist>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -3620,10 +3878,10 @@ export default function UcarerDepotReportPage() {
                 Olusan siparisleri tek tek ya da yonetici onay ozeti olarak indirebilirsiniz.
               </p>
               <div className="mt-4 grid grid-cols-1 gap-2">
-                <Button size="sm" variant="outline" onClick={downloadCreatedOrderPdfs} disabled={downloadingOrderPdfs}>
+                <Button size="sm" variant="outline" onClick={() => downloadCreatedOrderPdfs()} disabled={downloadingOrderPdfs}>
                   {downloadingOrderPdfs ? 'Hazirlaniyor...' : 'Tum Siparisleri PDF (tek tek)'}
                 </Button>
-                <Button size="sm" variant="outline" onClick={downloadCreatedOrdersSummaryPdf} disabled={downloadingOrderSummaryPdf}>
+                <Button size="sm" variant="outline" onClick={() => downloadCreatedOrdersSummaryPdf()} disabled={downloadingOrderSummaryPdf}>
                   {downloadingOrderSummaryPdf ? 'Hazirlaniyor...' : 'Yonetici Onay Ozeti (tek PDF)'}
                 </Button>
               </div>
@@ -3819,7 +4077,7 @@ export default function UcarerDepotReportPage() {
                       const cfg = supplierOrderConfigs[row.supplierCode] || {
                         series: 'H',
                         applyVAT: true,
-                        deliveryType: 'B',
+                        deliveryType: 'D',
                         deliveryDate: '',
                       };
                       const detailRows = pendingSupplierItemsByCode[row.supplierCode] || [];
@@ -3884,7 +4142,7 @@ export default function UcarerDepotReportPage() {
                               <input
                                 list="ucarer-delivery-type-list"
                                 className="w-44 rounded border px-2 py-1"
-                                placeholder="B / N"
+                                placeholder="D / B / N"
                                 value={cfg.deliveryType}
                                 onChange={(e) =>
                                   setSupplierOrderConfigs((prev) => ({
@@ -3920,16 +4178,36 @@ export default function UcarerDepotReportPage() {
                               <td className="px-2 py-2 text-[11px] text-gray-700" colSpan={8}>
                                 <div className="space-y-1">
                                   {detailRows.map((item) => (
-                                    <div key={`${row.supplierCode}-${item.productCode}`} className="flex items-center justify-between gap-4 rounded border bg-white px-2 py-1">
+                                    <div
+                                      key={`${row.supplierCode}-${item.productCode}`}
+                                      className={`flex items-center justify-between gap-4 rounded border px-2 py-1 ${
+                                        item.unitPrice > 0 ? 'bg-white' : 'border-pink-200 bg-pink-50'
+                                      }`}
+                                    >
                                       <div className="min-w-0 flex-1">
                                         <div className="truncate font-medium text-gray-800">
                                           {item.productCode} - {item.productName}
                                         </div>
                                         <div className="text-[11px] text-gray-700">
                                           Miktar: <strong>{item.quantity.toLocaleString('tr-TR')}</strong>
+                                          <span className="ml-2">
+                                            Tutar: <strong>{formatPdfMoney(item.total)}</strong>
+                                          </span>
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex flex-wrap items-center justify-end gap-2">
+                                        <label className="flex items-center gap-1 text-[10px] text-gray-600">
+                                          Fiyat
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step="0.01"
+                                            className="w-24 rounded border px-2 py-1 text-right text-[11px]"
+                                            value={item.unitPrice > 0 ? item.unitPrice.toFixed(4).replace(/\.?0+$/, '') : ''}
+                                            onChange={(e) => setPendingPriceOverrideForProduct(item.productCode, e.target.value)}
+                                            placeholder="Birim"
+                                          />
+                                        </label>
                                         {(() => {
                                           const productCode = String(item.productCode || '').trim().toUpperCase();
                                           const typedValue = pendingSupplierInputByProduct[productCode] ?? String(
@@ -3977,6 +4255,14 @@ export default function UcarerDepotReportPage() {
                                           />
                                           Kalici
                                         </label>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => removePendingProductFromSupplierOrder(item.productCode)}
+                                        >
+                                          Kaldir
+                                        </Button>
                                             </>
                                           );
                                         })()}
@@ -3996,6 +4282,7 @@ export default function UcarerDepotReportPage() {
                   </tbody>
                 </table>
                 <datalist id="ucarer-delivery-type-list">
+                  <option value="D">D-Dogrudan Sevk</option>
                   <option value="B">B-Bakircilar Sevk</option>
                   <option value="N">N-Nama Sevk</option>
                 </datalist>
