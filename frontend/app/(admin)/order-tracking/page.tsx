@@ -568,16 +568,30 @@ export default function OrderTrackingPage() {
       };
 
       writeHeader('Cari bazinda bekleyen tedarikci siparis ve tutar listesi');
-      const supplierRows = selectedSuppliers.map((supplier) => {
-        const items = buildSupplierPdfItems(supplier);
-        const totalAmount = items.reduce((sum, item) => sum + item.totalAmount, 0);
-        return {
-          supplier,
-          items,
-          orderRefsText: collectSupplierOrderNumbers(supplier),
-          totalAmount,
-        };
-      });
+      const supplierRows = selectedSuppliers
+        .map((supplier) => {
+          const items = buildSupplierPdfItems(supplier);
+          const totalAmount = items.reduce((sum, item) => sum + item.totalAmount, 0);
+          const oldestOrderDateTs = items.reduce((oldest, item) => {
+            const firstOrderTs = item.orderRefs[0]?.orderDateTs ?? Number.POSITIVE_INFINITY;
+            return Math.min(oldest, firstOrderTs);
+          }, Number.POSITIVE_INFINITY);
+          return {
+            supplier,
+            items,
+            orderRefsText: collectSupplierOrderNumbers(supplier),
+            totalAmount,
+            oldestOrderDateTs,
+          };
+        })
+        .sort((a, b) => {
+          if (a.oldestOrderDateTs !== b.oldestOrderDateTs) {
+            return a.oldestOrderDateTs - b.oldestOrderDateTs;
+          }
+          const nameCompare = a.supplier.customerName.localeCompare(b.supplier.customerName, 'tr');
+          if (nameCompare !== 0) return nameCompare;
+          return a.supplier.customerCode.localeCompare(b.supplier.customerCode, 'tr');
+        });
       const grandTotal = supplierRows.reduce((sum, row) => sum + row.totalAmount, 0);
 
       autoTable(doc, {

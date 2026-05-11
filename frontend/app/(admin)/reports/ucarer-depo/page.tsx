@@ -3042,6 +3042,20 @@ export default function UcarerDepotReportPage() {
               <Link href="/reports/ucarer-minmax-exclusions">
                 <Button variant="outline">MinMax Hesaplanmayacaklar Raporu</Button>
               </Link>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <span className="text-xs font-semibold text-emerald-900">MinMax Hesaplama</span>
+                <Button size="sm" onClick={runMinMax} disabled={minMaxLoading}>
+                  <Play className="mr-2 h-4 w-4" />
+                  {minMaxLoading ? 'Calisiyor...' : 'MinMax Calistir'}
+                </Button>
+                <Button size="sm" variant="outline" onClick={exportMinMax} disabled={exportingMinMax || minMaxRows.length === 0}>
+                  <Download className="mr-2 h-4 w-4" />
+                  {exportingMinMax ? 'Hazirlaniyor...' : "Excel'e Aktar"}
+                </Button>
+                <span className="text-xs text-emerald-900">
+                  Toplam: <strong>{minMaxTotal.toLocaleString('tr-TR')}</strong>
+                </span>
+              </div>
               <Select value={suggestionMode} onChange={(e) => setSuggestionMode(e.target.value as SuggestionMode)} className="w-56">
                 <option value="INCLUDE_MINMAX">MinMax Dahil (4. Sorun)</option>
                 <option value="EXCLUDE_MINMAX">MinMax Haric (3. Sorun)</option>
@@ -3590,75 +3604,6 @@ export default function UcarerDepotReportPage() {
             </datalist>
               </>
             )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>MinMax Dinamik Hesaplama</CardTitle>
-            <CardDescription>`FEBG_MinMaxHesaplaRES` prosedurunu calistirir</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={runMinMax} disabled={minMaxLoading}>
-                <Play className="mr-2 h-4 w-4" />
-                {minMaxLoading ? 'Calisiyor...' : 'MinMax Calistir'}
-              </Button>
-              <Button variant="outline" onClick={exportMinMax} disabled={exportingMinMax || minMaxRows.length === 0}>
-                <Download className="mr-2 h-4 w-4" />
-                {exportingMinMax ? 'Hazirlaniyor...' : "Excel'e Aktar"}
-              </Button>
-              <p className="text-sm text-gray-600">
-                Toplam: <strong>{minMaxTotal.toLocaleString('tr-TR')}</strong>
-              </p>
-            </div>
-
-            <div className="overflow-auto rounded-md border bg-white max-h-[60vh]">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-100">
-                  <tr>
-                    {visibleMinMaxColumns.map((column) => (
-                      <th
-                        key={column}
-                        className="px-2 text-left font-semibold whitespace-nowrap sticky top-0 z-10 bg-gray-100 relative select-none"
-                        style={{ minWidth: `${getMinMaxColumnWidth(column)}px`, height: `${headerHeight}px` }}
-                      >
-                        {column}
-                        <div
-                          className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            beginResize('minmax', column, e.clientX);
-                          }}
-                        />
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {minMaxRows.length === 0 && (
-                    <tr>
-                      <td colSpan={Math.max(1, visibleMinMaxColumns.length)} className="px-2 py-6 text-center text-gray-500">
-                        Kayit yok
-                      </td>
-                    </tr>
-                  )}
-                  {minMaxRows.map((row, index) => (
-                    <tr key={`minmax-${index}`} className="border-t">
-                      {visibleMinMaxColumns.map((column) => (
-                        <td
-                          key={`${column}-${index}`}
-                          className="px-2 py-2 whitespace-nowrap"
-                          style={{ minWidth: `${getMinMaxColumnWidth(column)}px` }}
-                        >
-                          {normalizeValue(row[column])}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </CardContent>
         </Card>
 
