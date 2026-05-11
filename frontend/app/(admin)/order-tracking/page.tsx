@@ -396,6 +396,41 @@ export default function OrderTrackingPage() {
     return code || '-';
   };
 
+  const getWarehouseBreakdown = (orders: OrderDetail[]) => {
+    const breakdown = {
+      merkezOrders: 0,
+      merkezItems: 0,
+      topcaOrders: 0,
+      topcaItems: 0,
+      otherOrders: 0,
+      otherItems: 0,
+    };
+
+    orders.forEach((order) => {
+      const orderWarehouses = new Set<string>();
+      order.items.forEach((item) => {
+        if (item.remainingQty <= 0) return;
+        const code = String(item.warehouseCode || '').trim();
+        orderWarehouses.add(code || 'OTHER');
+        if (code === '1') {
+          breakdown.merkezItems += 1;
+        } else if (code === '6') {
+          breakdown.topcaItems += 1;
+        } else {
+          breakdown.otherItems += 1;
+        }
+      });
+
+      if (orderWarehouses.has('1')) breakdown.merkezOrders += 1;
+      if (orderWarehouses.has('6')) breakdown.topcaOrders += 1;
+      if (Array.from(orderWarehouses).some((code) => code !== '1' && code !== '6')) {
+        breakdown.otherOrders += 1;
+      }
+    });
+
+    return breakdown;
+  };
+
   const cleanPdfText = (value: string) => {
     return value
       .replace(/\u0131/g, 'i')
@@ -1444,6 +1479,7 @@ export default function OrderTrackingPage() {
                   const hasPendingItems = customer.orders.some((order) =>
                     order.items.some((item) => item.remainingQty > 0)
                   );
+                  const warehouseBreakdown = isSupplierTab ? getWarehouseBreakdown(customer.orders) : null;
                   return (
                     <div key={customer.customerCode} className="border rounded-lg overflow-hidden">
                       {/* Customer Header */}
@@ -1486,6 +1522,21 @@ export default function OrderTrackingPage() {
                                 <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
                                   Son Iletim: {formatDateTime(customer.lastTransmittedAt || null)}
                                   {customer.lastTransmittedByName ? ` (${customer.lastTransmittedByName})` : ''}
+                                </span>
+                              )}
+                              {isSupplierTab && warehouseBreakdown && warehouseBreakdown.merkezItems > 0 && (
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                                  Merkez: {warehouseBreakdown.merkezOrders} siparis / {warehouseBreakdown.merkezItems} satir
+                                </span>
+                              )}
+                              {isSupplierTab && warehouseBreakdown && warehouseBreakdown.topcaItems > 0 && (
+                                <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">
+                                  Topca: {warehouseBreakdown.topcaOrders} siparis / {warehouseBreakdown.topcaItems} satir
+                                </span>
+                              )}
+                              {isSupplierTab && warehouseBreakdown && warehouseBreakdown.otherItems > 0 && (
+                                <span className="text-xs bg-gray-100 text-gray-800 px-2 py-0.5 rounded">
+                                  Diger depo: {warehouseBreakdown.otherOrders} siparis / {warehouseBreakdown.otherItems} satir
                                 </span>
                               )}
                               <span>📦 {customer.ordersCount} sipariş</span>
