@@ -24,6 +24,7 @@ interface OrderItem {
   productCode: string;
   productName: string;
   unit: string;
+  warehouseCode?: string | null;
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
@@ -59,6 +60,7 @@ interface SupplierPdfItem {
   productCode: string;
   productName: string;
   unit: string;
+  warehouseCode?: string | null;
   totalQty: number;
   totalAmount: number;
   unitPrice: number;
@@ -387,6 +389,13 @@ export default function OrderTrackingPage() {
     return `${formatNumber(safeValue)} TL`;
   };
 
+  const formatWarehouseName = (warehouseCode?: string | null) => {
+    const code = String(warehouseCode || '').trim();
+    if (code === '1') return 'Merkez';
+    if (code === '6') return 'Topca';
+    return code || '-';
+  };
+
   const cleanPdfText = (value: string) => {
     return value
       .replace(/\u0131/g, 'i')
@@ -414,7 +423,8 @@ export default function OrderTrackingPage() {
 
       order.items.forEach((item) => {
         if (item.remainingQty <= 0) return;
-        const key = `${item.productCode}||${item.unit}`;
+        const warehouseCode = String(item.warehouseCode || '').trim() || null;
+        const key = `${item.productCode}||${item.unit}||${warehouseCode || '-'}`;
         const lineTotal = Number.isFinite(item.lineTotal)
           ? item.lineTotal
           : item.remainingQty * item.unitPrice;
@@ -438,6 +448,7 @@ export default function OrderTrackingPage() {
           productCode: item.productCode,
           productName: item.productName,
           unit: item.unit,
+          warehouseCode,
           totalQty: item.remainingQty,
           totalAmount: lineTotal,
           unitPrice,
@@ -626,10 +637,11 @@ export default function OrderTrackingPage() {
         doc.text(titleLines, 12, startY);
         autoTable(doc, {
           startY: startY + titleLines.length * 4 + 2,
-          head: [['Stok', 'Urun', 'Miktar', 'Birim', 'Tutar'].map(cleanPdfText)],
+          head: [['Stok', 'Urun', 'Depo', 'Miktar', 'Birim Fiyat', 'Tutar'].map(cleanPdfText)],
           body: row.items.map((item) => [
             cleanPdfText(item.productCode),
             cleanPdfText(item.productName),
+            cleanPdfText(formatWarehouseName(item.warehouseCode)),
             cleanPdfText(item.totalQty.toLocaleString('tr-TR')),
             cleanPdfText(formatCurrencyPdf(item.unitPrice)),
             cleanPdfText(formatCurrencyPdf(item.totalAmount)),
@@ -638,7 +650,12 @@ export default function OrderTrackingPage() {
           headStyles: { fillColor: [55, 65, 81], textColor: [255, 255, 255], fontSize: 8 },
           styles: { fontSize: 7.5, cellPadding: 1.8, overflow: 'linebreak' },
           margin: { left: 12, right: 12 },
-          columnStyles: { 2: { halign: 'right', cellWidth: 16 }, 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'right', cellWidth: 24 } },
+          columnStyles: {
+            2: { halign: 'center', cellWidth: 18 },
+            3: { halign: 'right', cellWidth: 16 },
+            4: { halign: 'right', cellWidth: 24 },
+            5: { halign: 'right', cellWidth: 24 },
+          },
         });
         startY = ((doc as any).lastAutoTable?.finalY || startY + 12) + 6;
       });
@@ -752,6 +769,7 @@ export default function OrderTrackingPage() {
           .join('\n');
         return [
           productText,
+          formatWarehouseName(item.warehouseCode),
           formatNumber(item.totalQty),
           item.unit,
           formatCurrencyPdf(item.unitPrice),
@@ -761,7 +779,7 @@ export default function OrderTrackingPage() {
 
       autoTable(doc, {
         startY: tableStartY,
-        head: [['Urun / Siparisler', 'Kalan Miktar', 'Birim', 'Birim Fiyat', 'Kalan Tutar']],
+        head: [['Urun / Siparisler', 'Depo', 'Kalan Miktar', 'Birim', 'Birim Fiyat', 'Kalan Tutar']],
         body: rows,
         styles: {
           fontSize: 8,
@@ -778,11 +796,12 @@ export default function OrderTrackingPage() {
           fillColor: [255, 251, 235],
         },
         columnStyles: {
-          0: { cellWidth: 64, overflow: 'linebreak' },
-          1: { halign: 'right', cellWidth: 22 },
-          2: { halign: 'center', cellWidth: 16 },
-          3: { halign: 'right', cellWidth: 40 },
-          4: { halign: 'right', cellWidth: 40 },
+          0: { cellWidth: 58, overflow: 'linebreak' },
+          1: { halign: 'center', cellWidth: 18 },
+          2: { halign: 'right', cellWidth: 22 },
+          3: { halign: 'center', cellWidth: 14 },
+          4: { halign: 'right', cellWidth: 35 },
+          5: { halign: 'right', cellWidth: 35 },
         },
       });
 
@@ -813,6 +832,7 @@ export default function OrderTrackingPage() {
         [
           'Urun Kodu',
           'Urun Adi',
+          'Depo',
           'Kalan Miktar',
           'Birim',
           'Birim Fiyat (TL)',
@@ -829,6 +849,7 @@ export default function OrderTrackingPage() {
         rows.push([
           item.productCode,
           item.productName,
+          formatWarehouseName(item.warehouseCode),
           Number(item.totalQty.toFixed(2)),
           item.unit,
           Number(item.unitPrice.toFixed(2)),
@@ -1626,7 +1647,9 @@ export default function OrderTrackingPage() {
                                                   </span>
                                                 )}
                                               </div>
-                                              <div className="text-xs text-gray-500">{item.productCode}</div>
+                                              <div className="text-xs text-gray-500">
+                                                {item.productCode} / Depo: {formatWarehouseName(item.warehouseCode)}
+                                              </div>
                                             </td>
                                             <td className="px-3 py-2 text-center">
                                               <div className="flex flex-col items-center gap-0.5">
