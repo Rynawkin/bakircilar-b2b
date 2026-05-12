@@ -6,6 +6,7 @@ const router = Router();
 
 type OpenOrdersRequest = {
   customerCodes?: string[];
+  includeAll?: boolean;
 };
 
 const normalizeCustomerCode = (value: unknown): string => String(value || '').trim();
@@ -16,15 +17,16 @@ router.post('/yolpilot/open-orders', requireYolpilotIntegrationKey, async (req, 
     const customerCodes = Array.from(
       new Set((body.customerCodes || []).map(normalizeCustomerCode).filter(Boolean))
     );
+    const includeAll = body.includeAll === true;
 
-    if (customerCodes.length === 0) {
+    if (customerCodes.length === 0 && !includeAll) {
       res.json([]);
       return;
     }
 
     const orders = await prisma.pendingMikroOrder.findMany({
       where: {
-        customerCode: { in: customerCodes },
+        ...(includeAll ? {} : { customerCode: { in: customerCodes } }),
         OR: [
           { sectorCode: null },
           {
