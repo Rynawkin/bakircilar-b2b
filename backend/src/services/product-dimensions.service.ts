@@ -44,6 +44,14 @@ const calcDesi = (widthMm: number | null, lengthMm: number | null, heightMm: num
   return (widthMm * lengthMm * heightMm) / 3_000_000;
 };
 
+const sumWarehouseStocks = (warehouseStocks: unknown) => {
+  if (!warehouseStocks || typeof warehouseStocks !== 'object') return 0;
+  return Object.values(warehouseStocks as Record<string, unknown>).reduce<number>((sum, value) => {
+    const qty = Number(value);
+    return sum + (Number.isFinite(qty) ? qty : 0);
+  }, 0);
+};
+
 const mapProductRow = (row: any) => {
   const units = UNIT_INDEXES.map((index) => {
     const widthMm = toNullableNumber(row[`sto_birim${index}_en`]) || 0;
@@ -68,11 +76,45 @@ const mapProductRow = (row: any) => {
     productName: normalizeText(row.sto_isim),
     shelfCode: normalizeText(row.sto_reyon_kodu),
     shelfName: normalizeText(row.reyon_adi),
+    imageUrl: null as string | null,
+    stockQuantity: 0,
+    hasStock: false,
+    warehouseStocks: {} as Record<string, number>,
     units,
   };
 };
 
 class ProductDimensionsService {
+  private async enrichProducts(products: ReturnType<typeof mapProductRow>[]) {
+    const codes = [...new Set(products.map((product) => product.productCode).filter(Boolean))];
+    if (codes.length === 0) return products;
+
+    const localProducts = await prisma.product.findMany({
+      where: { mikroCode: { in: codes } },
+      select: {
+        mikroCode: true,
+        name: true,
+        imageUrl: true,
+        warehouseStocks: true,
+      },
+    });
+    const localByCode = new Map(localProducts.map((product) => [product.mikroCode, product]));
+
+    return products.map((product) => {
+      const local = localByCode.get(product.productCode);
+      const warehouseStocks = ((local?.warehouseStocks || {}) as Record<string, number>) || {};
+      const stockQuantity = sumWarehouseStocks(warehouseStocks);
+      return {
+        ...product,
+        productName: normalizeText(local?.name) || product.productName,
+        imageUrl: local?.imageUrl || null,
+        warehouseStocks,
+        stockQuantity,
+        hasStock: stockQuantity > 0,
+      };
+    });
+  }
+
   private productSelectSql() {
     return `
       SELECT
@@ -113,7 +155,7 @@ class ProductDimensionsService {
       OFFSET 0 ROWS FETCH NEXT ${safeLimit} ROWS ONLY
     `);
 
-    return rows.map(mapProductRow);
+    return this.enrichProducts(rows.map(mapProductRow));
   }
 
   async getProduct(productCode: string) {
@@ -129,7 +171,8 @@ class ProductDimensionsService {
       throw new Error('Urun bulunamadi');
     }
 
-    return mapProductRow(rows[0]);
+    const [product] = await this.enrichProducts([mapProductRow(rows[0])]);
+    return product;
   }
 
   async searchShelves(search: string, limit = 50) {
@@ -185,7 +228,8 @@ class ProductDimensionsService {
       OFFSET 0 ROWS FETCH NEXT ${safeLimit} ROWS ONLY
     `);
 
-    return rows.map(mapProductRow).map((product: any) => {
+    const products = await this.enrichProducts(rows.map(mapProductRow));
+    return products.map((product: any) => {
       const missing: string[] = [];
       if (!product.shelfCode) missing.push('Raf/Reyon kodu eksik');
       product.units.forEach((unit: any) => {

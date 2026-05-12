@@ -15,9 +15,9 @@ type UnitInfo = {
   name: string;
   factor: number;
   weightKg: number;
-  widthMm: number;
-  lengthMm: number;
-  heightMm: number;
+  widthCm: number;
+  lengthCm: number;
+  heightCm: number;
   tareKg?: number;
   m3: number;
   desi: number;
@@ -28,6 +28,10 @@ type ProductDimension = {
   productName: string;
   shelfCode: string;
   shelfName: string;
+  imageUrl?: string | null;
+  stockQuantity?: number;
+  hasStock?: boolean;
+  warehouseStocks?: Record<string, number>;
   units: UnitInfo[];
   missing?: string[];
 };
@@ -52,9 +56,9 @@ const emptyUnits = (): UnitInfo[] =>
     name: '',
     factor: index === 1 ? 1 : 0,
     weightKg: 0,
-    widthMm: 0,
-    lengthMm: 0,
-    heightMm: 0,
+    widthCm: 0,
+    lengthCm: 0,
+    heightCm: 0,
     m3: 0,
     desi: 0,
   }));
@@ -67,36 +71,52 @@ const toNumber = (value: unknown) => {
 const formatNumber = (value: number, fractionDigits = 3) =>
   new Intl.NumberFormat('tr-TR', { maximumFractionDigits: fractionDigits }).format(Number(value) || 0);
 
-const calcM3 = (widthMm: number, lengthMm: number, heightMm: number) => {
-  if (!widthMm || !lengthMm || !heightMm) return 0;
-  return (widthMm * lengthMm * heightMm) / 1_000_000_000;
+const mmToCm = (value: unknown) => toNumber(value) / 10;
+
+const cmToMm = (value: unknown) => Math.round(toNumber(value) * 10 * 1000) / 1000;
+
+const calcM3 = (widthCm: number, lengthCm: number, heightCm: number) => {
+  if (!widthCm || !lengthCm || !heightCm) return 0;
+  return (widthCm * lengthCm * heightCm) / 1_000_000;
 };
 
-const calcDesi = (widthMm: number, lengthMm: number, heightMm: number) => {
-  if (!widthMm || !lengthMm || !heightMm) return 0;
-  return (widthMm * lengthMm * heightMm) / 3_000_000;
+const calcDesi = (widthCm: number, lengthCm: number, heightCm: number) => {
+  if (!widthCm || !lengthCm || !heightCm) return 0;
+  return (widthCm * lengthCm * heightCm) / 3000;
 };
 
 const normalizeUnit = (unit: UnitInfo): UnitInfo => {
-  const widthMm = toNumber(unit.widthMm);
-  const lengthMm = toNumber(unit.lengthMm);
-  const heightMm = toNumber(unit.heightMm);
+  const widthCm = toNumber(unit.widthCm);
+  const lengthCm = toNumber(unit.lengthCm);
+  const heightCm = toNumber(unit.heightCm);
   return {
     ...unit,
     name: String(unit.name || '').trim().toUpperCase(),
     factor: toNumber(unit.factor),
     weightKg: toNumber(unit.weightKg),
-    widthMm,
-    lengthMm,
-    heightMm,
-    m3: calcM3(widthMm, lengthMm, heightMm),
-    desi: calcDesi(widthMm, lengthMm, heightMm),
+    widthCm,
+    lengthCm,
+    heightCm,
+    m3: calcM3(widthCm, lengthCm, heightCm),
+    desi: calcDesi(widthCm, lengthCm, heightCm),
   };
 };
 
+const apiProductToUi = (product: any): ProductDimension => ({
+  ...product,
+  units: (product?.units || emptyUnits()).map((unit: any) =>
+    normalizeUnit({
+      ...unit,
+      widthCm: mmToCm(unit.widthMm),
+      lengthCm: mmToCm(unit.lengthMm),
+      heightCm: mmToCm(unit.heightMm),
+    })
+  ),
+});
+
 const buildCsv = (products: ProductDimension[]) => {
   const rows = [
-    ['Stok Kodu', 'Urun Adi', 'Raf Kodu', 'Raf Adi', 'Birim', 'Birim Adi', 'Katsayi', 'Kg', 'En mm', 'Boy mm', 'Yukseklik mm', 'm3', 'Desi', 'Eksikler'],
+    ['Stok Kodu', 'Urun Adi', 'Stok Miktari', 'Raf Kodu', 'Raf Adi', 'Birim', 'Birim Adi', 'Katsayi', 'Kg', 'En cm', 'Boy cm', 'Yukseklik cm', 'm3', 'Desi', 'Eksikler'],
   ];
   products.forEach((product) => {
     product.units.forEach((unit) => {
@@ -104,17 +124,18 @@ const buildCsv = (products: ProductDimension[]) => {
       rows.push([
         product.productCode,
         product.productName,
+        String(product.stockQuantity || 0),
         product.shelfCode || '',
         product.shelfName || '',
         String(unit.index),
         unit.name || '',
         String(unit.factor || ''),
         String(unit.weightKg || ''),
-        String(unit.widthMm || ''),
-        String(unit.lengthMm || ''),
-        String(unit.heightMm || ''),
-        String(calcM3(unit.widthMm, unit.lengthMm, unit.heightMm)),
-        String(calcDesi(unit.widthMm, unit.lengthMm, unit.heightMm)),
+        String(unit.widthCm || ''),
+        String(unit.lengthCm || ''),
+        String(unit.heightCm || ''),
+        String(calcM3(unit.widthCm, unit.lengthCm, unit.heightCm)),
+        String(calcDesi(unit.widthCm, unit.lengthCm, unit.heightCm)),
         (product.missing || []).join(' | '),
       ]);
     });
@@ -186,9 +207,9 @@ export default function ProductDimensionsPage() {
         ['name', 'Birim adi'],
         ['factor', 'Katsayi'],
         ['weightKg', 'Kg'],
-        ['widthMm', 'En'],
-        ['lengthMm', 'Boy'],
-        ['heightMm', 'Yukseklik'],
+        ['widthCm', 'En cm'],
+        ['lengthCm', 'Boy cm'],
+        ['heightCm', 'Yukseklik cm'],
       ];
       fields.forEach(([field, label]) => {
         if (String(unit[field] ?? '') !== String(oldUnit[field] ?? '')) {
@@ -203,7 +224,7 @@ export default function ProductDimensionsPage() {
     setSearching(true);
     try {
       const res = await apiClient.get('/admin/product-dimensions/products', { params: { search: value, limit: 40 } });
-      setSearchResults(res.data.products || []);
+      setSearchResults((res.data.products || []).map(apiProductToUi));
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Urun aranamadi');
     } finally {
@@ -214,10 +235,7 @@ export default function ProductDimensionsPage() {
   const loadProduct = async (productCode: string) => {
     try {
       const res = await apiClient.get(`/admin/product-dimensions/products/${encodeURIComponent(productCode)}`);
-      const product = {
-        ...res.data.product,
-        units: (res.data.product.units || emptyUnits()).map(normalizeUnit),
-      };
+      const product = apiProductToUi(res.data.product);
       setSelectedProduct(product);
       setOriginalProduct(JSON.parse(JSON.stringify(product)));
       setHistory(res.data.history || []);
@@ -242,7 +260,7 @@ export default function ProductDimensionsPage() {
       const res = await apiClient.get('/admin/product-dimensions/missing', {
         params: { search: missingSearch || undefined, limit: 150 },
       });
-      setMissingProducts(res.data.products || []);
+      setMissingProducts((res.data.products || []).map(apiProductToUi));
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Eksik veri raporu alinamadi');
     } finally {
@@ -269,9 +287,9 @@ export default function ProductDimensionsPage() {
     const target = selectedProduct.units.find((unit) => unit.index === toIndex);
     updateUnit(toIndex, {
       name: target?.name || source.name,
-      widthMm: source.widthMm,
-      lengthMm: source.lengthMm,
-      heightMm: source.heightMm,
+      widthCm: source.widthCm,
+      lengthCm: source.lengthCm,
+      heightCm: source.heightCm,
       weightKg: includeWeight ? Math.abs(toNumber(target?.factor || 1)) * source.weightKg : target?.weightKg || 0,
     });
   };
@@ -279,7 +297,7 @@ export default function ProductDimensionsPage() {
   const validateBeforeSave = () => {
     if (!selectedProduct) return false;
     for (const unit of selectedProduct.units) {
-      const hasAnyValue = Boolean(unit.name || unit.factor || unit.weightKg || unit.widthMm || unit.lengthMm || unit.heightMm);
+      const hasAnyValue = Boolean(unit.name || unit.factor || unit.weightKg || unit.widthCm || unit.lengthCm || unit.heightCm);
       if (!hasAnyValue) continue;
       if (unit.name.length > 10) {
         toast.error(`${unit.index}. birim adi 10 karakterden uzun olamaz`);
@@ -289,11 +307,11 @@ export default function ProductDimensionsPage() {
         toast.error(`${unit.index}. birim katsayisi 0 olamaz`);
         return false;
       }
-      if ([unit.weightKg, unit.widthMm, unit.lengthMm, unit.heightMm].some((value) => value < 0)) {
+      if ([unit.weightKg, unit.widthCm, unit.lengthCm, unit.heightCm].some((value) => value < 0)) {
         toast.error(`${unit.index}. birimde negatif deger olamaz`);
         return false;
       }
-      const dimensionCount = [unit.widthMm, unit.lengthMm, unit.heightMm].filter((value) => value > 0).length;
+      const dimensionCount = [unit.widthCm, unit.lengthCm, unit.heightCm].filter((value) => value > 0).length;
       if (dimensionCount > 0 && dimensionCount < 3) {
         toast.error(`${unit.index}. birim icin en, boy ve yukseklik birlikte girilmeli`);
         return false;
@@ -320,16 +338,13 @@ export default function ProductDimensionsPage() {
           name: unit.name || '',
           factor: unit.factor || 0,
           weightKg: unit.weightKg || 0,
-          widthMm: unit.widthMm || 0,
-          lengthMm: unit.lengthMm || 0,
-          heightMm: unit.heightMm || 0,
+          widthMm: cmToMm(unit.widthCm),
+          lengthMm: cmToMm(unit.lengthCm),
+          heightMm: cmToMm(unit.heightCm),
         })),
       };
       const res = await apiClient.put(`/admin/product-dimensions/products/${encodeURIComponent(selectedProduct.productCode)}`, payload);
-      const product = {
-        ...res.data.product,
-        units: (res.data.product.units || emptyUnits()).map(normalizeUnit),
-      };
+      const product = apiProductToUi(res.data.product);
       setSelectedProduct(product);
       setOriginalProduct(JSON.parse(JSON.stringify(product)));
       setHistory(res.data.history || []);
@@ -370,7 +385,7 @@ export default function ProductDimensionsPage() {
             </div>
             <h1 className="text-3xl font-bold text-slate-950">Urun Olcu ve Raf Bilgileri</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Stok birimlerinin en, boy, yukseklik, kg ve katsayi bilgilerini Mikro stok kartina yazar. M3 ve desi otomatik hesaplanir.
+              Stok birimlerinin en, boy, yukseklik, kg ve katsayi bilgilerini cm olarak girin; sistem Mikro stok kartina mm olarak yazar. M3 ve desi otomatik hesaplanir.
             </p>
           </div>
           <Button onClick={saveProduct} isLoading={saving} disabled={!selectedProduct || changedFields.length === 0 || saving} className="bg-emerald-600 text-white hover:bg-emerald-700">
@@ -398,16 +413,32 @@ export default function ProductDimensionsPage() {
                   <button
                     key={product.productCode}
                     onClick={() => loadProduct(product.productCode)}
-                    className={`w-full rounded-xl border p-3 text-left transition ${
+                    className={`flex w-full gap-3 rounded-xl border p-3 text-left transition ${
                       selectedProduct?.productCode === product.productCode
                         ? 'border-primary-400 bg-primary-50'
                         : 'border-slate-200 bg-white hover:border-primary-200 hover:bg-slate-50'
                     }`}
                     type="button"
                   >
-                    <div className="font-semibold text-slate-900">{product.productCode}</div>
-                    <div className="line-clamp-2 text-xs text-slate-600">{product.productName}</div>
-                    <div className="mt-1 text-xs text-slate-500">Raf: {product.shelfCode || '-'} {product.shelfName ? `- ${product.shelfName}` : ''}</div>
+                    <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                      {product.imageUrl ? (
+                        <img src={product.imageUrl} alt={product.productName} className="h-full w-full object-contain" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase text-slate-300">Resim yok</div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-900">{product.productCode}</div>
+                      <div className="line-clamp-2 text-xs text-slate-600">{product.productName || 'Urun adi yok'}</div>
+                      <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${product.hasStock ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                          Stok: {formatNumber(product.stockQuantity || 0, 2)}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">
+                          Raf: {product.shelfCode || '-'} {product.shelfName ? `- ${product.shelfName}` : ''}
+                        </span>
+                      </div>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -438,11 +469,21 @@ export default function ProductDimensionsPage() {
                     key={product.productCode}
                     type="button"
                     onClick={() => loadProduct(product.productCode)}
-                    className="w-full rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs hover:bg-amber-100"
+                    className="flex w-full gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-left text-xs hover:bg-amber-100"
                   >
-                    <div className="font-bold text-amber-900">{product.productCode}</div>
-                    <div className="line-clamp-1 text-amber-800">{product.productName}</div>
-                    <div className="mt-1 text-amber-700">{(product.missing || []).slice(0, 3).join(', ')}</div>
+                    <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-white/70">
+                      {product.imageUrl ? (
+                        <img src={product.imageUrl} alt={product.productName} className="h-full w-full object-contain" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase text-slate-300">Resim yok</div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-amber-900">{product.productCode}</div>
+                      <div className="line-clamp-1 text-amber-800">{product.productName || 'Urun adi yok'}</div>
+                      <div className="mt-1 text-amber-700">{(product.missing || []).slice(0, 3).join(', ')}</div>
+                      <div className="mt-1 font-semibold text-slate-600">Stok: {formatNumber(product.stockQuantity || 0, 2)}</div>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -462,9 +503,21 @@ export default function ProductDimensionsPage() {
               <>
                 <Card>
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <h2 className="text-2xl font-bold text-slate-950">{selectedProduct.productCode}</h2>
-                      <p className="mt-1 text-sm text-slate-600">{selectedProduct.productName}</p>
+                    <div className="flex gap-4">
+                      <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                        {selectedProduct.imageUrl ? (
+                          <img src={selectedProduct.imageUrl} alt={selectedProduct.productName} className="h-full w-full object-contain" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xs font-semibold uppercase text-slate-300">Resim yok</div>
+                        )}
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-950">{selectedProduct.productCode}</h2>
+                        <p className="mt-1 text-sm text-slate-600">{selectedProduct.productName}</p>
+                        <div className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${selectedProduct.hasStock ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                          {selectedProduct.hasStock ? 'Stokta var' : 'Stokta yok'}: {formatNumber(selectedProduct.stockQuantity || 0, 2)}
+                        </div>
+                      </div>
                     </div>
                     <div className="rounded-xl bg-slate-100 px-4 py-3 text-sm">
                       <div className="font-semibold text-slate-700">Mevcut Raf</div>
@@ -566,32 +619,32 @@ export default function ProductDimensionsPage() {
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
-                            En (mm)
+                            En (cm)
                             <input
                               type="number"
-                              step="1"
-                              value={unit.widthMm}
-                              onChange={(event) => updateUnit(unit.index, { widthMm: toNumber(event.target.value) })}
+                              step="0.1"
+                              value={unit.widthCm}
+                              onChange={(event) => updateUnit(unit.index, { widthCm: toNumber(event.target.value) })}
                               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
-                            Boy (mm)
+                            Boy (cm)
                             <input
                               type="number"
-                              step="1"
-                              value={unit.lengthMm}
-                              onChange={(event) => updateUnit(unit.index, { lengthMm: toNumber(event.target.value) })}
+                              step="0.1"
+                              value={unit.lengthCm}
+                              onChange={(event) => updateUnit(unit.index, { lengthCm: toNumber(event.target.value) })}
                               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
-                            Yukseklik (mm)
+                            Yukseklik (cm)
                             <input
                               type="number"
-                              step="1"
-                              value={unit.heightMm}
-                              onChange={(event) => updateUnit(unit.index, { heightMm: toNumber(event.target.value) })}
+                              step="0.1"
+                              value={unit.heightCm}
+                              onChange={(event) => updateUnit(unit.index, { heightCm: toNumber(event.target.value) })}
                               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
                             />
                           </label>
