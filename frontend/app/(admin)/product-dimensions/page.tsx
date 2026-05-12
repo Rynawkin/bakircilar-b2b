@@ -9,6 +9,8 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 
 type UnitInfo = {
   index: number;
@@ -50,6 +52,26 @@ type ChangeLog = {
   newValues: ProductDimension;
   createdAt: string;
 };
+
+type KeyboardTarget = {
+  title: string;
+  value: string;
+  mode: 'text' | 'number';
+  onApply: (value: string) => void;
+};
+
+const KEYBOARD_ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+  ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'İ', 'Ö', 'Ü'],
+  ['Z', 'X', 'C', 'V', 'B', 'N', 'M', 'Ç', 'Ğ', 'Ş', '.', '-'],
+];
+
+const NUMPAD_KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.', ','];
+
+const textInputClass = 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold outline-none ring-primary-500 focus:ring-2 2xl:text-lg';
+const iconTextInputClass = 'w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-base font-semibold outline-none ring-primary-500 focus:ring-2 2xl:text-lg';
+const numericInputClass = 'mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-base font-bold outline-none ring-primary-500 focus:ring-2 2xl:text-lg';
 
 const emptyUnits = (): UnitInfo[] =>
   [1, 2, 3, 4].map((index) => ({
@@ -172,6 +194,8 @@ export default function ProductDimensionsPage() {
   const [missingSearch, setMissingSearch] = useState('');
   const [missingProducts, setMissingProducts] = useState<ProductDimension[]>([]);
   const [loadingMissing, setLoadingMissing] = useState(false);
+  const [keyboardTarget, setKeyboardTarget] = useState<KeyboardTarget | null>(null);
+  const [keyboardValue, setKeyboardValue] = useState('');
 
   useEffect(() => {
     loadUserFromStorage();
@@ -276,6 +300,21 @@ export default function ProductDimensionsPage() {
     );
     setShelfSearch(`${shelf.code} - ${shelf.name}`);
     setShelfOptionsOpen(false);
+  };
+
+  const openKeyboard = (target: KeyboardTarget) => {
+    setKeyboardTarget(target);
+    setKeyboardValue(target.value);
+  };
+
+  const applyKeyboard = () => {
+    if (!keyboardTarget) return;
+    keyboardTarget.onApply(keyboardValue);
+    setKeyboardTarget(null);
+  };
+
+  const appendKeyboardKey = (key: string) => {
+    setKeyboardValue((prev) => `${prev}${key}`);
   };
 
   const loadMissingProducts = async () => {
@@ -419,7 +458,7 @@ export default function ProductDimensionsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="container-custom py-8">
+      <div className="mx-auto max-w-[1920px] px-4 py-8 sm:px-6 2xl:px-10 2xl:py-10">
         <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
@@ -437,7 +476,7 @@ export default function ProductDimensionsPage() {
           </Button>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <div className="grid gap-7 xl:grid-cols-[460px_minmax(0,1fr)] 2xl:grid-cols-[520px_minmax(0,1fr)]">
           <div className="space-y-6">
             <Card>
               <h2 className="mb-3 text-lg font-bold text-slate-900">Urun Ara</h2>
@@ -446,11 +485,17 @@ export default function ProductDimensionsPage() {
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
+                  onClick={() => openKeyboard({
+                    title: 'Urun Arama Klavyesi',
+                    value: search,
+                    mode: 'text',
+                    onApply: (value) => setSearch(value),
+                  })}
                   placeholder="Kod veya urun adi..."
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none ring-primary-500 focus:ring-2"
+                  className={iconTextInputClass}
                 />
               </div>
-              <div className="mt-3 max-h-[360px] space-y-2 overflow-auto">
+              <div className="mt-4 max-h-[520px] space-y-3 overflow-auto">
                 {searching && <div className="text-sm text-slate-500">Araniyor...</div>}
                 {!searching && searchResults.map((product) => (
                   <button
@@ -499,14 +544,20 @@ export default function ProductDimensionsPage() {
                 <input
                   value={missingSearch}
                   onChange={(event) => setMissingSearch(event.target.value)}
+                  onClick={() => openKeyboard({
+                    title: 'Eksik Veri Filtre Klavyesi',
+                    value: missingSearch,
+                    mode: 'text',
+                    onApply: (value) => setMissingSearch(value),
+                  })}
                   placeholder="Opsiyonel filtre"
-                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
+                  className={`${textInputClass} min-w-0 flex-1`}
                 />
-                <Button onClick={loadMissingProducts} isLoading={loadingMissing} className="bg-slate-900 text-white hover:bg-slate-800">
+                <Button onClick={loadMissingProducts} isLoading={loadingMissing} className="min-h-[52px] bg-slate-900 px-6 text-base text-white hover:bg-slate-800">
                   Getir
                 </Button>
               </div>
-              <div className="mt-3 max-h-[300px] space-y-2 overflow-auto">
+              <div className="mt-4 max-h-[420px] space-y-3 overflow-auto">
                 {missingProducts.map((product) => (
                   <button
                     key={product.productCode}
@@ -578,8 +629,18 @@ export default function ProductDimensionsPage() {
                           setSelectedProduct((prev) => prev ? { ...prev, shelfCode } : prev);
                           setShelfSearch(shelfCode);
                         }}
+                        onClick={() => openKeyboard({
+                          title: 'Raf / Reyon Kodu Klavyesi',
+                          value: selectedProduct.shelfCode || '',
+                          mode: 'text',
+                          onApply: (value) => {
+                            const shelfCode = value.toUpperCase();
+                            setSelectedProduct((prev) => prev ? { ...prev, shelfCode } : prev);
+                            setShelfSearch(shelfCode);
+                          },
+                        })}
                         placeholder="O-3"
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold outline-none ring-primary-500 focus:ring-2"
+                        className={textInputClass}
                       />
                     </div>
                     <div>
@@ -592,12 +653,24 @@ export default function ProductDimensionsPage() {
                             setShelfSearch(event.target.value);
                             setShelfOptionsOpen(true);
                           }}
+                          onClick={() => {
+                            setShelfOptionsOpen(true);
+                            openKeyboard({
+                              title: 'Raf Arama Klavyesi',
+                              value: shelfSearch,
+                              mode: 'text',
+                              onApply: (value) => {
+                                setShelfSearch(value);
+                                setShelfOptionsOpen(true);
+                              },
+                            });
+                          }}
                           onFocus={() => {
                             setShelfOptionsOpen(true);
                             void searchShelves('');
                           }}
                           placeholder="Raf kodu veya raf adi yazin..."
-                          className="w-full rounded-lg border border-slate-200 py-2 pl-10 pr-3 text-sm outline-none ring-primary-500 focus:ring-2"
+                          className={iconTextInputClass}
                         />
                         {shelfOptionsOpen && (
                           <div className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
@@ -677,8 +750,14 @@ export default function ProductDimensionsPage() {
                             <input
                               value={unit.name}
                               onChange={(event) => updateUnit(unit.index, { name: event.target.value })}
+                              onClick={() => openKeyboard({
+                                title: `${unit.index}. Birim Adi Klavyesi`,
+                                value: unit.name,
+                                mode: 'text',
+                                onApply: (value) => updateUnit(unit.index, { name: value }),
+                              })}
                               placeholder={unit.index === 2 ? 'KOLI' : 'PAKET'}
-                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm uppercase outline-none ring-primary-500 focus:ring-2"
+                              className={`${numericInputClass} uppercase`}
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
@@ -688,7 +767,13 @@ export default function ProductDimensionsPage() {
                               step="0.000001"
                               value={unit.factor}
                               onChange={(event) => updateUnit(unit.index, { factor: toNumber(event.target.value) })}
-                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
+                              onClick={() => openKeyboard({
+                                title: `${unit.index}. Birim Katsayi Klavyesi`,
+                                value: String(unit.factor || ''),
+                                mode: 'number',
+                                onApply: (value) => updateUnit(unit.index, { factor: toNumber(value) }),
+                              })}
+                              className={numericInputClass}
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
@@ -698,7 +783,13 @@ export default function ProductDimensionsPage() {
                               step="0.001"
                               value={unit.weightKg}
                               onChange={(event) => updateUnit(unit.index, { weightKg: toNumber(event.target.value) })}
-                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
+                              onClick={() => openKeyboard({
+                                title: `${unit.index}. Birim Kg Klavyesi`,
+                                value: String(unit.weightKg || ''),
+                                mode: 'number',
+                                onApply: (value) => updateUnit(unit.index, { weightKg: toNumber(value) }),
+                              })}
+                              className={numericInputClass}
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
@@ -708,7 +799,13 @@ export default function ProductDimensionsPage() {
                               step="0.1"
                               value={unit.widthCm}
                               onChange={(event) => updateUnit(unit.index, { widthCm: toNumber(event.target.value) })}
-                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
+                              onClick={() => openKeyboard({
+                                title: `${unit.index}. Birim En (cm) Klavyesi`,
+                                value: String(unit.widthCm || ''),
+                                mode: 'number',
+                                onApply: (value) => updateUnit(unit.index, { widthCm: toNumber(value) }),
+                              })}
+                              className={numericInputClass}
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
@@ -718,7 +815,13 @@ export default function ProductDimensionsPage() {
                               step="0.1"
                               value={unit.lengthCm}
                               onChange={(event) => updateUnit(unit.index, { lengthCm: toNumber(event.target.value) })}
-                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
+                              onClick={() => openKeyboard({
+                                title: `${unit.index}. Birim Boy (cm) Klavyesi`,
+                                value: String(unit.lengthCm || ''),
+                                mode: 'number',
+                                onApply: (value) => updateUnit(unit.index, { lengthCm: toNumber(value) }),
+                              })}
+                              className={numericInputClass}
                             />
                           </label>
                           <label className="text-xs font-semibold text-slate-600">
@@ -728,7 +831,13 @@ export default function ProductDimensionsPage() {
                               step="0.1"
                               value={unit.heightCm}
                               onChange={(event) => updateUnit(unit.index, { heightCm: toNumber(event.target.value) })}
-                              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
+                              onClick={() => openKeyboard({
+                                title: `${unit.index}. Birim Yukseklik (cm) Klavyesi`,
+                                value: String(unit.heightCm || ''),
+                                mode: 'number',
+                                onApply: (value) => updateUnit(unit.index, { heightCm: toNumber(value) }),
+                              })}
+                              className={numericInputClass}
                             />
                           </label>
                         </div>
@@ -780,6 +889,108 @@ export default function ProductDimensionsPage() {
           </div>
         </div>
       </div>
+      <Modal
+        isOpen={Boolean(keyboardTarget)}
+        onClose={() => setKeyboardTarget(null)}
+        title={keyboardTarget?.title || 'Ekran Klavyesi'}
+        size="xl"
+        footer={
+          <div className="flex w-full items-center justify-between gap-3">
+            <Button variant="secondary" onClick={() => setKeyboardValue('')} className="min-h-[48px] px-6 text-base">
+              Temizle
+            </Button>
+            <Button onClick={applyKeyboard} className="min-h-[48px] px-10 text-base">
+              OK
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            autoFocus
+            value={keyboardValue}
+            onChange={(event) => setKeyboardValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                applyKeyboard();
+              }
+            }}
+            className="h-16 text-2xl font-black"
+          />
+          {keyboardTarget?.mode === 'number' ? (
+            <div className="grid grid-cols-3 gap-3">
+              {NUMPAD_KEYS.map((key) => (
+                <button
+                  key={`num-${key}`}
+                  onClick={() => appendKeyboardKey(key)}
+                  className="h-16 rounded-xl border border-slate-300 bg-white text-2xl font-black active:bg-primary-50"
+                >
+                  {key}
+                </button>
+              ))}
+              <button
+                onClick={() => setKeyboardValue((prev) => prev.slice(0, -1))}
+                className="h-16 rounded-xl border border-amber-300 bg-amber-50 text-base font-black text-amber-700"
+              >
+                Sil
+              </button>
+              <button
+                onClick={() => setKeyboardValue('')}
+                className="h-16 rounded-xl border border-rose-300 bg-rose-50 text-base font-black text-rose-700"
+              >
+                Temizle
+              </button>
+              <button
+                onClick={applyKeyboard}
+                className="h-16 rounded-xl border border-emerald-300 bg-emerald-50 text-base font-black text-emerald-700"
+              >
+                OK
+              </button>
+            </div>
+          ) : (
+            <>
+              {KEYBOARD_ROWS.map((row, rowIndex) => (
+                <div
+                  key={`keyboard-row-${rowIndex}`}
+                  className="grid gap-2"
+                  style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+                >
+                  {row.map((key) => (
+                    <button
+                      key={`${rowIndex}-${key}`}
+                      onClick={() => appendKeyboardKey(key)}
+                      className="h-14 rounded-xl border border-slate-300 bg-white text-lg font-black active:bg-primary-50 2xl:h-16 2xl:text-xl"
+                    >
+                      {key}
+                    </button>
+                  ))}
+                </div>
+              ))}
+              <div className="grid grid-cols-4 gap-3">
+                <button
+                  onClick={() => setKeyboardValue((prev) => prev.slice(0, -1))}
+                  className="h-14 rounded-xl border border-amber-300 bg-amber-50 text-base font-black text-amber-700 2xl:h-16"
+                >
+                  Geri Sil
+                </button>
+                <button
+                  onClick={() => appendKeyboardKey(' ')}
+                  className="col-span-2 h-14 rounded-xl border border-slate-300 bg-white text-base font-black 2xl:h-16"
+                >
+                  Bosluk
+                </button>
+                <button
+                  onClick={() => setKeyboardValue('')}
+                  className="h-14 rounded-xl border border-rose-300 bg-rose-50 text-base font-black text-rose-700 2xl:h-16"
+                >
+                  Temizle
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
