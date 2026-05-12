@@ -285,7 +285,6 @@ class ProductDimensionsService {
         const shelves = await mikroService.executeQuery(`
           SELECT TOP 1 ryn_kod FROM STOK_REYONLARI WITH (NOLOCK)
           WHERE ISNULL(ryn_iptal, 0) = 0
-            AND ISNULL(ryn_hidden, 0) = 0
             AND ryn_kod = N'${escapeSql(shelfCode)}'
         `);
         if (!shelves[0]) throw new Error('Secilen raf/reyon kodu Mikroda bulunamadi');

@@ -406,7 +406,7 @@ export default function ProductDimensionsPage() {
       toast('Degisen alan yok');
       return;
     }
-    const confirmed = window.confirm(`Mikro stok karti guncellenecek:\n\n${changedFields.slice(0, 12).join('\n')}${changedFields.length > 12 ? '\n...' : ''}`);
+    const confirmed = window.confirm(`Mikro stok karti guncellenecek. Olculer cm girildi, Mikroya mm olarak yazilacak:\n\n${changedFields.slice(0, 12).join('\n')}${changedFields.length > 12 ? '\n...' : ''}`);
     if (!confirmed) return;
 
     setSaving(true);
@@ -430,7 +430,7 @@ export default function ProductDimensionsPage() {
       setSelectedProduct(product);
       setOriginalProduct(JSON.parse(JSON.stringify(product)));
       setHistory(res.data.history || []);
-      toast.success('Mikro stok karti guncellendi');
+      toast.success('Mikro stok karti kaydedildi ve tekrar okundu');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Kayit yapilamadi');
     } finally {
@@ -472,7 +472,7 @@ export default function ProductDimensionsPage() {
           </div>
           <Button onClick={saveProduct} isLoading={saving} disabled={!selectedProduct || changedFields.length === 0 || saving} className="bg-emerald-600 text-white hover:bg-emerald-700">
             <Save className="mr-2 h-4 w-4" />
-            Degisenleri Kaydet
+            Mikro'ya Kaydet
           </Button>
         </div>
 
