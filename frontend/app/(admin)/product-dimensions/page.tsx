@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Ruler, Search, Save, Download, History, Copy, PackageCheck } from 'lucide-react';
+import { Ruler, Search, Save, Download, History, Copy, PackageCheck, Plus } from 'lucide-react';
 import { apiClient } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -21,6 +21,7 @@ type UnitInfo = {
   tareKg?: number;
   m3: number;
   desi: number;
+  enabled?: boolean;
 };
 
 type ProductDimension = {
@@ -61,6 +62,7 @@ const emptyUnits = (): UnitInfo[] =>
     heightCm: 0,
     m3: 0,
     desi: 0,
+    enabled: index === 1,
   }));
 
 const toNumber = (value: unknown) => {
@@ -102,6 +104,8 @@ const normalizeUnit = (unit: UnitInfo): UnitInfo => {
   };
 };
 
+const isUnitEnabled = (unit?: UnitInfo) => Boolean(unit && (unit.index === 1 || unit.enabled || unit.name));
+
 const apiProductToUi = (product: any): ProductDimension => ({
   ...product,
   units: (product?.units || emptyUnits()).map((unit: any) =>
@@ -110,6 +114,7 @@ const apiProductToUi = (product: any): ProductDimension => ({
       widthCm: mmToCm(unit.widthMm),
       lengthCm: mmToCm(unit.lengthMm),
       heightCm: mmToCm(unit.heightMm),
+      enabled: unit.index === 1 || Boolean(String(unit.name || '').trim()),
     })
   ),
 });
@@ -120,7 +125,7 @@ const buildCsv = (products: ProductDimension[]) => {
   ];
   products.forEach((product) => {
     product.units.forEach((unit) => {
-      if (!unit.name && unit.index > 1) return;
+      if (!isUnitEnabled(unit)) return;
       rows.push([
         product.productCode,
         product.productName,
@@ -205,6 +210,12 @@ export default function ProductDimensionsPage() {
     }
     selectedProduct.units.forEach((unit, index) => {
       const oldUnit = originalProduct.units[index] || emptyUnits()[index];
+      const unitEnabled = isUnitEnabled(unit);
+      const oldUnitEnabled = isUnitEnabled(oldUnit);
+      if (!unitEnabled && !oldUnitEnabled) return;
+      if (unitEnabled && !oldUnitEnabled) {
+        changes.push(`${unit.index}. birim eklendi`);
+      }
       const fields: Array<[keyof UnitInfo, string]> = [
         ['name', 'Birim adi'],
         ['factor', 'Katsayi'],
@@ -293,6 +304,20 @@ export default function ProductDimensionsPage() {
     });
   };
 
+  const addUnit = (index: number) => {
+    setSelectedProduct((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        units: prev.units.map((unit) =>
+          unit.index === index
+            ? normalizeUnit({ ...unit, enabled: true, factor: unit.factor || 1 })
+            : unit
+        ),
+      };
+    });
+  };
+
   const copyUnit = (fromIndex: number, toIndex: number, includeWeight = true) => {
     if (!selectedProduct) return;
     const source = selectedProduct.units.find((unit) => unit.index === fromIndex);
@@ -310,8 +335,11 @@ export default function ProductDimensionsPage() {
   const validateBeforeSave = () => {
     if (!selectedProduct) return false;
     for (const unit of selectedProduct.units) {
-      const hasAnyValue = Boolean(unit.name || unit.factor || unit.weightKg || unit.widthCm || unit.lengthCm || unit.heightCm);
-      if (!hasAnyValue) continue;
+      if (!isUnitEnabled(unit)) continue;
+      if (!unit.name) {
+        toast.error(`${unit.index}. birim adi gerekli`);
+        return false;
+      }
       if (unit.name.length > 10) {
         toast.error(`${unit.index}. birim adi 10 karakterden uzun olamaz`);
         return false;
@@ -346,15 +374,17 @@ export default function ProductDimensionsPage() {
     try {
       const payload = {
         shelfCode: selectedProduct.shelfCode || '',
-        units: selectedProduct.units.map((unit) => ({
-          index: unit.index,
-          name: unit.name || '',
-          factor: unit.factor || 0,
-          weightKg: unit.weightKg || 0,
-          widthMm: cmToMm(unit.widthCm),
-          lengthMm: cmToMm(unit.lengthCm),
-          heightMm: cmToMm(unit.heightCm),
-        })),
+        units: selectedProduct.units
+          .filter(isUnitEnabled)
+          .map((unit) => ({
+            index: unit.index,
+            name: unit.name || '',
+            factor: unit.factor || 0,
+            weightKg: unit.weightKg || 0,
+            widthMm: cmToMm(unit.widthCm),
+            lengthMm: cmToMm(unit.lengthCm),
+            heightMm: cmToMm(unit.heightCm),
+          })),
       };
       const res = await apiClient.put(`/admin/product-dimensions/products/${encodeURIComponent(selectedProduct.productCode)}`, payload);
       const product = apiProductToUi(res.data.product);
@@ -603,9 +633,31 @@ export default function ProductDimensionsPage() {
 
                 <div className="grid gap-4 2xl:grid-cols-2">
                   {selectedProduct.units.map((unit) => {
-                    const isDefined = Boolean(unit.name);
+                    const unitEnabled = isUnitEnabled(unit);
+                    if (!unitEnabled) {
+                      return (
+                        <Card key={unit.index} className="border-dashed border-slate-300 bg-slate-50/70">
+                          <div className="flex min-h-[210px] flex-col items-center justify-center text-center">
+                            <div className="rounded-full bg-white p-3 text-slate-400 shadow-sm">
+                              <Plus className="h-6 w-6" />
+                            </div>
+                            <h3 className="mt-3 text-lg font-bold text-slate-900">{unit.index}. Birim tanimli degil</h3>
+                            <p className="mt-1 max-w-xs text-xs text-slate-500">
+                              Mikroda bu birim bos. Kayda dahil etmek icin once yeni birim ekleyin.
+                            </p>
+                            <Button
+                              onClick={() => addUnit(unit.index)}
+                              className="mt-4 bg-slate-900 text-white hover:bg-slate-800"
+                            >
+                              <Plus className="mr-2 h-4 w-4" />
+                              Yeni birim ekle
+                            </Button>
+                          </div>
+                        </Card>
+                      );
+                    }
                     return (
-                      <Card key={unit.index} className={isDefined ? 'border-slate-200' : 'border-dashed border-slate-300'}>
+                      <Card key={unit.index} className="border-slate-200">
                         <div className="mb-4 flex items-start justify-between gap-3">
                           <div>
                             <h3 className="text-lg font-bold text-slate-900">{unit.index}. Birim</h3>
