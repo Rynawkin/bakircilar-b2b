@@ -126,8 +126,10 @@ export default function OrderTrackingPage() {
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
   const [downloadingSupplier, setDownloadingSupplier] = useState<string | null>(null);
+  const [downloadingCustomerStatementPdf, setDownloadingCustomerStatementPdf] = useState<string | null>(null);
   const [downloadingCustomerPdf, setDownloadingCustomerPdf] = useState<string | null>(null);
   const [downloadingSupplierExcel, setDownloadingSupplierExcel] = useState<string | null>(null);
+  const [downloadingSelectedCustomerStatements, setDownloadingSelectedCustomerStatements] = useState(false);
   const [downloadingSelectedCustomers, setDownloadingSelectedCustomers] = useState(false);
   const [downloadingSelectedSuppliers, setDownloadingSelectedSuppliers] = useState(false);
   const [selectedCustomerCodes, setSelectedCustomerCodes] = useState<Set<string>>(new Set());
@@ -449,12 +451,22 @@ export default function OrderTrackingPage() {
     return fulfillment?.merkezCanFulfill ?? getItemStock(item, '1') >= item.remainingQty;
   };
 
+  const itemHasPreferredWarehouseRisk = (item: OrderItem) => {
+    if (item.remainingQty <= 0) return false;
+    if (item.fulfillment) {
+      return !item.fulfillment.preferredCanFulfill || item.fulfillment.hasAggregateRisk;
+    }
+    const warehouseCode = String(item.warehouseCode || '').trim();
+    if (warehouseCode === '6') return !itemCanFulfill(item, '6');
+    return !itemCanFulfill(item, '1');
+  };
+
   const customerHasUnfulfilled = (customer: CustomerSummary, warehouseCode?: '1' | '6') =>
     customer.orders.some((order) =>
       order.items.some((item) => {
         if (item.remainingQty <= 0) return false;
         if (warehouseCode) return !itemCanFulfill(item, warehouseCode);
-        return !itemCanFulfill(item, '1') || !itemCanFulfill(item, '6') || Boolean(item.fulfillment?.hasAggregateRisk);
+        return itemHasPreferredWarehouseRisk(item);
       })
     );
 
@@ -722,7 +734,7 @@ export default function OrderTrackingPage() {
       const riskItems = customer.orders.flatMap((order) =>
         order.items
           .filter((item) => item.remainingQty > 0)
-          .filter((item) => !itemCanFulfill(item, '1') || !itemCanFulfill(item, '6') || item.fulfillment?.hasAggregateRisk)
+          .filter((item) => itemHasPreferredWarehouseRisk(item))
           .map((item) => ({
             order,
             item,
@@ -857,6 +869,102 @@ export default function OrderTrackingPage() {
     doc.save(`${safePrefix}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
+  const buildCustomerStatementPdf = async (customers: CustomerSummary[], filePrefix: string) => {
+    const { default: jsPDF } = await import('jspdf');
+    const autoTableModule = await import('jspdf-autotable');
+    const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
+    if (typeof autoTable !== 'function') {
+      throw new Error('autoTable is not available');
+    }
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 12;
+    let isFirstCustomer = true;
+
+    customers.forEach((customer) => {
+      if (!isFirstCustomer) {
+        doc.addPage();
+      }
+      isFirstCustomer = false;
+
+      doc.setFillColor(239, 246, 255);
+      doc.rect(0, 0, pageWidth, 28, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(37, 99, 235);
+      doc.text(cleanPdfText('Bakircilar Ambalaj Siparis Bakiyesi'), marginX, 11);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(cleanPdfText(`Musteri: ${customer.customerName}`), marginX, 18);
+      doc.text(cleanPdfText(`Kod: ${customer.customerCode}`), marginX, 23);
+      doc.text(cleanPdfText(`Olusturma: ${new Date().toLocaleString('tr-TR')}`), pageWidth - marginX, 18, { align: 'right' });
+
+      let startY = 34;
+      customer.orders.forEach((order) => {
+        if (startY > 245) {
+          doc.addPage();
+          startY = 14;
+        }
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(15, 23, 42);
+        doc.text(
+          cleanPdfText(
+            `Siparis No: ${order.mikroOrderNumber} | Tarih: ${formatDate(order.orderDate)} | Teslimat: ${formatDate(order.deliveryDate)}`
+          ),
+          marginX,
+          startY
+        );
+
+        autoTable(doc, {
+          startY: startY + 4,
+          head: [['Urun', 'Siparis', 'Teslim', 'Kalan', 'Birim', 'Birim Fiyat', 'Kalan Tutar'].map(cleanPdfText)],
+          body: order.items.map((item) => [
+            cleanPdfText(`${item.productName}\n${item.productCode}`),
+            cleanPdfText(formatNumber(item.quantity)),
+            cleanPdfText(formatNumber(item.deliveredQty)),
+            cleanPdfText(formatNumber(item.remainingQty)),
+            cleanPdfText(item.unit),
+            cleanPdfText(formatCurrencyPdf(item.unitPrice)),
+            cleanPdfText(formatCurrencyPdf(item.lineTotal)),
+          ]),
+          theme: 'striped',
+          styles: { fontSize: 7.5, cellPadding: 1.6, overflow: 'linebreak' },
+          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontSize: 7.5 },
+          margin: { left: marginX, right: marginX },
+          columnStyles: {
+            0: { cellWidth: 58 },
+            1: { halign: 'right', cellWidth: 18 },
+            2: { halign: 'right', cellWidth: 18 },
+            3: { halign: 'right', cellWidth: 18 },
+            4: { halign: 'center', cellWidth: 16 },
+            5: { halign: 'right', cellWidth: 28 },
+            6: { halign: 'right', cellWidth: 28 },
+          },
+        });
+
+        startY = ((doc as any).lastAutoTable?.finalY || startY + 12) + 7;
+      });
+
+      if (startY > 260) {
+        doc.addPage();
+        startY = 16;
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(37, 99, 235);
+      doc.text(cleanPdfText(`Toplam Bakiye: ${formatCurrencyPdf(customer.totalAmount)}`), pageWidth - marginX, startY, {
+        align: 'right',
+      });
+    });
+
+    const safePrefix = filePrefix.replace(/[^a-zA-Z0-9-_]/g, '_');
+    doc.save(`${safePrefix}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
   const handleDownloadCustomerPdf = async (customer: CustomerSummary) => {
     if (downloadingCustomerPdf || downloadingSelectedCustomers) return;
     setDownloadingCustomerPdf(customer.customerCode);
@@ -867,6 +975,19 @@ export default function OrderTrackingPage() {
       toast.error('Musteri PDF indirilemedi.');
     } finally {
       setDownloadingCustomerPdf(null);
+    }
+  };
+
+  const handleDownloadCustomerStatementPdf = async (customer: CustomerSummary) => {
+    if (downloadingCustomerStatementPdf || downloadingSelectedCustomerStatements) return;
+    setDownloadingCustomerStatementPdf(customer.customerCode);
+    try {
+      await buildCustomerStatementPdf([customer], `musteri_${customer.customerCode}_siparis_bakiyesi`);
+    } catch (error) {
+      console.error('Musteri bakiye PDF indirilemedi:', error);
+      toast.error('Musteri bakiye PDF indirilemedi.');
+    } finally {
+      setDownloadingCustomerStatementPdf(null);
     }
   };
 
@@ -888,6 +1009,27 @@ export default function OrderTrackingPage() {
       toast.error('Secili musteri PDF indirilemedi.');
     } finally {
       setDownloadingSelectedCustomers(false);
+    }
+  };
+
+  const handleDownloadSelectedCustomerStatementsPdf = async (customers: CustomerSummary[]) => {
+    if (downloadingCustomerStatementPdf || downloadingSelectedCustomerStatements) return;
+    const selectedCustomers = customers.filter(
+      (customer) => selectedCustomerCodes.has(customer.customerCode) && customerHasPendingItems(customer)
+    );
+    if (selectedCustomers.length === 0) {
+      toast.error('Indirmek icin en az bir musteri secin.');
+      return;
+    }
+
+    setDownloadingSelectedCustomerStatements(true);
+    try {
+      await buildCustomerStatementPdf(selectedCustomers, 'secili_musteriler_siparis_bakiyesi');
+    } catch (error) {
+      console.error('Secili musteri bakiye PDF indirilemedi:', error);
+      toast.error('Secili musteri bakiye PDF indirilemedi.');
+    } finally {
+      setDownloadingSelectedCustomerStatements(false);
     }
   };
 
@@ -1779,12 +1921,20 @@ export default function OrderTrackingPage() {
                     Secimi Temizle
                   </Button>
                   <Button
+                    onClick={() => handleDownloadSelectedCustomerStatementsPdf(filteredCustomerSummary)}
+                    isLoading={downloadingSelectedCustomerStatements}
+                    disabled={selectedVisibleCustomerCount === 0 || downloadingSelectedCustomerStatements}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                  >
+                    Secili Musteri PDF ({selectedVisibleCustomerCount})
+                  </Button>
+                  <Button
                     onClick={() => handleDownloadSelectedCustomersPdf(filteredCustomerSummary)}
                     isLoading={downloadingSelectedCustomers}
                     disabled={selectedVisibleCustomerCount === 0 || downloadingSelectedCustomers}
-                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                    className="bg-slate-700 hover:bg-slate-800 text-white text-sm"
                   >
-                    Secilileri PDF Indir ({selectedVisibleCustomerCount})
+                    Secili Stok PDF ({selectedVisibleCustomerCount})
                   </Button>
                 </div>
               </div>
@@ -1937,14 +2087,27 @@ export default function OrderTrackingPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             {!isSupplierTab && (
-                              <Button
-                                onClick={() => handleDownloadCustomerPdf(customer)}
-                                isLoading={downloadingCustomerPdf === customer.customerCode}
-                                disabled={!hasPendingItems || downloadingCustomerPdf === customer.customerCode}
-                                className="bg-white text-blue-700 border border-blue-200 hover:bg-blue-50 text-sm py-1 px-3"
-                              >
-                                PDF Indir
-                              </Button>
+                              <>
+                                <Button
+                                  onClick={() => handleDownloadCustomerStatementPdf(customer)}
+                                  isLoading={downloadingCustomerStatementPdf === customer.customerCode}
+                                  disabled={
+                                    !hasPendingItems ||
+                                    downloadingCustomerStatementPdf === customer.customerCode
+                                  }
+                                  className="bg-white text-blue-700 border border-blue-200 hover:bg-blue-50 text-sm py-1 px-3"
+                                >
+                                  Musteri PDF
+                                </Button>
+                                <Button
+                                  onClick={() => handleDownloadCustomerPdf(customer)}
+                                  isLoading={downloadingCustomerPdf === customer.customerCode}
+                                  disabled={!hasPendingItems || downloadingCustomerPdf === customer.customerCode}
+                                  className="bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 text-sm py-1 px-3"
+                                >
+                                  Stok PDF
+                                </Button>
+                              </>
                             )}
                             {isSupplierTab && (
                               <Button
