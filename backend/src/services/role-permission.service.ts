@@ -45,6 +45,7 @@ export const AVAILABLE_PERMISSIONS = {
   'admin:order-tracking': 'Siparis Takip',
   'admin:warehouse-kiosk': 'Depo Kiosk',
   'admin:warehouse-retail': 'Hizli Perakende Satis',
+  'admin:product-dimensions': 'Urun Olcu ve Raf Bilgileri',
   'admin:einvoices': 'E-Faturalar',
   'admin:requests': 'Talepler',
   'admin:campaigns': 'Kampanyalar',
@@ -99,6 +100,7 @@ export const PERMISSION_DESCRIPTIONS = {
   'admin:order-tracking': 'Siparis takip sayfalarina erisim izni verir',
   'admin:warehouse-kiosk': 'Depo kiosk sayfasina erisim izni verir',
   'admin:warehouse-retail': 'Hizli perakende satis sayfasina erisim izni verir',
+  'admin:product-dimensions': 'Urun birim olcu, agirlik ve reyon bilgilerini Mikro stok kartina yazma izni verir',
   'admin:einvoices': 'E-fatura arsivine erisim izni verir',
   'admin:requests': 'Talepler ve gorevler ekranina erisim izni verir',
   'admin:campaigns': 'Kampanya yonetimine erisim izni verir',
@@ -246,6 +248,7 @@ class RolePermissionService {
         'admin:quotes',
         'admin:agreements',
         'admin:order-tracking',
+        'admin:product-dimensions',
         'admin:einvoices',
         'admin:requests',
         'admin:vade',
@@ -290,6 +293,7 @@ class RolePermissionService {
       const allowed = new Set([
         'admin:warehouse-kiosk',
         'admin:warehouse-retail',
+        'admin:product-dimensions',
       ]);
       return allowed.has(permission);
     }

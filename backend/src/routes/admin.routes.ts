@@ -12,6 +12,7 @@ import agreementController from '../controllers/agreement.controller';
 import supplierPriceListController from '../controllers/supplier-price-list.controller';
 import productComplementController from '../controllers/product-complement.controller';
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
+import productDimensionsController from '../controllers/product-dimensions.controller';
 import {
   authenticate,
   requirePermission,
@@ -219,6 +220,12 @@ router.post(
 );
 router.post('/products/image-sync', requirePermission('admin:products'), adminController.triggerSelectedImageSync);
 router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admin:order-tracking']), upload.single('image'), adminController.uploadProductImage);
+
+router.get('/product-dimensions/products', requirePermission('admin:product-dimensions'), productDimensionsController.searchProducts);
+router.get('/product-dimensions/missing', requirePermission('admin:product-dimensions'), productDimensionsController.getMissingProducts);
+router.get('/product-dimensions/shelves', requirePermission('admin:product-dimensions'), productDimensionsController.searchShelves);
+router.get('/product-dimensions/products/:productCode', requirePermission('admin:product-dimensions'), productDimensionsController.getProduct);
+router.put('/product-dimensions/products/:productCode', requirePermission('admin:product-dimensions'), productDimensionsController.updateProduct);
 router.delete('/products/:id/image', requirePermission('admin:products'), adminController.deleteProductImage);
 router.get('/products/:id/complements', requirePermission('admin:products'), productComplementController.getComplements);
 router.put(

@@ -425,6 +425,21 @@ model RolePermission {
   @@index([enabled])
 }
 
+model ProductDimensionChangeLog {
+  id          String   @id @default(uuid())
+  productCode String
+  productName String?
+  changedById String?
+  changedByName String?
+  oldValues   Json
+  newValues   Json
+  createdAt   DateTime @default(now())
+
+  @@index([productCode])
+  @@index([changedById])
+  @@index([createdAt])
+}
+
 // ==================== SETTINGS ====================
 
 model Settings {

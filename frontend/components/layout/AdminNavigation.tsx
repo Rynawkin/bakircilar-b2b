@@ -33,7 +33,8 @@ import {
   Menu as MenuIcon,
   X,
   LogOut,
-  Percent
+  Percent,
+  Ruler
 } from 'lucide-react';
 
 interface NavItem {
@@ -67,6 +68,7 @@ const navItems: NavItem[] = [
   { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler', permission: 'admin:order-tracking' },
   { name: 'Depo Kiosk', href: '/warehouse', icon: MonitorSmartphone, description: 'Toplama ve yükleme ekranı', permission: 'admin:warehouse-kiosk' },
   { name: 'Perakende Satis', href: '/warehouse/retail', icon: MonitorSmartphone, description: 'Hizli satis ekrani', permission: 'admin:warehouse-retail' },
+  { name: 'Urun Olculeri', href: '/product-dimensions', icon: Ruler, description: 'Yolpilot icin olcu, kg ve raf bilgileri', permission: 'admin:product-dimensions' },
   { name: 'Resim Hata Talepleri', href: '/warehouse/image-issues', icon: ImageOff, description: 'Depodan gelen urun resmi hatalari', permission: 'admin:order-tracking' },
   { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi', permission: 'admin:customers' },
   { name: 'Musteri Portfoyum', href: '/portfolio', icon: Users, description: 'Musteri portfoyu', permission: 'admin:customers' },
