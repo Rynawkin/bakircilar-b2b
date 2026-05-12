@@ -175,10 +175,10 @@ class ProductDimensionsService {
     return product;
   }
 
-  async searchShelves(search: string, limit = 50) {
+  async searchShelves(search: string, limit = 1000) {
     const normalized = normalizeText(search);
     const safe = escapeSql(normalized);
-    const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
+    const safeLimit = Math.min(Math.max(Math.trunc(limit) || 1000, 1), 5000);
 
     const where = normalized
       ? `AND (ryn_kod LIKE N'%${safe}%' OR ryn_ismi LIKE N'%${safe}%')`
@@ -190,7 +190,6 @@ class ProductDimensionsService {
         ryn_ismi as name
       FROM STOK_REYONLARI WITH (NOLOCK)
       WHERE ISNULL(ryn_iptal, 0) = 0
-        AND ISNULL(ryn_hidden, 0) = 0
         ${where}
       ORDER BY ryn_kod
     `);

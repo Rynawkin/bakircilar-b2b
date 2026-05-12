@@ -162,6 +162,8 @@ export default function ProductDimensionsPage() {
   const [saving, setSaving] = useState(false);
   const [shelfSearch, setShelfSearch] = useState('');
   const [shelves, setShelves] = useState<Shelf[]>([]);
+  const [shelfOptionsOpen, setShelfOptionsOpen] = useState(false);
+  const [shelfSearching, setShelfSearching] = useState(false);
   const [missingSearch, setMissingSearch] = useState('');
   const [missingProducts, setMissingProducts] = useState<ProductDimension[]>([]);
   const [loadingMissing, setLoadingMissing] = useState(false);
@@ -246,12 +248,23 @@ export default function ProductDimensionsPage() {
   };
 
   const searchShelves = async (value: string) => {
+    setShelfSearching(true);
     try {
-      const res = await apiClient.get('/admin/product-dimensions/shelves', { params: { search: value, limit: 80 } });
+      const res = await apiClient.get('/admin/product-dimensions/shelves', { params: { search: value || undefined, limit: 5000 } });
       setShelves(res.data.shelves || []);
     } catch {
       setShelves([]);
+    } finally {
+      setShelfSearching(false);
     }
+  };
+
+  const selectShelf = (shelf: Shelf) => {
+    setSelectedProduct((prev) =>
+      prev ? { ...prev, shelfCode: shelf.code, shelfName: shelf.name } : prev
+    );
+    setShelfSearch(`${shelf.code} - ${shelf.name}`);
+    setShelfOptionsOpen(false);
   };
 
   const loadMissingProducts = async () => {
@@ -540,31 +553,49 @@ export default function ProductDimensionsPage() {
                       />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-semibold text-slate-600">Dropdown ile raf ara/sec</label>
-                      <div className="grid gap-2 sm:grid-cols-[220px_minmax(0,1fr)]">
+                      <label className="mb-1 block text-xs font-semibold text-slate-600">Raf ara ve sec</label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                         <input
                           value={shelfSearch}
-                          onChange={(event) => setShelfSearch(event.target.value)}
-                          placeholder="Kod veya raf adi ara"
-                          className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
-                        />
-                        <select
-                          value={selectedProduct.shelfCode || ''}
                           onChange={(event) => {
-                            const shelf = shelves.find((item) => item.code === event.target.value);
-                            setSelectedProduct((prev) =>
-                              prev ? { ...prev, shelfCode: event.target.value, shelfName: shelf?.name || '' } : prev
-                            );
+                            setShelfSearch(event.target.value);
+                            setShelfOptionsOpen(true);
                           }}
-                          className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none ring-primary-500 focus:ring-2"
-                        >
-                          <option value="">Raf secin</option>
-                          {shelves.map((shelf) => (
-                            <option key={shelf.code} value={shelf.code}>
-                              {shelf.code} - {shelf.name}
-                            </option>
-                          ))}
-                        </select>
+                          onFocus={() => {
+                            setShelfOptionsOpen(true);
+                            void searchShelves('');
+                          }}
+                          placeholder="Raf kodu veya raf adi yazin..."
+                          className="w-full rounded-lg border border-slate-200 py-2 pl-10 pr-3 text-sm outline-none ring-primary-500 focus:ring-2"
+                        />
+                        {shelfOptionsOpen && (
+                          <div className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                            <div className="sticky top-0 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+                              {shelfSearching ? 'Raflar araniyor...' : `${shelves.length.toLocaleString('tr-TR')} raf listeleniyor`}
+                            </div>
+                            {!shelfSearching && shelves.length === 0 && (
+                              <div className="px-3 py-4 text-sm text-slate-500">Raf bulunamadi.</div>
+                            )}
+                            {shelves.map((shelf) => (
+                              <button
+                                key={shelf.code}
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => selectShelf(shelf)}
+                                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-primary-50 ${
+                                  selectedProduct.shelfCode === shelf.code ? 'bg-primary-50 text-primary-700' : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="font-semibold">{shelf.code}</span>
+                                <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{shelf.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Kutu bosken tum aktif Mikro reyonlari listelenir; yazarak kod veya ad icinden arayabilirsiniz.
                       </div>
                     </div>
                   </div>
