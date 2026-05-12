@@ -25,6 +25,24 @@ interface OrderItem {
   productName: string;
   unit: string;
   warehouseCode?: string | null;
+  warehouseStocks?: {
+    merkez: number;
+    topca: number;
+  };
+  fulfillment?: {
+    preferredWarehouseCode: string | null;
+    preferredWarehouseName: string;
+    merkezCanFulfill: boolean;
+    topcaCanFulfill: boolean;
+    preferredCanFulfill: boolean;
+    merkezTotalDemand: number;
+    topcaTotalDemand: number;
+    preferredTotalDemand: number;
+    merkezAfterTotalDemand: number;
+    topcaAfterTotalDemand: number;
+    preferredAfterTotalDemand: number;
+    hasAggregateRisk: boolean;
+  };
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
@@ -96,6 +114,10 @@ export default function OrderTrackingPage() {
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [customerSummary, setCustomerSummary] = useState<CustomerSummary[]>([]);
   const [supplierSummary, setSupplierSummary] = useState<CustomerSummary[]>([]);
+  const [customerWarehouseFilter, setCustomerWarehouseFilter] = useState<'ALL' | '1' | '6'>('ALL');
+  const [customerFulfillmentFilter, setCustomerFulfillmentFilter] = useState<
+    'ALL' | 'ANY_UNFULFILLED' | 'MERKEZ_UNFULFILLED' | 'TOPCA_UNFULFILLED'
+  >('ALL');
   const [supplierCityFilter, setSupplierCityFilter] = useState('ALL');
   const [supplierCitySort, setSupplierCitySort] = useState<'none' | 'asc' | 'desc'>('none');
   const [activeTab, setActiveTab] = useState<'customers' | 'suppliers'>('customers');
@@ -104,8 +126,11 @@ export default function OrderTrackingPage() {
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [sendingToCustomer, setSendingToCustomer] = useState<string | null>(null);
   const [downloadingSupplier, setDownloadingSupplier] = useState<string | null>(null);
+  const [downloadingCustomerPdf, setDownloadingCustomerPdf] = useState<string | null>(null);
   const [downloadingSupplierExcel, setDownloadingSupplierExcel] = useState<string | null>(null);
+  const [downloadingSelectedCustomers, setDownloadingSelectedCustomers] = useState(false);
   const [downloadingSelectedSuppliers, setDownloadingSelectedSuppliers] = useState(false);
+  const [selectedCustomerCodes, setSelectedCustomerCodes] = useState<Set<string>>(new Set());
   const [selectedSupplierCodes, setSelectedSupplierCodes] = useState<Set<string>>(new Set());
   const [markingSupplierTransmission, setMarkingSupplierTransmission] = useState<string | null>(null);
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
@@ -396,6 +421,70 @@ export default function OrderTrackingPage() {
     return code || '-';
   };
 
+  const getOrderWarehouseCodes = (order: OrderDetail) => {
+    return Array.from(
+      new Set(
+        order.items
+          .map((item) => String(item.warehouseCode || '').trim())
+          .filter((code) => code.length > 0)
+      )
+    );
+  };
+
+  const getOrderWarehouseLabel = (order: OrderDetail) => {
+    const codes = getOrderWarehouseCodes(order);
+    if (codes.length === 0) return '-';
+    if (codes.length === 1) return formatWarehouseName(codes[0]);
+    return `Karma: ${codes.map(formatWarehouseName).join(' / ')}`;
+  };
+
+  const getItemStock = (item: OrderItem, warehouseCode: '1' | '6') => {
+    const stocks = item.warehouseStocks || { merkez: 0, topca: 0 };
+    return warehouseCode === '6' ? stocks.topca || 0 : stocks.merkez || 0;
+  };
+
+  const itemCanFulfill = (item: OrderItem, warehouseCode: '1' | '6') => {
+    const fulfillment = item.fulfillment;
+    if (warehouseCode === '6') return fulfillment?.topcaCanFulfill ?? getItemStock(item, '6') >= item.remainingQty;
+    return fulfillment?.merkezCanFulfill ?? getItemStock(item, '1') >= item.remainingQty;
+  };
+
+  const customerHasUnfulfilled = (customer: CustomerSummary, warehouseCode?: '1' | '6') =>
+    customer.orders.some((order) =>
+      order.items.some((item) => {
+        if (item.remainingQty <= 0) return false;
+        if (warehouseCode) return !itemCanFulfill(item, warehouseCode);
+        return !itemCanFulfill(item, '1') || !itemCanFulfill(item, '6') || Boolean(item.fulfillment?.hasAggregateRisk);
+      })
+    );
+
+  const customerMatchesWarehouseFilter = (customer: CustomerSummary) => {
+    if (customerWarehouseFilter === 'ALL') return true;
+    return customer.orders.some((order) =>
+      order.items.some((item) => String(item.warehouseCode || '').trim() === customerWarehouseFilter)
+    );
+  };
+
+  const customerMatchesFulfillmentFilter = (customer: CustomerSummary) => {
+    if (customerFulfillmentFilter === 'ALL') return true;
+    if (customerFulfillmentFilter === 'MERKEZ_UNFULFILLED') return customerHasUnfulfilled(customer, '1');
+    if (customerFulfillmentFilter === 'TOPCA_UNFULFILLED') return customerHasUnfulfilled(customer, '6');
+    return customerHasUnfulfilled(customer);
+  };
+
+  const getFulfillmentBadgeClass = (canFulfill: boolean, highlighted: boolean) => {
+    if (canFulfill) {
+      return highlighted
+        ? 'bg-green-600 text-white border-green-700'
+        : 'bg-green-50 text-green-700 border-green-200';
+    }
+    return highlighted
+      ? 'bg-red-600 text-white border-red-700'
+      : 'bg-red-50 text-red-700 border-red-200';
+  };
+
+  const getFulfillmentText = (canFulfill: boolean) => (canFulfill ? 'Karsilar' : 'Yetmez');
+
   const getWarehouseBreakdown = (orders: OrderDetail[]) => {
     const breakdown = {
       merkezOrders: 0,
@@ -519,6 +608,38 @@ export default function OrderTrackingPage() {
   const supplierHasPendingItems = (supplier: CustomerSummary) =>
     supplier.orders.some((order) => order.items.some((item) => item.remainingQty > 0));
 
+  const customerHasPendingItems = (customer: CustomerSummary) =>
+    customer.orders.some((order) => order.items.some((item) => item.remainingQty > 0));
+
+  const toggleCustomerSelection = (customerCode: string, selected: boolean) => {
+    const code = String(customerCode || '').trim();
+    if (!code) return;
+    setSelectedCustomerCodes((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(code);
+      } else {
+        next.delete(code);
+      }
+      return next;
+    });
+  };
+
+  const setVisibleCustomerSelection = (customers: CustomerSummary[], selected: boolean) => {
+    setSelectedCustomerCodes((prev) => {
+      const next = new Set(prev);
+      customers.forEach((customer) => {
+        if (!customerHasPendingItems(customer)) return;
+        if (selected) {
+          next.add(customer.customerCode);
+        } else {
+          next.delete(customer.customerCode);
+        }
+      });
+      return next;
+    });
+  };
+
   const toggleSupplierSelection = (supplierCode: string, selected: boolean) => {
     const code = String(supplierCode || '').trim();
     if (!code) return;
@@ -576,6 +697,198 @@ export default function OrderTrackingPage() {
       })
       .map((order) => `${order.orderNumber} (${order.orderDateText})`)
       .join(', ');
+  };
+
+  const buildCustomerPdf = async (customers: CustomerSummary[], filePrefix: string) => {
+    const { default: jsPDF } = await import('jspdf');
+    const autoTableModule = await import('jspdf-autotable');
+    const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
+    if (typeof autoTable !== 'function') {
+      throw new Error('autoTable is not available');
+    }
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 10;
+    const today = new Date().toLocaleString('tr-TR');
+    let isFirstCustomer = true;
+
+    customers.forEach((customer) => {
+      if (!isFirstCustomer) {
+        doc.addPage();
+      }
+      isFirstCustomer = false;
+
+      const riskItems = customer.orders.flatMap((order) =>
+        order.items
+          .filter((item) => item.remainingQty > 0)
+          .filter((item) => !itemCanFulfill(item, '1') || !itemCanFulfill(item, '6') || item.fulfillment?.hasAggregateRisk)
+          .map((item) => ({
+            order,
+            item,
+          }))
+      );
+
+      doc.setFillColor(239, 246, 255);
+      doc.rect(0, 0, pageWidth, 24, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(37, 99, 235);
+      doc.text(cleanPdfText('Musteri Bekleyen Siparisleri'), marginX, 10);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(cleanPdfText(`Olusturma: ${today}`), pageWidth - marginX, 10, { align: 'right' });
+      doc.text(cleanPdfText(`${customer.customerCode} - ${customer.customerName}`), marginX, 17);
+      doc.text(cleanPdfText(`Toplam: ${formatCurrencyPdf(customer.totalAmount)} | Siparis: ${customer.ordersCount} | Riskli satir: ${riskItems.length}`), pageWidth - marginX, 17, { align: 'right' });
+
+      let startY = 30;
+      customer.orders.forEach((order) => {
+        if (startY > 175) {
+          doc.addPage();
+          startY = 14;
+        }
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(15, 23, 42);
+        doc.text(
+          cleanPdfText(
+            `${order.mikroOrderNumber} | Depo: ${getOrderWarehouseLabel(order)} | Tarih: ${formatDate(order.orderDate)} | Tutar: ${formatCurrencyPdf(order.grandTotal)}`
+          ),
+          marginX,
+          startY
+        );
+
+        autoTable(doc, {
+          startY: startY + 4,
+          head: [[
+            'Urun',
+            'Depo',
+            'Siparis',
+            'Kalan',
+            'Merkez Stok',
+            'Topca Stok',
+            'Merkez',
+            'Topca',
+            'Risk',
+            'Kalan Tutar',
+          ].map(cleanPdfText)],
+          body: order.items.map((item) => {
+            const preferredWarehouse = String(item.warehouseCode || '').trim();
+            const riskText = item.fulfillment?.hasAggregateRisk
+              ? `Toplam talep riski (${formatNumber(item.fulfillment.preferredAfterTotalDemand)})`
+              : '-';
+            return [
+              cleanPdfText(`${item.productName}\n${item.productCode}`),
+              cleanPdfText(formatWarehouseName(item.warehouseCode)),
+              cleanPdfText(`${formatNumber(item.quantity)} ${item.unit}`),
+              cleanPdfText(formatNumber(item.remainingQty)),
+              cleanPdfText(formatNumber(getItemStock(item, '1'))),
+              cleanPdfText(formatNumber(getItemStock(item, '6'))),
+              cleanPdfText(`${preferredWarehouse === '1' ? '* ' : ''}${getFulfillmentText(itemCanFulfill(item, '1'))}`),
+              cleanPdfText(`${preferredWarehouse === '6' ? '* ' : ''}${getFulfillmentText(itemCanFulfill(item, '6'))}`),
+              cleanPdfText(riskText),
+              cleanPdfText(formatCurrencyPdf(item.lineTotal)),
+            ];
+          }),
+          theme: 'striped',
+          styles: { fontSize: 7, cellPadding: 1.4, overflow: 'linebreak' },
+          headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontSize: 7 },
+          margin: { left: marginX, right: marginX },
+          columnStyles: {
+            0: { cellWidth: 54 },
+            1: { cellWidth: 18, halign: 'center' },
+            2: { cellWidth: 22, halign: 'right' },
+            3: { cellWidth: 18, halign: 'right' },
+            4: { cellWidth: 20, halign: 'right' },
+            5: { cellWidth: 20, halign: 'right' },
+            6: { cellWidth: 18, halign: 'center' },
+            7: { cellWidth: 18, halign: 'center' },
+            8: { cellWidth: 50 },
+            9: { cellWidth: 24, halign: 'right' },
+          },
+        });
+
+        startY = ((doc as any).lastAutoTable?.finalY || startY + 12) + 7;
+      });
+
+      if (riskItems.length > 0) {
+        if (startY > 150) {
+          doc.addPage();
+          startY = 14;
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(185, 28, 28);
+        doc.text(cleanPdfText('Eksik / Riskli Urunler'), marginX, startY);
+        autoTable(doc, {
+          startY: startY + 4,
+          head: [['Siparis', 'Urun', 'Depo', 'Kalan', 'Merkez Stok', 'Topca Stok', 'Risk'].map(cleanPdfText)],
+          body: riskItems.map(({ order, item }) => [
+            cleanPdfText(order.mikroOrderNumber),
+            cleanPdfText(`${item.productName}\n${item.productCode}`),
+            cleanPdfText(formatWarehouseName(item.warehouseCode)),
+            cleanPdfText(formatNumber(item.remainingQty)),
+            cleanPdfText(formatNumber(getItemStock(item, '1'))),
+            cleanPdfText(formatNumber(getItemStock(item, '6'))),
+            cleanPdfText(
+              item.fulfillment?.hasAggregateRisk
+                ? `Toplam talep stoktan fazla. Kalan: ${formatNumber(item.fulfillment.preferredAfterTotalDemand)}`
+                : 'Satir bazinda stok yetersiz'
+            ),
+          ]),
+          theme: 'grid',
+          styles: { fontSize: 7, cellPadding: 1.5, overflow: 'linebreak' },
+          headStyles: { fillColor: [185, 28, 28], textColor: [255, 255, 255] },
+          margin: { left: marginX, right: marginX },
+          columnStyles: {
+            1: { cellWidth: 72 },
+            3: { halign: 'right' },
+            4: { halign: 'right' },
+            5: { halign: 'right' },
+            6: { cellWidth: 70 },
+          },
+        });
+      }
+    });
+
+    const safePrefix = filePrefix.replace(/[^a-zA-Z0-9-_]/g, '_');
+    doc.save(`${safePrefix}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const handleDownloadCustomerPdf = async (customer: CustomerSummary) => {
+    if (downloadingCustomerPdf || downloadingSelectedCustomers) return;
+    setDownloadingCustomerPdf(customer.customerCode);
+    try {
+      await buildCustomerPdf([customer], `musteri_${customer.customerCode}_bekleyen_siparis`);
+    } catch (error) {
+      console.error('Musteri PDF indirilemedi:', error);
+      toast.error('Musteri PDF indirilemedi.');
+    } finally {
+      setDownloadingCustomerPdf(null);
+    }
+  };
+
+  const handleDownloadSelectedCustomersPdf = async (customers: CustomerSummary[]) => {
+    if (downloadingCustomerPdf || downloadingSelectedCustomers) return;
+    const selectedCustomers = customers.filter(
+      (customer) => selectedCustomerCodes.has(customer.customerCode) && customerHasPendingItems(customer)
+    );
+    if (selectedCustomers.length === 0) {
+      toast.error('Indirmek icin en az bir musteri secin.');
+      return;
+    }
+
+    setDownloadingSelectedCustomers(true);
+    try {
+      await buildCustomerPdf(selectedCustomers, 'secili_musteriler_bekleyen_siparis');
+    } catch (error) {
+      console.error('Secili musteri PDF indirilemedi:', error);
+      toast.error('Secili musteri PDF indirilemedi.');
+    } finally {
+      setDownloadingSelectedCustomers(false);
+    }
   };
 
   const handleDownloadSelectedSuppliersApprovalPdf = async (suppliers: CustomerSummary[]) => {
@@ -975,6 +1288,10 @@ export default function OrderTrackingPage() {
     )
   ).sort((a, b) => a.localeCompare(b, 'tr', { sensitivity: 'base' }));
 
+  const filteredCustomerSummary = customerSummary.filter(
+    (customer) => customerMatchesWarehouseFilter(customer) && customerMatchesFulfillmentFilter(customer)
+  );
+
   const filteredSupplierSummary = supplierSummary
     .filter((supplier) => {
       if (supplierCityFilter === 'ALL') return true;
@@ -993,8 +1310,12 @@ export default function OrderTrackingPage() {
       return a.customerName.localeCompare(b.customerName, 'tr', { sensitivity: 'base' });
     });
 
-  const currentSummary = isSupplierTab ? filteredSupplierSummary : customerSummary;
+  const currentSummary = isSupplierTab ? filteredSupplierSummary : filteredCustomerSummary;
   const currentAmount = currentSummary.reduce((sum, item) => sum + item.totalAmount, 0);
+  const visibleSelectableCustomers = filteredCustomerSummary.filter(customerHasPendingItems);
+  const selectedVisibleCustomerCount = visibleSelectableCustomers.filter((customer) =>
+    selectedCustomerCodes.has(customer.customerCode)
+  ).length;
   const visibleSelectableSuppliers = filteredSupplierSummary.filter(supplierHasPendingItems);
   const selectedVisibleSupplierCount = visibleSelectableSuppliers.filter((supplier) =>
     selectedSupplierCodes.has(supplier.customerCode)
@@ -1411,6 +1732,64 @@ export default function OrderTrackingPage() {
               </div>
             </div>
 
+            {!isSupplierTab && (
+              <div className="mb-4 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Depo Filtre</label>
+                  <select
+                    value={customerWarehouseFilter}
+                    onChange={(e) => setCustomerWarehouseFilter(e.target.value as 'ALL' | '1' | '6')}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value="ALL">Tum Depolar</option>
+                    <option value="1">Sadece Merkez</option>
+                    <option value="6">Sadece Topca</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Karsilanabilirlik</label>
+                  <select
+                    value={customerFulfillmentFilter}
+                    onChange={(e) =>
+                      setCustomerFulfillmentFilter(
+                        e.target.value as 'ALL' | 'ANY_UNFULFILLED' | 'MERKEZ_UNFULFILLED' | 'TOPCA_UNFULFILLED'
+                      )
+                    }
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value="ALL">Tum Siparisler</option>
+                    <option value="ANY_UNFULFILLED">Sadece Karsilanamayanlar</option>
+                    <option value="MERKEZ_UNFULFILLED">Merkezden Karsilanamayanlar</option>
+                    <option value="TOPCA_UNFULFILLED">Topcadan Karsilanamayanlar</option>
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    onClick={() => setVisibleCustomerSelection(filteredCustomerSummary, true)}
+                    disabled={visibleSelectableCustomers.length === 0}
+                    className="bg-white text-blue-700 border border-blue-200 hover:bg-blue-50 text-sm"
+                  >
+                    Tumunu Sec
+                  </Button>
+                  <Button
+                    onClick={() => setVisibleCustomerSelection(filteredCustomerSummary, false)}
+                    disabled={selectedVisibleCustomerCount === 0}
+                    className="bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 text-sm"
+                  >
+                    Secimi Temizle
+                  </Button>
+                  <Button
+                    onClick={() => handleDownloadSelectedCustomersPdf(filteredCustomerSummary)}
+                    isLoading={downloadingSelectedCustomers}
+                    disabled={selectedVisibleCustomerCount === 0 || downloadingSelectedCustomers}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                  >
+                    Secilileri PDF Indir ({selectedVisibleCustomerCount})
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {isSupplierTab && (
               <div className="mb-4 flex flex-wrap items-end gap-3">
                 <div>
@@ -1486,6 +1865,16 @@ export default function OrderTrackingPage() {
                       <div className={`p-4 border-b ${activeTab === 'customers' ? 'bg-gradient-to-r from-blue-50 to-blue-100' : 'bg-gradient-to-r from-orange-50 to-orange-100'}`}>
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex flex-1 items-start gap-3">
+                            {!isSupplierTab && (
+                              <input
+                                type="checkbox"
+                                className="mt-1 h-4 w-4"
+                                checked={selectedCustomerCodes.has(customer.customerCode)}
+                                disabled={!hasPendingItems}
+                                onChange={(e) => toggleCustomerSelection(customer.customerCode, e.target.checked)}
+                                title="Toplu PDF secimi"
+                              />
+                            )}
                             {isSupplierTab && (
                               <input
                                 type="checkbox"
@@ -1547,6 +1936,16 @@ export default function OrderTrackingPage() {
                           </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            {!isSupplierTab && (
+                              <Button
+                                onClick={() => handleDownloadCustomerPdf(customer)}
+                                isLoading={downloadingCustomerPdf === customer.customerCode}
+                                disabled={!hasPendingItems || downloadingCustomerPdf === customer.customerCode}
+                                className="bg-white text-blue-700 border border-blue-200 hover:bg-blue-50 text-sm py-1 px-3"
+                              >
+                                PDF Indir
+                              </Button>
+                            )}
                             {isSupplierTab && (
                               <Button
                                 onClick={() => handleMarkSupplierTransmitted(customer)}
@@ -1653,6 +2052,11 @@ export default function OrderTrackingPage() {
                                   <div>
                                     <h5 className="font-bold text-primary-600">
                                       Sipariş No: {order.mikroOrderNumber}
+                                      {!isSupplierTab && (
+                                        <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                                          Depo: {getOrderWarehouseLabel(order)}
+                                        </span>
+                                      )}
                                     </h5>
                                     <div className="text-sm text-gray-600 mt-1">
                                       <span>📅 Tarih: {formatDate(order.orderDate)}</span>
@@ -1676,6 +2080,22 @@ export default function OrderTrackingPage() {
                                         <th className="px-3 py-2 text-center text-xs font-medium text-gray-600">
                                           Miktar (Sipariş/Teslim/Kalan)
                                         </th>
+                                        {!isSupplierTab && (
+                                          <>
+                                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
+                                              Merkez Stok
+                                            </th>
+                                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
+                                              Topca Stok
+                                            </th>
+                                            <th className="px-3 py-2 text-center text-xs font-medium text-gray-600">
+                                              Merkez
+                                            </th>
+                                            <th className="px-3 py-2 text-center text-xs font-medium text-gray-600">
+                                              Topca
+                                            </th>
+                                          </>
+                                        )}
                                         <th className="px-3 py-2 text-right text-xs font-medium text-gray-600">
                                           Birim Fiyat
                                         </th>
@@ -1687,6 +2107,9 @@ export default function OrderTrackingPage() {
                                     <tbody className="divide-y divide-gray-200">
                                       {order.items.map((item, idx) => {
                                         const isFullyDelivered = item.remainingQty === 0;
+                                        const preferredWarehouseCode = String(item.warehouseCode || '').trim();
+                                        const merkezCanFulfill = itemCanFulfill(item, '1');
+                                        const topcaCanFulfill = itemCanFulfill(item, '6');
                                         return (
                                           <tr key={idx} className={isFullyDelivered ? 'bg-gray-100 opacity-60' : ''}>
                                             <td className="px-3 py-2">
@@ -1715,8 +2138,45 @@ export default function OrderTrackingPage() {
                                                 <div className={`text-xs font-semibold ${isFullyDelivered ? 'text-green-600' : 'text-orange-600'}`}>
                                                   Kalan: {item.remainingQty}
                                                 </div>
+                                                {!isSupplierTab && item.fulfillment?.hasAggregateRisk && (
+                                                  <div className="text-[11px] font-semibold text-red-600">
+                                                    Toplam talep riski
+                                                  </div>
+                                                )}
                                               </div>
                                             </td>
+                                            {!isSupplierTab && (
+                                              <>
+                                                <td className="px-3 py-2 text-right font-semibold text-gray-700">
+                                                  {formatNumber(getItemStock(item, '1'))}
+                                                </td>
+                                                <td className="px-3 py-2 text-right font-semibold text-gray-700">
+                                                  {formatNumber(getItemStock(item, '6'))}
+                                                </td>
+                                                <td className="px-3 py-2 text-center">
+                                                  <span
+                                                    className={`inline-flex min-w-[72px] justify-center rounded-full border px-2 py-1 text-xs font-semibold ${getFulfillmentBadgeClass(
+                                                      merkezCanFulfill,
+                                                      preferredWarehouseCode === '1'
+                                                    )}`}
+                                                    title={`Merkez toplam acik talep: ${formatNumber(item.fulfillment?.merkezTotalDemand || 0)}`}
+                                                  >
+                                                    {getFulfillmentText(merkezCanFulfill)}
+                                                  </span>
+                                                </td>
+                                                <td className="px-3 py-2 text-center">
+                                                  <span
+                                                    className={`inline-flex min-w-[72px] justify-center rounded-full border px-2 py-1 text-xs font-semibold ${getFulfillmentBadgeClass(
+                                                      topcaCanFulfill,
+                                                      preferredWarehouseCode === '6'
+                                                    )}`}
+                                                    title={`Topca toplam acik talep: ${formatNumber(item.fulfillment?.topcaTotalDemand || 0)}`}
+                                                  >
+                                                    {getFulfillmentText(topcaCanFulfill)}
+                                                  </span>
+                                                </td>
+                                              </>
+                                            )}
                                             <td className={`px-3 py-2 text-right ${isFullyDelivered ? 'text-gray-500' : 'text-gray-700'}`}>
                                               {formatCurrency(item.unitPrice)}
                                             </td>

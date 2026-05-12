@@ -15,6 +15,24 @@ interface PendingOrderItem {
   productName: string;
   unit: string;
   warehouseCode?: string | null;
+  warehouseStocks?: {
+    merkez: number;
+    topca: number;
+  };
+  fulfillment?: {
+    preferredWarehouseCode: string | null;
+    preferredWarehouseName: string;
+    merkezCanFulfill: boolean;
+    topcaCanFulfill: boolean;
+    preferredCanFulfill: boolean;
+    merkezTotalDemand: number;
+    topcaTotalDemand: number;
+    preferredTotalDemand: number;
+    merkezAfterTotalDemand: number;
+    topcaAfterTotalDemand: number;
+    preferredAfterTotalDemand: number;
+    hasAggregateRisk: boolean;
+  };
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
@@ -44,6 +62,37 @@ interface PendingOrder {
   warehouseStatus?: string;
   warehouseStatusUpdatedAt?: Date | null;
 }
+
+const toNumber = (value: unknown): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const normalizeCode = (value: unknown): string => String(value || '').trim();
+
+const resolveWarehouseStockValue = (warehouseStocks: unknown, warehouseCode: string): number => {
+  const target = normalizeCode(warehouseCode);
+  if (!target || !warehouseStocks || typeof warehouseStocks !== 'object' || Array.isArray(warehouseStocks)) {
+    return 0;
+  }
+
+  for (const [rawKey, rawValue] of Object.entries(warehouseStocks as Record<string, unknown>)) {
+    const key = normalizeCode(rawKey);
+    if (!key) continue;
+    if (key === target) return Math.max(toNumber(rawValue), 0);
+    const keyDigits = key.match(/\d+/)?.[0];
+    if (keyDigits && keyDigits === target) return Math.max(toNumber(rawValue), 0);
+  }
+
+  return 0;
+};
+
+const getWarehouseName = (warehouseCode?: string | null): string => {
+  const code = normalizeCode(warehouseCode);
+  if (code === '1') return 'Merkez';
+  if (code === '6') return 'Topca';
+  return code || '-';
+};
 
 class OrderTrackingService {
   private async reconcileDeliveredQuantitiesFromMikro(): Promise<void> {
@@ -441,6 +490,92 @@ class OrderTrackingService {
     return Array.from(orderMap.values()).filter((order) => order.itemCount > 0);
   }
 
+  private async enrichOrdersWithWarehouseAvailability<T extends { items: any }>(
+    orders: T[]
+  ): Promise<T[]> {
+    const productCodes = Array.from(
+      new Set(
+        orders.flatMap((order) =>
+          Array.isArray(order.items)
+            ? order.items.map((item: any) => normalizeCode(item?.productCode)).filter(Boolean)
+            : []
+        )
+      )
+    );
+
+    if (productCodes.length === 0) {
+      return orders;
+    }
+
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: productCodes } },
+      select: {
+        mikroCode: true,
+        warehouseStocks: true,
+      },
+    });
+    const stockByProductCode = new Map<string, { merkez: number; topca: number }>();
+    products.forEach((product) => {
+      stockByProductCode.set(product.mikroCode, {
+        merkez: resolveWarehouseStockValue(product.warehouseStocks, '1'),
+        topca: resolveWarehouseStockValue(product.warehouseStocks, '6'),
+      });
+    });
+
+    const demandByProductAndWarehouse = new Map<string, number>();
+    orders.forEach((order) => {
+      const items = Array.isArray(order.items) ? order.items : [];
+      items.forEach((item: any) => {
+        const productCode = normalizeCode(item?.productCode);
+        if (!productCode) return;
+        const warehouseCode = normalizeCode(item?.warehouseCode);
+        if (warehouseCode !== '1' && warehouseCode !== '6') return;
+        const key = `${productCode}||${warehouseCode}`;
+        demandByProductAndWarehouse.set(
+          key,
+          (demandByProductAndWarehouse.get(key) || 0) + Math.max(toNumber(item?.remainingQty), 0)
+        );
+      });
+    });
+
+    return orders.map((order) => {
+      const items = Array.isArray(order.items) ? order.items : [];
+      return {
+        ...order,
+        items: items.map((item: any) => {
+          const productCode = normalizeCode(item?.productCode);
+          const warehouseCode = normalizeCode(item?.warehouseCode) || null;
+          const remainingQty = Math.max(toNumber(item?.remainingQty), 0);
+          const stocks = stockByProductCode.get(productCode) || { merkez: 0, topca: 0 };
+          const merkezTotalDemand = demandByProductAndWarehouse.get(`${productCode}||1`) || 0;
+          const topcaTotalDemand = demandByProductAndWarehouse.get(`${productCode}||6`) || 0;
+          const preferredStock = warehouseCode === '6' ? stocks.topca : stocks.merkez;
+          const preferredTotalDemand = warehouseCode === '6' ? topcaTotalDemand : merkezTotalDemand;
+          const preferredAfterTotalDemand = preferredStock - preferredTotalDemand;
+
+          return {
+            ...item,
+            warehouseStocks: stocks,
+            fulfillment: {
+              preferredWarehouseCode: warehouseCode,
+              preferredWarehouseName: getWarehouseName(warehouseCode),
+              merkezCanFulfill: stocks.merkez >= remainingQty,
+              topcaCanFulfill: stocks.topca >= remainingQty,
+              preferredCanFulfill: preferredStock >= remainingQty,
+              merkezTotalDemand,
+              topcaTotalDemand,
+              preferredTotalDemand,
+              merkezAfterTotalDemand: stocks.merkez - merkezTotalDemand,
+              topcaAfterTotalDemand: stocks.topca - topcaTotalDemand,
+              preferredAfterTotalDemand,
+              hasAggregateRisk: preferredAfterTotalDemand < 0,
+            },
+          };
+        }),
+      };
+    });
+  }
+
   /**
    * Belirli bir mÃ¼ÅŸterinin bekleyen sipariÅŸlerini getir
    */
@@ -454,7 +589,7 @@ class OrderTrackingService {
       orders.map((order) => order.mikroOrderNumber)
     );
 
-    return orders.map((order) => ({
+    const mappedOrders = orders.map((order) => ({
       mikroOrderNumber: order.mikroOrderNumber,
       orderSeries: order.orderSeries,
       orderSequence: order.orderSequence,
@@ -470,6 +605,8 @@ class OrderTrackingService {
       warehouseStatus: workflowMap.get(order.mikroOrderNumber)?.status || 'PENDING',
       warehouseStatusUpdatedAt: workflowMap.get(order.mikroOrderNumber)?.updatedAt || null,
     }));
+
+    return this.enrichOrdersWithWarehouseAvailability(mappedOrders);
   }
 
   /**
@@ -484,7 +621,7 @@ class OrderTrackingService {
       orders.map((order) => order.mikroOrderNumber)
     );
 
-    return orders.map((order) => ({
+    const mappedOrders = orders.map((order) => ({
       mikroOrderNumber: order.mikroOrderNumber,
       orderSeries: order.orderSeries,
       orderSequence: order.orderSequence,
@@ -500,6 +637,8 @@ class OrderTrackingService {
       warehouseStatus: workflowMap.get(order.mikroOrderNumber)?.status || 'PENDING',
       warehouseStatusUpdatedAt: workflowMap.get(order.mikroOrderNumber)?.updatedAt || null,
     }));
+
+    return this.enrichOrdersWithWarehouseAvailability(mappedOrders);
   }
 
   /**
@@ -607,7 +746,14 @@ class OrderTrackingService {
       }
     >();
 
-    for (const order of orders) {
+    const enrichedOrders = await this.enrichOrdersWithWarehouseAvailability(
+      orders.map((order) => ({
+        ...order,
+        items: order.items as any,
+      }))
+    );
+
+    for (const order of enrichedOrders) {
       if (!summary.has(order.customerCode)) {
         summary.set(order.customerCode, {
           customerCode: order.customerCode,
