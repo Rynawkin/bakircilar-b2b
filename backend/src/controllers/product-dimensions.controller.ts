@@ -52,6 +52,16 @@ class ProductDimensionsController {
     }
   }
 
+  async getUnitNames(req: Request, res: Response) {
+    try {
+      const units = await productDimensionsService.getUnitNames();
+      res.json({ units });
+    } catch (error: any) {
+      console.error('Unit name list failed:', error);
+      res.status(500).json({ error: error.message || 'Birim listesi hatasi' });
+    }
+  }
+
   async getMissingProducts(req: Request, res: Response) {
     try {
       const search = typeof req.query.search === 'string' ? req.query.search : '';

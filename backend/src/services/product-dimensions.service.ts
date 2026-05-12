@@ -200,6 +200,25 @@ class ProductDimensionsService {
     }));
   }
 
+  async getUnitNames() {
+    const rows = await mikroService.executeQuery(`
+      SELECT DISTINCT unitName
+      FROM (
+        SELECT NULLIF(LTRIM(RTRIM(sto_birim1_ad)), '') as unitName FROM STOKLAR WITH (NOLOCK)
+        UNION
+        SELECT NULLIF(LTRIM(RTRIM(sto_birim2_ad)), '') as unitName FROM STOKLAR WITH (NOLOCK)
+        UNION
+        SELECT NULLIF(LTRIM(RTRIM(sto_birim3_ad)), '') as unitName FROM STOKLAR WITH (NOLOCK)
+        UNION
+        SELECT NULLIF(LTRIM(RTRIM(sto_birim4_ad)), '') as unitName FROM STOKLAR WITH (NOLOCK)
+      ) units
+      WHERE unitName IS NOT NULL
+      ORDER BY unitName
+    `);
+
+    return rows.map((row: any) => normalizeText(row.unitName)).filter(Boolean);
+  }
+
   async getMissingProducts(params: { search?: string; limit?: number }) {
     const safeLimit = Math.min(Math.max(Math.trunc(params.limit || 100), 1), 500);
     const search = normalizeText(params.search);

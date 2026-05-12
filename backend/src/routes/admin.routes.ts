@@ -224,6 +224,7 @@ router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admi
 router.get('/product-dimensions/products', requirePermission('admin:product-dimensions'), productDimensionsController.searchProducts);
 router.get('/product-dimensions/missing', requirePermission('admin:product-dimensions'), productDimensionsController.getMissingProducts);
 router.get('/product-dimensions/shelves', requirePermission('admin:product-dimensions'), productDimensionsController.searchShelves);
+router.get('/product-dimensions/unit-names', requirePermission('admin:product-dimensions'), productDimensionsController.getUnitNames);
 router.get('/product-dimensions/products/:productCode', requirePermission('admin:product-dimensions'), productDimensionsController.getProduct);
 router.put('/product-dimensions/products/:productCode', requirePermission('admin:product-dimensions'), productDimensionsController.updateProduct);
 router.delete('/products/:id/image', requirePermission('admin:products'), adminController.deleteProductImage);

@@ -16,6 +16,7 @@ type UnitInfo = {
   index: number;
   name: string;
   factor: number;
+  factorDirection?: 'larger' | 'smaller';
   weightKg: number;
   widthCm: number;
   lengthCm: number;
@@ -73,11 +74,25 @@ const textInputClass = 'w-full rounded-xl border border-slate-200 bg-white px-4 
 const iconTextInputClass = 'w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-base font-semibold outline-none ring-primary-500 focus:ring-2 2xl:text-lg';
 const numericInputClass = 'mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-base font-bold outline-none ring-primary-500 focus:ring-2 2xl:text-lg';
 
+const mikroFactorToUi = (index: number, factor: unknown) => {
+  const raw = toNumber(factor);
+  if (index === 1) return { factor: raw || 1, factorDirection: 'larger' as const, mikroFactor: raw || 1 };
+  if (raw < 0) return { factor: Math.abs(raw), factorDirection: 'larger' as const, mikroFactor: raw };
+  return { factor: raw, factorDirection: 'smaller' as const, mikroFactor: raw };
+};
+
+const uiFactorToMikro = (unit: UnitInfo) => {
+  const factor = Math.abs(toNumber(unit.factor));
+  if (unit.index === 1) return factor || 1;
+  return unit.factorDirection === 'smaller' ? factor : -factor;
+};
+
 const emptyUnits = (): UnitInfo[] =>
   [1, 2, 3, 4].map((index) => ({
     index,
     name: '',
     factor: index === 1 ? 1 : 0,
+    factorDirection: 'larger',
     weightKg: 0,
     widthCm: 0,
     lengthCm: 0,
@@ -117,6 +132,7 @@ const normalizeUnit = (unit: UnitInfo): UnitInfo => {
     ...unit,
     name: String(unit.name || '').trim().toUpperCase(),
     factor: toNumber(unit.factor),
+    factorDirection: unit.index === 1 ? 'larger' : unit.factorDirection || 'larger',
     weightKg: toNumber(unit.weightKg),
     widthCm,
     lengthCm,
@@ -133,6 +149,7 @@ const apiProductToUi = (product: any): ProductDimension => ({
   units: (product?.units || emptyUnits()).map((unit: any) =>
     normalizeUnit({
       ...unit,
+      ...mikroFactorToUi(Number(unit.index), unit.factor),
       widthCm: mmToCm(unit.widthMm),
       lengthCm: mmToCm(unit.lengthMm),
       heightCm: mmToCm(unit.heightMm),
@@ -196,6 +213,7 @@ export default function ProductDimensionsPage() {
   const [loadingMissing, setLoadingMissing] = useState(false);
   const [keyboardTarget, setKeyboardTarget] = useState<KeyboardTarget | null>(null);
   const [keyboardValue, setKeyboardValue] = useState('');
+  const [unitNames, setUnitNames] = useState<string[]>([]);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -226,6 +244,18 @@ export default function ProductDimensionsPage() {
     return () => clearTimeout(timer);
   }, [shelfSearch]);
 
+  useEffect(() => {
+    const loadUnitNames = async () => {
+      try {
+        const res = await apiClient.get('/admin/product-dimensions/unit-names');
+        setUnitNames(res.data.units || []);
+      } catch {
+        setUnitNames([]);
+      }
+    };
+    void loadUnitNames();
+  }, []);
+
   const changedFields = useMemo(() => {
     if (!selectedProduct || !originalProduct) return [];
     const changes: string[] = [];
@@ -243,6 +273,7 @@ export default function ProductDimensionsPage() {
       const fields: Array<[keyof UnitInfo, string]> = [
         ['name', 'Birim adi'],
         ['factor', 'Katsayi'],
+        ['factorDirection', 'Katsayi yonu'],
         ['weightKg', 'Kg'],
         ['widthCm', 'En cm'],
         ['lengthCm', 'Boy cm'],
@@ -406,7 +437,10 @@ export default function ProductDimensionsPage() {
       toast('Degisen alan yok');
       return;
     }
-    const confirmed = window.confirm(`Mikro stok karti guncellenecek. Olculer cm girildi, Mikroya mm olarak yazilacak:\n\n${changedFields.slice(0, 12).join('\n')}${changedFields.length > 12 ? '\n...' : ''}`);
+    const factorPreview = selectedProduct.units
+      .filter((unit) => isUnitEnabled(unit) && unit.index > 1)
+      .map((unit) => `${unit.index}. birim ${unit.name || '-'}: ekranda ${formatNumber(Math.abs(unit.factor || 0), 4)} -> Mikro ${formatNumber(uiFactorToMikro(unit), 4)}`);
+    const confirmed = window.confirm(`Mikro stok karti guncellenecek. Olculer cm girildi, Mikroya mm olarak yazilacak.\n\nKatsayi cevrimi:\n${factorPreview.join('\n') || '-'}\n\nDegisenler:\n${changedFields.slice(0, 12).join('\n')}${changedFields.length > 12 ? '\n...' : ''}`);
     if (!confirmed) return;
 
     setSaving(true);
@@ -418,7 +452,7 @@ export default function ProductDimensionsPage() {
           .map((unit) => ({
             index: unit.index,
             name: unit.name || '',
-            factor: unit.factor || 0,
+            factor: uiFactorToMikro(unit),
             weightKg: unit.weightKg || 0,
             widthMm: cmToMm(unit.widthCm),
             lengthMm: cmToMm(unit.lengthCm),
@@ -458,6 +492,11 @@ export default function ProductDimensionsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <datalist id="product-dimension-unit-names">
+        {unitNames.map((unitName) => (
+          <option key={unitName} value={unitName} />
+        ))}
+      </datalist>
       <div className="mx-auto max-w-[1920px] px-4 py-8 sm:px-6 2xl:px-10 2xl:py-10">
         <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -467,7 +506,7 @@ export default function ProductDimensionsPage() {
             </div>
             <h1 className="text-3xl font-bold text-slate-950">Urun Olcu ve Raf Bilgileri</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Stok birimlerinin en, boy, yukseklik, kg ve katsayi bilgilerini cm olarak girin; sistem Mikro stok kartina mm olarak yazar. M3 ve desi otomatik hesaplanir.
+              Olculeri cm olarak girin; sistem Mikro stok kartina mm olarak yazar. Katsayida varsayilan mantik: buyuk birim icin 1 KOLI = X ana birim, Mikroya -X yazilir.
             </p>
           </div>
           <Button onClick={saveProduct} isLoading={saving} disabled={!selectedProduct || changedFields.length === 0 || saving} className="bg-emerald-600 text-white hover:bg-emerald-700">
@@ -757,6 +796,7 @@ export default function ProductDimensionsPage() {
                                 onApply: (value) => updateUnit(unit.index, { name: value }),
                               })}
                               placeholder={unit.index === 2 ? 'KOLI' : 'PAKET'}
+                              list="product-dimension-unit-names"
                               className={`${numericInputClass} uppercase`}
                             />
                           </label>
@@ -776,6 +816,22 @@ export default function ProductDimensionsPage() {
                               className={numericInputClass}
                             />
                           </label>
+                          {unit.index > 1 && (
+                            <label className="sm:col-span-2 text-xs font-semibold text-slate-600">
+                              Katsayi Mantigi
+                              <select
+                                value={unit.factorDirection || 'larger'}
+                                onChange={(event) => updateUnit(unit.index, { factorDirection: event.target.value as 'larger' | 'smaller' })}
+                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-bold outline-none ring-primary-500 focus:ring-2 2xl:text-lg"
+                              >
+                                <option value="larger">Buyuk birim: 1 {unit.name || `${unit.index}. birim`} = {formatNumber(Math.abs(unit.factor || 0), 4)} {selectedProduct.units[0]?.name || 'ana birim'} (Mikro: -{formatNumber(Math.abs(unit.factor || 0), 4)})</option>
+                                <option value="smaller">Mikro pozitif/ters katsayi: Mikroya +{formatNumber(Math.abs(unit.factor || 0), 4)} yaz</option>
+                              </select>
+                              <div className="mt-1 text-xs font-normal text-slate-500">
+                                Koli/paket/adet gibi buyuk birim ekliyorsaniz ilk secenek dogru: ornek 1 KOLI = 6 ADET icin katsayi 6 girilir, Mikroya -6 yazilir.
+                              </div>
+                            </label>
+                          )}
                           <label className="text-xs font-semibold text-slate-600">
                             Kg
                             <input
