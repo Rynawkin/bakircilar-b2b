@@ -210,6 +210,7 @@ class ProductDimensionsService {
     const rows = await mikroService.executeQuery(`
       ${this.productSelectSql()}
       WHERE ISNULL(s.sto_pasif_fl, 0) = 0
+        AND s.sto_kod LIKE N'B%'
         ${searchClause}
         AND (
           NULLIF(LTRIM(RTRIM(ISNULL(s.sto_reyon_kodu, ''))), '') IS NULL
