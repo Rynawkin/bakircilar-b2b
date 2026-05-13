@@ -1259,13 +1259,19 @@ class QuoteService {
     });
     return updatedQuote;
   }
-  async getQuotesForStaff(userId: string, role: string, status?: string) {
+  async getQuotesForStaff(
+    userId: string,
+    role: string,
+    status?: string,
+    assignedSectorCodes: string[] = [],
+  ) {
     const where: any = {};
     if (status && status !== "ALL") {
       where.status = status;
     }
     if (role === "SALES_REP") {
-      where.createdById = userId;
+      if (assignedSectorCodes.length === 0) return [];
+      where.customer = { sectorCode: { in: assignedSectorCodes } };
     }
     const quotes = await prisma.quote.findMany({
       where,
@@ -1337,7 +1343,7 @@ class QuoteService {
   }
   async getQuoteByIdForStaff(
     quoteId: string,
-    options?: { lastSalesCount?: number },
+    options?: { lastSalesCount?: number; role?: string; assignedSectorCodes?: string[] },
   ) {
     const quote = await prisma.quote.findUnique({
       where: { id: quoteId },
@@ -1365,6 +1371,7 @@ class QuoteService {
             email: true,
             mikroName: true,
             mikroCariCode: true,
+            sectorCode: true,
           },
         },
         createdBy: {
@@ -1379,6 +1386,13 @@ class QuoteService {
     });
     if (!quote) {
       throw new Error("Quote not found");
+    }
+    if (options?.role === "SALES_REP") {
+      const assignedSectorCodes = options.assignedSectorCodes || [];
+      const sectorCode = quote.customer?.sectorCode || "";
+      if (!sectorCode || !assignedSectorCodes.includes(sectorCode)) {
+        throw new Error("QUOTE_FORBIDDEN");
+      }
     }
     const productCodes = quote.items
       .filter((item) => !item.isManualLine && item.productCode)
@@ -1454,6 +1468,7 @@ class QuoteService {
     limit?: number;
     offset?: number;
     createdById?: string;
+    sectorCodes?: string[];
   }) {
     const {
       status,
@@ -1464,10 +1479,18 @@ class QuoteService {
       limit = 50,
       offset = 0,
       createdById,
+      sectorCodes,
     } = params || {};
     const where: any = {};
     if (createdById) {
       where.quote = { createdById };
+    }
+    if (sectorCodes) {
+      if (sectorCodes.length === 0) return { items: [], total: 0 };
+      where.quote = {
+        ...(where.quote || {}),
+        customer: { sectorCode: { in: sectorCodes } },
+      };
     }
     const normalizedStatus =
       status && status !== "ALL" ? String(status) : undefined;

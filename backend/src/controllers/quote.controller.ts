@@ -6,6 +6,32 @@ import { Request, Response, NextFunction } from 'express';
 import quoteService from '../services/quote.service';
 import { prisma } from '../utils/prisma';
 import mikroService from '../services/mikroFactory.service';
+import { AppError, ErrorCode } from '../types/errors';
+
+const ensureQuoteSectorAccess = async (req: Request, quoteId: string) => {
+  if (req.user?.role !== 'SALES_REP') return;
+
+  const assignedSectorCodes = req.user?.assignedSectorCodes || [];
+  if (assignedSectorCodes.length === 0) {
+    throw new AppError('You can only access quotes from customers in your assigned sectors', 403, ErrorCode.FORBIDDEN);
+  }
+
+  const quote = await prisma.quote.findUnique({
+    where: { id: quoteId },
+    include: {
+      customer: { select: { sectorCode: true } },
+    },
+  });
+
+  if (!quote) {
+    throw new AppError('Quote not found', 404, ErrorCode.NOT_FOUND);
+  }
+
+  const sectorCode = quote.customer?.sectorCode || '';
+  if (!sectorCode || !assignedSectorCodes.includes(sectorCode)) {
+    throw new AppError('You can only access quotes from customers in your assigned sectors', 403, ErrorCode.FORBIDDEN);
+  }
+};
 
 export class QuoteController {
   /**
@@ -96,6 +122,7 @@ export class QuoteController {
   async updateQuote(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      await ensureQuoteSectorAccess(req, id);
       const quote = await quoteService.updateQuote(id, req.body, req.user!.userId);
       res.json({ quote });
     } catch (error) {
@@ -112,7 +139,8 @@ export class QuoteController {
       const quotes = await quoteService.getQuotesForStaff(
         req.user!.userId,
         req.user!.role,
-        status as string | undefined
+        status as string | undefined,
+        req.user!.assignedSectorCodes || []
       );
       res.json({ quotes });
     } catch (error) {
@@ -128,9 +156,16 @@ export class QuoteController {
       const { id } = req.params;
       const preferences = await quoteService.getPreferences(req.user!.userId);
       const lastSalesCount = Math.max(1, Number(preferences.lastSalesCount) || 1);
-      const quote = await quoteService.getQuoteByIdForStaff(id, { lastSalesCount });
+      const quote = await quoteService.getQuoteByIdForStaff(id, {
+        lastSalesCount,
+        role: req.user!.role,
+        assignedSectorCodes: req.user!.assignedSectorCodes || [],
+      });
       res.json({ quote });
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message === 'QUOTE_FORBIDDEN') {
+        return res.status(403).json({ error: 'You can only access quotes from customers in your assigned sectors' });
+      }
       next(error);
     }
   }
@@ -169,7 +204,7 @@ export class QuoteController {
         return Number.isFinite(parsed) ? parsed : undefined;
       };
 
-      const createdById = req.user?.role === 'SALES_REP' ? req.user.userId : undefined;
+      const sectorCodes = req.user?.role === 'SALES_REP' ? (req.user.assignedSectorCodes || []) : undefined;
 
       const result = await quoteService.getQuoteLineItems({
         status: status ? String(status) : undefined,
@@ -179,7 +214,7 @@ export class QuoteController {
         maxDays: parseNumber(maxDays),
         limit: parseNumber(limit),
         offset: parseNumber(offset),
-        createdById,
+        sectorCodes,
       });
 
       res.json(result);
@@ -277,6 +312,7 @@ export class QuoteController {
     try {
       const { id } = req.params;
       const { adminNote } = req.body || {};
+      await ensureQuoteSectorAccess(req, id);
       const quote = await quoteService.approveQuote(id, req.user!.userId, adminNote);
       res.json({ quote });
     } catch (error) {
@@ -294,6 +330,7 @@ export class QuoteController {
       if (!adminNote || !adminNote.trim()) {
         return res.status(400).json({ error: 'Admin note is required' });
       }
+      await ensureQuoteSectorAccess(req, id);
       const quote = await quoteService.rejectQuote(id, req.user!.userId, adminNote);
       res.json({ quote });
     } catch (error) {
@@ -307,6 +344,7 @@ export class QuoteController {
   async syncQuoteFromMikro(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      await ensureQuoteSectorAccess(req, id);
       const result = await quoteService.syncQuoteFromMikro(id);
       res.json(result);
     } catch (error) {
