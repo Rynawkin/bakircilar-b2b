@@ -327,6 +327,8 @@ const customerPriceListRulesSchema = z.object({
 router.get('/customers', requirePermission('admin:customers'), adminController.getCustomers);
 router.post('/customers', requirePermission('admin:customers'), validateBody(createCustomerSchema), adminController.createCustomer);
 router.put('/customers/:id', requirePermission('admin:customers'), validateBody(updateCustomerSchema), adminController.updateCustomer);
+router.get('/customer-360/search', requirePermission('admin:customers'), adminController.searchCustomer360);
+router.get('/customer-360/:customerId', requirePermission('admin:customers'), adminController.getCustomer360);
 router.get('/customers/:id/price-list-rules', requirePermission('admin:customers'), adminController.getCustomerPriceListRules);
 router.put(
   '/customers/:id/price-list-rules',
@@ -485,6 +487,7 @@ router.get('/reports/customer-activity', requirePermission('reports:customer-act
 router.get('/reports/staff-activity', requirePermission('reports:staff-activity'), adminController.getStaffActivityReport);
 router.get('/reports/customer-carts', requirePermission('reports:customer-carts'), adminController.getCustomerCartsReport);
 router.get('/reports/ucarer-depo', requirePermission('reports:ucarer-depo'), adminController.getUcarerDepotReport);
+router.get('/reports/ucarer-depo/operation-logs', requirePermission('reports:ucarer-depo'), adminController.getUcarerOperationLogs);
 router.get('/reports/ucarer-incoming-order-details', requirePermission('reports:ucarer-depo'), adminController.getUcarerIncomingOrderDetails);
 router.get('/reports/ucarer-product-sales-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductSalesHistory);
 router.post('/reports/ucarer-product-sales-history/mark-toplu', requirePermission('reports:ucarer-depo'), adminController.markUcarerSalesLineAsToplu);

@@ -1617,6 +1617,160 @@ const buildMarginComplianceSummary = (
 };
 
 export class ReportsService {
+  private async resolveUcarerOperationUser(userId?: string | null): Promise<{ userId: string | null; userName: string | null }> {
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedUserId) {
+      return { userId: null, userName: null };
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: normalizedUserId },
+      select: { id: true, name: true, email: true },
+    });
+
+    return {
+      userId: user?.id || normalizedUserId,
+      userName: user?.name || user?.email || null,
+    };
+  }
+
+  private async logUcarerOperation(input: {
+    operationType: string;
+    title: string;
+    productCode?: string | null;
+    productName?: string | null;
+    familyId?: string | null;
+    familyName?: string | null;
+    depot?: string | null;
+    supplierCode?: string | null;
+    supplierName?: string | null;
+    documentNo?: string | null;
+    orderNumbers?: string[];
+    previousValues?: Record<string, any> | any[] | null;
+    newValues?: Record<string, any> | any[] | null;
+    metadata?: Record<string, any> | any[] | null;
+    userId?: string | null;
+  }): Promise<void> {
+    try {
+      const actor = await this.resolveUcarerOperationUser(input.userId);
+      const jsonOrUndefined = (value: unknown): Prisma.InputJsonValue | undefined => {
+        if (value === undefined || value === null) return undefined;
+        return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+      };
+      await prisma.ucarerOperationLog.create({
+        data: {
+          operationType: String(input.operationType || 'UNKNOWN').trim() || 'UNKNOWN',
+          title: String(input.title || '').trim() || 'Ucarer islemi',
+          productCode: input.productCode ? String(input.productCode).trim().toUpperCase() : null,
+          productName: input.productName ? String(input.productName).trim() : null,
+          familyId: input.familyId ? String(input.familyId).trim() : null,
+          familyName: input.familyName ? String(input.familyName).trim() : null,
+          depot: input.depot ? String(input.depot).trim().toUpperCase() : null,
+          supplierCode: input.supplierCode ? String(input.supplierCode).trim().toUpperCase() : null,
+          supplierName: input.supplierName ? String(input.supplierName).trim() : null,
+          documentNo: input.documentNo ? String(input.documentNo).trim() : null,
+          orderNumbers: jsonOrUndefined(input.orderNumbers || []) || [],
+          previousValues: jsonOrUndefined(input.previousValues),
+          newValues: jsonOrUndefined(input.newValues),
+          metadata: jsonOrUndefined(input.metadata),
+          userId: actor.userId,
+          userName: actor.userName,
+        },
+      });
+    } catch (error) {
+      console.warn('Ucarer operation log could not be written:', error);
+    }
+  }
+
+  async getUcarerOperationLogs(options: {
+    page?: number;
+    limit?: number;
+    operationType?: string;
+    productCode?: string;
+    familyId?: string;
+    search?: string;
+  } = {}): Promise<{
+    rows: Array<{
+      id: string;
+      operationType: string;
+      title: string;
+      productCode: string | null;
+      productName: string | null;
+      familyId: string | null;
+      familyName: string | null;
+      depot: string | null;
+      supplierCode: string | null;
+      supplierName: string | null;
+      documentNo: string | null;
+      orderNumbers: any;
+      previousValues: any;
+      newValues: any;
+      metadata: any;
+      userId: string | null;
+      userName: string | null;
+      createdAt: Date;
+    }>;
+    pagination: {
+      page: number;
+      limit: number;
+      totalPages: number;
+      totalRecords: number;
+    };
+  }> {
+    const page = Math.max(1, Math.trunc(Number(options.page) || 1));
+    const limit = Math.max(10, Math.min(Math.trunc(Number(options.limit) || 25), 100));
+    const where: Prisma.UcarerOperationLogWhereInput = {};
+
+    const operationType = String(options.operationType || '').trim();
+    if (operationType) {
+      where.operationType = operationType;
+    }
+
+    const productCode = String(options.productCode || '').trim().toUpperCase();
+    if (productCode) {
+      where.productCode = { contains: productCode, mode: 'insensitive' };
+    }
+
+    const familyId = String(options.familyId || '').trim();
+    if (familyId) {
+      where.familyId = familyId;
+    }
+
+    const search = String(options.search || '').trim();
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { productCode: { contains: search, mode: 'insensitive' } },
+        { productName: { contains: search, mode: 'insensitive' } },
+        { familyName: { contains: search, mode: 'insensitive' } },
+        { supplierCode: { contains: search, mode: 'insensitive' } },
+        { supplierName: { contains: search, mode: 'insensitive' } },
+        { documentNo: { contains: search, mode: 'insensitive' } },
+        { userName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [rows, totalRecords] = await prisma.$transaction([
+      prisma.ucarerOperationLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.ucarerOperationLog.count({ where }),
+    ]);
+
+    return {
+      rows,
+      pagination: {
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(totalRecords / limit)),
+        totalRecords,
+      },
+    };
+  }
+
   /**
    * Maliyet GÃ¼ncelleme UyarÄ±larÄ± Raporu
    *
@@ -6283,6 +6437,7 @@ export class ReportsService {
     documentSeries?: string;
     documentSequence?: number;
     documentLineNo?: number;
+    userId?: string | null;
   }): Promise<{
     updated: boolean;
     alreadyToplu: boolean;
@@ -6405,7 +6560,7 @@ export class ReportsService {
       throw new AppError('Eslesen satis satiri bulunamadi.', 404, ErrorCode.NOT_FOUND);
     }
 
-    return {
+    const result = {
       updated: Boolean(row.updated),
       alreadyToplu: Boolean(row.alreadyToplu),
       line: {
@@ -6419,6 +6574,28 @@ export class ReportsService {
         customerResponsibilityCenter: String(row.customerResponsibilityCenter || '').trim().toUpperCase(),
       },
     };
+
+    await this.logUcarerOperation({
+      operationType: 'MARK_TOPLU',
+      title: result.alreadyToplu ? 'Satir zaten TOPLU olarak isaretli' : 'Satis satiri TOPLU yapildi',
+      productCode: result.line.productCode,
+      documentNo: `${result.line.documentSeries}-${result.line.documentSequence}`,
+      previousValues: {
+        stockResponsibilityCenter: result.line.previousStockResponsibilityCenter || null,
+      },
+      newValues: {
+        stockResponsibilityCenter: result.line.stockResponsibilityCenter || null,
+      },
+      metadata: {
+        lineGuid: result.line.lineGuid,
+        documentLineNo: result.line.documentLineNo,
+        customerResponsibilityCenter: result.line.customerResponsibilityCenter || null,
+        alreadyToplu: result.alreadyToplu,
+      },
+      userId: input.userId || null,
+    });
+
+    return result;
   }
 
   async getUcarerProductPurchaseHistory(productCodeInput: string): Promise<{
@@ -6532,7 +6709,7 @@ export class ReportsService {
     };
   }
 
-  async runUcarerMinMaxReport(): Promise<{
+  async runUcarerMinMaxReport(options: { userId?: string | null } = {}): Promise<{
     rows: Record<string, any>[];
     columns: string[];
     total: number;
@@ -6541,11 +6718,23 @@ export class ReportsService {
     const normalizedRows = Array.isArray(rows) ? rows : [];
     const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0] || {}) : [];
 
-    return {
+    const result = {
       rows: normalizedRows,
       columns,
       total: normalizedRows.length,
     };
+
+    await this.logUcarerOperation({
+      operationType: 'MINMAX_RUN',
+      title: 'MinMax hesaplama calistirildi',
+      metadata: {
+        total: result.total,
+        columns: result.columns,
+      },
+      userId: options.userId || null,
+    });
+
+    return result;
   }
 
   async setUcarerMinMaxExclusion(input: {
@@ -6553,6 +6742,7 @@ export class ReportsService {
     exclude: boolean;
     resetMinMaxValues?: boolean;
     depot?: 'MERKEZ' | 'TOPCA';
+    userId?: string | null;
   }): Promise<{
     productCode: string;
     excluded: boolean;
@@ -6740,11 +6930,37 @@ export class ReportsService {
     const normalizedStoModelKodu = stoModelKoduRaw || null;
     const excluded = String(normalizedStoModelKodu || '').toUpperCase() === 'HAYIR';
 
-    return {
+    const product = await prisma.product.findFirst({
+      where: { mikroCode: productCode },
+      select: { name: true },
+    });
+
+    const result = {
       productCode,
       excluded,
       stoModelKodu: normalizedStoModelKodu,
     };
+
+    await this.logUcarerOperation({
+      operationType: 'MINMAX_EXCLUSION',
+      title: excluded ? 'Stok MinMax hesaplamasindan cikarildi' : 'Stok MinMax hesaplamasina dahil edildi',
+      productCode,
+      productName: product?.name || null,
+      depot,
+      previousValues: {
+        requestedExclude: exclude,
+      },
+      newValues: {
+        excluded,
+        stoModelKodu: normalizedStoModelKodu,
+      },
+      metadata: {
+        resetMinMaxValues,
+      },
+      userId: input.userId || null,
+    });
+
+    return result;
   }
 
   async getUcarerMinMaxExcludedProductsReport(): Promise<{
@@ -6902,6 +7118,7 @@ export class ReportsService {
     note?: string | null;
     active?: boolean;
     productCodes: string[];
+    userId?: string | null;
   }): Promise<{ id: string }> {
     const name = String(input.name || '').trim();
     if (!name) {
@@ -6925,6 +7142,12 @@ export class ReportsService {
       select: { id: true, mikroCode: true, name: true },
     });
     const productMap = new Map(products.map((row) => [row.mikroCode.toUpperCase(), row]));
+    const previousFamily = input.id
+      ? await prisma.productFamily.findUnique({
+          where: { id: input.id },
+          include: { items: { orderBy: [{ priority: 'asc' }, { productCode: 'asc' }] } },
+        })
+      : null;
 
     const payload = {
       name,
@@ -6963,12 +7186,63 @@ export class ReportsService {
       });
     });
 
+    await this.logUcarerOperation({
+      operationType: previousFamily ? 'PRODUCT_FAMILY_UPDATE' : 'PRODUCT_FAMILY_CREATE',
+      title: previousFamily ? 'Stok ailesi guncellendi' : 'Stok ailesi olusturuldu',
+      familyId,
+      familyName: name,
+      previousValues: previousFamily
+        ? {
+            name: previousFamily.name,
+            code: previousFamily.code,
+            note: previousFamily.note,
+            active: previousFamily.active,
+            productCodes: previousFamily.items.map((item) => item.productCode),
+          }
+        : null,
+      newValues: {
+        name,
+        code: payload.code,
+        note: payload.note,
+        active: payload.active,
+        productCodes: normalizedCodes,
+      },
+      metadata: {
+        productCount: normalizedCodes.length,
+      },
+      userId: input.userId || null,
+    });
+
     return { id: familyId };
   }
 
-  async deleteProductFamily(id: string): Promise<void> {
+  async deleteProductFamily(id: string, userId?: string | null): Promise<void> {
+    const previousFamily = await prisma.productFamily.findUnique({
+      where: { id },
+      include: { items: { orderBy: [{ priority: 'asc' }, { productCode: 'asc' }] } },
+    });
     await prisma.productFamily.delete({
       where: { id },
+    });
+
+    await this.logUcarerOperation({
+      operationType: 'PRODUCT_FAMILY_DELETE',
+      title: 'Stok ailesi silindi',
+      familyId: id,
+      familyName: previousFamily?.name || null,
+      previousValues: previousFamily
+        ? {
+            name: previousFamily.name,
+            code: previousFamily.code,
+            note: previousFamily.note,
+            active: previousFamily.active,
+            productCodes: previousFamily.items.map((item) => item.productCode),
+          }
+        : null,
+      metadata: {
+        productCount: previousFamily?.items.length || 0,
+      },
+      userId: userId || null,
     });
   }
 
@@ -7497,6 +7771,7 @@ export class ReportsService {
       supplierCodeOverride?: string | null;
       persistSupplierOverride?: boolean;
     }>;
+    userId?: string | null;
   }): Promise<{
     createdOrders: Array<{
       supplierCode: string;
@@ -7919,6 +8194,29 @@ export class ReportsService {
       });
     }
 
+    await this.logUcarerOperation({
+      operationType: 'SUPPLIER_ORDER_CREATE',
+      title: 'Ucarer tedarikci siparisleri olusturuldu',
+      depot,
+      orderNumbers: createdOrders.map((order) => order.orderNumber),
+      newValues: {
+        createdOrders,
+      },
+      metadata: {
+        allocationCount: normalizedRows.length,
+        supplierCount: createdOrders.length,
+        productCount: productCodes.length,
+        skippedInvalid,
+        persistSupplierOverrides: Array.from(persistOverrideByProduct.entries())
+          .filter(([, persist]) => persist)
+          .map(([productCode]) => ({
+            productCode,
+            supplierCode: supplierOverrideByProduct.get(productCode) || null,
+          })),
+      },
+      userId: input.userId || null,
+    });
+
     return {
       createdOrders,
       missingSupplierProducts: [],
@@ -7930,6 +8228,7 @@ export class ReportsService {
     depot: 'MERKEZ' | 'TOPCA';
     allocations: Array<{ productCode: string; quantity: number }>;
     series?: string;
+    userId?: string | null;
   }): Promise<{
     orderNumber: string;
     itemCount: number;
@@ -8048,11 +8347,28 @@ export class ReportsService {
       `);
     }
 
-    return {
+    const result = {
       orderNumber,
       itemCount: rows.length,
       totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0),
     };
+
+    await this.logUcarerOperation({
+      operationType: 'DEPOT_TRANSFER_CREATE',
+      title: 'Depolar arasi siparis olusturuldu',
+      depot,
+      documentNo: orderNumber,
+      orderNumbers: [orderNumber],
+      newValues: result,
+      metadata: {
+        sourceWarehouseNo,
+        targetWarehouseNo,
+        allocations: rows,
+      },
+      userId: input.userId || null,
+    });
+
+    return result;
   }
 
   async updateUcarerProductCost(input: {
@@ -8091,12 +8407,10 @@ export class ReportsService {
     }
 
     const shouldAuditPriceFamily = input.source === 'PRICE_FAMILY' || Boolean(input.priceFamilyId);
-    const previousProduct = shouldAuditPriceFamily
-      ? await prisma.product.findFirst({
-          where: { mikroCode: productCode },
-          select: { name: true, currentCost: true, currentCostDate: true },
-        })
-      : null;
+    const previousProduct = await prisma.product.findFirst({
+      where: { mikroCode: productCode },
+      select: { name: true, currentCost: true, currentCostDate: true },
+    });
     const priceFamilyContext = shouldAuditPriceFamily
       ? input.priceFamilyId
         ? await prisma.priceFamily.findUnique({
@@ -8248,12 +8562,38 @@ export class ReportsService {
       });
     }
 
+    if (input.source !== 'PRICE_FAMILY') {
+      await this.logUcarerOperation({
+        operationType: 'COST_UPDATE',
+        title: updatePriceLists ? 'Stok maliyeti ve fiyat listeleri guncellendi' : 'Stok maliyeti guncellendi',
+        productCode,
+        productName: previousProduct?.name || null,
+        previousValues: {
+          currentCost: previousProduct?.currentCost ?? null,
+          currentCostDate: previousProduct?.currentCostDate || null,
+        },
+        newValues: {
+          currentCost: costP,
+          costP,
+          costT,
+          currentCostDate: newCostDate,
+        },
+        metadata: {
+          updatePriceLists,
+          updatedLists,
+          missingLists,
+        },
+        userId: input.userId || null,
+      });
+    }
+
     return response;
   }
 
   async updateUcarerMainSupplier(input: {
     productCode: string;
     supplierCode: string;
+    userId?: string | null;
   }): Promise<{
     productCode: string;
     supplierCode: string;
@@ -8271,6 +8611,16 @@ export class ReportsService {
 
     const escapedProductCode = productCode.replace(/'/g, "''");
     const escapedSupplierCode = supplierCode.replace(/'/g, "''");
+    const previousRows = await mikroService.executeQuery(`
+      SELECT TOP 1
+        LTRIM(RTRIM(ISNULL(s.sto_isim, ''))) AS productName,
+        LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, ''))) AS previousSupplierCode,
+        LTRIM(RTRIM(ISNULL(c.cari_unvan1, ''))) AS previousSupplierName
+      FROM STOKLAR s
+      LEFT JOIN CARI_HESAPLAR c ON c.cari_kod = LTRIM(RTRIM(ISNULL(s.sto_sat_cari_kod, '')))
+      WHERE s.sto_kod = '${escapedProductCode}'
+    `);
+    const previousRow = previousRows?.[0] || {};
     await mikroService.executeQuery(`
       UPDATE STOKLAR
       SET sto_sat_cari_kod = '${escapedSupplierCode}'
@@ -8284,11 +8634,31 @@ export class ReportsService {
     `);
     const supplierName = String(supplierRows?.[0]?.supplierName || '').trim() || null;
 
-    return {
+    const result = {
       productCode,
       supplierCode,
       supplierName,
     };
+
+    await this.logUcarerOperation({
+      operationType: 'MAIN_SUPPLIER_UPDATE',
+      title: 'Ana saglayici guncellendi',
+      productCode,
+      productName: String(previousRow?.productName || '').trim() || null,
+      supplierCode,
+      supplierName,
+      previousValues: {
+        supplierCode: String(previousRow?.previousSupplierCode || '').trim().toUpperCase() || null,
+        supplierName: String(previousRow?.previousSupplierName || '').trim() || null,
+      },
+      newValues: {
+        supplierCode,
+        supplierName,
+      },
+      userId: input.userId || null,
+    });
+
+    return result;
   }
 
   async getProductCustomers(params: {

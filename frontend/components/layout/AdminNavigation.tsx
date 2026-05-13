@@ -71,6 +71,7 @@ const navItems: NavItem[] = [
   { name: 'Urun Olculeri', href: '/product-dimensions', icon: Ruler, description: 'Yolpilot icin olcu, kg ve raf bilgileri', permission: 'admin:product-dimensions' },
   { name: 'Resim Hata Talepleri', href: '/warehouse/image-issues', icon: ImageOff, description: 'Depodan gelen urun resmi hatalari', permission: 'admin:order-tracking' },
   { name: 'Müşteriler', href: '/customers', icon: Users, description: 'Müşteri listesi', permission: 'admin:customers' },
+  { name: 'Cari 360', href: '/customer-360', icon: Users, description: 'Cari tek ekran analiz', permission: 'admin:customers' },
   { name: 'Musteri Portfoyum', href: '/portfolio', icon: Users, description: 'Musteri portfoyu', permission: 'admin:customers' },
   { name: 'Anlaşmalı Fiyatlar', href: '/customer-agreements', icon: Tag, description: 'Müşteri anlaşmaları', permission: 'admin:agreements' },
   { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi', permission: 'admin:vade' },

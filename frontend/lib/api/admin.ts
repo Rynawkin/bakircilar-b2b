@@ -457,6 +457,16 @@ export const adminApi = {
     return response.data;
   },
 
+  searchCustomer360: async (params?: { search?: string; limit?: number }): Promise<{ customers: any[] }> => {
+    const response = await apiClient.get('/admin/customer-360/search', { params });
+    return response.data;
+  },
+
+  getCustomer360: async (customerIdOrCode: string): Promise<{ success: boolean; data: any }> => {
+    const response = await apiClient.get(`/admin/customer-360/${encodeURIComponent(customerIdOrCode)}`);
+    return response.data;
+  },
+
   createCustomer: async (data: CreateCustomerRequest): Promise<{ message: string; customer: Customer }> => {
     const response = await apiClient.post('/admin/customers', data);
     return response.data;
@@ -2532,6 +2542,31 @@ export const adminApi = {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.all) queryParams.append('all', '1');
     const response = await apiClient.get(`/admin/reports/ucarer-depo?${queryParams.toString()}`);
+    return response.data;
+  },
+  getUcarerOperationLogs: async (params?: {
+    page?: number;
+    limit?: number;
+    operationType?: string;
+    productCode?: string;
+    familyId?: string;
+    search?: string;
+  }): Promise<{
+    success: boolean;
+    data: {
+      rows: any[];
+      pagination: { page: number; limit: number; totalPages: number; totalRecords: number };
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.operationType) queryParams.append('operationType', params.operationType);
+    if (params?.productCode) queryParams.append('productCode', params.productCode);
+    if (params?.familyId) queryParams.append('familyId', params.familyId);
+    if (params?.search) queryParams.append('search', params.search);
+    const query = queryParams.toString();
+    const response = await apiClient.get(`/admin/reports/ucarer-depo/operation-logs${query ? `?${query}` : ''}`);
     return response.data;
   },
   getUcarerIncomingOrderDetails: async (productCode: string): Promise<{

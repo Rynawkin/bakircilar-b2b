@@ -1577,6 +1577,33 @@ model PriceFamilyCostUpdateLog {
   @@index([userId, createdAt])
 }
 
+model UcarerOperationLog {
+  id              String   @id @default(uuid())
+  operationType   String
+  title           String
+  productCode     String?
+  productName     String?
+  familyId        String?
+  familyName      String?
+  depot           String?
+  supplierCode    String?
+  supplierName    String?
+  documentNo      String?
+  orderNumbers    Json     @default("[]")
+  previousValues  Json?
+  newValues       Json?
+  metadata        Json?
+  userId          String?
+  userName        String?
+  createdAt       DateTime @default(now())
+
+  @@index([operationType])
+  @@index([productCode])
+  @@index([familyId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
 model WarehouseOrderWorkflow {
   id                    String                  @id @default(uuid())
   mikroOrderNumber      String                  @unique

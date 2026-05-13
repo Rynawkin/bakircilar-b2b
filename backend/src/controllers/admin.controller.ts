@@ -15,6 +15,7 @@ import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
+import customer360Service from '../services/customer360.service';
 import customerRecoveryService from '../services/customer-recovery.service';
 import emailService from '../services/email.service';
 import priceSyncService from '../services/priceSync.service';
@@ -1884,6 +1885,43 @@ export class AdminController {
       await prisma.customerContact.delete({ where: { id: contactId } });
 
       res.json({ message: 'Contact deleted successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/customer-360/search
+   */
+  async searchCustomer360(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await customer360Service.searchCustomers({
+        search: String(req.query.search || ''),
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        scope: {
+          role: req.user?.role,
+          assignedSectorCodes: req.user?.assignedSectorCodes || [],
+        },
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/customer-360/:customerId
+   */
+  async getCustomer360(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await customer360Service.getCustomer360({
+        customerIdOrCode: String(req.params.customerId || ''),
+        scope: {
+          role: req.user?.role,
+          assignedSectorCodes: req.user?.assignedSectorCodes || [],
+        },
+      });
+      res.json({ success: true, data });
     } catch (error) {
       next(error);
     }
@@ -4131,7 +4169,9 @@ export class AdminController {
    */
   async runUcarerMinMaxReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await reportsService.runUcarerMinMaxReport();
+      const data = await reportsService.runUcarerMinMaxReport({
+        userId: req.user?.userId || null,
+      });
 
       res.json({
         success: true,
@@ -4191,6 +4231,7 @@ export class AdminController {
         documentSeries: String(req.body?.documentSeries || ''),
         documentSequence: Number(req.body?.documentSequence || 0),
         documentLineNo: Number(req.body?.documentLineNo || 0),
+        userId: req.user?.userId || null,
       });
 
       res.json({ success: true, data });
@@ -4228,6 +4269,7 @@ export class AdminController {
         exclude: Boolean(exclude),
         resetMinMaxValues: Boolean(resetMinMaxValues),
         depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
+        userId: req.user?.userId || null,
       });
       res.json({ success: true, data });
     } catch (error) {
@@ -4259,6 +4301,7 @@ export class AdminController {
         note,
         active,
         productCodes: Array.isArray(productCodes) ? productCodes : [],
+        userId: req.user?.userId || null,
       });
       res.json({ success: true, data: result });
     } catch (error) {
@@ -4279,6 +4322,7 @@ export class AdminController {
         note,
         active,
         productCodes: Array.isArray(productCodes) ? productCodes : [],
+        userId: req.user?.userId || null,
       });
       res.json({ success: true, data: result });
     } catch (error) {
@@ -4291,8 +4335,27 @@ export class AdminController {
    */
   async deleteProductFamily(req: Request, res: Response, next: NextFunction) {
     try {
-      await reportsService.deleteProductFamily(req.params.id);
+      await reportsService.deleteProductFamily(req.params.id, req.user?.userId || null);
       res.json({ success: true, message: 'Aile silindi.' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/ucarer-depo/operation-logs
+   */
+  async getUcarerOperationLogs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportsService.getUcarerOperationLogs({
+        page: req.query.page ? Number(req.query.page) : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        operationType: String(req.query.operationType || ''),
+        productCode: String(req.query.productCode || ''),
+        familyId: String(req.query.familyId || ''),
+        search: String(req.query.search || ''),
+      });
+      res.json({ success: true, data });
     } catch (error) {
       next(error);
     }
@@ -4436,6 +4499,7 @@ export class AdminController {
         depot: depot === 'TOPCA' ? 'TOPCA' : 'MERKEZ',
         supplierConfigs: supplierConfigs || {},
         allocations: Array.isArray(allocations) ? allocations : [],
+        userId: req.user?.userId || null,
       });
       res.json({ success: true, data });
     } catch (error) {
@@ -4462,6 +4526,7 @@ export class AdminController {
               quantity: Number(row.quantity || 0),
             }))
           : [],
+        userId: req.user?.userId || null,
       });
       res.json({ success: true, data });
     } catch (error) {
@@ -4487,6 +4552,7 @@ export class AdminController {
         costP: costP === undefined ? undefined : Number(costP),
         costT: costT === undefined ? undefined : Number(costT),
         updatePriceLists: Boolean(updatePriceLists),
+        userId: req.user?.userId || null,
       });
       res.json({ success: true, data });
     } catch (error) {
@@ -4506,6 +4572,7 @@ export class AdminController {
       const data = await reportsService.updateUcarerMainSupplier({
         productCode: String(productCode || ''),
         supplierCode: String(supplierCode || ''),
+        userId: req.user?.userId || null,
       });
       res.json({ success: true, data });
     } catch (error) {

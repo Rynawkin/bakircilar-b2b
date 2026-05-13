@@ -142,6 +142,27 @@ interface MissingPriceProduct {
   quantity: number;
 }
 
+interface UcarerOperationLogRow {
+  id: string;
+  operationType: string;
+  title: string;
+  productCode?: string | null;
+  productName?: string | null;
+  familyId?: string | null;
+  familyName?: string | null;
+  depot?: string | null;
+  supplierCode?: string | null;
+  supplierName?: string | null;
+  documentNo?: string | null;
+  orderNumbers?: string[];
+  previousValues?: any;
+  newValues?: any;
+  metadata?: any;
+  userId?: string | null;
+  userName?: string | null;
+  createdAt: string;
+}
+
 interface SuggestionSortState {
   key: SuggestionSortKey;
   direction: SortDirection;
@@ -247,6 +268,24 @@ const formatPdfMoney = (value: unknown) => {
   const safe = Number.isFinite(num) ? num : 0;
   return `${safe.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
 };
+const formatOperationDate = (value: string | null | undefined) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('tr-TR');
+};
+
+const OPERATION_TYPE_LABELS: Record<string, string> = {
+  MINMAX_RUN: 'MinMax',
+  MARK_TOPLU: 'TOPLU',
+  MINMAX_EXCLUSION: 'MinMax Haric',
+  PRODUCT_FAMILY_CREATE: 'Aile Olusturma',
+  PRODUCT_FAMILY_UPDATE: 'Aile Duzenleme',
+  PRODUCT_FAMILY_DELETE: 'Aile Silme',
+  SUPPLIER_ORDER_CREATE: 'Tedarikci Siparisi',
+  DEPOT_TRANSFER_CREATE: 'Depolar Arasi',
+  COST_UPDATE: 'Maliyet',
+  MAIN_SUPPLIER_UPDATE: 'Ana Saglayici',
+};
 
 export default function UcarerDepotReportPage() {
   const [depot, setDepot] = useState<DepotType>('MERKEZ');
@@ -308,7 +347,7 @@ export default function UcarerDepotReportPage() {
   const [supplierOrderConfigs, setSupplierOrderConfigs] = useState<Record<string, SupplierOrderConfig>>({});
   const [pendingAllocations, setPendingAllocations] = useState<SupplierOrderAllocation[]>([]);
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
-  const [orderPanelTab, setOrderPanelTab] = useState<'work' | 'history'>('work');
+  const [orderPanelTab, setOrderPanelTab] = useState<'work' | 'history' | 'operationHistory'>('work');
   const [panelHighlight, setPanelHighlight] = useState(false);
   const [creatingOrders, setCreatingOrders] = useState(false);
   const [creatingTransferOrder, setCreatingTransferOrder] = useState(false);
@@ -320,6 +359,17 @@ export default function UcarerDepotReportPage() {
   const [updatingMinMaxExclusionByCode, setUpdatingMinMaxExclusionByCode] = useState<Record<string, boolean>>({});
   const [missingPriceProducts, setMissingPriceProducts] = useState<MissingPriceProduct[]>([]);
   const [createdOrderHistory, setCreatedOrderHistory] = useState<CreatedSupplierOrderBatch[]>([]);
+  const [operationLogs, setOperationLogs] = useState<UcarerOperationLogRow[]>([]);
+  const [operationLogLoading, setOperationLogLoading] = useState(false);
+  const [operationLogSearch, setOperationLogSearch] = useState('');
+  const [operationLogType, setOperationLogType] = useState('');
+  const [operationLogPage, setOperationLogPage] = useState(1);
+  const [operationLogPagination, setOperationLogPagination] = useState({
+    page: 1,
+    limit: 25,
+    totalPages: 1,
+    totalRecords: 0,
+  });
   const [lastCreatedOrders, setLastCreatedOrders] = useState<CreatedSupplierOrderSummary[]>([]);
   const [lastCreatedAllocations, setLastCreatedAllocations] = useState<SupplierOrderAllocation[]>([]);
   const [downloadingOrderPdfs, setDownloadingOrderPdfs] = useState(false);
@@ -991,6 +1041,7 @@ export default function UcarerDepotReportPage() {
       });
       toast.success('Aile guncellendi.');
       await loadFamilies();
+      refreshOperationLogsIfOpen();
       closeFamilyEditModal();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Aile guncellenemedi');
@@ -1008,10 +1059,47 @@ export default function UcarerDepotReportPage() {
     }
   };
 
+  const loadUcarerOperationLogs = async (page = operationLogPage) => {
+    setOperationLogLoading(true);
+    try {
+      const response = await adminApi.getUcarerOperationLogs({
+        page,
+        limit: operationLogPagination.limit,
+        operationType: operationLogType || undefined,
+        search: operationLogSearch || undefined,
+      });
+      setOperationLogs((response.data?.rows || []) as UcarerOperationLogRow[]);
+      setOperationLogPagination(response.data?.pagination || {
+        page,
+        limit: operationLogPagination.limit,
+        totalPages: 1,
+        totalRecords: 0,
+      });
+      setOperationLogPage(page);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Islem gecmisi getirilemedi');
+      setOperationLogs([]);
+    } finally {
+      setOperationLogLoading(false);
+    }
+  };
+
+  const refreshOperationLogsIfOpen = () => {
+    if (orderPanelTab === 'operationHistory') {
+      void loadUcarerOperationLogs(1);
+    }
+  };
+
   useEffect(() => {
     loadFamilies();
     loadMinMaxExcludedCodes();
   }, []);
+
+  useEffect(() => {
+    if (orderPanelTab !== 'operationHistory') return;
+    void loadUcarerOperationLogs(operationLogPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderPanelTab, operationLogPage]);
 
   useEffect(() => {
     if (!familyEditModalOpen) return;
@@ -1160,6 +1248,7 @@ export default function UcarerDepotReportPage() {
       setMinMaxColumns(data.columns || []);
       setMinMaxTotal(Number(data.total || 0));
       toast.success('MinMax hesaplama tamamlandi');
+      refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'MinMax hesaplama calistirilamadi');
     } finally {
@@ -1338,6 +1427,7 @@ export default function UcarerDepotReportPage() {
       } else {
         toast.success('Guncel maliyet guncellendi.');
       }
+      refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
     } finally {
@@ -1362,6 +1452,7 @@ export default function UcarerDepotReportPage() {
       setMainSupplierByCode((prev) => ({ ...prev, [code]: { code: resolvedCode, name: resolvedName } }));
       setSupplierOverrideByCode((prev) => ({ ...prev, [code]: resolvedCode }));
       toast.success('Ana saglayici guncellendi.');
+      refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Ana saglayici guncellenemedi');
     } finally {
@@ -1386,6 +1477,7 @@ export default function UcarerDepotReportPage() {
         if (!exclude) return prev.filter((row) => String(row.productCode || '').trim().toUpperCase() !== code);
         return prev;
       });
+      refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'MinMax dislama islemi basarisiz');
     } finally {
@@ -1470,6 +1562,7 @@ export default function UcarerDepotReportPage() {
       });
       toast.success(response.data?.alreadyToplu ? 'Satir zaten TOPLU olarak isaretli' : 'Satir TOPLU yapildi');
       await openSalesHistoryModal(productCode, 'minmax');
+      refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Satir TOPLU yapilamadi');
     } finally {
@@ -2104,6 +2197,7 @@ export default function UcarerDepotReportPage() {
         });
         return next;
       });
+      refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Depolar arasi siparis olusturulamadi');
     } finally {
@@ -2174,6 +2268,7 @@ export default function UcarerDepotReportPage() {
       setSeriesModalOpen(false);
       setPendingAllocations([]);
       setSupplierOrderConfigs({});
+      refreshOperationLogsIfOpen();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Tedarikci siparisleri olusturulamadi');
     } finally {
@@ -2473,6 +2568,134 @@ export default function UcarerDepotReportPage() {
       </div>
     </div>
   );
+  const renderOperationHistoryPanel = () => {
+    const summarizeLog = (log: UcarerOperationLogRow) => {
+      const parts = [
+        log.productCode ? `Stok: ${log.productCode}` : '',
+        log.familyName ? `Aile: ${log.familyName}` : '',
+        log.supplierCode ? `Cari: ${log.supplierCode}` : '',
+        log.depot ? `Depo: ${log.depot}` : '',
+        log.documentNo ? `Evrak: ${log.documentNo}` : '',
+      ].filter(Boolean);
+      const orderNumbers = Array.isArray(log.orderNumbers) ? log.orderNumbers.filter(Boolean) : [];
+      if (orderNumbers.length > 0) parts.push(`Siparis: ${orderNumbers.join(', ')}`);
+      return parts.join(' | ') || '-';
+    };
+    const renderJsonSummary = (value: any) => {
+      if (!value || (typeof value === 'object' && Object.keys(value).length === 0)) return '-';
+      const text = JSON.stringify(value);
+      return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+    };
+
+    return (
+      <div className="rounded-xl border bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-base font-semibold text-gray-900">Ucarer Islem Gecmisi</p>
+            <p className="text-xs text-gray-600">
+              Maliyet, ana saglayici, aile, MinMax, TOPLU ve siparis olusturma islemleri kullanici ve tarih bazinda tutulur.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => loadUcarerOperationLogs(1)} disabled={operationLogLoading}>
+            {operationLogLoading ? 'Yukleniyor...' : 'Yenile'}
+          </Button>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+          <Input
+            value={operationLogSearch}
+            onChange={(event) => setOperationLogSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void loadUcarerOperationLogs(1);
+            }}
+            placeholder="Stok, aile, evrak, kullanici ara"
+            className="md:col-span-2"
+          />
+          <Select
+            value={operationLogType}
+            onChange={(event) => setOperationLogType(event.target.value)}
+          >
+            <option value="">Tum islemler</option>
+            {Object.entries(OPERATION_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </Select>
+          <Button variant="secondary" onClick={() => loadUcarerOperationLogs(1)} disabled={operationLogLoading}>
+            Filtrele
+          </Button>
+        </div>
+
+        <div className="mt-3 overflow-x-auto rounded border">
+          <table className="min-w-full divide-y divide-gray-200 text-xs">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Tarih</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Islem</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Detay</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Kullanici</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Deger</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 bg-white">
+              {operationLogLoading && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-gray-500">Islem gecmisi yukleniyor...</td>
+                </tr>
+              )}
+              {!operationLogLoading && operationLogs.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-gray-500">Kayit bulunamadi.</td>
+                </tr>
+              )}
+              {!operationLogLoading && operationLogs.map((log) => (
+                <tr key={log.id} className="hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-3 py-2 text-gray-700">{formatOperationDate(log.createdAt)}</td>
+                  <td className="px-3 py-2">
+                    <div className="font-semibold text-gray-900">{log.title}</div>
+                    <div className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                      {OPERATION_TYPE_LABELS[log.operationType] || log.operationType}
+                    </div>
+                  </td>
+                  <td className="min-w-[260px] px-3 py-2 text-gray-700">
+                    <div>{summarizeLog(log)}</div>
+                    {log.productName && <div className="mt-1 text-gray-500">{log.productName}</div>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-gray-700">{log.userName || log.userId || '-'}</td>
+                  <td className="max-w-[340px] px-3 py-2 font-mono text-[11px] text-gray-600">
+                    {renderJsonSummary(log.newValues || log.metadata || log.previousValues)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
+          <span>
+            Toplam {operationLogPagination.totalRecords.toLocaleString('tr-TR')} kayit / Sayfa {operationLogPagination.page.toLocaleString('tr-TR')} - {operationLogPagination.totalPages.toLocaleString('tr-TR')}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={operationLogLoading || operationLogPagination.page <= 1}
+              onClick={() => setOperationLogPage((prev) => Math.max(1, prev - 1))}
+            >
+              Onceki
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={operationLogLoading || operationLogPagination.page >= operationLogPagination.totalPages}
+              onClick={() => setOperationLogPage((prev) => Math.min(operationLogPagination.totalPages, prev + 1))}
+            >
+              Sonraki
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  };
   const renderActiveFamilyPanel = () => {
     if (!activeFamily || !activeFamilySuggestion) return null;
     const mode = allocationModeByFamily[activeFamily.id] || 'MANUAL';
@@ -3095,10 +3318,19 @@ export default function UcarerDepotReportPage() {
               >
                 Olusturulan Siparisler ({createdOrderHistory.length.toLocaleString('tr-TR')})
               </Button>
+              <Button
+                size="sm"
+                variant={orderPanelTab === 'operationHistory' ? 'primary' : 'outline'}
+                onClick={() => setOrderPanelTab('operationHistory')}
+              >
+                Islem Gecmisi
+              </Button>
             </div>
 
             {orderPanelTab === 'history' ? (
               renderCreatedOrderHistoryPanel()
+            ) : orderPanelTab === 'operationHistory' ? (
+              renderOperationHistoryPanel()
             ) : (
               <>
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-white p-3">
