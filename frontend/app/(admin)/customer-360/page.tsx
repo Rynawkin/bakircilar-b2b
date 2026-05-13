@@ -9,9 +9,12 @@ import {
   Activity,
   AlertTriangle,
   ClipboardList,
+  Download,
+  Eye,
   FileText,
   Mail,
   Package,
+  ReceiptText,
   Search,
   ShoppingCart,
   Tag,
@@ -23,6 +26,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { CardRoot as Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 
@@ -38,6 +42,21 @@ interface Customer360SearchRow {
   active?: boolean;
   balance?: number | null;
 }
+
+type Customer360Module = 'sales' | 'finance' | 'actions' | 'activity' | 'relations';
+
+const CUSTOMER_360_MODULES: Array<{
+  key: Customer360Module;
+  label: string;
+  description: string;
+  icon: ComponentType<{ className?: string }>;
+}> = [
+  { key: 'sales', label: 'Satis Akisi', description: 'Siparis, teklif, sepet ve anlasmalar', icon: ClipboardList },
+  { key: 'finance', label: 'Finans & Belgeler', description: 'Vade, faturalar ve talepler', icon: Wallet },
+  { key: 'actions', label: 'Aksiyonlar', description: 'Gorevler ve geri kazanma notlari', icon: AlertTriangle },
+  { key: 'activity', label: 'Aktivite', description: 'Site hareketleri ve ilgi alanlari', icon: Activity },
+  { key: 'relations', label: 'Kisiler', description: 'Kontaklar ve alt kullanicilar', icon: Users },
+];
 
 const safeDate = (value: unknown) => {
   if (!value) return '-';
@@ -82,6 +101,10 @@ export default function Customer360Page() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer360SearchRow | null>(null);
   const [data, setData] = useState<any>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [activeModule, setActiveModule] = useState<Customer360Module>('sales');
+  const [quoteDetail, setQuoteDetail] = useState<any>(null);
+  const [quoteDetailLoading, setQuoteDetailLoading] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState('');
 
   useEffect(() => {
     loadUserFromStorage();
@@ -126,6 +149,42 @@ export default function Customer360Page() {
       setData(null);
     } finally {
       setLoadingDetail(false);
+    }
+  };
+
+  const openQuoteDetail = async (quoteId: string) => {
+    const id = String(quoteId || '').trim();
+    if (!id) return;
+    setQuoteDetailLoading(true);
+    setQuoteDetail(null);
+    try {
+      const response = await adminApi.getQuoteById(id);
+      setQuoteDetail(response.quote || null);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Teklif detayi getirilemedi');
+    } finally {
+      setQuoteDetailLoading(false);
+    }
+  };
+
+  const downloadInvoice = async (invoice: any) => {
+    const id = String(invoice?.id || '').trim();
+    if (!id) return;
+    setDownloadingInvoiceId(id);
+    try {
+      const blob = await adminApi.downloadEInvoice(id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${invoice?.invoiceNo || 'e-fatura'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Fatura indirilemedi');
+    } finally {
+      setDownloadingInvoiceId('');
     }
   };
 
@@ -244,139 +303,218 @@ export default function Customer360Page() {
                       <Metric icon={AlertTriangle} title="Aksiyon" value={summary.openTaskCount || 0} sub={`Geciken ${summary.overdueTaskCount || 0} / Geri kazanma ${summary.openRecoveryActionCount || 0}`} />
                     </div>
 
-                    <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
-                      <Section title="Son Siparisler" icon={ClipboardList}>
-                        <DataTable
-                          rows={data?.orders || []}
-                          emptyText="Siparis yok."
-                          columns={[
-                            ['Siparis', (row) => row.orderNumber || row.customerOrderNumber || '-'],
-                            ['Durum', (row) => <StatusBadge value={row.status} />],
-                            ['Tutar', (row) => money(row.totalAmount)],
-                            ['Tarih', (row) => safeDate(row.createdAt)],
-                          ]}
-                        />
-                      </Section>
+                    <ModuleTabs activeModule={activeModule} onChange={setActiveModule} />
 
-                      <Section title="Son Teklifler" icon={FileText}>
-                        <DataTable
-                          rows={data?.quotes || []}
-                          emptyText="Teklif yok."
-                          columns={[
-                            ['Teklif', (row) => row.quoteNumber || row.mikroNumber || '-'],
-                            ['Durum', (row) => <StatusBadge value={row.status} />],
-                            ['Tutar', (row) => money(row.grandTotal ?? row.totalAmount)],
-                            ['Tarih', (row) => safeDate(row.createdAt)],
-                          ]}
-                        />
-                      </Section>
+                    {activeModule === 'sales' && (
+                      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
+                        <Section title="Son Siparisler" icon={ClipboardList}>
+                          <DataTable
+                            rows={data?.orders || []}
+                            emptyText="Siparis yok."
+                            columns={[
+                              ['Siparis', (row) => row.orderNumber || row.customerOrderNumber || '-'],
+                              ['Durum', (row) => <StatusBadge value={row.status} />],
+                              ['Tutar', (row) => money(row.totalAmount)],
+                              ['Tarih', (row) => safeDate(row.createdAt)],
+                            ]}
+                          />
+                        </Section>
 
-                      <Section title="Aktif Sepet" icon={ShoppingCart}>
-                        <DataTable
-                          rows={data?.cart?.items || []}
-                          emptyText="Sepette urun yok."
-                          columns={[
-                            ['Stok', (row) => row.product?.mikroCode || '-'],
-                            ['Urun', (row) => row.product?.name || '-'],
-                            ['Miktar', (row) => Number(row.quantity || 0).toLocaleString('tr-TR')],
-                            ['Tutar', (row) => money(Number(row.quantity || 0) * Number(row.unitPrice || 0))],
-                          ]}
-                        />
-                      </Section>
+                        <Section title="Son Teklifler" icon={FileText}>
+                          <DataTable
+                            rows={data?.quotes || []}
+                            emptyText="Teklif yok."
+                            columns={[
+                              ['Teklif', (row) => row.quoteNumber || row.mikroNumber || '-'],
+                              ['Durum', (row) => <StatusBadge value={row.status} />],
+                              ['Tutar', (row) => money(row.grandTotal ?? row.totalAmount)],
+                              ['Tarih', (row) => safeDate(row.createdAt)],
+                              ['Islem', (row) => (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openQuoteDetail(row.id)}
+                                  disabled={quoteDetailLoading}
+                                >
+                                  <Eye className="mr-1 h-3 w-3" />
+                                  Detay
+                                </Button>
+                              )],
+                            ]}
+                          />
+                        </Section>
 
-                      <Section title="Vade ve Notlar" icon={Wallet}>
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                          <MiniStat label="Vade Bakiyesi" value={money(data?.vade?.balance?.balance ?? summary.balance)} />
-                          <MiniStat label="Sinif" value={data?.vade?.classification?.classCode || '-'} />
-                          <MiniStat label="Aktif Atama" value={(data?.vade?.assignments || []).length} />
-                        </div>
-                        <div className="mt-3 space-y-2">
-                          {(data?.vade?.notes || []).slice(0, 4).map((note: any) => (
-                            <div key={note.id} className="rounded-lg border bg-slate-50 p-2 text-xs">
-                              <p className="font-semibold text-slate-800">{note.author?.name || note.author?.email || '-'}</p>
-                              <p className="mt-1 text-slate-600">{note.note || note.content || '-'}</p>
-                            </div>
-                          ))}
-                          {(data?.vade?.notes || []).length === 0 && <EmptyState text="Vade notu yok." />}
-                        </div>
-                      </Section>
-                    </div>
+                        <Section title="Aktif Sepet" icon={ShoppingCart}>
+                          <DataTable
+                            rows={data?.cart?.items || []}
+                            emptyText="Sepette urun yok."
+                            columns={[
+                              ['Stok', (row) => row.product?.mikroCode || '-'],
+                              ['Urun', (row) => row.product?.name || '-'],
+                              ['Miktar', (row) => Number(row.quantity || 0).toLocaleString('tr-TR')],
+                              ['Tutar', (row) => money(Number(row.quantity || 0) * Number(row.unitPrice || 0))],
+                            ]}
+                          />
+                        </Section>
 
-                    <div className="grid grid-cols-1 gap-5 2xl:grid-cols-3">
-                      <Section title="Aktivite" icon={Activity}>
-                        <div className="grid grid-cols-2 gap-2">
-                          <MiniStat label="30 Gun Event" value={summary.activityEventCount30d || 0} />
-                          <MiniStat label="Son Aktivite" value={safeDate(summary.lastActivityAt)} />
-                        </div>
-                        <div className="mt-3 space-y-1 text-xs">
-                          {activityRows.slice(0, 8).map(([key, value]) => (
-                            <div key={key} className="flex items-center justify-between rounded bg-slate-50 px-2 py-1">
-                              <span>{key}</span>
-                              <strong>{Number(value).toLocaleString('tr-TR')}</strong>
-                            </div>
-                          ))}
-                        </div>
-                      </Section>
+                        <Section title="Anlasmalar" icon={Tag}>
+                          <MiniStat label="Aktif Anlasma" value={summary.activeAgreementCount || 0} />
+                          <DataTable
+                            rows={data?.agreements?.recent || []}
+                            emptyText="Aktif anlasma yok."
+                            columns={[
+                              ['Stok', (row) => row.product?.mikroCode || '-'],
+                              ['Urun', (row) => row.product?.name || '-'],
+                              ['Fiyat', (row) => money(row.priceInvoiced ?? row.priceWhite)],
+                            ]}
+                          />
+                        </Section>
+                      </div>
+                    )}
 
-                      <Section title="Anlasmalar" icon={Tag}>
-                        <MiniStat label="Aktif Anlasma" value={summary.activeAgreementCount || 0} />
-                        <DataTable
-                          rows={data?.agreements?.recent || []}
-                          emptyText="Aktif anlasma yok."
-                          columns={[
-                            ['Stok', (row) => row.product?.mikroCode || '-'],
-                            ['Urun', (row) => row.product?.name || '-'],
-                            ['Fiyat', (row) => money(row.priceInvoiced ?? row.priceWhite)],
-                          ]}
-                        />
-                      </Section>
+                    {activeModule === 'finance' && (
+                      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
+                        <Section title="Vade ve Notlar" icon={Wallet}>
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                            <MiniStat label="Vade Bakiyesi" value={money(data?.vade?.balance?.balance ?? summary.balance)} />
+                            <MiniStat label="Sinif" value={data?.vade?.classification?.classCode || '-'} />
+                            <MiniStat label="Aktif Atama" value={(data?.vade?.assignments || []).length} />
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {(data?.vade?.notes || []).slice(0, 6).map((note: any) => (
+                              <div key={note.id} className="rounded-lg border bg-slate-50 p-2 text-xs">
+                                <p className="font-semibold text-slate-800">{note.author?.name || note.author?.email || '-'}</p>
+                                <p className="mt-1 text-slate-600">{note.note || note.content || '-'}</p>
+                              </div>
+                            ))}
+                            {(data?.vade?.notes || []).length === 0 && <EmptyState text="Vade notu yok." />}
+                          </div>
+                        </Section>
 
-                      <Section title="Kisiler ve Alt Kullanici" icon={Users}>
-                        <div className="space-y-2">
-                          {(data?.contacts || []).slice(0, 5).map((contact: any) => (
-                            <div key={contact.id} className="rounded-lg border bg-white p-2 text-xs">
-                              <p className="font-semibold text-slate-900">{contact.name || '-'}</p>
-                              <p className="text-slate-600">{[contact.phone, contact.email].filter(Boolean).join(' / ') || '-'}</p>
-                            </div>
-                          ))}
-                          {(data?.subUsers || []).slice(0, 5).map((subUser: any) => (
-                            <div key={subUser.id} className="rounded-lg border bg-blue-50 p-2 text-xs">
-                              <p className="font-semibold text-slate-900">{subUser.name || subUser.displayName || subUser.email}</p>
-                              <p className="text-slate-600">{subUser.email}</p>
-                            </div>
-                          ))}
-                          {(data?.contacts || []).length === 0 && (data?.subUsers || []).length === 0 && <EmptyState text="Kisi veya alt kullanici yok." />}
-                        </div>
-                      </Section>
-                    </div>
+                        <Section title="Faturalar" icon={ReceiptText}>
+                          <DataTable
+                            rows={data?.invoices?.recent || []}
+                            emptyText="Fatura yok."
+                            columns={[
+                              ['Fatura', (row) => row.invoiceNo || '-'],
+                              ['Durum', (row) => <StatusBadge value={row.matchStatus} />],
+                              ['Tutar', (row) => row.totalAmount !== undefined ? money(row.totalAmount) : '-'],
+                              ['Tarih', (row) => safeDate(row.issueDate || row.createdAt)],
+                              ['Islem', (row) => (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => downloadInvoice(row)}
+                                  disabled={downloadingInvoiceId === row.id}
+                                >
+                                  <Download className="mr-1 h-3 w-3" />
+                                  {downloadingInvoiceId === row.id ? 'Iniyor' : 'Indir'}
+                                </Button>
+                              )],
+                            ]}
+                          />
+                        </Section>
 
-                    <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
-                      <Section title="Gorev ve Geri Kazanma" icon={Package}>
-                        <DataTable
-                          rows={[...(data?.tasks || []), ...(data?.recoveryActions || [])].slice(0, 10)}
-                          emptyText="Aksiyon yok."
-                          columns={[
-                            ['Baslik', (row) => row.title || row.note || row.actionType || '-'],
-                            ['Durum', (row) => <StatusBadge value={row.status} />],
-                            ['Atanan', (row) => row.assignedTo?.name || row.assignedTo?.email || '-'],
-                            ['Tarih', (row) => safeDate(row.updatedAt || row.createdAt)],
-                          ]}
-                        />
-                      </Section>
+                        <Section title="Siparis Talepleri" icon={Mail}>
+                          <DataTable
+                            rows={data?.orderRequests || []}
+                            emptyText="Talep yok."
+                            columns={[
+                              ['Talep', (row) => row.order?.orderNumber || row.id || '-'],
+                              ['Durum', (row) => <StatusBadge value={row.status} />],
+                              ['Not', (row) => row.note || '-'],
+                              ['Tarih', (row) => safeDate(row.createdAt)],
+                            ]}
+                          />
+                        </Section>
+                      </div>
+                    )}
 
-                      <Section title="Faturalar ve Talepler" icon={Mail}>
-                        <DataTable
-                          rows={[...(data?.invoices?.recent || []), ...(data?.orderRequests || [])].slice(0, 10)}
-                          emptyText="Kayit yok."
-                          columns={[
-                            ['No', (row) => row.invoiceNo || row.order?.orderNumber || row.id || '-'],
-                            ['Durum', (row) => <StatusBadge value={row.matchStatus || row.status} />],
-                            ['Tutar', (row) => row.totalAmount !== undefined ? money(row.totalAmount) : '-'],
-                            ['Tarih', (row) => safeDate(row.issueDate || row.createdAt)],
-                          ]}
-                        />
-                      </Section>
-                    </div>
+                    {activeModule === 'actions' && (
+                      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
+                        <Section title="Gorevler" icon={Package}>
+                          <DataTable
+                            rows={data?.tasks || []}
+                            emptyText="Gorev yok."
+                            columns={[
+                              ['Baslik', (row) => row.title || '-'],
+                              ['Durum', (row) => <StatusBadge value={row.status} />],
+                              ['Atanan', (row) => row.assignedTo?.name || row.assignedTo?.email || '-'],
+                              ['Tarih', (row) => safeDate(row.updatedAt || row.createdAt)],
+                            ]}
+                          />
+                        </Section>
+
+                        <Section title="Geri Kazanma Aksiyonlari" icon={AlertTriangle}>
+                          <DataTable
+                            rows={data?.recoveryActions || []}
+                            emptyText="Geri kazanma aksiyonu yok."
+                            columns={[
+                              ['Aksiyon', (row) => row.actionType || '-'],
+                              ['Durum', (row) => <StatusBadge value={row.status} />],
+                              ['Not', (row) => row.note || '-'],
+                              ['Takip', (row) => safeDate(row.followUpDate || row.createdAt)],
+                            ]}
+                          />
+                        </Section>
+                      </div>
+                    )}
+
+                    {activeModule === 'activity' && (
+                      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-3">
+                        <Section title="Aktivite Ozeti" icon={Activity}>
+                          <div className="grid grid-cols-2 gap-2">
+                            <MiniStat label="30 Gun Event" value={summary.activityEventCount30d || 0} />
+                            <MiniStat label="Son Aktivite" value={safeDate(summary.lastActivityAt)} />
+                          </div>
+                          <div className="mt-3 space-y-1 text-xs">
+                            {activityRows.slice(0, 10).map(([key, value]) => (
+                              <div key={key} className="flex items-center justify-between rounded bg-slate-50 px-2 py-1">
+                                <span>{key}</span>
+                                <strong>{Number(value).toLocaleString('tr-TR')}</strong>
+                              </div>
+                            ))}
+                            {activityRows.length === 0 && <EmptyState text="Aktivite yok." />}
+                          </div>
+                        </Section>
+
+                        <Section title="En Cok Bakilan Sayfalar" icon={FileText}>
+                          <DataTable
+                            rows={data?.activity?.topPages || []}
+                            emptyText="Sayfa aktivitesi yok."
+                            columns={[
+                              ['Sayfa', (row) => row.pageTitle || row.pagePath || '-'],
+                              ['Path', (row) => row.pagePath || '-'],
+                              ['Adet', (row) => Number(row.count || 0).toLocaleString('tr-TR')],
+                            ]}
+                          />
+                        </Section>
+
+                        <Section title="Ilgi Goren Urunler" icon={Package}>
+                          <DataTable
+                            rows={data?.activity?.topProducts || []}
+                            emptyText="Urun aktivitesi yok."
+                            columns={[
+                              ['Stok', (row) => row.productCode || '-'],
+                              ['Urun', (row) => row.productName || '-'],
+                              ['Adet', (row) => Number(row.count || 0).toLocaleString('tr-TR')],
+                            ]}
+                          />
+                        </Section>
+                      </div>
+                    )}
+
+                    {activeModule === 'relations' && (
+                      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
+                        <Section title="Kisiler" icon={Users}>
+                          <ContactList rows={data?.contacts || []} emptyText="Kisi kaydi yok." />
+                        </Section>
+
+                        <Section title="Alt Kullanicilar" icon={Users}>
+                          <ContactList rows={data?.subUsers || []} emptyText="Alt kullanici yok." />
+                        </Section>
+                      </div>
+                    )}
                   </>
                 )}
               </>
@@ -384,7 +522,55 @@ export default function Customer360Page() {
           </div>
         </div>
       </div>
+      <QuoteDetailModal
+        quote={quoteDetail}
+        loading={quoteDetailLoading}
+        isOpen={quoteDetailLoading || Boolean(quoteDetail)}
+        onClose={() => {
+          if (quoteDetailLoading) return;
+          setQuoteDetail(null);
+        }}
+      />
     </div>
+  );
+}
+
+function ModuleTabs({
+  activeModule,
+  onChange,
+}: {
+  activeModule: Customer360Module;
+  onChange: (value: Customer360Module) => void;
+}) {
+  return (
+    <Card>
+      <CardContent className="grid grid-cols-1 gap-2 p-3 md:grid-cols-2 xl:grid-cols-5">
+        {CUSTOMER_360_MODULES.map((module) => {
+          const Icon = module.icon;
+          const active = activeModule === module.key;
+          return (
+            <button
+              key={module.key}
+              type="button"
+              onClick={() => onChange(module.key)}
+              className={`rounded-xl border p-3 text-left transition ${
+                active
+                  ? 'border-slate-900 bg-slate-900 text-white shadow'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Icon className={`h-4 w-4 ${active ? 'text-white' : 'text-slate-500'}`} />
+                <span className="text-sm font-bold">{module.label}</span>
+              </div>
+              <p className={`mt-1 text-xs ${active ? 'text-slate-200' : 'text-slate-500'}`}>
+                {module.description}
+              </p>
+            </button>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -414,6 +600,118 @@ function Metric({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ContactList({ rows, emptyText }: { rows: any[]; emptyText: string }) {
+  if (!rows || rows.length === 0) return <EmptyState text={emptyText} />;
+  return (
+    <div className="space-y-2">
+      {rows.slice(0, 12).map((row) => (
+        <div key={row.id || row.email || row.name} className="rounded-lg border bg-white p-3 text-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="font-semibold text-slate-900">{row.name || row.displayName || row.email || '-'}</p>
+              <p className="mt-1 text-xs text-slate-600">
+                {[row.phone, row.email].filter(Boolean).join(' / ') || '-'}
+              </p>
+            </div>
+            {row.active !== undefined && (
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.active === false ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                {row.active === false ? 'Pasif' : 'Aktif'}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function QuoteDetailModal({
+  quote,
+  loading,
+  isOpen,
+  onClose,
+}: {
+  quote: any;
+  loading: boolean;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={quote ? `Teklif Detayi: ${quote.quoteNumber}` : 'Teklif Detayi'}
+      size="xl"
+      footer={
+        quote ? (
+          <>
+            <Link href={`/quotes/new?edit=${quote.id}`}>
+              <Button variant="outline">Duzenle</Button>
+            </Link>
+            <Link href={`/quotes/convert/${quote.id}`}>
+              <Button>Aktar / Siparise Cevir</Button>
+            </Link>
+          </>
+        ) : null
+      }
+    >
+      {loading && <EmptyState text="Teklif detayi yukleniyor..." />}
+      {!loading && quote && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+            <MiniStat label="Durum" value={quote.status || '-'} />
+            <MiniStat label="Gecerlilik" value={safeDate(quote.validityDate)} />
+            <MiniStat label="Kalem" value={(quote.items || []).length} />
+            <MiniStat label="Genel Toplam" value={money(quote.grandTotal ?? quote.totalAmount)} />
+          </div>
+
+          <div className="rounded-xl border bg-slate-50 p-3 text-sm">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cari</p>
+                <p className="font-semibold text-slate-900">
+                  {quote.customer?.displayName || quote.customer?.mikroName || quote.customer?.name || '-'}
+                </p>
+                <p className="text-xs text-slate-600">{quote.customer?.mikroCariCode || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Olusturan</p>
+                <p className="font-semibold text-slate-900">{quote.createdBy?.name || quote.adminUser?.name || '-'}</p>
+                <p className="text-xs text-slate-600">{safeDate(quote.createdAt)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mikro</p>
+                <p className="font-semibold text-slate-900">{quote.mikroNumber || quote.documentNo || '-'}</p>
+                <p className="text-xs text-slate-600">{quote.vatZeroed ? 'KDV sifirli' : 'KDV dahil hesap'}</p>
+              </div>
+            </div>
+            {(quote.note || quote.adminNote) && (
+              <div className="mt-3 rounded-lg bg-white p-2 text-xs text-slate-700">
+                {quote.note && <p><strong>Not:</strong> {quote.note}</p>}
+                {quote.adminNote && <p><strong>Admin Not:</strong> {quote.adminNote}</p>}
+              </div>
+            )}
+          </div>
+
+          <DataTable
+            rows={quote.items || []}
+            emptyText="Teklif kalemi yok."
+            columns={[
+              ['Stok', (row) => row.productCode || '-'],
+              ['Urun', (row) => row.productName || '-'],
+              ['Miktar', (row) => `${Number(row.quantity || 0).toLocaleString('tr-TR')} ${row.selectedUnit || row.unit || ''}`],
+              ['Birim', (row) => money(row.unitPrice)],
+              ['Tutar', (row) => money(row.totalPrice)],
+              ['Tip', (row) => row.priceType || '-'],
+              ['Durum', (row) => <StatusBadge value={row.status || 'OPEN'} />],
+            ]}
+          />
+        </div>
+      )}
+    </Modal>
   );
 }
 
