@@ -1185,14 +1185,14 @@ function ProductPanel(props: any) {
           const price = getProductPrice(product);
           const qty = productQuantities[product.mikroCode] || '1';
           return (
-            <article key={product.mikroCode} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <article key={product.mikroCode} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg">
               <button onClick={() => openProductDetail(product)} className="block w-full p-4 text-left">
                 <div className="flex gap-3">
                   <ProductImage product={product} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-black text-slate-950">{product.name}</p>
+                    <p className="truncate text-sm font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-base lg:leading-snug">{product.name}</p>
                     <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
                       <Mini label="Fiyat" value={money(price.value)} />
                       <Mini label="Kaynak" value={price.source} />
                       <Mini label="Satilabilir" value={n(product.totalSellable)} />
@@ -1394,77 +1394,83 @@ function HistoryPanel({ recentCustomers, recentProducts, setSelectedCustomer, op
 function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, quantity, setQuantity }: any) {
   const price = getProductPrice(product);
   return (
-    <div className="fixed inset-0 z-40 bg-slate-950/60 p-3 backdrop-blur-sm" onClick={onClose}>
-      <div className="ml-auto flex h-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-4">
+    <div className="fixed inset-0 z-40 bg-slate-950/60 p-3 backdrop-blur-sm lg:flex lg:items-center lg:justify-center lg:p-6" onClick={onClose}>
+      <div className="ml-auto flex h-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl lg:ml-0 lg:h-auto lg:max-h-[90vh] lg:w-full lg:max-w-6xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-4 lg:p-6">
           <div className="flex min-w-0 gap-3">
             <ProductImage product={product} />
             <div className="min-w-0">
-              <p className="truncate text-lg font-black text-slate-950">{product.name}</p>
+              <p className="truncate text-lg font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-2xl lg:leading-tight">{product.name}</p>
               <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
             </div>
           </div>
           <Button variant="secondary" size="sm" onClick={onClose}>Kapat</Button>
         </div>
-        <div className="flex-1 space-y-4 overflow-auto p-4">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Metric label="Cari fiyat" value={money(price.value)} tone="amber" />
-            <Metric label="Kaynak" value={price.source} />
-            <Metric label="Satilabilir" value={n(product.totalSellable)} tone="emerald" />
-            <Metric label="KDV" value={`%${n(product.vatRate, 0)}`} />
-          </div>
-
-          <div>
-            <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><Warehouse className="h-4 w-4" /> Depolar</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {(product.warehouses || []).map((row: any) => (
-                <div key={row.key} className="rounded-2xl border border-slate-200 p-3">
-                  <div className="flex items-center justify-between">
-                    <p className="font-black text-slate-900">{row.label}</p>
-                    <p className={cn('rounded-full px-2 py-1 text-xs font-black', Number(row.sellable) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800')}>
-                      {n(row.sellable)}
-                    </p>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">Eldeki {n(row.stock)} - Musteri bekleyen {n(row.pendingCustomer)} - Satin alma {n(row.pendingPurchase)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><DollarSign className="h-4 w-4" /> Fiyat listeleri</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {Object.entries(product.priceLists || {}).map(([listNo, value]) => (
-                <Mini key={listNo} label={`Liste ${listNo}`} value={money(value)} />
-              ))}
-            </div>
-          </div>
-
-          {!safeMode && product.cost && (
-            <div className="rounded-3xl border border-red-200 bg-red-50 p-4">
-              <p className="mb-2 flex items-center gap-2 text-sm font-black text-red-900"><ShieldCheck className="h-4 w-4" /> Ic maliyet gorunumu</p>
+        <div className="flex-1 overflow-auto p-4 lg:p-6">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] lg:items-start">
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Mini label="Guncel maliyet" value={money(product.cost.currentCost)} />
-                <Mini label="KDV dahil" value={money(product.cost.currentCostVatIncluded)} />
-                <Mini label="Maliyet tarihi" value={safeDate(product.cost.currentCostDate)} />
-                <Mini label="Son giris" value={safeDate(product.cost.lastEntryDate)} />
+                <Metric label="Cari fiyat" value={money(price.value)} tone="amber" />
+                <Metric label="Kaynak" value={price.source} />
+                <Metric label="Satilabilir" value={n(product.totalSellable)} tone="emerald" />
+                <Metric label="KDV" value={`%${n(product.vatRate, 0)}`} />
+              </div>
+
+              <div>
+                <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><Warehouse className="h-4 w-4" /> Depolar</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(product.warehouses || []).map((row: any) => (
+                    <div key={row.key} className="rounded-2xl border border-slate-200 p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="font-black text-slate-900">{row.label}</p>
+                        <p className={cn('rounded-full px-2 py-1 text-xs font-black', Number(row.sellable) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800')}>
+                          {n(row.sellable)}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">Eldeki {n(row.stock)} - Musteri bekleyen {n(row.pendingCustomer)} - Satin alma {n(row.pendingPurchase)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><DollarSign className="h-4 w-4" /> Fiyat listeleri</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:grid-cols-5">
+                  {Object.entries(product.priceLists || {}).map(([listNo, value]) => (
+                    <Mini key={listNo} label={`Liste ${listNo}`} value={money(value)} />
+                  ))}
+                </div>
               </div>
             </div>
-          )}
 
-          <div>
-            <p className="mb-2 text-sm font-black text-slate-900">Son satislar</p>
-            {(product.customerPrice?.lastSales || []).length === 0 && <EmptyText text="Bu cari icin son satis bulunamadi." />}
-            {(product.customerPrice?.lastSales || []).map((sale: any, index: number) => (
-              <div key={`${sale.documentNo}-${index}`} className="mb-2 rounded-2xl bg-slate-50 p-3 text-sm">
-                <span className="font-bold text-slate-900">{safeDate(sale.saleDate)}</span>
-                <span className="ml-2 text-slate-500">{sale.documentNo || '-'}</span>
-                <span className="ml-2 font-bold">{n(sale.quantity)} x {money(sale.unitPrice)}</span>
+            <div className="space-y-4">
+              {!safeMode && product.cost && (
+                <div className="rounded-3xl border border-red-200 bg-red-50 p-4">
+                  <p className="mb-2 flex items-center gap-2 text-sm font-black text-red-900"><ShieldCheck className="h-4 w-4" /> Ic maliyet gorunumu</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Mini label="Guncel maliyet" value={money(product.cost.currentCost)} />
+                    <Mini label="KDV dahil" value={money(product.cost.currentCostVatIncluded)} />
+                    <Mini label="Maliyet tarihi" value={safeDate(product.cost.currentCostDate)} />
+                    <Mini label="Son giris" value={safeDate(product.cost.lastEntryDate)} />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <p className="mb-2 text-sm font-black text-slate-900">Son satislar</p>
+                {(product.customerPrice?.lastSales || []).length === 0 && <EmptyText text="Bu cari icin son satis bulunamadi." />}
+                {(product.customerPrice?.lastSales || []).map((sale: any, index: number) => (
+                  <div key={`${sale.documentNo}-${index}`} className="mb-2 rounded-2xl bg-slate-50 p-3 text-sm">
+                    <span className="font-bold text-slate-900">{safeDate(sale.saleDate)}</span>
+                    <span className="ml-2 text-slate-500">{sale.documentNo || '-'}</span>
+                    <span className="ml-2 font-bold">{n(sale.quantity)} x {money(sale.unitPrice)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
-        <div className="grid grid-cols-[96px_1fr_1fr] gap-2 border-t border-slate-100 p-4">
+        <div className="grid grid-cols-[96px_1fr_1fr] gap-2 border-t border-slate-100 p-4 lg:grid-cols-[140px_1fr_1fr] lg:p-6">
           <input
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
