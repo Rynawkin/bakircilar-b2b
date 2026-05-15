@@ -152,6 +152,16 @@ export default function FieldSalesPage() {
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [noteSaving, setNoteSaving] = useState(false);
 
+  const [newVisitOpen, setNewVisitOpen] = useState(false);
+  const [newVisitName, setNewVisitName] = useState('');
+  const [newVisitPhone, setNewVisitPhone] = useState('');
+  const [newVisitNote, setNewVisitNote] = useState('');
+  const [newVisitDemand, setNewVisitDemand] = useState('');
+  const [newVisitCompetitorInfo, setNewVisitCompetitorInfo] = useState('');
+  const [newVisitPhotoUrl, setNewVisitPhotoUrl] = useState<string | null>(null);
+  const [newVisitLocation, setNewVisitLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [newVisitSaving, setNewVisitSaving] = useState(false);
+
   const [recentCustomers, setRecentCustomers] = useState<any[]>([]);
   const [recentProducts, setRecentProducts] = useState<any[]>([]);
   const [barcodeActive, setBarcodeActive] = useState(false);
@@ -453,6 +463,42 @@ export default function FieldSalesPage() {
     }
   };
 
+  const saveNewVisitCustomer = async () => {
+    if (!newVisitName.trim()) {
+      toast.error('Musteri adi zorunlu.');
+      return;
+    }
+    setNewVisitSaving(true);
+    try {
+      const result = await adminApi.createFieldSalesVisitCustomer({
+        customerName: newVisitName.trim(),
+        phone: newVisitPhone.trim() || null,
+        note: newVisitNote.trim() || 'Yeni musteri ziyareti',
+        demand: newVisitDemand.trim() || null,
+        competitorInfo: newVisitCompetitorInfo.trim() || null,
+        photoUrl: newVisitPhotoUrl,
+        latitude: newVisitLocation?.latitude || null,
+        longitude: newVisitLocation?.longitude || null,
+      });
+      const customer = result.data.customer;
+      setSelectedCustomer(customer);
+      setCustomerSearch(customer.displayTitle || customer.mikroCariCode || '');
+      setNewVisitOpen(false);
+      setNewVisitName('');
+      setNewVisitPhone('');
+      setNewVisitNote('');
+      setNewVisitDemand('');
+      setNewVisitCompetitorInfo('');
+      setNewVisitPhotoUrl(null);
+      setNewVisitLocation(null);
+      toast.success(`Ziyaret carisi acildi: ${customer.mikroCariCode}`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Ziyaret carisi olusturulamadi.');
+    } finally {
+      setNewVisitSaving(false);
+    }
+  };
+
   const pickPhoto = async (file?: File | null) => {
     if (!file) return;
     if (file.size > 800_000) {
@@ -473,6 +519,21 @@ export default function FieldSalesPage() {
       (pos) => {
         setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
         toast.success('Konum eklendi.');
+      },
+      () => toast.error('Konum alinamadi.'),
+      { enableHighAccuracy: false, timeout: 6000 }
+    );
+  };
+
+  const captureNewVisitLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Konum destegi yok.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNewVisitLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        toast.success('Yeni ziyaret konumu eklendi.');
       },
       () => toast.error('Konum alinamadi.'),
       { enableHighAccuracy: false, timeout: 6000 }
@@ -601,6 +662,24 @@ export default function FieldSalesPage() {
               captureLocation={captureLocation}
               saveVisitNote={saveVisitNote}
               noteSaving={noteSaving}
+              newVisitOpen={newVisitOpen}
+              setNewVisitOpen={setNewVisitOpen}
+              newVisitName={newVisitName}
+              setNewVisitName={setNewVisitName}
+              newVisitPhone={newVisitPhone}
+              setNewVisitPhone={setNewVisitPhone}
+              newVisitNote={newVisitNote}
+              setNewVisitNote={setNewVisitNote}
+              newVisitDemand={newVisitDemand}
+              setNewVisitDemand={setNewVisitDemand}
+              newVisitCompetitorInfo={newVisitCompetitorInfo}
+              setNewVisitCompetitorInfo={setNewVisitCompetitorInfo}
+              newVisitPhotoUrl={newVisitPhotoUrl}
+              setNewVisitPhotoUrl={setNewVisitPhotoUrl}
+              newVisitLocation={newVisitLocation}
+              captureNewVisitLocation={captureNewVisitLocation}
+              saveNewVisitCustomer={saveNewVisitCustomer}
+              newVisitSaving={newVisitSaving}
             />
           </div>
 
@@ -755,11 +834,122 @@ function CustomerPanel(props: any) {
     captureLocation,
     saveVisitNote,
     noteSaving,
+    newVisitOpen,
+    setNewVisitOpen,
+    newVisitName,
+    setNewVisitName,
+    newVisitPhone,
+    setNewVisitPhone,
+    newVisitNote,
+    setNewVisitNote,
+    newVisitDemand,
+    setNewVisitDemand,
+    newVisitCompetitorInfo,
+    setNewVisitCompetitorInfo,
+    newVisitPhotoUrl,
+    setNewVisitPhotoUrl,
+    newVisitLocation,
+    captureNewVisitLocation,
+    saveNewVisitCustomer,
+    newVisitSaving,
   } = props;
 
   return (
     <section className="flex flex-col gap-4">
       <Panel title="Cari ara" icon={UserRound}>
+        <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <button
+            type="button"
+            onClick={() => setNewVisitOpen((value: boolean) => !value)}
+            className={cn(
+              'rounded-2xl border px-4 py-3 text-left text-sm font-black transition',
+              newVisitOpen ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700 hover:border-amber-300'
+            )}
+          >
+            <span className="flex items-center gap-2"><Plus className="h-4 w-4" /> Yeni musteri ziyareti</span>
+            <span className="mt-1 block text-xs font-medium opacity-75">Mikroda ZIYARET carisi acar ve notu konumla kaydeder.</span>
+          </button>
+        </div>
+
+        {newVisitOpen && (
+          <div className="mb-4 rounded-3xl border border-emerald-100 bg-emerald-50 p-3">
+            <div className="grid gap-2">
+              <input
+                value={newVisitName}
+                onChange={(event) => setNewVisitName(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                placeholder="Musteri / isletme adi *"
+                className="h-12 rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold outline-none focus:border-emerald-500"
+              />
+              <input
+                value={newVisitPhone}
+                onChange={(event) => setNewVisitPhone(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                placeholder="Telefon"
+                className="h-12 rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold outline-none focus:border-emerald-500"
+              />
+              <textarea
+                value={newVisitNote}
+                onChange={(event) => setNewVisitNote(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                placeholder="Ziyaret notu"
+                className="min-h-24 rounded-2xl border border-emerald-200 bg-white p-4 text-sm outline-none focus:border-emerald-500"
+              />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  value={newVisitDemand}
+                  onChange={(event) => setNewVisitDemand(event.target.value)}
+                  onFocus={(event) => event.currentTarget.select()}
+                  placeholder="Talep / ihtiyac"
+                  className="h-12 rounded-2xl border border-emerald-200 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+                />
+                <input
+                  value={newVisitCompetitorInfo}
+                  onChange={(event) => setNewVisitCompetitorInfo(event.target.value)}
+                  onFocus={(event) => event.currentTarget.select()}
+                  placeholder="Rakip bilgi"
+                  className="h-12 rounded-2xl border border-emerald-200 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-3 py-3 text-sm font-bold text-slate-700">
+                  <Camera className="h-4 w-4" />
+                  Foto
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 800_000) {
+                        toast.error('Foto cok buyuk. 800 KB altinda bir gorsel secin.');
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => setNewVisitPhotoUrl(String(reader.result || ''));
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+                <button onClick={captureNewVisitLocation} className="flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-3 py-3 text-sm font-bold text-slate-700">
+                  <MapPin className="h-4 w-4" />
+                  Konum
+                </button>
+              </div>
+              {(newVisitPhotoUrl || newVisitLocation) && (
+                <div className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-emerald-700">
+                  {newVisitPhotoUrl ? 'Foto eklendi. ' : ''}
+                  {newVisitLocation ? 'Konum eklendi.' : ''}
+                </div>
+              )}
+              <Button className="h-12 rounded-2xl bg-emerald-700 text-white hover:bg-emerald-800" isLoading={newVisitSaving} onClick={saveNewVisitCustomer}>
+                Ziyaret carisi ac ve notu kaydet
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           <input
@@ -1264,6 +1454,23 @@ function OpportunityList({ opportunities }: any) {
             <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-slate-500">{row.productCode}</span>
           </div>
           <p className="mt-1 text-xs text-slate-500">{row.reason}</p>
+          {(row.categoryName || row.categoryCode || row.categoryLastPurchaseDate) && (
+            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-bold">
+              {(row.categoryName || row.categoryCode) && (
+                <span className="rounded-full bg-white px-2 py-1 text-slate-600">
+                  Kategori: {row.categoryName || row.categoryCode}
+                </span>
+              )}
+              {row.categoryLastPurchaseDate && (
+                <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-800">
+                  Kategori son alim: {safeDate(row.categoryLastPurchaseDate)}
+                  {row.categoryMonthsSinceLastPurchase !== null && row.categoryMonthsSinceLastPurchase !== undefined
+                    ? ` (${n(row.categoryMonthsSinceLastPurchase, 1)} ay)`
+                    : ''}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       ))}
     </div>

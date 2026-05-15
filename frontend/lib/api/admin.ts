@@ -500,6 +500,21 @@ export const adminApi = {
     return response.data;
   },
 
+  createFieldSalesVisitCustomer: async (payload: {
+    customerName: string;
+    phone?: string | null;
+    email?: string | null;
+    note?: string | null;
+    demand?: string | null;
+    competitorInfo?: string | null;
+    photoUrl?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+  }): Promise<{ success: boolean; data: { customer: any; note: any } }> => {
+    const response = await apiClient.post('/admin/field-sales/visit-customers', payload);
+    return response.data;
+  },
+
   getFieldSalesVisitNotes: async (
     customerIdOrCode: string,
     params?: { limit?: number }

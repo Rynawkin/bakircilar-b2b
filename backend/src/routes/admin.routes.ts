@@ -342,6 +342,7 @@ router.get('/field-sales/products', requirePermission('admin:field-sales'), admi
 router.get('/field-sales/products/:productCode', requirePermission('admin:field-sales'), adminController.getFieldSalesProduct);
 router.get('/field-sales/customers/:customerId', requirePermission('admin:field-sales'), adminController.getFieldSalesCustomer);
 router.get('/field-sales/customers/:customerId/opportunities', requirePermission('admin:field-sales'), adminController.getFieldSalesOpportunities);
+router.post('/field-sales/visit-customers', requirePermission('admin:field-sales'), adminController.createFieldSalesVisitCustomer);
 router.get('/field-sales/customers/:customerId/visit-notes', requirePermission('admin:field-sales'), adminController.getFieldSalesVisitNotes);
 router.post('/field-sales/customers/:customerId/visit-notes', requirePermission('admin:field-sales'), adminController.createFieldSalesVisitNote);
 router.get('/customers/:id/price-list-rules', requirePermission('admin:customers'), adminController.getCustomerPriceListRules);

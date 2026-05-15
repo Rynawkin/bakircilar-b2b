@@ -2012,6 +2012,29 @@ export class AdminController {
   }
 
   /**
+   * POST /api/admin/field-sales/visit-customers
+   */
+  async createFieldSalesVisitCustomer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await fieldSalesService.createVisitCustomer({
+        customerName: req.body?.customerName,
+        phone: req.body?.phone,
+        email: req.body?.email,
+        note: req.body?.note,
+        demand: req.body?.demand,
+        competitorInfo: req.body?.competitorInfo,
+        photoUrl: req.body?.photoUrl,
+        latitude: req.body?.latitude,
+        longitude: req.body?.longitude,
+        scope: buildReportRequestContext(req),
+      });
+      res.status(201).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/field-sales/customers/:customerId/visit-notes
    */
   async getFieldSalesVisitNotes(req: Request, res: Response, next: NextFunction) {

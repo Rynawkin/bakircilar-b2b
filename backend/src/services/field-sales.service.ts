@@ -1,4 +1,4 @@
-import { OrderStatus, Prisma, QuoteStatus, UserRole } from '@prisma/client';
+import { CustomerType, OrderStatus, Prisma, QuoteStatus, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError, ErrorCode } from '../types/errors';
 import { splitSearchTokens } from '../utils/search';
@@ -6,6 +6,7 @@ import stockF10Service from './stock-f10.service';
 import priceListService from './price-list.service';
 import mikroService from './mikroFactory.service';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
+import { hashPassword } from '../utils/password';
 
 type StaffScope = {
   role?: string;
@@ -107,7 +108,29 @@ const dateDaysAgo = (days: number) => {
   return date;
 };
 
+const VISIT_CUSTOMER_GROUP_CODE = 'Z\u0130YARET';
+const VISIT_CUSTOMER_SECTOR_CODE = 'Z\u0130YARET';
+const VISIT_CUSTOMER_PREFIX = '120.01.';
+
+const toSqlString = (value: unknown) => `N'${escapeSqlLiteral(String(value ?? ''))}'`;
+
+const monthsSince = (value: unknown) => {
+  if (!value) return null;
+  const date = new Date(value as any);
+  if (Number.isNaN(date.getTime())) return null;
+  const diffDays = Math.max(0, (Date.now() - date.getTime()) / 86_400_000);
+  return Math.round((diffDays / 30.4375) * 10) / 10;
+};
+
+const isDateRecent = (value: unknown, cutoff: Date) => {
+  if (!value) return false;
+  const date = new Date(value as any);
+  return !Number.isNaN(date.getTime()) && date.getTime() >= cutoff.getTime();
+};
+
 class FieldSalesService {
+  private cariColumnsCache: string[] | null = null;
+
   private buildCustomerScope(scope: StaffScope): Prisma.UserWhereInput | null {
     const base: Prisma.UserWhereInput = {
       role: UserRole.CUSTOMER,
@@ -117,11 +140,148 @@ class FieldSalesService {
 
     if (scope.role === UserRole.SALES_REP) {
       const sectorCodes = (scope.assignedSectorCodes || []).map((code) => String(code || '').trim()).filter(Boolean);
-      if (sectorCodes.length === 0) return null;
-      base.sectorCode = { in: sectorCodes };
+      return {
+        AND: [
+          base,
+          {
+            OR: [
+              ...(sectorCodes.length > 0 ? [{ sectorCode: { in: sectorCodes } }] : []),
+              { sectorCode: VISIT_CUSTOMER_SECTOR_CODE },
+              { groupCode: VISIT_CUSTOMER_GROUP_CODE },
+            ],
+          },
+        ],
+      };
     }
 
     return base;
+  }
+
+  private async getCariInsertColumns() {
+    if (this.cariColumnsCache) return this.cariColumnsCache;
+
+    const rows = await mikroService.executeQuery(`
+      SELECT c.name
+      FROM sys.columns c
+      INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+      WHERE c.object_id = OBJECT_ID(N'dbo.CARI_HESAPLAR')
+        AND c.is_identity = 0
+        AND c.is_computed = 0
+        AND t.name NOT IN ('timestamp', 'rowversion')
+      ORDER BY c.column_id
+    `);
+
+    this.cariColumnsCache = rows.map((row: any) => String(row.name || '').trim()).filter(Boolean);
+    return this.cariColumnsCache;
+  }
+
+  private buildCariColumnExpression(column: string, input: { customerName: string; phone: string; email: string }) {
+    const lower = column.toLowerCase();
+    const direct: Record<string, string> = {
+      cari_guid: '@newGuid',
+      cari_kod: '@newCode',
+      cari_dbcno: '0',
+      cari_specrecno: '0',
+      cari_iptal: '0',
+      cari_fileid: '31',
+      cari_hidden: '0',
+      cari_kilitli: '0',
+      cari_degisti: '1',
+      cari_checksum: '0',
+      cari_create_user: '1',
+      cari_lastup_user: '1',
+      cari_create_date: 'GETDATE()',
+      cari_lastup_date: 'GETDATE()',
+      cari_special1: "N''",
+      cari_special2: "N''",
+      cari_special3: "N''",
+      cari_unvan1: toSqlString(input.customerName),
+      cari_unvan2: "N''",
+      cari_grup_kodu: toSqlString(VISIT_CUSTOMER_GROUP_CODE),
+      cari_sektor_kodu: toSqlString(VISIT_CUSTOMER_SECTOR_CODE),
+      cari_ceptel: toSqlString(input.phone),
+      cari_email: toSqlString(input.email),
+      cari_efatura_fl: '0',
+      cari_cari_kilitli_flg: '0',
+    };
+
+    if (direct[lower] !== undefined) return direct[lower];
+    return `src.[${column.replace(/]/g, ']]')}]`;
+  }
+
+  async getNextVisitCustomerCode() {
+    const rows = await mikroService.executeQuery(`
+      SELECT MAX(TRY_CONVERT(int, SUBSTRING(cari_kod, ${VISIT_CUSTOMER_PREFIX.length + 1}, 20))) AS maxNo
+      FROM CARI_HESAPLAR WITH (NOLOCK)
+      WHERE cari_kod LIKE N'${escapeSqlLiteral(VISIT_CUSTOMER_PREFIX)}%'
+        AND TRY_CONVERT(int, SUBSTRING(cari_kod, ${VISIT_CUSTOMER_PREFIX.length + 1}, 20)) IS NOT NULL
+    `);
+    const maxNo = Number(rows[0]?.maxNo) || 0;
+    return `${VISIT_CUSTOMER_PREFIX}${maxNo + 1}`;
+  }
+
+  private async createMikroVisitCustomer(input: { customerName: string; phone: string; email: string }) {
+    const columns = await this.getCariInsertColumns();
+    if (!columns.includes('cari_kod') || !columns.includes('cari_Guid')) {
+      throw new AppError('Mikro cari kolonlari beklenen yapida degil.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    const columnList = columns.map((column) => `[${column.replace(/]/g, ']]')}]`).join(', ');
+    const expressionList = columns.map((column) => this.buildCariColumnExpression(column, input)).join(', ');
+
+    const rows = await mikroService.executeQuery(`
+      SET XACT_ABORT ON;
+      BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @created TABLE(cariCode nvarchar(25), cariGuid uniqueidentifier);
+        DECLARE @baseNo int;
+        DECLARE @templateCode nvarchar(25);
+        DECLARE @newCode nvarchar(25);
+        DECLARE @newGuid uniqueidentifier = NEWID();
+
+        SELECT @baseNo = ISNULL(MAX(TRY_CONVERT(int, SUBSTRING(cari_kod, ${VISIT_CUSTOMER_PREFIX.length + 1}, 20))), 0)
+        FROM CARI_HESAPLAR WITH (UPDLOCK, HOLDLOCK)
+        WHERE cari_kod LIKE N'${escapeSqlLiteral(VISIT_CUSTOMER_PREFIX)}%'
+          AND TRY_CONVERT(int, SUBSTRING(cari_kod, ${VISIT_CUSTOMER_PREFIX.length + 1}, 20)) IS NOT NULL;
+
+        SET @newCode = N'${escapeSqlLiteral(VISIT_CUSTOMER_PREFIX)}' + CONVERT(nvarchar(20), @baseNo + 1);
+
+        SELECT TOP 1 @templateCode = cari_kod
+        FROM CARI_HESAPLAR WITH (NOLOCK)
+        WHERE cari_kod LIKE N'${escapeSqlLiteral(VISIT_CUSTOMER_PREFIX)}%'
+          AND cari_kod <> @newCode
+        ORDER BY TRY_CONVERT(int, SUBSTRING(cari_kod, ${VISIT_CUSTOMER_PREFIX.length + 1}, 20)) DESC;
+
+        IF @templateCode IS NULL
+          THROW 52000, 'Sablon cari bulunamadi', 1;
+
+        IF EXISTS (SELECT 1 FROM CARI_HESAPLAR WITH (UPDLOCK, HOLDLOCK) WHERE cari_kod = @newCode)
+          THROW 52001, 'Olusacak cari kodu Mikroda zaten var', 1;
+
+        INSERT INTO CARI_HESAPLAR (${columnList})
+        OUTPUT inserted.cari_kod, inserted.cari_Guid INTO @created(cariCode, cariGuid)
+        SELECT ${expressionList}
+        FROM CARI_HESAPLAR src WITH (NOLOCK)
+        WHERE src.cari_kod = @templateCode;
+
+        IF @@ROWCOUNT = 0
+          THROW 52002, 'Sablon cari okunamadi', 1;
+
+        COMMIT TRANSACTION;
+        SELECT cariCode, CONVERT(nvarchar(50), cariGuid) AS cariGuid FROM @created;
+      END TRY
+      BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        DECLARE @message nvarchar(4000) = ERROR_MESSAGE();
+        THROW 52003, @message, 1;
+      END CATCH
+    `);
+
+    const created = rows[0];
+    return {
+      cariCode: normalizeCode(created?.cariCode),
+      cariGuid: String(created?.cariGuid || '').trim(),
+    };
   }
 
   private async resolveCustomer(customerIdOrCode: string, scope: StaffScope) {
@@ -633,12 +793,15 @@ class FieldSalesService {
         SELECT TOP ${safeLimit}
           LTRIM(RTRIM(sth.sth_stok_kod)) as productCode,
           MAX(ISNULL(st.sto_isim, '')) as productName,
+          MAX(ISNULL(st.sto_kategori_kodu, '')) as categoryCode,
+          MAX(ISNULL(ktg.ktg_isim, '')) as categoryName,
           MAX(sth.sth_tarih) as lastPurchaseDate,
           SUM(CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT)) as totalQuantity,
           SUM(CAST(ISNULL(sth.sth_tutar, 0) AS FLOAT)) as totalAmount,
           COUNT(DISTINCT LTRIM(RTRIM(ISNULL(sth.sth_evrakno_seri, ''))) + '-' + CAST(ISNULL(sth.sth_evrakno_sira, 0) AS VARCHAR(30))) as documentCount
         FROM STOK_HAREKETLERI sth WITH (NOLOCK)
         LEFT JOIN STOKLAR st WITH (NOLOCK) ON st.sto_kod = sth.sth_stok_kod
+        LEFT JOIN STOK_KATEGORILERI ktg WITH (NOLOCK) ON ktg.ktg_kod = st.sto_kategori_kodu
         WHERE LTRIM(RTRIM(sth.sth_cari_kodu)) = '${escapeSqlLiteral(code)}'
           AND ISNULL(sth.sth_tip, 0) = 1
           AND ISNULL(sth.sth_evraktip, 0) IN (1, 4)
@@ -661,6 +824,8 @@ class FieldSalesService {
         return {
           productCode: normalizeCode(row.productCode),
           productName: String(row.productName || '').trim(),
+          categoryCode: String(row.categoryCode || '').trim(),
+          categoryName: String(row.categoryName || '').trim(),
           lastPurchaseDate: row.lastPurchaseDate || null,
           totalQuantity: asNumber(row.totalQuantity),
           totalAmount: asNumber(row.totalAmount),
@@ -675,24 +840,74 @@ class FieldSalesService {
     }
   }
 
+  private async getCustomerCategoryLastPurchases(customerCode: string) {
+    const code = normalizeCode(customerCode);
+    if (!code) return new Map<string, { categoryCode: string; categoryName: string; lastPurchaseDate: any }>();
+
+    try {
+      const rows = rowsFromMikro(await mikroService.executeQuery(`
+        SELECT
+          LTRIM(RTRIM(ISNULL(st.sto_kategori_kodu, ''))) as categoryCode,
+          MAX(ISNULL(ktg.ktg_isim, '')) as categoryName,
+          MAX(sth.sth_tarih) as lastPurchaseDate
+        FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+        INNER JOIN STOKLAR st WITH (NOLOCK) ON st.sto_kod = sth.sth_stok_kod
+        LEFT JOIN STOK_KATEGORILERI ktg WITH (NOLOCK) ON ktg.ktg_kod = st.sto_kategori_kodu
+        WHERE LTRIM(RTRIM(sth.sth_cari_kodu)) = '${escapeSqlLiteral(code)}'
+          AND ISNULL(sth.sth_tip, 0) = 1
+          AND ISNULL(sth.sth_evraktip, 0) IN (1, 4)
+          AND ISNULL(sth.sth_miktar, 0) > 0
+          AND LTRIM(RTRIM(ISNULL(st.sto_kategori_kodu, ''))) <> ''
+        GROUP BY LTRIM(RTRIM(ISNULL(st.sto_kategori_kodu, '')))
+      `));
+
+      const map = new Map<string, { categoryCode: string; categoryName: string; lastPurchaseDate: any }>();
+      rows.forEach((row) => {
+        const categoryCode = String(row.categoryCode || '').trim();
+        if (!categoryCode) return;
+        map.set(categoryCode, {
+          categoryCode,
+          categoryName: String(row.categoryName || '').trim(),
+          lastPurchaseDate: row.lastPurchaseDate || null,
+        });
+      });
+      return map;
+    } catch (error) {
+      console.warn('FieldSales category last purchases failed', error);
+      return new Map<string, { categoryCode: string; categoryName: string; lastPurchaseDate: any }>();
+    }
+  }
+
   async getCustomerOpportunities(customerIdOrCode: string, scope: StaffScope) {
     const customer = await this.resolveCustomer(customerIdOrCode, scope);
     const customerCode = normalizeCode(customer.mikroCariCode);
-    const purchased = await this.getCustomerPurchasedProducts(customerCode, 80);
+    const [purchased, categoryLastMap] = await Promise.all([
+      this.getCustomerPurchasedProducts(customerCode, 80),
+      this.getCustomerCategoryLastPurchases(customerCode),
+    ]);
     const ninetyDaysAgo = dateDaysAgo(90);
     const stalePurchased = purchased
       .filter((row) => {
         const date = row.lastPurchaseDate ? new Date(row.lastPurchaseDate).getTime() : 0;
-        return !date || date < ninetyDaysAgo.getTime();
+        const categoryLast = row.categoryCode ? categoryLastMap.get(row.categoryCode)?.lastPurchaseDate : null;
+        return (!date || date < ninetyDaysAgo.getTime()) && !isDateRecent(categoryLast, ninetyDaysAgo);
       })
       .sort((a, b) => Number(b.totalAmount || 0) - Number(a.totalAmount || 0))
       .slice(0, 12)
-      .map((row) => ({
-        type: 'STALE_PURCHASE',
-        title: 'Eskiden aldigi urun',
-        reason: 'Son 90 gunde tekrar alim yok',
-        ...row,
-      }));
+      .map((row) => {
+        const categoryLast = row.categoryCode ? categoryLastMap.get(row.categoryCode) : null;
+        const categoryMonths = monthsSince(categoryLast?.lastPurchaseDate || row.lastPurchaseDate);
+        return {
+          type: 'STALE_PURCHASE',
+          title: 'Eskiden aldigi urun',
+          reason: categoryMonths !== null
+            ? `Urun ve kategori son ${categoryMonths} aydir alinmiyor`
+            : 'Son 90 gunde urun/kategori alimi yok',
+          ...row,
+          categoryLastPurchaseDate: categoryLast?.lastPurchaseDate || row.lastPurchaseDate || null,
+          categoryMonthsSinceLastPurchase: categoryMonths,
+        };
+      });
 
     const purchasedSet = new Set(purchased.map((row) => normalizeCode(row.productCode)));
     const now = new Date();
@@ -708,27 +923,40 @@ class FieldSalesService {
         priceInvoiced: true,
         priceWhite: true,
         minQuantity: true,
-        product: { select: { mikroCode: true, name: true, imageUrl: true, unit: true } },
+        product: { select: { mikroCode: true, name: true, imageUrl: true, unit: true, category: { select: { mikroCode: true, name: true } } } },
       },
     });
 
     const agreementNoRecent = agreementNoRecentRows
-      .filter((row) => !purchasedSet.has(normalizeCode(row.product.mikroCode)))
+      .filter((row) => {
+        const categoryCode = String(row.product.category?.mikroCode || '').trim();
+        return !purchasedSet.has(normalizeCode(row.product.mikroCode)) && !isDateRecent(categoryLastMap.get(categoryCode)?.lastPurchaseDate, ninetyDaysAgo);
+      })
       .slice(0, 12)
-      .map((row) => ({
-        type: 'AGREEMENT_NOT_ORDERED',
-        title: 'Anlasmali ama alinmamis urun',
-        reason: 'Aktif anlasma var, satis gecmisi bulunmadi',
-        productCode: row.product.mikroCode,
-        productName: row.product.name,
-        imageUrl: row.product.imageUrl,
-        unit: row.product.unit,
-        priceInvoiced: row.priceInvoiced,
-        priceWhite: row.priceWhite,
-        minQuantity: row.minQuantity,
-      }));
+      .map((row) => {
+        const categoryCode = String(row.product.category?.mikroCode || '').trim();
+        const categoryLast = categoryCode ? categoryLastMap.get(categoryCode) : null;
+        return {
+          type: 'AGREEMENT_NOT_ORDERED',
+          title: 'Anlasmali ama alinmamis urun',
+          reason: categoryLast?.lastPurchaseDate
+            ? `Aktif anlasma var; kategori son ${monthsSince(categoryLast.lastPurchaseDate)} ay once alinmis`
+            : 'Aktif anlasma var, satis gecmisi bulunmadi',
+          productCode: row.product.mikroCode,
+          productName: row.product.name,
+          categoryCode,
+          categoryName: row.product.category?.name || null,
+          categoryLastPurchaseDate: categoryLast?.lastPurchaseDate || null,
+          categoryMonthsSinceLastPurchase: monthsSince(categoryLast?.lastPurchaseDate),
+          imageUrl: row.product.imageUrl,
+          unit: row.product.unit,
+          priceInvoiced: row.priceInvoiced,
+          priceWhite: row.priceWhite,
+          minQuantity: row.minQuantity,
+        };
+      });
 
-    const similarSector = await this.getSimilarSectorOpportunities(customer, purchasedSet);
+    const similarSector = await this.getSimilarSectorOpportunities(customer, purchasedSet, categoryLastMap, ninetyDaysAgo);
 
     return {
       stalePurchased,
@@ -737,7 +965,12 @@ class FieldSalesService {
     };
   }
 
-  private async getSimilarSectorOpportunities(customer: any, excludeCodes: Set<string>) {
+  private async getSimilarSectorOpportunities(
+    customer: any,
+    excludeCodes: Set<string>,
+    categoryLastMap: Map<string, { categoryCode: string; categoryName: string; lastPurchaseDate: any }>,
+    recentCutoff: Date
+  ) {
     const sectorCode = String(customer.sectorCode || '').trim();
     if (!sectorCode) return [];
 
@@ -746,6 +979,8 @@ class FieldSalesService {
         SELECT TOP 25
           LTRIM(RTRIM(sth.sth_stok_kod)) as productCode,
           MAX(ISNULL(st.sto_isim, '')) as productName,
+          MAX(ISNULL(st.sto_kategori_kodu, '')) as categoryCode,
+          MAX(ISNULL(ktg.ktg_isim, '')) as categoryName,
           COUNT(DISTINCT LTRIM(RTRIM(sth.sth_cari_kodu))) as customerCount,
           SUM(CAST(ISNULL(sth.sth_miktar, 0) AS FLOAT)) as totalQuantity,
           SUM(CAST(ISNULL(sth.sth_tutar, 0) AS FLOAT)) as totalAmount,
@@ -753,6 +988,7 @@ class FieldSalesService {
         FROM STOK_HAREKETLERI sth WITH (NOLOCK)
         INNER JOIN CARI_HESAPLAR ch WITH (NOLOCK) ON ch.cari_kod = sth.sth_cari_kodu
         LEFT JOIN STOKLAR st WITH (NOLOCK) ON st.sto_kod = sth.sth_stok_kod
+        LEFT JOIN STOK_KATEGORILERI ktg WITH (NOLOCK) ON ktg.ktg_kod = st.sto_kategori_kodu
         WHERE LTRIM(RTRIM(ISNULL(ch.cari_sektor_kodu, ''))) = '${escapeSqlLiteral(sectorCode)}'
           AND LTRIM(RTRIM(sth.sth_cari_kodu)) <> '${escapeSqlLiteral(normalizeCode(customer.mikroCariCode))}'
           AND ISNULL(sth.sth_tip, 0) = 1
@@ -763,7 +999,13 @@ class FieldSalesService {
         ORDER BY COUNT(DISTINCT LTRIM(RTRIM(sth.sth_cari_kodu))) DESC, SUM(CAST(ISNULL(sth.sth_tutar, 0) AS FLOAT)) DESC
       `));
 
-      const filtered = rows.filter((row) => !excludeCodes.has(normalizeCode(row.productCode))).slice(0, 12);
+      const filtered = rows
+        .filter((row) => {
+          const productCode = normalizeCode(row.productCode);
+          const categoryCode = String(row.categoryCode || '').trim();
+          return !excludeCodes.has(productCode) && !isDateRecent(categoryLastMap.get(categoryCode)?.lastPurchaseDate, recentCutoff);
+        })
+        .slice(0, 12);
       const codes = filtered.map((row) => normalizeCode(row.productCode)).filter(Boolean);
       const products = codes.length
         ? await prisma.product.findMany({
@@ -778,9 +1020,13 @@ class FieldSalesService {
         return {
           type: 'SIMILAR_SECTOR',
           title: 'Benzer cariler aliyor',
-          reason: `${asNumber(row.customerCount)} cari son 120 gunde aldi`,
+          reason: `${asNumber(row.customerCount)} cari son 120 gunde aldi; bu kategoride yakin alim yok`,
           productCode: normalizeCode(row.productCode),
           productName: String(row.productName || '').trim(),
+          categoryCode: String(row.categoryCode || '').trim(),
+          categoryName: String(row.categoryName || '').trim() || null,
+          categoryLastPurchaseDate: categoryLastMap.get(String(row.categoryCode || '').trim())?.lastPurchaseDate || null,
+          categoryMonthsSinceLastPurchase: monthsSince(categoryLastMap.get(String(row.categoryCode || '').trim())?.lastPurchaseDate),
           customerCount: asNumber(row.customerCount),
           totalQuantity: asNumber(row.totalQuantity),
           totalAmount: asNumber(row.totalAmount),
@@ -793,6 +1039,96 @@ class FieldSalesService {
       console.warn('FieldSales similar sector opportunities failed', error);
       return [];
     }
+  }
+
+  async createVisitCustomer(input: {
+    customerName?: string;
+    phone?: string | null;
+    email?: string | null;
+    note?: string | null;
+    demand?: string | null;
+    competitorInfo?: string | null;
+    photoUrl?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    scope: StaffScope;
+  }) {
+    const customerName = String(input.customerName || '').trim();
+    if (!customerName) throw new AppError('Musteri adi zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    if (customerName.length > 127) throw new AppError('Musteri adi 127 karakterden uzun olamaz.', 400, ErrorCode.BAD_REQUEST);
+
+    const phone = String(input.phone || '').trim();
+    const email = String(input.email || '').trim();
+    const note = String(input.note || '').trim() || 'Yeni musteri ziyareti';
+    if (phone.length > 20) throw new AppError('Telefon 20 karakterden uzun olamaz.', 400, ErrorCode.BAD_REQUEST);
+    if (email.length > 127) throw new AppError('Email 127 karakterden uzun olamaz.', 400, ErrorCode.BAD_REQUEST);
+
+    if (email) {
+      const existingEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (existingEmail) throw new AppError('Bu email ile kayitli musteri zaten var.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const createdMikro = await this.createMikroVisitCustomer({ customerName, phone, email });
+    if (!createdMikro.cariCode) {
+      throw new AppError('Mikro cari kodu olusturulamadi.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    const actor = input.scope.userId
+      ? await prisma.user.findUnique({
+          where: { id: input.scope.userId },
+          select: { id: true, name: true, displayName: true, email: true },
+        })
+      : null;
+
+    const hashedPassword = await hashPassword(`VISIT-${createdMikro.cariCode}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const customer = await prisma.user.create({
+      data: {
+        email: email || null,
+        password: hashedPassword,
+        name: customerName,
+        mikroName: customerName,
+        displayName: customerName,
+        role: UserRole.CUSTOMER,
+        customerType: CustomerType.PERAKENDE,
+        mikroCariCode: createdMikro.cariCode,
+        phone: phone || null,
+        groupCode: VISIT_CUSTOMER_GROUP_CODE,
+        sectorCode: VISIT_CUSTOMER_SECTOR_CODE,
+        hasEInvoice: false,
+        balance: 0,
+        isLocked: false,
+      },
+      select: CUSTOMER_SELECT,
+    });
+
+    await prisma.cart.create({ data: { userId: customer.id } }).catch(() => null);
+
+    const createdNote = await prisma.fieldSalesVisitNote.create({
+      data: {
+        customerId: customer.id,
+        customerCode: createdMikro.cariCode,
+        customerName,
+        note,
+        demand: input.demand ? String(input.demand).trim() : null,
+        competitorInfo: input.competitorInfo ? String(input.competitorInfo).trim() : null,
+        photoUrl: input.photoUrl ? String(input.photoUrl).trim() : null,
+        latitude: Number.isFinite(Number(input.latitude)) ? Number(input.latitude) : null,
+        longitude: Number.isFinite(Number(input.longitude)) ? Number(input.longitude) : null,
+        createdById: actor?.id || null,
+        createdByName: actor?.displayName || actor?.name || actor?.email || null,
+      },
+      include: {
+        createdBy: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    return {
+      customer: {
+        ...customer,
+        displayTitle: displayName(customer),
+      },
+      note: createdNote,
+    };
   }
 
   async getVisitNotes(customerIdOrCode: string, scope: StaffScope, limit = 20) {
