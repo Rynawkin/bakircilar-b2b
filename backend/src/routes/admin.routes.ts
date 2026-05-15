@@ -13,6 +13,7 @@ import supplierPriceListController from '../controllers/supplier-price-list.cont
 import productComplementController from '../controllers/product-complement.controller';
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
 import productDimensionsController from '../controllers/product-dimensions.controller';
+import stockCreateController from '../controllers/stock-create.controller';
 import {
   authenticate,
   requirePermission,
@@ -220,6 +221,12 @@ router.post(
 );
 router.post('/products/image-sync', requirePermission('admin:products'), adminController.triggerSelectedImageSync);
 router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admin:order-tracking']), upload.single('image'), adminController.uploadProductImage);
+
+router.get('/stock-create/metadata', requirePermission('admin:stock-create'), stockCreateController.getMetadata);
+router.get('/stock-create/history', requirePermission('admin:stock-create'), stockCreateController.getHistory);
+router.get('/stock-create/lookups/:type', requirePermission('admin:stock-create'), stockCreateController.searchLookups);
+router.post('/stock-create/preview', requirePermission('admin:stock-create'), stockCreateController.preview);
+router.post('/stock-create/create', requirePermission('admin:stock-create'), stockCreateController.create);
 
 router.get('/product-dimensions/products', requirePermission('admin:product-dimensions'), productDimensionsController.searchProducts);
 router.get('/product-dimensions/missing', requirePermission('admin:product-dimensions'), productDimensionsController.getMissingProducts);

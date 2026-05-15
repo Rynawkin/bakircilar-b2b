@@ -470,6 +470,30 @@ model ProductDimensionChangeLog {
   @@index([createdAt])
 }
 
+model StockCreationLog {
+  id            String   @id @default(uuid())
+  batchId       String
+  mode          String
+  status        String
+  rowNo         Int?
+  stockCode     String?
+  stockName     String
+  templateCode  String?
+  payload       Json
+  validation    Json?
+  result        Json?
+  errorMessage  String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  @@index([batchId])
+  @@index([status])
+  @@index([stockCode])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
 // ==================== SETTINGS ====================
 
 model Settings {

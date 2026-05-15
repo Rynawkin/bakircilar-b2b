@@ -35,7 +35,8 @@ import {
   X,
   LogOut,
   Percent,
-  Ruler
+  Ruler,
+  PackagePlus
 } from 'lucide-react';
 
 interface NavItem {
@@ -79,6 +80,7 @@ const navItems: NavItem[] = [
   { name: 'Vade Takip', href: '/vade', icon: Clock, description: 'Vade ve alacak takibi', permission: 'admin:vade' },
   { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arşivi', permission: 'admin:einvoices' },
   { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi', permission: 'admin:products' },
+  { name: 'Stok Acma', href: '/stock-create', icon: PackagePlus, description: 'Mikro yeni stok karti', permission: 'admin:stock-create' },
   { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Görev ve talepler', permission: 'admin:requests' },
   { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları', permission: 'admin:campaigns' },
   {
