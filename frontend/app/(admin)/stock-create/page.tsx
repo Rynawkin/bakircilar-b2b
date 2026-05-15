@@ -101,7 +101,7 @@ type CreationLog = {
   createdAt: string;
 };
 
-const DRAFT_KEY = 'stock-create:draft';
+const DRAFT_KEY = 'stock-create:draft:v2';
 const textInputClass = 'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100';
 const labelClass = 'mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500';
 
@@ -130,12 +130,12 @@ const defaultForm = (templateCode = 'B108423'): StockForm => ({
   packageName: '',
   shelfCode: '',
   currentCost: '',
-  mainUnit: 'ADET',
+  mainUnit: '',
   mainUnitWeightKg: '',
   mainUnitWidthCm: '',
   mainUnitLengthCm: '',
   mainUnitHeightCm: '',
-  margins: ['2', '1,5', '1,3', '1,2', '1,15'],
+  margins: ['', '', '', '', ''],
   barcode: '',
   notes: '',
   extraUnits: [],
@@ -484,23 +484,9 @@ export default function StockCreatePage() {
     setForm((prev) => ({
       ...prev,
       templateCode: template.templateCode,
-      shortName: template.shortName || prev.shortName,
       vatRatePercent: template.vatRatePercent || prev.vatRatePercent,
-      supplierCode: template.supplierCode || prev.supplierCode,
-      brandCode: template.brandCode || prev.brandCode,
-      brandName: template.brandName || prev.brandName,
       categoryCode: template.categoryCode || prev.categoryCode,
-      packageCode: template.packageCode || prev.packageCode,
-      packageName: template.packageName || prev.packageName,
-      shelfCode: template.shelfCode || prev.shelfCode,
-      currentCost: template.currentCost || prev.currentCost,
-      mainUnit: template.mainUnit || prev.mainUnit,
-      mainUnitWeightKg: template.mainUnitWeightKg || prev.mainUnitWeightKg,
-      mainUnitWidthCm: template.mainUnitWidthCm || prev.mainUnitWidthCm,
-      mainUnitLengthCm: template.mainUnitLengthCm || prev.mainUnitLengthCm,
-      mainUnitHeightCm: template.mainUnitHeightCm || prev.mainUnitHeightCm,
       margins: template.margins?.some(Boolean) ? template.margins : prev.margins,
-      extraUnits: template.extraUnits || prev.extraUnits,
     }));
     setPreviewRows([]);
   };
@@ -785,9 +771,10 @@ export default function StockCreatePage() {
                     <div className="min-w-0">
                       <div className="text-xs font-black uppercase text-emerald-700">Aktif sablon</div>
                       <div className="line-clamp-1 text-sm font-bold text-emerald-950">{templateStock.templateCode} - {templateStock.name}</div>
+                      <div className="mt-1 text-xs font-semibold text-emerald-800">Otomatik sadece kategori, KDV ve marjlar alinir; diger alanlar kopyala butonuyla aktarilir.</div>
                     </div>
                     <Button onClick={() => applyTemplateDefaults(templateStock)} className="bg-emerald-700 text-white hover:bg-emerald-800">
-                      Sablondan tum alanlari doldur
+                      Kategori/KDV/Marj Yenile
                     </Button>
                   </div>
                 )}
