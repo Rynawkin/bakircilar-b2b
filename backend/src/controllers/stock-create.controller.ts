@@ -42,6 +42,28 @@ class StockCreateController {
     }
   }
 
+  async getStock(req: Request, res: Response) {
+    try {
+      const stockCode = String(req.params.stockCode || '');
+      const stock = await stockCreateService.getStock(stockCode);
+      res.json({ stock });
+    } catch (error: any) {
+      console.error('Stock create stock fetch failed:', error);
+      res.status(404).json({ error: error.message || 'Stok bilgisi alinamadi' });
+    }
+  }
+
+  async updateStock(req: Request, res: Response) {
+    try {
+      const stockCode = String(req.params.stockCode || '');
+      const data = await stockCreateService.updateStock(stockCode, req.body || {}, req.user?.userId);
+      res.json(data);
+    } catch (error: any) {
+      console.error('Stock create stock update failed:', error);
+      res.status(400).json({ error: error.message || 'Stok karti guncellenemedi' });
+    }
+  }
+
   async preview(req: Request, res: Response) {
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];

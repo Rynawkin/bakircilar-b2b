@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   History,
   PackagePlus,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
@@ -72,6 +73,7 @@ type StockForm = {
 };
 
 type TemplateStock = StockForm & {
+  stockCode?: string;
   supplierName?: string;
   brandName: string;
   categoryName?: string;
@@ -147,6 +149,12 @@ const statusStyle = {
   valid: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   warning: 'border-amber-200 bg-amber-50 text-amber-800',
   error: 'border-rose-200 bg-rose-50 text-rose-800',
+};
+
+const logStatusStyle = (status: string) => {
+  if (status === 'CREATED') return 'bg-emerald-50 text-emerald-700';
+  if (status === 'UPDATED') return 'bg-blue-50 text-blue-700';
+  return 'bg-rose-50 text-rose-700';
 };
 
 function formatDateTime(value: string) {
@@ -401,6 +409,9 @@ export default function StockCreatePage() {
   const [historyRows, setHistoryRows] = useState<CreationLog[]>([]);
   const [templateStock, setTemplateStock] = useState<TemplateStock | null>(null);
   const [templateLoading, setTemplateLoading] = useState(false);
+  const [editingStockCode, setEditingStockCode] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const appliedTemplateRef = useRef('');
@@ -432,10 +443,12 @@ export default function StockCreatePage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (editingStockCode) return;
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, bulkItems }));
-  }, [form, bulkItems]);
+  }, [form, bulkItems, editingStockCode]);
 
   useEffect(() => {
+    if (editingStockCode) return;
     const code = form.templateCode.trim().toUpperCase();
     if (!code || code.length < 4) {
       setTemplateStock(null);
@@ -445,7 +458,7 @@ export default function StockCreatePage() {
       void loadTemplate(code, true);
     }, 450);
     return () => clearTimeout(timer);
-  }, [form.templateCode]);
+  }, [form.templateCode, editingStockCode]);
 
   const loadMetadata = async () => {
     setLoading(true);
@@ -467,9 +480,10 @@ export default function StockCreatePage() {
   };
 
   const normalizeTemplateStock = (raw: any): TemplateStock => ({
-    ...defaultForm(raw?.templateCode || defaultTemplateCode),
+    ...defaultForm(raw?.templateCode || raw?.stockCode || defaultTemplateCode),
     ...raw,
-    templateCode: String(raw?.templateCode || defaultTemplateCode),
+    stockCode: raw?.stockCode ? String(raw.stockCode) : undefined,
+    templateCode: String(raw?.templateCode || raw?.stockCode || defaultTemplateCode),
     vatRatePercent: String(raw?.vatRatePercent || '20'),
     currentCost: String(raw?.currentCost || ''),
     mainUnitWeightKg: String(raw?.mainUnitWeightKg || ''),
@@ -558,6 +572,36 @@ export default function StockCreatePage() {
     setPreviewRows([]);
   };
 
+  const cancelEditMode = () => {
+    setEditingStockCode(null);
+    setTemplateStock(null);
+    appliedTemplateRef.current = '';
+    setForm(defaultForm(defaultTemplateCode));
+    setPreviewRows([]);
+  };
+
+  const loadStockForEdit = async (stockCode?: string | null) => {
+    const code = String(stockCode || '').trim().toUpperCase();
+    if (!code) return;
+    setEditLoading(true);
+    try {
+      const res = await apiClient.get(`/admin/stock-create/stocks/${encodeURIComponent(code)}`);
+      const normalized = normalizeTemplateStock(res.data.stock);
+      setActiveTab('single');
+      setEditingStockCode(code);
+      setTemplateStock(null);
+      appliedTemplateRef.current = code;
+      setForm({ ...defaultForm(code), ...normalized, templateCode: code });
+      setPreviewRows([]);
+      toast.success(`${code} duzenleme moduna alindi`);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Stok bilgisi alinamadi');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
   const activeItems = activeTab === 'single' ? [form] : bulkItems;
   const hasErrors = previewRows.some((row) => row.status === 'error');
   const hasWarnings = previewRows.some((row) => row.status === 'warning');
@@ -606,6 +650,26 @@ export default function StockCreatePage() {
       toast.error(error.response?.data?.error || 'Stok karti olusturulamadi');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const updateExistingStock = async () => {
+    if (!editingStockCode) return;
+    const confirmed = window.confirm(`${editingStockCode} stok karti Mikroda guncellenecek. Devam edilsin mi?`);
+    if (!confirmed) return;
+
+    setUpdating(true);
+    try {
+      const res = await apiClient.put(`/admin/stock-create/stocks/${encodeURIComponent(editingStockCode)}`, form);
+      const normalized = normalizeTemplateStock(res.data.stock);
+      setForm({ ...defaultForm(editingStockCode), ...normalized, templateCode: editingStockCode });
+      setPreviewRows([]);
+      await loadMetadata();
+      toast.success(`${editingStockCode} guncellendi`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Stok karti guncellenemedi');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -724,11 +788,13 @@ export default function StockCreatePage() {
             }}
             className={`rounded-2xl px-5 py-3 text-sm font-black transition ${activeTab === 'single' ? 'bg-slate-950 text-white shadow-lg' : 'bg-white text-slate-700 shadow-sm hover:bg-slate-100'}`}
           >
-            Tekli Stok Ac
+            {editingStockCode ? 'Stok Duzenle' : 'Tekli Stok Ac'}
           </button>
           <button
             type="button"
             onClick={() => {
+              if (editingStockCode && !window.confirm('Duzenleme modu kapatilip toplu ekrana gecilsin mi?')) return;
+              if (editingStockCode) cancelEditMode();
               setActiveTab('bulk');
               setPreviewRows([]);
             }}
@@ -757,16 +823,33 @@ export default function StockCreatePage() {
               <Card className="rounded-[2rem] border-0 p-6 shadow-xl">
                 <div className="mb-5 flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-2xl font-black text-slate-950">Tekli Stok Bilgileri</h2>
-                    <p className="mt-1 text-sm text-slate-500">Zorunlu alanlari doldurun, once on kontrol calistirin.</p>
+                    <h2 className="text-2xl font-black text-slate-950">{editingStockCode ? `Stok Duzenle - ${editingStockCode}` : 'Tekli Stok Bilgileri'}</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {editingStockCode
+                        ? 'Bu mod mevcut Mikro stok kartini gunceller; stok kodu degismez.'
+                        : 'Zorunlu alanlari doldurun, once on kontrol calistirin.'}
+                    </p>
                   </div>
                   <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-right">
-                    <div className="text-xs font-bold uppercase text-emerald-700">Olusacak Kod</div>
-                    <div className="text-2xl font-black text-emerald-900">{previewRows[0]?.previewCode || nextCode || '-'}</div>
+                    <div className="text-xs font-bold uppercase text-emerald-700">{editingStockCode ? 'Duzenlenen Kod' : 'Olusacak Kod'}</div>
+                    <div className="text-2xl font-black text-emerald-900">{editingStockCode || previewRows[0]?.previewCode || nextCode || '-'}</div>
                   </div>
                 </div>
 
-                {templateStock && (
+                {editingStockCode && (
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-blue-100 bg-blue-50 px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-black uppercase text-blue-700">Duzenleme modu</div>
+                      <div className="line-clamp-1 text-sm font-bold text-blue-950">{editingStockCode} - {form.name || 'Stok adi bos'}</div>
+                      <div className="mt-1 text-xs font-semibold text-blue-800">Kaydet butonu yeni stok acmaz; bu stok kartinin mevcut verilerini gunceller.</div>
+                    </div>
+                    <Button onClick={cancelEditMode} className="bg-white text-slate-700 shadow-sm hover:bg-slate-100">
+                      Yeni stok moduna don
+                    </Button>
+                  </div>
+                )}
+
+                {!editingStockCode && templateStock && (
                   <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-emerald-100 bg-emerald-50 px-4 py-3">
                     <div className="min-w-0">
                       <div className="text-xs font-black uppercase text-emerald-700">Aktif sablon</div>
@@ -791,18 +874,27 @@ export default function StockCreatePage() {
                     />
                   </div>
                   <div>
-                    <LookupField
-                      label="Sablon Stok"
-                      type="template"
-                      value={form.templateCode}
-                      placeholder="Kod veya stok adi ara"
-                      onChange={(templateCode, item) => {
-                        const code = (item?.code || templateCode).toUpperCase();
-                        updateTemplateCode(code);
-                        if (item?.code) void loadTemplate(item.code, true);
-                      }}
-                    />
-                    {templateLoading && <div className="mt-1 text-xs font-semibold text-emerald-700">Sablon bilgileri aliniyor...</div>}
+                    {editingStockCode ? (
+                      <>
+                        <label className={labelClass}>Stok Kodu</label>
+                        <input value={editingStockCode} readOnly className={`${textInputClass} bg-slate-100 text-slate-500`} />
+                      </>
+                    ) : (
+                      <>
+                        <LookupField
+                          label="Sablon Stok"
+                          type="template"
+                          value={form.templateCode}
+                          placeholder="Kod veya stok adi ara"
+                          onChange={(templateCode, item) => {
+                            const code = (item?.code || templateCode).toUpperCase();
+                            updateTemplateCode(code);
+                            if (item?.code) void loadTemplate(item.code, true);
+                          }}
+                        />
+                        {templateLoading && <div className="mt-1 text-xs font-semibold text-emerald-700">Sablon bilgileri aliniyor...</div>}
+                      </>
+                    )}
                   </div>
                   <CopyableInput
                     label="Tedarikci Urun Kodu"
@@ -1106,22 +1198,44 @@ export default function StockCreatePage() {
             <Card className="rounded-[2rem] border-0 p-6 shadow-xl">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-xl font-black text-slate-950">On Kontrol Sonuclari</h2>
-                  <p className="text-sm text-slate-500">Kolonlar ve referanslar Mikroya yazmadan once kontrol edilir.</p>
+                  <h2 className="text-xl font-black text-slate-950">{editingStockCode ? 'Stok Guncelleme' : 'On Kontrol Sonuclari'}</h2>
+                  <p className="text-sm text-slate-500">
+                    {editingStockCode
+                      ? 'Formdaki bilgiler mevcut Mikro stok kartina yazilir. Kod sabit kalir.'
+                      : 'Kolonlar ve referanslar Mikroya yazmadan once kontrol edilir.'}
+                  </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button onClick={preview} isLoading={loading} className="bg-slate-950 text-white">
-                    <Search className="mr-2 h-4 w-4" />
-                    On Kontrol
-                  </Button>
-                  <Button onClick={createStocks} isLoading={creating} disabled={!previewRows.length || hasErrors} className="bg-emerald-600 text-white hover:bg-emerald-700">
-                    <Save className="mr-2 h-4 w-4" />
-                    Mikroya Yaz
-                  </Button>
+                  {editingStockCode ? (
+                    <>
+                      <Button onClick={cancelEditMode} className="bg-white text-slate-700 shadow-sm hover:bg-slate-100">
+                        Vazgec
+                      </Button>
+                      <Button onClick={updateExistingStock} isLoading={updating} className="bg-blue-600 text-white hover:bg-blue-700">
+                        <Save className="mr-2 h-4 w-4" />
+                        Mikroda Guncelle
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button onClick={preview} isLoading={loading} className="bg-slate-950 text-white">
+                        <Search className="mr-2 h-4 w-4" />
+                        On Kontrol
+                      </Button>
+                      <Button onClick={createStocks} isLoading={creating} disabled={!previewRows.length || hasErrors} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                        <Save className="mr-2 h-4 w-4" />
+                        Mikroya Yaz
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {previewRows.length === 0 ? (
+              {editingStockCode ? (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-6 text-sm text-blue-800">
+                  {editingStockCode} kodlu stok duzenleniyor. Degisiklikleri kaydetmek icin "Mikroda Guncelle" butonunu kullanin.
+                </div>
+              ) : previewRows.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">On kontrol henuz calistirilmadi.</div>
               ) : (
                 <div className="space-y-3">
@@ -1164,21 +1278,31 @@ export default function StockCreatePage() {
             <Card className="rounded-[2rem] border-0 p-5 shadow-xl">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-black text-slate-900">
                 <History className="h-5 w-5 text-slate-500" />
-                Son Acilan Stoklar
+                Son Acilan / Duzenlenen Stoklar
               </h2>
               <div className="space-y-3">
                 {historyRows.length === 0 && <div className="text-sm text-slate-500">Kayit yok</div>}
                 {historyRows.map((log) => (
-                  <div key={log.id} className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <button
+                    key={log.id}
+                    type="button"
+                    disabled={!log.stockCode || editLoading}
+                    onClick={() => void loadStockForEdit(log.stockCode)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-black text-slate-900">{log.stockCode || '-'}</div>
                         <div className="line-clamp-2 text-sm text-slate-600">{log.stockName}</div>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-[11px] font-black ${log.status === 'CREATED' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{log.status}</span>
+                      <span className={`rounded-full px-2 py-1 text-[11px] font-black ${logStatusStyle(log.status)}`}>{log.status}</span>
                     </div>
                     <div className="mt-2 text-xs text-slate-500">{formatDateTime(log.createdAt)} {log.createdByName ? `- ${log.createdByName}` : ''}</div>
-                  </div>
+                    <div className="mt-2 flex items-center gap-1 text-xs font-bold text-blue-700">
+                      <Pencil className="h-3.5 w-3.5" />
+                      Duzenlemek icin tikla
+                    </div>
+                  </button>
                 ))}
               </div>
             </Card>

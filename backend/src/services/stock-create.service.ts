@@ -479,6 +479,12 @@ class StockCreateService {
         s.sto_birim4_en AS unit4WidthMm,
         s.sto_birim4_boy AS unit4LengthMm,
         s.sto_birim4_yukseklik AS unit4HeightMm,
+        (
+          SELECT TOP 1 b.bar_kodu
+          FROM BARKOD_TANIMLARI b WITH (NOLOCK)
+          WHERE b.bar_stokkodu = s.sto_kod
+          ORDER BY b.bar_master DESC, b.bar_create_date DESC
+        ) AS barcode,
         u.Marj_1 AS margin1,
         u.Marj_2 AS margin2,
         u.Marj_3 AS margin3,
@@ -540,6 +546,7 @@ class StockCreateService {
       mainUnitLengthCm: mmToCmText(row.mainUnitLengthMm),
       mainUnitHeightCm: mmToCmText(row.mainUnitHeightMm),
       margins: [row.margin1, row.margin2, row.margin3, row.margin4, row.margin5].map(decimalText),
+      barcode: normalizeText(row.barcode),
       extraUnits,
       refs: {
         supplier: row.supplierCode ? { code: normalizeText(row.supplierCode), name: normalizeText(row.supplierName) } : null,
@@ -548,6 +555,14 @@ class StockCreateService {
         package: row.packageCode ? { code: normalizeText(row.packageCode), name: normalizeText(row.packageName) } : null,
         shelf: row.shelfCode ? { code: normalizeText(row.shelfCode), name: normalizeText(row.shelfName) } : null,
       },
+    };
+  }
+
+  async getStock(stockCode: string) {
+    const stock = await this.getTemplate(stockCode);
+    return {
+      ...stock,
+      stockCode: stock.templateCode,
     };
   }
 
@@ -1041,6 +1056,221 @@ class StockCreateService {
         stockGuid: normalizeText(row.stockGuid),
       })),
       syncedCount: synced.length,
+    };
+  }
+
+  async updateStock(stockCode: string, input: StockCreateInput, userId?: string | null) {
+    const code = upperText(stockCode);
+    if (!code) {
+      throw new Error('Stok kodu gerekli');
+    }
+
+    const existingRows = await mikroService.executeQuery(`
+      SELECT TOP 1
+        sto_kod AS code,
+        CONVERT(nvarchar(50), sto_Guid) AS guid,
+        ISNULL(sto_standartmaliyet, 0) AS currentCost
+      FROM STOKLAR WITH (UPDLOCK, HOLDLOCK)
+      WHERE sto_kod = ${toSqlString(code)}
+    `);
+    const existing = existingRows[0];
+    if (!existing) {
+      throw new Error('Guncellenecek stok Mikroda bulunamadi');
+    }
+
+    const item = this.normalizeItem({ ...input, templateCode: input?.templateCode || code }, 1);
+    const refs = await this.loadValidationRefs([item]);
+    const { errors, warnings } = this.validateShape(item);
+    const supplier = refs.suppliers.get(item.supplierCode) || null;
+    const brand = refs.brands.get(item.brandCode) || null;
+    const category = refs.categories.get(item.categoryCode) || null;
+    const packageRef = refs.packages.get(item.packageCode) || null;
+    const shelf = item.shelfCode ? refs.shelves.get(item.shelfCode) || null : null;
+    const duplicate = refs.duplicates.get(item.name) || null;
+    const barcodeDuplicate = item.barcode ? refs.barcodes.get(item.barcode) || null : null;
+
+    if (item.supplierCode && !supplier) errors.push('Ana saglayici Mikroda bulunamadi');
+    if (item.brandCode && !brand) {
+      if (item.brandName) warnings.push(`Marka Mikroda yok, guncelleme sirasinda olusturulacak: ${item.brandCode} - ${item.brandName}`);
+      else errors.push('Marka Mikroda bulunamadi; yeni marka icin marka adi girilmeli');
+    }
+    if (item.categoryCode && !category) errors.push('Kategori Mikroda bulunamadi');
+    if (category && !category.isLeaf) errors.push('Kategori en alt 3 kademeli kategori olmali');
+    if (item.packageCode && !packageRef) {
+      if (item.packageName) warnings.push(`Ambalaj Mikroda yok, guncelleme sirasinda olusturulacak: ${item.packageCode} - ${item.packageName}`);
+      else errors.push('Ambalaj Mikroda bulunamadi; yeni ambalaj icin ambalaj adi girilmeli');
+    }
+    if (item.shelfCode && !shelf) errors.push('Raf/Reyon kodu Mikroda bulunamadi');
+    if (duplicate && duplicate.code !== code) warnings.push(`Ayni isimde baska stok var: ${duplicate.code}`);
+    if (barcodeDuplicate && barcodeDuplicate.name !== code) errors.push(`Barkod baska stokta kayitli: ${barcodeDuplicate.name}`);
+
+    if (errors.length > 0) {
+      throw new Error(`Stok guncellenemedi: ${errors.join('; ')}`);
+    }
+
+    const extraByIndex = new Map(item.extraUnits.map((unit) => [unit.index, unit]));
+    const marginDate = toDateOnly();
+    const currentCostSql = toSqlNumber(item.currentCost);
+    const costChangedExpression = `ABS(ISNULL(sto_standartmaliyet, 0) - ${currentCostSql}) > 0.0001 AND ${currentCostSql} > 0`;
+    const stockAssignments = [
+      `sto_isim = ${toSqlString(item.name)}`,
+      `sto_yabanci_isim = ${toSqlString(item.foreignName)}`,
+      `sto_kisa_ismi = ${toSqlString(item.shortName)}`,
+      `sto_toptan_vergi = ${item.vatCode}`,
+      `sto_perakende_vergi = ${item.vatCode}`,
+      `sto_sat_cari_kod = ${toSqlString(item.supplierCode)}`,
+      `sto_marka_kodu = ${toSqlString(item.brandCode)}`,
+      `sto_kategori_kodu = ${toSqlString(item.categoryCode)}`,
+      `sto_ambalaj_kodu = ${toSqlString(item.packageCode)}`,
+      `sto_birim1_ad = ${toSqlString(item.mainUnit)}`,
+      `sto_birim1_katsayi = 1`,
+      `sto_birim1_agirlik = ${toSqlNumber(item.mainUnitWeightKg)}`,
+      `sto_birim1_en = ${toSqlNumber(item.mainUnitWidthMm)}`,
+      `sto_birim1_boy = ${toSqlNumber(item.mainUnitLengthMm)}`,
+      `sto_birim1_yukseklik = ${toSqlNumber(item.mainUnitHeightMm)}`,
+      `sto_standartmaliyet = ${currentCostSql}`,
+      `sto_resim_url = CASE WHEN ${costChangedExpression} THEN ${toSqlString(marginDate)} ELSE sto_resim_url END`,
+      `sto_reyon_kodu = ${toSqlString(item.shelfCode)}`,
+    ];
+
+    UNIT_INDEXES.forEach((unitIndex) => {
+      const unit = extraByIndex.get(unitIndex);
+      stockAssignments.push(`sto_birim${unitIndex}_ad = ${unit ? toSqlString(unit.name) : "N''"}`);
+      stockAssignments.push(`sto_birim${unitIndex}_katsayi = ${unit ? toSqlNumber(unit.mikroFactor) : '0'}`);
+      stockAssignments.push(`sto_birim${unitIndex}_agirlik = ${unit ? toSqlNumber(unit.weightKg) : '0'}`);
+      stockAssignments.push(`sto_birim${unitIndex}_en = ${unit ? toSqlNumber(unit.widthMm) : '0'}`);
+      stockAssignments.push(`sto_birim${unitIndex}_boy = ${unit ? toSqlNumber(unit.lengthMm) : '0'}`);
+      stockAssignments.push(`sto_birim${unitIndex}_yukseklik = ${unit ? toSqlNumber(unit.heightMm) : '0'}`);
+    });
+
+    stockAssignments.push('sto_degisti = 1');
+    stockAssignments.push('sto_lastup_user = 1');
+    stockAssignments.push('sto_lastup_date = GETDATE()');
+
+    const userCostChangedExpression = `ABS(ISNULL(MaliyetT, 0) - ${currentCostSql}) > 0.0001 AND ${currentCostSql} > 0`;
+    const barcodeSql = item.barcode
+      ? `
+        IF EXISTS (SELECT 1 FROM BARKOD_TANIMLARI WITH (UPDLOCK, HOLDLOCK) WHERE bar_kodu = ${toSqlString(item.barcode)} AND bar_stokkodu <> @stockCode)
+          THROW 51003, 'Barkod Mikroda baska stokta kayitli', 1;
+
+        IF EXISTS (SELECT 1 FROM BARKOD_TANIMLARI WITH (UPDLOCK, HOLDLOCK) WHERE bar_stokkodu = @stockCode AND bar_birimpntr = 1 AND bar_master = 1)
+        BEGIN
+          UPDATE TOP (1) BARKOD_TANIMLARI
+          SET bar_kodu = ${toSqlString(item.barcode)},
+              bar_degisti = 1,
+              bar_lastup_user = 1,
+              bar_lastup_date = GETDATE()
+          WHERE bar_stokkodu = @stockCode
+            AND bar_birimpntr = 1
+            AND bar_master = 1;
+        END
+        ELSE
+        BEGIN
+          INSERT INTO BARKOD_TANIMLARI
+            (bar_Guid, bar_DBCno, bar_SpecRECno, bar_iptal, bar_fileid, bar_hidden, bar_kilitli, bar_degisti, bar_checksum,
+             bar_create_user, bar_create_date, bar_lastup_user, bar_lastup_date, bar_special1, bar_special2, bar_special3,
+             bar_kodu, bar_stokkodu, bar_partikodu, bar_lotno, bar_serino_veya_bagkodu, bar_barkodtipi, bar_icerigi,
+             bar_birimpntr, bar_master, bar_bedenpntr, bar_renkpntr, bar_baglantitipi, bar_har_uid, bar_asortitanimkodu)
+          VALUES
+            (NEWID(), 0, 0, 0, 15, 0, 0, 1, 0,
+             1, GETDATE(), 1, GETDATE(), N'', N'', N'',
+             ${toSqlString(item.barcode)}, @stockCode, N'', 0, N'', 0, 0,
+             1, 1, 0, 0, 0, '00000000-0000-0000-0000-000000000000', N'');
+        END
+      `
+      : `
+        DELETE FROM BARKOD_TANIMLARI
+        WHERE bar_stokkodu = @stockCode
+          AND bar_birimpntr = 1
+          AND bar_master = 1;
+      `;
+
+    await mikroService.executeQuery(`
+      SET XACT_ABORT ON;
+      BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @stockCode nvarchar(25) = ${toSqlString(code)};
+        DECLARE @stockGuid uniqueidentifier;
+
+        SELECT @stockGuid = sto_Guid
+        FROM STOKLAR WITH (UPDLOCK, HOLDLOCK)
+        WHERE sto_kod = @stockCode;
+
+        IF @stockGuid IS NULL
+          THROW 51004, 'Guncellenecek stok bulunamadi', 1;
+
+        ${this.buildReferenceCreateStatements(item)}
+
+        UPDATE STOKLAR
+        SET ${stockAssignments.join(',\n            ')}
+        WHERE sto_kod = @stockCode;
+
+        IF EXISTS (SELECT 1 FROM STOKLAR_USER WITH (UPDLOCK, HOLDLOCK) WHERE Record_uid = @stockGuid)
+        BEGIN
+          UPDATE STOKLAR_USER
+          SET Marj_1 = ${toSqlString(item.margins[0])},
+              Marj_2 = ${toSqlString(item.margins[1])},
+              Marj_3 = ${toSqlString(item.margins[2])},
+              Marj_4 = ${toSqlString(item.margins[3])},
+              Marj_5 = ${toSqlString(item.margins[4])},
+              MaliyetP = ${currentCostSql},
+              MaliyetT = ${currentCostSql},
+              MaliyetTarihi = CASE WHEN ${userCostChangedExpression} THEN ${toSqlString(marginDate)} ELSE MaliyetTarihi END,
+              FiyatDegisimTarihi = CASE WHEN ${userCostChangedExpression} THEN ${toSqlString(marginDate)} ELSE FiyatDegisimTarihi END
+          WHERE Record_uid = @stockGuid;
+        END
+        ELSE
+        BEGIN
+          INSERT INTO STOKLAR_USER
+            (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi, SKT)
+          VALUES
+            (@stockGuid, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${currentCostSql}, ${currentCostSql}, ${toSqlString(item.currentCost > 0 ? marginDate : '')}, ${toSqlString(item.currentCost > 0 ? marginDate : '')}, N'', 0, N'');
+        END
+
+        ${barcodeSql}
+
+        COMMIT TRANSACTION;
+        SELECT @stockCode AS stockCode, CONVERT(nvarchar(50), @stockGuid) AS stockGuid;
+      END TRY
+      BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        DECLARE @message nvarchar(4000) = ERROR_MESSAGE();
+        THROW 51005, @message, 1;
+      END CATCH
+    `);
+
+    const product = await this.syncCreatedProduct(item, code);
+    const user = userId
+      ? await prisma.user.findUnique({ where: { id: userId }, select: { name: true, displayName: true, mikroName: true, email: true } })
+      : null;
+    const userName = user?.displayName || user?.mikroName || user?.name || user?.email || null;
+
+    await prisma.stockCreationLog.create({
+      data: {
+        batchId: `stock-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        mode: 'EDIT',
+        status: 'UPDATED',
+        rowNo: 1,
+        stockCode: code,
+        stockName: item.name,
+        templateCode: item.templateCode,
+        payload: item as any,
+        validation: {
+          errors,
+          warnings,
+          refs: { supplier, brand, category, package: packageRef, shelf },
+        } as any,
+        result: { stockGuid: normalizeText(existing.guid), syncedProductId: product.id } as any,
+        errorMessage: null,
+        createdById: userId || null,
+        createdByName: userName,
+      },
+    });
+
+    return {
+      stockCode: code,
+      warnings,
+      stock: await this.getStock(code),
     };
   }
 
