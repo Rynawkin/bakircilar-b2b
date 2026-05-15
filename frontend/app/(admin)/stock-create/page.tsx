@@ -1,12 +1,13 @@
 'use client';
 
-import { ChangeEvent, useEffect, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
   Download,
   FileSpreadsheet,
   History,
@@ -53,15 +54,29 @@ type StockForm = {
   vatRatePercent: string;
   supplierCode: string;
   brandCode: string;
+  brandName: string;
   categoryCode: string;
   packageCode: string;
+  packageName: string;
   shelfCode: string;
   currentCost: string;
   mainUnit: string;
+  mainUnitWeightKg: string;
+  mainUnitWidthCm: string;
+  mainUnitLengthCm: string;
+  mainUnitHeightCm: string;
   margins: string[];
   barcode: string;
   notes: string;
   extraUnits: ExtraUnit[];
+};
+
+type TemplateStock = StockForm & {
+  supplierName?: string;
+  brandName: string;
+  categoryName?: string;
+  packageName: string;
+  shelfName?: string;
 };
 
 type PreviewRow = {
@@ -109,11 +124,17 @@ const defaultForm = (templateCode = 'B108423'): StockForm => ({
   vatRatePercent: '20',
   supplierCode: '',
   brandCode: '',
+  brandName: '',
   categoryCode: '',
   packageCode: '',
+  packageName: '',
   shelfCode: '',
   currentCost: '',
   mainUnit: 'ADET',
+  mainUnitWeightKg: '',
+  mainUnitWidthCm: '',
+  mainUnitLengthCm: '',
+  mainUnitHeightCm: '',
   margins: ['2', '1,5', '1,3', '1,2', '1,15'],
   barcode: '',
   notes: '',
@@ -172,11 +193,17 @@ function mapExcelRow(row: Record<string, any>, index: number, templateCode: stri
     vatRatePercent: normalizeNumberText(get('KDV', 'KDV %', 'Kdv')),
     supplierCode: get('Ana Saglayici Kodu', 'Ana Sağlayıcı Kodu', 'Tedarikci Kodu', 'Tedarikçi Kodu'),
     brandCode: get('Marka Kodu', 'Marka'),
+    brandName: get('Marka Adi', 'Yeni Marka Adi'),
     categoryCode: get('Kategori Kodu', 'Kategori'),
     packageCode: get('Ambalaj Kodu', 'Ambalaj'),
+    packageName: get('Ambalaj Adi', 'Yeni Ambalaj Adi'),
     shelfCode: get('Raf Kodu', 'Reyon Kodu'),
     currentCost: normalizeNumberText(get('Guncel Maliyet', 'Güncel Maliyet')),
     mainUnit: get('Ana Birim', 'Birim 1', '1. Birim') || 'ADET',
+    mainUnitWeightKg: normalizeNumberText(get('Ana Birim Kg', '1. Birim Kg', 'Birim 1 Kg')),
+    mainUnitWidthCm: normalizeNumberText(get('Ana Birim En cm', '1. Birim En cm', 'Birim 1 En cm')),
+    mainUnitLengthCm: normalizeNumberText(get('Ana Birim Boy cm', '1. Birim Boy cm', 'Birim 1 Boy cm')),
+    mainUnitHeightCm: normalizeNumberText(get('Ana Birim Yukseklik cm', '1. Birim Yukseklik cm')),
     margins: [1, 2, 3, 4, 5].map((marginIndex) => normalizeNumberText(get(`Marj ${marginIndex}`, `Marj${marginIndex}`))),
     barcode: get('Barkod', 'Barcode'),
     notes: get('Not', 'Aciklama', 'Açıklama'),
@@ -190,13 +217,18 @@ function LookupField({
   value,
   onChange,
   placeholder,
+  copyValue,
+  onCopy,
 }: {
   label: string;
   type: LookupType;
   value: string;
   onChange: (value: string, item?: LookupItem) => void;
   placeholder?: string;
+  copyValue?: string;
+  onCopy?: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [search, setSearch] = useState(value);
   const [items, setItems] = useState<LookupItem[]>([]);
   const [open, setOpen] = useState(false);
@@ -224,8 +256,23 @@ function LookupField({
     return () => clearTimeout(timer);
   }, [search, type, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <label className={labelClass}>{label}</label>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
@@ -239,8 +286,22 @@ function LookupField({
             setOpen(true);
           }}
           placeholder={placeholder || 'Kod veya ad ara'}
-          className={`${textInputClass} pl-10`}
+          className={`${textInputClass} pl-10 ${onCopy && copyValue ? 'pr-11' : ''}`}
         />
+        {onCopy && copyValue && (
+          <button
+            type="button"
+            title="Sablondan kopyala"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onCopy();
+            }}
+            className="absolute right-2 top-2 rounded-xl bg-slate-100 p-2 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
       {open && (
         <div className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
@@ -274,6 +335,58 @@ function LookupField({
   );
 }
 
+function CopyButton({ value, onCopy }: { value?: string; onCopy?: () => void }) {
+  if (!value || !onCopy) return null;
+  return (
+    <button
+      type="button"
+      title="Sablondan kopyala"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onCopy();
+      }}
+      className="absolute right-2 top-2 rounded-xl bg-slate-100 p-2 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700"
+    >
+      <Copy className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+function CopyableInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  list,
+  copyValue,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  list?: string;
+  copyValue?: string;
+  onCopy?: () => void;
+}) {
+  return (
+    <div>
+      <label className={labelClass}>{label}</label>
+      <div className="relative">
+        <input
+          list={list}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={`${textInputClass} ${copyValue && onCopy ? 'pr-11' : ''}`}
+          placeholder={placeholder}
+        />
+        <CopyButton value={copyValue} onCopy={onCopy} />
+      </div>
+    </div>
+  );
+}
+
 export default function StockCreatePage() {
   const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -286,8 +399,11 @@ export default function StockCreatePage() {
   const [bulkItems, setBulkItems] = useState<StockForm[]>([]);
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [historyRows, setHistoryRows] = useState<CreationLog[]>([]);
+  const [templateStock, setTemplateStock] = useState<TemplateStock | null>(null);
+  const [templateLoading, setTemplateLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const appliedTemplateRef = useRef('');
 
   useEffect(() => {
     loadUserFromStorage();
@@ -305,7 +421,7 @@ export default function StockCreatePage() {
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        if (parsed.form) setForm(parsed.form);
+        if (parsed.form) setForm({ ...defaultForm(parsed.form.templateCode || 'B108423'), ...parsed.form });
         if (Array.isArray(parsed.bulkItems)) setBulkItems(parsed.bulkItems);
       } catch {
         // ignore broken local draft
@@ -318,6 +434,18 @@ export default function StockCreatePage() {
     if (typeof window === 'undefined') return;
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, bulkItems }));
   }, [form, bulkItems]);
+
+  useEffect(() => {
+    const code = form.templateCode.trim().toUpperCase();
+    if (!code || code.length < 4) {
+      setTemplateStock(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void loadTemplate(code, true);
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [form.templateCode]);
 
   const loadMetadata = async () => {
     setLoading(true);
@@ -336,6 +464,76 @@ export default function StockCreatePage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const normalizeTemplateStock = (raw: any): TemplateStock => ({
+    ...defaultForm(raw?.templateCode || defaultTemplateCode),
+    ...raw,
+    templateCode: String(raw?.templateCode || defaultTemplateCode),
+    vatRatePercent: String(raw?.vatRatePercent || '20'),
+    currentCost: String(raw?.currentCost || ''),
+    mainUnitWeightKg: String(raw?.mainUnitWeightKg || ''),
+    mainUnitWidthCm: String(raw?.mainUnitWidthCm || ''),
+    mainUnitLengthCm: String(raw?.mainUnitLengthCm || ''),
+    mainUnitHeightCm: String(raw?.mainUnitHeightCm || ''),
+    margins: Array.isArray(raw?.margins) && raw.margins.length === 5 ? raw.margins.map((value: unknown) => String(value ?? '')) : defaultForm().margins,
+    extraUnits: Array.isArray(raw?.extraUnits) ? raw.extraUnits.map((unit: ExtraUnit) => ({ ...emptyExtraUnit(unit.index), ...unit })) : [],
+  });
+
+  const applyTemplateDefaults = (template: TemplateStock) => {
+    setForm((prev) => ({
+      ...prev,
+      templateCode: template.templateCode,
+      shortName: template.shortName || prev.shortName,
+      vatRatePercent: template.vatRatePercent || prev.vatRatePercent,
+      supplierCode: template.supplierCode || prev.supplierCode,
+      brandCode: template.brandCode || prev.brandCode,
+      brandName: template.brandName || prev.brandName,
+      categoryCode: template.categoryCode || prev.categoryCode,
+      packageCode: template.packageCode || prev.packageCode,
+      packageName: template.packageName || prev.packageName,
+      shelfCode: template.shelfCode || prev.shelfCode,
+      currentCost: template.currentCost || prev.currentCost,
+      mainUnit: template.mainUnit || prev.mainUnit,
+      mainUnitWeightKg: template.mainUnitWeightKg || prev.mainUnitWeightKg,
+      mainUnitWidthCm: template.mainUnitWidthCm || prev.mainUnitWidthCm,
+      mainUnitLengthCm: template.mainUnitLengthCm || prev.mainUnitLengthCm,
+      mainUnitHeightCm: template.mainUnitHeightCm || prev.mainUnitHeightCm,
+      margins: template.margins?.some(Boolean) ? template.margins : prev.margins,
+      extraUnits: template.extraUnits || prev.extraUnits,
+    }));
+    setPreviewRows([]);
+  };
+
+  const loadTemplate = async (templateCode: string, applyDefaults = false) => {
+    const code = templateCode.trim().toUpperCase();
+    if (!code) return;
+    setTemplateLoading(true);
+    try {
+      const res = await apiClient.get(`/admin/stock-create/templates/${encodeURIComponent(code)}`);
+      const normalized = normalizeTemplateStock(res.data.template);
+      setTemplateStock(normalized);
+      if (applyDefaults && appliedTemplateRef.current !== normalized.templateCode) {
+        appliedTemplateRef.current = normalized.templateCode;
+        applyTemplateDefaults(normalized);
+      }
+    } catch (error: any) {
+      setTemplateStock(null);
+      if (applyDefaults && code.length >= 5) {
+        toast.error(error.response?.data?.error || 'Sablon stok bulunamadi');
+      }
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
+
+  const copyFromTemplate = (patch: Partial<StockForm>) => {
+    updateForm(patch);
+  };
+
+  const updateTemplateCode = (templateCode: string) => {
+    appliedTemplateRef.current = '';
+    updateForm({ templateCode });
   };
 
   const updateForm = (patch: Partial<StockForm>) => {
@@ -434,9 +632,15 @@ export default function StockCreatePage() {
         'KDV': 20,
         'Ana Saglayici Kodu': '320.01.211',
         'Marka Kodu': 'FOCUS',
+        'Marka Adi': 'FOCUS',
         'Kategori Kodu': '8.04.03',
         'Ambalaj Kodu': '6',
+        'Ambalaj Adi': '6 KG',
         'Ana Birim': 'KOLI',
+        'Ana Birim Kg': 6,
+        'Ana Birim En cm': '',
+        'Ana Birim Boy cm': '',
+        'Ana Birim Yukseklik cm': '',
         '2. Birim': 'ADET',
         '2. Katsayi': 6,
         '2. Yon': 'Buyuk birim',
@@ -576,47 +780,187 @@ export default function StockCreatePage() {
                   </div>
                 </div>
 
+                {templateStock && (
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-black uppercase text-emerald-700">Aktif sablon</div>
+                      <div className="line-clamp-1 text-sm font-bold text-emerald-950">{templateStock.templateCode} - {templateStock.name}</div>
+                    </div>
+                    <Button onClick={() => applyTemplateDefaults(templateStock)} className="bg-emerald-700 text-white hover:bg-emerald-800">
+                      Sablondan tum alanlari doldur
+                    </Button>
+                  </div>
+                )}
+
                 <div className="grid gap-4 lg:grid-cols-3">
                   <div className="lg:col-span-2">
-                    <label className={labelClass}>Stok Adi *</label>
-                    <input value={form.name} onChange={(event) => updateForm({ name: event.target.value })} className={textInputClass} placeholder="Urun adi" />
+                    <CopyableInput
+                      label="Stok Adi *"
+                      value={form.name}
+                      onChange={(name) => updateForm({ name })}
+                      placeholder="Urun adi"
+                      copyValue={templateStock?.name}
+                      onCopy={() => copyFromTemplate({ name: templateStock?.name || '' })}
+                    />
                   </div>
                   <div>
-                    <label className={labelClass}>Sablon Stok</label>
-                    <input value={form.templateCode} onChange={(event) => updateForm({ templateCode: event.target.value.toUpperCase() })} className={textInputClass} />
+                    <LookupField
+                      label="Sablon Stok"
+                      type="template"
+                      value={form.templateCode}
+                      placeholder="Kod veya stok adi ara"
+                      onChange={(templateCode, item) => {
+                        const code = (item?.code || templateCode).toUpperCase();
+                        updateTemplateCode(code);
+                        if (item?.code) void loadTemplate(item.code, true);
+                      }}
+                    />
+                    {templateLoading && <div className="mt-1 text-xs font-semibold text-emerald-700">Sablon bilgileri aliniyor...</div>}
                   </div>
-                  <div>
-                    <label className={labelClass}>Tedarikci Urun Kodu</label>
-                    <input value={form.foreignName} onChange={(event) => updateForm({ foreignName: event.target.value })} className={textInputClass} placeholder="Orn. 50003071" />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Kisa Isim</label>
-                    <input value={form.shortName} onChange={(event) => updateForm({ shortName: event.target.value })} className={textInputClass} placeholder="Opsiyonel" />
-                  </div>
+                  <CopyableInput
+                    label="Tedarikci Urun Kodu"
+                    value={form.foreignName}
+                    onChange={(foreignName) => updateForm({ foreignName })}
+                    placeholder="Orn. 50003071"
+                    copyValue={templateStock?.foreignName}
+                    onCopy={() => copyFromTemplate({ foreignName: templateStock?.foreignName || '' })}
+                  />
+                  <CopyableInput
+                    label="Kisa Isim"
+                    value={form.shortName}
+                    onChange={(shortName) => updateForm({ shortName })}
+                    placeholder="Opsiyonel"
+                    copyValue={templateStock?.shortName}
+                    onCopy={() => copyFromTemplate({ shortName: templateStock?.shortName || '' })}
+                  />
                   <div>
                     <label className={labelClass}>KDV % *</label>
-                    <select value={form.vatRatePercent} onChange={(event) => updateForm({ vatRatePercent: event.target.value })} className={textInputClass}>
-                      <option value="20">%20</option>
-                      <option value="10">%10</option>
-                      <option value="1">%1</option>
-                      <option value="0">%0</option>
-                    </select>
+                    <div className="relative">
+                      <select value={form.vatRatePercent} onChange={(event) => updateForm({ vatRatePercent: event.target.value })} className={`${textInputClass} ${templateStock?.vatRatePercent ? 'pr-11' : ''}`}>
+                        <option value="20">%20</option>
+                        <option value="10">%10</option>
+                        <option value="1">%1</option>
+                        <option value="0">%0</option>
+                      </select>
+                      <CopyButton value={templateStock?.vatRatePercent} onCopy={() => copyFromTemplate({ vatRatePercent: templateStock?.vatRatePercent || '20' })} />
+                    </div>
                   </div>
-                  <LookupField label="Ana Saglayici *" type="supplier" value={form.supplierCode} onChange={(supplierCode) => updateForm({ supplierCode })} />
-                  <LookupField label="Marka *" type="brand" value={form.brandCode} onChange={(brandCode) => updateForm({ brandCode: brandCode.toUpperCase() })} />
-                  <LookupField label="Kategori *" type="category" value={form.categoryCode} onChange={(categoryCode) => updateForm({ categoryCode })} />
-                  <LookupField label="Ambalaj *" type="package" value={form.packageCode} onChange={(packageCode) => updateForm({ packageCode })} />
-                  <div>
-                    <label className={labelClass}>Ana Birim *</label>
-                    <input list="stock-create-unit-names" value={form.mainUnit} onChange={(event) => updateForm({ mainUnit: event.target.value.toUpperCase() })} className={textInputClass} />
+                  <LookupField
+                    label="Ana Saglayici *"
+                    type="supplier"
+                    value={form.supplierCode}
+                    onChange={(supplierCode) => updateForm({ supplierCode })}
+                    copyValue={templateStock?.supplierCode}
+                    onCopy={() => copyFromTemplate({ supplierCode: templateStock?.supplierCode || '' })}
+                  />
+                  <LookupField
+                    label="Marka *"
+                    type="brand"
+                    value={form.brandCode}
+                    onChange={(brandCode, item) => updateForm({ brandCode: brandCode.toUpperCase(), brandName: item?.name || '' })}
+                    copyValue={templateStock?.brandCode}
+                    onCopy={() => copyFromTemplate({ brandCode: templateStock?.brandCode || '', brandName: templateStock?.brandName || '' })}
+                  />
+                  <CopyableInput
+                    label="Marka Adi (yeni marka icin)"
+                    value={form.brandName}
+                    onChange={(brandName) => updateForm({ brandName })}
+                    placeholder="Kod Mikroda yoksa zorunlu"
+                    copyValue={templateStock?.brandName}
+                    onCopy={() => copyFromTemplate({ brandName: templateStock?.brandName || '' })}
+                  />
+                  <LookupField
+                    label="Kategori * (en alt kategori)"
+                    type="category"
+                    value={form.categoryCode}
+                    placeholder="Orn. 1.09.04"
+                    onChange={(categoryCode) => updateForm({ categoryCode })}
+                    copyValue={templateStock?.categoryCode}
+                    onCopy={() => copyFromTemplate({ categoryCode: templateStock?.categoryCode || '' })}
+                  />
+                  <LookupField
+                    label="Ambalaj *"
+                    type="package"
+                    value={form.packageCode}
+                    onChange={(packageCode, item) => updateForm({ packageCode, packageName: item?.name || '' })}
+                    copyValue={templateStock?.packageCode}
+                    onCopy={() => copyFromTemplate({ packageCode: templateStock?.packageCode || '', packageName: templateStock?.packageName || '' })}
+                  />
+                  <CopyableInput
+                    label="Ambalaj Adi (yeni ambalaj icin)"
+                    value={form.packageName}
+                    onChange={(packageName) => updateForm({ packageName })}
+                    placeholder="Kod Mikroda yoksa zorunlu"
+                    copyValue={templateStock?.packageName}
+                    onCopy={() => copyFromTemplate({ packageName: templateStock?.packageName || '' })}
+                  />
+                  <CopyableInput
+                    label="Ana Birim *"
+                    value={form.mainUnit}
+                    onChange={(mainUnit) => updateForm({ mainUnit: mainUnit.toUpperCase() })}
+                    list="stock-create-unit-names"
+                    copyValue={templateStock?.mainUnit}
+                    onCopy={() => copyFromTemplate({ mainUnit: templateStock?.mainUnit || '' })}
+                  />
+                  <CopyableInput
+                    label="Guncel Maliyet"
+                    value={form.currentCost}
+                    onChange={(currentCost) => updateForm({ currentCost })}
+                    placeholder="Opsiyonel"
+                    copyValue={templateStock?.currentCost}
+                    onCopy={() => copyFromTemplate({ currentCost: templateStock?.currentCost || '' })}
+                  />
+                  <CopyableInput
+                    label="Raf / Reyon Kodu"
+                    value={form.shelfCode}
+                    onChange={(shelfCode) => updateForm({ shelfCode: shelfCode.toUpperCase() })}
+                    placeholder="Opsiyonel"
+                    copyValue={templateStock?.shelfCode}
+                    onCopy={() => copyFromTemplate({ shelfCode: templateStock?.shelfCode || '' })}
+                  />
+                </div>
+
+                <div className="mt-6 rounded-3xl bg-emerald-50 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <h3 className="font-black text-slate-900">Ana Birim Olculeri</h3>
+                      <p className="text-xs text-slate-500">Ekranda cm girilir; Mikroya en/boy/yukseklik mm olarak kaydedilir.</p>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-700">1 {form.mainUnit || 'ANA BIRIM'}</span>
                   </div>
-                  <div>
-                    <label className={labelClass}>Guncel Maliyet</label>
-                    <input value={form.currentCost} onChange={(event) => updateForm({ currentCost: event.target.value })} className={textInputClass} placeholder="Opsiyonel" />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Raf / Reyon Kodu</label>
-                    <input value={form.shelfCode} onChange={(event) => updateForm({ shelfCode: event.target.value.toUpperCase() })} className={textInputClass} placeholder="Opsiyonel" />
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <CopyableInput
+                      label="Ana Birim Kg"
+                      value={form.mainUnitWeightKg}
+                      onChange={(mainUnitWeightKg) => updateForm({ mainUnitWeightKg })}
+                      placeholder="Kg"
+                      copyValue={templateStock?.mainUnitWeightKg}
+                      onCopy={() => copyFromTemplate({ mainUnitWeightKg: templateStock?.mainUnitWeightKg || '' })}
+                    />
+                    <CopyableInput
+                      label="Ana Birim En cm"
+                      value={form.mainUnitWidthCm}
+                      onChange={(mainUnitWidthCm) => updateForm({ mainUnitWidthCm })}
+                      placeholder="En cm"
+                      copyValue={templateStock?.mainUnitWidthCm}
+                      onCopy={() => copyFromTemplate({ mainUnitWidthCm: templateStock?.mainUnitWidthCm || '' })}
+                    />
+                    <CopyableInput
+                      label="Ana Birim Boy cm"
+                      value={form.mainUnitLengthCm}
+                      onChange={(mainUnitLengthCm) => updateForm({ mainUnitLengthCm })}
+                      placeholder="Boy cm"
+                      copyValue={templateStock?.mainUnitLengthCm}
+                      onCopy={() => copyFromTemplate({ mainUnitLengthCm: templateStock?.mainUnitLengthCm || '' })}
+                    />
+                    <CopyableInput
+                      label="Ana Birim Yukseklik cm"
+                      value={form.mainUnitHeightCm}
+                      onChange={(mainUnitHeightCm) => updateForm({ mainUnitHeightCm })}
+                      placeholder="Yukseklik cm"
+                      copyValue={templateStock?.mainUnitHeightCm}
+                      onCopy={() => copyFromTemplate({ mainUnitHeightCm: templateStock?.mainUnitHeightCm || '' })}
+                    />
                   </div>
                 </div>
 
@@ -629,7 +973,10 @@ export default function StockCreatePage() {
                     {form.margins.map((margin, index) => (
                       <div key={index}>
                         <label className={labelClass}>Marj {index + 1}</label>
-                        <input value={margin} onChange={(event) => updateMargin(index, event.target.value)} className={textInputClass} />
+                        <div className="relative">
+                          <input value={margin} onChange={(event) => updateMargin(index, event.target.value)} className={`${textInputClass} ${templateStock?.margins?.[index] ? 'pr-11' : ''}`} />
+                          <CopyButton value={templateStock?.margins?.[index]} onCopy={() => updateMargin(index, templateStock?.margins?.[index] || '')} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -641,44 +988,66 @@ export default function StockCreatePage() {
                       <h3 className="font-black text-slate-900">Ek Birimler</h3>
                       <p className="text-xs text-slate-500">Ana birim zorunlu. 2-4. birimler istege bagli olarak katsayilariyla yazilir.</p>
                     </div>
-                    <Button onClick={addExtraUnit} disabled={form.extraUnits.length >= 3} className="bg-slate-950 text-white">
-                      <Plus className="mr-2 h-4 w-4" />
-                      Birim Ekle
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      {templateStock?.extraUnits?.length ? (
+                        <Button onClick={() => copyFromTemplate({ extraUnits: templateStock.extraUnits })} className="bg-white text-slate-700 shadow-sm hover:bg-slate-100">
+                          <Copy className="mr-2 h-4 w-4" />
+                          Sablon Birimleri
+                        </Button>
+                      ) : null}
+                      <Button onClick={addExtraUnit} disabled={form.extraUnits.length >= 3} className="bg-slate-950 text-white">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Birim Ekle
+                      </Button>
+                    </div>
                   </div>
                   <div className="space-y-4">
                     {form.extraUnits.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Ek birim yok. Ihtiyac varsa "Birim Ekle" ile tanimlayin.</div>}
-                    {form.extraUnits.map((unit) => (
-                      <div key={unit.index} className="rounded-2xl border border-slate-200 bg-white p-4">
-                        <div className="mb-3 flex items-center justify-between">
-                          <div className="font-black text-slate-900">{unit.index}. Birim</div>
-                          <button type="button" onClick={() => removeExtraUnit(unit.index)} className="rounded-xl p-2 text-rose-600 hover:bg-rose-50">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                    {form.extraUnits.map((unit) => {
+                      const templateUnit = templateStock?.extraUnits?.find((item) => item.index === unit.index);
+                      return (
+                        <div key={unit.index} className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <div className="font-black text-slate-900">{unit.index}. Birim</div>
+                            <button type="button" onClick={() => removeExtraUnit(unit.index)} className="rounded-xl p-2 text-rose-600 hover:bg-rose-50">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="grid gap-3 lg:grid-cols-4">
+                            <CopyableInput
+                              label="Birim Adi"
+                              value={unit.name}
+                              onChange={(name) => updateExtraUnit(unit.index, { name: name.toUpperCase() })}
+                              list="stock-create-unit-names"
+                              copyValue={templateUnit?.name}
+                              onCopy={() => updateExtraUnit(unit.index, { name: templateUnit?.name || '' })}
+                            />
+                            <CopyableInput
+                              label="Katsayi"
+                              value={unit.factor}
+                              onChange={(factor) => updateExtraUnit(unit.index, { factor })}
+                              placeholder="Orn. 6"
+                              copyValue={templateUnit?.factor}
+                              onCopy={() => updateExtraUnit(unit.index, { factor: templateUnit?.factor || '' })}
+                            />
+                            <div className="lg:col-span-2">
+                              <label className={labelClass}>Katsayi Yonu</label>
+                              <div className="relative">
+                                <select value={unit.factorDirection} onChange={(event) => updateExtraUnit(unit.index, { factorDirection: event.target.value as FactorDirection })} className={`${textInputClass} ${templateUnit?.factorDirection ? 'pr-11' : ''}`}>
+                                  <option value="larger">Buyuk birim: 1 {unit.name || 'birim'} = X {form.mainUnit || 'ana birim'} (Mikro negatif)</option>
+                                  <option value="smaller">Mikro pozitif / ters katsayi</option>
+                                </select>
+                                <CopyButton value={templateUnit?.factorDirection} onCopy={() => updateExtraUnit(unit.index, { factorDirection: templateUnit?.factorDirection || 'larger' })} />
+                              </div>
+                            </div>
+                            <CopyableInput label="Kg" value={unit.weightKg} onChange={(weightKg) => updateExtraUnit(unit.index, { weightKg })} copyValue={templateUnit?.weightKg} onCopy={() => updateExtraUnit(unit.index, { weightKg: templateUnit?.weightKg || '' })} />
+                            <CopyableInput label="En cm" value={unit.widthCm} onChange={(widthCm) => updateExtraUnit(unit.index, { widthCm })} copyValue={templateUnit?.widthCm} onCopy={() => updateExtraUnit(unit.index, { widthCm: templateUnit?.widthCm || '' })} />
+                            <CopyableInput label="Boy cm" value={unit.lengthCm} onChange={(lengthCm) => updateExtraUnit(unit.index, { lengthCm })} copyValue={templateUnit?.lengthCm} onCopy={() => updateExtraUnit(unit.index, { lengthCm: templateUnit?.lengthCm || '' })} />
+                            <CopyableInput label="Yukseklik cm" value={unit.heightCm} onChange={(heightCm) => updateExtraUnit(unit.index, { heightCm })} copyValue={templateUnit?.heightCm} onCopy={() => updateExtraUnit(unit.index, { heightCm: templateUnit?.heightCm || '' })} />
+                          </div>
                         </div>
-                        <div className="grid gap-3 lg:grid-cols-4">
-                          <div>
-                            <label className={labelClass}>Birim Adi</label>
-                            <input list="stock-create-unit-names" value={unit.name} onChange={(event) => updateExtraUnit(unit.index, { name: event.target.value.toUpperCase() })} className={textInputClass} />
-                          </div>
-                          <div>
-                            <label className={labelClass}>Katsayi</label>
-                            <input value={unit.factor} onChange={(event) => updateExtraUnit(unit.index, { factor: event.target.value })} className={textInputClass} placeholder="Orn. 6" />
-                          </div>
-                          <div className="lg:col-span-2">
-                            <label className={labelClass}>Katsayi Yonu</label>
-                            <select value={unit.factorDirection} onChange={(event) => updateExtraUnit(unit.index, { factorDirection: event.target.value as FactorDirection })} className={textInputClass}>
-                              <option value="larger">Buyuk birim: 1 {unit.name || 'birim'} = X {form.mainUnit || 'ana birim'} (Mikro negatif)</option>
-                              <option value="smaller">Mikro pozitif / ters katsayi</option>
-                            </select>
-                          </div>
-                          <input value={unit.weightKg} onChange={(event) => updateExtraUnit(unit.index, { weightKg: event.target.value })} className={textInputClass} placeholder="Kg" />
-                          <input value={unit.widthCm} onChange={(event) => updateExtraUnit(unit.index, { widthCm: event.target.value })} className={textInputClass} placeholder="En cm" />
-                          <input value={unit.lengthCm} onChange={(event) => updateExtraUnit(unit.index, { lengthCm: event.target.value })} className={textInputClass} placeholder="Boy cm" />
-                          <input value={unit.heightCm} onChange={(event) => updateExtraUnit(unit.index, { heightCm: event.target.value })} className={textInputClass} placeholder="Yukseklik cm" />
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -830,7 +1199,7 @@ export default function StockCreatePage() {
             <Card className="rounded-[2rem] border-0 bg-slate-950 p-5 text-white shadow-xl">
               <h2 className="mb-3 text-lg font-black">Excel Kolonlari</h2>
               <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
-                {['Stok Adi', 'Ana Saglayici Kodu', 'Marka Kodu', 'Kategori Kodu', 'Ambalaj Kodu', 'Ana Birim', 'KDV', 'Marj 1-5', '2. Birim', '2. Katsayi', 'Guncel Maliyet', 'Raf Kodu'].map((item) => (
+                {['Stok Adi', 'Ana Saglayici Kodu', 'Marka Kodu/Adi', 'Kategori Kodu', 'Ambalaj Kodu/Adi', 'Ana Birim', 'Ana Birim Olculeri', 'KDV', 'Marj 1-5', '2. Birim', '2. Katsayi', 'Guncel Maliyet', 'Raf Kodu'].map((item) => (
                   <div key={item} className="rounded-xl bg-white/10 px-3 py-2">{item}</div>
                 ))}
               </div>

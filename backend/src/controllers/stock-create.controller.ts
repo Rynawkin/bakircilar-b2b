@@ -31,6 +31,17 @@ class StockCreateController {
     }
   }
 
+  async getTemplate(req: Request, res: Response) {
+    try {
+      const templateCode = String(req.params.templateCode || '');
+      const template = await stockCreateService.getTemplate(templateCode);
+      res.json({ template });
+    } catch (error: any) {
+      console.error('Stock create template failed:', error);
+      res.status(404).json({ error: error.message || 'Sablon stok alinamadi' });
+    }
+  }
+
   async preview(req: Request, res: Response) {
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];

@@ -26,11 +26,17 @@ export type StockCreateInput = {
   vatRatePercent?: number | string | null;
   supplierCode?: string | null;
   brandCode?: string | null;
+  brandName?: string | null;
   categoryCode?: string | null;
   packageCode?: string | null;
+  packageName?: string | null;
   shelfCode?: string | null;
   currentCost?: number | string | null;
   mainUnit?: string | null;
+  mainUnitWeightKg?: number | string | null;
+  mainUnitWidthCm?: number | string | null;
+  mainUnitLengthCm?: number | string | null;
+  mainUnitHeightCm?: number | string | null;
   extraUnits?: UnitInput[] | null;
   margins?: Array<number | string | null> | null;
   barcode?: string | null;
@@ -59,11 +65,17 @@ type NormalizedStockInput = {
   vatCode: number;
   supplierCode: string;
   brandCode: string;
+  brandName: string;
   categoryCode: string;
   packageCode: string;
+  packageName: string;
   shelfCode: string;
   currentCost: number;
   mainUnit: string;
+  mainUnitWeightKg: number;
+  mainUnitWidthMm: number;
+  mainUnitLengthMm: number;
+  mainUnitHeightMm: number;
   extraUnits: NormalizedUnit[];
   margins: string[];
   barcode: string;
@@ -73,6 +85,7 @@ type NormalizedStockInput = {
 type ValidationRef = {
   code: string;
   name: string;
+  isLeaf?: boolean;
 };
 
 type ValidationResult = {
@@ -122,6 +135,15 @@ const toDateOnly = (date = new Date()) => {
 };
 
 const cmToMm = (value: unknown) => Math.round(toNumber(value, 0) * 10 * 1000) / 1000;
+const mmToCmText = (value: unknown) => {
+  const numeric = toNumber(value, 0);
+  if (!numeric) return '';
+  return String(Math.round((numeric / 10) * 1000) / 1000).replace('.', ',');
+};
+const decimalText = (value: unknown) => {
+  if (value === null || value === undefined || value === '') return '';
+  return String(value).trim().replace('.', ',');
+};
 
 const vatRateToCode = (percent: number) => {
   const normalized = Math.round(percent * 100) / 100;
@@ -201,11 +223,17 @@ class StockCreateService {
       vatCode: vatRateToCode(vatRatePercent),
       supplierCode: normalizeText(input.supplierCode),
       brandCode: upperText(input.brandCode),
+      brandName: normalizeText(input.brandName),
       categoryCode: normalizeText(input.categoryCode),
       packageCode: normalizeText(input.packageCode),
+      packageName: normalizeText(input.packageName),
       shelfCode: upperText(input.shelfCode),
       currentCost: toNumber(input.currentCost, 0),
       mainUnit: upperText(input.mainUnit),
+      mainUnitWeightKg: toNumber(input.mainUnitWeightKg, 0),
+      mainUnitWidthMm: cmToMm(input.mainUnitWidthCm),
+      mainUnitLengthMm: cmToMm(input.mainUnitLengthCm),
+      mainUnitHeightMm: cmToMm(input.mainUnitHeightCm),
       extraUnits,
       margins: normalizedMargins,
       barcode: normalizeText(input.barcode),
@@ -225,9 +253,21 @@ class StockCreateService {
     if (![0, 1, 10, 18, 20].includes(item.vatRatePercent)) warnings.push('KDV orani standart oranlardan farkli gorunuyor');
     if (!item.supplierCode) errors.push('Ana saglayici zorunlu');
     if (!item.brandCode) errors.push('Marka zorunlu');
+    if (item.brandName.length > 50) errors.push('Marka adi 50 karakterden uzun olamaz');
     if (!item.categoryCode) errors.push('Kategori zorunlu');
+    if (item.categoryCode && item.categoryCode.split('.').length !== 3) {
+      errors.push('Kategori sadece 3 kademeli en alt kategori kodu olmali (orn. 1.09.04)');
+    }
     if (!item.packageCode) errors.push('Ambalaj zorunlu');
+    if (item.packageName.length > 50) errors.push('Ambalaj adi 50 karakterden uzun olamaz');
     if (item.currentCost < 0) errors.push('Guncel maliyet negatif olamaz');
+    if ([item.mainUnitWeightKg, item.mainUnitWidthMm, item.mainUnitLengthMm, item.mainUnitHeightMm].some((value) => value < 0)) {
+      errors.push('Ana birimde negatif olcu/kg olamaz');
+    }
+    const mainDimensionCount = [item.mainUnitWidthMm, item.mainUnitLengthMm, item.mainUnitHeightMm].filter((value) => value > 0).length;
+    if (mainDimensionCount > 0 && mainDimensionCount < 3) {
+      errors.push('Ana birim icin en, boy ve yukseklik birlikte girilmeli');
+    }
 
     item.margins.forEach((margin, index) => {
       const numeric = toNumber(margin, NaN);
@@ -344,10 +384,17 @@ class StockCreateService {
         SELECT TOP ${safeLimit}
           ktg_kod AS code,
           ktg_isim AS name
-        FROM STOK_KATEGORILERI WITH (NOLOCK)
-        WHERE ISNULL(ktg_iptal, 0) = 0
-          ${condition('ktg_kod', 'ktg_isim')}
-        ORDER BY ktg_kod
+        FROM STOK_KATEGORILERI parent WITH (NOLOCK)
+        WHERE ISNULL(parent.ktg_iptal, 0) = 0
+          AND (LEN(parent.ktg_kod) - LEN(REPLACE(parent.ktg_kod, N'.', N''))) = 2
+          AND NOT EXISTS (
+            SELECT 1
+            FROM STOK_KATEGORILERI child WITH (NOLOCK)
+            WHERE ISNULL(child.ktg_iptal, 0) = 0
+              AND child.ktg_kod LIKE parent.ktg_kod + N'.%'
+          )
+          ${condition('parent.ktg_kod', 'parent.ktg_isim')}
+        ORDER BY parent.ktg_kod
       `);
       return rows.map((row: any) => ({ code: normalizeText(row.code), name: normalizeText(row.name) }));
     }
@@ -379,6 +426,131 @@ class StockCreateService {
     return rows.map((row: any) => ({ code: normalizeText(row.code), name: normalizeText(row.name) }));
   }
 
+  async getTemplate(templateCode: string) {
+    const code = upperText(templateCode);
+    if (!code) {
+      throw new Error('Sablon stok kodu gerekli');
+    }
+
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1
+        s.sto_kod AS templateCode,
+        s.sto_isim AS name,
+        s.sto_yabanci_isim AS foreignName,
+        s.sto_kisa_ismi AS shortName,
+        CASE
+          WHEN s.sto_toptan_vergi = 5 THEN 20
+          WHEN s.sto_toptan_vergi = 7 THEN 10
+          WHEN s.sto_toptan_vergi = 2 THEN 1
+          WHEN s.sto_toptan_vergi = 0 THEN 0
+          ELSE 20
+        END AS vatRatePercent,
+        s.sto_sat_cari_kod AS supplierCode,
+        c.cari_unvan1 AS supplierName,
+        s.sto_marka_kodu AS brandCode,
+        m.mrk_ismi AS brandName,
+        s.sto_kategori_kodu AS categoryCode,
+        k.ktg_isim AS categoryName,
+        s.sto_ambalaj_kodu AS packageCode,
+        a.amb_ismi AS packageName,
+        s.sto_reyon_kodu AS shelfCode,
+        r.ryn_ismi AS shelfName,
+        s.sto_standartmaliyet AS currentCost,
+        s.sto_birim1_ad AS mainUnit,
+        s.sto_birim1_agirlik AS mainUnitWeightKg,
+        s.sto_birim1_en AS mainUnitWidthMm,
+        s.sto_birim1_boy AS mainUnitLengthMm,
+        s.sto_birim1_yukseklik AS mainUnitHeightMm,
+        s.sto_birim2_ad AS unit2Name,
+        s.sto_birim2_katsayi AS unit2Factor,
+        s.sto_birim2_agirlik AS unit2WeightKg,
+        s.sto_birim2_en AS unit2WidthMm,
+        s.sto_birim2_boy AS unit2LengthMm,
+        s.sto_birim2_yukseklik AS unit2HeightMm,
+        s.sto_birim3_ad AS unit3Name,
+        s.sto_birim3_katsayi AS unit3Factor,
+        s.sto_birim3_agirlik AS unit3WeightKg,
+        s.sto_birim3_en AS unit3WidthMm,
+        s.sto_birim3_boy AS unit3LengthMm,
+        s.sto_birim3_yukseklik AS unit3HeightMm,
+        s.sto_birim4_ad AS unit4Name,
+        s.sto_birim4_katsayi AS unit4Factor,
+        s.sto_birim4_agirlik AS unit4WeightKg,
+        s.sto_birim4_en AS unit4WidthMm,
+        s.sto_birim4_boy AS unit4LengthMm,
+        s.sto_birim4_yukseklik AS unit4HeightMm,
+        u.Marj_1 AS margin1,
+        u.Marj_2 AS margin2,
+        u.Marj_3 AS margin3,
+        u.Marj_4 AS margin4,
+        u.Marj_5 AS margin5
+      FROM STOKLAR s WITH (NOLOCK)
+      LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON c.cari_kod = s.sto_sat_cari_kod
+      LEFT JOIN STOK_MARKALARI m WITH (NOLOCK) ON m.mrk_kod = s.sto_marka_kodu
+      LEFT JOIN STOK_KATEGORILERI k WITH (NOLOCK) ON k.ktg_kod = s.sto_kategori_kodu
+      LEFT JOIN STOK_AMBALAJLARI a WITH (NOLOCK) ON a.amb_kod = s.sto_ambalaj_kodu
+      LEFT JOIN STOK_REYONLARI r WITH (NOLOCK) ON r.ryn_kod = s.sto_reyon_kodu
+      LEFT JOIN STOKLAR_USER u WITH (NOLOCK) ON u.Record_uid = s.sto_Guid
+      WHERE s.sto_kod = ${toSqlString(code)}
+    `);
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error('Sablon stok Mikroda bulunamadi');
+    }
+
+    const extraUnits = [2, 3, 4]
+      .map((index) => {
+        const name = normalizeText(row[`unit${index}Name`]);
+        const rawFactor = toNumber(row[`unit${index}Factor`], 0);
+        if (!name && !rawFactor) return null;
+        return {
+          index,
+          name,
+          factor: rawFactor ? decimalText(Math.abs(rawFactor)) : '',
+          factorDirection: rawFactor > 0 ? 'smaller' : 'larger',
+          weightKg: decimalText(row[`unit${index}WeightKg`]),
+          widthCm: mmToCmText(row[`unit${index}WidthMm`]),
+          lengthCm: mmToCmText(row[`unit${index}LengthMm`]),
+          heightCm: mmToCmText(row[`unit${index}HeightMm`]),
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      templateCode: normalizeText(row.templateCode),
+      name: normalizeText(row.name),
+      foreignName: normalizeText(row.foreignName),
+      shortName: normalizeText(row.shortName),
+      vatRatePercent: decimalText(row.vatRatePercent) || '20',
+      supplierCode: normalizeText(row.supplierCode),
+      supplierName: normalizeText(row.supplierName),
+      brandCode: normalizeText(row.brandCode),
+      brandName: normalizeText(row.brandName),
+      categoryCode: normalizeText(row.categoryCode),
+      categoryName: normalizeText(row.categoryName),
+      packageCode: normalizeText(row.packageCode),
+      packageName: normalizeText(row.packageName),
+      shelfCode: normalizeText(row.shelfCode),
+      shelfName: normalizeText(row.shelfName),
+      currentCost: decimalText(row.currentCost),
+      mainUnit: normalizeText(row.mainUnit),
+      mainUnitWeightKg: decimalText(row.mainUnitWeightKg),
+      mainUnitWidthCm: mmToCmText(row.mainUnitWidthMm),
+      mainUnitLengthCm: mmToCmText(row.mainUnitLengthMm),
+      mainUnitHeightCm: mmToCmText(row.mainUnitHeightMm),
+      margins: [row.margin1, row.margin2, row.margin3, row.margin4, row.margin5].map(decimalText),
+      extraUnits,
+      refs: {
+        supplier: row.supplierCode ? { code: normalizeText(row.supplierCode), name: normalizeText(row.supplierName) } : null,
+        brand: row.brandCode ? { code: normalizeText(row.brandCode), name: normalizeText(row.brandName) } : null,
+        category: row.categoryCode ? { code: normalizeText(row.categoryCode), name: normalizeText(row.categoryName) } : null,
+        package: row.packageCode ? { code: normalizeText(row.packageCode), name: normalizeText(row.packageName) } : null,
+        shelf: row.shelfCode ? { code: normalizeText(row.shelfCode), name: normalizeText(row.shelfName) } : null,
+      },
+    };
+  }
+
   private async loadValidationRefs(items: NormalizedStockInput[]) {
     const suppliers = items.map((item) => item.supplierCode);
     const brands = items.map((item) => item.brandCode);
@@ -401,9 +573,22 @@ class StockCreateService {
         WHERE mrk_kod IN (${buildInClause(brands)})
       `),
       mikroService.executeQuery(`
-        SELECT ktg_kod AS code, ktg_isim AS name
-        FROM STOK_KATEGORILERI WITH (NOLOCK)
-        WHERE ktg_kod IN (${buildInClause(categories)})
+        SELECT
+          parent.ktg_kod AS code,
+          parent.ktg_isim AS name,
+          CASE
+            WHEN (LEN(parent.ktg_kod) - LEN(REPLACE(parent.ktg_kod, N'.', N''))) = 2
+             AND NOT EXISTS (
+              SELECT 1
+              FROM STOK_KATEGORILERI child WITH (NOLOCK)
+              WHERE ISNULL(child.ktg_iptal, 0) = 0
+                AND child.ktg_kod LIKE parent.ktg_kod + N'.%'
+             )
+            THEN 1 ELSE 0
+          END AS isLeaf
+        FROM STOK_KATEGORILERI parent WITH (NOLOCK)
+        WHERE ISNULL(parent.ktg_iptal, 0) = 0
+          AND parent.ktg_kod IN (${buildInClause(categories)})
       `),
       mikroService.executeQuery(`
         SELECT amb_kod AS code, amb_ismi AS name
@@ -437,7 +622,16 @@ class StockCreateService {
     ]);
 
     const toMap = (rows: any[]) =>
-      new Map<string, ValidationRef>(rows.map((row) => [normalizeText(row.code), { code: normalizeText(row.code), name: normalizeText(row.name) }]));
+      new Map<string, ValidationRef>(
+        rows.map((row) => [
+          normalizeText(row.code),
+          {
+            code: normalizeText(row.code),
+            name: normalizeText(row.name),
+            isLeaf: row.isLeaf === undefined ? undefined : row.isLeaf === true || row.isLeaf === 1 || row.isLeaf === '1',
+          },
+        ])
+      );
 
     return {
       suppliers: toMap(supplierRows),
@@ -480,9 +674,16 @@ class StockCreateService {
       const barcodeDuplicate = item.barcode ? refs.barcodes.get(item.barcode) : null;
 
       if (item.supplierCode && !supplier) errors.push('Ana saglayici Mikroda bulunamadi');
-      if (item.brandCode && !brand) errors.push('Marka Mikroda bulunamadi');
+      if (item.brandCode && !brand) {
+        if (item.brandName) warnings.push(`Marka Mikroda yok, kayit sirasinda olusturulacak: ${item.brandCode} - ${item.brandName}`);
+        else errors.push('Marka Mikroda bulunamadi; yeni marka icin marka adi girilmeli');
+      }
       if (item.categoryCode && !category) errors.push('Kategori Mikroda bulunamadi');
-      if (item.packageCode && !packageRef) errors.push('Ambalaj Mikroda bulunamadi');
+      if (category && !category.isLeaf) errors.push('Kategori en alt 3 kademeli kategori olmali');
+      if (item.packageCode && !packageRef) {
+        if (item.packageName) warnings.push(`Ambalaj Mikroda yok, kayit sirasinda olusturulacak: ${item.packageCode} - ${item.packageName}`);
+        else errors.push('Ambalaj Mikroda bulunamadi; yeni ambalaj icin ambalaj adi girilmeli');
+      }
       if (item.shelfCode && !shelf) errors.push('Raf/Reyon kodu Mikroda bulunamadi');
       if (!template) errors.push('Sablon stok Mikroda bulunamadi');
       if (duplicate) warnings.push(`Ayni isimde mevcut stok var: ${duplicate.code}`);
@@ -538,6 +739,10 @@ class StockCreateService {
       sto_ambalaj_kodu: toSqlString(item.packageCode),
       sto_birim1_ad: toSqlString(item.mainUnit),
       sto_birim1_katsayi: '1',
+      sto_birim1_agirlik: toSqlNumber(item.mainUnitWeightKg),
+      sto_birim1_en: toSqlNumber(item.mainUnitWidthMm),
+      sto_birim1_boy: toSqlNumber(item.mainUnitLengthMm),
+      sto_birim1_yukseklik: toSqlNumber(item.mainUnitHeightMm),
       sto_standartmaliyet: toSqlNumber(item.currentCost),
       sto_reyon_kodu: toSqlString(item.shelfCode),
       sto_pasif_fl: '0',
@@ -569,6 +774,42 @@ class StockCreateService {
     }
 
     return `s.[${column.replace(/]/g, ']]')}]`;
+  }
+
+  private buildReferenceCreateStatements(item: NormalizedStockInput) {
+    const statements: string[] = [];
+
+    if (item.brandCode && item.brandName) {
+      statements.push(`
+        IF NOT EXISTS (SELECT 1 FROM STOK_MARKALARI WITH (UPDLOCK, HOLDLOCK) WHERE mrk_kod = ${toSqlString(item.brandCode)})
+        BEGIN
+          INSERT INTO STOK_MARKALARI
+            (mrk_Guid, mrk_DBCno, mrk_SpecRECno, mrk_iptal, mrk_fileid, mrk_hidden, mrk_kilitli, mrk_degisti, mrk_checksum,
+             mrk_create_user, mrk_create_date, mrk_lastup_user, mrk_lastup_date, mrk_special1, mrk_special2, mrk_special3, mrk_kod, mrk_ismi)
+          VALUES
+            (NEWID(), 0, 0, 0, 19, 0, 0, 1, 0,
+             1, GETDATE(), 1, GETDATE(), N'', N'', N'', ${toSqlString(item.brandCode)}, ${toSqlString(item.brandName)});
+        END
+      `);
+    }
+
+    if (item.packageCode && item.packageName) {
+      statements.push(`
+        IF NOT EXISTS (SELECT 1 FROM STOK_AMBALAJLARI WITH (UPDLOCK, HOLDLOCK) WHERE amb_kod = ${toSqlString(item.packageCode)})
+        BEGIN
+          INSERT INTO STOK_AMBALAJLARI
+            (amb_Guid, amb_DBCno, amb_SpecRECno, amb_iptal, amb_fileid, amb_hidden, amb_kilitli, amb_degisti, amb_checksum,
+             amb_create_user, amb_create_date, amb_lastup_user, amb_lastup_date, amb_special1, amb_special2, amb_special3,
+             amb_kod, amb_ismi, amb_miktar, amb_dara, amb_fiyat)
+          VALUES
+            (NEWID(), 0, 0, 0, 20, 0, 0, 1, 0,
+             1, GETDATE(), 1, GETDATE(), N'', N'', N'',
+             ${toSqlString(item.packageCode)}, ${toSqlString(item.packageName)}, 1, 0, 0);
+        END
+      `);
+    }
+
+    return statements.join('\n');
   }
 
   private async syncCreatedProduct(item: NormalizedStockInput, stockCode: string) {
@@ -669,6 +910,8 @@ class StockCreateService {
       statements.push(`
         IF EXISTS (SELECT 1 FROM STOKLAR WITH (UPDLOCK, HOLDLOCK) WHERE sto_kod = @code${index})
           THROW 51000, 'Olusacak stok kodu Mikroda zaten var', 1;
+
+        ${this.buildReferenceCreateStatements(item)}
 
         INSERT INTO STOKLAR (${columnList})
         OUTPUT ${item.rowNo}, inserted.sto_kod, inserted.sto_Guid INTO @created(rowNo, stockCode, stockGuid)

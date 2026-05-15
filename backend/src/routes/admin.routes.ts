@@ -224,6 +224,7 @@ router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admi
 
 router.get('/stock-create/metadata', requirePermission('admin:stock-create'), stockCreateController.getMetadata);
 router.get('/stock-create/history', requirePermission('admin:stock-create'), stockCreateController.getHistory);
+router.get('/stock-create/templates/:templateCode', requirePermission('admin:stock-create'), stockCreateController.getTemplate);
 router.get('/stock-create/lookups/:type', requirePermission('admin:stock-create'), stockCreateController.searchLookups);
 router.post('/stock-create/preview', requirePermission('admin:stock-create'), stockCreateController.preview);
 router.post('/stock-create/create', requirePermission('admin:stock-create'), stockCreateController.create);
