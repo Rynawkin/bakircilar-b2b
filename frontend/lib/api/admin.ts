@@ -467,6 +467,62 @@ export const adminApi = {
     return response.data;
   },
 
+  searchFieldSalesCustomers: async (params?: { search?: string; limit?: number }): Promise<{ customers: any[] }> => {
+    const response = await apiClient.get('/admin/field-sales/customers', { params });
+    return response.data;
+  },
+
+  getFieldSalesCustomer: async (customerIdOrCode: string): Promise<{ success: boolean; data: any }> => {
+    const response = await apiClient.get(`/admin/field-sales/customers/${encodeURIComponent(customerIdOrCode)}`);
+    return response.data;
+  },
+
+  searchFieldSalesProducts: async (params?: {
+    search?: string;
+    customerId?: string;
+    limit?: number;
+    safeMode?: boolean;
+  }): Promise<{ products: any[] }> => {
+    const response = await apiClient.get('/admin/field-sales/products', { params });
+    return response.data;
+  },
+
+  getFieldSalesProduct: async (
+    productCode: string,
+    params?: { customerId?: string; safeMode?: boolean }
+  ): Promise<{ success: boolean; data: { product: any } }> => {
+    const response = await apiClient.get(`/admin/field-sales/products/${encodeURIComponent(productCode)}`, { params });
+    return response.data;
+  },
+
+  getFieldSalesOpportunities: async (customerIdOrCode: string): Promise<{ success: boolean; data: any }> => {
+    const response = await apiClient.get(`/admin/field-sales/customers/${encodeURIComponent(customerIdOrCode)}/opportunities`);
+    return response.data;
+  },
+
+  getFieldSalesVisitNotes: async (
+    customerIdOrCode: string,
+    params?: { limit?: number }
+  ): Promise<{ success: boolean; data: { notes: any[] } }> => {
+    const response = await apiClient.get(`/admin/field-sales/customers/${encodeURIComponent(customerIdOrCode)}/visit-notes`, { params });
+    return response.data;
+  },
+
+  createFieldSalesVisitNote: async (
+    customerIdOrCode: string,
+    payload: {
+      note: string;
+      demand?: string | null;
+      competitorInfo?: string | null;
+      photoUrl?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+    }
+  ): Promise<{ success: boolean; data: { note: any } }> => {
+    const response = await apiClient.post(`/admin/field-sales/customers/${encodeURIComponent(customerIdOrCode)}/visit-notes`, payload);
+    return response.data;
+  },
+
   createCustomer: async (data: CreateCustomerRequest): Promise<{ message: string; customer: Customer }> => {
     const response = await apiClient.post('/admin/customers', data);
     return response.data;

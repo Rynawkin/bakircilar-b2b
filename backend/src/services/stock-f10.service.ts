@@ -34,7 +34,7 @@ class StockF10Service {
       if (tokens.length > 0) {
         const tokenClauses = tokens.map((token) => {
           const escaped = token.replace(/'/g, "''");
-          return `(sto_isim LIKE '%${escaped}%' OR sto_kod LIKE '%${escaped}%')`;
+          return `(sto_isim LIKE '%${escaped}%' OR sto_kod LIKE '%${escaped}%' OR EXISTS (SELECT 1 FROM BARKOD_TANIMLARI bt WITH (NOLOCK) WHERE bt.bar_stokkodu = sto_kod AND ISNULL(bt.bar_kodu, '') LIKE '%${escaped}%'))`;
         });
         whereClause += ` AND ${tokenClauses.join(' AND ')}`;
       }

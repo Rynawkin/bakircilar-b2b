@@ -329,6 +329,13 @@ router.post('/customers', requirePermission('admin:customers'), validateBody(cre
 router.put('/customers/:id', requirePermission('admin:customers'), validateBody(updateCustomerSchema), adminController.updateCustomer);
 router.get('/customer-360/search', requirePermission('admin:customers'), adminController.searchCustomer360);
 router.get('/customer-360/:customerId', requirePermission('admin:customers'), adminController.getCustomer360);
+router.get('/field-sales/customers', requirePermission('admin:field-sales'), adminController.searchFieldSalesCustomers);
+router.get('/field-sales/products', requirePermission('admin:field-sales'), adminController.searchFieldSalesProducts);
+router.get('/field-sales/products/:productCode', requirePermission('admin:field-sales'), adminController.getFieldSalesProduct);
+router.get('/field-sales/customers/:customerId', requirePermission('admin:field-sales'), adminController.getFieldSalesCustomer);
+router.get('/field-sales/customers/:customerId/opportunities', requirePermission('admin:field-sales'), adminController.getFieldSalesOpportunities);
+router.get('/field-sales/customers/:customerId/visit-notes', requirePermission('admin:field-sales'), adminController.getFieldSalesVisitNotes);
+router.post('/field-sales/customers/:customerId/visit-notes', requirePermission('admin:field-sales'), adminController.createFieldSalesVisitNote);
 router.get('/customers/:id/price-list-rules', requirePermission('admin:customers'), adminController.getCustomerPriceListRules);
 router.put(
   '/customers/:id/price-list-rules',

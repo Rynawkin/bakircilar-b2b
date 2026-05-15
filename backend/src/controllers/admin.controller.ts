@@ -16,6 +16,7 @@ import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
 import customer360Service from '../services/customer360.service';
+import fieldSalesService from '../services/field-sales.service';
 import customerRecoveryService from '../services/customer-recovery.service';
 import emailService from '../services/email.service';
 import priceSyncService from '../services/priceSync.service';
@@ -1922,6 +1923,126 @@ export class AdminController {
         },
       });
       res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/field-sales/customers
+   */
+  async searchFieldSalesCustomers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await fieldSalesService.searchCustomers({
+        search: String(req.query.search || ''),
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        scope: buildReportRequestContext(req),
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/field-sales/customers/:customerId
+   */
+  async getFieldSalesCustomer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await fieldSalesService.getCustomerSnapshot({
+        customerIdOrCode: String(req.params.customerId || ''),
+        scope: buildReportRequestContext(req),
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/field-sales/products
+   */
+  async searchFieldSalesProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const safeMode = req.query.safeMode === undefined ? true : parseBooleanQuery(req.query.safeMode);
+      const data = await fieldSalesService.searchProducts({
+        search: String(req.query.search || ''),
+        customerIdOrCode: req.query.customerId ? String(req.query.customerId) : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        safeMode,
+        scope: buildReportRequestContext(req),
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/field-sales/products/:productCode
+   */
+  async getFieldSalesProduct(req: Request, res: Response, next: NextFunction) {
+    try {
+      const safeMode = req.query.safeMode === undefined ? true : parseBooleanQuery(req.query.safeMode);
+      const data = await fieldSalesService.getProductDetail({
+        productCode: String(req.params.productCode || ''),
+        customerIdOrCode: req.query.customerId ? String(req.query.customerId) : undefined,
+        safeMode,
+        scope: buildReportRequestContext(req),
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/field-sales/customers/:customerId/opportunities
+   */
+  async getFieldSalesOpportunities(req: Request, res: Response, next: NextFunction) {
+    try {
+      const opportunities = await fieldSalesService.getCustomerOpportunities(
+        String(req.params.customerId || ''),
+        buildReportRequestContext(req)
+      );
+      res.json({ success: true, data: opportunities });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/field-sales/customers/:customerId/visit-notes
+   */
+  async getFieldSalesVisitNotes(req: Request, res: Response, next: NextFunction) {
+    try {
+      const notes = await fieldSalesService.getVisitNotes(
+        String(req.params.customerId || ''),
+        buildReportRequestContext(req),
+        req.query.limit ? Number(req.query.limit) : undefined
+      );
+      res.json({ success: true, data: { notes } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/field-sales/customers/:customerId/visit-notes
+   */
+  async createFieldSalesVisitNote(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await fieldSalesService.createVisitNote({
+        customerIdOrCode: String(req.params.customerId || ''),
+        scope: buildReportRequestContext(req),
+        note: req.body?.note,
+        demand: req.body?.demand,
+        competitorInfo: req.body?.competitorInfo,
+        photoUrl: req.body?.photoUrl,
+        latitude: req.body?.latitude,
+        longitude: req.body?.longitude,
+      });
+      res.status(201).json({ success: true, data });
     } catch (error) {
       next(error);
     }

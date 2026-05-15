@@ -340,6 +340,8 @@ model User {
   priceListRules     CustomerPriceListRule[]
   recoveryActionsAuthored CustomerRecoveryAction[] @relation("CustomerRecoveryActionAuthor")
   recoveryActionsAssigned CustomerRecoveryAction[] @relation("CustomerRecoveryActionAssignee")
+  fieldSalesVisitNotesAuthored FieldSalesVisitNote[] @relation("FieldSalesVisitNoteAuthor")
+  fieldSalesVisitNotesAsCustomer FieldSalesVisitNote[] @relation("FieldSalesVisitNoteCustomer")
 
   quotesUpdated      Quote[]       @relation("QuoteUpdater")
   quoteHistories     QuoteHistory[] @relation("QuoteHistoryActor")
@@ -405,6 +407,34 @@ model CustomerActivityEvent {
   @@index([productId])
   @@index([pagePath])
   @@index([sessionId])
+}
+
+model FieldSalesVisitNote {
+  id             String   @id @default(uuid())
+
+  customerId     String?
+  customer       User?    @relation("FieldSalesVisitNoteCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  customerCode   String
+  customerName   String?
+
+  note           String
+  demand         String?
+  competitorInfo String?
+  photoUrl       String?
+  latitude       Float?
+  longitude      Float?
+
+  createdById    String?
+  createdBy      User?    @relation("FieldSalesVisitNoteAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdByName  String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([customerCode])
+  @@index([createdById])
+  @@index([createdAt])
 }
 
 // ==================== ROLE PERMISSIONS ====================
