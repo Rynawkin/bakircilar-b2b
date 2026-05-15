@@ -4,6 +4,7 @@ import priceListService from "./price-list.service";
 import { generateQuoteNumber } from "../utils/quoteNumber";
 import { generateOrderNumber } from "../utils/orderNumber";
 import { MikroCustomerSaleMovement } from "../types";
+import customerCategoryPurchaseService from "./customer-category-purchase.service";
 type QuotePriceSource = "LAST_SALE" | "PRICE_LIST" | "MANUAL";
 type PriceType = "INVOICED" | "WHITE";
 interface QuoteItemInput {
@@ -532,7 +533,7 @@ class QuoteService {
     }
     const products = await prisma.product.findMany({
       where: { active: true, mikroCode: { in: purchasedCodes } },
-      include: { category: { select: { id: true, name: true } } },
+      include: { category: { select: { id: true, mikroCode: true, name: true } } },
       orderBy: { name: "asc" },
     });
     const priceStatsMap = await priceListService.getPriceStatsMap(
@@ -559,6 +560,10 @@ class QuoteService {
       products.map((product) => product.mikroCode),
       Math.max(1, lastSalesCount),
     );
+    const categoryLastByProduct = await customerCategoryPurchaseService.getProductCategoryLastPurchases(
+      customer.mikroCariCode,
+      products,
+    );
     const productsWithLists = products.map((product) => {
       const priceStats = priceStatsMap.get(product.mikroCode) || null;
       const mikroPriceLists: Record<string, number> = {};
@@ -568,6 +573,7 @@ class QuoteService {
           listNo,
         );
       }
+      const categoryLastPurchase = categoryLastByProduct.get(product.mikroCode) || null;
       return {
         id: product.id,
         name: product.name,
@@ -585,6 +591,9 @@ class QuoteService {
         mikroPriceLists,
         lastSales: salesMap.get(product.mikroCode) || [],
         lastQuotes: lastQuotesMap.get(product.mikroCode) || [],
+        categoryLastPurchase,
+        categoryLastPurchaseDate: categoryLastPurchase?.lastPurchaseDate || null,
+        categoryMonthsSinceLastPurchase: categoryLastPurchase?.monthsSinceLastPurchase ?? null,
       };
     });
     const getSaleTime = (value?: string | Date) => {
@@ -621,6 +630,44 @@ class QuoteService {
     });
     return output;
   }
+
+  async getCustomerCategoryLastPurchasesForProducts(
+    customerId: string,
+    productCodes: string[],
+  ) {
+    const normalizedCodes = Array.from(
+      new Set((productCodes || []).map((code) => String(code || '').trim()).filter(Boolean))
+    );
+    if (!customerId || normalizedCodes.length === 0) return {};
+
+    const customer = await prisma.user.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        mikroCariCode: true,
+      },
+    });
+    if (!customer?.mikroCariCode) return {};
+
+    const products = await prisma.product.findMany({
+      where: { mikroCode: { in: normalizedCodes } },
+      select: {
+        mikroCode: true,
+        category: { select: { mikroCode: true, name: true } },
+      },
+    });
+
+    const categoryLastByProduct = await customerCategoryPurchaseService.getProductCategoryLastPurchases(
+      customer.mikroCariCode,
+      products,
+    );
+    const output: Record<string, any> = {};
+    categoryLastByProduct.forEach((value, key) => {
+      output[key] = value;
+    });
+    return output;
+  }
+
   async createQuote(input: CreateQuoteInput, createdById: string) {
     const {
       customerId,

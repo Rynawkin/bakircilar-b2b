@@ -289,6 +289,26 @@ export class QuoteController {
   }
 
   /**
+   * POST /api/admin/quotes/category-last-purchases
+   */
+  async getCategoryLastPurchasesForCustomer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { customerId, productCodes } = req.body || {};
+      if (!customerId || !Array.isArray(productCodes) || productCodes.length === 0) {
+        return res.json({ categoryLastPurchases: {} });
+      }
+      const normalizedCodes = productCodes.map((code: any) => String(code)).filter(Boolean);
+      const categoryLastPurchases = await quoteService.getCustomerCategoryLastPurchasesForProducts(
+        customerId,
+        normalizedCodes,
+      );
+      res.json({ categoryLastPurchases });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/quotes/items/upload-image
    */
   async uploadQuoteItemImage(req: Request, res: Response, next: NextFunction) {

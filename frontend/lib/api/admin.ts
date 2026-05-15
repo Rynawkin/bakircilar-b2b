@@ -398,6 +398,8 @@ export const adminApi = {
     sortOrder?: 'asc' | 'desc';
     page?: number;
     limit?: number;
+    customerId?: string;
+    customerCode?: string;
   }): Promise<{ products: any[]; pagination: any; stats: any }> => {
     const response = await apiClient.get('/admin/products', { params });
     return response.data;
@@ -1250,6 +1252,14 @@ export const adminApi = {
     excludeQuoteId?: string;
   }): Promise<{ lastQuotes: Record<string, any[]> }> => {
     const response = await apiClient.post('/admin/quotes/last-quotes', payload);
+    return response.data;
+  },
+
+  getCustomerCategoryLastPurchases: async (payload: {
+    customerId: string;
+    productCodes: string[];
+  }): Promise<{ categoryLastPurchases: Record<string, any> }> => {
+    const response = await apiClient.post('/admin/quotes/category-last-purchases', payload);
     return response.data;
   },
 

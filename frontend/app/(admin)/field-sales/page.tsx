@@ -30,6 +30,14 @@ import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { cn } from '@/lib/utils/cn';
+import {
+  convertPriceFromBaseUnit,
+  convertPriceToBaseUnit,
+  convertQuantityFromBaseUnit,
+  convertQuantityToBaseUnit,
+  getAvailableUnits,
+  getUnitConversionLabel,
+} from '@/lib/utils/unit';
 
 type TabKey = 'customer' | 'products' | 'draft' | 'history';
 
@@ -41,11 +49,22 @@ type DraftItem = {
   unit: string;
   unit2?: string | null;
   unit2Factor?: number | null;
+  selectedUnit?: string | null;
   quantity: number;
   unitPrice: number;
-  priceSource: 'PRICE_LIST' | 'MANUAL';
+  priceSource: 'LAST_SALE' | 'PRICE_LIST' | 'MANUAL';
   priceListNo?: number | null;
+  selectedSaleIndex?: number | null;
+  manualPriceInput?: string;
+  vatZeroed?: boolean;
   priceType: 'INVOICED' | 'WHITE';
+  priceLists?: Record<string, number> | Record<number, number>;
+  lastSales?: any[];
+  lastQuotes?: any[];
+  categoryLastPurchase?: any | null;
+  categoryLastPurchaseDate?: string | null;
+  categoryMonthsSinceLastPurchase?: number | null;
+  cost?: any | null;
 };
 
 const DRAFT_KEY = 'field-sales:draft';
@@ -70,6 +89,11 @@ const tabs: Array<{ key: TabKey; label: string; icon: any }> = [
 const money = (value: any) => formatCurrency(Number(value || 0));
 const n = (value: any, digits = 2) => Number(value || 0).toLocaleString('tr-TR', { maximumFractionDigits: digits });
 const safeDate = (value?: string | null) => (value ? formatDateShort(String(value)) : '-');
+const normalizeSearchText = (value: any) =>
+  String(value || '')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 const ACTIVE_WAREHOUSE_NOS = new Set([1, 6]);
 const PRICE_LIST_LABELS: Record<number, string> = {
   1: 'Perakende Satis 1',
@@ -97,6 +121,88 @@ const getWarehouseByNo = (product: any, no: number) =>
 
 const activeSellable = (product: any) =>
   getActiveWarehouses(product).reduce((sum: number, row: any) => sum + Number(row.sellable || 0), 0);
+
+const roundUnitValue = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
+};
+
+const parseDecimalInput = (input: string) => {
+  const raw = String(input || '').replace(/\s+/g, '');
+  if (!raw) return undefined;
+  const lastComma = raw.lastIndexOf(',');
+  const lastDot = raw.lastIndexOf('.');
+  let normalized = raw;
+  if (lastComma !== -1 && lastDot !== -1) {
+    const decimalSeparator = lastComma > lastDot ? ',' : '.';
+    const thousandsSeparator = decimalSeparator === ',' ? '.' : ',';
+    normalized = raw.replace(new RegExp(`\\${thousandsSeparator}`, 'g'), '').replace(decimalSeparator, '.');
+  } else if (lastComma !== -1) {
+    normalized = raw.replace(/\./g, '').replace(',', '.');
+  } else {
+    normalized = raw.replace(/,/g, '');
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const formatDecimalInput = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '';
+  return value.toLocaleString('tr-TR', { useGrouping: false, maximumFractionDigits: 6 });
+};
+
+const getMikroListPrice = (priceLists: any, listNo: number) => {
+  if (!priceLists) return 0;
+  const byNumber = priceLists[listNo];
+  if (typeof byNumber === 'number') return byNumber;
+  const byString = priceLists[String(listNo)];
+  return typeof byString === 'number' ? byString : 0;
+};
+
+const getSelectedUnit = (item: Pick<DraftItem, 'unit' | 'selectedUnit'>) =>
+  item.selectedUnit || item.unit || 'ADET';
+
+const getDisplayQuantity = (item: DraftItem) =>
+  roundUnitValue(convertQuantityFromBaseUnit(item.quantity || 0, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor));
+
+const getDisplayUnitPrice = (item: DraftItem) =>
+  convertPriceFromBaseUnit(item.unitPrice || 0, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor);
+
+const getCategoryLastPurchaseInfo = (source: any) => {
+  if (!source) return null;
+  const info = source.categoryLastPurchase || null;
+  const lastPurchaseDate = info?.lastPurchaseDate || source.lastPurchaseDate || source.categoryLastPurchaseDate || null;
+  if (!lastPurchaseDate) return null;
+  const months = info?.monthsSinceLastPurchase ?? source.monthsSinceLastPurchase ?? source.categoryMonthsSinceLastPurchase ?? monthsSinceDate(lastPurchaseDate);
+  return {
+    categoryCode: info?.categoryCode || source.categoryCode || null,
+    categoryName: info?.categoryName || source.categoryName || null,
+    lastPurchaseDate,
+    monthsSinceLastPurchase: months,
+  };
+};
+
+const monthsSinceDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const diffDays = Math.max(0, (Date.now() - date.getTime()) / 86_400_000);
+  return Math.round((diffDays / 30.4375) * 10) / 10;
+};
+
+const getMatchingPriceListLabel = (priceLists: any, unitPrice?: number | null) => {
+  if (!priceLists || !Number.isFinite(Number(unitPrice))) return null;
+  const target = Math.round((Number(unitPrice) + Number.EPSILON) * 100) / 100;
+  for (const [key, value] of Object.entries(priceLists)) {
+    const listNo = Number(key);
+    const price = Number(value);
+    if (!Number.isFinite(listNo) || !Number.isFinite(price) || price <= 0) continue;
+    if (Math.round((price + Number.EPSILON) * 100) / 100 === target) {
+      return getPriceListLabel(listNo);
+    }
+  }
+  return null;
+};
 
 const loadJson = <T,>(key: string, fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -211,6 +317,7 @@ export default function FieldSalesPage() {
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
   const [productSearch, setProductSearch] = useState('');
+  const [productMode, setProductMode] = useState<'search' | 'purchased'>('search');
   const [products, setProducts] = useState<any[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -279,6 +386,7 @@ export default function FieldSalesPage() {
   }, [selectedCustomer?.id, selectedCustomer?.mikroCariCode]);
 
   useEffect(() => {
+    if (productMode !== 'search') return;
     if (!productSearch.trim() || productSearch.trim().length < 2) {
       setProducts([]);
       return;
@@ -287,7 +395,7 @@ export default function FieldSalesPage() {
       void searchProducts();
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [productSearch, selectedCustomer?.id, selectedCustomer?.mikroCariCode, safeMode]);
+  }, [productSearch, selectedCustomer?.id, selectedCustomer?.mikroCariCode, safeMode, productMode]);
 
   const draftTotal = useMemo(
     () => draft.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0),
@@ -357,32 +465,74 @@ export default function FieldSalesPage() {
     }
   };
 
-  const addToDraft = (product: any) => {
-    const price = getProductPrice(product);
-    const quantity = Math.max(0.0001, Number(productQuantities[product.mikroCode] || 1) || 1);
+  const resolveProductForDraft = async (product: any) => {
+    const code = String(product?.mikroCode || product?.productCode || '').trim();
+    if (!code) return product;
+    if (product?.priceLists || product?.customerPrice) return { ...product, mikroCode: code };
+    try {
+      const result = await adminApi.getFieldSalesProduct(code, {
+        customerId: customerIdForApi || undefined,
+        safeMode,
+      });
+      return result.data.product || { ...product, mikroCode: code };
+    } catch {
+      return { ...product, mikroCode: code };
+    }
+  };
+
+  const addToDraft = async (product: any, options?: { priceSource?: DraftItem['priceSource']; priceListNo?: number; saleIndex?: number; unitPrice?: number }) => {
+    const resolvedProduct = await resolveProductForDraft(product);
+    const code = String(resolvedProduct?.mikroCode || resolvedProduct?.productCode || '').trim();
+    if (!code) {
+      toast.error('Urun kodu bulunamadi.');
+      return;
+    }
+    const price = getProductPrice(resolvedProduct);
+    const selectedUnit = resolvedProduct.unit || 'ADET';
+    const quantityInput = productQuantities[code] || productQuantities[resolvedProduct.mikroCode] || '1';
+    const displayQuantity = Math.max(0.0001, parseDecimalInput(quantityInput) || 1);
+    const quantity = convertQuantityToBaseUnit(displayQuantity, selectedUnit, resolvedProduct.unit, resolvedProduct.unit2, resolvedProduct.unit2Factor);
+    const sale = options?.saleIndex !== undefined ? resolvedProduct.customerPrice?.lastSales?.[options.saleIndex] : undefined;
+    const unitPrice = options?.unitPrice ?? sale?.unitPrice ?? Number(price.value || 0);
+    const priceSource = options?.priceSource || (sale ? 'LAST_SALE' : price.priceSource);
     const item: DraftItem = {
-      productId: product.id,
-      productCode: product.mikroCode,
-      productName: product.name,
-      imageUrl: product.imageUrl,
-      unit: product.unit || 'ADET',
-      unit2: product.unit2 || null,
-      unit2Factor: product.unit2Factor || null,
+      productId: resolvedProduct.id,
+      productCode: code,
+      productName: resolvedProduct.name || resolvedProduct.productName || code,
+      imageUrl: resolvedProduct.imageUrl,
+      unit: resolvedProduct.unit || 'ADET',
+      unit2: resolvedProduct.unit2 || null,
+      unit2Factor: resolvedProduct.unit2Factor || null,
+      selectedUnit,
       quantity,
-      unitPrice: Number(price.value || 0),
-      priceSource: price.priceSource as 'PRICE_LIST' | 'MANUAL',
-      priceListNo: price.priceListNo || null,
+      unitPrice: Number(unitPrice || 0),
+      priceSource: priceSource as DraftItem['priceSource'],
+      priceListNo: options?.priceListNo ?? price.priceListNo ?? null,
+      selectedSaleIndex: options?.saleIndex ?? null,
+      vatZeroed: Boolean(sale?.vatZeroed),
       priceType: 'INVOICED',
+      priceLists: resolvedProduct.priceLists || {},
+      lastSales: resolvedProduct.customerPrice?.lastSales || [],
+      lastQuotes: resolvedProduct.lastQuotes || [],
+      categoryLastPurchase: getCategoryLastPurchaseInfo(resolvedProduct),
+      categoryLastPurchaseDate: resolvedProduct.categoryLastPurchaseDate || null,
+      categoryMonthsSinceLastPurchase: resolvedProduct.categoryMonthsSinceLastPurchase ?? null,
+      cost: resolvedProduct.cost || null,
     };
 
     setDraft((current) => {
-      const existing = current.find((row) => row.productCode === item.productCode && row.unitPrice === item.unitPrice);
+      const existing = current.find((row) =>
+        row.productCode === item.productCode
+        && row.unitPrice === item.unitPrice
+        && getSelectedUnit(row) === getSelectedUnit(item)
+        && row.priceSource === item.priceSource
+      );
       if (!existing) return [...current, item];
       return current.map((row) =>
         row === existing ? { ...row, quantity: Number(row.quantity || 0) + quantity } : row
       );
     });
-    setProductQuantities((current) => ({ ...current, [product.mikroCode]: '1' }));
+    setProductQuantities((current) => ({ ...current, [code]: '1' }));
     toast.success('Taslak sepete eklendi.');
   };
 
@@ -429,12 +579,16 @@ export default function FieldSalesPage() {
           unit: item.unit,
           unit2: item.unit2 || undefined,
           unit2Factor: item.unit2Factor || undefined,
-          selectedUnit: item.unit,
+          selectedUnit: getSelectedUnit(item),
           quantity: Number(item.quantity || 0),
           unitPrice: Number(item.unitPrice || 0),
           priceSource: item.priceSource,
           priceListNo: item.priceSource === 'PRICE_LIST' ? item.priceListNo : undefined,
           priceType: 'INVOICED',
+          vatZeroed: item.vatZeroed || false,
+          lastSale: item.priceSource === 'LAST_SALE' && item.selectedSaleIndex !== null && item.selectedSaleIndex !== undefined
+            ? item.lastSales?.[item.selectedSaleIndex]
+            : undefined,
         })),
       });
       toast.success('Teklif olusturuldu.');
@@ -476,10 +630,11 @@ export default function FieldSalesPage() {
           unit: item.unit,
           unit2: item.unit2 || undefined,
           unit2Factor: item.unit2Factor || undefined,
-          selectedUnit: item.unit,
+          selectedUnit: getSelectedUnit(item),
           quantity: Number(item.quantity || 0),
           unitPrice: Number(item.unitPrice || 0),
           priceType: 'INVOICED',
+          vatZeroed: item.vatZeroed || false,
           lineDescription: item.productName,
         })),
       });
@@ -502,7 +657,12 @@ export default function FieldSalesPage() {
     if (draft.length === 0) return;
     const lines = [
       selectedCustomer ? `${selectedCustomer.displayTitle || selectedCustomer.mikroCariCode}` : 'Saha satis taslagi',
-      ...draft.map((item) => `${item.productName} (${item.productCode}) - ${n(item.quantity)} ${item.unit} x ${money(item.unitPrice)} = ${money(item.quantity * item.unitPrice)}`),
+      ...draft.map((item) => {
+        const selectedUnit = getSelectedUnit(item);
+        const displayQuantity = getDisplayQuantity(item);
+        const displayPrice = getDisplayUnitPrice(item);
+        return `${item.productName} (${item.productCode}) - ${n(displayQuantity)} ${selectedUnit} x ${money(displayPrice)} = ${money(item.quantity * item.unitPrice)}`;
+      }),
       `Toplam: ${money(draftTotal)}`,
     ];
     window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
@@ -764,7 +924,10 @@ export default function FieldSalesPage() {
             <ProductPanel
               productSearch={productSearch}
               setProductSearch={setProductSearch}
+              productMode={productMode}
+              setProductMode={setProductMode}
               products={products}
+              purchasedProducts={snapshot?.recentPurchases || []}
               productsLoading={productsLoading}
               searchProducts={searchProducts}
               startBarcodeScanner={startBarcodeScanner}
@@ -797,6 +960,7 @@ export default function FieldSalesPage() {
               createOrder={createOrder}
               shareDraft={shareDraft}
               submitting={submitting}
+              safeMode={safeMode}
             />
           </div>
 
@@ -1162,7 +1326,10 @@ function ProductPanel(props: any) {
   const {
     productSearch,
     setProductSearch,
+    productMode,
+    setProductMode,
     products,
+    purchasedProducts,
     productsLoading,
     searchProducts,
     startBarcodeScanner,
@@ -1173,10 +1340,42 @@ function ProductPanel(props: any) {
     openProductDetail,
     shareProduct,
   } = props;
+  const purchasedRows = useMemo(() => {
+    const tokens = normalizeSearchText(productSearch).split(/\s+/).filter(Boolean);
+    const rows = Array.isArray(purchasedProducts) ? purchasedProducts : [];
+    if (tokens.length === 0) return rows;
+    return rows.filter((product: any) => {
+      const haystack = normalizeSearchText([
+        product.productCode,
+        product.mikroCode,
+        product.productName,
+        product.name,
+        product.categoryName,
+      ].filter(Boolean).join(' '));
+      return tokens.every((token) => haystack.includes(token));
+    });
+  }, [purchasedProducts, productSearch]);
+  const visibleProducts = productMode === 'purchased' ? purchasedRows : products;
 
   return (
     <section className="flex flex-col gap-4">
       <Panel title="Urun ara" icon={Package}>
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+          <button
+            type="button"
+            onClick={() => setProductMode('search')}
+            className={cn('rounded-xl px-3 py-2 text-sm font-black transition', productMode === 'search' ? 'bg-white text-slate-950 shadow' : 'text-slate-500')}
+          >
+            Tum urunler
+          </button>
+          <button
+            type="button"
+            onClick={() => setProductMode('purchased')}
+            className={cn('rounded-xl px-3 py-2 text-sm font-black transition', productMode === 'purchased' ? 'bg-white text-slate-950 shadow' : 'text-slate-500')}
+          >
+            Daha once aldiklari
+          </button>
+        </div>
         <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
@@ -1184,11 +1383,11 @@ function ProductPanel(props: any) {
               value={productSearch}
               onChange={(event) => setProductSearch(event.target.value)}
               onFocus={(event) => event.currentTarget.select()}
-              placeholder="Stok kodu, barkod, urun adi..."
+              placeholder={productMode === 'purchased' ? 'Daha once aldiklarinda ara...' : 'Stok kodu, barkod, urun adi...'}
               className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-base font-semibold outline-none focus:border-amber-500 focus:bg-white"
             />
           </div>
-          <Button className="h-14 rounded-2xl" onClick={searchProducts}>
+          <Button className="h-14 rounded-2xl" onClick={productMode === 'search' ? searchProducts : undefined}>
             Ara
           </Button>
           <Button variant="secondary" className="h-14 rounded-2xl" onClick={startBarcodeScanner}>
@@ -1202,17 +1401,24 @@ function ProductPanel(props: any) {
       </Panel>
 
       <div className="grid gap-3 2xl:grid-cols-2">
-        {productsLoading && <LoadingCard />}
-        {!productsLoading && products.length === 0 && (
+        {productMode === 'search' && productsLoading && <LoadingCard />}
+        {!productsLoading && visibleProducts.length === 0 && (
           <div className="2xl:col-span-2">
-            <EmptyText text="Urun aramak icin stok kodu, ad veya barkod okutun." />
+            <EmptyText text={productMode === 'purchased' ? 'Bu carinin daha once aldiklarinda sonuc yok.' : 'Urun aramak icin stok kodu, ad veya barkod okutun.'} />
           </div>
         )}
-        {products.map((product: any) => {
+        {visibleProducts.map((rawProduct: any) => {
+          const isPurchasedSummary = productMode === 'purchased' && !rawProduct.mikroCode;
+          const product = rawProduct.mikroCode ? rawProduct : {
+            ...rawProduct,
+            mikroCode: rawProduct.productCode,
+            name: rawProduct.productName,
+          };
           const price = getProductPrice(product);
           const qty = productQuantities[product.mikroCode] || '1';
           const merkez = getWarehouseByNo(product, 1);
           const topca = getWarehouseByNo(product, 6);
+          const categoryInfo = getCategoryLastPurchaseInfo(product);
           return (
             <article key={product.mikroCode} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg">
               <button onClick={() => openProductDetail(product)} className="block w-full p-4 text-left">
@@ -1221,11 +1427,12 @@ function ProductPanel(props: any) {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-base lg:leading-snug">{product.name}</p>
                     <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
+                    <CategoryLastPurchasePill info={categoryInfo} />
                     <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
-                      <Mini label="Fiyat" value={money(price.value)} />
-                      <Mini label="Kaynak" value={price.source} />
-                      <Mini label="Merkez" value={n(merkez?.sellable || 0)} />
-                      <Mini label="Topca" value={n(topca?.sellable || 0)} />
+                      <Mini label="Fiyat" value={isPurchasedSummary ? 'Detayda' : money(price.value)} />
+                      <Mini label="Kaynak" value={isPurchasedSummary ? 'Son alim' : price.source} />
+                      <Mini label="Merkez" value={isPurchasedSummary ? '-' : n(merkez?.sellable || 0)} />
+                      <Mini label="Topca" value={isPurchasedSummary ? '-' : n(topca?.sellable || 0)} />
                     </div>
                   </div>
                 </div>
@@ -1273,7 +1480,76 @@ function DraftPanel(props: any) {
     createOrder,
     shareDraft,
     submitting,
+    safeMode,
   } = props;
+  const updateQuantity = (index: number, item: DraftItem, value: string) => {
+    const parsed = parseDecimalInput(value);
+    if (parsed === undefined) {
+      updateDraftItem(index, { quantity: 0 });
+      return;
+    }
+    const baseQuantity = convertQuantityToBaseUnit(parsed, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor);
+    updateDraftItem(index, { quantity: Math.max(0, roundUnitValue(baseQuantity)) });
+  };
+  const updateSelectedUnit = (index: number, item: DraftItem, selectedUnit: string) => {
+    updateDraftItem(index, { selectedUnit, manualPriceInput: undefined });
+  };
+  const updatePriceSource = (index: number, item: DraftItem, priceSource: DraftItem['priceSource']) => {
+    if (priceSource === 'PRICE_LIST') {
+      const listNo = item.priceListNo || 6;
+      updateDraftItem(index, {
+        priceSource,
+        priceListNo: listNo,
+        unitPrice: getMikroListPrice(item.priceLists, listNo),
+        selectedSaleIndex: null,
+        manualPriceInput: undefined,
+      });
+      return;
+    }
+    if (priceSource === 'LAST_SALE') {
+      const sale = item.lastSales?.[0];
+      updateDraftItem(index, {
+        priceSource,
+        selectedSaleIndex: sale ? 0 : null,
+        unitPrice: Number(sale?.unitPrice || item.unitPrice || 0),
+        vatZeroed: Boolean(sale?.vatZeroed),
+        priceListNo: null,
+        manualPriceInput: undefined,
+      });
+      return;
+    }
+    updateDraftItem(index, {
+      priceSource: 'MANUAL',
+      priceListNo: null,
+      selectedSaleIndex: null,
+      manualPriceInput: formatDecimalInput(getDisplayUnitPrice(item)),
+    });
+  };
+  const updatePriceList = (index: number, item: DraftItem, value: string) => {
+    const listNo = Number(value || 0);
+    updateDraftItem(index, {
+      priceListNo: listNo || null,
+      unitPrice: listNo ? getMikroListPrice(item.priceLists, listNo) : 0,
+      manualPriceInput: undefined,
+    });
+  };
+  const updateLastSale = (index: number, item: DraftItem, value: string) => {
+    const saleIndex = value === '' ? null : Number(value);
+    const sale = saleIndex === null ? null : item.lastSales?.[saleIndex];
+    updateDraftItem(index, {
+      selectedSaleIndex: saleIndex,
+      unitPrice: Number(sale?.unitPrice || 0),
+      vatZeroed: Boolean(sale?.vatZeroed),
+      manualPriceInput: undefined,
+    });
+  };
+  const updateManualPrice = (index: number, item: DraftItem, value: string) => {
+    const parsed = parseDecimalInput(value);
+    const basePrice = parsed === undefined
+      ? 0
+      : convertPriceToBaseUnit(parsed, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor);
+    updateDraftItem(index, { unitPrice: basePrice, manualPriceInput: value });
+  };
 
   return (
     <Panel title="Taslak teklif / siparis" icon={ShoppingCart}>
@@ -1286,33 +1562,150 @@ function DraftPanel(props: any) {
 
       <div className="space-y-3">
         {draft.length === 0 && <EmptyText text="Urun arama ekranindan taslaga urun ekleyin." />}
-        {draft.map((item: DraftItem, index: number) => (
-          <div key={`${item.productCode}-${index}`} className="rounded-3xl border border-slate-200 bg-white p-3">
-            <div className="flex gap-3">
-              <ProductImage product={{ imageUrl: item.imageUrl, name: item.productName, mikroCode: item.productCode }} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-black text-slate-900">{item.productName}</p>
-                <p className="text-xs font-bold text-slate-500">{item.productCode} - {item.unit}</p>
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <LabeledInput
-                    label="Miktar"
-                    value={String(item.quantity)}
-                    onChange={(value: string) => updateDraftItem(index, { quantity: Number(value) || 0 })}
-                  />
-                  <LabeledInput
-                    label="Fiyat"
-                    value={String(item.unitPrice)}
-                    onChange={(value: string) => updateDraftItem(index, { unitPrice: Number(value) || 0 })}
-                  />
-                  <Mini label="Satir" value={money(item.quantity * item.unitPrice)} />
-                  <button onClick={() => removeDraftItem(index)} className="rounded-2xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
-                    <Trash2 className="mx-auto h-4 w-4" />
-                  </button>
+        {draft.map((item: DraftItem, index: number) => {
+          const selectedUnit = getSelectedUnit(item);
+          const availableUnits = getAvailableUnits(item.unit, item.unit2, item.unit2Factor);
+          const displayQuantity = getDisplayQuantity(item);
+          const displayUnitPrice = getDisplayUnitPrice(item);
+          const categoryInfo = getCategoryLastPurchaseInfo(item);
+          const unitLabel = getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor);
+          const selectedSale = item.selectedSaleIndex !== null && item.selectedSaleIndex !== undefined
+            ? item.lastSales?.[item.selectedSaleIndex]
+            : null;
+          return (
+            <div key={`${item.productCode}-${index}`} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex gap-3">
+                <ProductImage product={{ imageUrl: item.imageUrl, name: item.productName, mikroCode: item.productCode }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-slate-900 lg:text-base">{item.productName}</p>
+                      <p className="text-xs font-bold text-slate-500">{item.productCode} - {item.unit}</p>
+                      {unitLabel && <p className="mt-1 text-xs font-semibold text-sky-700">{unitLabel}</p>}
+                      <CategoryLastPurchasePill info={categoryInfo} />
+                    </div>
+                    <button onClick={() => removeDraftItem(index)} className="rounded-2xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(170px,0.9fr)_minmax(220px,1.2fr)_minmax(220px,1.2fr)_120px]">
+                    <div className="grid grid-cols-[1fr_92px] gap-2">
+                      <LabeledInput
+                        label="Miktar"
+                        value={displayQuantity ? formatDecimalInput(displayQuantity) : ''}
+                        onChange={(value: string) => updateQuantity(index, item, value)}
+                      />
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] font-black uppercase tracking-wide text-slate-500">Birim</span>
+                        <select
+                          value={selectedUnit}
+                          onChange={(event) => updateSelectedUnit(index, item, event.target.value)}
+                          className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-2 text-sm font-black outline-none focus:border-amber-500"
+                        >
+                          {availableUnits.map((unit) => (
+                            <option key={unit} value={unit}>{unit}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-black uppercase tracking-wide text-slate-500">Fiyat kaynagi</span>
+                      <select
+                        value={item.priceSource || 'PRICE_LIST'}
+                        onChange={(event) => updatePriceSource(index, item, event.target.value as DraftItem['priceSource'])}
+                        className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black outline-none focus:border-amber-500"
+                      >
+                        <option value="LAST_SALE">Son Satis</option>
+                        <option value="PRICE_LIST">Fiyat Listesi</option>
+                        <option value="MANUAL">Manuel</option>
+                      </select>
+                    </label>
+
+                    <div>
+                      <span className="mb-1 block text-[11px] font-black uppercase tracking-wide text-slate-500">Fiyat secimi</span>
+                      {item.priceSource === 'LAST_SALE' ? (
+                        <select
+                          value={item.selectedSaleIndex ?? ''}
+                          onChange={(event) => updateLastSale(index, item, event.target.value)}
+                          className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black outline-none focus:border-amber-500"
+                        >
+                          <option value="">Son satis sec</option>
+                          {(item.lastSales || []).map((sale: any, saleIndex: number) => {
+                            const listLabel = getMatchingPriceListLabel(item.priceLists, sale.unitPrice);
+                            const displaySalePrice = convertPriceFromBaseUnit(sale.unitPrice, selectedUnit, item.unit, item.unit2, item.unit2Factor);
+                            const displaySaleQty = convertQuantityFromBaseUnit(sale.quantity, selectedUnit, item.unit, item.unit2, item.unit2Factor);
+                            return (
+                              <option key={`${sale.documentNo || sale.saleDate}-${saleIndex}`} value={saleIndex}>
+                                {safeDate(sale.saleDate)} - {money(displaySalePrice)} ({formatDecimalInput(displaySaleQty)} {selectedUnit}){listLabel ? ` - ${listLabel}` : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ) : item.priceSource === 'MANUAL' ? (
+                        <input
+                          value={item.manualPriceInput ?? formatDecimalInput(displayUnitPrice)}
+                          onChange={(event) => updateManualPrice(index, item, event.target.value)}
+                          onFocus={(event) => event.currentTarget.select()}
+                          inputMode="decimal"
+                          className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black outline-none focus:border-amber-500"
+                        />
+                      ) : (
+                        <select
+                          value={item.priceListNo || ''}
+                          onChange={(event) => updatePriceList(index, item, event.target.value)}
+                          className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black outline-none focus:border-amber-500"
+                        >
+                          <option value="">Liste sec</option>
+                          {Object.keys(PRICE_LIST_LABELS).map((key) => {
+                            const listNo = Number(key);
+                            const listPrice = getMikroListPrice(item.priceLists, listNo);
+                            const displayPrice = convertPriceFromBaseUnit(listPrice, selectedUnit, item.unit, item.unit2, item.unit2Factor);
+                            return (
+                              <option key={key} value={key}>
+                                {getPriceListLabel(listNo)} - {listPrice ? money(displayPrice) : 'Fiyat yok'}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl bg-slate-50 p-3 text-right">
+                      <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Satir</p>
+                      <p className="text-sm font-black text-slate-950">{money(item.quantity * item.unitPrice)}</p>
+                      <p className="text-[11px] font-semibold text-slate-500">{money(displayUnitPrice)} / {selectedUnit}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    {selectedUnit !== item.unit && (
+                      <span className="rounded-full bg-sky-50 px-2 py-1 font-bold text-sky-700">
+                        Mikro: {formatDecimalInput(item.quantity)} {item.unit}
+                      </span>
+                    )}
+                    {selectedSale?.documentNo && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 font-bold text-slate-700">
+                        Son satis belge: {selectedSale.documentNo}
+                      </span>
+                    )}
+                    {(item.lastQuotes || []).length > 0 && (
+                      <span className="rounded-full bg-indigo-50 px-2 py-1 font-bold text-indigo-700">
+                        Son teklif: {safeDate(item.lastQuotes?.[0]?.quoteDate)} - {money(item.lastQuotes?.[0]?.unitPrice)}
+                      </span>
+                    )}
+                    {!safeMode && item.cost?.currentCost && (
+                      <span className="rounded-full bg-red-50 px-2 py-1 font-bold text-red-700">
+                        Maliyet: {money(item.cost.currentCost)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-2">
@@ -1424,6 +1817,7 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
   const price = getProductPrice(product);
   const [imageOpen, setImageOpen] = useState(false);
   const visibleWarehouses = getActiveWarehouses(product);
+  const categoryInfo = getCategoryLastPurchaseInfo(product);
   return (
     <div className="fixed inset-0 z-40 bg-slate-950/60 p-3 backdrop-blur-sm lg:flex lg:items-center lg:justify-center lg:p-6" onClick={onClose}>
       <div className="ml-auto flex h-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl lg:ml-0 lg:h-auto lg:max-h-[90vh] lg:w-full lg:max-w-6xl" onClick={(event) => event.stopPropagation()}>
@@ -1433,6 +1827,7 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
             <div className="min-w-0">
               <p className="truncate text-lg font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-2xl lg:leading-tight">{product.name}</p>
               <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
+              <CategoryLastPurchasePill info={categoryInfo} />
             </div>
           </div>
           <Button variant="secondary" size="sm" onClick={onClose}>Kapat</Button>
@@ -1494,9 +1889,36 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
                 {(product.customerPrice?.lastSales || []).length === 0 && <EmptyText text="Bu cari icin son satis bulunamadi." />}
                 {(product.customerPrice?.lastSales || []).map((sale: any, index: number) => (
                   <div key={`${sale.documentNo}-${index}`} className="mb-2 rounded-2xl bg-slate-50 p-3 text-sm">
-                    <span className="font-bold text-slate-900">{safeDate(sale.saleDate)}</span>
-                    <span className="ml-2 text-slate-500">{sale.documentNo || '-'}</span>
-                    <span className="ml-2 font-bold">{n(sale.quantity)} x {money(sale.unitPrice)}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-slate-900">{safeDate(sale.saleDate)}</span>
+                      <span className="text-slate-500">{sale.documentNo || '-'}</span>
+                      <span className="font-bold">{n(sale.quantity)} x {money(sale.unitPrice)}</span>
+                      {getMatchingPriceListLabel(product.priceLists, sale.unitPrice) && (
+                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-black text-sky-700">
+                          {getMatchingPriceListLabel(product.priceLists, sale.unitPrice)}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2 rounded-full"
+                      onClick={() => addToDraft(product, { priceSource: 'LAST_SALE', saleIndex: index, unitPrice: sale.unitPrice })}
+                    >
+                      Bu fiyatla ekle
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-black text-slate-900">Son teklifler</p>
+                {(product.lastQuotes || []).length === 0 && <EmptyText text="Bu urun icin son teklif bulunamadi." />}
+                {(product.lastQuotes || []).slice(0, 3).map((quote: any, index: number) => (
+                  <div key={`${quote.documentNo || quote.quoteDate}-${index}`} className="mb-2 rounded-2xl bg-indigo-50 p-3 text-sm">
+                    <span className="font-bold text-indigo-950">{safeDate(quote.quoteDate)}</span>
+                    <span className="ml-2 text-indigo-700">{quote.documentNo || quote.quoteNumber || '-'}</span>
+                    <span className="ml-2 font-bold text-indigo-950">{n(quote.quantity)} x {money(quote.unitPrice)}</span>
                   </div>
                 ))}
               </div>
@@ -1636,6 +2058,17 @@ function Mini({ label, value }: any) {
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
       <p className="mt-0.5 truncate text-sm font-black text-slate-900">{String(value ?? '-')}</p>
     </div>
+  );
+}
+
+function CategoryLastPurchasePill({ info }: { info?: any }) {
+  if (!info?.lastPurchaseDate) return null;
+  const months = info.monthsSinceLastPurchase ?? monthsSinceDate(info.lastPurchaseDate);
+  const monthsText = months === null ? null : `${Number(months).toLocaleString('tr-TR', { maximumFractionDigits: 1 })} ay once`;
+  return (
+    <span className="mt-1 inline-flex max-w-full rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-black text-amber-800">
+      Kategori son alim: {monthsText || safeDate(info.lastPurchaseDate)}
+    </span>
   );
 }
 

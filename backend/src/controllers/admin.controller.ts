@@ -24,6 +24,7 @@ import priceHistoryNewService from '../services/priceHistoryNew.service';
 import exclusionService from '../services/exclusion.service';
 import priceListService from '../services/price-list.service';
 import productComplementService from '../services/product-complement.service';
+import customerCategoryPurchaseService from '../services/customer-category-purchase.service';
 import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens } from '../utils/search';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
@@ -57,6 +58,7 @@ const PRODUCT_SELECT = {
   category: {
     select: {
       id: true,
+      mikroCode: true,
       name: true,
     },
   },
@@ -135,6 +137,54 @@ const parseReportDateInput = (value: unknown): Date | null => {
   const day = Number(cleaned.slice(6, 8));
   if (!year || !month || !day) return null;
   return new Date(Date.UTC(year, month - 1, day));
+};
+
+const resolveScopedCustomerForInsights = async (req: Request, customerIdOrCode?: string | null) => {
+  const key = String(customerIdOrCode || '').trim();
+  if (!key) return null;
+
+  const where: any = {
+    role: 'CUSTOMER',
+    parentCustomerId: null,
+    OR: [{ id: key }, { mikroCariCode: key.toUpperCase() }],
+  };
+
+  if (req.user?.role === 'SALES_REP') {
+    const sectorCodes = req.user?.assignedSectorCodes || [];
+    if (sectorCodes.length === 0) return null;
+    where.sectorCode = { in: sectorCodes };
+  }
+
+  return prisma.user.findFirst({
+    where,
+    select: {
+      id: true,
+      mikroCariCode: true,
+      sectorCode: true,
+    },
+  });
+};
+
+const attachCategoryLastPurchases = async (
+  products: any[],
+  customerCode?: string | null
+) => {
+  if (!customerCode || products.length === 0) return products;
+  const categoryLastByProduct = await customerCategoryPurchaseService.getProductCategoryLastPurchases(
+    customerCode,
+    products
+  );
+
+  return products.map((product) => {
+    const code = String(product?.mikroCode || '').trim().toUpperCase();
+    const categoryLastPurchase = categoryLastByProduct.get(code) || null;
+    return {
+      ...product,
+      categoryLastPurchase,
+      categoryLastPurchaseDate: categoryLastPurchase?.lastPurchaseDate || null,
+      categoryMonthsSinceLastPurchase: categoryLastPurchase?.monthsSinceLastPurchase ?? null,
+    };
+  });
 };
 
 type DashboardPeriod = 'daily' | 'weekly' | 'monthly' | 'custom';
@@ -540,6 +590,8 @@ export class AdminController {
         limit = '10000', // Increased for Diversey users to see all products
         hasStock,
         brand,
+        customerId,
+        customerCode,
       } = req.query;
 
       const where: any = { active: true };
@@ -685,6 +737,7 @@ export class AdminController {
           category: {
             select: {
               id: true,
+              mikroCode: true,
               name: true,
             },
           },
@@ -773,8 +826,17 @@ export class AdminController {
         };
       });
 
+      const insightCustomer = await resolveScopedCustomerForInsights(
+        req,
+        typeof customerId === 'string' && customerId ? customerId : typeof customerCode === 'string' ? customerCode : null
+      );
+      const productsWithInsights = await attachCategoryLastPurchases(
+        productsWithPriceLists,
+        insightCustomer?.mikroCariCode || null
+      );
+
       res.json({
-        products: productsWithPriceLists,
+        products: productsWithInsights,
         pagination: {
           page: pageNum,
           limit: limitNum,

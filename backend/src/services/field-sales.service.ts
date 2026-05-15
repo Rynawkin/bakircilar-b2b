@@ -7,6 +7,8 @@ import priceListService from './price-list.service';
 import mikroService from './mikroFactory.service';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { hashPassword } from '../utils/password';
+import customerCategoryPurchaseService from './customer-category-purchase.service';
+import quoteService from './quote.service';
 
 type StaffScope = {
   role?: string;
@@ -63,7 +65,7 @@ const PRODUCT_SELECT = {
   pendingCustomerOrders: true,
   pendingPurchaseOrders: true,
   categoryId: true,
-  category: { select: { id: true, name: true } },
+  category: { select: { id: true, mikroCode: true, name: true } },
 } satisfies Prisma.ProductSelect;
 
 const normalizeCode = (value: any) => String(value || '').trim().toUpperCase();
@@ -491,6 +493,8 @@ class FieldSalesService {
       priceListRules,
       agreements,
       lastSalesMap,
+      categoryLastMap,
+      lastQuotesMap,
     ] = await Promise.all([
       prisma.product.findMany({
         where: { mikroCode: { in: codes } },
@@ -532,6 +536,12 @@ class FieldSalesService {
       options.customer?.mikroCariCode
         ? this.getCustomerProductLastSales(normalizeCode(options.customer.mikroCariCode), codes, 3)
         : Promise.resolve(new Map<string, any[]>()),
+      options.customer?.mikroCariCode
+        ? customerCategoryPurchaseService.getCategoryLastPurchases(normalizeCode(options.customer.mikroCariCode))
+        : Promise.resolve(new Map<string, any>()),
+      options.customer?.id
+        ? quoteService.getCustomerLastQuoteItems(options.customer.id, codes, 3)
+        : Promise.resolve({}),
     ]);
 
     const productByCode = new Map(localProducts.map((product) => [normalizeCode(product.mikroCode), product]));
@@ -561,7 +571,10 @@ class FieldSalesService {
       const listWhite = productPair
         ? priceListService.getListPriceWithFallback(stats, productPair.white, { min: 1, max: 5 })
         : 0;
+      const categoryCode = String(readFirst(row, ['Kategori kodu']) || local?.category?.mikroCode || '').trim();
+      const categoryLastPurchase = categoryCode ? categoryLastMap.get(normalizeCode(categoryCode)) || null : null;
       const lastSales = lastSalesMap.get(code) || [];
+      const lastQuotes = (lastQuotesMap as Record<string, any[]>)[code] || [];
 
       const customerPrice = options.customer
         ? {
@@ -627,7 +640,7 @@ class FieldSalesService {
         foreignName: String(readFirst(row, ['Yab.\u0130sim', 'Yab.\u00c4\u00b0sim']) || local?.foreignName || '').trim() || null,
         shortName: String(readFirst(row, ['K\u0131sa \u0130sim', 'K\u00c4\u00b1sa \u00c4\u00b0sim']) || '').trim() || null,
         brandCode: String(readFirst(row, ['Marka']) || local?.brandCode || '').trim() || null,
-        categoryCode: String(readFirst(row, ['Kategori kodu']) || '').trim() || null,
+        categoryCode: categoryCode || null,
         categoryName: String(readFirst(row, ['Kategori Ad\u0131', 'Kategori Ad\u00c4\u00b1']) || local?.category?.name || '').trim() || null,
         unit: String(readFirst(row, ['Birim']) || local?.unit || 'ADET').trim() || 'ADET',
         unit2: String(readFirst(row, ['2. Birim']) || local?.unit2 || '').trim() || null,
@@ -643,6 +656,10 @@ class FieldSalesService {
         pendingPurchaseOrders: Number(local?.pendingPurchaseOrders || 0),
         priceLists,
         customerPrice,
+        lastQuotes,
+        categoryLastPurchase,
+        categoryLastPurchaseDate: categoryLastPurchase?.lastPurchaseDate || null,
+        categoryMonthsSinceLastPurchase: categoryLastPurchase?.monthsSinceLastPurchase ?? null,
         cost,
         rawUpdatedAt: new Date().toISOString(),
       };
@@ -814,18 +831,31 @@ class FieldSalesService {
       const products = productCodes.length
         ? await prisma.product.findMany({
             where: { mikroCode: { in: productCodes } },
-            select: { mikroCode: true, imageUrl: true, unit: true },
+            select: {
+              mikroCode: true,
+              imageUrl: true,
+              unit: true,
+              category: { select: { mikroCode: true, name: true } },
+            },
           })
         : [];
       const productMap = new Map(products.map((product) => [normalizeCode(product.mikroCode), product]));
+      const categoryLastByProduct = await customerCategoryPurchaseService.getProductCategoryLastPurchases(
+        code,
+        products
+      );
 
       return rows.map((row) => {
         const product = productMap.get(normalizeCode(row.productCode));
+        const categoryLastPurchase = categoryLastByProduct.get(normalizeCode(row.productCode)) || null;
         return {
           productCode: normalizeCode(row.productCode),
           productName: String(row.productName || '').trim(),
           categoryCode: String(row.categoryCode || '').trim(),
           categoryName: String(row.categoryName || '').trim(),
+          categoryLastPurchase,
+          categoryLastPurchaseDate: categoryLastPurchase?.lastPurchaseDate || null,
+          categoryMonthsSinceLastPurchase: categoryLastPurchase?.monthsSinceLastPurchase ?? null,
           lastPurchaseDate: row.lastPurchaseDate || null,
           totalQuantity: asNumber(row.totalQuantity),
           totalAmount: asNumber(row.totalAmount),

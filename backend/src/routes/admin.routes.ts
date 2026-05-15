@@ -212,7 +212,7 @@ router.get('/supplier-price-lists/:id/items', requirePermission('admin:supplier-
 router.get('/supplier-price-lists/:id/export', requirePermission('admin:supplier-price-lists'), supplierPriceListController.exportUpload);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
-router.get('/products', requireAnyPermission(['admin:products', 'dashboard:diversey-stok', 'reports:cost-update-all-products']), adminController.getProducts);
+router.get('/products', requireAnyPermission(['admin:products', 'admin:quotes', 'dashboard:diversey-stok', 'reports:cost-update-all-products']), adminController.getProducts);
 router.post(
   '/products/by-codes',
   requireAnyPermission(['admin:quotes', 'admin:products', 'reports:cost-update-all-products']),
@@ -383,6 +383,7 @@ router.put('/quotes/preferences', requirePermission('admin:quotes'), quoteContro
 router.get('/quotes/responsibles', requirePermission('admin:quotes'), quoteController.getResponsibles);
 router.get('/quotes/customer/:customerId/purchased-products', requirePermission('admin:quotes'), quoteController.getCustomerPurchasedProducts);
 router.post('/quotes/last-quotes', requirePermission('admin:quotes'), quoteController.getLastQuotesForCustomer);
+router.post('/quotes/category-last-purchases', requirePermission('admin:quotes'), quoteController.getCategoryLastPurchasesForCustomer);
 router.post('/quotes/items/upload-image', requirePermission('admin:quotes'), quoteItemImageUpload.single('image'), quoteController.uploadQuoteItemImage);
 router.post('/quotes', requirePermission('admin:quotes'), quoteController.createQuote);
 router.put('/quotes/:id', requirePermission('admin:quotes'), quoteController.updateQuote);

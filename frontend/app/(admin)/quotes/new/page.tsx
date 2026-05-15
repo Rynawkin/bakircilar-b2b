@@ -51,6 +51,13 @@ interface LastOrder {
   orderNumber?: string | null;
 }
 
+interface CategoryLastPurchase {
+  categoryCode?: string | null;
+  categoryName?: string | null;
+  lastPurchaseDate?: string | null;
+  monthsSinceLastPurchase?: number | null;
+}
+
 interface QuoteProduct {
   id: string;
   name: string;
@@ -69,6 +76,9 @@ interface QuoteProduct {
   mikroPriceLists?: Record<number, number> | Record<string, number>;
   lastSales?: LastSale[];
   lastQuotes?: LastQuote[];
+  categoryLastPurchase?: CategoryLastPurchase | null;
+  categoryLastPurchaseDate?: string | null;
+  categoryMonthsSinceLastPurchase?: number | null;
   recommendationNote?: string | null;
 }
 
@@ -100,6 +110,9 @@ interface QuoteItemForm {
   lastSales?: LastSale[];
   lastQuotes?: LastQuote[];
   lastOrders?: LastOrder[];
+  categoryLastPurchase?: CategoryLastPurchase | null;
+  categoryLastPurchaseDate?: string | null;
+  categoryMonthsSinceLastPurchase?: number | null;
   selectedSaleIndex?: number;
   lastEntryPrice?: number | null;
   lastEntryDate?: string | null;
@@ -362,6 +375,28 @@ const formatQuotePriceType = (priceType?: 'INVOICED' | 'WHITE') => (
   priceType === 'WHITE' ? 'Beyaz' : 'Fatural?'
 );
 
+const monthsSinceDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const diffDays = Math.max(0, (Date.now() - date.getTime()) / 86_400_000);
+  return Math.round((diffDays / 30.4375) * 10) / 10;
+};
+
+const getCategoryLastPurchaseInfo = (source?: any | null) => {
+  if (!source) return null;
+  const info = source.categoryLastPurchase || null;
+  const lastPurchaseDate = info?.lastPurchaseDate || (source as any).lastPurchaseDate || source.categoryLastPurchaseDate || null;
+  if (!lastPurchaseDate) return null;
+  return {
+    categoryCode: info?.categoryCode || (source as any).categoryCode || null,
+    categoryName: info?.categoryName || (source as any).categoryName || null,
+    lastPurchaseDate,
+    monthsSinceLastPurchase:
+      info?.monthsSinceLastPurchase ?? (source as any).monthsSinceLastPurchase ?? source.categoryMonthsSinceLastPurchase ?? monthsSinceDate(lastPurchaseDate),
+  };
+};
+
 const getQuoteDocumentLabel = (quote?: LastQuote) => {
   if (!quote?.documentNo) return '-';
   return quote.documentNo;
@@ -475,6 +510,7 @@ function AdminQuoteNewPageContent() {
   const [expandedQuoteHistory, setExpandedQuoteHistory] = useState<Record<string, boolean>>({});
   const [lastQuoteMap, setLastQuoteMap] = useState<Record<string, LastQuote[]>>({});
   const [lastOrderMap, setLastOrderMap] = useState<Record<string, LastOrder[]>>({});
+  const [categoryLastPurchaseMap, setCategoryLastPurchaseMap] = useState<Record<string, CategoryLastPurchase>>({});
   const [manualImageUploading, setManualImageUploading] = useState<Record<string, boolean>>({});
   const [whatsappTemplate, setWhatsappTemplate] = useState('');
   const [responsibles, setResponsibles] = useState<Array<{ code: string; name: string; surname: string }>>([]);
@@ -650,7 +686,7 @@ function AdminQuoteNewPageContent() {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [searchTerm, productTab]);
+  }, [searchTerm, productTab, selectedCustomer?.id]);
 
   useEffect(() => {
     if (!selectedCustomer) return;
@@ -757,6 +793,28 @@ function AdminQuoteNewPageContent() {
   }, [quoteItems]);
 
   const quoteProductCodeSet = useMemo(() => new Set(quoteProductCodes), [quoteProductCodes]);
+
+  useEffect(() => {
+    if (!selectedCustomer?.id || quoteProductCodes.length === 0) {
+      setCategoryLastPurchaseMap({});
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await adminApi.getCustomerCategoryLastPurchases({
+          customerId: selectedCustomer.id,
+          productCodes: quoteProductCodes,
+        });
+        setCategoryLastPurchaseMap(result.categoryLastPurchases || {});
+      } catch (error) {
+        console.error('Kategori son alim bilgisi alinamadi:', error);
+        setCategoryLastPurchaseMap({});
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [selectedCustomer?.id, quoteProductCodes.join('|')]);
 
   useEffect(() => {
     if (isOrderMode) {
@@ -1007,6 +1065,7 @@ function AdminQuoteNewPageContent() {
         limit: 50,
         sortBy: 'name',
         sortOrder: 'asc',
+        customerId: selectedCustomer?.id || undefined,
       });
       setSearchResults(result.products || []);
     } catch (error) {
@@ -1374,6 +1433,9 @@ function AdminQuoteNewPageContent() {
       manualImageUrl: null,
       lastSales: sourceProduct.lastSales || [],
       lastQuotes: sourceProduct.lastQuotes || [],
+      categoryLastPurchase: getCategoryLastPurchaseInfo(sourceProduct),
+      categoryLastPurchaseDate: sourceProduct.categoryLastPurchaseDate ?? null,
+      categoryMonthsSinceLastPurchase: sourceProduct.categoryMonthsSinceLastPurchase ?? null,
       lastEntryPrice: sourceProduct.lastEntryPrice ?? null,
       lastEntryDate: sourceProduct.lastEntryDate ?? null,
       currentCost: sourceProduct.currentCost ?? null,
@@ -2867,6 +2929,9 @@ function AdminQuoteNewPageContent() {
                         ? (lastOrderMap[item.productCode] || item.lastOrders || [])
                         : (lastQuoteMap[item.productCode] || item.lastQuotes || []))
                       : [];
+                    const categoryLastPurchase = getCategoryLastPurchaseInfo(
+                      categoryLastPurchaseMap[item.productCode] || item
+                    );
                     const hasItemHistory = showHistory && itemHistory.length > 0;
                     const canToggleHistory = showHistory && itemHistory.length > 1;
                     const isQuoteHistoryExpanded = Boolean(expandedQuoteHistory[item.id]);
@@ -2967,6 +3032,7 @@ function AdminQuoteNewPageContent() {
                                         {getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor)}
                                       </div>
                                     )}
+                                    <CategoryLastPurchaseBadge info={categoryLastPurchase} />
                                     {marginInfo?.blocked && (
                                       <Badge variant="danger" className="text-xs mt-1">Blok</Badge>
                                     )}
@@ -3729,6 +3795,7 @@ function AdminQuoteNewPageContent() {
                               {unitLabel && (
                                 <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
                               )}
+                              <CategoryLastPurchaseBadge info={getCategoryLastPurchaseInfo(product)} />
                             </div>
                           </div>
                           <div className="flex flex-col items-start sm:items-end">
@@ -3896,6 +3963,7 @@ function AdminQuoteNewPageContent() {
                               {unitLabel && (
                                 <div className="mt-1 text-xs text-slate-500">{unitLabel}</div>
                               )}
+                              <CategoryLastPurchaseBadge info={getCategoryLastPurchaseInfo(product)} />
                             </div>
                           </div>
                         </div>
@@ -4024,6 +4092,18 @@ function AdminQuoteNewPageContent() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+function CategoryLastPurchaseBadge({ info }: { info?: CategoryLastPurchase | null }) {
+  if (!info?.lastPurchaseDate) return null;
+  const months = info.monthsSinceLastPurchase ?? monthsSinceDate(info.lastPurchaseDate);
+  const monthsText = months === null ? null : `${months.toLocaleString('tr-TR', { maximumFractionDigits: 1 })} ay once`;
+  return (
+    <div className="mt-1 inline-flex max-w-full items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+      Kategori son alim: {monthsText || formatDateShort(info.lastPurchaseDate)}
+      <span className="ml-1 text-amber-700/70">({formatDateShort(info.lastPurchaseDate)})</span>
     </div>
   );
 }
