@@ -11,6 +11,7 @@ import { exec } from 'child_process';
 import crypto from 'crypto';
 import { config } from '../config';
 import mikroService from './mikroFactory.service';
+import { getUploadsDir } from '../utils/storage';
 
 interface ImageDownloadResult {
   success: boolean;
@@ -41,7 +42,7 @@ class ImageService {
   private readonly RESIZE_WIDTH = 2048;
   private readonly RESIZE_HEIGHT = 2048;
   private readonly QUALITY = 100; // Maksimum kalite
-  private readonly UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'products');
+  private readonly UPLOAD_DIR = getUploadsDir('products');
   private readonly PROCESSING_TIMEOUT = 10000; // 10 saniye timeout (Sharp için)
 
   /**

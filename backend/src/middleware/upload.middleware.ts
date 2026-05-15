@@ -2,6 +2,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { Request } from 'express';
+import { getStoragePath, getUploadsDir } from '../utils/storage';
 
 const ensureDir = (dirPath: string, cb: (error: Error | null, destination: string) => void) => {
   fs.mkdir(dirPath, { recursive: true }, (error) => {
@@ -12,7 +13,7 @@ const ensureDir = (dirPath: string, cb: (error: Error | null, destination: strin
 // Storage configuration
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    ensureDir('uploads/', cb);
+    ensureDir(getUploadsDir(), cb);
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
@@ -22,7 +23,7 @@ const storage = multer.diskStorage({
 
 const taskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    ensureDir(path.join('uploads', 'tasks'), cb);
+    ensureDir(getUploadsDir('tasks'), cb);
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
@@ -30,7 +31,7 @@ const taskStorage = multer.diskStorage({
   },
 });
 
-const invoiceUploadDir = process.env.EINVOICE_UPLOAD_DIR || path.join('private-uploads', 'einvoices');
+const invoiceUploadDir = process.env.EINVOICE_UPLOAD_DIR || getStoragePath('private-uploads', 'einvoices');
 
 const invoiceStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
@@ -44,7 +45,7 @@ const invoiceStorage = multer.diskStorage({
 
 const supplierPriceListStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    ensureDir(path.join('uploads', 'supplier-price-lists'), cb);
+    ensureDir(getUploadsDir('supplier-price-lists'), cb);
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
@@ -54,7 +55,7 @@ const supplierPriceListStorage = multer.diskStorage({
 
 const quoteItemImageStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    ensureDir(path.join('uploads', 'quote-items'), cb);
+    ensureDir(getUploadsDir('quote-items'), cb);
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);

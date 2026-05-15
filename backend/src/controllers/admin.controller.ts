@@ -27,6 +27,7 @@ import productComplementService from '../services/product-complement.service';
 import customerCategoryPurchaseService from '../services/customer-category-purchase.service';
 import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens } from '../utils/search';
+import { getUploadsDir } from '../utils/storage';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
 const DEFAULT_CUSTOMER_PRICE_LISTS = {
@@ -3222,7 +3223,7 @@ export class AdminController {
         return res.status(404).json({ error: 'Product not found' });
       }
 
-      const tempPath = (req.file as any).path || path.join(process.cwd(), 'uploads', req.file.filename);
+      const tempPath = (req.file as any).path || path.join(getUploadsDir(), req.file.filename);
       processedImage = await imageService.processUploadedProductImage(tempPath, product.mikroCode);
 
       const guidRows = await mikroService.getProductGuidsByCodes([product.mikroCode]);

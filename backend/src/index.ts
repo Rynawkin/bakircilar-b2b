@@ -22,6 +22,7 @@ import productComplementService from './services/product-complement.service';
 import customerActivityService from './services/customer-activity.service';
 import eInvoiceService from './services/einvoice.service';
 import { prisma } from './utils/prisma';
+import { getUploadsDir } from './utils/storage';
 
 
 const getDateInTimeZone = (date: Date, timeZone: string): Date => {
@@ -65,8 +66,8 @@ app.use(
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// Serve static files (uploads)
-app.use('/uploads', express.static('uploads'));
+// Serve static files from persistent storage so deploy releases do not hide images.
+app.use('/uploads', express.static(getUploadsDir()));
 
 // Rate limiting - Development'ta daha yüksek limit
 const limiter = rateLimit({
