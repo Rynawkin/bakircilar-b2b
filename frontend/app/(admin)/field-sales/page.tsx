@@ -52,6 +52,13 @@ const DRAFT_KEY = 'field-sales:draft';
 const RECENT_CUSTOMERS_KEY = 'field-sales:recent-customers';
 const RECENT_PRODUCTS_KEY = 'field-sales:recent-products';
 const SAFE_MODE_KEY = 'field-sales:safe-mode';
+const VISIT_PHOTO_MAX_INPUT_BYTES = 8 * 1024 * 1024;
+const VISIT_PHOTO_MAX_DATA_URL_CHARS = 1_200_000;
+const VISIT_PHOTO_RESIZE_STEPS = [
+  { maxDimension: 1200, qualities: [0.72, 0.58, 0.45] },
+  { maxDimension: 900, qualities: [0.68, 0.54, 0.42] },
+  { maxDimension: 700, qualities: [0.62, 0.48, 0.36] },
+];
 
 const tabs: Array<{ key: TabKey; label: string; icon: any }> = [
   { key: 'customer', label: 'Cari', icon: UserRound },
@@ -85,6 +92,50 @@ const upsertRecent = (key: string, item: any, idGetter: (row: any) => string) =>
   const current = loadJson<any[]>(key, []);
   const next = [item, ...current.filter((row) => idGetter(row) !== id)].slice(0, 12);
   saveJson(key, next);
+};
+
+const readCompressedVisitPhoto = async (file: File): Promise<string> => {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Sadece gorsel dosyasi secin.');
+  }
+  if (file.size > VISIT_PHOTO_MAX_INPUT_BYTES) {
+    throw new Error('Foto cok buyuk. 8 MB altinda bir gorsel secin.');
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Foto okunamadi.'));
+      img.src = objectUrl;
+    });
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Foto islenemedi.');
+    }
+
+    for (const step of VISIT_PHOTO_RESIZE_STEPS) {
+      const ratio = Math.min(1, step.maxDimension / Math.max(image.width, image.height));
+      canvas.width = Math.max(1, Math.round(image.width * ratio));
+      canvas.height = Math.max(1, Math.round(image.height * ratio));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      for (const quality of step.qualities) {
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        if (dataUrl.length <= VISIT_PHOTO_MAX_DATA_URL_CHARS) {
+          return dataUrl;
+        }
+      }
+    }
+
+    throw new Error('Foto otomatik kucultulemedi. Daha dusuk cozunurluklu bir foto secin.');
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 };
 
 const getProductPrice = (product: any) => {
@@ -501,13 +552,12 @@ export default function FieldSalesPage() {
 
   const pickPhoto = async (file?: File | null) => {
     if (!file) return;
-    if (file.size > 800_000) {
-      toast.error('Foto cok buyuk. 800 KB altinda bir gorsel secin.');
-      return;
+    try {
+      const dataUrl = await readCompressedVisitPhoto(file);
+      setPhotoUrl(dataUrl);
+    } catch (error: any) {
+      toast.error(error.message || 'Foto eklenemedi.');
     }
-    const reader = new FileReader();
-    reader.onload = () => setPhotoUrl(String(reader.result || ''));
-    reader.readAsDataURL(file);
   };
 
   const captureLocation = () => {
@@ -922,13 +972,10 @@ function CustomerPanel(props: any) {
                     onChange={(event) => {
                       const file = event.target.files?.[0];
                       if (!file) return;
-                      if (file.size > 800_000) {
-                        toast.error('Foto cok buyuk. 800 KB altinda bir gorsel secin.');
-                        return;
-                      }
-                      const reader = new FileReader();
-                      reader.onload = () => setNewVisitPhotoUrl(String(reader.result || ''));
-                      reader.readAsDataURL(file);
+                      void readCompressedVisitPhoto(file)
+                        .then((dataUrl) => setNewVisitPhotoUrl(dataUrl))
+                        .catch((error: any) => toast.error(error.message || 'Foto eklenemedi.'));
+                      event.currentTarget.value = '';
                     }}
                   />
                 </label>

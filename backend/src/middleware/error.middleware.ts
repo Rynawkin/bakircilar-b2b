@@ -16,6 +16,13 @@ export const errorHandler = (
     console.error('❌ Error:', error);
   }
 
+  if (error?.type === 'entity.too.large' || error?.status === 413) {
+    return res.status(413).json({
+      error: 'Gonderilen veri cok buyuk. Foto veya ek boyutunu kucultup tekrar deneyin.',
+      errorCode: ErrorCode.VALIDATION_ERROR,
+    });
+  }
+
   // AppError - Custom application errors
   if (error instanceof AppError) {
     return res.status(error.statusCode).json({

@@ -62,8 +62,8 @@ app.use(
 );
 
 // Body parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Serve static files (uploads)
 app.use('/uploads', express.static('uploads'));
