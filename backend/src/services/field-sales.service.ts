@@ -1131,6 +1131,181 @@ class FieldSalesService {
     };
   }
 
+  async listVisits(input: {
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    onlyVisitCustomers?: boolean;
+    page?: number;
+    limit?: number;
+    scope: StaffScope;
+  }) {
+    const page = Math.max(1, Math.trunc(Number(input.page) || 1));
+    const limit = Math.max(1, Math.min(Math.trunc(Number(input.limit) || 60), 200));
+    const tokens = splitSearchTokens(input.search || '');
+    const and: Prisma.FieldSalesVisitNoteWhereInput[] = [];
+
+    if (input.startDate || input.endDate) {
+      const createdAt: Prisma.DateTimeFilter = {};
+      if (input.startDate) {
+        const start = new Date(`${input.startDate}T00:00:00`);
+        if (!Number.isNaN(start.getTime())) createdAt.gte = start;
+      }
+      if (input.endDate) {
+        const end = new Date(`${input.endDate}T23:59:59.999`);
+        if (!Number.isNaN(end.getTime())) createdAt.lte = end;
+      }
+      if (createdAt.gte || createdAt.lte) and.push({ createdAt });
+    }
+
+    if (input.onlyVisitCustomers) {
+      and.push({
+        OR: [
+          { customerCode: { startsWith: VISIT_CUSTOMER_PREFIX } },
+          { customer: { is: { groupCode: VISIT_CUSTOMER_GROUP_CODE } } },
+          { customer: { is: { sectorCode: VISIT_CUSTOMER_SECTOR_CODE } } },
+        ],
+      });
+    }
+
+    if (tokens.length > 0) {
+      and.push(
+        ...tokens.map((token) => ({
+          OR: [
+            { customerCode: { contains: token, mode: 'insensitive' as const } },
+            { customerName: { contains: token, mode: 'insensitive' as const } },
+            { note: { contains: token, mode: 'insensitive' as const } },
+            { demand: { contains: token, mode: 'insensitive' as const } },
+            { competitorInfo: { contains: token, mode: 'insensitive' as const } },
+            { createdByName: { contains: token, mode: 'insensitive' as const } },
+            { customer: { is: { displayName: { contains: token, mode: 'insensitive' as const } } } },
+            { customer: { is: { mikroName: { contains: token, mode: 'insensitive' as const } } } },
+            { customer: { is: { name: { contains: token, mode: 'insensitive' as const } } } },
+            { customer: { is: { phone: { contains: token, mode: 'insensitive' as const } } } },
+            { customer: { is: { city: { contains: token, mode: 'insensitive' as const } } } },
+            { customer: { is: { district: { contains: token, mode: 'insensitive' as const } } } },
+          ],
+        }))
+      );
+    }
+
+    if (input.scope.role === UserRole.SALES_REP) {
+      const customerScope = this.buildCustomerScope(input.scope);
+      and.push({
+        OR: [
+          { createdById: input.scope.userId || '__none__' },
+          ...(customerScope ? [{ customer: { is: customerScope } }] : []),
+        ],
+      });
+    }
+
+    const where: Prisma.FieldSalesVisitNoteWhereInput = and.length > 0 ? { AND: and } : {};
+
+    const visitCustomerFilter: Prisma.FieldSalesVisitNoteWhereInput = {
+      OR: [
+        { customerCode: { startsWith: VISIT_CUSTOMER_PREFIX } },
+        { customer: { is: { groupCode: VISIT_CUSTOMER_GROUP_CODE } } },
+        { customer: { is: { sectorCode: VISIT_CUSTOMER_SECTOR_CODE } } },
+      ],
+    };
+
+    const [total, customerGroups, photoCount, visitCustomerNotes, visits] = await Promise.all([
+      prisma.fieldSalesVisitNote.count({ where }),
+      prisma.fieldSalesVisitNote.groupBy({
+        by: ['customerCode'],
+        where,
+        _count: { _all: true },
+      }),
+      prisma.fieldSalesVisitNote.count({
+        where: {
+          AND: [
+            where,
+            { photoUrl: { not: null } },
+          ],
+        },
+      }),
+      prisma.fieldSalesVisitNote.count({
+        where: {
+          AND: [
+            where,
+            visitCustomerFilter,
+          ],
+        },
+      }),
+      prisma.fieldSalesVisitNote.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          customer: {
+            select: {
+              id: true,
+              displayName: true,
+              mikroName: true,
+              name: true,
+              mikroCariCode: true,
+              phone: true,
+              city: true,
+              district: true,
+              groupCode: true,
+              sectorCode: true,
+            },
+          },
+          createdBy: { select: { id: true, name: true, displayName: true, email: true } },
+        },
+      }),
+    ]);
+
+    const mappedVisits = visits.map((visit) => {
+      const customerCode = normalizeCode(visit.customerCode || visit.customer?.mikroCariCode);
+      const isVisitCustomer =
+        customerCode.startsWith(VISIT_CUSTOMER_PREFIX) ||
+        visit.customer?.groupCode === VISIT_CUSTOMER_GROUP_CODE ||
+        visit.customer?.sectorCode === VISIT_CUSTOMER_SECTOR_CODE;
+      return {
+        id: visit.id,
+        customerId: visit.customerId,
+        customerCode,
+        customerName: visit.customerName || displayName(visit.customer || {}),
+        customerTitle: displayName(visit.customer || {
+          displayName: visit.customerName,
+          mikroCariCode: customerCode,
+        }),
+        phone: visit.customer?.phone || null,
+        city: visit.customer?.city || null,
+        district: visit.customer?.district || null,
+        isVisitCustomer,
+        note: visit.note,
+        demand: visit.demand,
+        competitorInfo: visit.competitorInfo,
+        photoUrl: visit.photoUrl,
+        latitude: visit.latitude,
+        longitude: visit.longitude,
+        createdById: visit.createdById,
+        createdByName: visit.createdByName || visit.createdBy?.displayName || visit.createdBy?.name || visit.createdBy?.email || null,
+        createdAt: visit.createdAt,
+        updatedAt: visit.updatedAt,
+      };
+    });
+
+    return {
+      visits: mappedVisits,
+      summary: {
+        total,
+        uniqueCustomers: customerGroups.length,
+        visitCustomerNotes,
+        photoCount,
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
   async getVisitNotes(customerIdOrCode: string, scope: StaffScope, limit = 20) {
     const customer = await this.resolveCustomer(customerIdOrCode, scope);
     const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 80));

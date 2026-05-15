@@ -2035,6 +2035,26 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/field-sales/visits
+   */
+  async getFieldSalesVisits(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await fieldSalesService.listVisits({
+        search: String(req.query.search || ''),
+        startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+        endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+        onlyVisitCustomers: parseBooleanQuery(req.query.onlyVisitCustomers),
+        page: req.query.page ? Number(req.query.page) : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        scope: buildReportRequestContext(req),
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/field-sales/customers/:customerId/visit-notes
    */
   async getFieldSalesVisitNotes(req: Request, res: Response, next: NextFunction) {

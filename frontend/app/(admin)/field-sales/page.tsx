@@ -70,6 +70,33 @@ const tabs: Array<{ key: TabKey; label: string; icon: any }> = [
 const money = (value: any) => formatCurrency(Number(value || 0));
 const n = (value: any, digits = 2) => Number(value || 0).toLocaleString('tr-TR', { maximumFractionDigits: digits });
 const safeDate = (value?: string | null) => (value ? formatDateShort(String(value)) : '-');
+const ACTIVE_WAREHOUSE_NOS = new Set([1, 6]);
+const PRICE_LIST_LABELS: Record<number, string> = {
+  1: 'Perakende Satis 1',
+  2: 'Perakende Satis 2',
+  3: 'Perakende Satis 3',
+  4: 'Perakende Satis 4',
+  5: 'Perakende Satis 5',
+  6: 'Toptan Satis 1',
+  7: 'Toptan Satis 2',
+  8: 'Toptan Satis 3',
+  9: 'Toptan Satis 4',
+  10: 'Toptan Satis 5',
+};
+
+const getPriceListLabel = (listNo?: number | string | null) => {
+  const parsed = Number(listNo || 0);
+  return PRICE_LIST_LABELS[parsed] || `Liste ${listNo || '-'}`;
+};
+
+const getActiveWarehouses = (product: any) =>
+  (product?.warehouses || []).filter((row: any) => ACTIVE_WAREHOUSE_NOS.has(Number(row.no)));
+
+const getWarehouseByNo = (product: any, no: number) =>
+  getActiveWarehouses(product).find((row: any) => Number(row.no) === no) || null;
+
+const activeSellable = (product: any) =>
+  getActiveWarehouses(product).reduce((sum: number, row: any) => sum + Number(row.sellable || 0), 0);
 
 const loadJson = <T,>(key: string, fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
@@ -143,18 +170,18 @@ const getProductPrice = (product: any) => {
   if (customerPrice?.invoiced > 0) {
     return {
       value: Number(customerPrice.invoiced),
-      source: customerPrice.source === 'AGREEMENT' ? 'Anlasma' : `Liste ${customerPrice.priceListNo || '-'}`,
+      source: customerPrice.source === 'AGREEMENT' ? 'Anlasma' : getPriceListLabel(customerPrice.priceListNo),
       priceListNo: customerPrice.source === 'AGREEMENT' ? null : customerPrice.priceListNo,
       priceSource: customerPrice.source === 'AGREEMENT' ? 'MANUAL' : 'PRICE_LIST',
     };
   }
   const fallback = Number(product?.priceLists?.['6'] || product?.priceLists?.[6] || 0);
-  return { value: fallback, source: 'Liste 6', priceListNo: 6, priceSource: 'PRICE_LIST' };
+  return { value: fallback, source: getPriceListLabel(6), priceListNo: 6, priceSource: 'PRICE_LIST' };
 };
 
 const buildWhatsappText = (customer: any, product: any, safeMode: boolean) => {
   const price = getProductPrice(product);
-  const stockLine = (product?.warehouses || [])
+  const stockLine = getActiveWarehouses(product)
     .filter((row: any) => Number(row.sellable || row.stock || 0) !== 0)
     .map((row: any) => `${row.label}: ${n(row.sellable || row.stock)}`)
     .join(' | ');
@@ -641,7 +668,7 @@ export default function FieldSalesPage() {
 
   return (
     <div className="min-h-screen bg-[#f5f1e8] pb-24 text-slate-950">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-3 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-[1680px] flex-col gap-4 px-3 py-4 sm:px-6 lg:px-8">
         <header className="overflow-hidden rounded-[2rem] border border-amber-950/10 bg-[#17201b] text-white shadow-2xl">
           <div className="relative p-5 sm:p-7">
             <div className="absolute -right-16 -top-20 h-48 w-48 rounded-full bg-amber-400/20 blur-3xl" />
@@ -689,7 +716,7 @@ export default function FieldSalesPage() {
           onSelectTab={setActiveTab}
         />
 
-        <main className="grid gap-4 lg:grid-cols-[1.05fr_1.55fr]">
+        <main className="grid gap-4 lg:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.8fr)] 2xl:grid-cols-[460px_minmax(0,1fr)]">
           <div className={cn(activeTab === 'customer' ? 'block' : 'hidden lg:block')}>
             <CustomerPanel
               customerSearch={customerSearch}
@@ -1174,29 +1201,31 @@ function ProductPanel(props: any) {
         </div>
       </Panel>
 
-      <div className="grid gap-3 xl:grid-cols-2">
+      <div className="grid gap-3 2xl:grid-cols-2">
         {productsLoading && <LoadingCard />}
         {!productsLoading && products.length === 0 && (
-          <div className="xl:col-span-2">
+          <div className="2xl:col-span-2">
             <EmptyText text="Urun aramak icin stok kodu, ad veya barkod okutun." />
           </div>
         )}
         {products.map((product: any) => {
           const price = getProductPrice(product);
           const qty = productQuantities[product.mikroCode] || '1';
+          const merkez = getWarehouseByNo(product, 1);
+          const topca = getWarehouseByNo(product, 6);
           return (
             <article key={product.mikroCode} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg">
               <button onClick={() => openProductDetail(product)} className="block w-full p-4 text-left">
                 <div className="flex gap-3">
-                  <ProductImage product={product} />
+                  <ProductImage product={product} card />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-base lg:leading-snug">{product.name}</p>
                     <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
                     <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
                       <Mini label="Fiyat" value={money(price.value)} />
                       <Mini label="Kaynak" value={price.source} />
-                      <Mini label="Satilabilir" value={n(product.totalSellable)} />
-                      <Mini label="Son alim" value={safeDate(product.customerPrice?.lastSales?.[0]?.saleDate)} />
+                      <Mini label="Merkez" value={n(merkez?.sellable || 0)} />
+                      <Mini label="Topca" value={n(topca?.sellable || 0)} />
                     </div>
                   </div>
                 </div>
@@ -1393,6 +1422,8 @@ function HistoryPanel({ recentCustomers, recentProducts, setSelectedCustomer, op
 
 function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, quantity, setQuantity }: any) {
   const price = getProductPrice(product);
+  const [imageOpen, setImageOpen] = useState(false);
+  const visibleWarehouses = getActiveWarehouses(product);
   return (
     <div className="fixed inset-0 z-40 bg-slate-950/60 p-3 backdrop-blur-sm lg:flex lg:items-center lg:justify-center lg:p-6" onClick={onClose}>
       <div className="ml-auto flex h-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl lg:ml-0 lg:h-auto lg:max-h-[90vh] lg:w-full lg:max-w-6xl" onClick={(event) => event.stopPropagation()}>
@@ -1409,17 +1440,19 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
         <div className="flex-1 overflow-auto p-4 lg:p-6">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] lg:items-start">
             <div className="space-y-4">
+              <ProductLargeImage product={product} onOpen={() => setImageOpen(true)} />
+
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Metric label="Cari fiyat" value={money(price.value)} tone="amber" />
                 <Metric label="Kaynak" value={price.source} />
-                <Metric label="Satilabilir" value={n(product.totalSellable)} tone="emerald" />
+                <Metric label="Merkez+Topca" value={n(activeSellable(product))} tone="emerald" />
                 <Metric label="KDV" value={`%${n(product.vatRate, 0)}`} />
               </div>
 
               <div>
                 <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><Warehouse className="h-4 w-4" /> Depolar</p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {(product.warehouses || []).map((row: any) => (
+                  {visibleWarehouses.map((row: any) => (
                     <div key={row.key} className="rounded-2xl border border-slate-200 p-3">
                       <div className="flex items-center justify-between">
                         <p className="font-black text-slate-900">{row.label}</p>
@@ -1437,7 +1470,7 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
                 <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><DollarSign className="h-4 w-4" /> Fiyat listeleri</p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:grid-cols-5">
                   {Object.entries(product.priceLists || {}).map(([listNo, value]) => (
-                    <Mini key={listNo} label={`Liste ${listNo}`} value={money(value)} />
+                    <Mini key={listNo} label={getPriceListLabel(listNo)} value={money(value)} />
                   ))}
                 </div>
               </div>
@@ -1482,6 +1515,28 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
           <Button className="h-12 rounded-2xl" onClick={() => addToDraft(product)}><Plus className="mr-2 h-4 w-4" /> Ekle</Button>
         </div>
       </div>
+      {imageOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          onClick={(event) => {
+            event.stopPropagation();
+            setImageOpen(false);
+          }}
+        >
+          <div className="relative max-h-full max-w-5xl">
+            <button className="absolute right-2 top-2 rounded-full bg-white/90 px-4 py-2 text-sm font-black text-slate-900 shadow" type="button">
+              Kapat
+            </button>
+            {product?.imageUrl ? (
+              <img src={product.imageUrl} alt={product.name || product.mikroCode} className="max-h-[88vh] max-w-full rounded-3xl bg-white object-contain p-3 shadow-2xl" />
+            ) : (
+              <div className="flex h-[60vh] w-[80vw] max-w-3xl items-center justify-center rounded-3xl bg-white text-slate-400">
+                <Package className="h-20 w-20" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1542,9 +1597,28 @@ function Panel({ title, icon: Icon, children }: any) {
   );
 }
 
-function ProductImage({ product, small = false }: any) {
+function ProductLargeImage({ product, onOpen }: any) {
   return (
-    <div className={cn('shrink-0 overflow-hidden rounded-2xl bg-slate-100', small ? 'h-12 w-12' : 'h-20 w-20')}>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50"
+    >
+      {product?.imageUrl ? (
+        <img src={product.imageUrl} alt={product.name || product.mikroCode} className="h-full w-full object-contain p-4 transition group-hover:scale-105" />
+      ) : (
+        <Package className="h-16 w-16 text-slate-300" />
+      )}
+      <span className="absolute bottom-3 right-3 rounded-full bg-slate-950/85 px-3 py-1.5 text-xs font-black text-white shadow">
+        Buyut
+      </span>
+    </button>
+  );
+}
+
+function ProductImage({ product, small = false, card = false }: any) {
+  return (
+    <div className={cn('shrink-0 overflow-hidden rounded-2xl bg-slate-100', small ? 'h-12 w-12' : card ? 'h-20 w-20 lg:h-24 lg:w-24' : 'h-20 w-20')}>
       {product?.imageUrl ? (
         <img src={product.imageUrl} alt={product.name || product.productName || product.mikroCode} className="h-full w-full object-contain" />
       ) : (

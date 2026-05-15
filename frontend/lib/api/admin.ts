@@ -515,6 +515,18 @@ export const adminApi = {
     return response.data;
   },
 
+  getFieldSalesVisits: async (params?: {
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    onlyVisitCustomers?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<{ success: boolean; data: { visits: any[]; summary: any; pagination: any } }> => {
+    const response = await apiClient.get('/admin/field-sales/visits', { params });
+    return response.data;
+  },
+
   getFieldSalesVisitNotes: async (
     customerIdOrCode: string,
     params?: { limit?: number }
