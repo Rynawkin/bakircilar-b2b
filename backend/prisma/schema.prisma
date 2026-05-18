@@ -995,6 +995,114 @@ model SupplierCostApplicationLog {
   @@index([userId, createdAt])
 }
 
+model PriceVerificationRequest {
+  id                   String   @id @default(uuid())
+  requestNo            String   @unique
+  type                 String   @default("EXISTING_PRODUCT")
+  status               String   @default("REQUESTED")
+  priority             String   @default("NORMAL")
+
+  productId            String?
+  productCode          String?
+  productName          String
+  unit                 String?
+  quantity             Float?
+
+  customerId           String?
+  customerCode         String?
+  customerName         String?
+
+  sourceType           String   @default("MANUAL")
+  sourceRef            String?
+  sourceUrl            String?
+  currentUnitPrice     Float?
+  currentCost          Float?
+  currentCostDate      DateTime?
+
+  stockCreatePayload   Json?
+  selectedOfferId      String?
+  selectedSupplierCostId String?
+
+  salesNote            String?
+  procurementNote      String?
+  salesDecisionNote    String?
+
+  createdById          String?
+  createdByName        String?
+  assignedToId         String?
+
+  submittedToSalesAt   DateTime?
+  salesApprovedAt      DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+
+  offers               PriceVerificationOffer[]
+  notes                PriceVerificationNote[]
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([type])
+  @@index([status])
+  @@index([priority])
+  @@index([productCode])
+  @@index([customerCode])
+  @@index([createdById, createdAt])
+  @@index([assignedToId])
+}
+
+model PriceVerificationOffer {
+  id                   String   @id @default(uuid())
+  requestId            String
+  request              PriceVerificationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  supplierCode         String?
+  supplierName         String
+  supplierProductCode  String?
+  costP                Float
+  costT                Float
+  currency             String   @default("TRY")
+  exchangeRate         Float?
+  vatIncluded          Boolean  @default(false)
+  vatRate              Float?
+  unit                 String?
+  unitFactor           Float?
+  normalizedCostP      Float
+  normalizedCostT      Float
+  minOrderQuantity     Float?
+  leadTimeDays         Int?
+  validUntil           DateTime?
+  quoteDate            DateTime?
+  note                 String?
+  attachmentUrl        String?
+  supplierCostId       String?
+
+  createdById          String?
+  createdByName        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([requestId])
+  @@index([supplierCode])
+  @@index([supplierName])
+  @@index([createdAt])
+}
+
+model PriceVerificationNote {
+  id                   String   @id @default(uuid())
+  requestId            String
+  request              PriceVerificationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  authorId             String?
+  authorName           String?
+  body                 String
+  visibility           String   @default("INTERNAL")
+  createdAt            DateTime @default(now())
+
+  @@index([requestId, createdAt])
+  @@index([authorId])
+}
+
 // ==================== PRICE RULES ====================
 
 // Kategori bazlı kar marjları

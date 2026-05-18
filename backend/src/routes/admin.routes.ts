@@ -11,6 +11,7 @@ import eInvoiceController from '../controllers/einvoice.controller';
 import agreementController from '../controllers/agreement.controller';
 import supplierPriceListController from '../controllers/supplier-price-list.controller';
 import supplierCostController from '../controllers/supplier-cost.controller';
+import priceVerificationController from '../controllers/price-verification.controller';
 import productComplementController from '../controllers/product-complement.controller';
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
 import productDimensionsController from '../controllers/product-dimensions.controller';
@@ -224,6 +225,23 @@ router.post('/supplier-costs', requirePermission('admin:supplier-costs'), suppli
 router.put('/supplier-costs/:id', requirePermission('admin:supplier-costs'), supplierCostController.updateCost);
 router.delete('/supplier-costs/:id', requirePermission('admin:supplier-costs'), supplierCostController.archiveCost);
 router.post('/supplier-costs/:id/apply', requirePermission('admin:supplier-costs'), supplierCostController.applyCost);
+
+// Price freshness verification workflow
+const priceVerificationPermissions = ['admin:supplier-costs', 'admin:quotes', 'admin:orders', 'admin:field-sales'];
+router.get('/price-verification/products/search', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchProducts);
+router.get('/price-verification/suppliers/search', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchSuppliers);
+router.get('/price-verification/stock-metadata', requireAnyPermission(priceVerificationPermissions), priceVerificationController.getStockMetadata);
+router.get('/price-verification/stock-lookups/:type', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchStockLookups);
+router.post('/price-verification/stock-preview', requireAnyPermission(priceVerificationPermissions), priceVerificationController.previewStockPayload);
+router.get('/price-verification/requests', requireAnyPermission(priceVerificationPermissions), priceVerificationController.listRequests);
+router.post('/price-verification/requests', requireAnyPermission(priceVerificationPermissions), priceVerificationController.createRequest);
+router.get('/price-verification/requests/:id', requireAnyPermission(priceVerificationPermissions), priceVerificationController.getRequest);
+router.post('/price-verification/requests/:id/offers', requireAnyPermission(priceVerificationPermissions), priceVerificationController.addOffer);
+router.post('/price-verification/requests/:id/submit-to-sales', requireAnyPermission(priceVerificationPermissions), priceVerificationController.submitToSales);
+router.post('/price-verification/requests/:id/sales-decision', requireAnyPermission(priceVerificationPermissions), priceVerificationController.salesDecision);
+router.post('/price-verification/requests/:id/complete', requireAnyPermission(priceVerificationPermissions), priceVerificationController.completeRequest);
+router.post('/price-verification/requests/:id/cancel', requireAnyPermission(priceVerificationPermissions), priceVerificationController.cancelRequest);
+router.post('/price-verification/requests/:id/notes', requireAnyPermission(priceVerificationPermissions), priceVerificationController.addNote);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
 router.get('/products', requireAnyPermission(['admin:products', 'admin:quotes', 'dashboard:diversey-stok', 'reports:cost-update-all-products']), adminController.getProducts);

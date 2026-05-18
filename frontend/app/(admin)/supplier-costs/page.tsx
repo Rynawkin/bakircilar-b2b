@@ -6,13 +6,17 @@ import toast from 'react-hot-toast';
 import {
   AlertTriangle,
   ArrowLeft,
+  Ban,
   CheckCircle2,
   FileUp,
   HandCoins,
   History,
+  MessageSquare,
   Package,
+  Plus,
   RefreshCw,
   Search,
+  Send,
   ShieldAlert,
   TrendingDown,
   TrendingUp,
@@ -25,8 +29,10 @@ import { Input } from '@/components/ui/Input';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { cn } from '@/lib/utils/cn';
 import { formatDateShort } from '@/lib/utils/format';
+import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
 
-type TabKey = 'entry' | 'reports' | 'history';
+type TabKey = 'entry' | 'reports' | 'history' | 'requests';
 
 type FormState = {
   productCode: string;
@@ -93,6 +99,16 @@ const parseNumberText = (value: string) => Number(String(value || '').replace(',
 
 export default function SupplierCostsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('entry');
+  const [initialUrlTab, setInitialUrlTab] = useState<string | null>(null);
+  const [initialRequestId, setInitialRequestId] = useState<string | null>(null);
+  const { loadUserFromStorage } = useAuthStore();
+  const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const canManageSupplierCosts = hasPermission('admin:supplier-costs');
+  const canUsePriceRequests =
+    canManageSupplierCosts ||
+    hasPermission('admin:quotes') ||
+    hasPermission('admin:orders') ||
+    hasPermission('admin:field-sales');
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
@@ -332,9 +348,35 @@ export default function SupplierCostsPage() {
   };
 
   useEffect(() => {
+    loadUserFromStorage();
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setInitialUrlTab(params.get('tab'));
+      setInitialRequestId(params.get('requestId'));
+    }
+  }, [loadUserFromStorage]);
+
+  useEffect(() => {
+    if (permissionsLoading) return;
+    if (initialUrlTab === 'requests' || !canManageSupplierCosts) {
+      setActiveTab('requests');
+    }
+  }, [permissionsLoading, initialUrlTab, canManageSupplierCosts]);
+
+  useEffect(() => {
+    if (permissionsLoading || !canManageSupplierCosts) return;
     void loadReports();
     void loadHistory();
-  }, []);
+  }, [permissionsLoading, canManageSupplierCosts]);
+
+  const visibleTabs = useMemo(() => {
+    const tabs: Array<[TabKey, string]> = [];
+    if (canManageSupplierCosts) {
+      tabs.push(['entry', 'Maliyet gir / uygula'], ['reports', 'Raporlar'], ['history', 'Gecmis']);
+    }
+    if (canUsePriceRequests) tabs.push(['requests', 'Fiyat teyit talepleri']);
+    return tabs;
+  }, [canManageSupplierCosts, canUsePriceRequests]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fef3c7,transparent_30%),linear-gradient(135deg,#f8fafc,#eef2ff_45%,#f8fafc)]">
@@ -367,11 +409,7 @@ export default function SupplierCostsPage() {
         </header>
 
         <div className="flex flex-wrap gap-2">
-          {[
-            ['entry', 'Maliyet gir / uygula'],
-            ['reports', 'Raporlar'],
-            ['history', 'Gecmis'],
-          ].map(([key, label]) => (
+          {visibleTabs.map(([key, label]) => (
             <button
               key={key}
               type="button"
@@ -385,6 +423,10 @@ export default function SupplierCostsPage() {
             </button>
           ))}
         </div>
+
+        {activeTab === 'requests' && (
+          <PriceRequestsPanel canManage={canManageSupplierCosts} initialRequestId={initialRequestId} />
+        )}
 
         {activeTab === 'entry' && (
           <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
@@ -663,6 +705,775 @@ export default function SupplierCostsPage() {
   );
 }
 
+const emptyRequestForm = {
+  type: 'EXISTING_PRODUCT',
+  priority: 'NORMAL',
+  productSearch: '',
+  productCode: '',
+  productName: '',
+  unit: '',
+  quantity: '',
+  customerCode: '',
+  customerName: '',
+  salesNote: '',
+  stockCreatePayload: {
+    templateCode: 'B108423',
+    name: '',
+    foreignName: '',
+    shortName: '',
+    vatRatePercent: '20',
+    supplierCode: '',
+    brandCode: '',
+    brandName: '',
+    categoryCode: '',
+    packageCode: '',
+    packageName: '',
+    shelfCode: '',
+    currentCost: '0',
+    mainUnit: 'ADET',
+    mainUnitWeightKg: '',
+    mainUnitWidthCm: '',
+    mainUnitLengthCm: '',
+    mainUnitHeightCm: '',
+    margins: ['2', '1,5', '1,3', '1,2', '1,15'],
+    barcode: '',
+    notes: '',
+    extraUnits: [],
+  },
+};
+
+const emptyOfferForm = {
+  supplierSearch: '',
+  supplierCode: '',
+  supplierName: '',
+  supplierProductCode: '',
+  costP: '',
+  costT: '',
+  currency: 'TRY',
+  exchangeRate: '',
+  vatIncluded: false,
+  vatRate: '',
+  unit: '',
+  unitFactor: '1',
+  minOrderQuantity: '',
+  leadTimeDays: '',
+  validUntil: '',
+  quoteDate: new Date().toISOString().slice(0, 10),
+  note: '',
+  attachmentUrl: '',
+};
+
+function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolean; initialRequestId?: string | null }) {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
+  const [summary, setSummary] = useState<Record<string, number>>({});
+  const [requestSearch, setRequestSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [typeFilter, setTypeFilter] = useState('ALL');
+  const [mineOnly, setMineOnly] = useState(!canManage);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [requestForm, setRequestForm] = useState<any>(emptyRequestForm);
+  const [productResults, setProductResults] = useState<any[]>([]);
+  const [offerForm, setOfferForm] = useState<any>(emptyOfferForm);
+  const [supplierResults, setSupplierResults] = useState<Array<{ code: string; name: string }>>([]);
+  const [selectedOfferId, setSelectedOfferId] = useState('');
+  const [actionNote, setActionNote] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [savingAction, setSavingAction] = useState<string | null>(null);
+
+  const loadRequests = async () => {
+    setLoading(true);
+    try {
+      const result = await adminApi.getPriceVerificationRequests({
+        search: requestSearch || undefined,
+        status: statusFilter,
+        type: typeFilter,
+        mine: mineOnly,
+        page: 1,
+        limit: 60,
+      });
+      setRequests(result.items || []);
+      setSummary(result.summary || {});
+      if (selectedRequest) {
+        const fresh = (result.items || []).find((item: any) => item.id === selectedRequest.id);
+        if (fresh) setSelectedRequest(fresh);
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Fiyat teyit talepleri alinamadi');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRequestDetail = async (id: string) => {
+    try {
+      const result = await adminApi.getPriceVerificationRequest(id);
+      setSelectedRequest(result.request);
+      setSelectedOfferId(result.request?.selectedOfferId || result.request?.bestOffer?.id || '');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Talep detayi alinamadi');
+    }
+  };
+
+  useEffect(() => {
+    void loadRequests();
+  }, [statusFilter, typeFilter, mineOnly]);
+
+  useEffect(() => {
+    if (initialRequestId) void loadRequestDetail(initialRequestId);
+  }, [initialRequestId]);
+
+  const updateRequestForm = (patch: any) => setRequestForm((current: any) => ({ ...current, ...patch }));
+  const updateStockPayload = (patch: any) =>
+    setRequestForm((current: any) => ({
+      ...current,
+      stockCreatePayload: { ...current.stockCreatePayload, ...patch },
+    }));
+  const updateMargin = (index: number, value: string) =>
+    setRequestForm((current: any) => {
+      const margins = [...(current.stockCreatePayload.margins || [])];
+      margins[index] = value;
+      return { ...current, stockCreatePayload: { ...current.stockCreatePayload, margins } };
+    });
+  const updateOfferForm = (patch: any) => setOfferForm((current: any) => ({ ...current, ...patch }));
+
+  const searchProductsForRequest = async () => {
+    if (!requestForm.productSearch.trim()) return toast.error('Urun aramasi girin');
+    try {
+      const result = await adminApi.searchPriceVerificationProducts({ search: requestForm.productSearch, limit: 25 });
+      setProductResults(result.products || []);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Urun aramasi yapilamadi');
+    }
+  };
+
+  const searchSuppliersForOffer = async () => {
+    try {
+      const result = await adminApi.searchPriceVerificationSuppliers({ search: offerForm.supplierSearch, limit: 30 });
+      setSupplierResults(result.suppliers || []);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Tedarikci aramasi yapilamadi');
+    }
+  };
+
+  const createRequest = async () => {
+    setCreating(true);
+    try {
+      const isNewStock = requestForm.type === 'NEW_STOCK';
+      const payload = {
+        type: requestForm.type,
+        priority: requestForm.priority,
+        productCode: isNewStock ? undefined : requestForm.productCode,
+        productName: isNewStock ? requestForm.stockCreatePayload.name : requestForm.productName,
+        unit: isNewStock ? requestForm.stockCreatePayload.mainUnit : requestForm.unit,
+        quantity: requestForm.quantity || undefined,
+        customerCode: requestForm.customerCode || undefined,
+        customerName: requestForm.customerName || undefined,
+        sourceType: 'SUPPLIER_COSTS',
+        salesNote: requestForm.salesNote || undefined,
+        stockCreatePayload: isNewStock ? requestForm.stockCreatePayload : undefined,
+      };
+      const result = await adminApi.createPriceVerificationRequest(payload);
+      toast.success('Fiyat teyit talebi olusturuldu');
+      setRequestForm(emptyRequestForm);
+      setProductResults([]);
+      await loadRequests();
+      setSelectedRequest(result.request);
+    } catch (error: any) {
+      const details = error.response?.data?.details;
+      toast.error(Array.isArray(details) && details.length ? details.join(', ') : (error.response?.data?.error || 'Talep olusturulamadi'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const addOffer = async () => {
+    if (!selectedRequest) return;
+    setSavingAction('offer');
+    try {
+      const result = await adminApi.addPriceVerificationOffer(selectedRequest.id, {
+        ...offerForm,
+        costP: parseNumberText(offerForm.costP),
+        costT: parseNumberText(offerForm.costT || offerForm.costP),
+        exchangeRate: offerForm.currency === 'TRY' ? undefined : parseNumberText(offerForm.exchangeRate),
+        vatRate: offerForm.vatRate ? parseNumberText(offerForm.vatRate) : undefined,
+        unitFactor: parseNumberText(offerForm.unitFactor) || 1,
+        minOrderQuantity: offerForm.minOrderQuantity ? parseNumberText(offerForm.minOrderQuantity) : undefined,
+        leadTimeDays: offerForm.leadTimeDays ? parseNumberText(offerForm.leadTimeDays) : undefined,
+      });
+      toast.success('Fiyat alternatifi eklendi');
+      setOfferForm(emptyOfferForm);
+      setSupplierResults([]);
+      setSelectedRequest(result.request);
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Fiyat eklenemedi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const submitToSales = async () => {
+    if (!selectedRequest) return;
+    setSavingAction('submit');
+    try {
+      const result = await adminApi.submitPriceVerificationToSales(selectedRequest.id, { note: actionNote || undefined });
+      toast.success('Talep satis onayina gonderildi');
+      setSelectedRequest(result.request);
+      setActionNote('');
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Talep gonderilemedi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const decide = async (approved: boolean) => {
+    if (!selectedRequest) return;
+    setSavingAction(approved ? 'approve' : 'reject');
+    try {
+      const result = await adminApi.decidePriceVerification(selectedRequest.id, {
+        approved,
+        selectedOfferId: approved ? selectedOfferId : undefined,
+        note: actionNote || undefined,
+      });
+      toast.success(approved ? 'Fiyat secimi onaylandi' : 'Talep reddedildi');
+      setSelectedRequest(result.request);
+      setActionNote('');
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Karar kaydedilemedi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const complete = async () => {
+    if (!selectedRequest) return;
+    setSavingAction('complete');
+    try {
+      const result = await adminApi.completePriceVerification(selectedRequest.id, { updatePriceLists: true, note: actionNote || undefined });
+      toast.success('Talep tamamlandi ve Mikroya uygulandi');
+      setSelectedRequest(result.request);
+      setActionNote('');
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Talep tamamlanamadi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const cancel = async () => {
+    if (!selectedRequest || !window.confirm('Talep iptal edilsin mi?')) return;
+    setSavingAction('cancel');
+    try {
+      const result = await adminApi.cancelPriceVerification(selectedRequest.id, { note: actionNote || undefined });
+      toast.success('Talep iptal edildi');
+      setSelectedRequest(result.request);
+      setActionNote('');
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Talep iptal edilemedi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const addNote = async () => {
+    if (!selectedRequest || !noteText.trim()) return;
+    try {
+      await adminApi.addPriceVerificationNote(selectedRequest.id, { body: noteText.trim() });
+      setNoteText('');
+      await loadRequestDetail(selectedRequest.id);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Not eklenemedi');
+    }
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[460px_1fr]">
+      <div className="space-y-6">
+        <Card className="rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-xl">Fiyat teyit talebi olustur</CardTitle>
+            <CardDescription>Stoklu urun icin fiyat guncelligi sor veya yeni stok icin zorunlu kart bilgileriyle satin almaya talep ac.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SelectBox label="Talep tipi" value={requestForm.type} onChange={(value) => updateRequestForm({ type: value })} options={['EXISTING_PRODUCT', 'NEW_STOCK']} />
+              <SelectBox label="Oncelik" value={requestForm.priority} onChange={(value) => updateRequestForm({ priority: value })} options={['LOW', 'NORMAL', 'HIGH', 'URGENT']} />
+            </div>
+
+            {requestForm.type === 'EXISTING_PRODUCT' ? (
+              <div className="space-y-3 rounded-2xl bg-slate-50 p-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={requestForm.productSearch}
+                    onChange={(event) => updateRequestForm({ productSearch: event.target.value })}
+                    onKeyDown={(event) => event.key === 'Enter' && searchProductsForRequest()}
+                    placeholder="Stok kodu veya urun adi"
+                    className="h-11 rounded-xl"
+                  />
+                  <Button onClick={searchProductsForRequest} variant="secondary" className="h-11 rounded-xl">
+                    <Search className="mr-2 h-4 w-4" /> Ara
+                  </Button>
+                </div>
+                {productResults.length > 0 && (
+                  <div className="max-h-56 space-y-2 overflow-auto">
+                    {productResults.map((product) => (
+                      <button
+                        type="button"
+                        key={product.mikroCode}
+                        onClick={() => {
+                          updateRequestForm({
+                            productCode: product.mikroCode,
+                            productName: product.name,
+                            unit: product.unit,
+                            productSearch: `${product.mikroCode} ${product.name}`,
+                          });
+                          setProductResults([]);
+                        }}
+                        className="flex w-full gap-3 rounded-xl border border-slate-200 bg-white p-2 text-left hover:border-amber-300"
+                      >
+                        <ProductThumb product={product} />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-slate-900">{product.name}</p>
+                          <p className="text-xs text-slate-500">{product.mikroCode} | Maliyet: {money(product.currentCost)}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {requestForm.productCode && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                    <p className="font-black text-emerald-900">{requestForm.productCode}</p>
+                    <p className="text-emerald-800">{requestForm.productName}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <NewStockRequestFields payload={requestForm.stockCreatePayload} updatePayload={updateStockPayload} updateMargin={updateMargin} />
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input label="Miktar / hedef adet" value={requestForm.quantity} onChange={(e) => updateRequestForm({ quantity: e.target.value })} inputMode="decimal" />
+              <Input label="Cari kodu" value={requestForm.customerCode} onChange={(e) => updateRequestForm({ customerCode: e.target.value })} />
+              <Input label="Cari adi" value={requestForm.customerName} onChange={(e) => updateRequestForm({ customerName: e.target.value })} className="sm:col-span-2" />
+            </div>
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Satis notu</span>
+              <textarea
+                value={requestForm.salesNote}
+                onChange={(e) => updateRequestForm({ salesNote: e.target.value })}
+                rows={3}
+                className="w-full rounded-2xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Musteri hedef fiyati, aciliyet, marka alternatifi..."
+              />
+            </label>
+            <Button onClick={createRequest} isLoading={creating} className="w-full rounded-2xl">
+              <Plus className="mr-2 h-4 w-4" /> Talep olustur
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-xl">Talepler</CardTitle>
+            <CardDescription>{canManage ? 'Tum satin alma talepleri.' : 'Sadece sizin actiginiz talepler.'}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2">
+              <Input value={requestSearch} onChange={(e) => setRequestSearch(e.target.value)} placeholder="Talep, urun, cari ara..." />
+              <div className="grid gap-2 sm:grid-cols-3">
+                <SelectBox label="Durum" value={statusFilter} onChange={setStatusFilter} options={['ALL', 'REQUESTED', 'IN_REVIEW', 'SENT_TO_SALES', 'SALES_APPROVED', 'SALES_REJECTED', 'COMPLETED', 'CANCELLED']} />
+                <SelectBox label="Tip" value={typeFilter} onChange={setTypeFilter} options={['ALL', 'EXISTING_PRODUCT', 'NEW_STOCK']} />
+                {canManage && (
+                  <label className="mt-6 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
+                    <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+                    Sadece benimkiler
+                  </label>
+                )}
+              </div>
+              <Button variant="outline" onClick={loadRequests} isLoading={loading}>Ara / Yenile</Button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <MiniMetric label="Bekleyen" value={(summary.REQUESTED || 0) + (summary.IN_REVIEW || 0)} light />
+              <MiniMetric label="Satis onayi" value={summary.SENT_TO_SALES || 0} light />
+              <MiniMetric label="Tamamlanan" value={summary.COMPLETED || 0} light />
+            </div>
+            <div className="max-h-[620px] space-y-2 overflow-auto pr-1">
+              {requests.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Talep yok.</p>
+              ) : requests.map((request) => (
+                <button
+                  key={request.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedRequest(request);
+                    setSelectedOfferId(request.selectedOfferId || request.bestOffer?.id || '');
+                  }}
+                  className={cn(
+                    'w-full rounded-2xl border p-3 text-left transition hover:border-amber-300 hover:bg-amber-50',
+                    selectedRequest?.id === request.id ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white'
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-slate-950">{request.requestNo} - {request.productCode || 'Yeni stok'}</p>
+                      <p className="truncate text-xs text-slate-500">{request.productName}</p>
+                    </div>
+                    <StatusPill status={request.status} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-slate-600">
+                    <span className="rounded-full bg-slate-100 px-2 py-1">{request.type === 'NEW_STOCK' ? 'Yeni stok' : 'Stoklu'}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-1">{request.priority}</span>
+                    {request.bestOffer && <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">En iyi: {money(request.bestOffer.normalizedCostP)}</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-6">
+        {!selectedRequest ? (
+          <Card className="rounded-[2rem]">
+            <CardContent className="flex min-h-[420px] flex-col items-center justify-center text-center">
+              <MessageSquare className="mb-4 h-16 w-16 text-slate-300" />
+              <p className="text-lg font-black text-slate-900">Talep secin</p>
+              <p className="mt-2 max-w-md text-sm text-slate-500">Fiyat alternatifleri, satis onayi, notlar ve Mikro uygulama adimlari burada takip edilir.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card className="overflow-hidden rounded-[2rem]">
+              <CardHeader className="bg-slate-950 text-white">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-2xl">{selectedRequest.requestNo}</CardTitle>
+                    <CardDescription className="text-slate-300">{selectedRequest.productCode || 'Yeni stok'} - {selectedRequest.productName}</CardDescription>
+                  </div>
+                  <StatusPill status={selectedRequest.status} />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 p-5">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <MiniMetric label="Tip" value={selectedRequest.type === 'NEW_STOCK' ? 'Yeni stok' : 'Stoklu urun'} light />
+                  <MiniMetric label="Oncelik" value={selectedRequest.priority} light />
+                  <MiniMetric label="Talep eden" value={selectedRequest.createdByName || '-'} light />
+                  <MiniMetric label="Tarih" value={dateText(selectedRequest.createdAt)} light />
+                  <MiniMetric label="Cari" value={selectedRequest.customerName || selectedRequest.customerCode || '-'} light />
+                  <MiniMetric label="Miktar" value={selectedRequest.quantity || '-'} light />
+                  <MiniMetric label="Mevcut maliyet" value={money(selectedRequest.currentCost)} light />
+                  <MiniMetric label="En iyi teklif" value={selectedRequest.bestOffer ? money(selectedRequest.bestOffer.normalizedCostP) : '-'} light />
+                </div>
+                {selectedRequest.salesNote && <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700"><b>Satis notu:</b> {selectedRequest.salesNote}</p>}
+                {selectedRequest.procurementNote && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900"><b>Satin alma notu:</b> {selectedRequest.procurementNote}</p>}
+                {selectedRequest.salesDecisionNote && <p className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900"><b>Satis karar notu:</b> {selectedRequest.salesDecisionNote}</p>}
+                {selectedRequest.type === 'NEW_STOCK' && selectedRequest.stockCreatePayload && (
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-3 text-sm font-black text-slate-900">Yeni stok kart bilgileri</p>
+                    <div className="grid gap-2 text-xs md:grid-cols-3">
+                      <InfoLine label="Sablon" value={selectedRequest.stockCreatePayload.templateCode} />
+                      <InfoLine label="Ana birim" value={selectedRequest.stockCreatePayload.mainUnit} />
+                      <InfoLine label="KDV" value={`%${selectedRequest.stockCreatePayload.vatRatePercent || 20}`} />
+                      <InfoLine label="Ana saglayici" value={selectedRequest.stockCreatePayload.supplierCode} />
+                      <InfoLine label="Marka" value={`${selectedRequest.stockCreatePayload.brandCode || '-'} ${selectedRequest.stockCreatePayload.brandName || ''}`} />
+                      <InfoLine label="Kategori" value={selectedRequest.stockCreatePayload.categoryCode} />
+                      <InfoLine label="Ambalaj" value={`${selectedRequest.stockCreatePayload.packageCode || '-'} ${selectedRequest.stockCreatePayload.packageName || ''}`} />
+                      <InfoLine label="Raf" value={selectedRequest.stockCreatePayload.shelfCode || '-'} />
+                      <InfoLine label="Marjlar" value={(selectedRequest.stockCreatePayload.margins || []).join(' / ')} />
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-[2rem]">
+              <CardHeader>
+                <CardTitle className="text-xl">Fiyat alternatifleri</CardTitle>
+                <CardDescription>Satis kullanicisi kendi talebindeki girilen fiyatlari burada gorur ve secer.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[780px] text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="px-3 py-3">Sec</th>
+                        <th className="px-3 py-3">Tedarikci</th>
+                        <th className="px-3 py-3">Giris P/T</th>
+                        <th className="px-3 py-3">Normalize P/T</th>
+                        <th className="px-3 py-3">Kosullar</th>
+                        <th className="px-3 py-3">Tarih</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedRequest.offers || []).length === 0 ? (
+                        <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">Henuz fiyat girilmedi.</td></tr>
+                      ) : selectedRequest.offers.map((offer: any) => (
+                        <tr key={offer.id} className={cn('border-b hover:bg-slate-50', selectedOfferId === offer.id && 'bg-emerald-50')}>
+                          <td className="px-3 py-3">
+                            <input type="radio" checked={selectedOfferId === offer.id} onChange={() => setSelectedOfferId(offer.id)} disabled={selectedRequest.status !== 'SENT_TO_SALES' && !canManage} />
+                          </td>
+                          <td className="px-3 py-3">
+                            <p className="font-black text-slate-900">{offer.supplierName}</p>
+                            <p className="text-xs text-slate-500">{offer.supplierCode || '-'} {offer.supplierProductCode ? `| ${offer.supplierProductCode}` : ''}</p>
+                          </td>
+                          <td className="px-3 py-3">{money(offer.costP)} / {money(offer.costT)}<p className="text-xs text-slate-500">{offer.currency} {offer.vatIncluded ? 'KDV dahil' : 'Net'}</p></td>
+                          <td className="px-3 py-3 font-black text-emerald-700">{money(offer.normalizedCostP)} / {money(offer.normalizedCostT)}</td>
+                          <td className="px-3 py-3 text-xs text-slate-600">Min: {offer.minOrderQuantity || '-'} | Teslim: {offer.leadTimeDays ? `${offer.leadTimeDays} gun` : '-'}</td>
+                          <td className="px-3 py-3 text-xs text-slate-500">{dateText(offer.quoteDate || offer.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {canManage && selectedRequest.availableActions?.canAddOffer && (
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    <h3 className="mb-3 font-black text-slate-900">Satin alma fiyat girisi</h3>
+                    <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+                      <Input value={offerForm.supplierSearch} onChange={(event) => updateOfferForm({ supplierSearch: event.target.value })} placeholder="Tedarikci kodu veya adi ara..." />
+                      <Button variant="secondary" onClick={searchSuppliersForOffer}>Tedarikci ara</Button>
+                    </div>
+                    {supplierResults.length > 0 && (
+                      <div className="mt-3 flex max-h-32 flex-wrap gap-2 overflow-auto rounded-2xl bg-white p-3">
+                        {supplierResults.map((supplier) => (
+                          <button
+                            key={supplier.code}
+                            type="button"
+                            onClick={() => {
+                              updateOfferForm({ supplierCode: supplier.code, supplierName: supplier.name, supplierSearch: `${supplier.code} ${supplier.name}` });
+                              setSupplierResults([]);
+                            }}
+                            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-amber-300"
+                          >
+                            {supplier.code} - {supplier.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <Input label="Tedarikci kodu" value={offerForm.supplierCode} onChange={(e) => updateOfferForm({ supplierCode: e.target.value })} />
+                      <Input label="Tedarikci adi" value={offerForm.supplierName} onChange={(e) => updateOfferForm({ supplierName: e.target.value })} />
+                      <Input label="Tedarikci urun kodu" value={offerForm.supplierProductCode} onChange={(e) => updateOfferForm({ supplierProductCode: e.target.value })} />
+                      <Input label="Maliyet P" value={offerForm.costP} onChange={(e) => updateOfferForm({ costP: e.target.value })} inputMode="decimal" />
+                      <Input label="Maliyet T" value={offerForm.costT} onChange={(e) => updateOfferForm({ costT: e.target.value })} inputMode="decimal" />
+                      <SelectBox label="Para birimi" value={offerForm.currency} onChange={(value) => updateOfferForm({ currency: value })} options={['TRY', 'USD', 'EUR']} />
+                      <Input label="Kur" value={offerForm.exchangeRate} onChange={(e) => updateOfferForm({ exchangeRate: e.target.value })} inputMode="decimal" disabled={offerForm.currency === 'TRY'} />
+                      <Input label="Birim" value={offerForm.unit} onChange={(e) => updateOfferForm({ unit: e.target.value })} />
+                      <Input label="Birim katsayisi" value={offerForm.unitFactor} onChange={(e) => updateOfferForm({ unitFactor: e.target.value })} inputMode="decimal" />
+                      <Input label="KDV %" value={offerForm.vatRate} onChange={(e) => updateOfferForm({ vatRate: e.target.value })} inputMode="decimal" />
+                      <Input label="Min siparis" value={offerForm.minOrderQuantity} onChange={(e) => updateOfferForm({ minOrderQuantity: e.target.value })} inputMode="decimal" />
+                      <Input label="Teslim gun" value={offerForm.leadTimeDays} onChange={(e) => updateOfferForm({ leadTimeDays: e.target.value })} inputMode="numeric" />
+                      <Input label="Gecerlilik" type="date" value={offerForm.validUntil} onChange={(e) => updateOfferForm({ validUntil: e.target.value })} />
+                      <Input label="Teklif tarihi" type="date" value={offerForm.quoteDate} onChange={(e) => updateOfferForm({ quoteDate: e.target.value })} />
+                      <label className="mt-6 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700">
+                        <input type="checkbox" checked={offerForm.vatIncluded} onChange={(e) => updateOfferForm({ vatIncluded: e.target.checked })} />
+                        KDV dahil
+                      </label>
+                    </div>
+                    <textarea value={offerForm.note} onChange={(e) => updateOfferForm({ note: e.target.value })} rows={2} className="mt-3 w-full rounded-2xl border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" placeholder="Fiyat notu..." />
+                    <div className="mt-3 flex justify-end">
+                      <Button onClick={addOffer} isLoading={savingAction === 'offer'}>Fiyat ekle</Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-[2rem]">
+              <CardHeader>
+                <CardTitle className="text-xl">Aksiyonlar ve notlar</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <textarea value={actionNote} onChange={(e) => setActionNote(e.target.value)} rows={2} className="w-full rounded-2xl border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" placeholder="Aksiyon notu..." />
+                <div className="flex flex-wrap gap-2">
+                  {canManage && selectedRequest.availableActions?.canSendToSales && (
+                    <Button onClick={submitToSales} isLoading={savingAction === 'submit'}>
+                      <Send className="mr-2 h-4 w-4" /> Satis onayina gonder
+                    </Button>
+                  )}
+                  {!canManage && selectedRequest.availableActions?.canSalesDecide && (
+                    <>
+                      <Button onClick={() => decide(true)} isLoading={savingAction === 'approve'} disabled={!selectedOfferId}>
+                        <CheckCircle2 className="mr-2 h-4 w-4" /> Secili fiyati onayla
+                      </Button>
+                      <Button variant="danger" onClick={() => decide(false)} isLoading={savingAction === 'reject'}>
+                        <Ban className="mr-2 h-4 w-4" /> Reddet
+                      </Button>
+                    </>
+                  )}
+                  {canManage && selectedRequest.availableActions?.canComplete && (
+                    <Button onClick={complete} isLoading={savingAction === 'complete'}>
+                      Mikroya uygula ve tamamla
+                    </Button>
+                  )}
+                  {selectedRequest.availableActions?.canCancel && (
+                    <Button variant="outline" onClick={cancel} isLoading={savingAction === 'cancel'}>Iptal et</Button>
+                  )}
+                </div>
+
+                <div className="rounded-[1.5rem] bg-slate-50 p-4">
+                  <div className="flex gap-2">
+                    <Input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Talep notu ekle..." />
+                    <Button variant="secondary" onClick={addNote}>Not ekle</Button>
+                  </div>
+                  <div className="mt-4 max-h-72 space-y-2 overflow-auto">
+                    {(selectedRequest.notes || []).length === 0 ? (
+                      <p className="text-sm text-slate-500">Not yok.</p>
+                    ) : selectedRequest.notes.map((note: any) => (
+                      <div key={note.id} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <p className="font-black text-slate-900">{note.authorName || 'Sistem'}</p>
+                          <p className="text-xs text-slate-500">{dateText(note.createdAt)}</p>
+                        </div>
+                        <p className="mt-1 text-slate-700">{note.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type LookupItem = { code: string; name: string };
+
+function NewStockRequestFields({
+  payload,
+  updatePayload,
+  updateMargin,
+}: {
+  payload: any;
+  updatePayload: (patch: any) => void;
+  updateMargin: (index: number, value: string) => void;
+}) {
+  return (
+    <div className="space-y-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SimpleLookupInput label="Sablon stok" type="template" value={payload.templateCode} onSelect={(item) => updatePayload({ templateCode: item.code })} onChange={(value) => updatePayload({ templateCode: value })} />
+        <Input label="Stok adi" value={payload.name} onChange={(e) => updatePayload({ name: e.target.value })} />
+        <Input label="Tedarikci urun kodu" value={payload.foreignName} onChange={(e) => updatePayload({ foreignName: e.target.value })} />
+        <Input label="Ana birim" value={payload.mainUnit} onChange={(e) => updatePayload({ mainUnit: e.target.value })} />
+        <Input label="KDV %" value={payload.vatRatePercent} onChange={(e) => updatePayload({ vatRatePercent: e.target.value })} inputMode="decimal" />
+        <SimpleLookupInput label="Ana saglayici" type="supplier" value={payload.supplierCode} onSelect={(item) => updatePayload({ supplierCode: item.code })} onChange={(value) => updatePayload({ supplierCode: value })} />
+        <SimpleLookupInput label="Marka kodu" type="brand" value={payload.brandCode} onSelect={(item) => updatePayload({ brandCode: item.code, brandName: item.name })} onChange={(value) => updatePayload({ brandCode: value })} />
+        <Input label="Yeni marka adi" value={payload.brandName} onChange={(e) => updatePayload({ brandName: e.target.value })} />
+        <SimpleLookupInput label="Kategori" type="category" value={payload.categoryCode} onSelect={(item) => updatePayload({ categoryCode: item.code })} onChange={(value) => updatePayload({ categoryCode: value })} />
+        <SimpleLookupInput label="Ambalaj kodu" type="package" value={payload.packageCode} onSelect={(item) => updatePayload({ packageCode: item.code, packageName: item.name })} onChange={(value) => updatePayload({ packageCode: value })} />
+        <Input label="Yeni ambalaj adi" value={payload.packageName} onChange={(e) => updatePayload({ packageName: e.target.value })} />
+        <Input label="Raf / reyon kodu" value={payload.shelfCode} onChange={(e) => updatePayload({ shelfCode: e.target.value })} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((index) => (
+          <Input key={index} label={`Marj ${index + 1}`} value={payload.margins?.[index] || ''} onChange={(e) => updateMargin(index, e.target.value)} inputMode="decimal" />
+        ))}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Input label="Kg" value={payload.mainUnitWeightKg} onChange={(e) => updatePayload({ mainUnitWeightKg: e.target.value })} inputMode="decimal" />
+        <Input label="En cm" value={payload.mainUnitWidthCm} onChange={(e) => updatePayload({ mainUnitWidthCm: e.target.value })} inputMode="decimal" />
+        <Input label="Boy cm" value={payload.mainUnitLengthCm} onChange={(e) => updatePayload({ mainUnitLengthCm: e.target.value })} inputMode="decimal" />
+        <Input label="Yukseklik cm" value={payload.mainUnitHeightCm} onChange={(e) => updatePayload({ mainUnitHeightCm: e.target.value })} inputMode="decimal" />
+      </div>
+    </div>
+  );
+}
+
+function SimpleLookupInput({
+  label,
+  type,
+  value,
+  onChange,
+  onSelect,
+}: {
+  label: string;
+  type: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSelect: (item: LookupItem) => void;
+}) {
+  const [search, setSearch] = useState(value || '');
+  const [items, setItems] = useState<LookupItem[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setSearch(value || '');
+  }, [value]);
+
+  const runSearch = async () => {
+    try {
+      const result = await adminApi.searchPriceVerificationStockLookups(type, { search, limit: 20 });
+      setItems(result.items || []);
+      setOpen(true);
+    } catch {
+      setItems([]);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        label={label}
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          onChange(e.target.value);
+        }}
+        onFocus={() => search && runSearch()}
+        onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+      />
+      <button type="button" onClick={runSearch} className="absolute right-2 top-8 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600 hover:bg-slate-200">
+        Ara
+      </button>
+      {open && items.length > 0 && (
+        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+          {items.map((item) => (
+            <button
+              key={`${type}-${item.code}`}
+              type="button"
+              onClick={() => {
+                setSearch(item.code);
+                onSelect(item);
+                setOpen(false);
+              }}
+              className="w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-amber-50"
+            >
+              <span className="font-black text-slate-900">{item.code}</span> <span className="text-slate-500">{item.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const tone =
+    status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+    status === 'CANCELLED' || status === 'SALES_REJECTED' ? 'bg-red-100 text-red-800' :
+    status === 'SENT_TO_SALES' || status === 'SALES_APPROVED' ? 'bg-blue-100 text-blue-800' :
+    'bg-amber-100 text-amber-800';
+  const labelMap: Record<string, string> = {
+    REQUESTED: 'Talep',
+    IN_REVIEW: 'Incelemede',
+    SENT_TO_SALES: 'Satis onayi',
+    SALES_APPROVED: 'Satis onayladi',
+    SALES_REJECTED: 'Satis reddetti',
+    COMPLETED: 'Tamamlandi',
+    CANCELLED: 'Iptal',
+  };
+  return <span className={cn('rounded-full px-2.5 py-1 text-xs font-black', tone)}>{labelMap[status] || status}</span>;
+}
+
 function ProductSummary({ product, metrics }: { product: any; metrics: any }) {
   const stocks = product?.warehouseStocks || {};
   return (
@@ -865,6 +1676,15 @@ function MiniMetric({ label, value, light = false }: { label: string; value: any
     <div className={cn('rounded-2xl p-3', light ? 'bg-white text-slate-950 shadow-sm ring-1 ring-slate-200' : 'bg-white/10 text-white')}>
       <p className={cn('text-[11px] font-bold uppercase tracking-wide', light ? 'text-slate-400' : 'text-slate-300')}>{label}</p>
       <p className="mt-1 truncate text-base font-black">{String(value ?? '-')}</p>
+    </div>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: any }) {
+  return (
+    <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-0.5 truncate font-black text-slate-800">{String(value || '-')}</p>
     </div>
   );
 }

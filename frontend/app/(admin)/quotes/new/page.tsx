@@ -166,6 +166,31 @@ const POOL_SORT_OPTIONS: Array<{ value: PoolSortOption; label: string }> = [
 
 const LINE_DESCRIPTION_KEY = '__line_description__';
 
+const createEmptyPriceRequestStockPayload = (name = '', unit = 'ADET') => ({
+  templateCode: 'B108423',
+  name,
+  foreignName: '',
+  shortName: '',
+  vatRatePercent: '20',
+  supplierCode: '',
+  brandCode: '',
+  brandName: '',
+  categoryCode: '',
+  packageCode: '',
+  packageName: '',
+  shelfCode: '',
+  currentCost: '0',
+  mainUnit: unit || 'ADET',
+  mainUnitWeightKg: '',
+  mainUnitWidthCm: '',
+  mainUnitLengthCm: '',
+  mainUnitHeightCm: '',
+  margins: ['2', '1,5', '1,3', '1,2', '1,15'],
+  barcode: '',
+  notes: '',
+  extraUnits: [],
+});
+
 const BASE_COLUMN_WIDTHS: Record<string, number> = {
   rowNumber: 56,
   product: 320,
@@ -512,6 +537,11 @@ function AdminQuoteNewPageContent() {
   const [lastOrderMap, setLastOrderMap] = useState<Record<string, LastOrder[]>>({});
   const [categoryLastPurchaseMap, setCategoryLastPurchaseMap] = useState<Record<string, CategoryLastPurchase>>({});
   const [manualImageUploading, setManualImageUploading] = useState<Record<string, boolean>>({});
+  const [priceRequestTarget, setPriceRequestTarget] = useState<QuoteItemForm | null>(null);
+  const [priceRequestPriority, setPriceRequestPriority] = useState('NORMAL');
+  const [priceRequestNote, setPriceRequestNote] = useState('');
+  const [priceRequestStockPayload, setPriceRequestStockPayload] = useState<any>(createEmptyPriceRequestStockPayload());
+  const [priceRequestSaving, setPriceRequestSaving] = useState(false);
   const [whatsappTemplate, setWhatsappTemplate] = useState('');
   const [responsibles, setResponsibles] = useState<Array<{ code: string; name: string; surname: string }>>([]);
   const [selectedResponsibleCode, setSelectedResponsibleCode] = useState('');
@@ -1583,6 +1613,57 @@ function AdminQuoteNewPageContent() {
 
   const removeItem = (id: string) => {
     setQuoteItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const openPriceRequestModal = (item: QuoteItemForm) => {
+    setPriceRequestTarget(item);
+    setPriceRequestPriority('NORMAL');
+    setPriceRequestNote('');
+    setPriceRequestStockPayload(createEmptyPriceRequestStockPayload(item.productName || '', getSelectedUnit(item)));
+  };
+
+  const updatePriceRequestStockPayload = (patch: Record<string, any>) => {
+    setPriceRequestStockPayload((current: any) => ({ ...current, ...patch }));
+  };
+
+  const updatePriceRequestMargin = (index: number, value: string) => {
+    setPriceRequestStockPayload((current: any) => {
+      const margins = [...(current.margins || [])];
+      margins[index] = value;
+      return { ...current, margins };
+    });
+  };
+
+  const submitPriceVerificationRequest = async () => {
+    if (!priceRequestTarget) return;
+    setPriceRequestSaving(true);
+    try {
+      const isNewStock = Boolean(priceRequestTarget.isManualLine);
+      await adminApi.createPriceVerificationRequest({
+        type: isNewStock ? 'NEW_STOCK' : 'EXISTING_PRODUCT',
+        priority: priceRequestPriority,
+        productCode: isNewStock ? undefined : priceRequestTarget.productCode,
+        productName: isNewStock ? priceRequestStockPayload.name : priceRequestTarget.productName,
+        unit: isNewStock ? priceRequestStockPayload.mainUnit : getSelectedUnit(priceRequestTarget),
+        quantity: getDisplayQuantity(priceRequestTarget),
+        customerId: selectedCustomer?.id || undefined,
+        customerCode: selectedCustomer?.mikroCariCode || editingOrderCustomerCode || undefined,
+        customerName: selectedCustomer?.displayName || selectedCustomer?.mikroName || selectedCustomer?.name || undefined,
+        sourceType: isOrderMode ? 'ORDER' : 'QUOTE',
+        sourceRef: editOrderId || editingQuote?.quoteNumber || (isOrderMode ? 'ORDER_DRAFT' : 'QUOTE_DRAFT'),
+        sourceUrl: typeof window !== 'undefined' ? window.location.pathname + window.location.search : undefined,
+        currentUnitPrice: getDisplayUnitPrice(priceRequestTarget) || undefined,
+        salesNote: priceRequestNote || undefined,
+        stockCreatePayload: isNewStock ? priceRequestStockPayload : undefined,
+      });
+      toast.success('Fiyat teyit talebi satin almaya gonderildi');
+      setPriceRequestTarget(null);
+    } catch (error: any) {
+      const details = error.response?.data?.details;
+      toast.error(Array.isArray(details) && details.length ? details.join(', ') : (error.response?.data?.error || 'Fiyat teyit talebi olusturulamadi'));
+    } finally {
+      setPriceRequestSaving(false);
+    }
   };
 
   const updateItem = (id: string, patch: Partial<QuoteItemForm>) => {
@@ -2990,6 +3071,13 @@ function AdminQuoteNewPageContent() {
                                     />
                                     <div className="text-xs text-gray-500">Kod: {item.productCode}</div>
                                     <Badge variant="warning" className="text-xs">Manuel</Badge>
+                                    <button
+                                      type="button"
+                                      onClick={() => openPriceRequestModal(item)}
+                                      className="ml-2 inline-flex rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                                    >
+                                      Fiyat teyidi iste
+                                    </button>
                                     <div className="flex items-center gap-2 pt-1">
                                       {item.manualImageUrl ? (
                                         <img
@@ -3026,7 +3114,16 @@ function AdminQuoteNewPageContent() {
                                 ) : (
                                   <div>
                                     <div className="font-medium text-gray-900">{item.productName}</div>
-                                    <div className="text-xs text-gray-500">{item.productCode}</div>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                      <span>{item.productCode}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => openPriceRequestModal(item)}
+                                        className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                                      >
+                                        Fiyat teyidi iste
+                                      </button>
+                                    </div>
                                     {getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor) && (
                                       <div className="text-xs text-gray-500">
                                         {getUnitConversionLabel(item.unit, item.unit2, item.unit2Factor)}
@@ -3544,6 +3641,97 @@ function AdminQuoteNewPageContent() {
           }
         }}
       />
+
+      <Modal
+        isOpen={Boolean(priceRequestTarget)}
+        onClose={() => setPriceRequestTarget(null)}
+        title="Fiyat Guncellik Teyidi"
+        size={priceRequestTarget?.isManualLine ? 'xl' : 'lg'}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setPriceRequestTarget(null)}>Vazgec</Button>
+            <Button variant="primary" onClick={submitPriceVerificationRequest} disabled={priceRequestSaving}>
+              {priceRequestSaving ? 'Gonderiliyor...' : 'Satin almaya gonder'}
+            </Button>
+          </div>
+        }
+      >
+        {priceRequestTarget && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">
+                {priceRequestTarget.isManualLine ? 'Stokta olmayan / manuel urun' : `${priceRequestTarget.productCode} - ${priceRequestTarget.productName}`}
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                Miktar: {formatQuantityInput(getDisplayQuantity(priceRequestTarget))} {getSelectedUnit(priceRequestTarget)}
+                {getDisplayUnitPrice(priceRequestTarget) ? ` | Satirdaki fiyat: ${formatCurrency(getDisplayUnitPrice(priceRequestTarget))}` : ''}
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Oncelik</label>
+                <select
+                  value={priceRequestPriority}
+                  onChange={(e) => setPriceRequestPriority(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                >
+                  <option value="LOW">Dusuk</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">Yuksek</option>
+                  <option value="URGENT">Acil</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Cari</label>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-gray-700">
+                  {selectedCustomer?.mikroCariCode || editingOrderCustomerCode || '-'} {selectedCustomer?.name ? `- ${selectedCustomer.name}` : ''}
+                </div>
+              </div>
+            </div>
+
+            {priceRequestTarget.isManualLine && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="mb-3 text-sm font-bold text-gray-900">Yeni stok icin zorunlu kart bilgileri</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Input label="Sablon stok" value={priceRequestStockPayload.templateCode} onChange={(e) => updatePriceRequestStockPayload({ templateCode: e.target.value })} />
+                  <Input label="Stok adi" value={priceRequestStockPayload.name} onChange={(e) => updatePriceRequestStockPayload({ name: e.target.value })} />
+                  <Input label="Tedarikci urun kodu" value={priceRequestStockPayload.foreignName} onChange={(e) => updatePriceRequestStockPayload({ foreignName: e.target.value })} />
+                  <Input label="Ana birim" value={priceRequestStockPayload.mainUnit} onChange={(e) => updatePriceRequestStockPayload({ mainUnit: e.target.value })} />
+                  <Input label="KDV %" value={priceRequestStockPayload.vatRatePercent} onChange={(e) => updatePriceRequestStockPayload({ vatRatePercent: e.target.value })} />
+                  <Input label="Ana saglayici kodu" value={priceRequestStockPayload.supplierCode} onChange={(e) => updatePriceRequestStockPayload({ supplierCode: e.target.value })} />
+                  <Input label="Marka kodu" value={priceRequestStockPayload.brandCode} onChange={(e) => updatePriceRequestStockPayload({ brandCode: e.target.value })} />
+                  <Input label="Marka adi (yeni ise)" value={priceRequestStockPayload.brandName} onChange={(e) => updatePriceRequestStockPayload({ brandName: e.target.value })} />
+                  <Input label="Kategori kodu" value={priceRequestStockPayload.categoryCode} onChange={(e) => updatePriceRequestStockPayload({ categoryCode: e.target.value })} placeholder="1.09.04" />
+                  <Input label="Ambalaj kodu" value={priceRequestStockPayload.packageCode} onChange={(e) => updatePriceRequestStockPayload({ packageCode: e.target.value })} />
+                  <Input label="Ambalaj adi (yeni ise)" value={priceRequestStockPayload.packageName} onChange={(e) => updatePriceRequestStockPayload({ packageName: e.target.value })} />
+                  <Input label="Raf / reyon kodu" value={priceRequestStockPayload.shelfCode} onChange={(e) => updatePriceRequestStockPayload({ shelfCode: e.target.value })} />
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-5">
+                  {[0, 1, 2, 3, 4].map((index) => (
+                    <Input
+                      key={index}
+                      label={`Marj ${index + 1}`}
+                      value={priceRequestStockPayload.margins?.[index] || ''}
+                      onChange={(e) => updatePriceRequestMargin(index, e.target.value)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Talep notu</label>
+              <textarea
+                value={priceRequestNote}
+                onChange={(e) => setPriceRequestNote(e.target.value)}
+                rows={4}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Musteri hedef fiyati, rakip fiyat, talep sebebi..."
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         isOpen={showProductPoolModal}

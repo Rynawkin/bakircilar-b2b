@@ -3170,6 +3170,83 @@ export const adminApi = {
     return response.data;
   },
 
+  searchPriceVerificationProducts: async (params?: { search?: string; limit?: number }): Promise<{ products: any[] }> => {
+    const response = await apiClient.get('/admin/price-verification/products/search', { params });
+    return response.data;
+  },
+
+  searchPriceVerificationSuppliers: async (params?: { search?: string; limit?: number }): Promise<{ suppliers: Array<{ code: string; name: string }> }> => {
+    const response = await apiClient.get('/admin/price-verification/suppliers/search', { params });
+    return response.data;
+  },
+
+  getPriceVerificationStockMetadata: async (): Promise<any> => {
+    const response = await apiClient.get('/admin/price-verification/stock-metadata');
+    return response.data;
+  },
+
+  searchPriceVerificationStockLookups: async (type: string, params?: { search?: string; limit?: number }): Promise<{ items: Array<{ code: string; name: string }> }> => {
+    const response = await apiClient.get(`/admin/price-verification/stock-lookups/${encodeURIComponent(type)}`, { params });
+    return response.data;
+  },
+
+  previewPriceVerificationStock: async (payload: any): Promise<any> => {
+    const response = await apiClient.post('/admin/price-verification/stock-preview', payload);
+    return response.data;
+  },
+
+  getPriceVerificationRequests: async (params?: {
+    search?: string;
+    status?: string;
+    type?: string;
+    mine?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: any[]; pagination: any; summary: any; scope: { canManage: boolean } }> => {
+    const response = await apiClient.get('/admin/price-verification/requests', { params });
+    return response.data;
+  },
+
+  getPriceVerificationRequest: async (id: string): Promise<{ request: any }> => {
+    const response = await apiClient.get(`/admin/price-verification/requests/${encodeURIComponent(id)}`);
+    return response.data;
+  },
+
+  createPriceVerificationRequest: async (payload: any): Promise<{ request: any }> => {
+    const response = await apiClient.post('/admin/price-verification/requests', payload);
+    return response.data;
+  },
+
+  addPriceVerificationOffer: async (id: string, payload: any): Promise<{ request: any }> => {
+    const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/offers`, payload);
+    return response.data;
+  },
+
+  submitPriceVerificationToSales: async (id: string, payload?: any): Promise<{ request: any }> => {
+    const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/submit-to-sales`, payload || {});
+    return response.data;
+  },
+
+  decidePriceVerification: async (id: string, payload: { approved: boolean; selectedOfferId?: string; note?: string }): Promise<{ request: any }> => {
+    const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/sales-decision`, payload);
+    return response.data;
+  },
+
+  completePriceVerification: async (id: string, payload?: { updatePriceLists?: boolean; note?: string }): Promise<{ request: any; supplierCost: any; application: any }> => {
+    const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/complete`, payload || {});
+    return response.data;
+  },
+
+  cancelPriceVerification: async (id: string, payload?: { note?: string }): Promise<{ request: any }> => {
+    const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/cancel`, payload || {});
+    return response.data;
+  },
+
+  addPriceVerificationNote: async (id: string, payload: { body: string; visibility?: string }): Promise<{ note: any }> => {
+    const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/notes`, payload);
+    return response.data;
+  },
+
 
   getCustomerCartsReport: async (params: {
     search?: string;
