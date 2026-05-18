@@ -10,6 +10,7 @@ import notificationController from '../controllers/notification.controller';
 import eInvoiceController from '../controllers/einvoice.controller';
 import agreementController from '../controllers/agreement.controller';
 import supplierPriceListController from '../controllers/supplier-price-list.controller';
+import supplierCostController from '../controllers/supplier-cost.controller';
 import productComplementController from '../controllers/product-complement.controller';
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
 import productDimensionsController from '../controllers/product-dimensions.controller';
@@ -210,6 +211,19 @@ router.post('/supplier-price-lists/upload', requirePermission('admin:supplier-pr
 router.get('/supplier-price-lists/:id', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUpload);
 router.get('/supplier-price-lists/:id/items', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUploadItems);
 router.get('/supplier-price-lists/:id/export', requirePermission('admin:supplier-price-lists'), supplierPriceListController.exportUpload);
+
+// Supplier cost pool
+router.get('/supplier-costs/products/search', requirePermission('admin:supplier-costs'), supplierCostController.searchProducts);
+router.get('/supplier-costs/suppliers/search', requirePermission('admin:supplier-costs'), supplierCostController.searchSuppliers);
+router.get('/supplier-costs/reports', requirePermission('admin:supplier-costs'), supplierCostController.getReports);
+router.post('/supplier-costs/import-price-list-matches', requirePermission('admin:supplier-costs'), supplierCostController.importLatestSupplierPriceLists);
+router.post('/supplier-costs/attachments', requirePermission('admin:supplier-costs'), taskUpload.single('file'), supplierCostController.uploadAttachment);
+router.get('/supplier-costs/products/:productCode', requirePermission('admin:supplier-costs'), supplierCostController.getProductDetail);
+router.get('/supplier-costs', requirePermission('admin:supplier-costs'), supplierCostController.listCosts);
+router.post('/supplier-costs', requirePermission('admin:supplier-costs'), supplierCostController.createCost);
+router.put('/supplier-costs/:id', requirePermission('admin:supplier-costs'), supplierCostController.updateCost);
+router.delete('/supplier-costs/:id', requirePermission('admin:supplier-costs'), supplierCostController.archiveCost);
+router.post('/supplier-costs/:id/apply', requirePermission('admin:supplier-costs'), supplierCostController.applyCost);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
 router.get('/products', requireAnyPermission(['admin:products', 'admin:quotes', 'dashboard:diversey-stok', 'reports:cost-update-all-products']), adminController.getProducts);
@@ -484,7 +498,7 @@ router.get('/reports/cost-update-alerts', requirePermission('reports:cost-update
 router.get('/reports/margin-compliance', requirePermission('reports:margin-compliance'), adminController.getMarginComplianceReport);
 router.post('/reports/margin-compliance/sync', requirePermission('reports:margin-compliance'), adminController.syncMarginComplianceReport);
 router.post('/reports/margin-compliance/email', requirePermission('reports:margin-compliance'), adminController.sendMarginComplianceReportEmail);
-router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:customer-recovery', 'reports:ucarer-depo', 'reports:ucarer-minmax', 'reports:price-family-costs']), adminController.getReportCategories);
+router.get('/reports/categories', requireAnyPermission(['reports:profit-analysis', 'reports:margin-compliance', 'reports:price-history', 'reports:cost-update-alerts', 'reports:top-products', 'reports:top-customers', 'reports:supplier-price-lists', 'reports:complement-missing', 'reports:customer-recovery', 'reports:ucarer-depo', 'reports:ucarer-minmax', 'reports:price-family-costs', 'admin:supplier-costs']), adminController.getReportCategories);
 router.get('/reports/top-products', requirePermission('reports:top-products'), adminController.getTopProducts);
 router.get('/reports/top-customers', requirePermission('reports:top-customers'), adminController.getTopCustomers);
 router.get('/reports/product-customers/:productCode', requirePermission('reports:top-customers'), adminController.getProductCustomers);

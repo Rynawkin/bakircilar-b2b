@@ -54,6 +54,7 @@ export const AVAILABLE_PERMISSIONS = {
   'admin:vade': 'Vade Takip',
   'admin:staff': 'Personel Yonetimi',
   'admin:supplier-price-lists': 'Tedarikci Fiyat Listeleri',
+  'admin:supplier-costs': 'Tedarikci Maliyet Havuzu',
   'admin:exclusions': 'Rapor Haric Tutma',
   'admin:notifications': 'Bildirimler',
   'admin:price-sync': 'Fiyat Senkronizasyonu',
@@ -111,6 +112,7 @@ export const PERMISSION_DESCRIPTIONS = {
   'admin:vade': 'Vade ve alacak takip ekranina erisim izni verir',
   'admin:staff': 'Personel yonetimine erisim izni verir',
   'admin:supplier-price-lists': 'Tedarikci fiyat listeleri ekranina erisim izni verir',
+  'admin:supplier-costs': 'Urun bazli coklu tedarikci maliyetlerini girme, raporlama ve Mikro maliyet/fiyat guncelleme izni verir',
   'admin:exclusions': 'Rapor haric tutma kurallarina erisim izni verir',
   'admin:notifications': 'Bildirimleri gorme ve okuma izni verir',
   'admin:price-sync': 'Fiyat senkronizasyon islemlerine erisim izni verir',
@@ -260,6 +262,7 @@ class RolePermissionService {
         'admin:vade',
         'admin:staff',
         'admin:supplier-price-lists',
+        'admin:supplier-costs',
         'admin:notifications',
       ]);
       return allowed.has(permission);

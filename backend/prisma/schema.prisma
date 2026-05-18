@@ -765,6 +765,8 @@ model Product {
   priceAgreements         CustomerPriceAgreement[]
   customerRequestItems    CustomerRequestItem[]
   supplierPriceListMatches SupplierPriceListMatch[]
+  supplierProductCosts  SupplierProductCost[]
+  supplierCostApplicationLogs SupplierCostApplicationLog[]
   complementAuto          ProductComplementAuto[]
   complementManual        ProductComplementManual[]
   complementAutoRelated   ProductComplementAuto[] @relation("ProductComplementAutoRelated")
@@ -917,6 +919,80 @@ model SupplierPriceListMatch {
 
   @@index([itemId])
   @@index([productId])
+}
+
+model SupplierProductCost {
+  id                  String   @id @default(uuid())
+  productId           String?
+  product             Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCode         String
+  productName         String?
+  supplierCode        String?
+  supplierName        String
+  supplierProductCode String?
+  costP               Float
+  costT               Float
+  currency            String   @default("TRY")
+  exchangeRate        Float?
+  vatIncluded         Boolean  @default(false)
+  vatRate             Float?
+  unit                String?
+  unitFactor          Float?
+  normalizedCostP     Float
+  normalizedCostT     Float
+  minOrderQuantity    Float?
+  leadTimeDays        Int?
+  validUntil          DateTime?
+  quoteDate           DateTime?
+  note                String?
+  sourceType          String   @default("MANUAL")
+  attachmentUrl       String?
+  status              String   @default("ACTIVE")
+  appliedAt           DateTime?
+  appliedById         String?
+  appliedByName       String?
+  createdById         String?
+  createdByName       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  applications        SupplierCostApplicationLog[]
+
+  @@index([productCode, createdAt])
+  @@index([supplierCode])
+  @@index([supplierName])
+  @@index([status])
+  @@index([validUntil])
+  @@index([createdById])
+}
+
+model SupplierCostApplicationLog {
+  id                   String               @id @default(uuid())
+  supplierCostId       String?
+  supplierCost         SupplierProductCost? @relation(fields: [supplierCostId], references: [id], onDelete: SetNull)
+  productId            String?
+  product              Product?             @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCode          String
+  productName          String?
+  supplierCode         String?
+  supplierName         String?
+  previousCost         Float?
+  newCostP             Float
+  newCostT             Float
+  previousCostDate     DateTime?
+  newCostDate          DateTime
+  updatePriceLists     Boolean              @default(false)
+  updatedLists         Json                 @default("[]")
+  missingLists         Json                 @default("[]")
+  note                 String?
+  userId               String?
+  userName             String?
+  createdAt            DateTime             @default(now())
+
+  @@index([supplierCostId])
+  @@index([productCode, createdAt])
+  @@index([supplierCode])
+  @@index([userId, createdAt])
 }
 
 // ==================== PRICE RULES ====================

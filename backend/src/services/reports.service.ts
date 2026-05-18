@@ -8377,7 +8377,7 @@ export class ReportsService {
     costP?: number;
     costT?: number;
     updatePriceLists?: boolean;
-    source?: 'UCARER_DEPO' | 'PRICE_FAMILY';
+    source?: 'UCARER_DEPO' | 'PRICE_FAMILY' | 'SUPPLIER_COST';
     priceFamilyId?: string | null;
     userId?: string | null;
   }): Promise<{
@@ -8562,7 +8562,7 @@ export class ReportsService {
       });
     }
 
-    if (input.source !== 'PRICE_FAMILY') {
+    if (!input.source || input.source === 'UCARER_DEPO') {
       await this.logUcarerOperation({
         operationType: 'COST_UPDATE',
         title: updatePriceLists ? 'Stok maliyeti ve fiyat listeleri guncellendi' : 'Stok maliyeti guncellendi',

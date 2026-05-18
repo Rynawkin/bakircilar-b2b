@@ -3100,6 +3100,76 @@ export const adminApi = {
     return response.data;
   },
 
+  searchSupplierCostProducts: async (params?: { search?: string; limit?: number }): Promise<{ products: any[] }> => {
+    const response = await apiClient.get('/admin/supplier-costs/products/search', { params });
+    return response.data;
+  },
+
+  searchSupplierCostSuppliers: async (params?: { search?: string; limit?: number }): Promise<{ suppliers: Array<{ code: string; name: string }> }> => {
+    const response = await apiClient.get('/admin/supplier-costs/suppliers/search', { params });
+    return response.data;
+  },
+
+  getSupplierCostProduct: async (productCode: string): Promise<{ product: any; costs: any[]; applications: any[]; metrics: any }> => {
+    const response = await apiClient.get(`/admin/supplier-costs/products/${encodeURIComponent(productCode)}`);
+    return response.data;
+  },
+
+  getSupplierCosts: async (params?: {
+    search?: string;
+    productCode?: string;
+    supplierCode?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: any[]; pagination: any }> => {
+    const response = await apiClient.get('/admin/supplier-costs', { params });
+    return response.data;
+  },
+
+  createSupplierCost: async (payload: any): Promise<{ cost: any }> => {
+    const response = await apiClient.post('/admin/supplier-costs', payload);
+    return response.data;
+  },
+
+  updateSupplierCost: async (id: string, payload: any): Promise<{ cost: any }> => {
+    const response = await apiClient.put(`/admin/supplier-costs/${encodeURIComponent(id)}`, payload);
+    return response.data;
+  },
+
+  archiveSupplierCost: async (id: string): Promise<{ cost: any }> => {
+    const response = await apiClient.delete(`/admin/supplier-costs/${encodeURIComponent(id)}`);
+    return response.data;
+  },
+
+  applySupplierCost: async (id: string, payload: { updatePriceLists?: boolean; note?: string | null }): Promise<{ result: any; cost: any; application: any }> => {
+    const response = await apiClient.post(`/admin/supplier-costs/${encodeURIComponent(id)}/apply`, payload);
+    return response.data;
+  },
+
+  getSupplierCostReports: async (params?: {
+    staleDays?: number;
+    tolerancePercent?: number;
+    spreadPercent?: number;
+    search?: string;
+    limit?: number;
+  }): Promise<{ generatedAt: string; params: any; summary: any; sections: Record<string, any[]> }> => {
+    const response = await apiClient.get('/admin/supplier-costs/reports', { params });
+    return response.data;
+  },
+
+  importSupplierCostPriceListMatches: async (payload?: { limit?: number }): Promise<{ created: number; skipped: number; total: number }> => {
+    const response = await apiClient.post('/admin/supplier-costs/import-price-list-matches', payload || {});
+    return response.data;
+  },
+
+  uploadSupplierCostAttachment: async (formData: FormData): Promise<{ attachmentUrl: string; originalName: string; size: number }> => {
+    const response = await apiClient.post('/admin/supplier-costs/attachments', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
 
   getCustomerCartsReport: async (params: {
     search?: string;

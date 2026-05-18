@@ -36,7 +36,8 @@ import {
   LogOut,
   Percent,
   Ruler,
-  PackagePlus
+  PackagePlus,
+  HandCoins
 } from 'lucide-react';
 
 interface NavItem {
@@ -81,6 +82,7 @@ const navItems: NavItem[] = [
   { name: 'Faturalar', href: '/einvoices', icon: Download, description: 'E-fatura PDF arşivi', permission: 'admin:einvoices' },
   { name: 'Ürünler', href: '/admin-products', icon: Package, description: 'Ürün yönetimi', permission: 'admin:products' },
   { name: 'Stok Acma', href: '/stock-create', icon: PackagePlus, description: 'Mikro yeni stok karti', permission: 'admin:stock-create' },
+  { name: 'Tedarik Maliyetleri', href: '/supplier-costs', icon: HandCoins, description: 'Coklu tedarikci maliyet havuzu', permission: 'admin:supplier-costs' },
   { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Görev ve talepler', permission: 'admin:requests' },
   { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları', permission: 'admin:campaigns' },
   {
@@ -102,6 +104,7 @@ const navItems: NavItem[] = [
       'reports:ucarer-depo',
       'reports:ucarer-minmax',
       'reports:price-family-costs',
+      'admin:supplier-costs',
     ],
   },
 ];
