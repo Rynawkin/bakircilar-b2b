@@ -258,7 +258,6 @@ class StockCreateService {
     if (item.categoryCode && item.categoryCode.split('.').length !== 3) {
       errors.push('Kategori sadece 3 kademeli en alt kategori kodu olmali (orn. 1.09.04)');
     }
-    if (!item.packageCode) errors.push('Ambalaj zorunlu');
     if (item.packageName.length > 50) errors.push('Ambalaj adi 50 karakterden uzun olamaz');
     if (item.currentCost < 0) errors.push('Guncel maliyet negatif olamaz');
     if ([item.mainUnitWeightKg, item.mainUnitWidthMm, item.mainUnitLengthMm, item.mainUnitHeightMm].some((value) => value < 0)) {

@@ -958,9 +958,10 @@ export default function StockCreatePage() {
                     onCopy={() => copyFromTemplate({ categoryCode: templateStock?.categoryCode || '' })}
                   />
                   <LookupField
-                    label="Ambalaj *"
+                    label="Ambalaj"
                     type="package"
                     value={form.packageCode}
+                    placeholder="Opsiyonel"
                     onChange={(packageCode, item) => updateForm({ packageCode, packageName: item?.name || '' })}
                     copyValue={templateStock?.packageCode}
                     onCopy={() => copyFromTemplate({ packageCode: templateStock?.packageCode || '', packageName: templateStock?.packageName || '' })}
@@ -969,7 +970,7 @@ export default function StockCreatePage() {
                     label="Ambalaj Adi (yeni ambalaj icin)"
                     value={form.packageName}
                     onChange={(packageName) => updateForm({ packageName })}
-                    placeholder="Kod Mikroda yoksa zorunlu"
+                    placeholder="Ambalaj kodu girildiyse ve Mikroda yoksa gerekli"
                     copyValue={templateStock?.packageName}
                     onCopy={() => copyFromTemplate({ packageName: templateStock?.packageName || '' })}
                   />
@@ -1182,7 +1183,7 @@ export default function StockCreatePage() {
                             <td className="px-3 py-3">{item.supplierCode}</td>
                             <td className="px-3 py-3">{item.brandCode}</td>
                             <td className="px-3 py-3">{item.categoryCode}</td>
-                            <td className="px-3 py-3">{item.packageCode}</td>
+                            <td className="px-3 py-3">{item.packageCode || '-'}</td>
                             <td className="px-3 py-3">{item.mainUnit}</td>
                             <td className="px-3 py-3">{item.margins.join(' / ')}</td>
                           </tr>
@@ -1310,7 +1311,7 @@ export default function StockCreatePage() {
             <Card className="rounded-[2rem] border-0 bg-slate-950 p-5 text-white shadow-xl">
               <h2 className="mb-3 text-lg font-black">Excel Kolonlari</h2>
               <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
-                {['Stok Adi', 'Ana Saglayici Kodu', 'Marka Kodu/Adi', 'Kategori Kodu', 'Ambalaj Kodu/Adi', 'Ana Birim', 'Ana Birim Olculeri', 'KDV', 'Marj 1-5', '2. Birim', '2. Katsayi', 'Guncel Maliyet', 'Raf Kodu'].map((item) => (
+                {['Stok Adi', 'Ana Saglayici Kodu', 'Marka Kodu/Adi', 'Kategori Kodu', 'Ambalaj Kodu/Adi (opsiyonel)', 'Ana Birim', 'Ana Birim Olculeri', 'KDV', 'Marj 1-5', '2. Birim', '2. Katsayi', 'Guncel Maliyet', 'Raf Kodu'].map((item) => (
                   <div key={item} className="rounded-xl bg-white/10 px-3 py-2">{item}</div>
                 ))}
               </div>
