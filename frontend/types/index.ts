@@ -335,6 +335,7 @@ export interface Quote {
   mikroUpdatedAt?: string;
   adminNote?: string;
   adminActionAt?: string;
+  customerPdfSentAt?: string | null;
   customerRespondedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -382,6 +383,11 @@ export interface Quote {
     name: string;
     email?: string;
   };
+  customerPdfSentBy?: {
+    id: string;
+    name: string;
+    email?: string;
+  } | null;
 }
 
 export interface QuoteLineItem extends QuoteItem {

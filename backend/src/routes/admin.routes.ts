@@ -427,6 +427,7 @@ router.post('/quotes/line-items/reopen', requirePermission('admin:quotes'), quot
 router.get('/quotes/:id', requirePermission('admin:quotes'), quoteController.getQuoteById);
 router.get('/quotes/:id/history', requirePermission('admin:quotes'), quoteController.getQuoteHistory);
 router.post('/quotes/:id/sync', requirePermission('admin:quotes'), quoteController.syncQuoteFromMikro);
+router.post('/quotes/:id/customer-pdf-sent', requirePermission('admin:quotes'), quoteController.markCustomerPdfSent);
 router.post('/quotes/:id/convert-to-order', requirePermission('admin:quotes'), quoteController.convertQuoteToOrder);
 router.post('/quotes/:id/approve', requirePermission('admin:quotes'), quoteController.approveQuote);
 router.post('/quotes/:id/reject', requirePermission('admin:quotes'), quoteController.rejectQuote);

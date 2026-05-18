@@ -373,6 +373,20 @@ export class QuoteController {
   }
 
   /**
+   * POST /api/admin/quotes/:id/customer-pdf-sent
+   */
+  async markCustomerPdfSent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await ensureQuoteSectorAccess(req, id);
+      const quote = await quoteService.markCustomerPdfSent(id, req.user!.userId);
+      res.json({ quote });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/quotes/:id/convert-to-order
    */
   async convertQuoteToOrder(req: Request, res: Response, next: NextFunction) {

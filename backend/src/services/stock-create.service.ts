@@ -160,6 +160,12 @@ const buildInClause = (values: string[]) => {
   return unique.map((value) => toSqlString(value)).join(',');
 };
 
+type StockPriceListRow = {
+  listNo: number;
+  value: number;
+  marginMultiplier: number;
+};
+
 class StockCreateService {
   private stockColumnsCache: string[] | null = null;
 
@@ -833,6 +839,101 @@ class StockCreateService {
     return statements.join('\n');
   }
 
+  private buildPriceListRows(item: NormalizedStockInput): StockPriceListRow[] {
+    if (!Number.isFinite(item.currentCost) || item.currentCost <= 0) return [];
+
+    const rows: StockPriceListRow[] = [];
+    item.margins.forEach((margin, index) => {
+      const marginMultiplier = toNumber(margin, 0);
+      if (!Number.isFinite(marginMultiplier) || marginMultiplier <= 0) return;
+      const value = Math.round(item.currentCost * marginMultiplier * 10000) / 10000;
+      rows.push({ listNo: index + 1, value, marginMultiplier });
+      rows.push({ listNo: index + 6, value, marginMultiplier });
+    });
+    return rows;
+  }
+
+  private buildMikroPriceListStatements(stockCodeSql: string, item: NormalizedStockInput) {
+    const priceRows = this.buildPriceListRows(item);
+    if (!priceRows.length) return '';
+
+    return priceRows
+      .map(({ listNo, value }) => `
+        UPDATE STOK_SATIS_FIYAT_LISTELERI
+        SET sfiyat_fiyati = ${toSqlNumber(value)},
+            sfiyat_degisti = 1,
+            sfiyat_lastup_user = 1,
+            sfiyat_lastup_date = GETDATE()
+        WHERE sfiyat_stokkod = ${stockCodeSql}
+          AND sfiyat_listesirano = ${listNo};
+
+        IF @@ROWCOUNT = 0
+        BEGIN
+          INSERT INTO STOK_SATIS_FIYAT_LISTELERI
+            (sfiyat_Guid, sfiyat_DBCno, sfiyat_SpecRECno, sfiyat_iptal, sfiyat_fileid, sfiyat_hidden, sfiyat_kilitli, sfiyat_degisti, sfiyat_checksum,
+             sfiyat_create_user, sfiyat_create_date, sfiyat_lastup_user, sfiyat_lastup_date, sfiyat_special1, sfiyat_special2, sfiyat_special3,
+             sfiyat_stokkod, sfiyat_listesirano, sfiyat_deposirano, sfiyat_odemeplan, sfiyat_birim_pntr, sfiyat_fiyati, sfiyat_doviz,
+             sfiyat_iskontokod, sfiyat_deg_nedeni, sfiyat_primyuzdesi, sfiyat_kampanyakod, sfiyat_doviz_kuru)
+          VALUES
+            (NEWID(), 0, 0, 0, 0, 0, 0, 1, 0,
+             1, GETDATE(), 1, GETDATE(), N'', N'', N'',
+             ${stockCodeSql}, ${listNo}, 0, 0, 0, ${toSqlNumber(value)}, 0,
+             N'', 0, 0, N'', 0);
+        END
+      `)
+      .join('\n');
+  }
+
+  private async syncProductPriceStats(stockCode: string, item: NormalizedStockInput) {
+    const priceRows = this.buildPriceListRows(item);
+    if (!priceRows.length) return;
+
+    const data: Record<string, any> = {
+      productName: item.name,
+      lastChangeDate: new Date(),
+      currentCost: item.currentCost,
+    };
+
+    for (let listNo = 1; listNo <= 10; listNo += 1) {
+      const row = priceRows.find((entry) => entry.listNo === listNo);
+      const price = row?.value || null;
+      data[`currentPriceList${listNo}`] = price;
+      data[`currentMarginList${listNo}`] = price && price > 0 ? Math.round(((price - item.currentCost) / price) * 100 * 10000) / 10000 : null;
+    }
+
+    await prisma.productPriceStat.upsert({
+      where: { productCode: stockCode },
+      create: {
+        productCode: stockCode,
+        productName: item.name,
+        lastChangeDate: data.lastChangeDate,
+        totalChanges: 0,
+        currentCost: item.currentCost,
+        currentPriceList1: data.currentPriceList1,
+        currentPriceList2: data.currentPriceList2,
+        currentPriceList3: data.currentPriceList3,
+        currentPriceList4: data.currentPriceList4,
+        currentPriceList5: data.currentPriceList5,
+        currentPriceList6: data.currentPriceList6,
+        currentPriceList7: data.currentPriceList7,
+        currentPriceList8: data.currentPriceList8,
+        currentPriceList9: data.currentPriceList9,
+        currentPriceList10: data.currentPriceList10,
+        currentMarginList1: data.currentMarginList1,
+        currentMarginList2: data.currentMarginList2,
+        currentMarginList3: data.currentMarginList3,
+        currentMarginList4: data.currentMarginList4,
+        currentMarginList5: data.currentMarginList5,
+        currentMarginList6: data.currentMarginList6,
+        currentMarginList7: data.currentMarginList7,
+        currentMarginList8: data.currentMarginList8,
+        currentMarginList9: data.currentMarginList9,
+        currentMarginList10: data.currentMarginList10,
+      },
+      update: data,
+    });
+  }
+
   private async syncCreatedProduct(item: NormalizedStockInput, stockCode: string) {
     const categoryRows = await mikroService.executeQuery(`
       SELECT TOP 1 ktg_kod AS code, ktg_isim AS name
@@ -899,6 +1000,8 @@ class StockCreateService {
       });
     }
 
+    await this.syncProductPriceStats(stockCode, item);
+
     return product;
   }
 
@@ -964,6 +1067,8 @@ class StockCreateService {
           VALUES
             (@guid${index}, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${toSqlNumber(item.currentCost)}, ${toSqlNumber(item.currentCost)}, ${toSqlString(item.currentCost > 0 ? marginDate : '')}, ${toSqlString(item.currentCost > 0 ? marginDate : '')}, N'', 0, N'');
         END
+
+        ${this.buildMikroPriceListStatements(`@code${index}`, item)}
 
         ${item.barcode ? `
         IF EXISTS (SELECT 1 FROM BARKOD_TANIMLARI WITH (UPDLOCK, HOLDLOCK) WHERE bar_kodu = ${toSqlString(item.barcode)})
@@ -1225,6 +1330,8 @@ class StockCreateService {
           VALUES
             (@stockGuid, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${currentCostSql}, ${currentCostSql}, ${toSqlString(item.currentCost > 0 ? marginDate : '')}, ${toSqlString(item.currentCost > 0 ? marginDate : '')}, N'', 0, N'');
         END
+
+        ${this.buildMikroPriceListStatements('@stockCode', item)}
 
         ${barcodeSql}
 

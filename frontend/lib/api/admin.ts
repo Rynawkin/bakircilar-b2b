@@ -1327,6 +1327,11 @@ export const adminApi = {
     return response.data;
   },
 
+  markQuoteCustomerPdfSent: async (id: string): Promise<{ quote: Quote }> => {
+    const response = await apiClient.post(`/admin/quotes/${id}/customer-pdf-sent`);
+    return response.data;
+  },
+
   convertQuoteToOrder: async (
     id: string,
     payload: {

@@ -316,6 +316,7 @@ model User {
   quotes             Quote[]       @relation("QuoteCustomer")
   createdQuotes      Quote[]       @relation("QuoteCreator")
   adminQuotes        Quote[]       @relation("QuoteAdmin")
+  customerPdfSentQuotes Quote[]    @relation("QuoteCustomerPdfSender")
   contacts           CustomerContact[]
   createdTasks       Task[]        @relation("TaskCreator")
   assignedTasks      Task[]        @relation("TaskAssignee")
@@ -1438,6 +1439,9 @@ model Quote {
 
   adminNote         String?
   adminActionAt     DateTime?
+  customerPdfSentAt DateTime?
+  customerPdfSentById String?
+  customerPdfSentBy User?         @relation("QuoteCustomerPdfSender", fields: [customerPdfSentById], references: [id], onDelete: SetNull)
   customerRespondedAt DateTime?
 
   createdAt         DateTime      @default(now())
@@ -1447,6 +1451,7 @@ model Quote {
   @@index([createdById])
   @@index([status])
   @@index([mikroNumber])
+  @@index([customerPdfSentById])
 }
 
 model QuoteItem {

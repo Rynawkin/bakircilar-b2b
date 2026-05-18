@@ -122,6 +122,7 @@ function AdminQuotesPageContent() {
   const [allQuotes, setAllQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncingQuoteId, setSyncingQuoteId] = useState<string | null>(null);
+  const [markingCustomerPdfSentId, setMarkingCustomerPdfSentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<QuoteStatusFilter>('PENDING_APPROVAL');
   const [whatsappTemplate, setWhatsappTemplate] = useState(DEFAULT_WHATSAPP_TEMPLATE);
   const [searchTerm, setSearchTerm] = useState('');
@@ -1180,6 +1181,7 @@ function AdminQuotesPageContent() {
 
     if (payload.status) summaryLines.push(`Durum: ${payload.status}`);
     if (payload.orderNumber) summaryLines.push(`Siparis: ${payload.orderNumber}`);
+    if (payload.customerPdfSentAt) summaryLines.push(`PDF gonderim: ${formatDate(payload.customerPdfSentAt)}`);
     if (Array.isArray(payload.mikroOrderIds) && payload.mikroOrderIds.length > 0) {
       summaryLines.push(`Mikro: ${payload.mikroOrderIds.join(', ')}`);
     }
@@ -1236,6 +1238,20 @@ function AdminQuotesPageContent() {
       toast.error(error.response?.data?.error || 'Mikro guncelleme basarisiz');
     } finally {
       setSyncingQuoteId(null);
+    }
+  };
+
+  const handleMarkCustomerPdfSent = async (quoteId: string) => {
+    setMarkingCustomerPdfSentId(quoteId);
+    try {
+      const { quote: updatedQuote } = await adminApi.markQuoteCustomerPdfSent(quoteId);
+      setAllQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updatedQuote : quote)));
+      setQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updatedQuote : quote)));
+      toast.success("PDF musteriye gonderildi olarak isaretlendi.");
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || "PDF gonderim bilgisi kaydedilemedi");
+    } finally {
+      setMarkingCustomerPdfSentId(null);
     }
   };
 
@@ -1470,6 +1486,14 @@ function AdminQuotesPageContent() {
                           <span className="text-xs font-mono font-bold text-blue-900">{quote.mikroNumber}</span>
                         </div>
                       )}
+                      {quote.customerPdfSentAt && (
+                        <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                          <span className="font-semibold">PDF musteriye gonderildi:</span>
+                          <span>{formatDate(quote.customerPdfSentAt)}</span>
+                          <span>-</span>
+                          <span>{quote.customerPdfSentBy?.name || '-'}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                       {getStatusBadge(quote.status)}
@@ -1515,6 +1539,16 @@ function AdminQuotesPageContent() {
                     <Button variant="secondary" onClick={() => handleWhatsappShare(quote)}>
                       WhatsApp Paylaş
                     </Button>
+                    {quote.status === 'SENT_TO_MIKRO' && (
+                      <Button
+                        variant={quote.customerPdfSentAt ? 'secondary' : 'primary'}
+                        onClick={() => handleMarkCustomerPdfSent(quote.id)}
+                        isLoading={markingCustomerPdfSentId === quote.id}
+                        disabled={markingCustomerPdfSentId === quote.id}
+                      >
+                        {quote.customerPdfSentAt ? 'PDF Tekrar Gonderdim' : 'PDF Musteriye Gonderdim'}
+                      </Button>
+                    )}
                     <Button variant="secondary" onClick={() => handleOpenHistory(quote)}>
                       Gecmis
                     </Button>

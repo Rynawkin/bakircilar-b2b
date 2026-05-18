@@ -1382,6 +1382,7 @@ class QuoteService {
           },
         },
         adminUser: { select: { id: true, name: true, email: true } },
+        customerPdfSentBy: { select: { id: true, name: true, email: true } },
         orders: { select: { id: true, orderNumber: true, createdAt: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -1428,6 +1429,7 @@ class QuoteService {
           select: { id: true, name: true, email: true, phone: true },
         },
         adminUser: { select: { id: true, name: true, email: true } },
+        customerPdfSentBy: { select: { id: true, name: true, email: true } },
         orders: { select: { id: true, orderNumber: true, createdAt: true } },
       },
     });
@@ -1506,6 +1508,116 @@ class QuoteService {
     });
     return history;
   }
+
+  async markCustomerPdfSent(quoteId: string, actorId: string) {
+    const quote = await prisma.quote.findUnique({
+      where: { id: quoteId },
+      select: {
+        id: true,
+        status: true,
+        mikroNumber: true,
+      },
+    });
+
+    if (!quote) {
+      throw new Error("Quote not found");
+    }
+    if (quote.status !== "SENT_TO_MIKRO") {
+      throw new Error("Sadece Mikro'ya gonderilmis teklifler musteriye gonderildi olarak isaretlenebilir");
+    }
+    if (!quote.mikroNumber) {
+      throw new Error("Teklifin Mikro numarasi yok");
+    }
+
+    const sentAt = new Date();
+    const updated = await prisma.quote.update({
+      where: { id: quoteId },
+      data: {
+        customerPdfSentAt: sentAt,
+        customerPdfSentById: actorId,
+        updatedById: actorId,
+      },
+      include: {
+        items: {
+          orderBy: { lineOrder: "asc" },
+          include: {
+            product: {
+              select: {
+                imageUrl: true,
+                unit: true,
+                unit2: true,
+                unit2Factor: true,
+                lastEntryPrice: true,
+                lastEntryDate: true,
+                currentCost: true,
+                currentCostDate: true,
+              },
+            },
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            displayName: true,
+            mikroName: true,
+            mikroCariCode: true,
+            customerType: true,
+            city: true,
+            district: true,
+            phone: true,
+            groupCode: true,
+            sectorCode: true,
+            paymentTerm: true,
+            paymentPlanNo: true,
+            paymentPlanCode: true,
+            paymentPlanName: true,
+            hasEInvoice: true,
+            balance: true,
+            isLocked: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            role: true,
+          },
+        },
+        updatedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            role: true,
+          },
+        },
+        adminUser: { select: { id: true, name: true, email: true } },
+        customerPdfSentBy: { select: { id: true, name: true, email: true } },
+        orders: { select: { id: true, orderNumber: true, createdAt: true } },
+      },
+    });
+
+    await prisma.quoteHistory.create({
+      data: {
+        quoteId,
+        action: "UPDATED",
+        actorId,
+        summary: "Teklif PDF'i musteriye gonderildi olarak isaretlendi",
+        payload: {
+          customerPdfSentAt: sentAt.toISOString(),
+          customerPdfSentById: actorId,
+        },
+      },
+    });
+
+    return updated;
+  }
+
   async getQuoteLineItems(params: {
     status?: string;
     search?: string;
