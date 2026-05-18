@@ -266,22 +266,26 @@ export function AdminNavigation() {
                   leaveFrom="transform opacity-100 scale-100"
                   leaveTo="transform opacity-0 scale-95"
                 >
-                  <Menu.Items className="absolute right-0 mt-2 w-56 origin-top-right bg-white rounded-lg shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none">
-                    <div className="p-2">
+                  <Menu.Items className="absolute right-0 mt-2 max-h-[calc(100vh-5rem)] w-[min(92vw,760px)] origin-top-right overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-black/10 focus:outline-none">
+                    <div className="border-b border-slate-100 px-4 py-3">
+                      <div className="text-sm font-bold text-slate-900">Diger moduller</div>
+                      <div className="text-xs text-slate-500">Tum ekranlar kompakt kolonlu listede gosterilir.</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 p-2 xl:grid-cols-3">
                       {overflowNavItems.map((item) => (
                         <Menu.Item key={item.href}>
                           {({ active }) => (
                             <Link
                               href={item.href}
-                              className={`flex items-start gap-3 w-full px-3 py-2 rounded-md text-sm ${
+                              className={`flex min-w-0 items-start gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors ${
                                 active ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
                               } ${isActive(item.href) ? 'bg-primary-100 font-semibold' : ''}`}
                             >
-                              <item.icon className="w-4 h-4" />
-                              <div className="text-left">
-                                <div className="font-medium">{item.name}</div>
+                              <item.icon className="mt-0.5 h-4 w-4 shrink-0" />
+                              <div className="min-w-0 text-left">
+                                <div className="truncate font-semibold">{item.name}</div>
                                 {item.description && (
-                                  <div className="text-xs text-gray-500">{item.description}</div>
+                                  <div className="line-clamp-1 text-xs text-gray-500">{item.description}</div>
                                 )}
                               </div>
                             </Link>
