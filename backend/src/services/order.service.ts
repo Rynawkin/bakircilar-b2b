@@ -12,6 +12,68 @@ import { PriceType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { generateOrderNumber } from '../utils/orderNumber';
 import mikroService from './mikroFactory.service';
+import pricingService from './pricing.service';
+import priceListService from './price-list.service';
+import { ProductPrices, MikroCustomerSaleMovement } from '../types';
+import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
+import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
+import { resolveLastPriceOverride } from '../utils/lastPrice';
+
+type PriceVisibilityValue = 'INVOICED_ONLY' | 'WHITE_ONLY' | 'BOTH';
+
+type PricePair = {
+  invoiced: number;
+  white: number;
+};
+
+type RepricedCartItem = {
+  productId: string;
+  productName: string;
+  mikroCode: string;
+  quantity: number;
+  priceType: PriceType;
+  unitPrice: number;
+  totalPrice: number;
+  lineNote?: string | null;
+};
+
+const isPriceTypeAllowed = (
+  visibility: PriceVisibilityValue | null | undefined,
+  priceType: PriceType
+): boolean => {
+  if (visibility === 'WHITE_ONLY') return priceType === 'WHITE';
+  if (visibility === 'BOTH') return true;
+  return priceType === 'INVOICED';
+};
+
+const buildLastSalesMap = (sales: MikroCustomerSaleMovement[]) => {
+  const map = new Map<string, number>();
+  sales.forEach((sale) => {
+    const code = String(sale.productCode || '').trim();
+    if (!code || map.has(code)) return;
+    const price = Number(sale.unitPrice);
+    if (Number.isFinite(price) && price > 0) {
+      map.set(code, price);
+    }
+  });
+  return map;
+};
+
+const getLastPriceGuardPrices = (
+  priceStats: any,
+  guardInvoicedListNo?: number | null,
+  guardWhiteListNo?: number | null
+): PricePair | undefined => {
+  if (!guardInvoicedListNo && !guardWhiteListNo) return undefined;
+  return {
+    invoiced: guardInvoicedListNo
+      ? priceListService.getListPrice(priceStats, guardInvoicedListNo)
+      : 0,
+    white: guardWhiteListNo
+      ? priceListService.getListPrice(priceStats, guardWhiteListNo)
+      : 0,
+  };
+};
 
 class OrderService {
   async getCustomerLastOrderItems(
@@ -319,6 +381,185 @@ class OrderService {
     return Math.trunc(warehouseNo);
   }
 
+  private async repriceCartItemsForOrder(userId: string, cart: { items: Array<any> }): Promise<RepricedCartItem[]> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        mikroCariCode: true,
+        customerType: true,
+        invoicedPriceListNo: true,
+        whitePriceListNo: true,
+        priceVisibility: true,
+        useLastPrices: true,
+        lastPriceGuardType: true,
+        lastPriceGuardInvoicedListNo: true,
+        lastPriceGuardWhiteListNo: true,
+        lastPriceCostBasis: true,
+        lastPriceMinCostPercent: true,
+        parentCustomerId: true,
+        parentCustomer: {
+          select: {
+            id: true,
+            mikroCariCode: true,
+            customerType: true,
+            invoicedPriceListNo: true,
+            whitePriceListNo: true,
+            priceVisibility: true,
+            useLastPrices: true,
+            lastPriceGuardType: true,
+            lastPriceGuardInvoicedListNo: true,
+            lastPriceGuardWhiteListNo: true,
+            lastPriceCostBasis: true,
+            lastPriceMinCostPercent: true,
+          },
+        },
+      },
+    });
+
+    const customer = user?.parentCustomer || user;
+    if (!user || !customer || !customer.customerType) {
+      throw new Error('User has no customer type');
+    }
+
+    const effectiveVisibility: PriceVisibilityValue | null | undefined = user.parentCustomerId
+      ? (customer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
+      : (customer.priceVisibility as PriceVisibilityValue | null | undefined);
+
+    const listItems = cart.items.filter((item) => (item as any).priceMode !== 'EXCESS');
+    const productCodes = Array.from(
+      new Set(listItems.map((item) => String(item.product?.mikroCode || '').trim()).filter(Boolean))
+    );
+    const productIds = Array.from(
+      new Set(cart.items.map((item) => String(item.productId || '').trim()).filter(Boolean))
+    );
+
+    const [settings, priceListRules, priceStatsMap, agreementRows] = await Promise.all([
+      prisma.settings.findFirst({
+        select: { customerPriceLists: true },
+      }),
+      prisma.customerPriceListRule.findMany({
+        where: { customerId: customer.id },
+      }),
+      priceListService.getPriceStatsMap(productCodes),
+      prisma.customerPriceAgreement.findMany({
+        where: {
+          customerId: customer.id,
+          productId: { in: productIds },
+        },
+        select: {
+          productId: true,
+          priceInvoiced: true,
+          priceWhite: true,
+          minQuantity: true,
+          validFrom: true,
+          validTo: true,
+        },
+      }),
+    ]);
+
+    const basePriceListPair = resolveCustomerPriceLists(customer, settings);
+    const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
+    const now = new Date();
+
+    let lastSalesMap = new Map<string, number>();
+    if (customer.useLastPrices && customer.mikroCariCode && productCodes.length > 0) {
+      try {
+        const sales = await mikroService.getCustomerSalesMovements(
+          customer.mikroCariCode as string,
+          productCodes,
+          1
+        );
+        lastSalesMap = buildLastSalesMap(sales);
+      } catch (error) {
+        console.error('Customer last prices failed while creating order', { customerId: customer.id, error });
+      }
+    }
+
+    return cart.items.map((item) => {
+      const product = item.product;
+      if (!product) {
+        throw new Error('Product not found in cart');
+      }
+
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new Error(`Invalid quantity for ${product.mikroCode || product.name}`);
+      }
+
+      const priceType: PriceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
+      if (!isPriceTypeAllowed(effectiveVisibility, priceType)) {
+        throw new Error(`Price type not allowed for ${product.mikroCode || product.name}`);
+      }
+
+      const prices = product.prices as unknown as ProductPrices;
+      const customerPrices = pricingService.getPriceForCustomer(
+        prices,
+        customer.customerType as any
+      );
+
+      let unitPrice = 0;
+      if ((item as any).priceMode === 'EXCESS') {
+        unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
+      } else {
+        const priceStats = priceStatsMap.get(product.mikroCode) || null;
+        const productPriceListPair = resolveCustomerPriceListsForProduct(
+          basePriceListPair,
+          priceListRules,
+          {
+            brandCode: product.brandCode,
+            categoryId: product.categoryId,
+          }
+        );
+        const listInvoiced = priceListService.getListPriceWithFallback(
+          priceStats,
+          productPriceListPair.invoiced
+        );
+        const listWhite = priceListService.getListPriceWithFallback(
+          priceStats,
+          productPriceListPair.white
+        );
+        const listPricesBase = {
+          invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
+          white: listWhite > 0 ? listWhite : customerPrices.white,
+        };
+        const guardPrices = getLastPriceGuardPrices(
+          priceStats,
+          customer.lastPriceGuardInvoicedListNo,
+          customer.lastPriceGuardWhiteListNo
+        );
+        const lastPriceResult = resolveLastPriceOverride({
+          config: customer,
+          lastSalePrice: lastSalesMap.get(product.mikroCode),
+          listPrices: listPricesBase,
+          guardPrices,
+          product: {
+            currentCost: product.currentCost,
+            lastEntryPrice: product.lastEntryPrice,
+          },
+          priceVisibility: effectiveVisibility,
+        });
+        unitPrice = priceType === 'INVOICED' ? lastPriceResult.prices.invoiced : lastPriceResult.prices.white;
+      }
+
+      const agreement = agreementMap.get(item.productId);
+      if (agreement && isAgreementApplicable(agreement, now, quantity)) {
+        unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
+      }
+
+      return {
+        productId: item.productId,
+        productName: product.name,
+        mikroCode: product.mikroCode,
+        quantity,
+        priceType,
+        unitPrice,
+        totalPrice: quantity * unitPrice,
+        lineNote: item.lineNote ? String(item.lineNote).trim() : null,
+      };
+    });
+  }
+
   /**
    * Sepetten sipariş oluştur
    */
@@ -345,6 +586,8 @@ class OrderService {
       throw new Error('Cart is empty');
     }
 
+    const orderItems = await this.repriceCartItemsForOrder(userId, cart);
+
     // 3. Sipariş numarası üret
     const lastOrder = await prisma.order.findFirst({
       orderBy: { createdAt: 'desc' },
@@ -361,8 +604,8 @@ class OrderService {
       : '';
 
     // 4. Toplam tutarı hesapla
-    const totalAmount = cart.items.reduce(
-      (sum, item) => sum + item.quantity * item.unitPrice,
+    const totalAmount = orderItems.reduce(
+      (sum, item) => sum + item.totalPrice,
       0
     );
 
@@ -376,14 +619,14 @@ class OrderService {
         customerOrderNumber: normalizedCustomerOrderNumber || undefined,
         deliveryLocation: normalizedDeliveryLocation || undefined,
         items: {
-          create: cart.items.map((item) => ({
+          create: orderItems.map((item) => ({
             productId: item.productId,
-            productName: item.product.name,
-            mikroCode: item.product.mikroCode,
+            productName: item.productName,
+            mikroCode: item.mikroCode,
             quantity: item.quantity,
             priceType: item.priceType,
             unitPrice: item.unitPrice,
-            totalPrice: item.quantity * item.unitPrice,
+            totalPrice: item.totalPrice,
             lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
           })),
         },

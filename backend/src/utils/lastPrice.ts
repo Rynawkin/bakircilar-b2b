@@ -53,9 +53,10 @@ export const resolveLastPriceOverride = (params: {
     const costValue =
       basis === 'LAST_ENTRY' ? product.lastEntryPrice : product.currentCost;
     const costNumber = Number(costValue);
-    const minPercent = Number(config.lastPriceMinCostPercent ?? 10);
+    const parsedMinPercent = Number(config.lastPriceMinCostPercent ?? 10);
+    const minPercent = Number.isFinite(parsedMinPercent) ? Math.max(0, parsedMinPercent) : 10;
     if (Number.isFinite(costNumber) && costNumber > 0) {
-      const minAllowed = costNumber * (1 - minPercent / 100);
+      const minAllowed = costNumber * (1 + minPercent / 100);
       if (candidate < minAllowed) {
         return { prices: listPrices, usedLastPrice: false };
       }

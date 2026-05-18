@@ -627,7 +627,7 @@ export function CustomerEditModal({
                       </select>
                     </div>
                     <Input
-                      label="Minimum oran (%)"
+                      label="Maliyet ustu minimum kar (%)"
                       type="number"
                       min="0"
                       max="100"
@@ -637,6 +637,9 @@ export function CustomerEditModal({
                       }
                       placeholder="10"
                     />
+                    <p className="md:col-span-2 text-xs text-gray-500 -mt-2">
+                      Ornek: Guncel maliyet 100 TL ve oran 25 ise, son satis fiyati 125 TL altina duserse kullanilmaz; liste/kategori fiyati uygulanir.
+                    </p>
                   </>
                 ) : (
                   <>
