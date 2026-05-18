@@ -230,6 +230,7 @@ router.post('/supplier-costs/:id/apply', requirePermission('admin:supplier-costs
 const priceVerificationPermissions = ['admin:supplier-costs', 'admin:quotes', 'admin:orders', 'admin:field-sales'];
 router.get('/price-verification/products/search', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchProducts);
 router.get('/price-verification/suppliers/search', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchSuppliers);
+router.get('/price-verification/customers/search', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchCustomers);
 router.get('/price-verification/stock-metadata', requireAnyPermission(priceVerificationPermissions), priceVerificationController.getStockMetadata);
 router.get('/price-verification/stock-lookups/:type', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchStockLookups);
 router.post('/price-verification/stock-preview', requireAnyPermission(priceVerificationPermissions), priceVerificationController.previewStockPayload);

@@ -5,6 +5,7 @@ const actorFromRequest = (req: Request) => ({
   userId: req.user?.userId || null,
   role: req.user?.role || null,
   email: req.user?.email || null,
+  assignedSectorCodes: req.user?.assignedSectorCodes || [],
 });
 
 class PriceVerificationController {
@@ -115,6 +116,19 @@ class PriceVerificationController {
       const data = await priceVerificationService.searchSuppliers({
         search: String(req.query.search || ''),
         limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async searchCustomers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await priceVerificationService.searchCustomers({
+        search: String(req.query.search || ''),
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        actor: actorFromRequest(req),
       });
       res.json(data);
     } catch (error) {

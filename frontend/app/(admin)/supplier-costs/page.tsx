@@ -764,8 +764,10 @@ const emptyOfferForm = {
 };
 
 function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolean; initialRequestId?: string | null }) {
+  const { user } = useAuthStore();
   const [requests, setRequests] = useState<any[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
+  const [editableStockPayload, setEditableStockPayload] = useState<any | null>(null);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [requestSearch, setRequestSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -775,12 +777,19 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   const [creating, setCreating] = useState(false);
   const [requestForm, setRequestForm] = useState<any>(emptyRequestForm);
   const [productResults, setProductResults] = useState<any[]>([]);
+  const [customerSearch, setCustomerSearch] = useState('');
   const [offerForm, setOfferForm] = useState<any>(emptyOfferForm);
   const [supplierResults, setSupplierResults] = useState<Array<{ code: string; name: string }>>([]);
   const [selectedOfferId, setSelectedOfferId] = useState('');
   const [actionNote, setActionNote] = useState('');
   const [noteText, setNoteText] = useState('');
   const [savingAction, setSavingAction] = useState<string | null>(null);
+
+  const selectRequest = (request: any) => {
+    setSelectedRequest(request);
+    setSelectedOfferId(request?.selectedOfferId || request?.bestOffer?.id || '');
+    setEditableStockPayload(request?.stockCreatePayload ? { ...request.stockCreatePayload } : null);
+  };
 
   const loadRequests = async () => {
     setLoading(true);
@@ -797,7 +806,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
       setSummary(result.summary || {});
       if (selectedRequest) {
         const fresh = (result.items || []).find((item: any) => item.id === selectedRequest.id);
-        if (fresh) setSelectedRequest(fresh);
+        if (fresh) selectRequest(fresh);
       }
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Fiyat teyit talepleri alinamadi');
@@ -809,8 +818,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   const loadRequestDetail = async (id: string) => {
     try {
       const result = await adminApi.getPriceVerificationRequest(id);
-      setSelectedRequest(result.request);
-      setSelectedOfferId(result.request?.selectedOfferId || result.request?.bestOffer?.id || '');
+      selectRequest(result.request);
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Talep detayi alinamadi');
     }
@@ -868,6 +876,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
         productName: isNewStock ? requestForm.stockCreatePayload.name : requestForm.productName,
         unit: isNewStock ? requestForm.stockCreatePayload.mainUnit : requestForm.unit,
         quantity: requestForm.quantity || undefined,
+        customerId: requestForm.customerId || undefined,
         customerCode: requestForm.customerCode || undefined,
         customerName: requestForm.customerName || undefined,
         sourceType: 'SUPPLIER_COSTS',
@@ -877,9 +886,10 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
       const result = await adminApi.createPriceVerificationRequest(payload);
       toast.success('Fiyat teyit talebi olusturuldu');
       setRequestForm(emptyRequestForm);
+      setCustomerSearch('');
       setProductResults([]);
       await loadRequests();
-      setSelectedRequest(result.request);
+      selectRequest(result.request);
     } catch (error: any) {
       const details = error.response?.data?.details;
       toast.error(Array.isArray(details) && details.length ? details.join(', ') : (error.response?.data?.error || 'Talep olusturulamadi'));
@@ -905,7 +915,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
       toast.success('Fiyat alternatifi eklendi');
       setOfferForm(emptyOfferForm);
       setSupplierResults([]);
-      setSelectedRequest(result.request);
+      selectRequest(result.request);
       await loadRequests();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Fiyat eklenemedi');
@@ -920,7 +930,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
     try {
       const result = await adminApi.submitPriceVerificationToSales(selectedRequest.id, { note: actionNote || undefined });
       toast.success('Talep satis onayina gonderildi');
-      setSelectedRequest(result.request);
+      selectRequest(result.request);
       setActionNote('');
       await loadRequests();
     } catch (error: any) {
@@ -940,7 +950,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
         note: actionNote || undefined,
       });
       toast.success(approved ? 'Fiyat secimi onaylandi' : 'Talep reddedildi');
-      setSelectedRequest(result.request);
+      selectRequest(result.request);
       setActionNote('');
       await loadRequests();
     } catch (error: any) {
@@ -954,9 +964,13 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
     if (!selectedRequest) return;
     setSavingAction('complete');
     try {
-      const result = await adminApi.completePriceVerification(selectedRequest.id, { updatePriceLists: true, note: actionNote || undefined });
+      const result = await adminApi.completePriceVerification(selectedRequest.id, {
+        updatePriceLists: true,
+        note: actionNote || undefined,
+        stockCreatePayload: selectedRequest.type === 'NEW_STOCK' ? editableStockPayload : undefined,
+      });
       toast.success('Talep tamamlandi ve Mikroya uygulandi');
-      setSelectedRequest(result.request);
+      selectRequest(result.request);
       setActionNote('');
       await loadRequests();
     } catch (error: any) {
@@ -972,7 +986,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
     try {
       const result = await adminApi.cancelPriceVerification(selectedRequest.id, { note: actionNote || undefined });
       toast.success('Talep iptal edildi');
-      setSelectedRequest(result.request);
+      selectRequest(result.request);
       setActionNote('');
       await loadRequests();
     } catch (error: any) {
@@ -993,13 +1007,33 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
     }
   };
 
+  const canSalesDecide =
+    Boolean(selectedRequest)
+    && selectedRequest.status === 'SENT_TO_SALES'
+    && selectedRequest.createdById === user?.id;
+  const sourceLabel = selectedRequest ? getPriceRequestSourceLabel(selectedRequest) : '-';
+  const requestedQuantityText = selectedRequest
+    ? `${selectedRequest.quantity || '-'}${selectedRequest.unit ? ` ${selectedRequest.unit}` : ''}`
+    : '-';
+  const updateEditableStockPayload = (patch: any) => {
+    setEditableStockPayload((current: any) => ({ ...(current || {}), ...patch }));
+  };
+  const updateEditableMargin = (index: number, value: string) => {
+    setEditableStockPayload((current: any) => {
+      const next = { ...(current || {}) };
+      const margins = [...(next.margins || ['', '', '', '', ''])];
+      margins[index] = value;
+      return { ...next, margins };
+    });
+  };
+
   return (
     <div className="grid gap-6 xl:grid-cols-[460px_1fr]">
       <div className="space-y-6">
         <Card className="rounded-[2rem]">
           <CardHeader>
             <CardTitle className="text-xl">Fiyat teyit talebi olustur</CardTitle>
-            <CardDescription>Stoklu urun icin fiyat guncelligi sor veya yeni stok icin zorunlu kart bilgileriyle satin almaya talep ac.</CardDescription>
+            <CardDescription>Stoklu urun icin fiyat guncelligi sor veya yeni stok icin elindeki bilgilerle satin almaya talep ac. Eksikler satin alma tarafinda tamamlanabilir.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1060,8 +1094,24 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Input label="Miktar / hedef adet" value={requestForm.quantity} onChange={(e) => updateRequestForm({ quantity: e.target.value })} inputMode="decimal" />
+              <CustomerLookupInput
+                label="Cari ara"
+                value={customerSearch}
+                onChange={(value) => {
+                  setCustomerSearch(value);
+                  updateRequestForm({ customerCode: value });
+                }}
+                onSelect={(customer) => {
+                  setCustomerSearch(`${customer.code || customer.mikroCariCode} ${customer.title || customer.name || ''}`.trim());
+                  updateRequestForm({
+                    customerId: customer.id,
+                    customerCode: customer.code || customer.mikroCariCode,
+                    customerName: customer.title || customer.displayName || customer.mikroName || customer.name,
+                  });
+                }}
+              />
               <Input label="Cari kodu" value={requestForm.customerCode} onChange={(e) => updateRequestForm({ customerCode: e.target.value })} />
-              <Input label="Cari adi" value={requestForm.customerName} onChange={(e) => updateRequestForm({ customerName: e.target.value })} className="sm:col-span-2" />
+              <Input label="Cari adi" value={requestForm.customerName} onChange={(e) => updateRequestForm({ customerName: e.target.value })} />
             </div>
             <label className="block">
               <span className="mb-1 block text-sm font-medium text-gray-700">Satis notu</span>
@@ -1112,8 +1162,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                   key={request.id}
                   type="button"
                   onClick={() => {
-                    setSelectedRequest(request);
-                    setSelectedOfferId(request.selectedOfferId || request.bestOffer?.id || '');
+                    selectRequest(request);
                   }}
                   className={cn(
                     'w-full rounded-2xl border p-3 text-left transition hover:border-amber-300 hover:bg-amber-50',
@@ -1167,14 +1216,29 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                   <MiniMetric label="Talep eden" value={selectedRequest.createdByName || '-'} light />
                   <MiniMetric label="Tarih" value={dateText(selectedRequest.createdAt)} light />
                   <MiniMetric label="Cari" value={selectedRequest.customerName || selectedRequest.customerCode || '-'} light />
-                  <MiniMetric label="Miktar" value={selectedRequest.quantity || '-'} light />
+                  <MiniMetric label="Talep miktari" value={requestedQuantityText} light />
+                  <MiniMetric label="Kaynak" value={sourceLabel} light />
+                  <MiniMetric label="Satirdaki fiyat" value={selectedRequest.currentUnitPrice ? money(selectedRequest.currentUnitPrice) : '-'} light />
                   <MiniMetric label="Mevcut maliyet" value={money(selectedRequest.currentCost)} light />
                   <MiniMetric label="En iyi teklif" value={selectedRequest.bestOffer ? money(selectedRequest.bestOffer.normalizedCostP) : '-'} light />
                 </div>
                 {selectedRequest.salesNote && <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700"><b>Satis notu:</b> {selectedRequest.salesNote}</p>}
                 {selectedRequest.procurementNote && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900"><b>Satin alma notu:</b> {selectedRequest.procurementNote}</p>}
                 {selectedRequest.salesDecisionNote && <p className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900"><b>Satis karar notu:</b> {selectedRequest.salesDecisionNote}</p>}
-                {selectedRequest.type === 'NEW_STOCK' && selectedRequest.stockCreatePayload && (
+                {selectedRequest.type === 'NEW_STOCK' && canManage && (
+                  <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
+                    <div className="mb-3">
+                      <p className="text-sm font-black text-amber-950">Yeni stok kart bilgilerini tamamla</p>
+                      <p className="text-xs text-amber-800">Satis talebi eksik gelebilir; Mikroda stok acmadan once bu alanlari burada tamamlayin.</p>
+                    </div>
+                    <NewStockRequestFields
+                      payload={editableStockPayload || {}}
+                      updatePayload={updateEditableStockPayload}
+                      updateMargin={updateEditableMargin}
+                    />
+                  </div>
+                )}
+                {selectedRequest.type === 'NEW_STOCK' && !canManage && selectedRequest.stockCreatePayload && (
                   <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                     <p className="mb-3 text-sm font-black text-slate-900">Yeni stok kart bilgileri</p>
                     <div className="grid gap-2 text-xs md:grid-cols-3">
@@ -1217,7 +1281,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                       ) : selectedRequest.offers.map((offer: any) => (
                         <tr key={offer.id} className={cn('border-b hover:bg-slate-50', selectedOfferId === offer.id && 'bg-emerald-50')}>
                           <td className="px-3 py-3">
-                            <input type="radio" checked={selectedOfferId === offer.id} onChange={() => setSelectedOfferId(offer.id)} disabled={selectedRequest.status !== 'SENT_TO_SALES' && !canManage} />
+                            <input type="radio" checked={selectedOfferId === offer.id} onChange={() => setSelectedOfferId(offer.id)} disabled={!canSalesDecide && !canManage} />
                           </td>
                           <td className="px-3 py-3">
                             <p className="font-black text-slate-900">{offer.supplierName}</p>
@@ -1258,7 +1322,16 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                       </div>
                     )}
                     <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      <Input label="Tedarikci kodu" value={offerForm.supplierCode} onChange={(e) => updateOfferForm({ supplierCode: e.target.value })} />
+                      <SupplierLookupInput
+                        label="Tedarikci kodu"
+                        value={offerForm.supplierCode}
+                        onChange={(value) => updateOfferForm({ supplierCode: value })}
+                        onSelect={(supplier) => updateOfferForm({
+                          supplierCode: supplier.code,
+                          supplierName: supplier.name,
+                          supplierSearch: `${supplier.code} ${supplier.name}`,
+                        })}
+                      />
                       <Input label="Tedarikci adi" value={offerForm.supplierName} onChange={(e) => updateOfferForm({ supplierName: e.target.value })} />
                       <Input label="Tedarikci urun kodu" value={offerForm.supplierProductCode} onChange={(e) => updateOfferForm({ supplierProductCode: e.target.value })} />
                       <Input label="Maliyet P" value={offerForm.costP} onChange={(e) => updateOfferForm({ costP: e.target.value })} inputMode="decimal" />
@@ -1298,7 +1371,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                       <Send className="mr-2 h-4 w-4" /> Satis onayina gonder
                     </Button>
                   )}
-                  {!canManage && selectedRequest.availableActions?.canSalesDecide && (
+                  {canSalesDecide && (
                     <>
                       <Button onClick={() => decide(true)} isLoading={savingAction === 'approve'} disabled={!selectedOfferId}>
                         <CheckCircle2 className="mr-2 h-4 w-4" /> Secili fiyati onayla
@@ -1428,7 +1501,7 @@ function SimpleLookupInput({
           setSearch(e.target.value);
           onChange(e.target.value);
         }}
-        onFocus={() => search && runSearch()}
+        onFocus={() => runSearch()}
         onKeyDown={(e) => e.key === 'Enter' && runSearch()}
       />
       <button type="button" onClick={runSearch} className="absolute right-2 top-8 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600 hover:bg-slate-200">
@@ -1442,6 +1515,147 @@ function SimpleLookupInput({
               type="button"
               onClick={() => {
                 setSearch(item.code);
+                onSelect(item);
+                setOpen(false);
+              }}
+              className="w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-amber-50"
+            >
+              <span className="font-black text-slate-900">{item.code}</span> <span className="text-slate-500">{item.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerLookupInput({
+  label,
+  value,
+  onChange,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSelect: (customer: any) => void;
+}) {
+  const [search, setSearch] = useState(value || '');
+  const [items, setItems] = useState<any[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setSearch(value || '');
+  }, [value]);
+
+  const runSearch = async () => {
+    const term = search.trim();
+    if (term.length < 2) {
+      setItems([]);
+      setOpen(false);
+      return;
+    }
+    try {
+      const result = await adminApi.searchPriceVerificationCustomers({ search: term, limit: 25 });
+      setItems(result.customers || []);
+      setOpen(true);
+    } catch {
+      setItems([]);
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        label={label}
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          onChange(e.target.value);
+        }}
+        onFocus={() => runSearch()}
+        onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+        placeholder="Cari kodu veya unvan ara..."
+      />
+      <button type="button" onClick={runSearch} className="absolute right-2 top-8 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600 hover:bg-slate-200">
+        Ara
+      </button>
+      {open && items.length > 0 && (
+        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+          {items.map((customer) => (
+            <button
+              key={customer.id || customer.code}
+              type="button"
+              onClick={() => {
+                onSelect(customer);
+                setOpen(false);
+              }}
+              className="w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-amber-50"
+            >
+              <span className="font-black text-slate-900">{customer.code || customer.mikroCariCode}</span>{' '}
+              <span className="text-slate-600">{customer.title || customer.displayName || customer.mikroName || customer.name}</span>
+              {(customer.city || customer.district) && <span className="block text-[11px] text-slate-400">{customer.city || '-'} / {customer.district || '-'}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupplierLookupInput({
+  label,
+  value,
+  onChange,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSelect: (supplier: LookupItem) => void;
+}) {
+  const [search, setSearch] = useState(value || '');
+  const [items, setItems] = useState<LookupItem[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setSearch(value || '');
+  }, [value]);
+
+  const runSearch = async () => {
+    try {
+      const result = await adminApi.searchPriceVerificationSuppliers({ search, limit: 25 });
+      setItems(result.suppliers || []);
+      setOpen(true);
+    } catch {
+      setItems([]);
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        label={label}
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          onChange(e.target.value);
+        }}
+        onFocus={() => runSearch()}
+        onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+      />
+      <button type="button" onClick={runSearch} className="absolute right-2 top-8 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600 hover:bg-slate-200">
+        Ara
+      </button>
+      {open && items.length > 0 && (
+        <div className="absolute z-30 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+          {items.map((item) => (
+            <button
+              key={item.code}
+              type="button"
+              onClick={() => {
                 onSelect(item);
                 setOpen(false);
               }}
@@ -1472,6 +1686,16 @@ function StatusPill({ status }: { status: string }) {
     CANCELLED: 'Iptal',
   };
   return <span className={cn('rounded-full px-2.5 py-1 text-xs font-black', tone)}>{labelMap[status] || status}</span>;
+}
+
+function getPriceRequestSourceLabel(request: any) {
+  const type = String(request?.sourceType || '').toUpperCase();
+  const ref = request?.sourceRef && !['QUOTE_DRAFT', 'ORDER_DRAFT'].includes(request.sourceRef) ? ` (${request.sourceRef})` : '';
+  if (type === 'QUOTE') return `Tekliften geldi${ref}`;
+  if (type === 'ORDER') return `Siparisten geldi${ref}`;
+  if (type === 'FIELD_SALES') return `Saha satistan geldi${ref}`;
+  if (type === 'SUPPLIER_COSTS') return 'Tedarik maliyetlerinden';
+  return type || '-';
 }
 
 function ProductSummary({ product, metrics }: { product: any; metrics: any }) {

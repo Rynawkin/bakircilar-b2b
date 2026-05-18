@@ -5,11 +5,13 @@ import notificationService from './notification.service';
 import supplierCostService from './supplier-cost.service';
 import stockCreateService, { StockCreateInput } from './stock-create.service';
 import { rolePermissionService } from './role-permission.service';
+import { splitSearchTokens } from '../utils/search';
 
 type Actor = {
   userId?: string | null;
   role?: string | null;
   email?: string | null;
+  assignedSectorCodes?: string[];
 };
 
 type OfferInput = {
@@ -136,11 +138,6 @@ class PriceVerificationService {
       if (!product) throw new AppError('Urun bulunamadi.', 404, ErrorCode.NOT_FOUND);
     } else {
       stockPayload = this.normalizeStockPayload(input.stockCreatePayload || input.stockPayload || {});
-      const preview = await stockCreateService.preview([stockPayload]);
-      const first = preview.results[0];
-      if (!first || first.errors.length > 0) {
-        throw new AppError('Yeni stok bilgileri eksik veya hatali.', 400, ErrorCode.VALIDATION_ERROR, first?.errors || []);
-      }
     }
 
     const request = await prisma.priceVerificationRequest.create({
@@ -151,7 +148,7 @@ class PriceVerificationService {
         priority,
         productId: product?.id || null,
         productCode: type === 'EXISTING_PRODUCT' ? product.mikroCode : null,
-        productName: type === 'EXISTING_PRODUCT' ? product.name : (productName || normalizeText(stockPayload?.name)),
+        productName: type === 'EXISTING_PRODUCT' ? product.name : (productName || normalizeText(stockPayload?.name) || 'Yeni stok fiyat teyidi'),
         unit: type === 'EXISTING_PRODUCT' ? product.unit : normalizeText(stockPayload?.mainUnit),
         quantity: input.quantity !== undefined && input.quantity !== null && input.quantity !== '' ? asNumber(input.quantity, 0) : null,
         customerId: normalizeText(input.customerId) || null,
@@ -282,11 +279,15 @@ class PriceVerificationService {
 
     let productCode = normalizeCode(request.productCode);
     if (request.type === 'NEW_STOCK') {
-      const stockPayload = this.normalizeStockPayload(request.stockCreatePayload || {});
+      const stockPayload = this.normalizeStockPayload(input.stockCreatePayload || request.stockCreatePayload || {});
       stockPayload.currentCost = selectedOffer.normalizedCostP;
       const created = await stockCreateService.create([stockPayload], actor.userId || null);
       productCode = normalizeCode(created.created?.[0]?.stockCode);
       if (!productCode) throw new AppError('Stok acildi ancak stok kodu alinamadi.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+      await prisma.priceVerificationRequest.update({
+        where: { id: request.id },
+        data: { stockCreatePayload: stockPayload as unknown as Prisma.InputJsonValue },
+      });
     }
 
     const supplierCost = await supplierCostService.createCost({
@@ -387,6 +388,72 @@ class PriceVerificationService {
 
   async searchSuppliers(input: { search?: string; limit?: number }) {
     return supplierCostService.searchSuppliers(input);
+  }
+
+  async searchCustomers(input: { search?: string; limit?: number; actor: Actor }) {
+    const tokens = splitSearchTokens(input.search || '');
+    const limit = Math.max(1, Math.min(Number(input.limit) || 25, 60));
+    const base: Prisma.UserWhereInput = {
+      role: 'CUSTOMER' as any,
+      parentCustomerId: null,
+      mikroCariCode: { not: null },
+      active: true,
+    };
+    const sectorCodes = (input.actor.assignedSectorCodes || [])
+      .map((code) => normalizeText(code))
+      .filter(Boolean);
+    const scopedBase: Prisma.UserWhereInput = input.actor.role === 'SALES_REP'
+      ? {
+          AND: [
+            base,
+            sectorCodes.length > 0 ? { sectorCode: { in: sectorCodes } } : { id: '__no_customer_scope__' },
+          ],
+        }
+      : base;
+
+    const where: Prisma.UserWhereInput = {
+      AND: [
+        scopedBase,
+        ...(tokens.length > 0
+          ? tokens.map((token) => ({
+              OR: [
+                { mikroCariCode: { contains: token, mode: 'insensitive' as const } },
+                { displayName: { contains: token, mode: 'insensitive' as const } },
+                { mikroName: { contains: token, mode: 'insensitive' as const } },
+                { name: { contains: token, mode: 'insensitive' as const } },
+                { city: { contains: token, mode: 'insensitive' as const } },
+                { district: { contains: token, mode: 'insensitive' as const } },
+                { sectorCode: { contains: token, mode: 'insensitive' as const } },
+              ],
+            }))
+          : []),
+      ],
+    };
+
+    const customers = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        mikroCariCode: true,
+        name: true,
+        mikroName: true,
+        displayName: true,
+        city: true,
+        district: true,
+        sectorCode: true,
+        balance: true,
+      },
+      orderBy: [{ mikroCariCode: 'asc' }],
+      take: limit,
+    });
+
+    return {
+      customers: customers.map((customer) => ({
+        ...customer,
+        code: customer.mikroCariCode,
+        title: customer.displayName || customer.mikroName || customer.name || customer.mikroCariCode,
+      })),
+    };
   }
 
   async getStockMetadata() {

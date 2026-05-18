@@ -3180,6 +3180,11 @@ export const adminApi = {
     return response.data;
   },
 
+  searchPriceVerificationCustomers: async (params?: { search?: string; limit?: number }): Promise<{ customers: any[] }> => {
+    const response = await apiClient.get('/admin/price-verification/customers/search', { params });
+    return response.data;
+  },
+
   getPriceVerificationStockMetadata: async (): Promise<any> => {
     const response = await apiClient.get('/admin/price-verification/stock-metadata');
     return response.data;
@@ -3232,7 +3237,7 @@ export const adminApi = {
     return response.data;
   },
 
-  completePriceVerification: async (id: string, payload?: { updatePriceLists?: boolean; note?: string }): Promise<{ request: any; supplierCost: any; application: any }> => {
+  completePriceVerification: async (id: string, payload?: { updatePriceLists?: boolean; note?: string; stockCreatePayload?: any }): Promise<{ request: any; supplierCost: any; application: any }> => {
     const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/complete`, payload || {});
     return response.data;
   },
