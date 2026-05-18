@@ -134,6 +134,7 @@ export interface OrderItem {
   priceType: 'INVOICED' | 'WHITE';
   unitPrice: number;
   totalPrice: number;
+  mikroOrderId?: string | null;
   lineNote?: string | null;
   responsibilityCenter?: string | null;
 }

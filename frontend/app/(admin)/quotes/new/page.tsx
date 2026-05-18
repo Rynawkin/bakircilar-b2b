@@ -492,6 +492,18 @@ const resolveWarehouseValue = (value: string) => {
   return value;
 };
 
+const parseMikroOrderNumber = (value?: string | null) => {
+  const raw = String(value || '').trim();
+  const lastDash = raw.lastIndexOf('-');
+  if (lastDash <= 0 || lastDash >= raw.length - 1) {
+    return { series: raw, sira: '' };
+  }
+  return {
+    series: raw.slice(0, lastDash).trim(),
+    sira: raw.slice(lastDash + 1).trim(),
+  };
+};
+
 function AdminQuoteNewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -574,7 +586,9 @@ function AdminQuoteNewPageContent() {
   const [includedWarehouses, setIncludedWarehouses] = useState<string[]>([]);
   const [orderWarehouse, setOrderWarehouse] = useState('');
   const [orderInvoicedSeries, setOrderInvoicedSeries] = useState('');
+  const [orderInvoicedSira, setOrderInvoicedSira] = useState('');
   const [orderWhiteSeries, setOrderWhiteSeries] = useState('');
+  const [orderWhiteSira, setOrderWhiteSira] = useState('');
   const [orderCustomerOrderNumber, setOrderCustomerOrderNumber] = useState('');
   const [orderDocumentDescription, setOrderDocumentDescription] = useState('');
   const [bulkResponsibilityCenter, setBulkResponsibilityCenter] = useState('');
@@ -1336,11 +1350,27 @@ function AdminQuoteNewPageContent() {
       const { order } = await adminApi.getOrderById(orderId);
       setEditingOrderCustomerCode(String(order.user?.mikroCariCode || '').trim());
       setOrderCustomerOrderNumber(order.customerOrderNumber || '');
-      setOrderDocumentDescription(order.adminNote || '');
+      setOrderDocumentDescription(order.deliveryLocation || order.adminNote || '');
       setNote(order.adminNote || '');
 
+      const orderItems = order.items || [];
+      const invoicedOrderNumber =
+        orderItems.find((item) => item.priceType !== 'WHITE' && item.mikroOrderId)?.mikroOrderId ||
+        order.mikroOrderIds?.[0] ||
+        '';
+      const whiteOrderNumber =
+        orderItems.find((item) => item.priceType === 'WHITE' && item.mikroOrderId)?.mikroOrderId ||
+        order.mikroOrderIds?.find((id) => id !== invoicedOrderNumber) ||
+        '';
+      const parsedInvoicedOrder = parseMikroOrderNumber(invoicedOrderNumber);
+      const parsedWhiteOrder = parseMikroOrderNumber(whiteOrderNumber);
+      setOrderInvoicedSeries(parsedInvoicedOrder.series);
+      setOrderInvoicedSira(parsedInvoicedOrder.sira);
+      setOrderWhiteSeries(parsedWhiteOrder.series);
+      setOrderWhiteSira(parsedWhiteOrder.sira);
+
       const productCodes = Array.from(
-        new Set((order.items || []).map((item) => String(item.mikroCode || '').trim()).filter(Boolean))
+        new Set(orderItems.map((item) => String(item.mikroCode || '').trim()).filter(Boolean))
       );
       const productMap = new Map<string, any>();
       if (productCodes.length > 0) {
@@ -1353,7 +1383,7 @@ function AdminQuoteNewPageContent() {
         });
       }
 
-      const mappedItems: QuoteItemForm[] = (order.items || []).map((item) => {
+      const mappedItems: QuoteItemForm[] = orderItems.map((item) => {
         const product = productMap.get(String(item.mikroCode || '').trim());
         const priceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
         const vatRate = priceType === 'WHITE'
@@ -2324,6 +2354,17 @@ function AdminQuoteNewPageContent() {
       }
     }
 
+    if (isOrderMode && isOrderEditMode) {
+      if (orderHasInvoiced && orderInvoicedSira.trim() && !Number.isFinite(Number(orderInvoicedSira))) {
+        toast.error('Faturali sira sayi olmali.');
+        return false;
+      }
+      if (orderHasWhite && orderWhiteSira.trim() && !Number.isFinite(Number(orderWhiteSira))) {
+        toast.error('Beyaz sira sayi olmali.');
+        return false;
+      }
+    }
+
     if (quoteItems.length === 0) {
       toast.error('Teklife en az bir urun ekleyin.');
       return false;
@@ -2392,6 +2433,11 @@ function AdminQuoteNewPageContent() {
         if (isOrderEditMode && editOrderId) {
           await adminApi.updateOrder(editOrderId, {
             customerOrderNumber: orderCustomerOrderNumber.trim() || undefined,
+            deliveryLocation: orderDocumentDescription.trim() || undefined,
+            invoicedSeries: orderHasInvoiced ? orderInvoicedSeries.trim() || undefined : undefined,
+            invoicedSira: orderHasInvoiced && orderInvoicedSira.trim() ? Number(orderInvoicedSira) : undefined,
+            whiteSeries: orderHasWhite ? orderWhiteSeries.trim() || undefined : undefined,
+            whiteSira: orderHasWhite && orderWhiteSira.trim() ? Number(orderWhiteSira) : undefined,
             items: quoteItems.map((item) => ({
               productId: item.isManualLine ? undefined : item.productId,
               productCode: item.productCode,
@@ -2772,26 +2818,52 @@ function AdminQuoteNewPageContent() {
                           placeholder="Orn: test"
                         />
                       </div>
-                      {!isOrderEditMode && (
-                        <div className="grid grid-cols-1 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
-                            <Input
-                              value={orderInvoicedSeries}
-                              onChange={(e) => setOrderInvoicedSeries(e.target.value)}
-                              placeholder="Orn: HENDEK"
-                            />
+                      <div className="grid grid-cols-1 gap-4">
+                        {orderHasInvoiced && (
+                          <div className={isOrderEditMode ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
+                              <Input
+                                value={orderInvoicedSeries}
+                                onChange={(e) => setOrderInvoicedSeries(e.target.value)}
+                                placeholder="Orn: HENDEK"
+                              />
+                            </div>
+                            {isOrderEditMode && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Sira</label>
+                                <Input
+                                  value={orderInvoicedSira}
+                                  onChange={(e) => setOrderInvoicedSira(e.target.value)}
+                                  placeholder="Orn: 9666"
+                                />
+                              </div>
+                            )}
                           </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
-                            <Input
-                              value={orderWhiteSeries}
-                              onChange={(e) => setOrderWhiteSeries(e.target.value)}
-                              placeholder="Orn: HENDEK"
-                            />
+                        )}
+                        {orderHasWhite && (
+                          <div className={isOrderEditMode ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
+                              <Input
+                                value={orderWhiteSeries}
+                                onChange={(e) => setOrderWhiteSeries(e.target.value)}
+                                placeholder="Orn: HENDEK"
+                              />
+                            </div>
+                            {isOrderEditMode && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Sira</label>
+                                <Input
+                                  value={orderWhiteSira}
+                                  onChange={(e) => setOrderWhiteSira(e.target.value)}
+                                  placeholder="Orn: 9667"
+                                />
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </>
                   )}
                   <div className="md:col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm">

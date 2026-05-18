@@ -37,6 +37,11 @@ type RepricedCartItem = {
   lineNote?: string | null;
 };
 
+type LinkedMikroOrderRow = {
+  orderNumber: string;
+  productCode: string;
+};
+
 const isPriceTypeAllowed = (
   visibility: PriceVisibilityValue | null | undefined,
   priceType: PriceType
@@ -379,6 +384,235 @@ class OrderService {
       return null;
     }
     return Math.trunc(warehouseNo);
+  }
+
+  private escapeSqlString(value: string): string {
+    return String(value || '').replace(/'/g, "''");
+  }
+
+  private async getExistingMikroOrderNumbers(orderNumbers: string[]): Promise<Set<string>> {
+    const parsedOrders = orderNumbers
+      .map((orderNumber) => ({
+        orderNumber: String(orderNumber || '').trim(),
+        parsed: this.parseMikroOrderNumber(orderNumber),
+      }))
+      .filter((entry): entry is { orderNumber: string; parsed: { series: string; sequence: number } } => Boolean(entry.parsed));
+
+    if (parsedOrders.length === 0) {
+      return new Set();
+    }
+
+    const conditions = parsedOrders
+      .map((entry) => {
+        const series = this.escapeSqlString(entry.parsed.series);
+        return `(sip_evrakno_seri = '${series}' AND sip_evrakno_sira = ${entry.parsed.sequence})`;
+      })
+      .join(' OR ');
+
+    const rows = await mikroService.executeQuery(`
+      SELECT DISTINCT
+        LTRIM(RTRIM(sip_evrakno_seri)) AS series,
+        sip_evrakno_sira AS sequence
+      FROM SIPARISLER WITH (NOLOCK)
+      WHERE ${conditions}
+    `);
+
+    return new Set(
+      (rows || [])
+        .map((row: any) => {
+          const series = String(row.series || '').trim();
+          const sequence = Number(row.sequence);
+          return series && Number.isFinite(sequence) ? `${series}-${Math.trunc(sequence)}` : '';
+        })
+        .filter(Boolean)
+    );
+  }
+
+  private async findMikroOrdersLinkedToQuote(
+    quoteNumberRaw: string | null | undefined,
+    productCodes: string[]
+  ): Promise<LinkedMikroOrderRow[]> {
+    const parsedQuote = this.parseMikroOrderNumber(String(quoteNumberRaw || '').trim());
+    if (!parsedQuote) {
+      return [];
+    }
+
+    const uniqueProductCodes = Array.from(
+      new Set(productCodes.map((code) => String(code || '').trim()).filter(Boolean))
+    );
+    const productFilter = uniqueProductCodes.length > 0
+      ? `AND s.sip_stok_kod IN (${uniqueProductCodes.map((code) => `'${this.escapeSqlString(code)}'`).join(', ')})`
+      : '';
+
+    const rows = await mikroService.executeQuery(`
+      SELECT DISTINCT
+        LTRIM(RTRIM(s.sip_evrakno_seri)) AS orderSeries,
+        s.sip_evrakno_sira AS orderSequence,
+        LTRIM(RTRIM(s.sip_stok_kod)) AS productCode
+      FROM SIPARISLER s WITH (NOLOCK)
+      INNER JOIN VERILEN_TEKLIFLER t WITH (NOLOCK)
+        ON s.sip_teklif_uid = t.tkl_Guid
+      WHERE t.tkl_evrakno_seri = '${this.escapeSqlString(parsedQuote.series)}'
+        AND t.tkl_evrakno_sira = ${parsedQuote.sequence}
+        AND ISNULL(s.sip_iptal, 0) = 0
+        ${productFilter}
+      ORDER BY orderSeries, orderSequence
+    `);
+
+    return (rows || [])
+      .map((row: any) => {
+        const series = String(row.orderSeries || '').trim();
+        const sequence = Number(row.orderSequence);
+        const productCode = String(row.productCode || '').trim();
+        return series && Number.isFinite(sequence)
+          ? { orderNumber: `${series}-${Math.trunc(sequence)}`, productCode }
+          : null;
+      })
+      .filter((row: LinkedMikroOrderRow | null): row is LinkedMikroOrderRow => Boolean(row));
+  }
+
+  private async reconcileMikroOrderLinksFromQuote(order: {
+    id: string;
+    mikroOrderIds: string[];
+    sourceQuote?: { quoteNumber: string | null } | null;
+    items: Array<{ id: string; mikroCode: string; mikroOrderId?: string | null }>;
+  }): Promise<string[]> {
+    const currentOrderIds = Array.from(
+      new Set((order.mikroOrderIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+    );
+    if (currentOrderIds.length === 0) {
+      return [];
+    }
+
+    const existing = await this.getExistingMikroOrderNumbers(currentOrderIds);
+    if (currentOrderIds.every((id) => existing.has(id))) {
+      return currentOrderIds;
+    }
+
+    const linkedRows = await this.findMikroOrdersLinkedToQuote(
+      order.sourceQuote?.quoteNumber,
+      order.items.map((item) => item.mikroCode)
+    );
+    const linkedOrderIds = Array.from(new Set(linkedRows.map((row) => row.orderNumber)));
+    if (linkedOrderIds.length === 0) {
+      return currentOrderIds;
+    }
+
+    const itemOrderByCode = new Map<string, string>();
+    linkedRows.forEach((row) => {
+      const code = String(row.productCode || '').trim().toUpperCase();
+      if (code && !itemOrderByCode.has(code)) {
+        itemOrderByCode.set(code, row.orderNumber);
+      }
+    });
+
+    await prisma.$transaction([
+      prisma.order.update({
+        where: { id: order.id },
+        data: { mikroOrderIds: linkedOrderIds },
+      }),
+      ...order.items.map((item) => {
+        const resolvedOrderId =
+          itemOrderByCode.get(String(item.mikroCode || '').trim().toUpperCase()) ||
+          linkedOrderIds[0];
+        return prisma.orderItem.update({
+          where: { id: item.id },
+          data: { mikroOrderId: resolvedOrderId },
+        });
+      }),
+    ]);
+
+    return linkedOrderIds;
+  }
+
+  private async renameMikroOrderNumber(
+    currentOrderNumberRaw: string,
+    targetSeriesRaw?: string,
+    targetSequenceRaw?: number | string | null
+  ): Promise<string> {
+    const parsedCurrent = this.parseMikroOrderNumber(currentOrderNumberRaw);
+    if (!parsedCurrent) {
+      throw new Error('Invalid Mikro order number');
+    }
+
+    const targetSeries = String(targetSeriesRaw || parsedCurrent.series).trim().slice(0, 20);
+    const parsedTargetSequence = Number(targetSequenceRaw);
+    const targetSequence =
+      Number.isFinite(parsedTargetSequence) && parsedTargetSequence > 0
+        ? Math.trunc(parsedTargetSequence)
+        : parsedCurrent.sequence;
+
+    if (!targetSeries) {
+      throw new Error('Target Mikro order series is required');
+    }
+
+    const nextOrderNumber = `${targetSeries}-${targetSequence}`;
+    if (targetSeries === parsedCurrent.series && targetSequence === parsedCurrent.sequence) {
+      return `${parsedCurrent.series}-${parsedCurrent.sequence}`;
+    }
+
+    const currentSeriesSql = this.escapeSqlString(parsedCurrent.series);
+    const targetSeriesSql = this.escapeSqlString(targetSeries);
+    const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+    const mikroUserNo =
+      Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0
+        ? Math.trunc(mikroUserNoRaw)
+        : 1;
+
+    await mikroService.executeQuery(`
+      BEGIN TRY
+        BEGIN TRAN;
+
+        IF NOT EXISTS (
+          SELECT 1
+          FROM SIPARISLER
+          WHERE sip_evrakno_seri = '${currentSeriesSql}'
+            AND sip_evrakno_sira = ${parsedCurrent.sequence}
+        )
+        BEGIN
+          THROW 51000, 'Mikro order not found', 1;
+        END;
+
+        IF EXISTS (
+          SELECT 1
+          FROM SIPARISLER
+          WHERE sip_evrakno_seri = '${targetSeriesSql}'
+            AND sip_evrakno_sira = ${targetSequence}
+        )
+        BEGIN
+          THROW 51001, 'Target Mikro order number already exists', 1;
+        END;
+
+        UPDATE SIPARISLER
+        SET
+          sip_evrakno_seri = '${targetSeriesSql}',
+          sip_evrakno_sira = ${targetSequence},
+          sip_lastup_date = GETDATE(),
+          sip_lastup_user = ${mikroUserNo}
+        WHERE sip_evrakno_seri = '${currentSeriesSql}'
+          AND sip_evrakno_sira = ${parsedCurrent.sequence};
+
+        IF OBJECT_ID('EVRAK_ACIKLAMALARI', 'U') IS NOT NULL
+        BEGIN
+          UPDATE EVRAK_ACIKLAMALARI
+          SET
+            egk_evr_seri = '${targetSeriesSql}',
+            egk_evr_sira = ${targetSequence},
+            egk_lastup_date = GETDATE(),
+            egk_lastup_user = ${mikroUserNo}
+          WHERE egk_evr_seri = '${currentSeriesSql}'
+            AND egk_evr_sira = ${parsedCurrent.sequence};
+        END;
+
+        COMMIT;
+      END TRY
+      BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        THROW;
+      END CATCH
+    `);
+
+    return nextOrderNumber;
   }
 
   private async repriceCartItemsForOrder(userId: string, cart: { items: Array<any> }): Promise<RepricedCartItem[]> {
@@ -1052,6 +1286,10 @@ class OrderService {
     input: {
       customerOrderNumber?: string;
       deliveryLocation?: string;
+      invoicedSeries?: string;
+      invoicedSira?: number | string | null;
+      whiteSeries?: string;
+      whiteSira?: number | string | null;
       items: Array<{
         productId?: string;
         productCode?: string;
@@ -1078,7 +1316,15 @@ class OrderService {
             paymentPlanNo: true,
           },
         },
-        items: { select: { id: true } },
+        sourceQuote: { select: { quoteNumber: true } },
+        items: {
+          select: {
+            id: true,
+            mikroCode: true,
+            priceType: true,
+            mikroOrderId: true,
+          },
+        },
       },
     });
 
@@ -1174,15 +1420,85 @@ class OrderService {
       ? String(input.deliveryLocation).trim()
       : '';
 
-    const shouldUpdateMikro = order.status === 'APPROVED' && (order.mikroOrderIds || []).length > 0;
+    let workingMikroOrderIds = Array.from(
+      new Set((order.mikroOrderIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+    );
+    if (order.status === 'APPROVED' && workingMikroOrderIds.length > 0) {
+      workingMikroOrderIds = await this.reconcileMikroOrderLinksFromQuote({
+        id: order.id,
+        mikroOrderIds: workingMikroOrderIds,
+        sourceQuote: order.sourceQuote,
+        items: order.items.map((item) => ({
+          id: item.id,
+          mikroCode: item.mikroCode,
+          mikroOrderId: item.mikroOrderId,
+        })),
+      });
+    }
+
+    const shouldUpdateMikro = order.status === 'APPROVED' && workingMikroOrderIds.length > 0;
     let existingItems: Array<any> = [];
     const mikroOrderIdByLineIndex = new Map<number, string | null>();
     const appendedMikroOrderIds: string[] = [];
+    const renamedMikroOrderIds = new Map<string, string>();
+    const resolveMikroOrderId = (value?: string | null) => {
+      const orderIdValue = String(value || '').trim();
+      return renamedMikroOrderIds.get(orderIdValue) || orderIdValue;
+    };
     if (shouldUpdateMikro) {
       existingItems = await prisma.orderItem.findMany({
         where: { orderId },
         include: { product: { select: { vatRate: true } } },
       });
+
+      const pickCurrentMikroOrderId = (priceType: PriceType): string => {
+        const fromItems = existingItems
+          .map((item) => ({
+            priceType: item.priceType === 'WHITE' ? 'WHITE' as PriceType : 'INVOICED' as PriceType,
+            mikroOrderId: String(item.mikroOrderId || '').trim(),
+          }))
+          .find((item) => item.priceType === priceType && item.mikroOrderId);
+        return fromItems?.mikroOrderId || workingMikroOrderIds[0] || '';
+      };
+
+      const renameByPriceType = async (
+        priceType: PriceType,
+        targetSeries?: string,
+        targetSira?: number | string | null
+      ) => {
+        const trimmedTargetSeries = String(targetSeries || '').trim();
+        const parsedTargetSira = Number(targetSira);
+        const hasTargetSira = Number.isFinite(parsedTargetSira) && parsedTargetSira > 0;
+        if (!trimmedTargetSeries && !hasTargetSira) {
+          return;
+        }
+
+        const currentOrderNumber = resolveMikroOrderId(pickCurrentMikroOrderId(priceType));
+        if (!currentOrderNumber) {
+          throw new Error(`${priceType === 'WHITE' ? 'White' : 'Invoiced'} Mikro order number missing`);
+        }
+
+        const nextOrderNumber = await this.renameMikroOrderNumber(
+          currentOrderNumber,
+          trimmedTargetSeries || undefined,
+          hasTargetSira ? parsedTargetSira : undefined
+        );
+        if (nextOrderNumber !== currentOrderNumber) {
+          renamedMikroOrderIds.set(currentOrderNumber, nextOrderNumber);
+          workingMikroOrderIds = workingMikroOrderIds.map((id) =>
+            id === currentOrderNumber ? nextOrderNumber : id
+          );
+          existingItems.forEach((item) => {
+            if (String(item.mikroOrderId || '').trim() === currentOrderNumber) {
+              item.mikroOrderId = nextOrderNumber;
+            }
+          });
+        }
+      };
+
+      await renameByPriceType('INVOICED', input.invoicedSeries, input.invoicedSira);
+      await renameByPriceType('WHITE', input.whiteSeries, input.whiteSira);
+      workingMikroOrderIds = Array.from(new Set(workingMikroOrderIds.map(resolveMikroOrderId).filter(Boolean)));
 
       const existingByProductId = new Map<string, Array<any>>();
       existingItems.forEach((item) => {
@@ -1228,8 +1544,9 @@ class OrderService {
           return;
         }
         seenExistingItemIds.add(existing.id);
-        mikroOrderIdByLineIndex.set(index, existing.mikroOrderId || null);
-        const mikroOrderId = existing.mikroOrderId || (order.mikroOrderIds?.[0] || '');
+        const matchedMikroOrderId = resolveMikroOrderId(existing.mikroOrderId);
+        mikroOrderIdByLineIndex.set(index, matchedMikroOrderId || null);
+        const mikroOrderId = matchedMikroOrderId || (workingMikroOrderIds[0] || '');
         const vatRate =
           item.priceType === 'WHITE'
             ? 0
@@ -1250,7 +1567,7 @@ class OrderService {
       // Removed items -> close in Mikro
       existingItems.forEach((item) => {
         if (!seenExistingItemIds.has(item.id)) {
-          const mikroOrderId = item.mikroOrderId || (order.mikroOrderIds?.[0] || '');
+          const mikroOrderId = resolveMikroOrderId(item.mikroOrderId) || (workingMikroOrderIds[0] || '');
           const vatRate =
             item.priceType === 'WHITE'
               ? 0
@@ -1273,6 +1590,7 @@ class OrderService {
         await mikroService.updateOrderLines({
           orderNumber: mikroOrderId,
           items,
+          documentDescription: normalizedDeliveryLocation || undefined,
         });
       }
 
@@ -1281,7 +1599,7 @@ class OrderService {
           throw new Error('Customer Mikro code missing for approved order update');
         }
 
-        const fallbackMikroOrderId = String(order.mikroOrderIds?.[0] || '').trim();
+        const fallbackMikroOrderId = String(workingMikroOrderIds[0] || '').trim();
         if (!fallbackMikroOrderId) {
           throw new Error('Existing Mikro order number missing for approved order update');
         }
@@ -1289,7 +1607,7 @@ class OrderService {
         const baseMikroOrderByPriceType = new Map<PriceType, string>();
         existingItems.forEach((item) => {
           const priceType: PriceType = item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
-          const mikroOrderId = String(item.mikroOrderId || '').trim();
+          const mikroOrderId = resolveMikroOrderId(item.mikroOrderId);
           if (mikroOrderId && !baseMikroOrderByPriceType.has(priceType)) {
             baseMikroOrderByPriceType.set(priceType, mikroOrderId);
           }
@@ -1362,10 +1680,10 @@ class OrderService {
           totalAmount,
           customerOrderNumber: normalizedCustomerOrderNumber || null,
           deliveryLocation: normalizedDeliveryLocation || null,
-          ...(shouldUpdateMikro && appendedMikroOrderIds.length > 0
+          ...(shouldUpdateMikro
             ? {
                 mikroOrderIds: Array.from(
-                  new Set([...(order.mikroOrderIds || []), ...appendedMikroOrderIds])
+                  new Set([...workingMikroOrderIds, ...appendedMikroOrderIds])
                 ),
               }
             : {}),

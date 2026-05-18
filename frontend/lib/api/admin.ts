@@ -756,6 +756,10 @@ export const adminApi = {
       }>;
       customerOrderNumber?: string;
       deliveryLocation?: string;
+      invoicedSeries?: string;
+      invoicedSira?: number;
+      whiteSeries?: string;
+      whiteSira?: number;
     }
   ): Promise<{ order: PendingOrderForAdmin }> => {
     const response = await apiClient.put(`/admin/orders/${id}`, payload);

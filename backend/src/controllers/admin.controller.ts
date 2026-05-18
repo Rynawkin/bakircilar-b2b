@@ -2294,7 +2294,15 @@ export class AdminController {
   async updateOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { items, customerOrderNumber, deliveryLocation } = req.body || {};
+      const {
+        items,
+        customerOrderNumber,
+        deliveryLocation,
+        invoicedSeries,
+        invoicedSira,
+        whiteSeries,
+        whiteSira,
+      } = req.body || {};
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
@@ -2321,6 +2329,10 @@ export class AdminController {
         items,
         customerOrderNumber,
         deliveryLocation,
+        invoicedSeries,
+        invoicedSira,
+        whiteSeries,
+        whiteSira,
       });
 
       res.json({ order: updated });
