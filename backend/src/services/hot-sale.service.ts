@@ -86,6 +86,7 @@ const HOT_CUSTOMER_TEMPLATE_CODE = '120.01.2341';
 const HOT_CUSTOMER_PREFIX = '120.01.';
 const HOT_CUSTOMER_GROUP_CODE = 'SICAK';
 const HOT_CUSTOMER_SECTOR_CODE = 'SICAK';
+const HOT_CUSTOMER_REGION_CODE = '54';
 
 const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
 const escapeSql = (value: string) => String(value || '').replace(/'/g, "''");
@@ -221,8 +222,10 @@ class HotSaleService {
       cari_degisti: '1',
       cari_unvan1: this.sqlStringForColumn(columnMeta, 'cari_unvan1', input.customerName),
       cari_unvan2: this.sqlStringForColumn(columnMeta, 'cari_unvan2', input.city || ''),
+      cari_ana_cari_kodu: this.sqlStringForColumn(columnMeta, 'cari_Ana_cari_kodu', ''),
       cari_grup_kodu: this.sqlStringForColumn(columnMeta, 'cari_grup_kodu', HOT_CUSTOMER_GROUP_CODE),
       cari_sektor_kodu: this.sqlStringForColumn(columnMeta, 'cari_sektor_kodu', HOT_CUSTOMER_SECTOR_CODE),
+      cari_bolge_kodu: this.sqlStringForColumn(columnMeta, 'cari_bolge_kodu', HOT_CUSTOMER_REGION_CODE),
       cari_ceptel: this.sqlStringForColumn(columnMeta, 'cari_ceptel', input.phone),
       cari_email: this.sqlStringForColumn(columnMeta, 'cari_email', input.email || ''),
       cari_vdaire_adi: this.sqlStringForColumn(columnMeta, 'cari_vdaire_adi', input.taxOffice),
