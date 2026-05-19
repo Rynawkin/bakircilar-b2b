@@ -962,6 +962,343 @@ class HotSaleService {
     return { vehicles, openSessions, myOpenSession, recentTransactions };
   }
 
+  private resolveReportRange(startDate?: string, endDate?: string) {
+    const toDateInput = (value?: string) => String(value || '').trim().slice(0, 10);
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const today = new Date();
+    const turkeyNow = new Date(today.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
+    const fallback = `${turkeyNow.getFullYear()}-${pad(turkeyNow.getMonth() + 1)}-${pad(turkeyNow.getDate())}`;
+    const startInput = toDateInput(startDate) || fallback;
+    const endInput = toDateInput(endDate) || startInput;
+    const start = new Date(`${startInput}T00:00:00.000+03:00`);
+    const end = new Date(`${endInput}T23:59:59.999+03:00`);
+    return {
+      start,
+      end,
+      startDate: startInput,
+      endDate: endInput,
+    };
+  }
+
+  async getDailyReport(params: {
+    startDate?: string;
+    endDate?: string;
+    vehicleId?: string;
+    userId?: string;
+    limit?: number;
+  }) {
+    const range = this.resolveReportRange(params.startDate, params.endDate);
+    const vehicleId = String(params.vehicleId || '').trim() || undefined;
+    const userId = String(params.userId || '').trim() || undefined;
+    const limit = Math.min(Math.max(Math.trunc(toNumber(params.limit, 250)), 50), 1000);
+    const transactionDateWhere = { gte: range.start, lte: range.end };
+
+    const sessionWhere: Prisma.HotSaleSessionWhereInput = {
+      ...(vehicleId ? { vehicleId } : {}),
+      ...(userId ? { userId } : {}),
+      OR: [
+        { startedAt: transactionDateWhere },
+        { closedAt: transactionDateWhere },
+        { transactions: { some: { createdAt: transactionDateWhere } } },
+      ],
+    };
+    const transactionWhere: Prisma.HotSaleTransactionWhereInput = {
+      createdAt: transactionDateWhere,
+      ...(vehicleId || userId
+        ? {
+            session: {
+              ...(vehicleId ? { vehicleId } : {}),
+              ...(userId ? { userId } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [sessions, transactions, stockMovements, vehicles, users] = await Promise.all([
+      prisma.hotSaleSession.findMany({
+        where: sessionWhere,
+        include: {
+          vehicle: true,
+          user: { select: { id: true, name: true, displayName: true, email: true } },
+          closingCounts: true,
+        },
+        orderBy: [{ startedAt: 'desc' }],
+      }),
+      prisma.hotSaleTransaction.findMany({
+        where: transactionWhere,
+        include: {
+          session: {
+            include: {
+              vehicle: true,
+              user: { select: { id: true, name: true, displayName: true, email: true } },
+            },
+          },
+          customer: { select: { id: true, displayName: true, mikroName: true, name: true, mikroCariCode: true } },
+          items: true,
+          payments: true,
+        },
+        orderBy: [{ createdAt: 'desc' }],
+      }),
+      prisma.hotSaleStockLedger.findMany({
+        where: {
+          createdAt: transactionDateWhere,
+          ...(vehicleId ? { vehicleId } : {}),
+          ...(userId
+            ? {
+                session: { userId },
+              }
+            : {}),
+        },
+        take: 1500,
+        include: {
+          session: {
+            include: {
+              vehicle: true,
+              user: { select: { id: true, name: true, displayName: true, email: true } },
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }],
+      }),
+      prisma.hotSaleVehicle.findMany({ orderBy: [{ active: 'desc' }, { name: 'asc' }] }),
+      prisma.user.findMany({
+        where: {
+          hotSaleSessions: { some: {} },
+        },
+        select: { id: true, name: true, displayName: true, email: true },
+        orderBy: [{ displayName: 'asc' }, { name: 'asc' }],
+      }),
+    ]);
+
+    const nonCancelledTransactions = transactions.filter((transaction) => transaction.status !== 'CANCELLED');
+    const cancelledTransactions = transactions.filter((transaction) => transaction.status === 'CANCELLED');
+    const money = (value: unknown) => Number(toNumber(value).toFixed(2));
+
+    const paymentTotals: Record<string, number> = {
+      CASH: 0,
+      CARD: 0,
+      TRANSFER: 0,
+      OPEN_ACCOUNT: 0,
+      MIXED: 0,
+    };
+    const typeTotals: Record<string, { count: number; amount: number }> = {
+      CASH_INVOICE: { count: 0, amount: 0 },
+      INVOICED_DISPATCH: { count: 0, amount: 0 },
+      ORDER: { count: 0, amount: 0 },
+      ORDER_DELIVERY: { count: 0, amount: 0 },
+    };
+    const statusTotals: Record<string, { count: number; amount: number }> = {
+      COMPLETED: { count: 0, amount: 0 },
+      SYNC_FAILED: { count: 0, amount: 0 },
+      CANCELLED: { count: 0, amount: 0 },
+    };
+    const productMap = new Map<string, { productCode: string; productName: string; unit?: string | null; quantity: number; revenue: number }>();
+
+    transactions.forEach((transaction) => {
+      const amount = toNumber(transaction.totalAmount);
+      const status = transaction.status || 'COMPLETED';
+      statusTotals[status] = statusTotals[status] || { count: 0, amount: 0 };
+      statusTotals[status].count += 1;
+      statusTotals[status].amount += amount;
+
+      if (transaction.status === 'CANCELLED') return;
+
+      typeTotals[transaction.type] = typeTotals[transaction.type] || { count: 0, amount: 0 };
+      typeTotals[transaction.type].count += 1;
+      typeTotals[transaction.type].amount += amount;
+
+      const payments = transaction.payments?.length
+        ? transaction.payments
+        : [{ type: transaction.paymentType, amount }];
+      payments.forEach((payment) => {
+        const key = String(payment.type || transaction.paymentType || 'CASH');
+        paymentTotals[key] = (paymentTotals[key] || 0) + toNumber(payment.amount);
+      });
+
+      transaction.items.forEach((item) => {
+        const code = normalizeCode(item.productCode);
+        const current = productMap.get(code) || {
+          productCode: item.productCode,
+          productName: item.productName,
+          unit: item.unit,
+          quantity: 0,
+          revenue: 0,
+        };
+        current.quantity += toNumber(item.quantity);
+        current.revenue += toNumber(item.totalPrice);
+        productMap.set(code, current);
+      });
+    });
+
+    const transactionsBySession = new Map<string, typeof transactions>();
+    transactions.forEach((transaction) => {
+      const current = transactionsBySession.get(transaction.sessionId) || [];
+      current.push(transaction);
+      transactionsBySession.set(transaction.sessionId, current);
+    });
+
+    const sessionRows = sessions.map((session) => {
+      const sessionTransactions = transactionsBySession.get(session.id) || [];
+      const activeTransactions = sessionTransactions.filter((transaction) => transaction.status !== 'CANCELLED');
+      const cashTotal = activeTransactions.reduce((sum, transaction) => {
+        const payments = transaction.payments?.length
+          ? transaction.payments
+          : [{ type: transaction.paymentType, amount: transaction.totalAmount }];
+        return sum + payments
+          .filter((payment) => payment.type === 'CASH')
+          .reduce((paymentSum, payment) => paymentSum + toNumber(payment.amount), 0);
+      }, 0);
+      const revenue = activeTransactions.reduce((sum, transaction) => sum + toNumber(transaction.totalAmount), 0);
+      const stockDifferenceCount = session.closingCounts.filter((row) => Math.abs(toNumber(row.differenceQty)) > 0.0001).length;
+      const stockDifferenceQty = session.closingCounts.reduce((sum, row) => sum + Math.abs(toNumber(row.differenceQty)), 0);
+      return {
+        id: session.id,
+        status: session.status,
+        vehicleId: session.vehicleId,
+        vehicleName: session.vehicle?.name || null,
+        plate: session.vehicle?.plate || null,
+        userId: session.userId,
+        userName: session.user?.displayName || session.user?.name || session.user?.email || null,
+        sourceWarehouseNo: session.sourceWarehouseNo,
+        openingCash: money(session.openingCash),
+        cashSales: money(cashTotal),
+        expectedCash: money(session.openingCash + cashTotal),
+        storedExpectedCash: money(session.openingCash + toNumber(session.expectedCash)),
+        closingCash: session.closingCash === null ? null : money(session.closingCash),
+        cashDifference: session.closingCash === null
+          ? null
+          : money(toNumber(session.closingCash) - (toNumber(session.openingCash) + cashTotal)),
+        storedCashDifference: session.cashDifference === null ? null : money(session.cashDifference),
+        revenue: money(revenue),
+        transactionCount: sessionTransactions.length,
+        syncFailedCount: sessionTransactions.filter((transaction) => transaction.status === 'SYNC_FAILED').length,
+        cancelledCount: sessionTransactions.filter((transaction) => transaction.status === 'CANCELLED').length,
+        stockDifferenceCount,
+        stockDifferenceQty: Number(stockDifferenceQty.toFixed(3)),
+        startKm: session.startKm,
+        endKm: session.endKm,
+        startedAt: session.startedAt,
+        closedAt: session.closedAt,
+        loadDocumentNo: session.loadDocumentNo,
+        returnDocumentNo: session.returnDocumentNo,
+        note: session.note,
+        closeNote: session.closeNote,
+      };
+    });
+
+    const stockSummary = stockMovements.reduce((acc, movement) => {
+      const key = movement.type;
+      const current = acc[key] || { count: 0, quantity: 0 };
+      current.count += 1;
+      current.quantity += toNumber(movement.quantity);
+      acc[key] = current;
+      return acc;
+    }, {} as Record<string, { count: number; quantity: number }>);
+
+    const riskySessions = sessionRows.filter((session) =>
+      Math.abs(toNumber(session.cashDifference)) > 0.01 ||
+      session.syncFailedCount > 0 ||
+      session.stockDifferenceCount > 0
+    );
+
+    return {
+      filters: {
+        startDate: range.startDate,
+        endDate: range.endDate,
+        vehicleId: vehicleId || null,
+        userId: userId || null,
+      },
+      summary: {
+        sessionCount: sessions.length,
+        openSessionCount: sessions.filter((session) => session.status === 'OPEN').length,
+        closedSessionCount: sessions.filter((session) => session.status === 'CLOSED').length,
+        transactionCount: transactions.length,
+        completedTransactionCount: nonCancelledTransactions.length,
+        cancelledTransactionCount: cancelledTransactions.length,
+        syncFailedCount: transactions.filter((transaction) => transaction.status === 'SYNC_FAILED').length,
+        openingCash: money(sessionRows.reduce((sum, session) => sum + toNumber(session.openingCash), 0)),
+        cashSales: money(paymentTotals.CASH),
+        expectedCash: money(sessionRows.reduce((sum, session) => sum + toNumber(session.expectedCash), 0)),
+        closingCash: money(sessionRows.reduce((sum, session) => sum + toNumber(session.closingCash), 0)),
+        cashDifference: money(sessionRows.reduce((sum, session) => sum + toNumber(session.cashDifference), 0)),
+        totalRevenue: money(nonCancelledTransactions.reduce((sum, transaction) => sum + toNumber(transaction.totalAmount), 0)),
+        cancelledAmount: money(cancelledTransactions.reduce((sum, transaction) => sum + toNumber(transaction.totalAmount), 0)),
+        stockDifferenceSessionCount: sessionRows.filter((session) => session.stockDifferenceCount > 0).length,
+        riskySessionCount: riskySessions.length,
+      },
+      paymentTotals: Object.fromEntries(Object.entries(paymentTotals).map(([key, value]) => [key, money(value)])),
+      typeTotals: Object.fromEntries(Object.entries(typeTotals).map(([key, value]) => [key, { count: value.count, amount: money(value.amount) }])),
+      statusTotals: Object.fromEntries(Object.entries(statusTotals).map(([key, value]) => [key, { count: value.count, amount: money(value.amount) }])),
+      sessions: sessionRows,
+      riskySessions,
+      transactions: transactions.slice(0, limit).map((transaction) => ({
+        id: transaction.id,
+        type: transaction.type,
+        status: transaction.status,
+        paymentType: transaction.paymentType,
+        totalAmount: money(transaction.totalAmount),
+        vatAmount: money(transaction.vatAmount),
+        customerCode: transaction.customerCode,
+        customerName: transaction.customerName || transaction.customer?.displayName || transaction.customer?.mikroName || transaction.customer?.name || null,
+        documentNo: transaction.mikroDocumentNo || transaction.documentNo || transaction.linkedOrderNumber || null,
+        linkedOrderNumber: transaction.linkedOrderNumber,
+        syncError: transaction.syncError,
+        vehicleName: transaction.session?.vehicle?.name || null,
+        plate: transaction.session?.vehicle?.plate || null,
+        userName: transaction.session?.user?.displayName || transaction.session?.user?.name || transaction.session?.user?.email || null,
+        itemCount: transaction.items.length,
+        quantity: Number(transaction.items.reduce((sum, item) => sum + toNumber(item.quantity), 0).toFixed(3)),
+        payments: transaction.payments.map((payment) => ({
+          type: payment.type,
+          amount: money(payment.amount),
+          referenceNo: payment.referenceNo,
+        })),
+        createdAt: transaction.createdAt,
+      })),
+      topProducts: Array.from(productMap.values())
+        .map((row) => ({
+          ...row,
+          quantity: Number(row.quantity.toFixed(3)),
+          revenue: money(row.revenue),
+        }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 30),
+      stockSummary: Object.fromEntries(
+        Object.entries(stockSummary).map(([key, value]) => [
+          key,
+          { count: value.count, quantity: Number(value.quantity.toFixed(3)) },
+        ])
+      ),
+      stockMovements: stockMovements.slice(0, 200).map((movement) => ({
+        id: movement.id,
+        type: movement.type,
+        productCode: movement.productCode,
+        productName: movement.productName,
+        unit: movement.unit,
+        quantity: Number(toNumber(movement.quantity).toFixed(3)),
+        documentNo: movement.documentNo,
+        vehicleName: movement.session?.vehicle?.name || null,
+        userName: movement.session?.user?.displayName || movement.session?.user?.name || movement.session?.user?.email || null,
+        createdAt: movement.createdAt,
+        note: movement.note,
+      })),
+      options: {
+        vehicles: vehicles.map((vehicle) => ({
+          id: vehicle.id,
+          name: vehicle.name,
+          plate: vehicle.plate,
+          active: vehicle.active,
+        })),
+        users: users.map((row) => ({
+          id: row.id,
+          name: row.displayName || row.name || row.email,
+          email: row.email,
+        })),
+      },
+      generatedAt: new Date(),
+    };
+  }
+
   async getVehicleInventory(vehicleId: string) {
     const rows = await prisma.hotSaleStockLedger.groupBy({
       by: ['productCode'],

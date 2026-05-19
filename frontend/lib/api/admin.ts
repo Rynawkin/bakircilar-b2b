@@ -653,6 +653,17 @@ export const adminApi = {
     return response.data;
   },
 
+  getHotSaleDailyReport: async (params?: {
+    startDate?: string;
+    endDate?: string;
+    vehicleId?: string;
+    userId?: string;
+    limit?: number;
+  }): Promise<any> => {
+    const response = await apiClient.get('/admin/hot-sales/reports/daily', { params });
+    return response.data;
+  },
+
   cancelHotSaleTransactionLocally: async (transactionId: string, payload?: { note?: string }): Promise<{ transaction: any }> => {
     const response = await apiClient.post(`/admin/hot-sales/transactions/${encodeURIComponent(transactionId)}/cancel-local`, payload || {});
     return response.data;

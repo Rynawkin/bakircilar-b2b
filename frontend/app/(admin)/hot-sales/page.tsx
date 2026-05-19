@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { AlertTriangle, RefreshCcw, Search, Truck, ShoppingCart, PackagePlus, ClipboardCheck, Settings, Plus, X } from 'lucide-react';
+import { AlertTriangle, RefreshCcw, Search, Truck, ShoppingCart, PackagePlus, ClipboardCheck, Settings, Plus, X, BarChart3, Banknote, FileDown } from 'lucide-react';
 import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency } from '@/lib/utils/format';
 
-type TabKey = 'sale' | 'load' | 'orders' | 'close' | 'manage';
+type TabKey = 'sale' | 'load' | 'orders' | 'close' | 'report' | 'manage';
 type SaleType = 'CASH_INVOICE' | 'INVOICED_DISPATCH' | 'ORDER';
 type PaymentType = 'CASH' | 'CARD' | 'TRANSFER' | 'OPEN_ACCOUNT' | 'MIXED';
 
@@ -60,7 +60,35 @@ const priceLabel = (listNo: number) => {
 const n = (value: any) => Number(value || 0);
 const fmtQty = (value: any) => Number(n(value).toFixed(3)).toString();
 const fmtDate = (value: any) => (value ? new Date(value).toLocaleDateString('tr-TR') : '-');
+const fmtDateTime = (value: any) => (value ? new Date(value).toLocaleString('tr-TR') : '-');
 const warehouseLabel = (value: any) => WAREHOUSE_OPTIONS.find((item) => item.value === String(value))?.label || String(value || '-');
+const localDateInput = (date = new Date()) => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+const typeLabel = (value: string) => ({
+  CASH_INVOICE: 'Faturasiz Satis',
+  INVOICED_DISPATCH: 'Faturali Irsaliye',
+  ORDER: 'Siparis',
+  ORDER_DELIVERY: 'Siparisten Irsaliye',
+}[value] || value);
+const paymentLabel = (value: string) => ({
+  CASH: 'Nakit',
+  CARD: 'Kart',
+  TRANSFER: 'Havale',
+  OPEN_ACCOUNT: 'Acik Hesap',
+  MIXED: 'Parcali',
+}[value] || value);
+const movementLabel = (value: string) => ({
+  LOAD: 'Yukleme',
+  SALE: 'Satis Cikisi',
+  ORDER_RESERVE: 'Siparis Rezerv',
+  RETURN_TO_DEPOT: 'Depoya Donus',
+  KEEP_ON_VEHICLE: 'Aracta Birak',
+  ADJUSTMENT: 'Sayim Farki',
+  FIRE: 'Fire',
+  COUNT: 'Sayim',
+}[value] || value);
 const minAllowedPrice = (item: CartItem, saleType: SaleType) => {
   const currentCost = n(item.currentCost);
   if (currentCost <= 0) return 0;
@@ -103,6 +131,14 @@ export default function HotSalesPage() {
   const [closingCounts, setClosingCounts] = useState<Record<string, { countedQty: string; action: 'KEEP_ON_VEHICLE' | 'RETURN_TO_DEPOT'; note: string }>>({});
   const [submitting, setSubmitting] = useState(false);
   const [reconciliationLoading, setReconciliationLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [dailyReport, setDailyReport] = useState<any>(null);
+  const [reportFilters, setReportFilters] = useState({
+    startDate: localDateInput(),
+    endDate: localDateInput(),
+    vehicleId: '',
+    userId: '',
+  });
 
   const [sessionForm, setSessionForm] = useState({
     vehicleId: '',
@@ -260,6 +296,13 @@ export default function HotSalesPage() {
     if (activeTab === 'manage') {
       void refreshReconciliation();
     }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'report') {
+      void refreshDailyReport();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   useEffect(() => {
@@ -567,6 +610,78 @@ export default function HotSalesPage() {
     }
   };
 
+  const refreshDailyReport = async () => {
+    setReportLoading(true);
+    try {
+      const result = await adminApi.getHotSaleDailyReport({
+        startDate: reportFilters.startDate,
+        endDate: reportFilters.endDate,
+        vehicleId: reportFilters.vehicleId || undefined,
+        userId: reportFilters.userId || undefined,
+        limit: 500,
+      });
+      setDailyReport(result);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Sicak satis raporu alinamadi');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const exportDailyReportCsv = () => {
+    if (!dailyReport) return;
+    const rows = [
+      ['Baslik', 'Deger'],
+      ['Tarih', `${dailyReport.filters?.startDate || ''} / ${dailyReport.filters?.endDate || ''}`],
+      ['Toplam ciro', dailyReport.summary?.totalRevenue || 0],
+      ['Nakit satis', dailyReport.summary?.cashSales || 0],
+      ['Beklenen kasa', dailyReport.summary?.expectedCash || 0],
+      ['Kapanis nakit', dailyReport.summary?.closingCash || 0],
+      ['Kasa farki', dailyReport.summary?.cashDifference || 0],
+      [],
+      ['Oturum', 'Arac', 'Personel', 'Durum', 'Acilis', 'Nakit Satis', 'Beklenen', 'Kapanis', 'Fark', 'Ciro', 'Islem', 'Mikro Risk', 'Sayim Fark'],
+      ...(dailyReport.sessions || []).map((row: any) => [
+        row.id,
+        row.vehicleName || '',
+        row.userName || '',
+        row.status || '',
+        row.openingCash || 0,
+        row.cashSales || 0,
+        row.expectedCash || 0,
+        row.closingCash ?? '',
+        row.cashDifference ?? '',
+        row.revenue || 0,
+        row.transactionCount || 0,
+        row.syncFailedCount || 0,
+        row.stockDifferenceCount || 0,
+      ]),
+      [],
+      ['Islem', 'Tarih', 'Arac', 'Personel', 'Cari', 'Tip', 'Odeme', 'Durum', 'Evrak', 'Tutar'],
+      ...(dailyReport.transactions || []).map((row: any) => [
+        row.id,
+        fmtDateTime(row.createdAt),
+        row.vehicleName || '',
+        row.userName || '',
+        row.customerName || row.customerCode || '',
+        typeLabel(row.type),
+        paymentLabel(row.paymentType),
+        row.status,
+        row.documentNo || '',
+        row.totalAmount || 0,
+      ]),
+    ];
+    const csv = rows
+      .map((row) => row.map((cell: any) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(';'))
+      .join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sicak-satis-raporu-${dailyReport.filters?.startDate || 'rapor'}-${dailyReport.filters?.endDate || ''}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const cancelLocalTransaction = async (transactionId: string) => {
     const note = prompt('Bu islem B2B tarafinda iptal isaretlenecek ve arac stogu geri alinacak. Not girin:') || '';
     if (!note.trim()) {
@@ -701,11 +816,12 @@ export default function HotSalesPage() {
           </div>
 
           <main className="space-y-4">
-            <div className="grid grid-cols-2 gap-2 rounded-[2rem] bg-white p-2 shadow-xl md:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 rounded-[2rem] bg-white p-2 shadow-xl md:grid-cols-3 xl:grid-cols-6">
               <TabButton active={activeTab === 'sale'} icon={<ShoppingCart className="h-4 w-4" />} label="Satis" onClick={() => setActiveTab('sale')} />
               <TabButton active={activeTab === 'load'} icon={<PackagePlus className="h-4 w-4" />} label="Yukleme" onClick={() => setActiveTab('load')} />
               <TabButton active={activeTab === 'orders'} icon={<ClipboardCheck className="h-4 w-4" />} label="Siparis Teslim" onClick={() => setActiveTab('orders')} />
               <TabButton active={activeTab === 'close'} icon={<ClipboardCheck className="h-4 w-4" />} label="Gun Sonu" onClick={() => setActiveTab('close')} />
+              <TabButton active={activeTab === 'report'} icon={<BarChart3 className="h-4 w-4" />} label="Rapor" onClick={() => setActiveTab('report')} />
               <TabButton active={activeTab === 'manage'} icon={<Settings className="h-4 w-4" />} label="Yonetim" onClick={() => setActiveTab('manage')} />
             </div>
 
@@ -925,6 +1041,238 @@ export default function HotSalesPage() {
               </Card>
             )}
 
+            {activeTab === 'report' && (
+              <section className="space-y-4">
+                <Card className="overflow-hidden rounded-[2rem] border-0 bg-slate-950 p-0 text-white shadow-xl">
+                  <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_auto]">
+                    <div>
+                      <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-amber-400 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-950">
+                        <Banknote className="h-4 w-4" /> Kasa ve Ciro Raporu
+                      </div>
+                      <h2 className="text-3xl font-black tracking-tight">Gunluk Sicak Satis Mutabakati</h2>
+                      <p className="mt-1 max-w-3xl text-sm font-medium text-white/65">
+                        Acilis nakiti, nakit/kart/havale/acik hesap kirilimi, kapanis farki, arac oturumlari, Mikro riski ve stok sayim farklari tek raporda.
+                      </p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 xl:w-[560px]">
+                      <Input type="date" value={reportFilters.startDate} onChange={(e) => setReportFilters((prev) => ({ ...prev, startDate: e.target.value }))} />
+                      <Input type="date" value={reportFilters.endDate} onChange={(e) => setReportFilters((prev) => ({ ...prev, endDate: e.target.value }))} />
+                      <select value={reportFilters.vehicleId} onChange={(e) => setReportFilters((prev) => ({ ...prev, vehicleId: e.target.value }))} className="h-11 rounded-2xl border border-white/10 bg-white px-3 text-sm font-black text-slate-950">
+                        <option value="">Tum araclar</option>
+                        {(dailyReport?.options?.vehicles || vehicles).map((vehicle: any) => (
+                          <option key={vehicle.id} value={vehicle.id}>{vehicle.name} - {vehicle.plate}</option>
+                        ))}
+                      </select>
+                      <select value={reportFilters.userId} onChange={(e) => setReportFilters((prev) => ({ ...prev, userId: e.target.value }))} className="h-11 rounded-2xl border border-white/10 bg-white px-3 text-sm font-black text-slate-950">
+                        <option value="">Tum personeller</option>
+                        {(dailyReport?.options?.users || []).map((operator: any) => (
+                          <option key={operator.id} value={operator.id}>{operator.name || operator.email}</option>
+                        ))}
+                      </select>
+                      <Button onClick={refreshDailyReport} disabled={reportLoading} className="rounded-2xl bg-amber-400 text-slate-950 hover:bg-amber-300">
+                        <RefreshCcw className="mr-2 h-4 w-4" /> Raporu Getir
+                      </Button>
+                      <Button onClick={exportDailyReportCsv} disabled={!dailyReport} className="rounded-2xl bg-white text-slate-950 hover:bg-amber-50">
+                        <FileDown className="mr-2 h-4 w-4" /> Excel CSV
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+
+                {reportLoading && !dailyReport ? (
+                  <Card className="rounded-[2rem] border-0 bg-white p-6 text-sm font-bold text-slate-500 shadow-xl">Rapor hazirlaniyor...</Card>
+                ) : !dailyReport ? (
+                  <Card className="rounded-[2rem] border-0 bg-white p-6 text-sm font-bold text-slate-500 shadow-xl">Filtreleri secip raporu getirin.</Card>
+                ) : (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <ReportMetric title="Toplam Ciro" value={formatCurrency(dailyReport.summary?.totalRevenue || 0)} tone="dark" sub={`${dailyReport.summary?.completedTransactionCount || 0} aktif islem`} />
+                      <ReportMetric title="Nakit Satis" value={formatCurrency(dailyReport.summary?.cashSales || 0)} tone="green" sub={`Acilis: ${formatCurrency(dailyReport.summary?.openingCash || 0)}`} />
+                      <ReportMetric title="Beklenen Kasa" value={formatCurrency(dailyReport.summary?.expectedCash || 0)} tone="amber" sub={`Kapanis: ${formatCurrency(dailyReport.summary?.closingCash || 0)}`} />
+                      <ReportMetric
+                        title="Kasa Farki"
+                        value={formatCurrency(dailyReport.summary?.cashDifference || 0)}
+                        tone={Math.abs(n(dailyReport.summary?.cashDifference)) > 0.01 ? 'red' : 'green'}
+                        sub={`${dailyReport.summary?.riskySessionCount || 0} riskli oturum`}
+                      />
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+                      <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-xl font-black">Odeme ve Islem Kirilimi</h3>
+                            <p className="text-xs font-bold text-slate-500">Iptal islemler cirodan ayrilir, sync failed ayrica risk olarak isaretlenir.</p>
+                          </div>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
+                            {fmtDate(dailyReport.filters?.startDate)} - {fmtDate(dailyReport.filters?.endDate)}
+                          </span>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-3xl bg-slate-50 p-4">
+                            <p className="mb-3 text-sm font-black text-slate-500">Odeme Tipleri</p>
+                            {['CASH', 'CARD', 'TRANSFER', 'OPEN_ACCOUNT', 'MIXED'].map((key) => (
+                              <ReportBar key={key} label={paymentLabel(key)} value={dailyReport.paymentTotals?.[key] || 0} max={dailyReport.summary?.totalRevenue || 1} />
+                            ))}
+                          </div>
+                          <div className="rounded-3xl bg-slate-50 p-4">
+                            <p className="mb-3 text-sm font-black text-slate-500">Islem Tipleri</p>
+                            {['CASH_INVOICE', 'INVOICED_DISPATCH', 'ORDER', 'ORDER_DELIVERY'].map((key) => (
+                              <ReportBar key={key} label={typeLabel(key)} value={dailyReport.typeTotals?.[key]?.amount || 0} count={dailyReport.typeTotals?.[key]?.count || 0} max={dailyReport.summary?.totalRevenue || 1} />
+                            ))}
+                          </div>
+                        </div>
+                      </Card>
+
+                      <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-xl font-black">Uyari Paneli</h3>
+                            <p className="text-xs font-bold text-slate-500">Kasa, Mikro ve stok sayim riskleri.</p>
+                          </div>
+                          <span className={`rounded-full px-3 py-1 text-xs font-black ${dailyReport.riskySessions?.length ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {dailyReport.riskySessions?.length || 0} risk
+                          </span>
+                        </div>
+                        <div className="max-h-[310px] space-y-2 overflow-y-auto pr-1">
+                          {(dailyReport.riskySessions || []).length === 0 && (
+                            <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-black text-emerald-700">Bu filtrede kasa/Mikro/sayim riski gorunmuyor.</p>
+                          )}
+                          {(dailyReport.riskySessions || []).map((session: any) => (
+                            <div key={session.id} className="rounded-2xl border border-red-100 bg-red-50 p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-black text-red-950">{session.vehicleName || '-'} / {session.userName || '-'}</p>
+                                  <p className="text-xs font-bold text-red-700">
+                                    Kasa farki {formatCurrency(session.cashDifference || 0)} · Mikro risk {session.syncFailedCount || 0} · Sayim fark {session.stockDifferenceCount || 0}
+                                  </p>
+                                </div>
+                                <span className="rounded-xl bg-white px-2 py-1 text-xs font-black text-red-700">{session.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    </div>
+
+                    <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-xl font-black">Oturum Bazli Kasa Mutabakati</h3>
+                          <p className="text-xs font-bold text-slate-500">Her arac/personel icin acilis, nakit satis, beklenen kasa, kapanis ve fark.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs font-black">
+                          <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">{dailyReport.summary?.closedSessionCount || 0} kapali</span>
+                          <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">{dailyReport.summary?.openSessionCount || 0} acik</span>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-[1100px] w-full text-left text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-100 text-xs uppercase tracking-[0.12em] text-slate-400">
+                              <th className="py-3 pr-3">Arac / Personel</th>
+                              <th className="py-3 pr-3">Durum</th>
+                              <th className="py-3 pr-3 text-right">Acilis</th>
+                              <th className="py-3 pr-3 text-right">Nakit Satis</th>
+                              <th className="py-3 pr-3 text-right">Beklenen</th>
+                              <th className="py-3 pr-3 text-right">Kapanis</th>
+                              <th className="py-3 pr-3 text-right">Fark</th>
+                              <th className="py-3 pr-3 text-right">Ciro</th>
+                              <th className="py-3 pr-3">Evrak</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(dailyReport.sessions || []).map((session: any) => {
+                              const diffRisk = Math.abs(n(session.cashDifference)) > 0.01;
+                              return (
+                                <tr key={session.id} className="border-b border-slate-50">
+                                  <td className="py-3 pr-3">
+                                    <p className="font-black">{session.vehicleName || '-'} <span className="text-xs text-slate-400">{session.plate || ''}</span></p>
+                                    <p className="text-xs font-bold text-slate-500">{session.userName || '-'} / {fmtDateTime(session.startedAt)}</p>
+                                  </td>
+                                  <td className="py-3 pr-3">
+                                    <span className={`rounded-full px-3 py-1 text-xs font-black ${session.status === 'CLOSED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{session.status}</span>
+                                  </td>
+                                  <td className="py-3 pr-3 text-right font-bold">{formatCurrency(session.openingCash || 0)}</td>
+                                  <td className="py-3 pr-3 text-right font-bold">{formatCurrency(session.cashSales || 0)}</td>
+                                  <td className="py-3 pr-3 text-right font-black">{formatCurrency(session.expectedCash || 0)}</td>
+                                  <td className="py-3 pr-3 text-right font-bold">{session.closingCash === null ? '-' : formatCurrency(session.closingCash || 0)}</td>
+                                  <td className={`py-3 pr-3 text-right font-black ${diffRisk ? 'text-red-700' : 'text-emerald-700'}`}>{session.cashDifference === null ? '-' : formatCurrency(session.cashDifference || 0)}</td>
+                                  <td className="py-3 pr-3 text-right font-black">{formatCurrency(session.revenue || 0)}</td>
+                                  <td className="py-3 pr-3 text-xs font-bold text-slate-500">
+                                    <div>Yukleme: {session.loadDocumentNo || '-'}</div>
+                                    <div>Donus: {session.returnDocumentNo || '-'}</div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {(dailyReport.sessions || []).length === 0 && (
+                              <tr><td colSpan={9} className="py-8 text-center text-sm font-bold text-slate-400">Bu filtrede oturum yok.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+                      <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
+                        <h3 className="mb-4 text-xl font-black">Islem Dokumu</h3>
+                        <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
+                          {(dailyReport.transactions || []).map((row: any) => (
+                            <div key={row.id} className={`rounded-3xl border p-3 ${row.status === 'SYNC_FAILED' ? 'border-red-100 bg-red-50' : row.status === 'CANCELLED' ? 'border-slate-200 bg-slate-100 opacity-70' : 'border-slate-100 bg-slate-50'}`}>
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-black">{row.documentNo || row.linkedOrderNumber || row.id}</p>
+                                  <p className="text-xs font-bold text-slate-500">{fmtDateTime(row.createdAt)} / {row.vehicleName || '-'} / {row.userName || '-'}</p>
+                                  <p className="text-xs font-bold text-slate-500">{row.customerName || row.customerCode || '-'}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-lg font-black">{formatCurrency(row.totalAmount || 0)}</p>
+                                  <p className="text-xs font-bold text-slate-500">{typeLabel(row.type)} / {paymentLabel(row.paymentType)}</p>
+                                </div>
+                              </div>
+                              {row.syncError && <p className="mt-2 rounded-2xl bg-red-100 px-3 py-2 text-xs font-black text-red-700">{row.syncError}</p>}
+                            </div>
+                          ))}
+                          {(dailyReport.transactions || []).length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Islem yok.</p>}
+                        </div>
+                      </Card>
+
+                      <div className="space-y-4">
+                        <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
+                          <h3 className="mb-3 text-xl font-black">En Cok Satan Urunler</h3>
+                          <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+                            {(dailyReport.topProducts || []).slice(0, 12).map((row: any, index: number) => (
+                              <div key={row.productCode} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-black">{index + 1}. {row.productName}</p>
+                                  <p className="text-xs font-bold text-slate-500">{row.productCode} / {fmtQty(row.quantity)} {row.unit || ''}</p>
+                                </div>
+                                <p className="shrink-0 font-black text-emerald-700">{formatCurrency(row.revenue || 0)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </Card>
+
+                        <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
+                          <h3 className="mb-3 text-xl font-black">Stok Hareket Ozeti</h3>
+                          <div className="space-y-2">
+                            {Object.entries(dailyReport.stockSummary || {}).map(([key, value]: any) => (
+                              <div key={key} className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2 text-sm">
+                                <span className="font-black">{movementLabel(key)}</span>
+                                <span className="font-black text-slate-700">{fmtQty(value.quantity)} / {value.count} satir</span>
+                              </div>
+                            ))}
+                            {Object.keys(dailyReport.stockSummary || {}).length === 0 && <p className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-500">Stok hareketi yok.</p>}
+                          </div>
+                        </Card>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+
             {activeTab === 'manage' && (
               <section className="grid gap-4 lg:grid-cols-2">
                 <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
@@ -1008,6 +1356,37 @@ function Metric({ title, value }: { title: string; value: any }) {
     <div className="rounded-3xl border border-white/10 bg-white/10 p-4">
       <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-100/70">{title}</p>
       <p className="mt-1 text-2xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function ReportMetric({ title, value, sub, tone }: { title: string; value: string; sub?: string; tone: 'dark' | 'green' | 'amber' | 'red' }) {
+  const tones = {
+    dark: 'bg-slate-950 text-white',
+    green: 'bg-emerald-700 text-white',
+    amber: 'bg-amber-400 text-slate-950',
+    red: 'bg-red-600 text-white',
+  };
+  return (
+    <div className={`rounded-[2rem] p-5 shadow-xl ${tones[tone]}`}>
+      <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70">{title}</p>
+      <p className="mt-2 text-3xl font-black tracking-tight">{value}</p>
+      {sub && <p className="mt-1 text-xs font-bold opacity-75">{sub}</p>}
+    </div>
+  );
+}
+
+function ReportBar({ label, value, max, count }: { label: string; value: number; max: number; count?: number }) {
+  const pct = Math.max(4, Math.min(100, max > 0 ? (n(value) / max) * 100 : 0));
+  return (
+    <div className="mb-3">
+      <div className="mb-1 flex items-center justify-between gap-3 text-xs font-black">
+        <span>{label}{count !== undefined ? ` (${count})` : ''}</span>
+        <span>{formatCurrency(value || 0)}</span>
+      </div>
+      <div className="h-3 overflow-hidden rounded-full bg-white">
+        <div className="h-full rounded-full bg-slate-950" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }

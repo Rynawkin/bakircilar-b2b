@@ -137,6 +137,21 @@ class HotSaleController {
     }
   }
 
+  async dailyReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await hotSaleService.getDailyReport({
+        startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+        endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+        vehicleId: req.query.vehicleId ? String(req.query.vehicleId) : undefined,
+        userId: req.query.userId ? String(req.query.userId) : undefined,
+        limit: Number(req.query.limit || 250),
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async cancelTransaction(req: Request, res: Response, next: NextFunction) {
     try {
       const transaction = await hotSaleService.cancelTransactionLocally(String(req.params.transactionId), {
