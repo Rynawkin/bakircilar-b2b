@@ -197,7 +197,9 @@ export default function ProductDetailPage() {
   }
 
   const isDiscounted = product.pricingMode === 'EXCESS';
-  const maxQuantity = getMaxOrderQuantity(product, isDiscounted ? 'EXCESS' : 'LIST');
+  const maxQuantity = isDiscounted
+    ? Math.max(getDisplayStock(product), Number(product.excessStock) || 0)
+    : getMaxOrderQuantity(product, 'LIST');
   const displayStock = isDiscounted
     ? product.excessStock ?? 0
     : getDisplayStock(product);

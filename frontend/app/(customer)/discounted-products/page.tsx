@@ -272,7 +272,7 @@ export default function DiscountedProductsPage() {
     setAddingToCart((prev) => ({ ...prev, [productId]: true }));
 
     try {
-      const maxQty = getMaxOrderQuantity(product, 'EXCESS');
+      const maxQty = Math.max(getDisplayStock(product), Number(product.excessStock) || 0);
       if (quantity > maxQty) {
         const confirmed = await confirmBackorder({
           requestedQty: quantity,

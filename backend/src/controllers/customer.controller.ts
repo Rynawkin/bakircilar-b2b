@@ -13,6 +13,7 @@ import productComplementService from '../services/product-complement.service';
 import customerActivityService from '../services/customer-activity.service';
 import warehouseWorkflowService from '../services/warehouse-workflow.service';
 import exclusionService from '../services/exclusion.service';
+import cartPricingService, { CartPriceType } from '../services/cart-pricing.service';
 import { splitSearchTokens } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
@@ -437,7 +438,7 @@ export class CustomerController {
         );
       };
 
-      // Kullanıcı bilgisini al
+      // KullanÄ±cÄ± bilgisini al
       const user = await prisma.user.findUnique({
         where: { id: req.user!.userId },
         select: {
@@ -1711,6 +1712,7 @@ export class CustomerController {
    */
   async getCart(req: Request, res: Response, next: NextFunction) {
     try {
+      await cartPricingService.syncCartDiscountAllocations(req.user!.userId);
       const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
       const cart = await prisma.cart.findUnique({
         where: { userId: req.user!.userId },
@@ -1726,6 +1728,7 @@ export class CustomerController {
                   name: true,
                   mikroCode: true,
                   imageUrl: true,
+                  vatRate: true,
                 },
               },
             },
@@ -1741,31 +1744,26 @@ export class CustomerController {
         return sum + item.quantity * item.unitPrice;
       }, 0);
 
-      // Her item için KDV bilgisini al
-      const itemsWithVat = await Promise.all(
-        cart.items.map(async (item) => {
-          const product = await prisma.product.findUnique({
-            where: { id: item.product.id },
-            select: { vatRate: true },
-          });
+      // Her item iÃ§in KDV bilgisini al
+      const itemsWithVat = cart.items.map((item) => {
+        const { vatRate, ...product } = item.product;
+        return {
+          id: item.id,
+          product,
+          quantity: item.quantity,
+          priceType: item.priceType,
+          priceMode: item.priceMode,
+          unitPrice: item.unitPrice,
+          totalPrice: item.quantity * item.unitPrice,
+          lineNote: item.lineNote || null,
+          vatRate: vatRate || 0,
+        };
+      });
 
-          return {
-            id: item.id,
-            product: item.product,
-            quantity: item.quantity,
-            priceType: item.priceType,
-            unitPrice: item.unitPrice,
-            totalPrice: item.quantity * item.unitPrice,
-            lineNote: item.lineNote || null,
-            vatRate: product?.vatRate || 0,
-          };
-        })
-      );
-
-      // KDV hariç ve KDV dahil toplamları hesapla
-      const subtotal = total; // KDV hariç
+      // KDV hariÃ§ ve KDV dahil toplamlarÄ± hesapla
+      const subtotal = total; // KDV hariÃ§
       const totalVat = itemsWithVat.reduce((sum, item) => {
-        // Sadece faturalı ürünlerin KDV'sini hesapla (beyaz zaten KDV'nin yarısını içeriyor)
+        // Sadece faturalÄ± Ã¼rÃ¼nlerin KDV'sini hesapla (beyaz zaten KDV'nin yarÄ±sÄ±nÄ± iÃ§eriyor)
         if (item.priceType === 'INVOICED') {
           return sum + item.totalPrice * item.vatRate;
         }
@@ -1776,7 +1774,7 @@ export class CustomerController {
       res.json({
         id: cart.id,
         items: itemsWithVat,
-        subtotal, // KDV hariç
+        subtotal, // KDV hariÃ§
         totalVat,
         total: totalWithVat, // KDV dahil
       });
@@ -1790,244 +1788,102 @@ export class CustomerController {
    */
   async addToCart(req: Request, res: Response, next: NextFunction) {
     try {
-      const { productId, quantity, priceType, priceMode } = req.body;
-      const effectivePriceMode = priceMode === 'EXCESS' ? 'EXCESS' : 'LIST';
-
-      // Kullanıcı bilgisi
-      const user = await prisma.user.findUnique({
-        where: { id: req.user!.userId },
-        select: {
-          id: true,
-          mikroCariCode: true,
-          customerType: true,
-          invoicedPriceListNo: true,
-          whitePriceListNo: true,
-          priceVisibility: true,
-          useLastPrices: true,
-          lastPriceGuardType: true,
-          lastPriceGuardInvoicedListNo: true,
-          lastPriceGuardWhiteListNo: true,
-          lastPriceCostBasis: true,
-          lastPriceMinCostPercent: true,
-          parentCustomerId: true,
-          parentCustomer: {
-            select: {
-              id: true,
-              mikroCariCode: true,
-              customerType: true,
-              invoicedPriceListNo: true,
-              whitePriceListNo: true,
-              priceVisibility: true,
-              useLastPrices: true,
-              lastPriceGuardType: true,
-              lastPriceGuardInvoicedListNo: true,
-              lastPriceGuardWhiteListNo: true,
-              lastPriceCostBasis: true,
-              lastPriceMinCostPercent: true,
-            },
-          },
-        },
-      });
-
-        const customer = user?.parentCustomer || user;
-
-        if (!customer || !customer.customerType) {
-          return res.status(400).json({ error: 'User has no customer type' });
+      {
+        const { productId, quantity, priceType, priceMode } = req.body;
+        const requestedPriceMode = priceMode === 'EXCESS' ? 'EXCESS' : 'LIST';
+        const parsedQuantity = Number(quantity);
+        if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+          return res.status(400).json({ error: 'Quantity must be greater than 0' });
         }
-        const effectiveVisibility = user?.parentCustomerId
-          ? (customer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
-          : customer.priceVisibility;
 
-        // Ürün kontrolü
+        if (priceType !== 'INVOICED' && priceType !== 'WHITE') {
+          return res.status(400).json({ error: 'Invalid price type' });
+        }
+
+        const context = await cartPricingService.loadCartCustomerContext(req.user!.userId);
+        const user = context.user;
+        const customer = context.customer;
+        const safePriceType = priceType as CartPriceType;
+
         const product = await prisma.product.findUnique({
           where: { id: productId },
         });
 
-      if (!product) {
-        return res.status(404).json({ error: 'Product not found' });
-      }
-
-      const excludedProductCodeSet = new Set(await exclusionService.getActiveProductCodeExclusions());
-      if (excludedProductCodeSet.has(normalizeMikroCode(product.mikroCode))) {
-        return res.status(404).json({ error: 'Product not found' });
-      }
-
-      if (effectivePriceMode === 'EXCESS' && product.excessStock <= 0) {
-        return res.status(400).json({ error: 'Product is not discounted' });
-      }
-
-      if (!isPriceTypeAllowed(effectiveVisibility, priceType)) {
-        return res.status(400).json({ error: 'Price type not allowed for customer' });
-      }
-
-      const prices = product.prices as unknown as ProductPrices;
-      const customerPrices = pricingService.getPriceForCustomer(
-        prices,
-        customer.customerType as any
-      );
-
-      let unitPrice = 0;
-
-      if (effectivePriceMode === 'EXCESS') {
-        unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
-      } else {
-        const [settings, priceListRules] = await Promise.all([
-          prisma.settings.findFirst({
-            select: {
-              customerPriceLists: true,
-            },
-          }),
-          prisma.customerPriceListRule.findMany({
-            where: { customerId: customer.id },
-          }),
-        ]);
-        const basePriceListPair = resolveCustomerPriceLists(customer, settings);
-        const productPriceListPair = resolveCustomerPriceListsForProduct(
-          basePriceListPair,
-          priceListRules,
-          {
-            brandCode: product.brandCode,
-            categoryId: product.categoryId,
-          }
-        );
-        const priceStats = await priceListService.getPriceStats(product.mikroCode);
-        const listInvoiced = priceListService.getListPriceWithFallback(
-          priceStats,
-          productPriceListPair.invoiced
-        );
-        const listWhite = priceListService.getListPriceWithFallback(
-          priceStats,
-          productPriceListPair.white
-        );
-
-        const listPricesBase = {
-          invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
-          white: listWhite > 0 ? listWhite : customerPrices.white,
-        };
-        const guardPrices = getLastPriceGuardPrices(
-          priceStats,
-          customer.lastPriceGuardInvoicedListNo,
-          customer.lastPriceGuardWhiteListNo
-        );
-        let listPrices = listPricesBase;
-        if (customer.useLastPrices && customer.mikroCariCode) {
-          try {
-            const sales = await mikroService.getCustomerSalesMovements(
-              customer.mikroCariCode as string,
-              [product.mikroCode],
-              1
-            );
-            const lastSalesMap = buildLastSalesMap(sales);
-            const lastSalePrice = lastSalesMap.get(product.mikroCode);
-            const lastPriceResult = resolveLastPriceOverride({
-              config: customer,
-              lastSalePrice,
-              listPrices: listPricesBase,
-              guardPrices,
-              product: {
-                currentCost: product.currentCost,
-                lastEntryPrice: product.lastEntryPrice,
-              },
-              priceVisibility: effectiveVisibility,
-            });
-            listPrices = lastPriceResult.prices;
-          } catch (error) {
-            console.error('Customer last price failed', { customerId: customer.id, error });
-          }
+        if (!product || !product.active) {
+          return res.status(404).json({ error: 'Product not found' });
         }
 
-        unitPrice = priceType === 'INVOICED' ? listPrices.invoiced : listPrices.white;
-      }
-
-      const agreement = await prisma.customerPriceAgreement.findFirst({
-        where: {
-          customerId: customer.id,
-          productId,
-        },
-        select: {
-          priceInvoiced: true,
-          priceWhite: true,
-          customerProductCode: true,
-          minQuantity: true,
-          validFrom: true,
-          validTo: true,
-        },
-      });
-
-      if (agreement && isAgreementApplicable(agreement, new Date(), quantity)) {
-        unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
-      }
-
-      // Cart'ı bul veya oluştur
-      let cart = await prisma.cart.findUnique({
-        where: { userId: user.id },
-      });
-
-      if (!cart) {
-        cart = await prisma.cart.create({
-          data: { userId: user.id },
-        });
-      }
-
-      // Aynı ürün ve fiyat tipi varsa güncelle, yoksa ekle
-      const existingItem = await prisma.cartItem.findFirst({
-        where: {
-          cartId: cart.id,
-          productId,
-          priceType,
-          priceMode: effectivePriceMode,
-        },
-      });
-
-      let cartItemId: string | undefined;
-
-      if (existingItem) {
-        const combinedQuantity = existingItem.quantity + quantity;
-        if (agreement && isAgreementApplicable(agreement, new Date(), combinedQuantity)) {
-          unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
+        const excludedProductCodeSet = new Set(await exclusionService.getActiveProductCodeExclusions());
+        if (excludedProductCodeSet.has(normalizeMikroCode(product.mikroCode))) {
+          return res.status(404).json({ error: 'Product not found' });
         }
-        await prisma.cartItem.update({
-          where: { id: existingItem.id },
-          data: {
-            quantity: combinedQuantity,
-            unitPrice,
-          },
+
+        if (requestedPriceMode === 'EXCESS' && product.excessStock <= 0) {
+          return res.status(400).json({ error: 'Product is not discounted' });
+        }
+
+        if (!cartPricingService.isCartPriceTypeAllowed(context.effectiveVisibility, safePriceType)) {
+          return res.status(400).json({ error: 'Price type not allowed for customer' });
+        }
+
+        let cart = await prisma.cart.findUnique({
+          where: { userId: user.id },
         });
-        cartItemId = existingItem.id;
-      } else {
-        const createdItem = await prisma.cartItem.create({
-          data: {
+
+        if (!cart) {
+          cart = await prisma.cart.create({
+            data: { userId: user.id },
+          });
+        }
+
+        const existingItems = await prisma.cartItem.findMany({
+          where: {
             cartId: cart.id,
             productId,
-            quantity,
-            priceType,
-            priceMode: effectivePriceMode,
-            unitPrice,
+            priceType: safePriceType,
           },
+          orderBy: { createdAt: 'asc' },
         });
-        cartItemId = createdItem.id;
+
+        const currentQuantity = existingItems.reduce((sum, item) => sum + item.quantity, 0);
+        const rebalanceResult = await cartPricingService.rebalanceCartProductPriceType({
+          context,
+          cartId: cart.id,
+          productId,
+          product,
+          priceType: safePriceType,
+          totalQuantity: currentQuantity + Math.trunc(parsedQuantity),
+          existingItems,
+        });
+        const cartItemId = rebalanceResult.cartItemIds[0];
+
+        const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
+        try {
+          await customerActivityService.trackEvent({
+            type: 'CART_ADD',
+            userId: user.id,
+            customerId: customer?.id ?? user.id,
+            sessionId,
+            productId: product.id,
+            productCode: product.mikroCode,
+            cartItemId,
+            quantity: Math.trunc(parsedQuantity),
+            meta: {
+              priceType: safePriceType,
+              requestedPriceMode,
+              excessQuantity: rebalanceResult.excessQuantity,
+              listQuantity: rebalanceResult.listQuantity,
+            },
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+          });
+        } catch (error) {
+          console.error('Customer activity log failed (cart add):', error);
+        }
+
+        return res.json({ message: 'Product added to cart' });
       }
 
-      const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
-      try {
-        await customerActivityService.trackEvent({
-          type: 'CART_ADD',
-          userId: user.id,
-          customerId: customer?.id ?? user.id,
-          sessionId,
-          productId: product.id,
-          productCode: product.mikroCode,
-          cartItemId,
-          quantity,
-          meta: { priceType, priceMode: effectivePriceMode },
-          ip: req.ip,
-          userAgent: req.headers['user-agent'],
-        });
-      } catch (error) {
-        console.error('Customer activity log failed (cart add):', error);
-      }
-
-      res.json({ message: 'Product added to cart' });
     } catch (error) {
       next(error);
     }
@@ -2038,214 +1894,102 @@ export class CustomerController {
    */
   async updateCartItem(req: Request, res: Response, next: NextFunction) {
     try {
-      const { itemId } = req.params;
-      const { quantity, lineNote } = req.body || {};
+      {
+        const { itemId } = req.params;
+        const { quantity, lineNote } = req.body || {};
 
-      const hasQuantity = quantity !== undefined && quantity !== null;
-      const parsedQuantity = Number(quantity);
+        const hasQuantity = quantity !== undefined && quantity !== null;
+        const parsedQuantity = Number(quantity);
 
-      if (hasQuantity && (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0)) {
-        return res.status(400).json({ error: 'Quantity must be greater than 0' });
-      }
+        if (hasQuantity && (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0)) {
+          return res.status(400).json({ error: 'Quantity must be greater than 0' });
+        }
 
-      const cartItem = await prisma.cartItem.findUnique({
-        where: { id: itemId },
-        include: {
-          product: true,
-          cart: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  mikroCariCode: true,
-                  customerType: true,
-                  invoicedPriceListNo: true,
-                  whitePriceListNo: true,
-                  priceVisibility: true,
-                  useLastPrices: true,
-                  lastPriceGuardType: true,
-                  lastPriceGuardInvoicedListNo: true,
-                  lastPriceGuardWhiteListNo: true,
-                  lastPriceCostBasis: true,
-                  lastPriceMinCostPercent: true,
-                  parentCustomerId: true,
-                  parentCustomer: {
-                    select: {
-                      id: true,
-                      mikroCariCode: true,
-                      customerType: true,
-                      invoicedPriceListNo: true,
-                      whitePriceListNo: true,
-                      priceVisibility: true,
-                      useLastPrices: true,
-                      lastPriceGuardType: true,
-                      lastPriceGuardInvoicedListNo: true,
-                      lastPriceGuardWhiteListNo: true,
-                      lastPriceCostBasis: true,
-                      lastPriceMinCostPercent: true,
-                    },
-                  },
-                },
+        const cartItem = await prisma.cartItem.findUnique({
+          where: { id: itemId },
+          include: {
+            product: true,
+            cart: {
+              select: {
+                id: true,
+                userId: true,
               },
             },
           },
-        },
-      });
+        });
 
-      if (!cartItem) {
-        return res.status(404).json({ error: 'Cart item not found' });
-      }
-
-      const nextQuantity = hasQuantity ? parsedQuantity : cartItem.quantity;
-
-      const user = cartItem.cart.user;
-      const customer = user?.parentCustomer || user;
-
-      if (!customer || !customer.customerType) {
-        return res.status(400).json({ error: 'User has no customer type' });
-      }
-      const effectiveVisibility = user?.parentCustomerId
-        ? (customer.priceVisibility === 'WHITE_ONLY' ? 'WHITE_ONLY' : 'INVOICED_ONLY')
-        : customer.priceVisibility;
-
-      const priceType = cartItem.priceType;
-      const prices = cartItem.product.prices as unknown as ProductPrices;
-      const customerPrices = pricingService.getPriceForCustomer(
-        prices,
-        customer.customerType as any
-      );
-
-      let unitPrice = 0;
-      const effectivePriceMode = cartItem.priceMode === 'EXCESS' ? 'EXCESS' : 'LIST';
-
-      if (effectivePriceMode === 'EXCESS') {
-        unitPrice = priceType === 'INVOICED' ? customerPrices.invoiced : customerPrices.white;
-      } else {
-        const [settings, priceListRules] = await Promise.all([
-          prisma.settings.findFirst({
-            select: {
-              customerPriceLists: true,
-            },
-          }),
-          prisma.customerPriceListRule.findMany({
-            where: { customerId: customer.id },
-          }),
-        ]);
-        const basePriceListPair = resolveCustomerPriceLists(customer, settings);
-        const productPriceListPair = resolveCustomerPriceListsForProduct(
-          basePriceListPair,
-          priceListRules,
-          {
-            brandCode: cartItem.product.brandCode,
-            categoryId: cartItem.product.categoryId,
-          }
-        );
-        const priceStats = await priceListService.getPriceStats(cartItem.product.mikroCode);
-        const listInvoiced = priceListService.getListPriceWithFallback(
-          priceStats,
-          productPriceListPair.invoiced
-        );
-        const listWhite = priceListService.getListPriceWithFallback(
-          priceStats,
-          productPriceListPair.white
-        );
-
-        const listPricesBase = {
-          invoiced: listInvoiced > 0 ? listInvoiced : customerPrices.invoiced,
-          white: listWhite > 0 ? listWhite : customerPrices.white,
-        };
-        const guardPrices = getLastPriceGuardPrices(
-          priceStats,
-          customer.lastPriceGuardInvoicedListNo,
-          customer.lastPriceGuardWhiteListNo
-        );
-        let listPrices = listPricesBase;
-        if (customer.useLastPrices && customer.mikroCariCode) {
-          try {
-            const sales = await mikroService.getCustomerSalesMovements(
-              customer.mikroCariCode as string,
-              [cartItem.product.mikroCode],
-              1
-            );
-            const lastSalesMap = buildLastSalesMap(sales);
-            const lastSalePrice = lastSalesMap.get(cartItem.product.mikroCode);
-            const lastPriceResult = resolveLastPriceOverride({
-              config: customer,
-              lastSalePrice,
-              listPrices: listPricesBase,
-              guardPrices,
-              product: {
-                currentCost: cartItem.product.currentCost,
-                lastEntryPrice: cartItem.product.lastEntryPrice,
-              },
-              priceVisibility: effectiveVisibility,
-            });
-            listPrices = lastPriceResult.prices;
-          } catch (error) {
-            console.error('Customer last price failed', { customerId: customer.id, error });
-          }
+        if (!cartItem || cartItem.cart.userId !== req.user!.userId) {
+          return res.status(404).json({ error: 'Cart item not found' });
         }
 
-        unitPrice = priceType === 'INVOICED' ? listPrices.invoiced : listPrices.white;
-      }
+        const context = await cartPricingService.loadCartCustomerContext(req.user!.userId);
+        const safePriceType: CartPriceType = cartItem.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
 
-      const agreement = await prisma.customerPriceAgreement.findFirst({
-        where: {
-          customerId: customer.id,
-          productId: cartItem.productId,
-        },
-        select: {
-          priceInvoiced: true,
-          priceWhite: true,
-          customerProductCode: true,
-          minQuantity: true,
-          validFrom: true,
-          validTo: true,
-        },
-      });
+        if (!cartPricingService.isCartPriceTypeAllowed(context.effectiveVisibility, safePriceType)) {
+          return res.status(400).json({ error: 'Price type not allowed for customer' });
+        }
 
-      if (agreement && isAgreementApplicable(agreement, new Date(), nextQuantity)) {
-        unitPrice = resolveAgreementPrice(agreement, priceType, unitPrice);
-      }
-
-      const updateData: { quantity?: number; unitPrice?: number; lineNote?: string | null } = {
-        unitPrice,
-      };
-
-      if (hasQuantity) {
-        updateData.quantity = nextQuantity;
-      }
-
-      if (lineNote !== undefined) {
-        const normalizedNote = String(lineNote).trim();
-        updateData.lineNote = normalizedNote ? normalizedNote : null;
-      }
-
-      await prisma.cartItem.update({
-        where: { id: itemId },
-        data: updateData,
-      });
-
-      const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
-      try {
-        await customerActivityService.trackEvent({
-          type: 'CART_UPDATE',
-          userId: user.id,
-          customerId: customer?.id ?? user.id,
-          sessionId,
-          productId: cartItem.productId,
-          productCode: cartItem.product.mikroCode,
-          cartItemId: cartItem.id,
-          quantity: hasQuantity ? nextQuantity : undefined,
-          meta: { priceType: cartItem.priceType, priceMode: effectivePriceMode, lineNote: updateData.lineNote ?? undefined },
-          ip: req.ip,
-          userAgent: req.headers['user-agent'],
+        const existingItems = await prisma.cartItem.findMany({
+          where: {
+            cartId: cartItem.cartId,
+            productId: cartItem.productId,
+            priceType: safePriceType,
+          },
+          orderBy: { createdAt: 'asc' },
         });
-      } catch (error) {
-        console.error('Customer activity log failed (cart update):', error);
+
+        const nextQuantity = hasQuantity ? Math.trunc(parsedQuantity) : cartItem.quantity;
+        const otherQuantity = existingItems.reduce((sum, item) => (
+          item.id === cartItem.id ? sum : sum + item.quantity
+        ), 0);
+        const normalizedNote =
+          lineNote !== undefined
+            ? (String(lineNote).trim() || null)
+            : undefined;
+
+        const rebalanceResult = await cartPricingService.rebalanceCartProductPriceType({
+          context,
+          cartId: cartItem.cartId,
+          productId: cartItem.productId,
+          product: cartItem.product,
+          priceType: safePriceType,
+          totalQuantity: otherQuantity + nextQuantity,
+          existingItems,
+          lineNotePatch: normalizedNote !== undefined
+            ? { itemId: cartItem.id, value: normalizedNote }
+            : undefined,
+        });
+
+        const sessionId = typeof req.headers['x-session-id'] === 'string' ? req.headers['x-session-id'] : undefined;
+        try {
+          await customerActivityService.trackEvent({
+            type: 'CART_UPDATE',
+            userId: context.user.id,
+            customerId: context.customer?.id ?? context.user.id,
+            sessionId,
+            productId: cartItem.productId,
+            productCode: cartItem.product.mikroCode,
+            cartItemId: rebalanceResult.cartItemIds.includes(cartItem.id)
+              ? cartItem.id
+              : rebalanceResult.cartItemIds[0],
+            quantity: hasQuantity ? nextQuantity : undefined,
+            meta: {
+              priceType: safePriceType,
+              previousPriceMode: cartItem.priceMode,
+              excessQuantity: rebalanceResult.excessQuantity,
+              listQuantity: rebalanceResult.listQuantity,
+              lineNote: normalizedNote,
+            },
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+          });
+        } catch (error) {
+          console.error('Customer activity log failed (cart update):', error);
+        }
+
+        return res.json({ message: 'Cart item updated' });
       }
 
-      res.json({ message: 'Cart item updated' });
     } catch (error) {
       next(error);
     }
@@ -2350,7 +2094,7 @@ export class CustomerController {
 
       const order = await orderService.getOrderById(id);
 
-      // Kullanıcının kendi siparişi olduğunu kontrol et
+      // KullanÄ±cÄ±nÄ±n kendi sipariÅŸi olduÄŸunu kontrol et
       if (order.userId !== req.user!.userId) {
         return res.status(403).json({ error: 'Access denied' });
       }

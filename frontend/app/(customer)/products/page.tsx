@@ -248,7 +248,7 @@ export default function ProductsPage() {
 
     try {
       const maxQty = effectivePriceMode === 'EXCESS'
-        ? Math.max(0, Number(product.excessStock) || 0)
+        ? Math.max(getMaxOrderQuantity(product, 'LIST'), Number(product.excessStock) || 0)
         : getMaxOrderQuantity(product, 'LIST');
       if (quantity > maxQty) {
         const confirmed = await confirmBackorder({

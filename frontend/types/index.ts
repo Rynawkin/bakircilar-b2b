@@ -98,6 +98,7 @@ export interface CartItem {
   };
   quantity: number;
   priceType: 'INVOICED' | 'WHITE';
+  priceMode?: 'LIST' | 'EXCESS';
   unitPrice: number;
   totalPrice: number;
   vatRate: number;

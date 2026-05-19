@@ -9,6 +9,7 @@ import pricingService from '../services/pricing.service';
 import priceListService from '../services/price-list.service';
 import notificationService from '../services/notification.service';
 import mikroService from '../services/mikroFactory.service';
+import cartPricingService from '../services/cart-pricing.service';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
@@ -331,6 +332,8 @@ export class OrderRequestController {
       if (!user.parentCustomerId) {
         return res.status(403).json({ error: 'Only sub users can create order requests' });
       }
+
+      await cartPricingService.syncCartDiscountAllocations(user.id);
 
       const cart = await prisma.cart.findUnique({
         where: { userId: user.id },

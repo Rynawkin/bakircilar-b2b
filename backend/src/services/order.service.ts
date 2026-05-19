@@ -14,6 +14,7 @@ import { generateOrderNumber } from '../utils/orderNumber';
 import mikroService from './mikroFactory.service';
 import pricingService from './pricing.service';
 import priceListService from './price-list.service';
+import cartPricingService from './cart-pricing.service';
 import { ProductPrices, MikroCustomerSaleMovement } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
@@ -827,6 +828,8 @@ class OrderService {
     orderNumber: string;
   }> {
     // 1. Kullanıcının sepetini al
+    await cartPricingService.syncCartDiscountAllocations(userId);
+
     const cart = await prisma.cart.findUnique({
       where: { userId },
       include: {

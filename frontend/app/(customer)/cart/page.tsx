@@ -279,6 +279,11 @@ Siparis No: ${result.orderNumber}`, {
                               <Badge variant="info" className="font-semibold">
                                 📄 Faturalı
                               </Badge>
+                              {item.priceMode === 'EXCESS' && (
+                                <Badge variant="success" className="ml-2 font-semibold">
+                                  Indirimli
+                                </Badge>
+                              )}
                             </div>
 
                             {/* Quantity Controls - Mobile Friendly */}
@@ -414,6 +419,11 @@ Siparis No: ${result.orderNumber}`, {
                               <Badge variant="default" className="font-semibold bg-gray-200 text-gray-800">
                                 ⚪ Beyaz (Özel)
                               </Badge>
+                              {item.priceMode === 'EXCESS' && (
+                                <Badge variant="success" className="ml-2 font-semibold">
+                                  Indirimli
+                                </Badge>
+                              )}
                             </div>
 
                             {/* Quantity Controls - Mobile Friendly */}

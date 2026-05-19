@@ -217,6 +217,7 @@ export interface CartItemResponse {
   };
   quantity: number;
   priceType: string;
+  priceMode?: 'LIST' | 'EXCESS';
   unitPrice: number;
   totalPrice: number;
 }
