@@ -396,6 +396,8 @@ router.post('/hot-sales/sessions/:sessionId/transactions', requirePermission('ad
 router.post('/hot-sales/sessions/:sessionId/order-delivery', requirePermission('admin:hot-sales'), hotSaleController.deliverOrder);
 router.post('/hot-sales/sessions/:sessionId/close', requirePermission('admin:hot-sales'), hotSaleController.closeSession);
 router.get('/hot-sales/vehicles/:vehicleId/inventory', requirePermission('admin:hot-sales'), hotSaleController.inventory);
+router.get('/hot-sales/reconciliation', requirePermission('admin:hot-sales'), hotSaleController.reconciliation);
+router.post('/hot-sales/transactions/:transactionId/cancel-local', requirePermission('admin:hot-sales'), hotSaleController.cancelTransaction);
 router.get('/customers/:id/price-list-rules', requirePermission('admin:customers'), adminController.getCustomerPriceListRules);
 router.put(
   '/customers/:id/price-list-rules',

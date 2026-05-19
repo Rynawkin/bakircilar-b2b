@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Search, Truck, ShoppingCart, PackagePlus, ClipboardCheck, Settings, Plus, X } from 'lucide-react';
+import { AlertTriangle, RefreshCcw, Search, Truck, ShoppingCart, PackagePlus, ClipboardCheck, Settings, Plus, X } from 'lucide-react';
 import adminApi from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -30,6 +30,10 @@ type CartItem = {
   currentCostVatIncluded?: number | null;
   imageUrl?: string | null;
   vehicleStock?: number;
+  hotWarehouseStock?: number;
+  stockMerkez?: number;
+  stockTopca?: number;
+  totalVisibleStock?: number;
 };
 
 type NewCustomerForm = {
@@ -63,6 +67,12 @@ const minAllowedPrice = (item: CartItem, saleType: SaleType) => {
   if (saleType === 'CASH_INVOICE') return Math.max(n(item.currentCostVatIncluded), currentCost);
   return currentCost * 1.05;
 };
+const costMissing = (item: CartItem) => n(item.currentCost) <= 0;
+const itemAvailableFor = (item: CartItem, mode: 'sale' | 'load', saleType?: SaleType, sourceWarehouseNo?: string) => {
+  if (mode === 'load') return sourceWarehouseNo === '6' ? n(item.stockTopca) : n(item.stockMerkez);
+  if (saleType === 'ORDER') return Number.POSITIVE_INFINITY;
+  return n(item.vehicleStock);
+};
 
 export default function HotSalesPage() {
   const router = useRouter();
@@ -78,6 +88,7 @@ export default function HotSalesPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [openOrders, setOpenOrders] = useState<any[]>([]);
+  const [reconciliation, setReconciliation] = useState<any>(null);
   const [customerSearch, setCustomerSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [orderSearch, setOrderSearch] = useState('');
@@ -91,6 +102,7 @@ export default function HotSalesPage() {
   const [deliveryQuantities, setDeliveryQuantities] = useState<Record<string, string>>({});
   const [closingCounts, setClosingCounts] = useState<Record<string, { countedQty: string; action: 'KEEP_ON_VEHICLE' | 'RETURN_TO_DEPOT'; note: string }>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [reconciliationLoading, setReconciliationLoading] = useState(false);
 
   const [sessionForm, setSessionForm] = useState({
     vehicleId: '',
@@ -198,7 +210,7 @@ export default function HotSalesPage() {
       try {
         const result = await adminApi.searchHotSaleProducts({
           search: productSearch,
-          limit: 60,
+          limit: productSearch.trim() ? 60 : 500,
           vehicleId,
           customerIdOrCode: selectedCustomer?.id || selectedCustomer?.mikroCariCode,
         });
@@ -245,6 +257,12 @@ export default function HotSalesPage() {
   }, [activeTab, orderSearch, sessionDetail?.session?.vehicleId, selectedCustomer?.id, selectedCustomer?.mikroCariCode]);
 
   useEffect(() => {
+    if (activeTab === 'manage') {
+      void refreshReconciliation();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
     if (saleType === 'CASH_INVOICE') {
       setPaymentType('CASH');
       setPriceListNo(5);
@@ -260,8 +278,16 @@ export default function HotSalesPage() {
   const saleTotal = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
   const loadTotalQty = useMemo(() => loadCart.reduce((sum, item) => sum + item.quantity, 0), [loadCart]);
   const priceViolations = useMemo(
-    () => cart.filter((item) => minAllowedPrice(item, saleType) > 0 && n(item.unitPrice) + 0.0001 < minAllowedPrice(item, saleType)),
+    () => cart.filter((item) => costMissing(item) || (minAllowedPrice(item, saleType) > 0 && n(item.unitPrice) + 0.0001 < minAllowedPrice(item, saleType))),
     [cart, saleType]
+  );
+  const saleStockViolations = useMemo(
+    () => cart.filter((item) => n(item.quantity) > itemAvailableFor(item, 'sale', saleType) + 0.0001),
+    [cart, saleType]
+  );
+  const loadStockViolations = useMemo(
+    () => loadCart.filter((item) => n(item.quantity) > itemAvailableFor(item, 'load', undefined, sessionForm.sourceWarehouseNo) + 0.0001),
+    [loadCart, sessionForm.sourceWarehouseNo]
   );
   const activeSession = sessionDetail?.session || null;
   const inventory = sessionDetail?.inventory || [];
@@ -269,6 +295,10 @@ export default function HotSalesPage() {
   const addToCart = (product: any, target: 'sale' | 'load', forcedListNo?: number) => {
     const listNo = target === 'load' ? 1 : forcedListNo || priceListNo;
     const unitPrice = target === 'load' ? 0 : n(product.priceLists?.[listNo]);
+    if (target === 'sale' && n(product.currentCost) <= 0) {
+      toast.error(`${product.productCode} guncel maliyeti yok, satisa eklenemez`);
+      return;
+    }
     if (target === 'sale' && unitPrice <= 0) {
       toast.error(`${priceLabel(listNo)} fiyati yok`);
       return;
@@ -302,6 +332,10 @@ export default function HotSalesPage() {
           currentCostVatIncluded: product.currentCostVatIncluded,
           imageUrl: product.imageUrl,
           vehicleStock: product.vehicleStock,
+          hotWarehouseStock: product.hotWarehouseStock,
+          stockMerkez: product.stockMerkez,
+          stockTopca: product.stockTopca,
+          totalVisibleStock: product.totalVisibleStock,
         },
       ];
     });
@@ -320,6 +354,10 @@ export default function HotSalesPage() {
   const startSession = async () => {
     if (!sessionForm.vehicleId) {
       toast.error('Arac secin');
+      return;
+    }
+    if (loadStockViolations.length > 0) {
+      toast.error(`Kaynak depo stogu yetersiz: ${loadStockViolations.map((item) => item.productCode).join(', ')}`);
       return;
     }
     setSubmitting(true);
@@ -347,6 +385,10 @@ export default function HotSalesPage() {
     if (!activeSession) return;
     if (loadCart.length === 0) {
       toast.error('Yuklenecek urun yok');
+      return;
+    }
+    if (loadStockViolations.length > 0) {
+      toast.error(`Kaynak depo stogu yetersiz: ${loadStockViolations.map((item) => item.productCode).join(', ')}`);
       return;
     }
     setSubmitting(true);
@@ -379,7 +421,11 @@ export default function HotSalesPage() {
       return;
     }
     if (priceViolations.length > 0) {
-      toast.error('Maliyet alt limitinin altinda fiyat var');
+      toast.error('Maliyet eksik veya alt limitin altinda fiyat var');
+      return;
+    }
+    if (saleStockViolations.length > 0) {
+      toast.error(`Arac stogu yetersiz: ${saleStockViolations.map((item) => item.productCode).join(', ')}`);
       return;
     }
     setSubmitting(true);
@@ -424,6 +470,19 @@ export default function HotSalesPage() {
       .filter((row: any) => row.quantity > 0);
     if (selectedItems.length === 0) {
       toast.error('Teslim miktari girin');
+      return;
+    }
+    const totalsByCode = new Map<string, { requested: number; available: number }>();
+    selectedItems.forEach((row: any) => {
+      const code = row.item.productCode;
+      const current = totalsByCode.get(code) || { requested: 0, available: n(row.item.vehicleStock) };
+      current.requested += row.quantity;
+      current.available = Math.min(current.available, n(row.item.vehicleStock));
+      totalsByCode.set(code, current);
+    });
+    const totalInvalid = Array.from(totalsByCode.entries()).find(([, row]) => row.requested > row.available + 0.0001);
+    if (totalInvalid) {
+      toast.error(`${totalInvalid[0]} icin toplam kesilecek miktar arac stoktan fazla`);
       return;
     }
     const invalid = selectedItems.find((row: any) => row.quantity > n(row.item.remainingQty) + 0.0001 || row.quantity > n(row.item.vehicleStock) + 0.0001);
@@ -493,6 +552,37 @@ export default function HotSalesPage() {
       toast.success('Arac kaydedildi');
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Arac kaydedilemedi');
+    }
+  };
+
+  const refreshReconciliation = async () => {
+    setReconciliationLoading(true);
+    try {
+      const result = await adminApi.getHotSaleReconciliation({ limit: 100 });
+      setReconciliation(result);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Mutabakat alinamadi');
+    } finally {
+      setReconciliationLoading(false);
+    }
+  };
+
+  const cancelLocalTransaction = async (transactionId: string) => {
+    const note = prompt('Bu islem B2B tarafinda iptal isaretlenecek ve arac stogu geri alinacak. Not girin:') || '';
+    if (!note.trim()) {
+      toast.error('Iptal/duzeltme notu zorunlu');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await adminApi.cancelHotSaleTransactionLocally(transactionId, { note });
+      toast.success('Islem yerel iptal isaretlendi');
+      await refreshReconciliation();
+      if (selectedSessionId) await loadSession(selectedSessionId);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Islem iptal edilemedi');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -679,8 +769,9 @@ export default function HotSalesPage() {
                   onRemove={(code: string) => removeCart('sale', code)}
                   onSubmit={submitSale}
                   submitLabel={saleType === 'ORDER' ? 'Siparis Olustur' : saleType === 'INVOICED_DISPATCH' ? 'Irsaliye Kes' : 'Satis Faturasi Kes'}
-                  disabled={submitting || !activeSession || priceViolations.length > 0}
+                  disabled={submitting || !activeSession || priceViolations.length > 0 || saleStockViolations.length > 0}
                   saleType={saleType}
+                  mode="sale"
                 />
               </section>
             )}
@@ -703,8 +794,10 @@ export default function HotSalesPage() {
                   onRemove={(code: string) => removeCart('load', code)}
                   onSubmit={activeSession ? addLoad : startSession}
                   submitLabel={activeSession ? 'Araca Yukle' : 'Yukleyerek Oturum Ac'}
-                  disabled={submitting}
+                  disabled={submitting || loadStockViolations.length > 0}
                   hidePrice
+                  mode="load"
+                  sourceWarehouseNo={sessionForm.sourceWarehouseNo}
                 />
               </section>
             )}
@@ -845,6 +938,49 @@ export default function HotSalesPage() {
                   </div>
                 </Card>
                 <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-black">Mikro-B2B Mutabakat</h2>
+                      <p className="text-xs font-bold text-slate-500">Eksik Mikro evragi, sync hatasi ve B2B disi SICAK evraklar.</p>
+                    </div>
+                    <Button onClick={refreshReconciliation} disabled={reconciliationLoading} className="rounded-2xl">
+                      <RefreshCcw className="mr-2 h-4 w-4" /> Yenile
+                    </Button>
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="rounded-2xl bg-slate-50 p-3 text-sm font-black">
+                      Problemli yerel islem: {reconciliation?.localProblems?.length || 0} / B2B disi Mikro evragi: {reconciliation?.orphanMikroDocs?.length || 0}
+                    </div>
+                    <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+                      {(reconciliation?.localProblems || []).map((row: any) => (
+                        <div key={row.id} className="rounded-2xl border border-red-100 bg-red-50 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-black text-red-900">{row.documentNo || row.linkedOrderNumber || row.type}</p>
+                              <p className="text-xs font-bold text-red-700">{row.customerName || row.customerCode || '-'} / {row.vehicleName || '-'}</p>
+                              <p className="mt-1 text-xs text-red-700">{row.syncError || (row.missingDocs?.length ? `Mikroda bulunamayan: ${row.missingDocs.join(', ')}` : 'Kontrol gerekli')}</p>
+                            </div>
+                            {row.canCancelLocal && (
+                              <button onClick={() => cancelLocalTransaction(row.id)} disabled={submitting} className="rounded-xl bg-red-600 px-3 py-2 text-xs font-black text-white">
+                                Yerel Iptal
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {(reconciliation?.orphanMikroDocs || []).slice(0, 10).map((row: any) => (
+                        <div key={row.documentNo} className="rounded-2xl border border-amber-100 bg-amber-50 p-3">
+                          <p className="font-black text-amber-900">{row.documentNo} / {row.documentKind}</p>
+                          <p className="text-xs font-bold text-amber-700">{fmtDate(row.documentDate)} / {fmtQty(row.totalQty)} adet / {formatCurrency(row.totalAmount || 0)}</p>
+                        </div>
+                      ))}
+                      {!reconciliation?.localProblems?.length && !reconciliation?.orphanMikroDocs?.length && (
+                        <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">Gorunen mutabakat problemi yok.</p>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+                <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
                   <h2 className="mb-3 text-xl font-black">Son Islemler</h2>
                   <div className="max-h-[520px] space-y-2 overflow-y-auto">
                     {(dashboard?.recentTransactions || []).map((row: any) => (
@@ -964,9 +1100,11 @@ function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
         <input value={value} onChange={(e) => onChange(e.target.value)} className="h-14 w-full rounded-3xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-base font-bold outline-none focus:border-amber-400" placeholder="Kod, isim veya barkod; bosken arac stogu listelenir" />
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+        {products.length === 0 && <p className="rounded-3xl bg-slate-50 p-4 text-sm font-bold text-slate-500 md:col-span-2 2xl:col-span-3">Urun bulunamadi veya arac stogu bos.</p>}
         {products.map((product: any) => {
           const vehicleStock = n(product.vehicleStock);
           const noStock = n(product.totalVisibleStock) <= 0;
+          const missingCost = n(product.currentCost) <= 0;
           const cardClass = vehicleStock > 0 ? 'border-emerald-200 bg-emerald-50' : noStock ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50';
           return (
             <article key={product.productCode} className={`overflow-hidden rounded-3xl border shadow-sm ${cardClass}`}>
@@ -981,6 +1119,7 @@ function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
                     <span className="rounded-full bg-white px-2 py-1 text-slate-700">Merkez {fmtQty(product.stockMerkez)}</span>
                     <span className="rounded-full bg-white px-2 py-1 text-slate-700">Topca {fmtQty(product.stockTopca)}</span>
                     {noStock && <span className="rounded-full bg-red-600 px-2 py-1 text-white">Stok Yok</span>}
+                    {missingCost && <span className="rounded-full bg-orange-600 px-2 py-1 text-white">Maliyet Yok</span>}
                   </div>
                 </div>
               </div>
@@ -1002,7 +1141,7 @@ function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
   );
 }
 
-function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemove, onSubmit, submitLabel, disabled, hidePrice, saleType }: any) {
+function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemove, onSubmit, submitLabel, disabled, hidePrice, saleType, mode = 'sale', sourceWarehouseNo }: any) {
   return (
     <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
       <div className="mb-3 flex items-center justify-between">
@@ -1011,8 +1150,12 @@ function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemo
       </div>
       <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
         {cart.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Liste bos.</p>}
-        {cart.map((item: CartItem) => (
-          <div key={item.productCode} className="rounded-3xl border border-slate-100 bg-slate-50 p-3">
+        {cart.map((item: CartItem) => {
+          const available = itemAvailableFor(item, mode, saleType, sourceWarehouseNo);
+          const stockInvalid = Number.isFinite(available) && n(item.quantity) > available + 0.0001;
+          const missingCost = !hidePrice && costMissing(item);
+          return (
+          <div key={item.productCode} className={`rounded-3xl border p-3 ${stockInvalid || missingCost ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50'}`}>
             <div className="flex gap-3">
               <ProductImage src={item.imageUrl} />
               <div className="min-w-0 flex-1">
@@ -1039,13 +1182,24 @@ function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemo
               )}
               {!hidePrice && <input value={item.unitPrice} onFocus={(e) => e.currentTarget.select()} onChange={(e) => onUpdate(item.productCode, { unitPrice: Number(e.target.value.replace(',', '.')) || 0 })} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black" />}
             </div>
+            {stockInvalid && (
+              <p className="mt-2 flex items-center gap-2 rounded-2xl bg-red-100 px-3 py-2 text-xs font-black text-red-700">
+                <AlertTriangle className="h-4 w-4" /> Stok yetersiz. Mevcut: {fmtQty(available)} / Girilen: {fmtQty(item.quantity)}
+              </p>
+            )}
+            {missingCost && (
+              <p className="mt-2 flex items-center gap-2 rounded-2xl bg-orange-100 px-3 py-2 text-xs font-black text-orange-800">
+                <AlertTriangle className="h-4 w-4" /> Guncel maliyet yok. Bu urun satisa kaydedilemez.
+              </p>
+            )}
             {!hidePrice && minAllowedPrice(item, saleType) > 0 && (
               <p className={`mt-2 rounded-2xl px-3 py-2 text-xs font-black ${n(item.unitPrice) + 0.0001 >= minAllowedPrice(item, saleType) ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                 Alt limit: {formatCurrency(minAllowedPrice(item, saleType))} / Guncel maliyet: {formatCurrency(n(item.currentCost))}
               </p>
             )}
           </div>
-        ))}
+        );
+        })}
       </div>
       <div className="mt-4 rounded-3xl bg-slate-950 p-4 text-white">
         <div className="mb-3 flex items-center justify-between">

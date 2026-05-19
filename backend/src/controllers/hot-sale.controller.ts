@@ -128,6 +128,27 @@ class HotSaleController {
     }
   }
 
+  async reconciliation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await hotSaleService.getReconciliation(Number(req.query.limit || 80));
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async cancelTransaction(req: Request, res: Response, next: NextFunction) {
+    try {
+      const transaction = await hotSaleService.cancelTransactionLocally(String(req.params.transactionId), {
+        ...(req.body || {}),
+        userId: req.user?.userId || '',
+      });
+      res.json({ transaction });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createTransaction(req: Request, res: Response, next: NextFunction) {
     try {
       const transaction = await hotSaleService.createTransaction(String(req.params.sessionId), {

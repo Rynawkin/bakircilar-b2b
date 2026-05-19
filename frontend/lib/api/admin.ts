@@ -648,6 +648,16 @@ export const adminApi = {
     return response.data;
   },
 
+  getHotSaleReconciliation: async (params?: { limit?: number }): Promise<any> => {
+    const response = await apiClient.get('/admin/hot-sales/reconciliation', { params });
+    return response.data;
+  },
+
+  cancelHotSaleTransactionLocally: async (transactionId: string, payload?: { note?: string }): Promise<{ transaction: any }> => {
+    const response = await apiClient.post(`/admin/hot-sales/transactions/${encodeURIComponent(transactionId)}/cancel-local`, payload || {});
+    return response.data;
+  },
+
   createCustomer: async (data: CreateCustomerRequest): Promise<{ message: string; customer: Customer }> => {
     const response = await apiClient.post('/admin/customers', data);
     return response.data;
