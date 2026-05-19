@@ -589,6 +589,8 @@ function AdminQuoteNewPageContent() {
   const [orderInvoicedSira, setOrderInvoicedSira] = useState('');
   const [orderWhiteSeries, setOrderWhiteSeries] = useState('');
   const [orderWhiteSira, setOrderWhiteSira] = useState('');
+  const [originalOrderInvoicedNumber, setOriginalOrderInvoicedNumber] = useState({ series: '', sira: '' });
+  const [originalOrderWhiteNumber, setOriginalOrderWhiteNumber] = useState({ series: '', sira: '' });
   const [orderCustomerOrderNumber, setOrderCustomerOrderNumber] = useState('');
   const [orderDocumentDescription, setOrderDocumentDescription] = useState('');
   const [bulkResponsibilityCenter, setBulkResponsibilityCenter] = useState('');
@@ -1368,6 +1370,8 @@ function AdminQuoteNewPageContent() {
       setOrderInvoicedSira(parsedInvoicedOrder.sira);
       setOrderWhiteSeries(parsedWhiteOrder.series);
       setOrderWhiteSira(parsedWhiteOrder.sira);
+      setOriginalOrderInvoicedNumber(parsedInvoicedOrder);
+      setOriginalOrderWhiteNumber(parsedWhiteOrder);
 
       const productCodes = Array.from(
         new Set(orderItems.map((item) => String(item.mikroCode || '').trim()).filter(Boolean))
@@ -1700,6 +1704,32 @@ function AdminQuoteNewPageContent() {
     setQuoteItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
     );
+  };
+
+  const handleOrderSeriesChange = (
+    priceType: 'INVOICED' | 'WHITE',
+    value: string
+  ) => {
+    if (priceType === 'INVOICED') {
+      setOrderInvoicedSeries(value);
+      if (
+        isOrderEditMode
+        && value.trim() !== originalOrderInvoicedNumber.series
+        && orderInvoicedSira.trim() === originalOrderInvoicedNumber.sira
+      ) {
+        setOrderInvoicedSira('');
+      }
+      return;
+    }
+
+    setOrderWhiteSeries(value);
+    if (
+      isOrderEditMode
+      && value.trim() !== originalOrderWhiteNumber.series
+      && orderWhiteSira.trim() === originalOrderWhiteNumber.sira
+    ) {
+      setOrderWhiteSira('');
+    }
   };
 
   const handleManualImageUpload = async (item: QuoteItemForm, file: File) => {
@@ -2323,6 +2353,35 @@ function AdminQuoteNewPageContent() {
     return quoteItems.some((item) => item.priceType === 'WHITE');
   }, [quoteItems]);
 
+  const showOrderInvoicedFields = isOrderMode && (
+    !isOrderEditMode || orderHasInvoiced || Boolean(orderInvoicedSeries || orderInvoicedSira)
+  );
+
+  const showOrderWhiteFields = isOrderMode && (
+    !isOrderEditMode || orderHasWhite || Boolean(orderWhiteSeries || orderWhiteSira)
+  );
+
+  const buildOrderNumberPayload = (
+    enabled: boolean,
+    series: string,
+    sira: string,
+    original: { series: string; sira: string }
+  ) => {
+    if (!enabled) {
+      return { series: undefined, sira: undefined };
+    }
+
+    const normalizedSeries = series.trim();
+    const normalizedSira = sira.trim();
+    const seriesChanged = normalizedSeries !== original.series;
+    const siraChanged = normalizedSira !== original.sira;
+
+    return {
+      series: normalizedSeries || undefined,
+      sira: normalizedSira && (!seriesChanged || siraChanged) ? Number(normalizedSira) : undefined,
+    };
+  };
+
   const validateQuote = () => {
     if (!selectedCustomer?.id) {
       toast.error('Musteri secmelisiniz.');
@@ -2431,13 +2490,25 @@ function AdminQuoteNewPageContent() {
     try {
       if (isOrderMode) {
         if (isOrderEditMode && editOrderId) {
+          const invoicedNumberPayload = buildOrderNumberPayload(
+            orderHasInvoiced,
+            orderInvoicedSeries,
+            orderInvoicedSira,
+            originalOrderInvoicedNumber
+          );
+          const whiteNumberPayload = buildOrderNumberPayload(
+            orderHasWhite,
+            orderWhiteSeries,
+            orderWhiteSira,
+            originalOrderWhiteNumber
+          );
           await adminApi.updateOrder(editOrderId, {
             customerOrderNumber: orderCustomerOrderNumber.trim() || undefined,
             deliveryLocation: orderDocumentDescription.trim() || undefined,
-            invoicedSeries: orderHasInvoiced ? orderInvoicedSeries.trim() || undefined : undefined,
-            invoicedSira: orderHasInvoiced && orderInvoicedSira.trim() ? Number(orderInvoicedSira) : undefined,
-            whiteSeries: orderHasWhite ? orderWhiteSeries.trim() || undefined : undefined,
-            whiteSira: orderHasWhite && orderWhiteSira.trim() ? Number(orderWhiteSira) : undefined,
+            invoicedSeries: invoicedNumberPayload.series,
+            invoicedSira: invoicedNumberPayload.sira,
+            whiteSeries: whiteNumberPayload.series,
+            whiteSira: whiteNumberPayload.sira,
             items: quoteItems.map((item) => ({
               productId: item.isManualLine ? undefined : item.productId,
               productCode: item.productCode,
@@ -2819,15 +2890,18 @@ function AdminQuoteNewPageContent() {
                         />
                       </div>
                       <div className="grid grid-cols-1 gap-4">
-                        {orderHasInvoiced && (
+                        {showOrderInvoicedFields && (
                           <div className={isOrderEditMode ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">Faturali Seri</label>
                               <Input
                                 value={orderInvoicedSeries}
-                                onChange={(e) => setOrderInvoicedSeries(e.target.value)}
+                                onChange={(e) => handleOrderSeriesChange('INVOICED', e.target.value)}
                                 placeholder="Orn: HENDEK"
                               />
+                              {!orderHasInvoiced && (
+                                <p className="mt-1 text-[11px] text-gray-500">Faturali satir eklenirse kullanilir.</p>
+                              )}
                             </div>
                             {isOrderEditMode && (
                               <div>
@@ -2835,21 +2909,24 @@ function AdminQuoteNewPageContent() {
                                 <Input
                                   value={orderInvoicedSira}
                                   onChange={(e) => setOrderInvoicedSira(e.target.value)}
-                                  placeholder="Orn: 9666"
+                                  placeholder="Bos birakilirsa otomatik"
                                 />
                               </div>
                             )}
                           </div>
                         )}
-                        {orderHasWhite && (
+                        {showOrderWhiteFields && (
                           <div className={isOrderEditMode ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">Beyaz Seri</label>
                               <Input
                                 value={orderWhiteSeries}
-                                onChange={(e) => setOrderWhiteSeries(e.target.value)}
+                                onChange={(e) => handleOrderSeriesChange('WHITE', e.target.value)}
                                 placeholder="Orn: HENDEK"
                               />
+                              {!orderHasWhite && (
+                                <p className="mt-1 text-[11px] text-gray-500">Beyaz satir eklenirse kullanilir.</p>
+                              )}
                             </div>
                             {isOrderEditMode && (
                               <div>
@@ -2857,7 +2934,7 @@ function AdminQuoteNewPageContent() {
                                 <Input
                                   value={orderWhiteSira}
                                   onChange={(e) => setOrderWhiteSira(e.target.value)}
-                                  placeholder="Orn: 9667"
+                                  placeholder="Bos birakilirsa otomatik"
                                 />
                               </div>
                             )}

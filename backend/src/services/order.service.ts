@@ -537,17 +537,24 @@ class OrderService {
 
     const targetSeries = String(targetSeriesRaw || parsedCurrent.series).trim().slice(0, 20);
     const parsedTargetSequence = Number(targetSequenceRaw);
+    const hasExplicitTargetSequence =
+      Number.isFinite(parsedTargetSequence) && parsedTargetSequence > 0;
     const targetSequence =
-      Number.isFinite(parsedTargetSequence) && parsedTargetSequence > 0
+      hasExplicitTargetSequence
         ? Math.trunc(parsedTargetSequence)
         : parsedCurrent.sequence;
+    const shouldAutoAssignSequence =
+      !hasExplicitTargetSequence && targetSeries !== parsedCurrent.series;
 
     if (!targetSeries) {
       throw new Error('Target Mikro order series is required');
     }
 
-    const nextOrderNumber = `${targetSeries}-${targetSequence}`;
-    if (targetSeries === parsedCurrent.series && targetSequence === parsedCurrent.sequence) {
+    if (
+      !shouldAutoAssignSequence
+      && targetSeries === parsedCurrent.series
+      && targetSequence === parsedCurrent.sequence
+    ) {
       return `${parsedCurrent.series}-${parsedCurrent.sequence}`;
     }
 
@@ -559,9 +566,11 @@ class OrderService {
         ? Math.trunc(mikroUserNoRaw)
         : 1;
 
-    await mikroService.executeQuery(`
+    const targetSequenceValue = shouldAutoAssignSequence ? 'NULL' : String(targetSequence);
+    const rows = await mikroService.executeQuery(`
       BEGIN TRY
         BEGIN TRAN;
+        DECLARE @targetSequence int = ${targetSequenceValue};
 
         IF NOT EXISTS (
           SELECT 1
@@ -573,11 +582,18 @@ class OrderService {
           THROW 51000, 'Mikro order not found', 1;
         END;
 
+        IF @targetSequence IS NULL
+        BEGIN
+          SELECT @targetSequence = ISNULL(MAX(sip_evrakno_sira), 0) + 1
+          FROM SIPARISLER WITH (UPDLOCK, HOLDLOCK)
+          WHERE sip_evrakno_seri = '${targetSeriesSql}';
+        END;
+
         IF EXISTS (
           SELECT 1
           FROM SIPARISLER
           WHERE sip_evrakno_seri = '${targetSeriesSql}'
-            AND sip_evrakno_sira = ${targetSequence}
+            AND sip_evrakno_sira = @targetSequence
         )
         BEGIN
           THROW 51001, 'Target Mikro order number already exists', 1;
@@ -586,7 +602,7 @@ class OrderService {
         UPDATE SIPARISLER
         SET
           sip_evrakno_seri = '${targetSeriesSql}',
-          sip_evrakno_sira = ${targetSequence},
+          sip_evrakno_sira = @targetSequence,
           sip_lastup_date = GETDATE(),
           sip_lastup_user = ${mikroUserNo}
         WHERE sip_evrakno_seri = '${currentSeriesSql}'
@@ -597,7 +613,7 @@ class OrderService {
           UPDATE EVRAK_ACIKLAMALARI
           SET
             egk_evr_seri = '${targetSeriesSql}',
-            egk_evr_sira = ${targetSequence},
+            egk_evr_sira = @targetSequence,
             egk_lastup_date = GETDATE(),
             egk_lastup_user = ${mikroUserNo}
           WHERE egk_evr_seri = '${currentSeriesSql}'
@@ -605,6 +621,7 @@ class OrderService {
         END;
 
         COMMIT;
+        SELECT @targetSequence AS targetSequence;
       END TRY
       BEGIN CATCH
         IF @@TRANCOUNT > 0 ROLLBACK;
@@ -612,7 +629,12 @@ class OrderService {
       END CATCH
     `);
 
-    return nextOrderNumber;
+    const resolvedSequence = Number(rows?.[0]?.targetSequence);
+    if (!Number.isFinite(resolvedSequence) || resolvedSequence <= 0) {
+      throw new Error('Target Mikro order sequence could not be resolved');
+    }
+
+    return `${targetSeries}-${Math.trunc(resolvedSequence)}`;
   }
 
   private async repriceCartItemsForOrder(userId: string, cart: { items: Array<any> }): Promise<RepricedCartItem[]> {
