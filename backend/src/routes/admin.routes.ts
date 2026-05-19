@@ -386,6 +386,7 @@ router.get('/hot-sales/dashboard', requirePermission('admin:hot-sales'), hotSale
 router.get('/hot-sales/vehicles', requirePermission('admin:hot-sales'), hotSaleController.vehicles);
 router.post('/hot-sales/vehicles', requirePermission('admin:hot-sales'), hotSaleController.saveVehicle);
 router.get('/hot-sales/customers', requirePermission('admin:hot-sales'), hotSaleController.searchCustomers);
+router.post('/hot-sales/customers', requirePermission('admin:hot-sales'), hotSaleController.createCustomer);
 router.get('/hot-sales/products', requirePermission('admin:hot-sales'), hotSaleController.searchProducts);
 router.get('/hot-sales/orders', requirePermission('admin:hot-sales'), hotSaleController.openOrders);
 router.post('/hot-sales/sessions', requirePermission('admin:hot-sales'), hotSaleController.startSession);

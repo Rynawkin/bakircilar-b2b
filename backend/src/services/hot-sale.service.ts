@@ -1,15 +1,19 @@
 import { randomUUID } from 'crypto';
 import {
+  CustomerType,
   HotSaleClosureAction,
   HotSalePaymentType,
   HotSaleStockMovementType,
   HotSaleTransactionType,
+  Prisma,
+  UserRole,
 } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError, ErrorCode } from '../types/errors';
 import mikroService from './mikroFactory.service';
 import fieldSalesService from './field-sales.service';
 import orderService from './order.service';
+import { hashPassword } from '../utils/password';
 
 type SqlRawValue = { raw: string };
 
@@ -37,13 +41,48 @@ type HotSalePaymentInput = {
   note?: string;
 };
 
+const HOT_CUSTOMER_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  mikroName: true,
+  displayName: true,
+  mikroCariCode: true,
+  customerType: true,
+  priceVisibility: true,
+  vatDisplayPreference: true,
+  invoicedPriceListNo: true,
+  whitePriceListNo: true,
+  active: true,
+  city: true,
+  district: true,
+  phone: true,
+  isLocked: true,
+  groupCode: true,
+  sectorCode: true,
+  paymentTerm: true,
+  paymentPlanNo: true,
+  paymentPlanCode: true,
+  paymentPlanName: true,
+  hasEInvoice: true,
+  balance: true,
+  balanceUpdatedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.UserSelect;
+
 const HOT_WAREHOUSE_NO = 11;
 const DEFAULT_HOT_SERIES = 'SICAK';
 const DEFAULT_CASH_CUSTOMER = '120.01.005';
 const DEFAULT_CARD_CUSTOMER = '120.01.860';
+const HOT_CUSTOMER_TEMPLATE_CODE = '120.01.2341';
+const HOT_CUSTOMER_PREFIX = '120.01.';
+const HOT_CUSTOMER_GROUP_CODE = 'SICAK';
+const HOT_CUSTOMER_SECTOR_CODE = 'SICAK';
 
 const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
 const escapeSql = (value: string) => String(value || '').replace(/'/g, "''");
+const toSqlString = (value: unknown) => `N'${escapeSql(String(value ?? ''))}'`;
 const toNumber = (value: unknown, fallback = 0) => {
   if (value === null || value === undefined || value === '') return fallback;
   if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
@@ -71,6 +110,7 @@ const parseMikroOrderNumber = (value: string) => {
 
 class HotSaleService {
   private tableColumnsCache = new Map<string, Set<string>>();
+  private cariInsertColumnsCache: string[] | null = null;
 
   private raw(value: string): SqlRawValue {
     return { raw: value };
@@ -103,6 +143,75 @@ class HotSaleService {
     return columns;
   }
 
+  private async getCariInsertColumns() {
+    if (this.cariInsertColumnsCache) return this.cariInsertColumnsCache;
+    const rows = await mikroService.executeQuery(`
+      SELECT c.name
+      FROM sys.columns c
+      INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+      WHERE c.object_id = OBJECT_ID(N'dbo.CARI_HESAPLAR')
+        AND c.is_identity = 0
+        AND c.is_computed = 0
+        AND t.name NOT IN ('timestamp', 'rowversion')
+      ORDER BY c.column_id
+    `);
+    this.cariInsertColumnsCache = (rows as any[]).map((row) => String(row.name || '').trim()).filter(Boolean);
+    return this.cariInsertColumnsCache;
+  }
+
+  private buildHotCustomerColumnExpression(column: string, input: {
+    customerName: string;
+    phone: string;
+    taxOffice: string;
+    taxNumber: string;
+    email?: string;
+    city?: string;
+    district?: string;
+    address?: string;
+  }) {
+    const lower = column.toLowerCase();
+    const direct: Record<string, string> = {
+      cari_guid: '@newGuid',
+      cari_kod: '@newCode',
+      cari_create_user: '1',
+      cari_lastup_user: '1',
+      cari_create_date: 'GETDATE()',
+      cari_lastup_date: 'GETDATE()',
+      cari_degisti: '1',
+      cari_unvan1: toSqlString(input.customerName),
+      cari_unvan2: toSqlString(input.city || ''),
+      cari_grup_kodu: toSqlString(HOT_CUSTOMER_GROUP_CODE),
+      cari_sektor_kodu: toSqlString(HOT_CUSTOMER_SECTOR_CODE),
+      cari_ceptel: toSqlString(input.phone),
+      cari_email: toSqlString(input.email || ''),
+      cari_vdaire_adi: toSqlString(input.taxOffice),
+      cari_vdaire_no: toSqlString(input.taxNumber),
+      cari_vergikimlikno: toSqlString(input.taxNumber),
+      cari_odeme_cinsi: '0',
+      cari_odeme_gunu: '0',
+      cari_odemeplan_no: '0',
+      cari_odeme_sekli: '0',
+      cari_efatura_fl: '0',
+      cari_vergimukellefidegil_mi: '0',
+    };
+    if (input.city) {
+      direct.cari_il = toSqlString(input.city);
+      direct.cari_ilkodu = toSqlString(input.city);
+    }
+    if (input.district) {
+      direct.cari_ilce = toSqlString(input.district);
+      direct.cari_ilcekodu = toSqlString(input.district);
+    }
+    if (input.address) {
+      direct.cari_adres = toSqlString(input.address);
+      direct.cari_adres1 = toSqlString(input.address);
+      direct.cari_adres2 = toSqlString(input.address);
+    }
+
+    if (direct[lower] !== undefined) return direct[lower];
+    return `src.[${column.replace(/]/g, ']]')}]`;
+  }
+
   private buildInsertSql(tableName: string, values: Record<string, unknown>, allowedColumns: Set<string>) {
     const entries = Object.entries(values).filter(([column, value]) => allowedColumns.has(column) && value !== undefined);
     if (!entries.length) throw new Error(`${tableName} insert kolonlari olusturulamadi`);
@@ -125,11 +234,18 @@ class HotSaleService {
     return 0;
   }
 
-  private async getNextStockMovementSequence(series: string): Promise<number> {
+  private stockMovementKindFilter(kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH') {
+    if (kind === 'TRANSFER') return "ISNULL(sth_tip, 0) = 2 AND ISNULL(sth_cins, 0) = 6 AND ISNULL(sth_evraktip, 0) = 2";
+    if (kind === 'DISPATCH') return "ISNULL(sth_tip, 1) = 1 AND ISNULL(sth_cins, 0) = 0 AND ISNULL(sth_evraktip, 0) = 1";
+    return "ISNULL(sth_tip, 1) = 1 AND ISNULL(sth_cins, 0) = 0 AND ISNULL(sth_evraktip, 0) = 4";
+  }
+
+  private async getNextStockMovementSequence(series: string, kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH'): Promise<number> {
     const rows = await mikroService.executeQuery(`
       SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 AS nextSira
       FROM STOK_HAREKETLERI WITH (NOLOCK)
       WHERE UPPER(sth_evrakno_seri) = '${escapeSql(series.toUpperCase())}'
+        AND ${this.stockMovementKindFilter(kind)}
     `);
     const next = Number((rows as any[])?.[0]?.nextSira || 0);
     if (!Number.isFinite(next) || next <= 0) {
@@ -139,12 +255,7 @@ class HotSaleService {
   }
 
   private async getStockMovementTemplate(kind: 'TRANSFER' | 'INVOICE' | 'DISPATCH') {
-    const filter =
-      kind === 'TRANSFER'
-        ? "ISNULL(sth_tip, 0) = 2 AND ISNULL(sth_cins, 0) = 6 AND ISNULL(sth_evraktip, 0) = 2"
-        : kind === 'DISPATCH'
-          ? "ISNULL(sth_tip, 1) = 1 AND ISNULL(sth_cins, 0) = 0 AND ISNULL(sth_evraktip, 0) = 1"
-          : "ISNULL(sth_tip, 1) = 1 AND ISNULL(sth_cins, 0) = 0 AND ISNULL(sth_evraktip, 0) = 4";
+    const filter = this.stockMovementKindFilter(kind);
     const preferredSeries = kind === 'TRANSFER' ? 'DSV' : kind === 'DISPATCH' ? 'H' : 'FTR';
     const rows = await mikroService.executeQuery(`
       SELECT TOP 1 *
@@ -180,6 +291,7 @@ class HotSaleService {
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 11, 0), 0) AS decimal(18,3)) AS hotStock,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) AS decimal(18,3)) AS stockMerkez,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) AS decimal(18,3)) AS stockTopca,
+        CAST(ISNULL(sto_standartmaliyet, 0) AS decimal(18,4)) AS currentCost,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) AS decimal(18,4)) AS price1,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) AS decimal(18,4)) AS price2,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) AS decimal(18,4)) AS price3,
@@ -209,6 +321,7 @@ class HotSaleService {
         const unitPrice = item.unitPrice === undefined || item.unitPrice === null ? listPrice : toNumber(item.unitPrice);
         const vatCode = Math.max(Math.trunc(toNumber(row?.vatCode)), 0);
         const vatRate = vatCode === 7 ? 0.1 : vatCode === 2 ? 0.01 : vatCode === 5 ? 0.2 : 0;
+        const currentCost = Math.max(toNumber(row?.currentCost), 0);
         return {
           productCode,
           productName: String(row?.productName || productCode).trim(),
@@ -217,10 +330,42 @@ class HotSaleService {
           unitPrice,
           priceListNo,
           vatRate,
+          currentCost,
+          currentCostVatIncluded: currentCost * (1 + vatRate),
           note: String(item.note || '').trim() || undefined,
         };
       })
       .filter((item) => item.productCode && item.quantity > 0);
+  }
+
+  private validatePriceFloor(
+    type: HotSaleTransactionType,
+    items: Array<{ productCode: string; unitPrice: number; currentCost?: number; currentCostVatIncluded?: number }>
+  ) {
+    const violations = items
+      .map((item) => {
+        const currentCost = Math.max(toNumber(item.currentCost), 0);
+        if (currentCost <= 0) return null;
+        const minPrice = type === 'CASH_INVOICE' ? Math.max(toNumber(item.currentCostVatIncluded), currentCost) : currentCost * 1.05;
+        return item.unitPrice + 0.0001 >= minPrice
+          ? null
+          : {
+              productCode: item.productCode,
+              minPrice,
+              unitPrice: item.unitPrice,
+            };
+      })
+      .filter(Boolean) as Array<{ productCode: string; minPrice: number; unitPrice: number }>;
+
+    if (violations.length) {
+      throw new AppError(
+        `Fiyat maliyet alt limitini karsilamiyor: ${violations
+          .map((row) => `${row.productCode} min ${row.minPrice.toFixed(2)} / girilen ${row.unitPrice.toFixed(2)}`)
+          .join(', ')}`,
+        400,
+        ErrorCode.BAD_REQUEST
+      );
+    }
   }
 
   private async createStockMovementDocument(input: {
@@ -250,7 +395,7 @@ class HotSaleService {
     }
 
     const template = await this.getStockMovementTemplate(input.kind);
-    const sequence = await this.getNextStockMovementSequence(series);
+    const sequence = await this.getNextStockMovementSequence(series, input.kind);
     const columns = await this.getTableColumns('STOK_HAREKETLERI');
     const zeroGuid = '00000000-0000-0000-0000-000000000000';
     const mikroUserNoRaw = Number(process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
@@ -434,6 +579,153 @@ class HotSaleService {
     };
     await mikroService.executeQuery(this.buildInsertSql('CARI_HESAP_HAREKETLERI', values, columns));
     return guid;
+  }
+
+  private async createMikroHotCustomer(input: {
+    customerName: string;
+    phone: string;
+    taxOffice: string;
+    taxNumber: string;
+    email?: string;
+    city?: string;
+    district?: string;
+    address?: string;
+  }) {
+    const columns = await this.getCariInsertColumns();
+    if (!columns.includes('cari_kod') || !columns.some((column) => column.toLowerCase() === 'cari_guid')) {
+      throw new AppError('Mikro cari kolonlari beklenen yapida degil.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    const columnList = columns.map((column) => `[${column.replace(/]/g, ']]')}]`).join(', ');
+    const expressionList = columns.map((column) => this.buildHotCustomerColumnExpression(column, input)).join(', ');
+
+    const rows = await mikroService.executeQuery(`
+      SET XACT_ABORT ON;
+      BEGIN TRY
+        BEGIN TRANSACTION;
+        DECLARE @created TABLE(cariCode nvarchar(25), cariGuid uniqueidentifier);
+        DECLARE @baseNo int;
+        DECLARE @newCode nvarchar(25);
+        DECLARE @newGuid uniqueidentifier = NEWID();
+
+        SELECT @baseNo = ISNULL(MAX(TRY_CONVERT(int, SUBSTRING(cari_kod, ${HOT_CUSTOMER_PREFIX.length + 1}, 20))), 0)
+        FROM CARI_HESAPLAR WITH (UPDLOCK, HOLDLOCK)
+        WHERE cari_kod LIKE N'${escapeSql(HOT_CUSTOMER_PREFIX)}%'
+          AND TRY_CONVERT(int, SUBSTRING(cari_kod, ${HOT_CUSTOMER_PREFIX.length + 1}, 20)) IS NOT NULL;
+
+        SET @newCode = N'${escapeSql(HOT_CUSTOMER_PREFIX)}' + CONVERT(nvarchar(20), @baseNo + 1);
+
+        IF NOT EXISTS (SELECT 1 FROM CARI_HESAPLAR WITH (NOLOCK) WHERE cari_kod = N'${escapeSql(HOT_CUSTOMER_TEMPLATE_CODE)}')
+          THROW 53000, 'SICAK cari sablonu bulunamadi', 1;
+
+        IF EXISTS (SELECT 1 FROM CARI_HESAPLAR WITH (UPDLOCK, HOLDLOCK) WHERE cari_kod = @newCode)
+          THROW 53001, 'Olusacak cari kodu Mikroda zaten var', 1;
+
+        INSERT INTO CARI_HESAPLAR (${columnList})
+        OUTPUT inserted.cari_kod, inserted.cari_Guid INTO @created(cariCode, cariGuid)
+        SELECT ${expressionList}
+        FROM CARI_HESAPLAR src WITH (NOLOCK)
+        WHERE src.cari_kod = N'${escapeSql(HOT_CUSTOMER_TEMPLATE_CODE)}';
+
+        IF @@ROWCOUNT = 0
+          THROW 53002, 'SICAK cari sablonu okunamadi', 1;
+
+        COMMIT TRANSACTION;
+        SELECT cariCode, CONVERT(nvarchar(50), cariGuid) AS cariGuid FROM @created;
+      END TRY
+      BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        DECLARE @message nvarchar(4000) = ERROR_MESSAGE();
+        THROW 53003, @message, 1;
+      END CATCH
+    `);
+
+    const created = (rows as any[])[0];
+    return {
+      cariCode: normalizeCode(created?.cariCode),
+      cariGuid: String(created?.cariGuid || '').trim(),
+    };
+  }
+
+  async createHotCustomer(input: {
+    customerName?: string;
+    phone?: string;
+    taxOffice?: string;
+    taxNumber?: string;
+    email?: string;
+    city?: string;
+    district?: string;
+    address?: string;
+  }) {
+    const customerName = String(input.customerName || '').trim();
+    const phone = String(input.phone || '').replace(/\s+/g, '').trim();
+    const taxOffice = String(input.taxOffice || '').trim();
+    const taxNumber = String(input.taxNumber || '').replace(/\s+/g, '').trim();
+    const email = String(input.email || '').trim() || null;
+    const city = String(input.city || '').trim() || null;
+    const district = String(input.district || '').trim() || null;
+    const address = String(input.address || '').trim() || null;
+
+    if (!customerName) throw new AppError('Cari unvani zorunlu.', 400, ErrorCode.BAD_REQUEST);
+    if (!phone) throw new AppError('Cep telefonu zorunlu.', 400, ErrorCode.BAD_REQUEST);
+    if (!taxOffice) throw new AppError('Vergi dairesi zorunlu.', 400, ErrorCode.BAD_REQUEST);
+    if (!taxNumber) throw new AppError('Vergi no zorunlu.', 400, ErrorCode.BAD_REQUEST);
+    if (customerName.length > 127) throw new AppError('Cari unvani 127 karakterden uzun olamaz.', 400, ErrorCode.BAD_REQUEST);
+    if (phone.length > 20) throw new AppError('Cep telefonu 20 karakterden uzun olamaz.', 400, ErrorCode.BAD_REQUEST);
+    if (taxNumber.length > 15) throw new AppError('Vergi no 15 karakterden uzun olamaz.', 400, ErrorCode.BAD_REQUEST);
+
+    if (email) {
+      const existingEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (existingEmail) throw new AppError('Bu email ile kayitli cari zaten var.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const createdMikro = await this.createMikroHotCustomer({
+      customerName,
+      phone,
+      taxOffice,
+      taxNumber,
+      email: email || undefined,
+      city: city || undefined,
+      district: district || undefined,
+      address: address || undefined,
+    });
+    if (!createdMikro.cariCode) {
+      throw new AppError('Mikro cari kodu olusturulamadi.', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    const hashedPassword = await hashPassword(`HOT-${createdMikro.cariCode}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const customer = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        name: customerName,
+        mikroName: customerName,
+        displayName: customerName,
+        role: UserRole.CUSTOMER,
+        customerType: CustomerType.PERAKENDE,
+        mikroCariCode: createdMikro.cariCode,
+        phone,
+        city,
+        district,
+        groupCode: HOT_CUSTOMER_GROUP_CODE,
+        sectorCode: HOT_CUSTOMER_SECTOR_CODE,
+        paymentPlanNo: 0,
+        paymentPlanName: 'Pesin',
+        hasEInvoice: false,
+        balance: 0,
+        isLocked: false,
+      },
+      select: HOT_CUSTOMER_SELECT,
+    });
+
+    await prisma.cart.create({ data: { userId: customer.id } }).catch(() => null);
+    return {
+      customer: {
+        ...customer,
+        displayTitle: customer.displayName || customer.mikroName || customer.name || customer.mikroCariCode,
+      },
+      mikro: createdMikro,
+    };
   }
 
   async listVehicles() {
@@ -631,23 +923,70 @@ class HotSaleService {
   }
 
   async searchCustomers(params: { search?: string; limit?: number; scope: StaffScope }) {
-    return fieldSalesService.searchCustomers({
+    const base = await fieldSalesService.searchCustomers({
       search: params.search,
       limit: params.limit || 25,
       scope: params.scope,
     });
+    const tokens = String(params.search || '').trim().split(/\s+/).filter(Boolean);
+    const hotWhere: Prisma.UserWhereInput = {
+      role: UserRole.CUSTOMER,
+      active: true,
+      OR: [{ sectorCode: HOT_CUSTOMER_SECTOR_CODE }, { groupCode: HOT_CUSTOMER_GROUP_CODE }],
+      ...(tokens.length
+        ? {
+            AND: tokens.map((token) => ({
+              OR: [
+                { mikroCariCode: { contains: token, mode: 'insensitive' as const } },
+                { displayName: { contains: token, mode: 'insensitive' as const } },
+                { mikroName: { contains: token, mode: 'insensitive' as const } },
+                { name: { contains: token, mode: 'insensitive' as const } },
+                { phone: { contains: token, mode: 'insensitive' as const } },
+                { city: { contains: token, mode: 'insensitive' as const } },
+                { district: { contains: token, mode: 'insensitive' as const } },
+              ],
+            })),
+          }
+        : {}),
+    };
+    const hotCustomers = await prisma.user.findMany({
+      where: hotWhere,
+      select: HOT_CUSTOMER_SELECT,
+      orderBy: [{ active: 'desc' }, { mikroCariCode: 'asc' }],
+      take: Math.max(1, Math.min(Number(params.limit) || 25, 50)),
+    });
+    const byId = new Map<string, any>();
+    [...(base.customers || []), ...hotCustomers].forEach((customer: any) => {
+      byId.set(customer.id, {
+        ...customer,
+        displayTitle: customer.displayTitle || customer.displayName || customer.mikroName || customer.name || customer.mikroCariCode,
+      });
+    });
+    return { customers: Array.from(byId.values()).slice(0, Math.max(1, Math.min(Number(params.limit) || 25, 50))) };
   }
 
   async searchProducts(params: { search?: string; limit?: number; vehicleId?: string; customerIdOrCode?: string; scope: StaffScope }) {
     const search = String(params.search || '').trim();
     const limit = Math.max(1, Math.min(Math.trunc(toNumber(params.limit, 40)), 120));
-    if (!search) return { products: [] };
+    let rows: any[] = [];
+    if (!search) {
+      if (!params.vehicleId) return { products: [] };
+      const inventory = await this.getVehicleInventory(params.vehicleId);
+      const productMap = await this.getProductRows(inventory.map((row) => row.productCode));
+      rows = inventory.map((item) => ({
+        ...(productMap.get(normalizeCode(item.productCode)) || {}),
+        productCode: item.productCode,
+        productName: productMap.get(normalizeCode(item.productCode))?.productName || item.productName,
+        unit: productMap.get(normalizeCode(item.productCode))?.unit || item.unit,
+        vehicleLedgerStock: item.quantity,
+      }));
+    } else {
     const tokens = search.split(/\s+/).map((token) => token.trim()).filter(Boolean);
     const where = tokens.map((token) => {
       const safe = escapeSql(token);
       return `(sto_kod LIKE '%${safe}%' OR sto_isim LIKE '%${safe}%' OR EXISTS (SELECT 1 FROM BARKOD_TANIMLARI WITH (NOLOCK) WHERE bar_stokkodu = sto_kod AND ISNULL(bar_kodu, '') LIKE '%${safe}%'))`;
     }).join(' AND ');
-    const rows = await mikroService.executeQuery(`
+      rows = await mikroService.executeQuery(`
       SELECT TOP ${limit}
         sto_kod AS productCode,
         sto_isim AS productName,
@@ -656,6 +995,7 @@ class HotSaleService {
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 11, 0), 0) AS decimal(18,3)) AS hotStock,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 1, 0), 0) AS decimal(18,3)) AS stockMerkez,
         CAST(ISNULL(dbo.fn_DepodakiMiktar(sto_kod, 6, 0), 0) AS decimal(18,3)) AS stockTopca,
+        CAST(ISNULL(sto_standartmaliyet, 0) AS decimal(18,4)) AS currentCost,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 1, 0, 1), 0) AS decimal(18,4)) AS price1,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 2, 0, 1), 0) AS decimal(18,4)) AS price2,
         CAST(ISNULL(dbo.fn_StokSatisFiyati(sto_kod, 3, 0, 1), 0) AS decimal(18,4)) AS price3,
@@ -670,7 +1010,8 @@ class HotSaleService {
       WHERE ISNULL(sto_pasif_fl, 0) = 0 AND ${where}
       ORDER BY sto_isim
     `);
-    const codes = (rows as any[]).map((row) => normalizeCode(row.productCode));
+    }
+    const codes = rows.map((row) => normalizeCode(row.productCode));
     const localProducts = codes.length
       ? await prisma.product.findMany({ where: { mikroCode: { in: codes } }, select: { mikroCode: true, imageUrl: true, currentCost: true, lastEntryPrice: true } })
       : [];
@@ -678,27 +1019,42 @@ class HotSaleService {
     const vehicleStock = params.vehicleId
       ? new Map((await this.getVehicleInventory(params.vehicleId)).map((row) => [normalizeCode(row.productCode), row.quantity]))
       : new Map<string, number>();
+    const products = rows.map((row) => {
+      const code = normalizeCode(row.productCode);
+      const local = imageMap.get(code);
+      const priceLists: Record<string, number> = {};
+      for (let i = 1; i <= 10; i += 1) priceLists[i] = toNumber(row[`price${i}`]);
+      const vatRate = row.vatCode === 7 ? 0.1 : row.vatCode === 2 ? 0.01 : row.vatCode === 5 ? 0.2 : 0;
+      const currentCost = toNumber(row.currentCost, toNumber(local?.currentCost));
+      const vehicleQty = toNumber(row.vehicleLedgerStock, toNumber(vehicleStock.get(code)));
+      const hotWarehouseStock = toNumber(row.hotStock);
+      const stockMerkez = toNumber(row.stockMerkez);
+      const stockTopca = toNumber(row.stockTopca);
+      const totalVisibleStock = vehicleQty + hotWarehouseStock + stockMerkez + stockTopca;
+      return {
+        productCode: code,
+        productName: String(row.productName || code).trim(),
+        unit: String(row.unit || 'ADET').trim(),
+        vatRate,
+        vehicleStock: vehicleQty,
+        hotWarehouseStock,
+        stockMerkez,
+        stockTopca,
+        totalVisibleStock,
+        stockStatus: vehicleQty > 0 ? 'IN_VEHICLE' : totalVisibleStock <= 0 ? 'NO_STOCK' : 'OTHER_STOCK',
+        priceLists,
+        imageUrl: local?.imageUrl || null,
+        currentCost,
+        currentCostVatIncluded: currentCost * (1 + vatRate),
+        lastEntryPrice: local?.lastEntryPrice ?? null,
+      };
+    });
+    products.sort((a, b) => {
+      const rank = (product: any) => (product.vehicleStock > 0 ? 0 : product.totalVisibleStock <= 0 ? 2 : 1);
+      return rank(a) - rank(b) || String(a.productName).localeCompare(String(b.productName), 'tr');
+    });
     return {
-      products: (rows as any[]).map((row) => {
-        const code = normalizeCode(row.productCode);
-        const local = imageMap.get(code);
-        const priceLists: Record<string, number> = {};
-        for (let i = 1; i <= 10; i += 1) priceLists[i] = toNumber(row[`price${i}`]);
-        return {
-          productCode: code,
-          productName: String(row.productName || code).trim(),
-          unit: String(row.unit || 'ADET').trim(),
-          vatRate: row.vatCode === 7 ? 0.1 : row.vatCode === 2 ? 0.01 : row.vatCode === 5 ? 0.2 : 0,
-          vehicleStock: toNumber(vehicleStock.get(code)),
-          hotWarehouseStock: toNumber(row.hotStock),
-          stockMerkez: toNumber(row.stockMerkez),
-          stockTopca: toNumber(row.stockTopca),
-          priceLists,
-          imageUrl: local?.imageUrl || null,
-          currentCost: local?.currentCost ?? null,
-          lastEntryPrice: local?.lastEntryPrice ?? null,
-        };
-      }),
+      products: products.slice(0, limit),
     };
   }
 
@@ -911,6 +1267,7 @@ class HotSaleService {
     const defaultPriceListNo = input.type === 'CASH_INVOICE' ? 5 : input.type === 'INVOICED_DISPATCH' ? 6 : 6;
     const items = this.normalizeItems(input.items, productMap, input.priceListNo || defaultPriceListNo);
     if (!items.length) throw new AppError('Satis/siparis icin urun yok.', 400, ErrorCode.BAD_REQUEST);
+    this.validatePriceFloor(input.type, items);
 
     const customer = input.customerId
       ? await prisma.user.findUnique({ where: { id: input.customerId }, select: { id: true, mikroCariCode: true, displayName: true, mikroName: true, name: true, paymentPlanNo: true } })

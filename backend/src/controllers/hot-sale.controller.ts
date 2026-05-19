@@ -48,6 +48,15 @@ class HotSaleController {
     }
   }
 
+  async createCustomer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await hotSaleService.createHotCustomer(req.body || {});
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async searchProducts(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await hotSaleService.searchProducts({

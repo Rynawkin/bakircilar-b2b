@@ -24,9 +24,29 @@ type CartItem = {
   quantity: number;
   unitPrice: number;
   priceListNo: number;
+  priceLists?: Record<string, number>;
+  vatRate?: number;
+  currentCost?: number | null;
+  currentCostVatIncluded?: number | null;
   imageUrl?: string | null;
   vehicleStock?: number;
 };
+
+type NewCustomerForm = {
+  customerName: string;
+  phone: string;
+  taxOffice: string;
+  taxNumber: string;
+  email: string;
+  city: string;
+  district: string;
+  address: string;
+};
+
+const WAREHOUSE_OPTIONS = [
+  { value: '1', label: 'Merkez' },
+  { value: '6', label: 'Topca' },
+];
 
 const priceLabel = (listNo: number) => {
   if (listNo <= 5) return `Perakende ${listNo}`;
@@ -36,6 +56,13 @@ const priceLabel = (listNo: number) => {
 const n = (value: any) => Number(value || 0);
 const fmtQty = (value: any) => Number(n(value).toFixed(3)).toString();
 const fmtDate = (value: any) => (value ? new Date(value).toLocaleDateString('tr-TR') : '-');
+const warehouseLabel = (value: any) => WAREHOUSE_OPTIONS.find((item) => item.value === String(value))?.label || String(value || '-');
+const minAllowedPrice = (item: CartItem, saleType: SaleType) => {
+  const currentCost = n(item.currentCost);
+  if (currentCost <= 0) return 0;
+  if (saleType === 'CASH_INVOICE') return Math.max(n(item.currentCostVatIncluded), currentCost);
+  return currentCost * 1.05;
+};
 
 export default function HotSalesPage() {
   const router = useRouter();
@@ -55,11 +82,13 @@ export default function HotSalesPage() {
   const [productSearch, setProductSearch] = useState('');
   const [orderSearch, setOrderSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [saleType, setSaleType] = useState<SaleType>('CASH_INVOICE');
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
   const [priceListNo, setPriceListNo] = useState(5);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loadCart, setLoadCart] = useState<CartItem[]>([]);
+  const [deliveryQuantities, setDeliveryQuantities] = useState<Record<string, string>>({});
   const [closingCounts, setClosingCounts] = useState<Record<string, { countedQty: string; action: 'KEEP_ON_VEHICLE' | 'RETURN_TO_DEPOT'; note: string }>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -76,6 +105,17 @@ export default function HotSalesPage() {
     plate: '',
     defaultSourceWarehouseNo: '1',
     note: '',
+  });
+
+  const [newCustomerForm, setNewCustomerForm] = useState<NewCustomerForm>({
+    customerName: '',
+    phone: '',
+    taxOffice: '',
+    taxNumber: '',
+    email: '',
+    city: '',
+    district: '',
+    address: '',
   });
 
   useEffect(() => {
@@ -150,11 +190,11 @@ export default function HotSalesPage() {
 
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (!productSearch.trim()) {
+      const vehicleId = sessionDetail?.session?.vehicleId;
+      if (!productSearch.trim() && !vehicleId) {
         setProducts([]);
         return;
       }
-      const vehicleId = sessionDetail?.session?.vehicleId;
       try {
         const result = await adminApi.searchHotSaleProducts({
           search: productSearch,
@@ -170,20 +210,36 @@ export default function HotSalesPage() {
     return () => clearTimeout(timer);
   }, [productSearch, sessionDetail?.session?.vehicleId, selectedCustomer?.id]);
 
+  const refreshOpenOrders = async () => {
+    try {
+      const result = await adminApi.getHotSaleOpenOrders({
+        search: orderSearch,
+        limit: 30,
+        vehicleId: sessionDetail?.session?.vehicleId,
+        customerIdOrCode: selectedCustomer?.mikroCariCode || selectedCustomer?.id,
+      });
+      const orders = result.orders || [];
+      setOpenOrders(orders);
+      setDeliveryQuantities((prev) => {
+        const next: Record<string, string> = {};
+        orders.forEach((order: any) => {
+          order.items.forEach((item: any) => {
+            const key = `${order.orderNumber}:${item.orderGuid || item.rowNumber}`;
+            const defaultQty = Math.max(Math.min(n(item.remainingQty), n(item.vehicleStock)), 0);
+            next[key] = prev[key] ?? (defaultQty > 0 ? fmtQty(defaultQty) : '0');
+          });
+        });
+        return next;
+      });
+    } catch {
+      setOpenOrders([]);
+    }
+  };
+
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (activeTab !== 'orders') return;
-      try {
-        const result = await adminApi.getHotSaleOpenOrders({
-          search: orderSearch,
-          limit: 30,
-          vehicleId: sessionDetail?.session?.vehicleId,
-          customerIdOrCode: selectedCustomer?.mikroCariCode || selectedCustomer?.id,
-        });
-        setOpenOrders(result.orders || []);
-      } catch {
-        setOpenOrders([]);
-      }
+      await refreshOpenOrders();
     }, 250);
     return () => clearTimeout(timer);
   }, [activeTab, orderSearch, sessionDetail?.session?.vehicleId, selectedCustomer?.id, selectedCustomer?.mikroCariCode]);
@@ -203,11 +259,15 @@ export default function HotSalesPage() {
 
   const saleTotal = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
   const loadTotalQty = useMemo(() => loadCart.reduce((sum, item) => sum + item.quantity, 0), [loadCart]);
+  const priceViolations = useMemo(
+    () => cart.filter((item) => minAllowedPrice(item, saleType) > 0 && n(item.unitPrice) + 0.0001 < minAllowedPrice(item, saleType)),
+    [cart, saleType]
+  );
   const activeSession = sessionDetail?.session || null;
   const inventory = sessionDetail?.inventory || [];
 
-  const addToCart = (product: any, target: 'sale' | 'load') => {
-    const listNo = target === 'load' ? 1 : priceListNo;
+  const addToCart = (product: any, target: 'sale' | 'load', forcedListNo?: number) => {
+    const listNo = target === 'load' ? 1 : forcedListNo || priceListNo;
     const unitPrice = target === 'load' ? 0 : n(product.priceLists?.[listNo]);
     if (target === 'sale' && unitPrice <= 0) {
       toast.error(`${priceLabel(listNo)} fiyati yok`);
@@ -218,7 +278,13 @@ export default function HotSalesPage() {
       const existing = prev.find((row) => row.productCode === product.productCode);
       if (existing) {
         return prev.map((row) =>
-          row.productCode === product.productCode ? { ...row, quantity: Number((row.quantity + 1).toFixed(3)) } : row
+          row.productCode === product.productCode
+            ? {
+                ...row,
+                quantity: Number((row.quantity + 1).toFixed(3)),
+                ...(target === 'sale' && forcedListNo ? { unitPrice, priceListNo: listNo } : {}),
+              }
+            : row
         );
       }
       return [
@@ -230,6 +296,10 @@ export default function HotSalesPage() {
           quantity: 1,
           unitPrice,
           priceListNo: listNo,
+          priceLists: product.priceLists || {},
+          vatRate: product.vatRate,
+          currentCost: product.currentCost,
+          currentCostVatIncluded: product.currentCostVatIncluded,
           imageUrl: product.imageUrl,
           vehicleStock: product.vehicleStock,
         },
@@ -308,6 +378,10 @@ export default function HotSalesPage() {
       toast.error('Faturali irsaliye ve siparis icin cari secin');
       return;
     }
+    if (priceViolations.length > 0) {
+      toast.error('Maliyet alt limitinin altinda fiyat var');
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await adminApi.createHotSaleTransaction(activeSession.id, {
@@ -341,23 +415,35 @@ export default function HotSalesPage() {
       toast.error('Once arac oturumu acin');
       return;
     }
-    if (!order.canDeliverAll) {
-      toast.error('Arac stogu siparisin tamamini karsilamiyor');
+    const selectedItems = order.items
+      .map((item: any) => {
+        const key = `${order.orderNumber}:${item.orderGuid || item.rowNumber}`;
+        const quantity = Number(String(deliveryQuantities[key] || '0').replace(',', '.')) || 0;
+        return { item, quantity };
+      })
+      .filter((row: any) => row.quantity > 0);
+    if (selectedItems.length === 0) {
+      toast.error('Teslim miktari girin');
+      return;
+    }
+    const invalid = selectedItems.find((row: any) => row.quantity > n(row.item.remainingQty) + 0.0001 || row.quantity > n(row.item.vehicleStock) + 0.0001);
+    if (invalid) {
+      toast.error(`${invalid.item.productCode} icin miktar kalan/arac stoktan fazla`);
       return;
     }
     setSubmitting(true);
     try {
       const result = await adminApi.deliverHotSaleOrder(selectedSessionId, {
         orderNumber: order.orderNumber,
-        items: order.items.map((item: any) => ({
+        items: selectedItems.map(({ item, quantity }: any) => ({
           orderGuid: item.orderGuid,
           productCode: item.productCode,
-          quantity: item.remainingQty,
+          quantity,
         })),
       });
       toast.success(`Siparisten irsaliye olustu: ${result.transaction?.mikroDocumentNo || ''}`);
-      setOpenOrders((prev) => prev.filter((row) => row.orderNumber !== order.orderNumber));
       await loadSession(selectedSessionId);
+      await refreshOpenOrders();
       await refreshDashboard();
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Siparis teslim edilemedi');
@@ -410,6 +496,27 @@ export default function HotSalesPage() {
     }
   };
 
+  const createHotCustomer = async () => {
+    if (!newCustomerForm.customerName.trim() || !newCustomerForm.phone.trim() || !newCustomerForm.taxOffice.trim() || !newCustomerForm.taxNumber.trim()) {
+      toast.error('Cari unvani, cep telefonu, vergi dairesi ve vergi no zorunlu');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await adminApi.createHotSaleCustomer(newCustomerForm);
+      setSelectedCustomer(result.customer);
+      setCustomerSearch(result.customer.displayName || result.customer.mikroName || result.customer.name || result.customer.mikroCariCode);
+      setCustomers([]);
+      setShowCustomerForm(false);
+      setNewCustomerForm({ customerName: '', phone: '', taxOffice: '', taxNumber: '', email: '', city: '', district: '', address: '' });
+      toast.success(`SICAK cari acildi: ${result.customer.mikroCariCode}`);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Cari acilamadi');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading && !dashboard) {
     return <div className="p-6 text-sm text-slate-500">Sicak satis yukleniyor...</div>;
   }
@@ -446,7 +553,7 @@ export default function HotSalesPage() {
                   <div className="rounded-2xl bg-emerald-50 p-3">
                     <p className="text-xs font-bold text-emerald-700">ACIK OTURUM</p>
                     <p className="text-lg font-black">{activeSession.vehicle?.name}</p>
-                    <p className="text-sm text-emerald-900">{activeSession.vehicle?.plate} / Kaynak depo {activeSession.sourceWarehouseNo}</p>
+                    <p className="text-sm text-emerald-900">{activeSession.vehicle?.plate} / Kaynak depo {warehouseLabel(activeSession.sourceWarehouseNo)}</p>
                   </div>
                   <select
                     value={selectedSessionId}
@@ -473,7 +580,7 @@ export default function HotSalesPage() {
                     ))}
                   </select>
                   <div className="grid grid-cols-2 gap-2">
-                    <Input placeholder="Kaynak depo" value={sessionForm.sourceWarehouseNo} onChange={(e) => setSessionForm((p) => ({ ...p, sourceWarehouseNo: e.target.value }))} />
+                    <WarehouseSelect value={sessionForm.sourceWarehouseNo} onChange={(value: string) => setSessionForm((p) => ({ ...p, sourceWarehouseNo: value }))} />
                     <Input placeholder="Baslangic nakit" value={sessionForm.openingCash} onChange={(e) => setSessionForm((p) => ({ ...p, openingCash: e.target.value }))} />
                   </div>
                   <Button onClick={startSession} disabled={submitting} className="w-full rounded-2xl">
@@ -539,19 +646,28 @@ export default function HotSalesPage() {
                     onChange={setCustomerSearch}
                     customers={customers}
                     selectedCustomer={selectedCustomer}
+                    onCreateRequest={() => setShowCustomerForm((value) => !value)}
                     onSelect={(customer: any) => {
                       setSelectedCustomer(customer);
                       setCustomerSearch(customer.displayName || customer.mikroName || customer.name || customer.mikroCariCode);
                       setCustomers([]);
                     }}
                   />
+                  {showCustomerForm && (
+                    <NewCustomerPanel
+                      form={newCustomerForm}
+                      onChange={(patch: Partial<NewCustomerForm>) => setNewCustomerForm((prev) => ({ ...prev, ...patch }))}
+                      onSubmit={createHotCustomer}
+                      submitting={submitting}
+                    />
+                  )}
 
                   <ProductSearch
                     value={productSearch}
                     onChange={setProductSearch}
                     products={products}
                     actionLabel={activeSession ? 'Sepete Ekle' : 'Oturum gerekli'}
-                    onAdd={(product: any) => addToCart(product, 'sale')}
+                    onAdd={(product: any, listNo?: number) => addToCart(product, 'sale', listNo)}
                   />
                 </Card>
 
@@ -563,7 +679,8 @@ export default function HotSalesPage() {
                   onRemove={(code: string) => removeCart('sale', code)}
                   onSubmit={submitSale}
                   submitLabel={saleType === 'ORDER' ? 'Siparis Olustur' : saleType === 'INVOICED_DISPATCH' ? 'Irsaliye Kes' : 'Satis Faturasi Kes'}
-                  disabled={submitting || !activeSession}
+                  disabled={submitting || !activeSession || priceViolations.length > 0}
+                  saleType={saleType}
                 />
               </section>
             )}
@@ -572,8 +689,8 @@ export default function HotSalesPage() {
               <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
                 <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
                   <div className="mb-3 grid grid-cols-2 gap-3">
-                    <Input placeholder="Kaynak depo" value={sessionForm.sourceWarehouseNo} onChange={(e) => setSessionForm((p) => ({ ...p, sourceWarehouseNo: e.target.value }))} />
-                    <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-900">Hedef: Depo 11</div>
+                    <WarehouseSelect value={sessionForm.sourceWarehouseNo} onChange={(value: string) => setSessionForm((p) => ({ ...p, sourceWarehouseNo: value }))} />
+                    <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-900">Hedef: Sicak Depo (11)</div>
                   </div>
                   <ProductSearch value={productSearch} onChange={setProductSearch} products={products} actionLabel="Yuklemeye Ekle" onAdd={(product: any) => addToCart(product, 'load')} />
                 </Card>
@@ -604,6 +721,7 @@ export default function HotSalesPage() {
                     onChange={setCustomerSearch}
                     customers={customers}
                     selectedCustomer={selectedCustomer}
+                    onCreateRequest={() => setShowCustomerForm((value) => !value)}
                     onSelect={(customer: any) => {
                       setSelectedCustomer(customer);
                       setCustomerSearch(customer.displayName || customer.mikroName || customer.name || customer.mikroCariCode);
@@ -611,6 +729,14 @@ export default function HotSalesPage() {
                     }}
                   />
                 </div>
+                {showCustomerForm && (
+                  <NewCustomerPanel
+                    form={newCustomerForm}
+                    onChange={(patch: Partial<NewCustomerForm>) => setNewCustomerForm((prev) => ({ ...prev, ...patch }))}
+                    onSubmit={createHotCustomer}
+                    submitting={submitting}
+                  />
+                )}
                 <div className="grid gap-4 xl:grid-cols-2">
                   {openOrders.length === 0 && <p className="rounded-3xl bg-slate-50 p-5 text-sm font-bold text-slate-500">Teslim edilecek acik SICAK siparis bulunamadi.</p>}
                   {openOrders.map((order: any) => (
@@ -629,8 +755,12 @@ export default function HotSalesPage() {
                       <div className="max-h-[360px] space-y-2 overflow-y-auto p-3">
                         {order.items.map((item: any) => {
                           const enough = n(item.vehicleStock) + 0.0001 >= n(item.remainingQty);
+                          const key = `${order.orderNumber}:${item.orderGuid || item.rowNumber}`;
+                          const deliverQty = deliveryQuantities[key] ?? '0';
+                          const deliverNumber = Number(String(deliverQty).replace(',', '.')) || 0;
+                          const invalidQty = deliverNumber > n(item.remainingQty) + 0.0001 || deliverNumber > n(item.vehicleStock) + 0.0001;
                           return (
-                            <div key={`${order.orderNumber}-${item.rowNumber}`} className="flex gap-3 rounded-2xl bg-white p-3">
+                            <div key={`${order.orderNumber}-${item.rowNumber}`} className={`flex gap-3 rounded-2xl bg-white p-3 ${invalidQty ? 'ring-2 ring-red-300' : ''}`}>
                               <ProductImage src={item.imageUrl} large />
                               <div className="min-w-0 flex-1">
                                 <p className="line-clamp-2 text-sm font-black">{item.productName}</p>
@@ -643,13 +773,22 @@ export default function HotSalesPage() {
                                   <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">{formatCurrency(item.unitPrice || 0)}</span>
                                 </div>
                               </div>
+                              <div className="w-28 shrink-0">
+                                <label className="mb-1 block text-[10px] font-black uppercase text-slate-400">Kesilecek</label>
+                                <input
+                                  value={deliverQty}
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  onChange={(e) => setDeliveryQuantities((prev) => ({ ...prev, [key]: e.target.value }))}
+                                  className={`h-11 w-full rounded-2xl border bg-slate-50 px-3 text-sm font-black outline-none ${invalidQty ? 'border-red-400 text-red-700' : 'border-slate-200'}`}
+                                />
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                       <div className="border-t border-slate-100 p-3">
-                        <Button onClick={() => deliverOrder(order)} disabled={!activeSession || submitting || !order.canDeliverAll} className="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500">
-                          Aractan Irsaliye Kes
+                        <Button onClick={() => deliverOrder(order)} disabled={!activeSession || submitting} className="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-500">
+                          Girilen Miktarlari Irsaliye Kes
                         </Button>
                       </div>
                     </article>
@@ -700,7 +839,7 @@ export default function HotSalesPage() {
                   <div className="grid gap-3">
                     <Input placeholder="Arac adi" value={vehicleForm.name} onChange={(e) => setVehicleForm((p) => ({ ...p, name: e.target.value }))} />
                     <Input placeholder="Plaka" value={vehicleForm.plate} onChange={(e) => setVehicleForm((p) => ({ ...p, plate: e.target.value }))} />
-                    <Input placeholder="Varsayilan kaynak depo" value={vehicleForm.defaultSourceWarehouseNo} onChange={(e) => setVehicleForm((p) => ({ ...p, defaultSourceWarehouseNo: e.target.value }))} />
+                    <WarehouseSelect value={vehicleForm.defaultSourceWarehouseNo} onChange={(value: string) => setVehicleForm((p) => ({ ...p, defaultSourceWarehouseNo: value }))} label="Varsayilan kaynak depo" />
                     <Input placeholder="Not" value={vehicleForm.note} onChange={(e) => setVehicleForm((p) => ({ ...p, note: e.target.value }))} />
                     <Button onClick={saveVehicle} className="rounded-2xl">Araci Kaydet</Button>
                   </div>
@@ -754,10 +893,28 @@ function ProductImage({ src, large }: { src?: string | null; large?: boolean }) 
   );
 }
 
-function CustomerPicker({ value, onChange, customers, selectedCustomer, onSelect }: any) {
+function WarehouseSelect({ value, onChange, label = 'Kaynak depo' }: { value: string; onChange: (value: string) => void; label?: string }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-black uppercase tracking-[0.12em] text-slate-500">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black">
+        {WAREHOUSE_OPTIONS.map((warehouse) => (
+          <option key={warehouse.value} value={warehouse.value}>{warehouse.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function CustomerPicker({ value, onChange, customers, selectedCustomer, onSelect, onCreateRequest }: any) {
   return (
     <div className="relative mb-4">
-      <label className="mb-1 block text-sm font-black">Cari</label>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <label className="block text-sm font-black">Cari</label>
+        <button type="button" onClick={onCreateRequest} className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-900 hover:bg-amber-200">
+          Yeni SICAK Cari
+        </button>
+      </div>
       <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="Cari kodu veya unvan ara" />
       {selectedCustomer && <p className="mt-1 text-xs font-bold text-emerald-700">Secili: {selectedCustomer.displayName || selectedCustomer.mikroName || selectedCustomer.name}</p>}
       {customers.length > 0 && (
@@ -774,45 +931,78 @@ function CustomerPicker({ value, onChange, customers, selectedCustomer, onSelect
   );
 }
 
+function NewCustomerPanel({ form, onChange, onSubmit, submitting }: { form: NewCustomerForm; onChange: (patch: Partial<NewCustomerForm>) => void; onSubmit: () => void; submitting: boolean }) {
+  return (
+    <div className="mb-4 rounded-[1.6rem] border border-amber-200 bg-amber-50 p-4">
+      <div className="mb-3">
+        <h3 className="text-lg font-black text-amber-950">Yeni SICAK Cari Ac</h3>
+        <p className="text-xs font-bold text-amber-800">Zorunlu: unvan, cep telefonu, vergi dairesi, vergi no. Odeme plani Pesin, sektor/grup SICAK olarak acilir.</p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        <Input placeholder="Cari unvani *" value={form.customerName} onChange={(e) => onChange({ customerName: e.target.value })} />
+        <Input placeholder="Cep telefonu *" value={form.phone} onChange={(e) => onChange({ phone: e.target.value })} />
+        <Input placeholder="Vergi dairesi *" value={form.taxOffice} onChange={(e) => onChange({ taxOffice: e.target.value })} />
+        <Input placeholder="Vergi no *" value={form.taxNumber} onChange={(e) => onChange({ taxNumber: e.target.value })} />
+        <Input placeholder="E-posta" value={form.email} onChange={(e) => onChange({ email: e.target.value })} />
+        <Input placeholder="Il" value={form.city} onChange={(e) => onChange({ city: e.target.value })} />
+        <Input placeholder="Ilce" value={form.district} onChange={(e) => onChange({ district: e.target.value })} />
+        <Input placeholder="Adres" value={form.address} onChange={(e) => onChange({ address: e.target.value })} />
+      </div>
+      <Button onClick={onSubmit} disabled={submitting} className="mt-3 rounded-2xl bg-slate-950 text-white hover:bg-slate-800">
+        Cariyi Ac ve Sec
+      </Button>
+    </div>
+  );
+}
+
 function ProductSearch({ value, onChange, products, onAdd, actionLabel }: any) {
   return (
     <div>
       <label className="mb-1 block text-sm font-black">Urun Ara</label>
       <div className="relative">
         <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400" />
-        <input value={value} onChange={(e) => onChange(e.target.value)} className="h-14 w-full rounded-3xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-base font-bold outline-none focus:border-amber-400" placeholder="Kod, isim veya barkod" />
+        <input value={value} onChange={(e) => onChange(e.target.value)} className="h-14 w-full rounded-3xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-base font-bold outline-none focus:border-amber-400" placeholder="Kod, isim veya barkod; bosken arac stogu listelenir" />
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-        {products.map((product: any) => (
-          <article key={product.productCode} className="overflow-hidden rounded-3xl border border-slate-100 bg-slate-50 shadow-sm">
-            <div className="flex gap-3 p-3">
-              <ProductImage src={product.imageUrl} large />
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 text-sm font-black">{product.productName}</p>
-                <p className="text-xs text-slate-500">{product.productCode}</p>
-                <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-black">
-                  <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">Arac {fmtQty(product.vehicleStock)}</span>
-                  <span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700">D11 {fmtQty(product.hotWarehouseStock)}</span>
-                  <span className="rounded-full bg-slate-200 px-2 py-1 text-slate-700">M {fmtQty(product.stockMerkez)}</span>
-                  <span className="rounded-full bg-slate-200 px-2 py-1 text-slate-700">T {fmtQty(product.stockTopca)}</span>
+        {products.map((product: any) => {
+          const vehicleStock = n(product.vehicleStock);
+          const noStock = n(product.totalVisibleStock) <= 0;
+          const cardClass = vehicleStock > 0 ? 'border-emerald-200 bg-emerald-50' : noStock ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50';
+          return (
+            <article key={product.productCode} className={`overflow-hidden rounded-3xl border shadow-sm ${cardClass}`}>
+              <div className="flex gap-3 p-3">
+                <ProductImage src={product.imageUrl} large />
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 text-sm font-black">{product.productName}</p>
+                  <p className="text-xs text-slate-500">{product.productCode}</p>
+                  <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-black">
+                    <span className={`rounded-full px-2 py-1 ${vehicleStock > 0 ? 'bg-emerald-600 text-white' : 'bg-white text-slate-700'}`}>Arac {fmtQty(product.vehicleStock)}</span>
+                    <span className="rounded-full bg-white px-2 py-1 text-blue-700">Sicak Depo {fmtQty(product.hotWarehouseStock)}</span>
+                    <span className="rounded-full bg-white px-2 py-1 text-slate-700">Merkez {fmtQty(product.stockMerkez)}</span>
+                    <span className="rounded-full bg-white px-2 py-1 text-slate-700">Topca {fmtQty(product.stockTopca)}</span>
+                    {noStock && <span className="rounded-full bg-red-600 px-2 py-1 text-white">Stok Yok</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 border-t border-slate-100 p-3 text-xs">
-              <span>Perakende 5: <b>{formatCurrency(product.priceLists?.[5] || 0)}</b></span>
-              <span>Toptan 1: <b>{formatCurrency(product.priceLists?.[6] || 0)}</b></span>
-            </div>
-            <button onClick={() => onAdd(product)} className="flex h-11 w-full items-center justify-center gap-2 bg-slate-950 text-sm font-black text-white">
-              <Plus className="h-4 w-4" /> {actionLabel}
-            </button>
-          </article>
-        ))}
+              <div className="grid grid-cols-2 gap-2 border-t border-white/70 p-3 text-xs">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((listNo) => (
+                  <button key={listNo} type="button" onClick={() => onAdd(product, listNo)} className="rounded-2xl bg-white px-2 py-2 text-left font-black shadow-sm hover:bg-slate-950 hover:text-white">
+                    {priceLabel(listNo)}: {formatCurrency(product.priceLists?.[listNo] || 0)}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => onAdd(product)} className="flex h-11 w-full items-center justify-center gap-2 bg-slate-950 text-sm font-black text-white">
+                <Plus className="h-4 w-4" /> {actionLabel}
+              </button>
+            </article>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemove, onSubmit, submitLabel, disabled, hidePrice }: any) {
+function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemove, onSubmit, submitLabel, disabled, hidePrice, saleType }: any) {
   return (
     <Card className="rounded-[2rem] border-0 bg-white p-4 shadow-xl">
       <div className="mb-3 flex items-center justify-between">
@@ -831,10 +1021,29 @@ function CartPanel({ title, cart, total, totalLabel = 'Toplam', onUpdate, onRemo
               </div>
               <button onClick={() => onRemove(item.productCode)} className="h-9 w-9 rounded-full bg-white text-slate-500"><X className="mx-auto h-4 w-4" /></button>
             </div>
-            <div className={`mt-3 grid gap-2 ${hidePrice ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            <div className={`mt-3 grid gap-2 ${hidePrice ? 'grid-cols-1' : 'grid-cols-3'}`}>
               <input value={item.quantity} onFocus={(e) => e.currentTarget.select()} onChange={(e) => onUpdate(item.productCode, { quantity: Number(e.target.value.replace(',', '.')) || 0 })} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black" />
+              {!hidePrice && (
+                <select
+                  value={item.priceListNo}
+                  onChange={(e) => {
+                    const listNo = Number(e.target.value);
+                    onUpdate(item.productCode, { priceListNo: listNo, unitPrice: n(item.priceLists?.[listNo]) || item.unitPrice });
+                  }}
+                  className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black"
+                >
+                  {Array.from({ length: 10 }, (_, index) => index + 1).map((listNo) => (
+                    <option key={listNo} value={listNo}>{priceLabel(listNo)}</option>
+                  ))}
+                </select>
+              )}
               {!hidePrice && <input value={item.unitPrice} onFocus={(e) => e.currentTarget.select()} onChange={(e) => onUpdate(item.productCode, { unitPrice: Number(e.target.value.replace(',', '.')) || 0 })} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black" />}
             </div>
+            {!hidePrice && minAllowedPrice(item, saleType) > 0 && (
+              <p className={`mt-2 rounded-2xl px-3 py-2 text-xs font-black ${n(item.unitPrice) + 0.0001 >= minAllowedPrice(item, saleType) ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                Alt limit: {formatCurrency(minAllowedPrice(item, saleType))} / Guncel maliyet: {formatCurrency(n(item.currentCost))}
+              </p>
+            )}
           </div>
         ))}
       </div>

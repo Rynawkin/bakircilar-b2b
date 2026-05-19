@@ -579,6 +579,20 @@ export const adminApi = {
     return response.data;
   },
 
+  createHotSaleCustomer: async (payload: {
+    customerName: string;
+    phone: string;
+    taxOffice: string;
+    taxNumber: string;
+    email?: string;
+    city?: string;
+    district?: string;
+    address?: string;
+  }): Promise<{ customer: any; mikro: any }> => {
+    const response = await apiClient.post('/admin/hot-sales/customers', payload);
+    return response.data;
+  },
+
   searchHotSaleProducts: async (params?: {
     search?: string;
     limit?: number;
