@@ -16,6 +16,7 @@ import productComplementController from '../controllers/product-complement.contr
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
 import productDimensionsController from '../controllers/product-dimensions.controller';
 import stockCreateController from '../controllers/stock-create.controller';
+import hotSaleController from '../controllers/hot-sale.controller';
 import {
   authenticate,
   requirePermission,
@@ -381,6 +382,19 @@ router.get('/field-sales/customers/:customerId/opportunities', requirePermission
 router.post('/field-sales/visit-customers', requirePermission('admin:field-sales'), adminController.createFieldSalesVisitCustomer);
 router.get('/field-sales/customers/:customerId/visit-notes', requirePermission('admin:field-sales'), adminController.getFieldSalesVisitNotes);
 router.post('/field-sales/customers/:customerId/visit-notes', requirePermission('admin:field-sales'), adminController.createFieldSalesVisitNote);
+router.get('/hot-sales/dashboard', requirePermission('admin:hot-sales'), hotSaleController.dashboard);
+router.get('/hot-sales/vehicles', requirePermission('admin:hot-sales'), hotSaleController.vehicles);
+router.post('/hot-sales/vehicles', requirePermission('admin:hot-sales'), hotSaleController.saveVehicle);
+router.get('/hot-sales/customers', requirePermission('admin:hot-sales'), hotSaleController.searchCustomers);
+router.get('/hot-sales/products', requirePermission('admin:hot-sales'), hotSaleController.searchProducts);
+router.get('/hot-sales/orders', requirePermission('admin:hot-sales'), hotSaleController.openOrders);
+router.post('/hot-sales/sessions', requirePermission('admin:hot-sales'), hotSaleController.startSession);
+router.get('/hot-sales/sessions/:sessionId', requirePermission('admin:hot-sales'), hotSaleController.sessionDetail);
+router.post('/hot-sales/sessions/:sessionId/load', requirePermission('admin:hot-sales'), hotSaleController.addLoad);
+router.post('/hot-sales/sessions/:sessionId/transactions', requirePermission('admin:hot-sales'), hotSaleController.createTransaction);
+router.post('/hot-sales/sessions/:sessionId/order-delivery', requirePermission('admin:hot-sales'), hotSaleController.deliverOrder);
+router.post('/hot-sales/sessions/:sessionId/close', requirePermission('admin:hot-sales'), hotSaleController.closeSession);
+router.get('/hot-sales/vehicles/:vehicleId/inventory', requirePermission('admin:hot-sales'), hotSaleController.inventory);
 router.get('/customers/:id/price-list-rules', requirePermission('admin:customers'), adminController.getCustomerPriceListRules);
 router.put(
   '/customers/:id/price-list-rules',

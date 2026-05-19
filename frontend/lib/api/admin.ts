@@ -552,6 +552,88 @@ export const adminApi = {
     return response.data;
   },
 
+  getHotSalesDashboard: async (): Promise<any> => {
+    const response = await apiClient.get('/admin/hot-sales/dashboard');
+    return response.data;
+  },
+
+  getHotSaleVehicles: async (): Promise<{ vehicles: any[] }> => {
+    const response = await apiClient.get('/admin/hot-sales/vehicles');
+    return response.data;
+  },
+
+  saveHotSaleVehicle: async (payload: {
+    id?: string;
+    name: string;
+    plate: string;
+    active?: boolean;
+    defaultSourceWarehouseNo?: number;
+    note?: string | null;
+  }): Promise<{ vehicle: any }> => {
+    const response = await apiClient.post('/admin/hot-sales/vehicles', payload);
+    return response.data;
+  },
+
+  searchHotSaleCustomers: async (params?: { search?: string; limit?: number }): Promise<{ customers: any[] }> => {
+    const response = await apiClient.get('/admin/hot-sales/customers', { params });
+    return response.data;
+  },
+
+  searchHotSaleProducts: async (params?: {
+    search?: string;
+    limit?: number;
+    vehicleId?: string;
+    customerIdOrCode?: string;
+  }): Promise<{ products: any[] }> => {
+    const response = await apiClient.get('/admin/hot-sales/products', { params });
+    return response.data;
+  },
+
+  getHotSaleOpenOrders: async (params?: {
+    search?: string;
+    limit?: number;
+    vehicleId?: string;
+    customerIdOrCode?: string;
+  }): Promise<{ orders: any[] }> => {
+    const response = await apiClient.get('/admin/hot-sales/orders', { params });
+    return response.data;
+  },
+
+  startHotSaleSession: async (payload: any): Promise<{ session: any }> => {
+    const response = await apiClient.post('/admin/hot-sales/sessions', payload);
+    return response.data;
+  },
+
+  getHotSaleSession: async (sessionId: string): Promise<any> => {
+    const response = await apiClient.get(`/admin/hot-sales/sessions/${encodeURIComponent(sessionId)}`);
+    return response.data;
+  },
+
+  addHotSaleLoad: async (sessionId: string, payload: any): Promise<any> => {
+    const response = await apiClient.post(`/admin/hot-sales/sessions/${encodeURIComponent(sessionId)}/load`, payload);
+    return response.data;
+  },
+
+  createHotSaleTransaction: async (sessionId: string, payload: any): Promise<{ transaction: any }> => {
+    const response = await apiClient.post(`/admin/hot-sales/sessions/${encodeURIComponent(sessionId)}/transactions`, payload);
+    return response.data;
+  },
+
+  deliverHotSaleOrder: async (sessionId: string, payload: any): Promise<{ transaction: any }> => {
+    const response = await apiClient.post(`/admin/hot-sales/sessions/${encodeURIComponent(sessionId)}/order-delivery`, payload);
+    return response.data;
+  },
+
+  closeHotSaleSession: async (sessionId: string, payload: any): Promise<{ session: any }> => {
+    const response = await apiClient.post(`/admin/hot-sales/sessions/${encodeURIComponent(sessionId)}/close`, payload);
+    return response.data;
+  },
+
+  getHotSaleInventory: async (vehicleId: string): Promise<{ inventory: any[] }> => {
+    const response = await apiClient.get(`/admin/hot-sales/vehicles/${encodeURIComponent(vehicleId)}/inventory`);
+    return response.data;
+  },
+
   createCustomer: async (data: CreateCustomerRequest): Promise<{ message: string; customer: Customer }> => {
     const response = await apiClient.post('/admin/customers', data);
     return response.data;

@@ -37,7 +37,8 @@ import {
   Percent,
   Ruler,
   PackagePlus,
-  HandCoins
+  HandCoins,
+  Truck
 } from 'lucide-react';
 
 interface NavItem {
@@ -70,6 +71,7 @@ const navItems: NavItem[] = [
   { name: 'Teklif Kalemleri', href: '/quotes/lines', icon: FileText, description: 'Teklif kalemleri', permission: 'admin:quotes' },
   { name: 'Sipariş Takip', href: '/order-tracking', icon: Mail, description: 'Bekleyen siparişler', permission: 'admin:order-tracking' },
   { name: 'Saha Satis', href: '/field-sales', icon: Smartphone, description: 'Mobil cari ve urun ekrani', permission: 'admin:field-sales' },
+  { name: 'Sicak Satis', href: '/hot-sales', icon: Truck, description: 'Arac stogu, anlik satis ve gun sonu', permission: 'admin:hot-sales' },
   { name: 'Depo Kiosk', href: '/warehouse', icon: MonitorSmartphone, description: 'Toplama ve yükleme ekranı', permission: 'admin:warehouse-kiosk' },
   { name: 'Perakende Satis', href: '/warehouse/retail', icon: MonitorSmartphone, description: 'Hizli satis ekrani', permission: 'admin:warehouse-retail' },
   { name: 'Urun Olculeri', href: '/product-dimensions', icon: Ruler, description: 'Yolpilot icin olcu, kg ve raf bilgileri', permission: 'admin:product-dimensions' },

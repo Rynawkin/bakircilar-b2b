@@ -96,6 +96,49 @@ enum WarehouseImageIssueStatus {
   FIXED
 }
 
+enum HotSaleSessionStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum HotSaleStockMovementType {
+  LOAD
+  SALE
+  ORDER_RESERVE
+  RETURN_TO_DEPOT
+  KEEP_ON_VEHICLE
+  ADJUSTMENT
+  FIRE
+  COUNT
+}
+
+enum HotSaleTransactionType {
+  CASH_INVOICE
+  INVOICED_DISPATCH
+  ORDER
+  ORDER_DELIVERY
+}
+
+enum HotSaleTransactionStatus {
+  COMPLETED
+  SYNC_FAILED
+  CANCELLED
+}
+
+enum HotSalePaymentType {
+  CASH
+  CARD
+  TRANSFER
+  OPEN_ACCOUNT
+  MIXED
+}
+
+enum HotSaleClosureAction {
+  KEEP_ON_VEHICLE
+  RETURN_TO_DEPOT
+}
+
 
 
 
@@ -343,6 +386,10 @@ model User {
   recoveryActionsAssigned CustomerRecoveryAction[] @relation("CustomerRecoveryActionAssignee")
   fieldSalesVisitNotesAuthored FieldSalesVisitNote[] @relation("FieldSalesVisitNoteAuthor")
   fieldSalesVisitNotesAsCustomer FieldSalesVisitNote[] @relation("FieldSalesVisitNoteCustomer")
+  hotSaleSessions      HotSaleSession[]
+  hotSaleStockLedgers  HotSaleStockLedger[] @relation("HotSaleStockLedgerCreatedBy")
+  hotSaleTransactionsAsCustomer HotSaleTransaction[] @relation("HotSaleTransactionCustomer")
+  hotSaleTransactionsCreated HotSaleTransaction[] @relation("HotSaleTransactionCreatedBy")
 
   quotesUpdated      Quote[]       @relation("QuoteUpdater")
   quoteHistories     QuoteHistory[] @relation("QuoteHistoryActor")
@@ -773,6 +820,7 @@ model Product {
   complementAutoRelated   ProductComplementAuto[] @relation("ProductComplementAutoRelated")
   complementManualRelated ProductComplementManual[] @relation("ProductComplementManualRelated")
   activityEvents          CustomerActivityEvent[]
+  hotSaleItems            HotSaleTransactionItem[]
 
   @@index([mikroCode])
   @@index([foreignName])
@@ -1972,6 +2020,186 @@ model WarehouseImageIssueReport {
 }
 
 // Email gönderim logları
+model HotSaleVehicle {
+  id                       String           @id @default(uuid())
+  name                     String
+  plate                    String           @unique
+  active                   Boolean          @default(true)
+  hotWarehouseNo           Int              @default(11)
+  defaultSourceWarehouseNo Int              @default(1)
+  defaultInvoiceSeries     String           @default("SICAK")
+  defaultDispatchSeries    String           @default("SICAK")
+  defaultOrderSeries       String           @default("SICAK")
+  note                     String?
+  sessions                 HotSaleSession[]
+  stockMovements           HotSaleStockLedger[]
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  @@index([active])
+  @@index([name])
+}
+
+model HotSaleSession {
+  id                 String                 @id @default(uuid())
+  vehicleId          String
+  vehicle            HotSaleVehicle         @relation(fields: [vehicleId], references: [id])
+  userId             String
+  user               User                   @relation(fields: [userId], references: [id])
+  status             HotSaleSessionStatus   @default(OPEN)
+  hotWarehouseNo     Int                    @default(11)
+  sourceWarehouseNo  Int                    @default(1)
+  openingCash        Float                  @default(0)
+  closingCash        Float?
+  expectedCash       Float                  @default(0)
+  cashDifference     Float?
+  startKm            Float?
+  endKm              Float?
+  startLatitude      Float?
+  startLongitude     Float?
+  endLatitude        Float?
+  endLongitude       Float?
+  loadDocumentNo     String?
+  returnDocumentNo   String?
+  note               String?
+  closeNote          String?
+  startedAt          DateTime               @default(now())
+  closedAt           DateTime?
+  stockMovements     HotSaleStockLedger[]
+  transactions       HotSaleTransaction[]
+  closingCounts      HotSaleClosingCount[]
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([vehicleId, status])
+  @@index([userId, status])
+  @@index([startedAt])
+}
+
+model HotSaleStockLedger {
+  id                 String                   @id @default(uuid())
+  sessionId          String
+  session            HotSaleSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  vehicleId          String
+  vehicle            HotSaleVehicle           @relation(fields: [vehicleId], references: [id])
+  transactionId      String?
+  transaction        HotSaleTransaction?      @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  type               HotSaleStockMovementType
+  productCode        String
+  productName        String?
+  unit               String?
+  quantity           Float
+  sourceWarehouseNo  Int?
+  targetWarehouseNo  Int?
+  documentNo         String?
+  note               String?
+  createdById        String?
+  createdBy          User?                    @relation("HotSaleStockLedgerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt          DateTime                 @default(now())
+
+  @@index([sessionId])
+  @@index([vehicleId])
+  @@index([productCode])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model HotSaleTransaction {
+  id                  String                   @id @default(uuid())
+  sessionId           String
+  session             HotSaleSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type                HotSaleTransactionType
+  status              HotSaleTransactionStatus @default(COMPLETED)
+  customerId          String?
+  customer            User?                    @relation("HotSaleTransactionCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  customerCode        String?
+  customerName        String?
+  paymentType         HotSalePaymentType       @default(CASH)
+  priceListNo         Int?
+  documentNo          String?
+  mikroDocumentNo     String?
+  linkedOrderId       String?
+  linkedOrderNumber   String?
+  totalAmount         Float                    @default(0)
+  vatAmount           Float                    @default(0)
+  note                String?
+  latitude            Float?
+  longitude           Float?
+  syncError           String?
+  createdById         String?
+  createdBy           User?                    @relation("HotSaleTransactionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  items               HotSaleTransactionItem[]
+  payments            HotSalePayment[]
+  stockMovements      HotSaleStockLedger[]
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  @@index([sessionId])
+  @@index([customerId])
+  @@index([customerCode])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model HotSaleTransactionItem {
+  id             String             @id @default(uuid())
+  transactionId  String
+  transaction    HotSaleTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productCode    String
+  productName    String
+  unit           String?
+  quantity       Float
+  unitPrice      Float
+  totalPrice     Float
+  vatRate        Float              @default(0)
+  vatAmount      Float              @default(0)
+  priceListNo    Int?
+  priceType      PriceType?
+  note           String?
+  createdAt      DateTime           @default(now())
+
+  @@index([transactionId])
+  @@index([productCode])
+}
+
+model HotSalePayment {
+  id              String             @id @default(uuid())
+  transactionId   String
+  transaction     HotSaleTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  type            HotSalePaymentType
+  amount          Float
+  referenceNo     String?
+  note            String?
+  receiptPhotoUrl String?
+  createdAt       DateTime           @default(now())
+
+  @@index([transactionId])
+  @@index([type])
+}
+
+model HotSaleClosingCount {
+  id                String               @id @default(uuid())
+  sessionId         String
+  session           HotSaleSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productCode       String
+  productName       String?
+  unit              String?
+  expectedQty       Float
+  countedQty        Float
+  differenceQty     Float
+  action            HotSaleClosureAction
+  returnQty         Float                @default(0)
+  keepQty           Float                @default(0)
+  note              String?
+  createdAt         DateTime             @default(now())
+
+  @@index([sessionId])
+  @@index([productCode])
+}
+
 model EmailLog {
   id                    String    @id @default(uuid())
 
