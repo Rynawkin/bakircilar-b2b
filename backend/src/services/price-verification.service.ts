@@ -98,8 +98,10 @@ class PriceVerificationService {
       }),
     ]);
 
+    const mappedItems = await this.mapRequestsWithProductMeta(items);
+
     return {
-      items: items.map((item) => this.mapRequest(item)),
+      items: mappedItems,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       summary: Object.fromEntries(summaryRows.map((row) => [row.status, row._count._all])),
       scope: { canManage: scope.canManage },
@@ -108,7 +110,7 @@ class PriceVerificationService {
 
   async getRequest(id: string, actor: Actor) {
     const request = await this.requireRequest(id, actor);
-    return { request: this.mapRequest(request) };
+    return { request: await this.mapRequestWithProductMeta(request) };
   }
 
   async createRequest(input: any, actor: Actor) {
@@ -175,7 +177,7 @@ class PriceVerificationService {
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
     }, scope.userId);
 
-    return { request: this.mapRequest(request) };
+    return { request: await this.mapRequestWithProductMeta(request) };
   }
 
   async addOffer(requestId: string, input: OfferInput, actor: Actor) {
@@ -228,7 +230,7 @@ class PriceVerificationService {
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
     });
 
-    return { request: this.mapRequest(updated) };
+    return { request: await this.mapRequestWithProductMeta(updated) };
   }
 
   async salesDecision(requestId: string, input: any, actor: Actor) {
@@ -265,7 +267,7 @@ class PriceVerificationService {
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
     }, actor.userId || null);
 
-    return { request: this.mapRequest(updated) };
+    return { request: await this.mapRequestWithProductMeta(updated) };
   }
 
   async completeRequest(requestId: string, input: any, actor: Actor) {
@@ -341,7 +343,7 @@ class PriceVerificationService {
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
     });
 
-    return { request: this.mapRequest(updated), supplierCost: supplierCost.cost, application };
+    return { request: await this.mapRequestWithProductMeta(updated), supplierCost: supplierCost.cost, application };
   }
 
   async cancelRequest(requestId: string, input: any, actor: Actor) {
@@ -357,7 +359,7 @@ class PriceVerificationService {
       include: { offers: { orderBy: [{ normalizedCostP: 'asc' }, { createdAt: 'desc' }] }, notes: { orderBy: { createdAt: 'desc' } } },
     });
     await this.addSystemNote(request.id, `Talep iptal edildi.${input.note ? ` Not: ${normalizeText(input.note)}` : ''}`, actor.userId || null);
-    return { request: this.mapRequest(updated) };
+    return { request: await this.mapRequestWithProductMeta(updated) };
   }
 
   async addNote(requestId: string, input: any, actor: Actor) {
@@ -569,11 +571,6 @@ class PriceVerificationService {
     const supplierName = normalizeText(input.supplierName);
     const supplierCode = normalizeText(input.supplierCode) || null;
     if (!supplierCode && !supplierName) throw new AppError('Tedarikci zorunludur.', 400, ErrorCode.BAD_REQUEST);
-    const costP = asNumber(input.costP, 0);
-    const costT = asNumber(input.costT ?? input.costP, 0);
-    if (!costP || costP <= 0) throw new AppError('Maliyet P zorunludur.', 400, ErrorCode.BAD_REQUEST);
-    if (!costT || costT <= 0) throw new AppError('Maliyet T zorunludur.', 400, ErrorCode.BAD_REQUEST);
-
     const currency = normalizeCode(input.currency) || 'TRY';
     const exchangeRate = currency === 'TRY' ? null : asNumber(input.exchangeRate, 0);
     if (currency !== 'TRY' && (!exchangeRate || exchangeRate <= 0)) {
@@ -587,6 +584,16 @@ class PriceVerificationService {
     const factor = Math.max(asNumber(input.unitFactor, 1), 0.0001);
     const fx = currency === 'TRY' ? 1 : Number(exchangeRate);
     const divider = input.vatIncluded ? 1 + vatRate : 1;
+    let costT = asNumber(input.costT, 0);
+    let costP = asNumber(input.costP, 0);
+    if ((!costP || costP <= 0) && costT > 0) {
+      costP = roundMoney(costT * (1 + Math.max(vatRate, 0) / 2));
+    }
+    if ((!costT || costT <= 0) && costP > 0) {
+      costT = costP;
+    }
+    if (!costT || costT <= 0) throw new AppError('Maliyet T zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    if (!costP || costP <= 0) throw new AppError('Maliyet P zorunludur.', 400, ErrorCode.BAD_REQUEST);
 
     return {
       supplierCode,
@@ -631,7 +638,33 @@ class PriceVerificationService {
     }).catch(() => undefined);
   }
 
-  private mapRequest(request: any) {
+  private async mapRequestWithProductMeta(request: any) {
+    const [mapped] = await this.mapRequestsWithProductMeta([request]);
+    return mapped;
+  }
+
+  private async mapRequestsWithProductMeta(requests: any[]) {
+    const codes = Array.from(new Set(
+      requests
+        .map((request) => normalizeCode(request?.productCode))
+        .filter(Boolean)
+    ));
+    const products = codes.length
+      ? await prisma.product.findMany({
+          where: { mikroCode: { in: codes } },
+          select: { mikroCode: true, unit: true, vatRate: true },
+        })
+      : [];
+    const productMeta = new Map(products.map((product) => [normalizeCode(product.mikroCode), product]));
+    return requests.map((request) => this.mapRequest(request, productMeta));
+  }
+
+  private mapRequest(request: any, productMeta?: Map<string, { mikroCode: string; unit: string; vatRate: number | null }>) {
+    const product = productMeta?.get(normalizeCode(request.productCode));
+    const stockPayload = request.stockCreatePayload || null;
+    const stockVatPercent = asNumber((stockPayload as any)?.vatRatePercent, 0);
+    const vatRate = product?.vatRate ?? (stockVatPercent > 0 ? stockVatPercent / 100 : null);
+    const unit = request.unit || product?.unit || (stockPayload as any)?.mainUnit || null;
     const offers = (request.offers || []).map((offer: any) => ({
       ...offer,
       isSelected: request.selectedOfferId === offer.id,
@@ -640,10 +673,13 @@ class PriceVerificationService {
     const availableActions = this.getAvailableActions(request);
     return {
       ...request,
+      unit,
+      vatRate,
+      vatRatePercent: vatRate !== null && vatRate !== undefined ? (vatRate > 1 ? vatRate : vatRate * 100) : null,
       offers,
       bestOffer,
       availableActions,
-      stockCreatePayload: request.stockCreatePayload || null,
+      stockCreatePayload: stockPayload,
       notes: request.notes || [],
     };
   }

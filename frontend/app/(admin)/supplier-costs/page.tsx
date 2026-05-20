@@ -96,6 +96,19 @@ const money = (value: any) =>
 const dateText = (value: any) => (value ? formatDateShort(String(value)) : '-');
 const percent = (value: any) => (Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('tr-TR', { maximumFractionDigits: 2 })}%` : '-');
 const parseNumberText = (value: string) => Number(String(value || '').replace(',', '.'));
+const formatInputNumber = (value: number) => (Number.isFinite(value) ? value.toFixed(4).replace(/\.?0+$/, '') : '');
+const resolveVatPercent = (value: any, fallback = 20) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const parsed = parseNumberText(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed <= 1 ? parsed * 100 : parsed;
+};
+const costPFromCostT = (costT: string, vatPercent: number) => {
+  const parsedCostT = parseNumberText(costT);
+  if (!Number.isFinite(parsedCostT) || parsedCostT <= 0) return '';
+  return formatInputNumber(parsedCostT * (1 + Math.max(vatPercent, 0) / 200));
+};
 
 export default function SupplierCostsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('entry');
@@ -133,6 +146,7 @@ export default function SupplierCostsPage() {
   const [historySearch, setHistorySearch] = useState('');
   const [historyRows, setHistoryRows] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [manualCostPOverride, setManualCostPOverride] = useState(false);
 
   const normalizedPreview = useMemo(() => {
     const costP = parseNumberText(form.costP);
@@ -152,6 +166,28 @@ export default function SupplierCostsPage() {
   }, [form, selectedProduct]);
 
   const updateForm = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
+  const updateMainCostT = (value: string) => {
+    setForm((current) => {
+      const patch: Partial<FormState> = { costT: value };
+      if (!manualCostPOverride) {
+        patch.costP = costPFromCostT(value, resolveVatPercent(current.vatRate || selectedProduct?.vatRate, 20));
+      }
+      return { ...current, ...patch };
+    });
+  };
+  const updateMainCostP = (value: string) => {
+    setManualCostPOverride(true);
+    updateForm({ costP: value });
+  };
+  const updateMainVatRate = (value: string) => {
+    setForm((current) => {
+      const patch: Partial<FormState> = { vatRate: value };
+      if (!manualCostPOverride && current.costT) {
+        patch.costP = costPFromCostT(current.costT, resolveVatPercent(value, 20));
+      }
+      return { ...current, ...patch };
+    });
+  };
 
   const searchProducts = async () => {
     if (!productSearch.trim()) return toast.error('Urun aramasi girin');
@@ -181,6 +217,7 @@ export default function SupplierCostsPage() {
         unit: detail.product?.unit || '',
         unitFactor: '1',
       });
+      setManualCostPOverride(false);
       setEditingCostId(null);
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Urun detayi alinamadi');
@@ -202,15 +239,17 @@ export default function SupplierCostsPage() {
   const saveCost = async () => {
     if (!form.productCode) return toast.error('Once urun secin');
     if (!form.supplierCode && !form.supplierName) return toast.error('Tedarikci girin');
-    if (!parseNumberText(form.costP)) return toast.error('Maliyet P zorunlu');
-    if (!parseNumberText(form.costT || form.costP)) return toast.error('Maliyet T zorunlu');
+    const costT = parseNumberText(form.costT);
+    const costP = parseNumberText(form.costP);
+    if (!Number.isFinite(costT) || costT <= 0) return toast.error('Maliyet T zorunlu');
+    if (!Number.isFinite(costP) || costP <= 0) return toast.error('Maliyet P zorunlu');
 
     setSaving(true);
     try {
       const payload = {
         ...form,
-        costP: parseNumberText(form.costP),
-        costT: parseNumberText(form.costT || form.costP),
+        costP,
+        costT,
         exchangeRate: form.currency === 'TRY' ? undefined : parseNumberText(form.exchangeRate),
         vatRate: form.vatRate ? parseNumberText(form.vatRate) : undefined,
         unitFactor: parseNumberText(form.unitFactor) || 1,
@@ -256,6 +295,7 @@ export default function SupplierCostsPage() {
       note: cost.note || '',
       attachmentUrl: cost.attachmentUrl || '',
     });
+    setManualCostPOverride(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -480,10 +520,10 @@ export default function SupplierCostsPage() {
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <CardTitle className="text-xl">{editingCostId ? 'Maliyet kaydini duzenle' : 'Yeni tedarikci maliyeti'}</CardTitle>
-                          <CardDescription>Mikroya yazilacak deger normalize Maliyet P/T olarak hesaplanir.</CardDescription>
+                          <CardDescription>Mikroya yazilacak deger Ucarer Depo ile ayni Maliyet T/P mantigiyla hesaplanir.</CardDescription>
                         </div>
                         {editingCostId && (
-                          <Button variant="outline" onClick={() => { setEditingCostId(null); setForm({ ...emptyForm, productCode: selectedProduct.mikroCode, unit: selectedProduct.unit || '', vatRate: String(Number(selectedProduct.vatRate || 0) * 100) }); }}>
+                          <Button variant="outline" onClick={() => { setEditingCostId(null); setManualCostPOverride(false); setForm({ ...emptyForm, productCode: selectedProduct.mikroCode, unit: selectedProduct.unit || '', vatRate: String(Number(selectedProduct.vatRate || 0) * 100) }); }}>
                             Yeni kayit
                           </Button>
                         )}
@@ -518,13 +558,13 @@ export default function SupplierCostsPage() {
                         <Input label="Tedarikci adi" value={form.supplierName} onChange={(e) => updateForm({ supplierName: e.target.value })} />
                         <Input label="Tedarikci urun kodu" value={form.supplierProductCode} onChange={(e) => updateForm({ supplierProductCode: e.target.value })} />
                         <SelectBox label="Kaynak" value={form.sourceType} onChange={(value) => updateForm({ sourceType: value })} options={['MANUAL', 'PRICE_LIST', 'QUOTE', 'INVOICE', 'PHONE', 'EMAIL']} />
-                        <Input label="Maliyet P" value={form.costP} onChange={(e) => updateForm({ costP: e.target.value })} inputMode="decimal" />
-                        <Input label="Maliyet T" value={form.costT} onChange={(e) => updateForm({ costT: e.target.value })} inputMode="decimal" />
+                        <Input label="Maliyet T (KDV haric)" value={form.costT} onChange={(e) => updateMainCostT(e.target.value)} inputMode="decimal" />
+                        <Input label="Maliyet P (yarim KDV otomatik)" value={form.costP} onChange={(e) => updateMainCostP(e.target.value)} inputMode="decimal" />
                         <SelectBox label="Para birimi" value={form.currency} onChange={(value) => updateForm({ currency: value })} options={['TRY', 'USD', 'EUR']} />
                         <Input label="Kur" value={form.exchangeRate} onChange={(e) => updateForm({ exchangeRate: e.target.value })} inputMode="decimal" disabled={form.currency === 'TRY'} />
                         <Input label="Birim" value={form.unit} onChange={(e) => updateForm({ unit: e.target.value })} />
                         <Input label="Birim katsayisi" value={form.unitFactor} onChange={(e) => updateForm({ unitFactor: e.target.value })} inputMode="decimal" />
-                        <Input label="KDV %" value={form.vatRate} onChange={(e) => updateForm({ vatRate: e.target.value })} inputMode="decimal" />
+                        <Input label="KDV %" value={form.vatRate} onChange={(e) => updateMainVatRate(e.target.value)} inputMode="decimal" />
                         <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
                           <input type="checkbox" checked={form.vatIncluded} onChange={(e) => updateForm({ vatIncluded: e.target.checked })} />
                           Girilen fiyat KDV dahil
@@ -562,13 +602,13 @@ export default function SupplierCostsPage() {
                       </div>
 
                       <div className="grid gap-3 rounded-[1.5rem] bg-slate-950 p-4 text-white md:grid-cols-3">
-                        <MiniMetric label="Normalize Maliyet P" value={normalizedPreview ? money(normalizedPreview.costP) : '-'} />
                         <MiniMetric label="Normalize Maliyet T" value={normalizedPreview ? money(normalizedPreview.costT) : '-'} />
+                        <MiniMetric label="Normalize Maliyet P" value={normalizedPreview ? money(normalizedPreview.costP) : '-'} />
                         <MiniMetric label="Mevcut Mikro maliyet" value={money(selectedProduct.currentCost)} />
                       </div>
 
                       <div className="flex flex-wrap justify-end gap-2">
-                        <Button variant="outline" onClick={() => setForm({ ...emptyForm, productCode: selectedProduct.mikroCode, unit: selectedProduct.unit || '', vatRate: String(Number(selectedProduct.vatRate || 0) * 100) })}>
+                        <Button variant="outline" onClick={() => { setManualCostPOverride(false); setForm({ ...emptyForm, productCode: selectedProduct.mikroCode, unit: selectedProduct.unit || '', vatRate: String(Number(selectedProduct.vatRate || 0) * 100) }); }}>
                           Temizle
                         </Button>
                         <Button onClick={saveCost} isLoading={saving} className="rounded-xl">
@@ -683,8 +723,8 @@ export default function SupplierCostsPage() {
             </div>
             <div className="mt-5 grid gap-3 md:grid-cols-3">
               <MiniMetric label="Mevcut Mikro maliyet" value={money(applyTarget.currentCost)} light />
-              <MiniMetric label="Yeni Maliyet P" value={money(applyTarget.normalizedCostP)} light />
               <MiniMetric label="Yeni Maliyet T" value={money(applyTarget.normalizedCostT)} light />
+              <MiniMetric label="Yeni Maliyet P" value={money(applyTarget.normalizedCostP)} light />
             </div>
             <label className="mt-4 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
               <input type="checkbox" checked={applyUpdateLists} onChange={(event) => setApplyUpdateLists(event.target.checked)} />
@@ -784,11 +824,24 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   const [actionNote, setActionNote] = useState('');
   const [noteText, setNoteText] = useState('');
   const [savingAction, setSavingAction] = useState<string | null>(null);
+  const [manualOfferCostPOverride, setManualOfferCostPOverride] = useState(false);
+
+  const requestVatPercent = (request: any) =>
+    resolveVatPercent(request?.vatRatePercent ?? request?.vatRate ?? request?.stockCreatePayload?.vatRatePercent, 20);
+  const offerDefaultsForRequest = (request: any) => ({
+    ...emptyOfferForm,
+    unit: request?.unit || request?.stockCreatePayload?.mainUnit || '',
+    unitFactor: '1',
+    vatRate: String(requestVatPercent(request)),
+  });
 
   const selectRequest = (request: any) => {
     setSelectedRequest(request);
     setSelectedOfferId(request?.selectedOfferId || request?.bestOffer?.id || '');
     setEditableStockPayload(request?.stockCreatePayload ? { ...request.stockCreatePayload } : null);
+    setOfferForm(offerDefaultsForRequest(request));
+    setSupplierResults([]);
+    setManualOfferCostPOverride(false);
   };
 
   const loadRequests = async () => {
@@ -845,6 +898,28 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
       return { ...current, stockCreatePayload: { ...current.stockCreatePayload, margins } };
     });
   const updateOfferForm = (patch: any) => setOfferForm((current: any) => ({ ...current, ...patch }));
+  const updateOfferCostT = (value: string) => {
+    setOfferForm((current: any) => {
+      const patch: any = { costT: value };
+      if (!manualOfferCostPOverride) {
+        patch.costP = costPFromCostT(value, resolveVatPercent(current.vatRate || selectedRequest?.vatRatePercent || selectedRequest?.vatRate, 20));
+      }
+      return { ...current, ...patch };
+    });
+  };
+  const updateOfferCostP = (value: string) => {
+    setManualOfferCostPOverride(true);
+    updateOfferForm({ costP: value });
+  };
+  const updateOfferVatRate = (value: string) => {
+    setOfferForm((current: any) => {
+      const patch: any = { vatRate: value };
+      if (!manualOfferCostPOverride && current.costT) {
+        patch.costP = costPFromCostT(current.costT, resolveVatPercent(value, 20));
+      }
+      return { ...current, ...patch };
+    });
+  };
 
   const searchProductsForRequest = async () => {
     if (!requestForm.productSearch.trim()) return toast.error('Urun aramasi girin');
@@ -900,12 +975,16 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
 
   const addOffer = async () => {
     if (!selectedRequest) return;
+    const costT = parseNumberText(offerForm.costT);
+    const costP = parseNumberText(offerForm.costP);
+    if (!Number.isFinite(costT) || costT <= 0) return toast.error('Maliyet T zorunlu');
+    if (!Number.isFinite(costP) || costP <= 0) return toast.error('Maliyet P zorunlu');
     setSavingAction('offer');
     try {
       const result = await adminApi.addPriceVerificationOffer(selectedRequest.id, {
         ...offerForm,
-        costP: parseNumberText(offerForm.costP),
-        costT: parseNumberText(offerForm.costT || offerForm.costP),
+        costP,
+        costT,
         exchangeRate: offerForm.currency === 'TRY' ? undefined : parseNumberText(offerForm.exchangeRate),
         vatRate: offerForm.vatRate ? parseNumberText(offerForm.vatRate) : undefined,
         unitFactor: parseNumberText(offerForm.unitFactor) || 1,
@@ -1269,8 +1348,8 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                       <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                         <th className="px-3 py-3">Sec</th>
                         <th className="px-3 py-3">Tedarikci</th>
-                        <th className="px-3 py-3">Giris P/T</th>
-                        <th className="px-3 py-3">Normalize P/T</th>
+                        <th className="px-3 py-3">Giris T/P</th>
+                        <th className="px-3 py-3">Normalize T/P</th>
                         <th className="px-3 py-3">Kosullar</th>
                         <th className="px-3 py-3">Tarih</th>
                       </tr>
@@ -1287,8 +1366,8 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                             <p className="font-black text-slate-900">{offer.supplierName}</p>
                             <p className="text-xs text-slate-500">{offer.supplierCode || '-'} {offer.supplierProductCode ? `| ${offer.supplierProductCode}` : ''}</p>
                           </td>
-                          <td className="px-3 py-3">{money(offer.costP)} / {money(offer.costT)}<p className="text-xs text-slate-500">{offer.currency} {offer.vatIncluded ? 'KDV dahil' : 'Net'}</p></td>
-                          <td className="px-3 py-3 font-black text-emerald-700">{money(offer.normalizedCostP)} / {money(offer.normalizedCostT)}</td>
+                          <td className="px-3 py-3">{money(offer.costT)} / {money(offer.costP)}<p className="text-xs text-slate-500">{offer.currency} {offer.vatIncluded ? 'KDV dahil' : 'Net'}</p></td>
+                          <td className="px-3 py-3 font-black text-emerald-700">{money(offer.normalizedCostT)} / {money(offer.normalizedCostP)}</td>
                           <td className="px-3 py-3 text-xs text-slate-600">Min: {offer.minOrderQuantity || '-'} | Teslim: {offer.leadTimeDays ? `${offer.leadTimeDays} gun` : '-'}</td>
                           <td className="px-3 py-3 text-xs text-slate-500">{dateText(offer.quoteDate || offer.createdAt)}</td>
                         </tr>
@@ -1334,13 +1413,13 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                       />
                       <Input label="Tedarikci adi" value={offerForm.supplierName} onChange={(e) => updateOfferForm({ supplierName: e.target.value })} />
                       <Input label="Tedarikci urun kodu" value={offerForm.supplierProductCode} onChange={(e) => updateOfferForm({ supplierProductCode: e.target.value })} />
-                      <Input label="Maliyet P" value={offerForm.costP} onChange={(e) => updateOfferForm({ costP: e.target.value })} inputMode="decimal" />
-                      <Input label="Maliyet T" value={offerForm.costT} onChange={(e) => updateOfferForm({ costT: e.target.value })} inputMode="decimal" />
+                      <Input label="Maliyet T (KDV haric)" value={offerForm.costT} onChange={(e) => updateOfferCostT(e.target.value)} inputMode="decimal" />
+                      <Input label="Maliyet P (yarim KDV otomatik)" value={offerForm.costP} onChange={(e) => updateOfferCostP(e.target.value)} inputMode="decimal" />
                       <SelectBox label="Para birimi" value={offerForm.currency} onChange={(value) => updateOfferForm({ currency: value })} options={['TRY', 'USD', 'EUR']} />
                       <Input label="Kur" value={offerForm.exchangeRate} onChange={(e) => updateOfferForm({ exchangeRate: e.target.value })} inputMode="decimal" disabled={offerForm.currency === 'TRY'} />
                       <Input label="Birim" value={offerForm.unit} onChange={(e) => updateOfferForm({ unit: e.target.value })} />
                       <Input label="Birim katsayisi" value={offerForm.unitFactor} onChange={(e) => updateOfferForm({ unitFactor: e.target.value })} inputMode="decimal" />
-                      <Input label="KDV %" value={offerForm.vatRate} onChange={(e) => updateOfferForm({ vatRate: e.target.value })} inputMode="decimal" />
+                      <Input label="KDV %" value={offerForm.vatRate} onChange={(e) => updateOfferVatRate(e.target.value)} inputMode="decimal" />
                       <Input label="Min siparis" value={offerForm.minOrderQuantity} onChange={(e) => updateOfferForm({ minOrderQuantity: e.target.value })} inputMode="decimal" />
                       <Input label="Teslim gun" value={offerForm.leadTimeDays} onChange={(e) => updateOfferForm({ leadTimeDays: e.target.value })} inputMode="numeric" />
                       <Input label="Gecerlilik" type="date" value={offerForm.validUntil} onChange={(e) => updateOfferForm({ validUntil: e.target.value })} />
@@ -1743,8 +1822,8 @@ function CostTable({ costs, onEdit, onArchive, onApply, applying }: any) {
             <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="px-3 py-3">Urun</th>
               <th className="px-3 py-3">Tedarikci</th>
-              <th className="px-3 py-3">Giris P/T</th>
-              <th className="px-3 py-3">Normalize P/T</th>
+              <th className="px-3 py-3">Giris T/P</th>
+              <th className="px-3 py-3">Normalize T/P</th>
               <th className="px-3 py-3">Mikro fark</th>
               <th className="px-3 py-3">Kosullar</th>
               <th className="px-3 py-3">Durum</th>
@@ -1765,11 +1844,11 @@ function CostTable({ costs, onEdit, onArchive, onApply, applying }: any) {
                   <p className="text-xs text-slate-500">{cost.supplierCode || '-'} {cost.supplierProductCode ? `| ${cost.supplierProductCode}` : ''}</p>
                 </td>
                 <td className="px-3 py-3">
-                  <p className="font-black">{money(cost.costP)} / {money(cost.costT)}</p>
+                  <p className="font-black">{money(cost.costT)} / {money(cost.costP)}</p>
                   <p className="text-xs text-slate-500">{cost.currency} {cost.vatIncluded ? 'KDV dahil' : 'Net'}</p>
                 </td>
                 <td className="px-3 py-3">
-                  <p className="font-black text-emerald-700">{money(cost.normalizedCostP)} / {money(cost.normalizedCostT)}</p>
+                  <p className="font-black text-emerald-700">{money(cost.normalizedCostT)} / {money(cost.normalizedCostP)}</p>
                   <p className="text-xs text-slate-500">{cost.unit || '-'} x {cost.unitFactor || 1}</p>
                 </td>
                 <td className="px-3 py-3">
@@ -1815,7 +1894,7 @@ function ApplicationHistory({ applications }: { applications: any[] }) {
         {applications.map((row) => (
           <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
             <div className="flex flex-wrap justify-between gap-2">
-            <p className="font-black text-slate-900">{money(row.previousCost)} {'->'} {money(row.newCostP)} / {money(row.newCostT)}</p>
+            <p className="font-black text-slate-900">{money(row.previousCost)} {'->'} {money(row.newCostT)} / {money(row.newCostP)}</p>
               <p className="text-xs font-bold text-slate-500">{dateText(row.createdAt)} | {row.userName || '-'}</p>
             </div>
             <p className="mt-1 text-xs text-slate-500">{row.supplierName || '-'} {row.updatePriceLists ? '| Liste fiyatlari guncellendi' : '| Sadece maliyet'}</p>

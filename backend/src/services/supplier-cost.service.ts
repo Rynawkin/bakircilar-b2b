@@ -582,15 +582,6 @@ class SupplierCostService {
   }
 
   private buildCostData(product: any, input: CostInput, user: { userId?: string | null; userName?: string | null }, includeCreator = true) {
-    const costP = asNumber(input.costP);
-    const costT = asNumber(input.costT, costP);
-    if (!Number.isFinite(costP) || costP <= 0) {
-      throw new AppError('Gecerli bir Maliyet P girin.', 400, ErrorCode.BAD_REQUEST);
-    }
-    if (!Number.isFinite(costT) || costT <= 0) {
-      throw new AppError('Gecerli bir Maliyet T girin.', 400, ErrorCode.BAD_REQUEST);
-    }
-
     const supplierName = String(input.supplierName || '').trim();
     const supplierCode = normalizeCode(input.supplierCode);
     if (!supplierName && !supplierCode) {
@@ -609,6 +600,20 @@ class SupplierCostService {
       ? Number(product.vatRate || 0)
       : asNumber(input.vatRate);
     const vatRate = vatRateRaw > 1 ? vatRateRaw / 100 : vatRateRaw;
+    let costT = asNumber(input.costT);
+    let costP = asNumber(input.costP);
+    if ((!Number.isFinite(costP) || costP <= 0) && Number.isFinite(costT) && costT > 0) {
+      costP = roundMoney(costT * (1 + Math.max(vatRate, 0) / 2));
+    }
+    if ((!Number.isFinite(costT) || costT <= 0) && Number.isFinite(costP) && costP > 0) {
+      costT = costP;
+    }
+    if (!Number.isFinite(costT) || costT <= 0) {
+      throw new AppError('Gecerli bir Maliyet T girin.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (!Number.isFinite(costP) || costP <= 0) {
+      throw new AppError('Gecerli bir Maliyet P girin.', 400, ErrorCode.BAD_REQUEST);
+    }
     const vatDivider = input.vatIncluded ? 1 + vatRate : 1;
     const fx = currency === 'TRY' ? 1 : exchangeRate;
     const normalizedCostP = roundMoney((costP * fx) / unitFactor / vatDivider);
