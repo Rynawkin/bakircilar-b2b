@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import https from 'https';
 import { OrderStatus, QuoteStatus, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import mikroService from './mikroFactory.service';
@@ -11,6 +12,7 @@ type SortDirection = 'asc' | 'desc';
 type SeasonalityMode = 'include' | 'exclude' | 'only';
 type SeasonalityStatus = 'ON_TRACK' | 'OVERDUE' | null;
 type PurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
+type HistoricalValueSortBy = 'lostPotentialAdjusted' | 'peakAdjustedAmount' | 'totalAdjustedAmount' | 'lastSaleDate' | 'maxConsecutiveActiveMonths' | 'customerName';
 
 interface ReportOptions {
   recentMonths?: number;
@@ -34,6 +36,22 @@ interface ReportOptions {
   page?: number;
   limit?: number;
   sortBy?: SortBy;
+  sortDirection?: SortDirection;
+}
+
+interface HistoricalValueOptions {
+  startYear?: number;
+  inactiveMonths?: number;
+  minConsecutiveMonths?: number;
+  minMonthlyAmount?: number;
+  minTotalAdjustedAmount?: number;
+  onlyLostFrequent?: boolean;
+  customerCode?: string;
+  search?: string;
+  sectorCode?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: HistoricalValueSortBy;
   sortDirection?: SortDirection;
 }
 
@@ -122,6 +140,61 @@ interface RecoveryRow {
   monthlySales: Array<{ month: string; amount: number; documentCount: number }>;
 }
 
+interface HistoricalValueRow {
+  customerCode: string;
+  customerName: string | null;
+  sectorCode: string | null;
+  city: string | null;
+  district: string | null;
+  phone: string | null;
+  balance: number;
+  assignedSalesRep: { id: string; name: string; email?: string | null } | null;
+  firstSaleDate: string | null;
+  lastSaleDate: string | null;
+  monthsSinceLastActive: number | null;
+  activeMonths: number;
+  documentCount: number;
+  totalRawAmount: number;
+  totalAdjustedAmount: number;
+  averageAdjustedActiveMonth: number;
+  maxConsecutiveActiveMonths: number;
+  latestConsecutiveStreak: {
+    startMonth: string;
+    endMonth: string;
+    months: number;
+    adjustedAmount: number;
+    averageAdjustedAmount: number;
+  } | null;
+  peakMonth: {
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+  } | null;
+  lastActiveMonth: {
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+  } | null;
+  lostAfterConsecutiveActivity: boolean;
+  lostPotentialAdjusted: number;
+  monthlySales: Array<{
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+    documentCount: number;
+    active: boolean;
+  }>;
+  topMonths: Array<{
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+  }>;
+}
+
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const toNumber = (value: any, fallback = 0) => {
   const parsed = Number(value);
@@ -132,10 +205,31 @@ const escapeSqlLiteral = (value: string) => String(value || '').replace(/'/g, "'
 const formatDateKey = (date: Date) => date.toISOString().slice(0, 10);
 const formatDateCompact = (date: Date) => formatDateKey(date).replace(/-/g, '');
 const formatMonthKey = (date: Date) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+const parseMonthKey = (monthKey: string) => {
+  const [year, month] = String(monthKey || '').split('-').map((part) => Number(part));
+  if (!year || !month) return null;
+  return new Date(Date.UTC(year, month - 1, 1));
+};
 
 const startOfMonthUtc = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 const endOfMonthUtc = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
 const addMonthsUtc = (date: Date, months: number) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+const monthDiff = (fromMonthKey: string, toMonthKey: string) => {
+  const from = parseMonthKey(fromMonthKey);
+  const to = parseMonthKey(toMonthKey);
+  if (!from || !to) return 0;
+  return (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
+};
+const buildMonthKeysInclusive = (start: Date, end: Date) => {
+  const keys: string[] = [];
+  let cursor = startOfMonthUtc(start);
+  const endMonth = startOfMonthUtc(end);
+  while (cursor <= endMonth) {
+    keys.push(formatMonthKey(cursor));
+    cursor = addMonthsUtc(cursor, 1);
+  }
+  return keys;
+};
 const chunkArray = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -174,8 +268,44 @@ const median = (values: number[]) => {
 
 const parseBoolean = (value?: boolean) => Boolean(value);
 const parseLooseBoolean = (value: any) => value === true || value === 1 || String(value || '').toLowerCase() === 'true';
+const TCMB_USD_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
+const USD_RATE_CACHE_MS = 60 * 60 * 1000;
+let customerRecoveryUsdRateCache: { rate: number; source: string; fetchedAt: number } | null = null;
 
 class CustomerRecoveryService {
+  private normalizeHistoricalValueOptions(options: HistoricalValueOptions) {
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const startYear = clamp(Math.floor(toNumber(options.startYear, 2020)), 2000, currentYear);
+    const page = Math.max(1, Math.floor(toNumber(options.page, 1)));
+    const limit = clamp(Math.floor(toNumber(options.limit, 50)), 1, 500);
+    const sortBy: HistoricalValueSortBy = options.sortBy || 'lostPotentialAdjusted';
+    const sortDirection: SortDirection = options.sortDirection === 'asc' ? 'asc' : 'desc';
+    const startDate = new Date(Date.UTC(startYear, 0, 1));
+    const endDate = now;
+    const allMonthKeys = buildMonthKeysInclusive(startDate, endDate);
+
+    return {
+      startYear,
+      inactiveMonths: clamp(Math.floor(toNumber(options.inactiveMonths, 3)), 1, 36),
+      minConsecutiveMonths: clamp(Math.floor(toNumber(options.minConsecutiveMonths, 3)), 2, 24),
+      minMonthlyAmount: Math.max(0, toNumber(options.minMonthlyAmount, 5000)),
+      minTotalAdjustedAmount: Math.max(0, toNumber(options.minTotalAdjustedAmount, 0)),
+      onlyLostFrequent: options.onlyLostFrequent === undefined ? true : Boolean(options.onlyLostFrequent),
+      customerCode: normalizeCode(options.customerCode),
+      search: String(options.search || '').trim(),
+      sectorCode: normalizeCode(options.sectorCode),
+      page,
+      limit,
+      sortBy,
+      sortDirection,
+      startDate,
+      endDate,
+      currentMonthKey: formatMonthKey(endDate),
+      allMonthKeys,
+    };
+  }
+
   private normalizeOptions(options: ReportOptions) {
     const recentMonths = clamp(Math.floor(toNumber(options.recentMonths, 3)), 1, 12);
     const baselineMonths = clamp(Math.floor(toNumber(options.baselineMonths, 18)), 3, 48);
@@ -445,6 +575,479 @@ class CustomerRecoveryService {
     }
 
     return rows;
+  }
+
+  private fetchTcmbUsdRate() {
+    return new Promise<number>((resolve, reject) => {
+      const request = https.get(TCMB_USD_URL, (response) => {
+        if (response.statusCode && response.statusCode >= 400) {
+          response.resume();
+          reject(new Error(`TCMB request failed with status ${response.statusCode}`));
+          return;
+        }
+
+        response.setEncoding('utf8');
+        let data = '';
+        response.on('data', (chunk) => {
+          data += chunk;
+        });
+        response.on('end', () => {
+          const currencyMatch = data.match(/<Currency[^>]*(?:CurrencyCode|Kod)="USD"[^>]*>([\s\S]*?)<\/Currency>/);
+          const currencyBlock = currencyMatch?.[1] || '';
+          const sellingMatch =
+            currencyBlock.match(/<ForexSelling>([^<]+)<\/ForexSelling>/) ||
+            currencyBlock.match(/<BanknoteSelling>([^<]+)<\/BanknoteSelling>/);
+          const rate = Number(String(sellingMatch?.[1] || '').trim().replace(',', '.'));
+          if (Number.isFinite(rate) && rate > 0) {
+            resolve(rate);
+            return;
+          }
+          reject(new Error('TCMB USD rate not found'));
+        });
+      });
+
+      request.setTimeout(8000, () => {
+        request.destroy(new Error('TCMB request timeout'));
+      });
+      request.on('error', reject);
+    });
+  }
+
+  private async fetchLatestMikroUsdRate() {
+    const connect = (mikroService as any).connect;
+    if (typeof connect === 'function') {
+      await connect.call(mikroService);
+    }
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1 CAST(sth_alt_doviz_kuru AS FLOAT) as rate
+      FROM STOK_HAREKETLERI WITH (NOLOCK)
+      WHERE ISNULL(sth_alt_doviz_kuru, 0) > 1
+      ORDER BY sth_tarih DESC, sth_RECno DESC
+    `);
+    const rate = toNumber(rows?.[0]?.rate, 0);
+    return rate > 0 ? rate : null;
+  }
+
+  private async getCurrentUsdTryRate() {
+    const now = Date.now();
+    if (customerRecoveryUsdRateCache && now - customerRecoveryUsdRateCache.fetchedAt < USD_RATE_CACHE_MS) {
+      return {
+        rate: customerRecoveryUsdRateCache.rate,
+        source: customerRecoveryUsdRateCache.source,
+        fetchedAt: new Date(customerRecoveryUsdRateCache.fetchedAt).toISOString(),
+      };
+    }
+
+    try {
+      const rate = await this.fetchTcmbUsdRate();
+      customerRecoveryUsdRateCache = { rate, source: 'TCMB', fetchedAt: now };
+      return {
+        rate,
+        source: 'TCMB',
+        fetchedAt: new Date(now).toISOString(),
+      };
+    } catch (tcmbError) {
+      const fallbackRate = await this.fetchLatestMikroUsdRate();
+      if (!fallbackRate) throw tcmbError;
+      customerRecoveryUsdRateCache = { rate: fallbackRate, source: 'MIKRO_LAST_MOVEMENT', fetchedAt: now };
+      return {
+        rate: fallbackRate,
+        source: 'MIKRO_LAST_MOVEMENT',
+        fetchedAt: new Date(now).toISOString(),
+      };
+    }
+  }
+
+  private async fetchHistoricalValueMonthlySales(
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>,
+    context?: RequestContext
+  ) {
+    const connect = (mikroService as any).connect;
+    if (typeof connect === 'function') {
+      await connect.call(mikroService);
+    }
+    const exclusionConditions = await exclusionService.buildStokHareketleriExclusionConditions();
+    const candidateFilter = this.normalizeOptions({
+      customerCode: normalized.customerCode,
+      search: normalized.search,
+      sectorCode: normalized.sectorCode,
+      limit: normalized.limit,
+      page: normalized.page,
+    });
+    const candidateCodes = await this.resolveCandidateCustomerCodes(candidateFilter, context);
+    if (candidateCodes.length === 0) return [];
+
+    const rows: any[] = [];
+    for (const chunk of chunkArray(candidateCodes, 150)) {
+      const customerList = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+      const extra = [
+        `sth.sth_tarih >= '${formatDateCompact(normalized.startDate)}'`,
+        `sth.sth_tarih <= '${formatDateCompact(normalized.endDate)}'`,
+        `RTRIM(sth.sth_cari_kodu) IN (${customerList})`,
+        ...exclusionConditions,
+      ];
+      if (normalized.sectorCode) {
+        extra.push(`RTRIM(c.cari_sektor_kodu) = '${escapeSqlLiteral(normalized.sectorCode)}'`);
+      }
+
+      const whereClause = this.buildBaseWhere(extra, context).join(' AND ');
+      const query = `
+        WITH movements AS (
+          SELECT
+            RTRIM(sth.sth_cari_kodu) as customerCode,
+            NULLIF(LTRIM(RTRIM(ISNULL(c.cari_unvan1, '') + ' ' + ISNULL(c.cari_unvan2, ''))), '') as customerName,
+            RTRIM(c.cari_sektor_kodu) as sectorCode,
+            CONVERT(char(7), sth.sth_tarih, 120) as monthKey,
+            sth.sth_tarih as saleDate,
+            CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_tutar, 0)) ELSE ISNULL(sth.sth_tutar, 0) END as amount,
+            CASE WHEN ISNULL(sth.sth_normal_iade, 0) = 1 THEN -ABS(ISNULL(sth.sth_miktar, 0)) ELSE ISNULL(sth.sth_miktar, 0) END as quantity,
+            NULLIF(CAST(ISNULL(sth.sth_alt_doviz_kuru, 0) AS FLOAT), 0) as usdRate,
+            LTRIM(RTRIM(ISNULL(sth.sth_evrakno_seri, ''))) + '-' + CAST(ISNULL(sth.sth_evrakno_sira, 0) AS VARCHAR(30)) as documentNo
+          FROM STOK_HAREKETLERI sth WITH (NOLOCK)
+          LEFT JOIN CARI_HESAPLAR c WITH (NOLOCK) ON sth.sth_cari_kodu = c.cari_kod
+          LEFT JOIN STOKLAR st WITH (NOLOCK) ON sth.sth_stok_kod = st.sto_kod
+          WHERE ${whereClause}
+        )
+        SELECT
+          customerCode,
+          MAX(customerName) as customerName,
+          MAX(sectorCode) as sectorCode,
+          monthKey,
+          SUM(amount) as amount,
+          SUM(quantity) as quantity,
+          COUNT(DISTINCT documentNo) as documentCount,
+          MIN(saleDate) as firstSaleDate,
+          MAX(saleDate) as lastSaleDate,
+          CASE
+            WHEN SUM(CASE WHEN usdRate IS NOT NULL THEN ABS(amount) ELSE 0 END) > 0
+              THEN SUM(CASE WHEN usdRate IS NOT NULL THEN ABS(amount) * usdRate ELSE 0 END)
+                / NULLIF(SUM(CASE WHEN usdRate IS NOT NULL THEN ABS(amount) ELSE 0 END), 0)
+            ELSE NULL
+          END as historicalUsdRate
+        FROM movements
+        GROUP BY customerCode, monthKey
+        HAVING ABS(SUM(amount)) > 0
+      `;
+
+      const chunkRows = await mikroService.executeQuery(query);
+      rows.push(...chunkRows);
+    }
+
+    return rows;
+  }
+
+  private buildHistoricalValueRows(
+    monthlyRows: any[],
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>,
+    currentUsdTryRate: number
+  ): HistoricalValueRow[] {
+    const entryByCustomer = new Map<string, {
+      customerCode: string;
+      customerName: string | null;
+      sectorCode: string | null;
+      firstSaleDate: string | null;
+      lastSaleDate: string | null;
+      months: Map<string, {
+        amount: number;
+        adjustedAmount: number;
+        usdRate: number | null;
+        documentCount: number;
+      }>;
+    }>();
+
+    monthlyRows.forEach((row) => {
+      const customerCode = normalizeCode(row.customerCode);
+      const monthKey = String(row.monthKey || '').slice(0, 7);
+      if (!customerCode || !monthKey) return;
+      const amount = toNumber(row.amount, 0);
+      const usdRate = toNumber(row.historicalUsdRate, 0);
+      const effectiveRate = usdRate > 0 ? usdRate : null;
+      const adjustedAmount = effectiveRate && currentUsdTryRate > 0
+        ? amount * (currentUsdTryRate / effectiveRate)
+        : amount;
+      const current = entryByCustomer.get(customerCode) || {
+        customerCode,
+        customerName: row.customerName || null,
+        sectorCode: row.sectorCode || null,
+        firstSaleDate: null,
+        lastSaleDate: null,
+        months: new Map(),
+      };
+
+      current.customerName = current.customerName || row.customerName || null;
+      current.sectorCode = current.sectorCode || row.sectorCode || null;
+      const firstSaleDate = compactDateToDisplay(row.firstSaleDate);
+      const lastSaleDate = compactDateToDisplay(row.lastSaleDate);
+      if (firstSaleDate && (!current.firstSaleDate || firstSaleDate < current.firstSaleDate)) {
+        current.firstSaleDate = firstSaleDate;
+      }
+      if (lastSaleDate && (!current.lastSaleDate || lastSaleDate > current.lastSaleDate)) {
+        current.lastSaleDate = lastSaleDate;
+      }
+      current.months.set(monthKey, {
+        amount,
+        adjustedAmount,
+        usdRate: effectiveRate,
+        documentCount: Math.floor(toNumber(row.documentCount, 0)),
+      });
+      entryByCustomer.set(customerCode, current);
+    });
+
+    return Array.from(entryByCustomer.values()).map((entry) => {
+      const monthlySales = normalized.allMonthKeys.map((month) => {
+        const bucket = entry.months.get(month) || {
+          amount: 0,
+          adjustedAmount: 0,
+          usdRate: null,
+          documentCount: 0,
+        };
+        return {
+          month,
+          amount: bucket.amount,
+          adjustedAmount: bucket.adjustedAmount,
+          usdRate: bucket.usdRate,
+          documentCount: bucket.documentCount,
+          active: bucket.adjustedAmount >= normalized.minMonthlyAmount,
+        };
+      });
+      const activeMonths = monthlySales.filter((month) => month.active);
+      const activeIndexes = monthlySales
+        .map((month, index) => ({ ...month, index }))
+        .filter((month) => month.active);
+      const streaks: Array<{ startIndex: number; endIndex: number; months: number; adjustedAmount: number }> = [];
+      let streakStart: number | null = null;
+      let streakAmount = 0;
+      monthlySales.forEach((month, index) => {
+        if (month.active) {
+          if (streakStart === null) {
+            streakStart = index;
+            streakAmount = 0;
+          }
+          streakAmount += month.adjustedAmount;
+          return;
+        }
+        if (streakStart !== null) {
+          streaks.push({
+            startIndex: streakStart,
+            endIndex: index - 1,
+            months: index - streakStart,
+            adjustedAmount: streakAmount,
+          });
+          streakStart = null;
+          streakAmount = 0;
+        }
+      });
+      if (streakStart !== null) {
+        streaks.push({
+          startIndex: streakStart,
+          endIndex: monthlySales.length - 1,
+          months: monthlySales.length - streakStart,
+          adjustedAmount: streakAmount,
+        });
+      }
+
+      const qualifyingStreaks = streaks.filter((streak) => streak.months >= normalized.minConsecutiveMonths);
+      const latestConsecutive = qualifyingStreaks
+        .slice()
+        .sort((a, b) => b.endIndex - a.endIndex || b.adjustedAmount - a.adjustedAmount)[0] || null;
+      const maxStreak = streaks
+        .slice()
+        .sort((a, b) => b.months - a.months || b.adjustedAmount - a.adjustedAmount)[0] || null;
+      const lastActiveIndex = activeIndexes.length > 0 ? activeIndexes[activeIndexes.length - 1].index : null;
+      const monthsSinceLastActive = lastActiveIndex === null
+        ? null
+        : monthDiff(monthlySales[lastActiveIndex].month, normalized.currentMonthKey);
+      const lostAfterConsecutiveActivity = Boolean(
+        latestConsecutive &&
+        monthsSinceLastActive !== null &&
+        monthsSinceLastActive >= normalized.inactiveMonths
+      );
+      const peakMonth = monthlySales
+        .filter((month) => month.adjustedAmount > 0)
+        .sort((a, b) => b.adjustedAmount - a.adjustedAmount)[0] || null;
+      const lastActiveMonth = lastActiveIndex === null ? null : monthlySales[lastActiveIndex];
+      const totalRawAmount = monthlySales.reduce((sum, month) => sum + month.amount, 0);
+      const totalAdjustedAmount = monthlySales.reduce((sum, month) => sum + month.adjustedAmount, 0);
+      const activeAdjustedTotal = activeMonths.reduce((sum, month) => sum + month.adjustedAmount, 0);
+      const averageAdjustedActiveMonth = activeMonths.length > 0 ? activeAdjustedTotal / activeMonths.length : 0;
+      const latestAverage = latestConsecutive ? latestConsecutive.adjustedAmount / latestConsecutive.months : 0;
+      const lostPotentialAdjusted = lostAfterConsecutiveActivity && monthsSinceLastActive !== null
+        ? latestAverage * monthsSinceLastActive
+        : 0;
+
+      return {
+        customerCode: entry.customerCode,
+        customerName: entry.customerName,
+        sectorCode: entry.sectorCode,
+        city: null,
+        district: null,
+        phone: null,
+        balance: 0,
+        assignedSalesRep: null,
+        firstSaleDate: entry.firstSaleDate,
+        lastSaleDate: entry.lastSaleDate,
+        monthsSinceLastActive,
+        activeMonths: activeMonths.length,
+        documentCount: monthlySales.reduce((sum, month) => sum + month.documentCount, 0),
+        totalRawAmount,
+        totalAdjustedAmount,
+        averageAdjustedActiveMonth,
+        maxConsecutiveActiveMonths: maxStreak?.months || 0,
+        latestConsecutiveStreak: latestConsecutive
+          ? {
+              startMonth: monthlySales[latestConsecutive.startIndex].month,
+              endMonth: monthlySales[latestConsecutive.endIndex].month,
+              months: latestConsecutive.months,
+              adjustedAmount: latestConsecutive.adjustedAmount,
+              averageAdjustedAmount: latestConsecutive.adjustedAmount / latestConsecutive.months,
+            }
+          : null,
+        peakMonth: peakMonth
+          ? {
+              month: peakMonth.month,
+              amount: peakMonth.amount,
+              adjustedAmount: peakMonth.adjustedAmount,
+              usdRate: peakMonth.usdRate,
+            }
+          : null,
+        lastActiveMonth: lastActiveMonth
+          ? {
+              month: lastActiveMonth.month,
+              amount: lastActiveMonth.amount,
+              adjustedAmount: lastActiveMonth.adjustedAmount,
+              usdRate: lastActiveMonth.usdRate,
+            }
+          : null,
+        lostAfterConsecutiveActivity,
+        lostPotentialAdjusted,
+        monthlySales: monthlySales.filter((month) => month.amount !== 0 || month.adjustedAmount !== 0 || month.documentCount > 0),
+        topMonths: monthlySales
+          .filter((month) => month.adjustedAmount > 0)
+          .sort((a, b) => b.adjustedAmount - a.adjustedAmount)
+          .slice(0, 5)
+          .map((month) => ({
+            month: month.month,
+            amount: month.amount,
+            adjustedAmount: month.adjustedAmount,
+            usdRate: month.usdRate,
+          })),
+      };
+    });
+  }
+
+  private async attachHistoricalLocalMetadata(rows: HistoricalValueRow[]) {
+    const customerCodes = rows.map((row) => normalizeCode(row.customerCode)).filter(Boolean);
+    if (customerCodes.length === 0) return;
+
+    const [customers, salesReps] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: UserRole.CUSTOMER, mikroCariCode: { in: customerCodes } },
+        select: {
+          mikroCariCode: true,
+          displayName: true,
+          mikroName: true,
+          name: true,
+          city: true,
+          district: true,
+          phone: true,
+          balance: true,
+          sectorCode: true,
+        },
+      }),
+      prisma.user.findMany({
+        where: { role: { in: [UserRole.SALES_REP, UserRole.MANAGER, UserRole.ADMIN, UserRole.HEAD_ADMIN] } },
+        select: { id: true, name: true, email: true, assignedSectorCodes: true },
+      }),
+    ]);
+
+    const customerByCode = new Map(customers.map((customer) => [normalizeCode(customer.mikroCariCode), customer]));
+    const salesRepBySector = new Map<string, { id: string; name: string; email?: string | null }>();
+    salesReps.forEach((rep) => {
+      (rep.assignedSectorCodes || []).forEach((sector) => {
+        const code = normalizeCode(sector);
+        if (code && !salesRepBySector.has(code)) {
+          salesRepBySector.set(code, { id: rep.id, name: rep.name || rep.email || rep.id, email: rep.email });
+        }
+      });
+    });
+
+    rows.forEach((row) => {
+      const customer = customerByCode.get(normalizeCode(row.customerCode));
+      if (customer) {
+        row.customerName = customer.displayName || customer.mikroName || customer.name || row.customerName;
+        row.city = customer.city || null;
+        row.district = customer.district || null;
+        row.phone = customer.phone || null;
+        row.balance = toNumber(customer.balance);
+        row.sectorCode = customer.sectorCode || row.sectorCode || null;
+      }
+      row.assignedSalesRep = row.sectorCode ? salesRepBySector.get(normalizeCode(row.sectorCode)) || null : null;
+    });
+  }
+
+  private filterAndSortHistoricalValueRows(
+    rows: HistoricalValueRow[],
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>
+  ) {
+    let result = rows;
+    if (normalized.search) {
+      const search = normalized.search.toLocaleLowerCase('tr-TR');
+      result = result.filter((row) =>
+        `${row.customerCode} ${row.customerName || ''} ${row.sectorCode || ''} ${row.city || ''} ${row.district || ''}`
+          .toLocaleLowerCase('tr-TR')
+          .includes(search)
+      );
+    }
+    if (normalized.minTotalAdjustedAmount > 0) {
+      result = result.filter((row) => row.totalAdjustedAmount >= normalized.minTotalAdjustedAmount);
+    }
+    if (normalized.onlyLostFrequent) {
+      result = result.filter((row) => row.lostAfterConsecutiveActivity);
+    }
+
+    const direction = normalized.sortDirection === 'asc' ? 1 : -1;
+    return [...result].sort((a, b) => {
+      let compare = 0;
+      switch (normalized.sortBy) {
+        case 'peakAdjustedAmount':
+          compare = (a.peakMonth?.adjustedAmount || 0) - (b.peakMonth?.adjustedAmount || 0);
+          break;
+        case 'totalAdjustedAmount':
+          compare = a.totalAdjustedAmount - b.totalAdjustedAmount;
+          break;
+        case 'lastSaleDate':
+          compare = String(a.lastSaleDate || '').localeCompare(String(b.lastSaleDate || ''));
+          break;
+        case 'maxConsecutiveActiveMonths':
+          compare = a.maxConsecutiveActiveMonths - b.maxConsecutiveActiveMonths;
+          break;
+        case 'customerName':
+          compare = String(a.customerName || '').localeCompare(String(b.customerName || ''), 'tr');
+          break;
+        case 'lostPotentialAdjusted':
+        default:
+          compare = a.lostPotentialAdjusted - b.lostPotentialAdjusted;
+          break;
+      }
+      if (compare !== 0) return compare * direction;
+      return b.totalAdjustedAmount - a.totalAdjustedAmount;
+    });
+  }
+
+  private buildHistoricalValueSummary(rows: HistoricalValueRow[]) {
+    return {
+      totalCustomers: rows.length,
+      lostAfterConsecutiveCount: rows.filter((row) => row.lostAfterConsecutiveActivity).length,
+      totalRawAmount: rows.reduce((sum, row) => sum + row.totalRawAmount, 0),
+      totalAdjustedAmount: rows.reduce((sum, row) => sum + row.totalAdjustedAmount, 0),
+      totalLostPotentialAdjusted: rows.reduce((sum, row) => sum + row.lostPotentialAdjusted, 0),
+      maxPeakAdjustedAmount: rows.reduce((max, row) => Math.max(max, row.peakMonth?.adjustedAmount || 0), 0),
+      averageMultiplier: (() => {
+        const raw = rows.reduce((sum, row) => sum + row.totalRawAmount, 0);
+        const adjusted = rows.reduce((sum, row) => sum + row.totalAdjustedAmount, 0);
+        return raw > 0 ? adjusted / raw : 1;
+      })(),
+    };
   }
 
   private async attachLocalMetadata(rows: RecoveryRow[]) {
@@ -1094,6 +1697,48 @@ class CustomerRecoveryService {
         reportEndDate: formatDateKey(normalized.queryEnd),
         baselineMonthKeys: normalized.baselineMonthKeys,
         recentMonthKeys: normalized.recentMonthKeys,
+      },
+    };
+  }
+
+  async getHistoricalValueReport(options: HistoricalValueOptions = {}, context?: RequestContext) {
+    const normalized = this.normalizeHistoricalValueOptions(options);
+    const usdRate = await this.getCurrentUsdTryRate();
+    const monthlyRows = await this.fetchHistoricalValueMonthlySales(normalized, context);
+    let rows = this.buildHistoricalValueRows(monthlyRows, normalized, usdRate.rate);
+    await this.attachHistoricalLocalMetadata(rows);
+    rows = this.filterAndSortHistoricalValueRows(rows, normalized);
+
+    const totalRecords = rows.length;
+    const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / normalized.limit) : 0;
+    const offset = (normalized.page - 1) * normalized.limit;
+
+    return {
+      rows: rows.slice(offset, offset + normalized.limit),
+      summary: this.buildHistoricalValueSummary(rows),
+      pagination: {
+        page: normalized.page,
+        limit: normalized.limit,
+        totalPages,
+        totalRecords,
+      },
+      metadata: {
+        startYear: normalized.startYear,
+        startDate: formatDateKey(normalized.startDate),
+        endDate: formatDateKey(normalized.endDate),
+        currentMonthKey: normalized.currentMonthKey,
+        inactiveMonths: normalized.inactiveMonths,
+        minConsecutiveMonths: normalized.minConsecutiveMonths,
+        minMonthlyAmount: normalized.minMonthlyAmount,
+        minTotalAdjustedAmount: normalized.minTotalAdjustedAmount,
+        onlyLostFrequent: normalized.onlyLostFrequent,
+        sortBy: normalized.sortBy,
+        sortDirection: normalized.sortDirection,
+        currentUsdTryRate: usdRate.rate,
+        currentUsdTryRateSource: usdRate.source,
+        currentUsdTryRateFetchedAt: usdRate.fetchedAt,
+        historicalUsdRateSource: 'MIKRO_STH_ALT_DOVIZ_KURU',
+        monthKeys: normalized.allMonthKeys,
       },
     };
   }

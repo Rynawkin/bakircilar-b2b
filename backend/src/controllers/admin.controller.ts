@@ -4123,6 +4123,53 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/reports/customer-recovery/historical-value
+   * 2020 ve sonrasi satislari bugunku USD/TL oranina gore degerlenmis cari analizi
+   */
+  async getCustomerRecoveryHistoricalValueReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        startYear,
+        inactiveMonths,
+        minConsecutiveMonths,
+        minMonthlyAmount,
+        minTotalAdjustedAmount,
+        onlyLostFrequent,
+        customerCode,
+        search,
+        sectorCode,
+        page,
+        limit,
+        sortBy,
+        sortDirection,
+      } = req.query;
+
+      const data = await customerRecoveryService.getHistoricalValueReport({
+        startYear: startYear ? parseInt(startYear as string, 10) : undefined,
+        inactiveMonths: inactiveMonths ? parseInt(inactiveMonths as string, 10) : undefined,
+        minConsecutiveMonths: minConsecutiveMonths ? parseInt(minConsecutiveMonths as string, 10) : undefined,
+        minMonthlyAmount: minMonthlyAmount ? parseFloat(minMonthlyAmount as string) : undefined,
+        minTotalAdjustedAmount: minTotalAdjustedAmount ? parseFloat(minTotalAdjustedAmount as string) : undefined,
+        onlyLostFrequent: onlyLostFrequent === undefined ? undefined : parseBooleanQuery(onlyLostFrequent),
+        customerCode: customerCode as string,
+        search: search as string,
+        sectorCode: sectorCode as string,
+        page: page ? parseInt(page as string, 10) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        sortBy: sortBy as any,
+        sortDirection: sortDirection as 'asc' | 'desc',
+      }, buildReportRequestContext(req));
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/admin/reports/customer-recovery/export
    * Cari geri kazanim raporu Excel export
    */

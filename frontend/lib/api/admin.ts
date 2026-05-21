@@ -47,6 +47,7 @@ type SupplierPriceListOverrides = {
 export type CustomerRecoveryRiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 export type CustomerRecoveryDevelopmentStatus = 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
 export type CustomerRecoveryPurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
+export type CustomerRecoveryHistoricalSortBy = 'lostPotentialAdjusted' | 'peakAdjustedAmount' | 'totalAdjustedAmount' | 'lastSaleDate' | 'maxConsecutiveActiveMonths' | 'customerName';
 
 export interface CustomerRecoveryReportParams {
   recentMonths?: number;
@@ -70,6 +71,22 @@ export interface CustomerRecoveryReportParams {
   page?: number;
   limit?: number;
   sortBy?: 'riskScore' | 'lostPotential' | 'dropPercent' | 'lastSaleDate' | 'historicalAverage' | 'recentAverage' | 'customerName';
+  sortDirection?: 'asc' | 'desc';
+}
+
+export interface CustomerRecoveryHistoricalValueParams {
+  startYear?: number;
+  inactiveMonths?: number;
+  minConsecutiveMonths?: number;
+  minMonthlyAmount?: number;
+  minTotalAdjustedAmount?: number;
+  onlyLostFrequent?: boolean;
+  customerCode?: string;
+  search?: string;
+  sectorCode?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: CustomerRecoveryHistoricalSortBy;
   sortDirection?: 'asc' | 'desc';
 }
 
@@ -208,6 +225,98 @@ export interface CustomerRecoveryReportData {
   };
 }
 
+export interface CustomerRecoveryHistoricalValueRow {
+  customerCode: string;
+  customerName: string | null;
+  sectorCode: string | null;
+  city: string | null;
+  district: string | null;
+  phone: string | null;
+  balance: number;
+  assignedSalesRep: { id: string; name: string; email?: string | null } | null;
+  firstSaleDate: string | null;
+  lastSaleDate: string | null;
+  monthsSinceLastActive: number | null;
+  activeMonths: number;
+  documentCount: number;
+  totalRawAmount: number;
+  totalAdjustedAmount: number;
+  averageAdjustedActiveMonth: number;
+  maxConsecutiveActiveMonths: number;
+  latestConsecutiveStreak: {
+    startMonth: string;
+    endMonth: string;
+    months: number;
+    adjustedAmount: number;
+    averageAdjustedAmount: number;
+  } | null;
+  peakMonth: {
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+  } | null;
+  lastActiveMonth: {
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+  } | null;
+  lostAfterConsecutiveActivity: boolean;
+  lostPotentialAdjusted: number;
+  monthlySales: Array<{
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+    documentCount: number;
+    active: boolean;
+  }>;
+  topMonths: Array<{
+    month: string;
+    amount: number;
+    adjustedAmount: number;
+    usdRate: number | null;
+  }>;
+}
+
+export interface CustomerRecoveryHistoricalValueData {
+  rows: CustomerRecoveryHistoricalValueRow[];
+  summary: {
+    totalCustomers: number;
+    lostAfterConsecutiveCount: number;
+    totalRawAmount: number;
+    totalAdjustedAmount: number;
+    totalLostPotentialAdjusted: number;
+    maxPeakAdjustedAmount: number;
+    averageMultiplier: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+    totalRecords: number;
+  };
+  metadata: {
+    startYear: number;
+    startDate: string;
+    endDate: string;
+    currentMonthKey: string;
+    inactiveMonths: number;
+    minConsecutiveMonths: number;
+    minMonthlyAmount: number;
+    minTotalAdjustedAmount: number;
+    onlyLostFrequent: boolean;
+    sortBy: CustomerRecoveryHistoricalSortBy;
+    sortDirection: 'asc' | 'desc';
+    currentUsdTryRate: number;
+    currentUsdTryRateSource: string;
+    currentUsdTryRateFetchedAt: string;
+    historicalUsdRateSource: string;
+    monthKeys: string[];
+  };
+}
+
 export interface CustomerRecoveryDetailData {
   row: CustomerRecoveryRow | null;
   actions: CustomerRecoveryAction[];
@@ -268,6 +377,22 @@ const appendCustomerRecoveryParams = (queryParams: URLSearchParams, params: Cust
   if (params.minLostPotential !== undefined) queryParams.append('minLostPotential', params.minLostPotential.toString());
   if (params.seasonalityMode) queryParams.append('seasonalityMode', params.seasonalityMode);
   if (params.purchasePattern) queryParams.append('purchasePattern', params.purchasePattern);
+  if (params.page !== undefined) queryParams.append('page', params.page.toString());
+  if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+  if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+  if (params.sortDirection) queryParams.append('sortDirection', params.sortDirection);
+};
+
+const appendCustomerRecoveryHistoricalValueParams = (queryParams: URLSearchParams, params: CustomerRecoveryHistoricalValueParams) => {
+  if (params.startYear !== undefined) queryParams.append('startYear', params.startYear.toString());
+  if (params.inactiveMonths !== undefined) queryParams.append('inactiveMonths', params.inactiveMonths.toString());
+  if (params.minConsecutiveMonths !== undefined) queryParams.append('minConsecutiveMonths', params.minConsecutiveMonths.toString());
+  if (params.minMonthlyAmount !== undefined) queryParams.append('minMonthlyAmount', params.minMonthlyAmount.toString());
+  if (params.minTotalAdjustedAmount !== undefined) queryParams.append('minTotalAdjustedAmount', params.minTotalAdjustedAmount.toString());
+  if (params.onlyLostFrequent !== undefined) queryParams.append('onlyLostFrequent', params.onlyLostFrequent ? 'true' : 'false');
+  if (params.customerCode) queryParams.append('customerCode', params.customerCode);
+  if (params.search) queryParams.append('search', params.search);
+  if (params.sectorCode) queryParams.append('sectorCode', params.sectorCode);
   if (params.page !== undefined) queryParams.append('page', params.page.toString());
   if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
   if (params.sortBy) queryParams.append('sortBy', params.sortBy);
@@ -2486,6 +2611,16 @@ export const adminApi = {
     const queryParams = new URLSearchParams();
     appendCustomerRecoveryParams(queryParams, params);
     const response = await apiClient.get(`/admin/reports/customer-recovery?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  getCustomerRecoveryHistoricalValueReport: async (params: CustomerRecoveryHistoricalValueParams): Promise<{
+    success: boolean;
+    data: CustomerRecoveryHistoricalValueData;
+  }> => {
+    const queryParams = new URLSearchParams();
+    appendCustomerRecoveryHistoricalValueParams(queryParams, params);
+    const response = await apiClient.get(`/admin/reports/customer-recovery/historical-value?${queryParams.toString()}`);
     return response.data;
   },
 

@@ -548,6 +548,7 @@ router.get('/reports/category-churn/export', requirePermission('reports:compleme
 router.get('/reports/category-churn/details', requirePermission('reports:complement-missing'), adminController.getCategoryChurnDetail);
 router.get('/reports/category-opportunity', requirePermission('reports:complement-missing'), adminController.getCategoryOpportunityReport);
 router.get('/reports/customer-recovery', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryReport);
+router.get('/reports/customer-recovery/historical-value', requirePermission('reports:customer-recovery'), adminController.getCustomerRecoveryHistoricalValueReport);
 router.get('/reports/customer-recovery/export', requirePermission('reports:customer-recovery'), adminController.exportCustomerRecoveryReport);
 router.post('/reports/customer-recovery/bulk-assign', requirePermission('reports:customer-recovery'), adminController.bulkAssignCustomerRecovery);
 router.get('/reports/customer-recovery/actions/assigned', requirePermission('reports:customer-recovery'), adminController.getAssignedCustomerRecoveryActions);

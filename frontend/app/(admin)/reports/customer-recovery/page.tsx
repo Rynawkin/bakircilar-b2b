@@ -27,14 +27,16 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
-import { adminApi, type CustomerRecoveryAction, type CustomerRecoveryDetailData, type CustomerRecoveryPurchasePattern, type CustomerRecoveryReportData, type CustomerRecoveryReportParams, type CustomerRecoveryRiskType, type CustomerRecoveryRow } from '@/lib/api/admin';
+import { adminApi, type CustomerRecoveryAction, type CustomerRecoveryDetailData, type CustomerRecoveryHistoricalValueData, type CustomerRecoveryHistoricalValueParams, type CustomerRecoveryPurchasePattern, type CustomerRecoveryReportData, type CustomerRecoveryReportParams, type CustomerRecoveryRiskType, type CustomerRecoveryRow } from '@/lib/api/admin';
 import { cn } from '@/lib/utils/cn';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 
 type SortBy = NonNullable<CustomerRecoveryReportParams['sortBy']>;
 type SortDirection = NonNullable<CustomerRecoveryReportParams['sortDirection']>;
+type HistoricalSortBy = NonNullable<CustomerRecoveryHistoricalValueParams['sortBy']>;
 type SeasonalityMode = 'include' | 'exclude' | 'only';
 type ScenarioId = 'declining' | 'stalled' | 'highPotential' | 'dueFollowUp' | 'seasonal' | 'frequentLost';
+type ReportView = 'recovery' | 'historicalValue';
 
 const PAGE_SIZE = 50;
 const REPORT_CACHE_LIMIT = 5000;
@@ -86,6 +88,19 @@ interface ActionUpdateDraft {
   assignedToId: string;
 }
 
+interface HistoricalFilterState {
+  startYear: string;
+  inactiveMonths: string;
+  minConsecutiveMonths: string;
+  minMonthlyAmount: string;
+  minTotalAdjustedAmount: string;
+  onlyLostFrequent: boolean;
+  search: string;
+  sectorCode: string;
+  sortBy: HistoricalSortBy;
+  sortDirection: SortDirection;
+}
+
 const riskTypeLabels: Record<CustomerRecoveryRiskType, string> = {
   NO_RECENT_SALES: 'Satis yok',
   INSIGNIFICANT_ACTIVITY: 'Cok dusuk',
@@ -135,6 +150,19 @@ const defaultFilters: FilterState = {
   seasonalityMode: 'exclude',
   purchasePattern: 'ALL',
   sortBy: 'riskScore',
+  sortDirection: 'desc',
+};
+
+const defaultHistoricalFilters: HistoricalFilterState = {
+  startYear: '2020',
+  inactiveMonths: '3',
+  minConsecutiveMonths: '3',
+  minMonthlyAmount: '5000',
+  minTotalAdjustedAmount: '0',
+  onlyLostFrequent: true,
+  search: '',
+  sectorCode: '',
+  sortBy: 'lostPotentialAdjusted',
   sortDirection: 'desc',
 };
 
@@ -273,6 +301,13 @@ const safeDate = (date?: string | null) => {
   }
 };
 
+const monthLabel = (month?: string | null) => {
+  if (!month) return '-';
+  const [year, monthPart] = month.split('-');
+  if (!year || !monthPart) return month;
+  return `${monthPart}/${year}`;
+};
+
 const percent = (value: number | null | undefined) => `${Math.round(value || 0)}%`;
 
 const toDateInputValue = (date?: string | null) => (date ? date.slice(0, 10) : '');
@@ -329,6 +364,7 @@ const compareRowsBySort = (
 };
 
 export default function CustomerRecoveryReportPage() {
+  const [activeView, setActiveView] = useState<ReportView>('recovery');
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [submittedFilters, setSubmittedFilters] = useState<FilterState>(defaultFilters);
   const [clientSort, setClientSort] = useState<{ sortBy: SortBy; sortDirection: SortDirection }>({
@@ -356,6 +392,11 @@ export default function CustomerRecoveryReportPage() {
   const [bulkFollowUpDate, setBulkFollowUpDate] = useState('');
   const [bulkNote, setBulkNote] = useState('Geri kazanim takibi icin aransin / ziyaret edilsin.');
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [historicalFilters, setHistoricalFilters] = useState<HistoricalFilterState>(defaultHistoricalFilters);
+  const [submittedHistoricalFilters, setSubmittedHistoricalFilters] = useState<HistoricalFilterState>(defaultHistoricalFilters);
+  const [historicalData, setHistoricalData] = useState<CustomerRecoveryHistoricalValueData | null>(null);
+  const [historicalPage, setHistoricalPage] = useState(1);
+  const [historicalLoading, setHistoricalLoading] = useState(false);
 
   const buildParams = (source: FilterState, requestedPage = page, limit = PAGE_SIZE): CustomerRecoveryReportParams => ({
     recentMonths: parseNumber(source.recentMonths, 3),
@@ -375,6 +416,25 @@ export default function CustomerRecoveryReportPage() {
     minLostPotential: parseNumber(source.minLostPotential, 0),
     seasonalityMode: source.seasonalityMode,
     purchasePattern: source.purchasePattern,
+    page: requestedPage,
+    limit,
+    sortBy: source.sortBy,
+    sortDirection: source.sortDirection,
+  });
+
+  const buildHistoricalParams = (
+    source: HistoricalFilterState,
+    requestedPage = historicalPage,
+    limit = PAGE_SIZE
+  ): CustomerRecoveryHistoricalValueParams => ({
+    startYear: parseNumber(source.startYear, 2020),
+    inactiveMonths: parseNumber(source.inactiveMonths, 3),
+    minConsecutiveMonths: parseNumber(source.minConsecutiveMonths, 3),
+    minMonthlyAmount: parseNumber(source.minMonthlyAmount, 5000),
+    minTotalAdjustedAmount: parseNumber(source.minTotalAdjustedAmount, 0),
+    onlyLostFrequent: source.onlyLostFrequent,
+    search: source.search.trim() || undefined,
+    sectorCode: source.sectorCode.trim() || undefined,
     page: requestedPage,
     limit,
     sortBy: source.sortBy,
@@ -455,8 +515,33 @@ export default function CustomerRecoveryReportPage() {
     fetchReport();
   }, [submittedFilters]);
 
+  useEffect(() => {
+    if (activeView !== 'historicalValue') return;
+
+    const fetchHistoricalReport = async () => {
+      setHistoricalLoading(true);
+      try {
+        const result = await adminApi.getCustomerRecoveryHistoricalValueReport(
+          buildHistoricalParams(submittedHistoricalFilters, historicalPage)
+        );
+        setHistoricalData(result.data);
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || 'Degerlenmis cari raporu alinamadi');
+        setHistoricalData(null);
+      } finally {
+        setHistoricalLoading(false);
+      }
+    };
+
+    fetchHistoricalReport();
+  }, [activeView, submittedHistoricalFilters, historicalPage]);
+
   const updateFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilters((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const updateHistoricalFilter = <K extends keyof HistoricalFilterState>(key: K, value: HistoricalFilterState[K]) => {
+    setHistoricalFilters((previous) => ({ ...previous, [key]: value }));
   };
 
   const runReport = () => {
@@ -464,6 +549,12 @@ export default function CustomerRecoveryReportPage() {
     setSelectedCodes([]);
     setClientSort({ sortBy: filters.sortBy, sortDirection: filters.sortDirection });
     setSubmittedFilters({ ...filters });
+  };
+
+  const runHistoricalReport = () => {
+    setHistoricalPage(1);
+    setSubmittedHistoricalFilters({ ...historicalFilters });
+    setActiveView('historicalValue');
   };
 
   const applyScenario = (scenarioId: ScenarioId) => {
@@ -709,6 +800,41 @@ export default function CustomerRecoveryReportPage() {
         </div>
       </div>
 
+      <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setActiveView('recovery')}
+          className={cn(
+            'rounded-2xl px-5 py-4 text-left transition',
+            activeView === 'recovery'
+              ? 'bg-slate-950 text-white shadow-md'
+              : 'text-slate-600 hover:bg-slate-50'
+          )}
+        >
+          <div className="text-sm font-semibold">Kayip cari analizi</div>
+          <div className={cn('mt-1 text-xs', activeView === 'recovery' ? 'text-white/70' : 'text-slate-500')}>
+            Son donem dusen, duran ve aksiyon bekleyen cariler.
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView('historicalValue')}
+          className={cn(
+            'rounded-2xl px-5 py-4 text-left transition',
+            activeView === 'historicalValue'
+              ? 'bg-emerald-700 text-white shadow-md'
+              : 'text-slate-600 hover:bg-emerald-50'
+          )}
+        >
+          <div className="text-sm font-semibold">2020 bugunku deger analizi</div>
+          <div className={cn('mt-1 text-xs', activeView === 'historicalValue' ? 'text-white/75' : 'text-slate-500')}>
+            Eski satislari USD/TL oranina gore bugunku TL karsiligina cevirir.
+          </div>
+        </button>
+      </div>
+
+      {activeView === 'recovery' ? (
+        <>
       <Card className="overflow-hidden border-slate-200 shadow-sm">
         <CardHeader className="border-b bg-gradient-to-r from-white to-emerald-50/60">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1162,6 +1288,18 @@ export default function CustomerRecoveryReportPage() {
           </Card>
         </div>
       </div>
+        </>
+      ) : (
+        <HistoricalValueSection
+          filters={historicalFilters}
+          data={historicalData}
+          loading={historicalLoading}
+          page={historicalPage}
+          onPageChange={setHistoricalPage}
+          onFilterChange={updateHistoricalFilter}
+          onRun={runHistoricalReport}
+        />
+      )}
 
       <Modal
         isOpen={Boolean(detailRow)}
@@ -1465,6 +1603,240 @@ export default function CustomerRecoveryReportPage() {
           </div>
         ) : null}
       </Modal>
+    </div>
+  );
+}
+
+function HistoricalValueSection({
+  filters,
+  data,
+  loading,
+  page,
+  onPageChange,
+  onFilterChange,
+  onRun,
+}: {
+  filters: HistoricalFilterState;
+  data: CustomerRecoveryHistoricalValueData | null;
+  loading: boolean;
+  page: number;
+  onPageChange: (page: number) => void;
+  onFilterChange: <K extends keyof HistoricalFilterState>(key: K, value: HistoricalFilterState[K]) => void;
+  onRun: () => void;
+}) {
+  const summary = data?.summary;
+  const metadata = data?.metadata;
+  const rows = data?.rows || [];
+  const pagination = data?.pagination || { page, limit: PAGE_SIZE, totalPages: 0, totalRecords: 0 };
+  const currentRateLabel = metadata?.currentUsdTryRate
+    ? metadata.currentUsdTryRate.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+    : '-';
+
+  return (
+    <div className="space-y-5">
+      <Card className="overflow-hidden border-emerald-200 shadow-sm">
+        <CardHeader className="border-b bg-gradient-to-r from-emerald-950 via-emerald-900 to-slate-900 text-white">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <CardTitle className="text-2xl text-white">2020'den bugune degerlenmis cari analizi</CardTitle>
+              <CardDescription className="mt-2 max-w-3xl text-emerald-50/80">
+                Gecmis satislari Mikro hareketindeki USD/TL kuru ile bugunku USD/TL kuruna tasir. Ardisik aktif aylarda alim yapip sonrasinda duran carileri ayrica isaretler.
+              </CardDescription>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm lg:min-w-[520px]">
+              <HeroMetric label="Bugunku USD/TL" value={currentRateLabel} />
+              <HeroMetric label="Ardisik alirken duran" value={summary?.lostAfterConsecutiveCount ?? 0} />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5 p-5">
+          <div className="grid gap-4 lg:grid-cols-6">
+            <LabeledInput label="Baslangic yili" value={filters.startYear} onChange={(value) => onFilterChange('startYear', value)} />
+            <LabeledInput label="Pasif ay esigi" value={filters.inactiveMonths} onChange={(value) => onFilterChange('inactiveMonths', value)} />
+            <LabeledInput label="Min. ardisik aktif ay" value={filters.minConsecutiveMonths} onChange={(value) => onFilterChange('minConsecutiveMonths', value)} />
+            <LabeledInput label="Anlamli ay cirosu" value={filters.minMonthlyAmount} onChange={(value) => onFilterChange('minMonthlyAmount', value)} />
+            <LabeledInput label="Min. bugunku toplam" value={filters.minTotalAdjustedAmount} onChange={(value) => onFilterChange('minTotalAdjustedAmount', value)} />
+            <Select label="Sirala" value={`${filters.sortBy}:${filters.sortDirection}`} onChange={(event) => {
+              const [sortBy, sortDirection] = event.target.value.split(':') as [HistoricalSortBy, SortDirection];
+              onFilterChange('sortBy', sortBy);
+              onFilterChange('sortDirection', sortDirection);
+            }}>
+              <option value="lostPotentialAdjusted:desc">Tahmini kayip yuksek</option>
+              <option value="peakAdjustedAmount:desc">En yuksek ay degeri</option>
+              <option value="totalAdjustedAmount:desc">Toplam bugunku deger</option>
+              <option value="lastSaleDate:asc">Son satis en eski</option>
+              <option value="maxConsecutiveActiveMonths:desc">Ardisik ay sayisi</option>
+              <option value="customerName:asc">Cari adi A-Z</option>
+            </Select>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1fr_220px_180px]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                value={filters.search}
+                onChange={(event) => onFilterChange('search', event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') onRun();
+                }}
+                placeholder="Cari kodu, unvani, sektor, il veya ilce ara..."
+                className="pl-10"
+              />
+            </div>
+            <LabeledInput label="Sektor kodu" value={filters.sectorCode} onChange={(value) => onFilterChange('sectorCode', value.toUpperCase())} />
+            <Button onClick={onRun} isLoading={loading}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Raporu getir
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-900">
+              <input
+                type="checkbox"
+                checked={filters.onlyLostFrequent}
+                onChange={(event) => onFilterChange('onlyLostFrequent', event.target.checked)}
+              />
+              Sadece ardisik alirken duranlari goster
+            </label>
+            <div className="text-xs text-slate-500">
+              Anlamli ay cirosu bugunku TL karsiligina gore degerlendirilir. Ornek: eski 75.000 TL, eski kur 18,86 ve bugunku kur 45,5 ise yaklasik 181.000 TL sayilir.
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <DetailMetric label="Cari sayisi" value={summary?.totalCustomers ?? 0} />
+        <DetailMetric label="Nominal toplam" value={formatCurrency(summary?.totalRawAmount || 0)} />
+        <DetailMetric label="Bugunku deger" value={formatCurrency(summary?.totalAdjustedAmount || 0)} />
+        <DetailMetric label="Tahmini kayip" value={formatCurrency(summary?.totalLostPotentialAdjusted || 0)} />
+        <DetailMetric label="Ortalama katsayi" value={`${(summary?.averageMultiplier || 1).toLocaleString('tr-TR', { maximumFractionDigits: 2 })}x`} />
+      </div>
+
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardHeader className="border-b bg-white">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <CardTitle className="text-xl">Degerlenmis satislar ve kayip ritmi</CardTitle>
+              <CardDescription>
+                {metadata ? `${metadata.startDate} - ${metadata.endDate} araligi incelendi. Gecmis kur: Mikro, guncel kur: ${metadata.currentUsdTryRateSource}.` : 'Rapor yukleniyor'}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{pagination.totalRecords} kayit</Badge>
+              <Badge variant="outline">Sayfa {pagination.page || page} / {pagination.totalPages || 0}</Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table containerClassName="max-h-[720px]">
+            <TableHeader className="sticky top-0 z-10 bg-slate-50">
+              <TableRow>
+                <TableHead>Cari</TableHead>
+                <TableHead>Durum</TableHead>
+                <TableHead>Son aktif ay</TableHead>
+                <TableHead>Ardisik aktiflik</TableHead>
+                <TableHead>En yuksek ay</TableHead>
+                <TableHead className="text-right">Nominal toplam</TableHead>
+                <TableHead className="text-right">Bugunku deger</TableHead>
+                <TableHead className="text-right">Tahmini kayip</TableHead>
+                <TableHead>En degerli aylar</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-12 text-center text-gray-500">Rapor hesaplaniyor...</TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-12 text-center text-gray-500">Filtrelere uygun cari bulunamadi.</TableCell>
+                </TableRow>
+              ) : (
+                rows.map((row) => (
+                  <TableRow key={row.customerCode} className={row.lostAfterConsecutiveActivity ? 'bg-red-50/35' : undefined}>
+                    <TableCell className="min-w-[280px]">
+                      <div className="space-y-1">
+                        <div className="font-semibold text-gray-900">{row.customerName || '-'}</div>
+                        <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                          <span>{row.customerCode}</span>
+                          {row.sectorCode && <span>Sektor: {row.sectorCode}</span>}
+                          {row.assignedSalesRep?.name && <span>{row.assignedSalesRep.name}</span>}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <Badge variant={row.lostAfterConsecutiveActivity ? 'danger' : 'outline'}>
+                          {row.lostAfterConsecutiveActivity ? 'Ardisik alirken durdu' : 'Izleme'}
+                        </Badge>
+                        <div className="text-xs text-gray-500">
+                          Aktif ay {row.activeMonths}, evrak {row.documentCount}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm font-medium text-gray-900">{monthLabel(row.lastActiveMonth?.month)}</div>
+                      <div className="text-xs text-gray-500">
+                        {row.monthsSinceLastActive ?? '-'} ay once / {safeDate(row.lastSaleDate)}
+                      </div>
+                    </TableCell>
+                    <TableCell className="min-w-[170px]">
+                      <div className="text-sm font-semibold text-gray-900">{row.maxConsecutiveActiveMonths} ay</div>
+                      {row.latestConsecutiveStreak ? (
+                        <div className="text-xs text-gray-500">
+                          {monthLabel(row.latestConsecutiveStreak.startMonth)} - {monthLabel(row.latestConsecutiveStreak.endMonth)}
+                          <br />
+                          Ort. {formatCurrency(row.latestConsecutiveStreak.averageAdjustedAmount)}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-500">Esik ustu ardisik ritim yok</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="min-w-[160px]">
+                      <div className="text-sm font-semibold text-gray-900">{formatCurrency(row.peakMonth?.adjustedAmount || 0)}</div>
+                      <div className="text-xs text-gray-500">
+                        {monthLabel(row.peakMonth?.month)} / nominal {formatCurrency(row.peakMonth?.amount || 0)}
+                      </div>
+                      {row.peakMonth?.usdRate && (
+                        <div className="text-xs text-gray-400">Kur {row.peakMonth.usdRate.toLocaleString('tr-TR', { maximumFractionDigits: 4 })}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{formatCurrency(row.totalRawAmount)}</TableCell>
+                    <TableCell className="text-right font-semibold text-gray-900">{formatCurrency(row.totalAdjustedAmount)}</TableCell>
+                    <TableCell className="text-right font-semibold text-red-600">{formatCurrency(row.lostPotentialAdjusted)}</TableCell>
+                    <TableCell className="min-w-[240px]">
+                      <div className="flex flex-wrap gap-1.5">
+                        {row.topMonths.slice(0, 3).map((month) => (
+                          <span key={`${row.customerCode}-${month.month}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                            {monthLabel(month.month)}: {formatCurrency(month.adjustedAmount)}
+                          </span>
+                        ))}
+                        {row.topMonths.length === 0 && <span className="text-xs text-gray-500">-</span>}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+
+          <div className="flex flex-col gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-gray-600">
+              USD oranlama: bugunku kur / evrak ayindaki Mikro USD kuru. Kur yoksa nominal tutar kullanilir.
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => onPageChange(Math.max(1, page - 1))}>
+                Onceki
+              </Button>
+              <Button variant="outline" size="sm" disabled={page >= pagination.totalPages || loading} onClick={() => onPageChange(page + 1)}>
+                Sonraki
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
