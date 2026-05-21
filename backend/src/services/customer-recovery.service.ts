@@ -270,7 +270,13 @@ const parseBoolean = (value?: boolean) => Boolean(value);
 const parseLooseBoolean = (value: any) => value === true || value === 1 || String(value || '').toLowerCase() === 'true';
 const TCMB_USD_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
 const USD_RATE_CACHE_MS = 60 * 60 * 1000;
+const HISTORICAL_VALUE_CACHE_MS = 10 * 60 * 1000;
 let customerRecoveryUsdRateCache: { rate: number; source: string; fetchedAt: number } | null = null;
+const historicalValueReportCache = new Map<string, {
+  expiresAt: number;
+  rows: HistoricalValueRow[];
+  usdRate: { rate: number; source: string; fetchedAt: string };
+}>();
 
 class CustomerRecoveryService {
   private normalizeHistoricalValueOptions(options: HistoricalValueOptions) {
@@ -304,6 +310,24 @@ class CustomerRecoveryService {
       currentMonthKey: formatMonthKey(endDate),
       allMonthKeys,
     };
+  }
+
+  private buildHistoricalValueCacheKey(
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>,
+    context?: RequestContext
+  ) {
+    return JSON.stringify({
+      startYear: normalized.startYear,
+      inactiveMonths: normalized.inactiveMonths,
+      minConsecutiveMonths: normalized.minConsecutiveMonths,
+      minMonthlyAmount: normalized.minMonthlyAmount,
+      customerCode: normalized.customerCode,
+      search: normalized.search,
+      sectorCode: normalized.sectorCode,
+      role: context?.role || null,
+      userId: context?.userId || null,
+      assignedSectorCodes: (context?.assignedSectorCodes || []).map(normalizeCode).sort(),
+    });
   }
 
   private normalizeOptions(options: ReportOptions) {
@@ -1706,10 +1730,30 @@ class CustomerRecoveryService {
 
   async getHistoricalValueReport(options: HistoricalValueOptions = {}, context?: RequestContext) {
     const normalized = this.normalizeHistoricalValueOptions(options);
-    const usdRate = await this.getCurrentUsdTryRate();
-    const monthlyRows = await this.fetchHistoricalValueMonthlySales(normalized, context);
-    let rows = this.buildHistoricalValueRows(monthlyRows, normalized, usdRate.rate);
-    await this.attachHistoricalLocalMetadata(rows);
+    const cacheKey = this.buildHistoricalValueCacheKey(normalized, context);
+    const now = Date.now();
+    let cacheEntry = historicalValueReportCache.get(cacheKey);
+
+    if (!cacheEntry || cacheEntry.expiresAt <= now) {
+      const usdRate = await this.getCurrentUsdTryRate();
+      const monthlyRows = await this.fetchHistoricalValueMonthlySales(normalized, context);
+      const builtRows = this.buildHistoricalValueRows(monthlyRows, normalized, usdRate.rate);
+      await this.attachHistoricalLocalMetadata(builtRows);
+      cacheEntry = {
+        expiresAt: now + HISTORICAL_VALUE_CACHE_MS,
+        rows: builtRows,
+        usdRate,
+      };
+      historicalValueReportCache.set(cacheKey, cacheEntry);
+      if (historicalValueReportCache.size > 30) {
+        const expiredKeys = Array.from(historicalValueReportCache.entries())
+          .filter(([, value]) => value.expiresAt <= now)
+          .map(([key]) => key);
+        expiredKeys.forEach((key) => historicalValueReportCache.delete(key));
+      }
+    }
+
+    let rows = cacheEntry.rows;
     rows = this.filterAndSortHistoricalValueRows(rows, normalized);
 
     const totalRecords = rows.length;
@@ -1737,10 +1781,11 @@ class CustomerRecoveryService {
         onlyLostFrequent: normalized.onlyLostFrequent,
         sortBy: normalized.sortBy,
         sortDirection: normalized.sortDirection,
-        currentUsdTryRate: usdRate.rate,
-        currentUsdTryRateSource: usdRate.source,
-        currentUsdTryRateFetchedAt: usdRate.fetchedAt,
+        currentUsdTryRate: cacheEntry.usdRate.rate,
+        currentUsdTryRateSource: cacheEntry.usdRate.source,
+        currentUsdTryRateFetchedAt: cacheEntry.usdRate.fetchedAt,
         historicalUsdRateSource: 'MIKRO_STH_ALT_DOVIZ_KURU',
+        cacheExpiresAt: new Date(cacheEntry.expiresAt).toISOString(),
         monthKeys: normalized.allMonthKeys,
       },
     };

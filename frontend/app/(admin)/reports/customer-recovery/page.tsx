@@ -777,11 +777,15 @@ export default function CustomerRecoveryReportPage() {
         ? 'asc'
         : 'desc';
     const nextFilters = {
-      ...historicalFilters,
+      ...submittedHistoricalFilters,
       sortBy,
       sortDirection,
     };
-    setHistoricalFilters(nextFilters);
+    setHistoricalFilters((previous) => ({
+      ...previous,
+      sortBy,
+      sortDirection,
+    }));
     setSubmittedHistoricalFilters(nextFilters);
     setHistoricalPage(1);
     setActiveView('historicalValue');
