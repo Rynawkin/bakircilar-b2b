@@ -2624,6 +2624,15 @@ export const adminApi = {
     return response.data;
   },
 
+  downloadCustomerRecoveryHistoricalValueExport: async (params: CustomerRecoveryHistoricalValueParams): Promise<Blob> => {
+    const queryParams = new URLSearchParams();
+    appendCustomerRecoveryHistoricalValueParams(queryParams, params);
+    const response = await apiClient.get(`/admin/reports/customer-recovery/historical-value/export?${queryParams.toString()}`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
   downloadCustomerRecoveryExport: async (params: CustomerRecoveryReportParams): Promise<Blob> => {
     const queryParams = new URLSearchParams();
     appendCustomerRecoveryParams(queryParams, params);

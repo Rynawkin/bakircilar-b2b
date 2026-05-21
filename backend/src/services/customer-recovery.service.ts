@@ -1728,8 +1728,10 @@ class CustomerRecoveryService {
     };
   }
 
-  async getHistoricalValueReport(options: HistoricalValueOptions = {}, context?: RequestContext) {
-    const normalized = this.normalizeHistoricalValueOptions(options);
+  private async resolveHistoricalValueRows(
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>,
+    context?: RequestContext
+  ) {
     const cacheKey = this.buildHistoricalValueCacheKey(normalized, context);
     const now = Date.now();
     let cacheEntry = historicalValueReportCache.get(cacheKey);
@@ -1753,8 +1755,13 @@ class CustomerRecoveryService {
       }
     }
 
-    let rows = cacheEntry.rows;
-    rows = this.filterAndSortHistoricalValueRows(rows, normalized);
+    const rows = this.filterAndSortHistoricalValueRows(cacheEntry.rows, normalized);
+    return { rows, cacheEntry };
+  }
+
+  async getHistoricalValueReport(options: HistoricalValueOptions = {}, context?: RequestContext) {
+    const normalized = this.normalizeHistoricalValueOptions(options);
+    const { rows, cacheEntry } = await this.resolveHistoricalValueRows(normalized, context);
 
     const totalRecords = rows.length;
     const totalPages = totalRecords > 0 ? Math.ceil(totalRecords / normalized.limit) : 0;
@@ -2135,6 +2142,72 @@ class CustomerRecoveryService {
     return {
       buffer,
       fileName: `cari-geri-kazanim-${data.metadata.recentStartDate}-${data.metadata.reportEndDate}.xlsx`,
+    };
+  }
+
+  async exportHistoricalValueReport(options: HistoricalValueOptions = {}, context?: RequestContext) {
+    const normalized = this.normalizeHistoricalValueOptions({ ...options, page: 1, limit: 500 });
+    const { rows, cacheEntry } = await this.resolveHistoricalValueRows(normalized, context);
+    const exportRows = rows.map((row) => ({
+      'Cari Kodu': row.customerCode,
+      'Cari Adi': row.customerName || '',
+      'Sektor': row.sectorCode || '',
+      'Sehir': row.city || '',
+      'Ilce': row.district || '',
+      'Temsilci': row.assignedSalesRep?.name || '',
+      'Durum': row.lostAfterConsecutiveActivity ? 'Ardisik alirken durdu' : 'Izleme',
+      'Ilk Satis': row.firstSaleDate || '',
+      'Son Satis': row.lastSaleDate || '',
+      'Son Aktif Ay': row.lastActiveMonth?.month || '',
+      'Son Aktiften Gecen Ay': row.monthsSinceLastActive ?? '',
+      'Aktif Ay Sayisi': row.activeMonths,
+      'Evrak Sayisi': row.documentCount,
+      'Max Ardisik Aktif Ay': row.maxConsecutiveActiveMonths,
+      'Son Ardisik Donem': row.latestConsecutiveStreak
+        ? `${row.latestConsecutiveStreak.startMonth} - ${row.latestConsecutiveStreak.endMonth}`
+        : '',
+      'Son Ardisik Donem Ort. Bugunku': row.latestConsecutiveStreak?.averageAdjustedAmount || 0,
+      'En Yuksek Ay': row.peakMonth?.month || '',
+      'En Yuksek Ay Nominal': row.peakMonth?.amount || 0,
+      'En Yuksek Ay Bugunku Deger': row.peakMonth?.adjustedAmount || 0,
+      'En Yuksek Ay Kuru': row.peakMonth?.usdRate || '',
+      'Nominal Toplam': row.totalRawAmount,
+      'Bugunku Deger Toplam': row.totalAdjustedAmount,
+      'Ortalama Aktif Ay Bugunku': row.averageAdjustedActiveMonth,
+      'Tahmini Kayip Bugunku': row.lostPotentialAdjusted,
+      'Bakiye': row.balance,
+      'Top Ay 1': row.topMonths[0] ? `${row.topMonths[0].month} / ${Math.round(row.topMonths[0].adjustedAmount)}` : '',
+      'Top Ay 2': row.topMonths[1] ? `${row.topMonths[1].month} / ${Math.round(row.topMonths[1].adjustedAmount)}` : '',
+      'Top Ay 3': row.topMonths[2] ? `${row.topMonths[2].month} / ${Math.round(row.topMonths[2].adjustedAmount)}` : '',
+    }));
+    const summary = this.buildHistoricalValueSummary(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(exportRows), 'Degerlenmis Cariler');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+      'Cari Sayisi': summary.totalCustomers,
+      'Ardisik Alirken Duran': summary.lostAfterConsecutiveCount,
+      'Nominal Toplam': summary.totalRawAmount,
+      'Bugunku Deger Toplam': summary.totalAdjustedAmount,
+      'Tahmini Kayip Bugunku': summary.totalLostPotentialAdjusted,
+      'Ortalama Katsayi': summary.averageMultiplier,
+      'Guncel USD/TL': cacheEntry.usdRate.rate,
+      'Guncel Kur Kaynagi': cacheEntry.usdRate.source,
+      'Guncel Kur Tarihi': cacheEntry.usdRate.fetchedAt,
+      'Gecmis Kur Kaynagi': 'MIKRO_STH_ALT_DOVIZ_KURU',
+      'Baslangic': formatDateKey(normalized.startDate),
+      'Bitis': formatDateKey(normalized.endDate),
+      'Sektor Filtresi': normalized.sectorCode || 'Tumu',
+      'Arama': normalized.search || '',
+      'Pasif Ay Esigi': normalized.inactiveMonths,
+      'Min Ardisik Aktif Ay': normalized.minConsecutiveMonths,
+      'Anlamli Ay Cirosu': normalized.minMonthlyAmount,
+      'Min Bugunku Toplam': normalized.minTotalAdjustedAmount,
+      'Sadece Ardisik Alirken Duran': normalized.onlyLostFrequent ? 'Evet' : 'Hayir',
+    }]), 'Ozet');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    return {
+      buffer,
+      fileName: `cari-degerlenmis-ciro-${formatDateKey(normalized.startDate)}-${formatDateKey(normalized.endDate)}.xlsx`,
     };
   }
 }

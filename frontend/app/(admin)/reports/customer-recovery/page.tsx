@@ -397,6 +397,7 @@ export default function CustomerRecoveryReportPage() {
   const [historicalData, setHistoricalData] = useState<CustomerRecoveryHistoricalValueData | null>(null);
   const [historicalPage, setHistoricalPage] = useState(1);
   const [historicalLoading, setHistoricalLoading] = useState(false);
+  const [historicalExporting, setHistoricalExporting] = useState(false);
 
   const buildParams = (source: FilterState, requestedPage = page, limit = PAGE_SIZE): CustomerRecoveryReportParams => ({
     recentMonths: parseNumber(source.recentMonths, 3),
@@ -789,6 +790,27 @@ export default function CustomerRecoveryReportPage() {
     setSubmittedHistoricalFilters(nextFilters);
     setHistoricalPage(1);
     setActiveView('historicalValue');
+  };
+
+  const exportHistoricalReport = async () => {
+    setHistoricalExporting(true);
+    try {
+      const blob = await adminApi.downloadCustomerRecoveryHistoricalValueExport(
+        buildHistoricalParams(submittedHistoricalFilters, 1)
+      );
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `cari-degerlenmis-ciro-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Degerlenmis cari Excel indirilemedi');
+    } finally {
+      setHistoricalExporting(false);
+    }
   };
 
   return (
@@ -1314,6 +1336,7 @@ export default function CustomerRecoveryReportPage() {
           filters={historicalFilters}
           data={historicalData}
           loading={historicalLoading}
+          exporting={historicalExporting}
           page={historicalPage}
           activeSort={{
             sortBy: submittedHistoricalFilters.sortBy,
@@ -1323,6 +1346,7 @@ export default function CustomerRecoveryReportPage() {
           onFilterChange={updateHistoricalFilter}
           onRun={runHistoricalReport}
           onSort={sortHistorical}
+          onExport={exportHistoricalReport}
         />
       )}
 
@@ -1636,22 +1660,26 @@ function HistoricalValueSection({
   filters,
   data,
   loading,
+  exporting,
   page,
   activeSort,
   onPageChange,
   onFilterChange,
   onRun,
   onSort,
+  onExport,
 }: {
   filters: HistoricalFilterState;
   data: CustomerRecoveryHistoricalValueData | null;
   loading: boolean;
+  exporting: boolean;
   page: number;
   activeSort: { sortBy: HistoricalSortBy; sortDirection: SortDirection };
   onPageChange: (page: number) => void;
   onFilterChange: <K extends keyof HistoricalFilterState>(key: K, value: HistoricalFilterState[K]) => void;
   onRun: () => void;
   onSort: (sortBy: HistoricalSortBy) => void;
+  onExport: () => void;
 }) {
   const summary = data?.summary;
   const metadata = data?.metadata;
@@ -1700,7 +1728,7 @@ function HistoricalValueSection({
             </Select>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_220px_180px]">
+          <div className="grid gap-4 lg:grid-cols-[1fr_220px_180px_160px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
@@ -1717,6 +1745,10 @@ function HistoricalValueSection({
             <Button onClick={onRun} isLoading={loading}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Raporu getir
+            </Button>
+            <Button variant="outline" onClick={onExport} isLoading={exporting} disabled={!data || loading}>
+              <Download className="mr-2 h-4 w-4" />
+              Excel
             </Button>
           </div>
 
