@@ -270,12 +270,13 @@ const parseBoolean = (value?: boolean) => Boolean(value);
 const parseLooseBoolean = (value: any) => value === true || value === 1 || String(value || '').toLowerCase() === 'true';
 const TCMB_USD_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml';
 const USD_RATE_CACHE_MS = 60 * 60 * 1000;
-const HISTORICAL_VALUE_CACHE_MS = 10 * 60 * 1000;
+const HISTORICAL_VALUE_CACHE_MS = 24 * 60 * 60 * 1000;
 let customerRecoveryUsdRateCache: { rate: number; source: string; fetchedAt: number } | null = null;
 const historicalValueReportCache = new Map<string, {
   expiresAt: number;
   rows: HistoricalValueRow[];
   usdRate: { rate: number; source: string; fetchedAt: string };
+  warmedAt: string;
 }>();
 
 class CustomerRecoveryService {
@@ -313,21 +314,31 @@ class CustomerRecoveryService {
   }
 
   private buildHistoricalValueCacheKey(
-    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>,
-    context?: RequestContext
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>
   ) {
     return JSON.stringify({
       startYear: normalized.startYear,
       inactiveMonths: normalized.inactiveMonths,
       minConsecutiveMonths: normalized.minConsecutiveMonths,
       minMonthlyAmount: normalized.minMonthlyAmount,
-      customerCode: normalized.customerCode,
-      search: normalized.search,
-      sectorCode: normalized.sectorCode,
-      role: context?.role || null,
-      userId: context?.userId || null,
-      assignedSectorCodes: (context?.assignedSectorCodes || []).map(normalizeCode).sort(),
     });
+  }
+
+  private buildHistoricalValueBaseOptions(
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>
+  ): HistoricalValueOptions {
+    return {
+      startYear: normalized.startYear,
+      inactiveMonths: normalized.inactiveMonths,
+      minConsecutiveMonths: normalized.minConsecutiveMonths,
+      minMonthlyAmount: normalized.minMonthlyAmount,
+      minTotalAdjustedAmount: 0,
+      onlyLostFrequent: false,
+      page: 1,
+      limit: 500,
+      sortBy: 'lostPotentialAdjusted',
+      sortDirection: 'desc',
+    };
   }
 
   private normalizeOptions(options: ReportOptions) {
@@ -1011,9 +1022,27 @@ class CustomerRecoveryService {
 
   private filterAndSortHistoricalValueRows(
     rows: HistoricalValueRow[],
-    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>
+    normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>,
+    context?: RequestContext
   ) {
     let result = rows;
+    if (normalized.customerCode) {
+      result = result.filter((row) => normalizeCode(row.customerCode) === normalized.customerCode);
+    }
+    if (normalized.sectorCode) {
+      result = normalized.sectorCode === 'FATURA'
+        ? []
+        : result.filter((row) => normalizeCode(row.sectorCode) === normalized.sectorCode);
+    }
+    if (context?.role === 'SALES_REP') {
+      const assignedSectorCodes = (context.assignedSectorCodes || []).map(normalizeCode).filter(Boolean);
+      if (assignedSectorCodes.length === 0) {
+        result = [];
+      } else {
+        const allowed = new Set(assignedSectorCodes);
+        result = result.filter((row) => row.sectorCode && allowed.has(normalizeCode(row.sectorCode)));
+      }
+    }
     if (normalized.search) {
       const search = normalized.search.toLocaleLowerCase('tr-TR');
       result = result.filter((row) =>
@@ -1732,19 +1761,21 @@ class CustomerRecoveryService {
     normalized: ReturnType<CustomerRecoveryService['normalizeHistoricalValueOptions']>,
     context?: RequestContext
   ) {
-    const cacheKey = this.buildHistoricalValueCacheKey(normalized, context);
+    const baseNormalized = this.normalizeHistoricalValueOptions(this.buildHistoricalValueBaseOptions(normalized));
+    const cacheKey = this.buildHistoricalValueCacheKey(baseNormalized);
     const now = Date.now();
     let cacheEntry = historicalValueReportCache.get(cacheKey);
 
     if (!cacheEntry || cacheEntry.expiresAt <= now) {
       const usdRate = await this.getCurrentUsdTryRate();
-      const monthlyRows = await this.fetchHistoricalValueMonthlySales(normalized, context);
-      const builtRows = this.buildHistoricalValueRows(monthlyRows, normalized, usdRate.rate);
+      const monthlyRows = await this.fetchHistoricalValueMonthlySales(baseNormalized);
+      const builtRows = this.buildHistoricalValueRows(monthlyRows, baseNormalized, usdRate.rate);
       await this.attachHistoricalLocalMetadata(builtRows);
       cacheEntry = {
         expiresAt: now + HISTORICAL_VALUE_CACHE_MS,
         rows: builtRows,
         usdRate,
+        warmedAt: new Date(now).toISOString(),
       };
       historicalValueReportCache.set(cacheKey, cacheEntry);
       if (historicalValueReportCache.size > 30) {
@@ -1755,7 +1786,7 @@ class CustomerRecoveryService {
       }
     }
 
-    const rows = this.filterAndSortHistoricalValueRows(cacheEntry.rows, normalized);
+    const rows = this.filterAndSortHistoricalValueRows(cacheEntry.rows, normalized, context);
     return { rows, cacheEntry };
   }
 
@@ -1792,6 +1823,7 @@ class CustomerRecoveryService {
         currentUsdTryRateSource: cacheEntry.usdRate.source,
         currentUsdTryRateFetchedAt: cacheEntry.usdRate.fetchedAt,
         historicalUsdRateSource: 'MIKRO_STH_ALT_DOVIZ_KURU',
+        cacheWarmedAt: cacheEntry.warmedAt,
         cacheExpiresAt: new Date(cacheEntry.expiresAt).toISOString(),
         monthKeys: normalized.allMonthKeys,
       },
@@ -2208,6 +2240,45 @@ class CustomerRecoveryService {
     return {
       buffer,
       fileName: `cari-degerlenmis-ciro-${formatDateKey(normalized.startDate)}-${formatDateKey(normalized.endDate)}.xlsx`,
+    };
+  }
+
+  clearHistoricalValueCache() {
+    historicalValueReportCache.clear();
+  }
+
+  async warmHistoricalValueDailyCache(options: HistoricalValueOptions = {}) {
+    const normalized = this.normalizeHistoricalValueOptions({
+      startYear: options.startYear ?? 2020,
+      inactiveMonths: options.inactiveMonths ?? 3,
+      minConsecutiveMonths: options.minConsecutiveMonths ?? 3,
+      minMonthlyAmount: options.minMonthlyAmount ?? 5000,
+      minTotalAdjustedAmount: 0,
+      onlyLostFrequent: false,
+      page: 1,
+      limit: 500,
+      sortBy: 'lostPotentialAdjusted',
+      sortDirection: 'desc',
+    });
+    const baseNormalized = this.normalizeHistoricalValueOptions(this.buildHistoricalValueBaseOptions(normalized));
+    const cacheKey = this.buildHistoricalValueCacheKey(baseNormalized);
+    const now = Date.now();
+    historicalValueReportCache.delete(cacheKey);
+    const usdRate = await this.getCurrentUsdTryRate();
+    const monthlyRows = await this.fetchHistoricalValueMonthlySales(baseNormalized);
+    const builtRows = this.buildHistoricalValueRows(monthlyRows, baseNormalized, usdRate.rate);
+    await this.attachHistoricalLocalMetadata(builtRows);
+    historicalValueReportCache.set(cacheKey, {
+      expiresAt: now + HISTORICAL_VALUE_CACHE_MS,
+      rows: builtRows,
+      usdRate,
+      warmedAt: new Date(now).toISOString(),
+    });
+    return {
+      customerCount: builtRows.length,
+      cacheKey,
+      warmedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + HISTORICAL_VALUE_CACHE_MS).toISOString(),
     };
   }
 }

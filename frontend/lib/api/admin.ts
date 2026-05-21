@@ -313,6 +313,8 @@ export interface CustomerRecoveryHistoricalValueData {
     currentUsdTryRateSource: string;
     currentUsdTryRateFetchedAt: string;
     historicalUsdRateSource: string;
+    cacheWarmedAt?: string;
+    cacheExpiresAt?: string;
     monthKeys: string[];
   };
 }

@@ -21,6 +21,7 @@ import reportsService from './services/reports.service';
 import productComplementService from './services/product-complement.service';
 import customerActivityService from './services/customer-activity.service';
 import eInvoiceService from './services/einvoice.service';
+import customerRecoveryService from './services/customer-recovery.service';
 import { prisma } from './utils/prisma';
 import { getUploadsDir } from './utils/storage';
 
@@ -221,6 +222,18 @@ if (config.enableCron) {
       });
     } catch (error) {
       console.error('Margin compliance report cron error:', error);
+    }
+  }, cronOptions);
+
+  console.log('Customer recovery historical cache cron schedule:', config.customerRecoveryHistoricalCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.customerRecoveryHistoricalCronSchedule, async () => {
+    console.log('Customer recovery historical cache warming started...');
+    try {
+      customerRecoveryService.clearHistoricalValueCache();
+      const result = await customerRecoveryService.warmHistoricalValueDailyCache();
+      console.log('Customer recovery historical cache warmed:', result);
+    } catch (error) {
+      console.error('Customer recovery historical cache cron error:', error);
     }
   }, cronOptions);
 

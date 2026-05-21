@@ -45,6 +45,7 @@ export const config = {
   vadeSyncCronSchedule: process.env.VADE_SYNC_CRON_SCHEDULE || '0 * * * *',
   vadeReminderCronSchedule: process.env.VADE_REMINDER_CRON_SCHEDULE || '0 * * * *',
   marginReportCronSchedule: process.env.MARGIN_REPORT_CRON_SCHEDULE || '0 3 * * *',
+  customerRecoveryHistoricalCronSchedule: process.env.CUSTOMER_RECOVERY_HISTORICAL_CRON_SCHEDULE || '0 6 * * *',
   productComplementCronSchedule: process.env.PRODUCT_COMPLEMENT_CRON_SCHEDULE || '30 2 * * *',
   analyticsCleanupCronSchedule: process.env.ANALYTICS_CLEANUP_CRON_SCHEDULE || '45 2 * * *',
   analyticsRetentionDays: parseInt(process.env.ANALYTICS_RETENTION_DAYS || '180', 10),
