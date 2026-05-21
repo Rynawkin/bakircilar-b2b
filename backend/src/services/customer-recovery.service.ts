@@ -622,7 +622,7 @@ class CustomerRecoveryService {
       SELECT TOP 1 CAST(sth_alt_doviz_kuru AS FLOAT) as rate
       FROM STOK_HAREKETLERI WITH (NOLOCK)
       WHERE ISNULL(sth_alt_doviz_kuru, 0) > 1
-      ORDER BY sth_tarih DESC, sth_RECno DESC
+      ORDER BY sth_tarih DESC
     `);
     const rate = toNumber(rows?.[0]?.rate, 0);
     return rate > 0 ? rate : null;
