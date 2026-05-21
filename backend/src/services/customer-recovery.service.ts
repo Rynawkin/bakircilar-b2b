@@ -12,7 +12,7 @@ type SortDirection = 'asc' | 'desc';
 type SeasonalityMode = 'include' | 'exclude' | 'only';
 type SeasonalityStatus = 'ON_TRACK' | 'OVERDUE' | null;
 type PurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
-type HistoricalValueSortBy = 'lostPotentialAdjusted' | 'peakAdjustedAmount' | 'totalAdjustedAmount' | 'lastSaleDate' | 'maxConsecutiveActiveMonths' | 'customerName';
+type HistoricalValueSortBy = 'lostPotentialAdjusted' | 'peakAdjustedAmount' | 'totalRawAmount' | 'totalAdjustedAmount' | 'lastSaleDate' | 'maxConsecutiveActiveMonths' | 'customerName';
 
 interface ReportOptions {
   recentMonths?: number;
@@ -1011,6 +1011,9 @@ class CustomerRecoveryService {
       switch (normalized.sortBy) {
         case 'peakAdjustedAmount':
           compare = (a.peakMonth?.adjustedAmount || 0) - (b.peakMonth?.adjustedAmount || 0);
+          break;
+        case 'totalRawAmount':
+          compare = a.totalRawAmount - b.totalRawAmount;
           break;
         case 'totalAdjustedAmount':
           compare = a.totalAdjustedAmount - b.totalAdjustedAmount;

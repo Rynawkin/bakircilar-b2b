@@ -47,7 +47,7 @@ type SupplierPriceListOverrides = {
 export type CustomerRecoveryRiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 export type CustomerRecoveryDevelopmentStatus = 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
 export type CustomerRecoveryPurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
-export type CustomerRecoveryHistoricalSortBy = 'lostPotentialAdjusted' | 'peakAdjustedAmount' | 'totalAdjustedAmount' | 'lastSaleDate' | 'maxConsecutiveActiveMonths' | 'customerName';
+export type CustomerRecoveryHistoricalSortBy = 'lostPotentialAdjusted' | 'peakAdjustedAmount' | 'totalRawAmount' | 'totalAdjustedAmount' | 'lastSaleDate' | 'maxConsecutiveActiveMonths' | 'customerName';
 
 export interface CustomerRecoveryReportParams {
   recentMonths?: number;

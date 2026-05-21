@@ -771,6 +771,22 @@ export default function CustomerRecoveryReportPage() {
     setPage(1);
   };
 
+  const sortHistorical = (sortBy: HistoricalSortBy) => {
+    const sortDirection: SortDirection =
+      submittedHistoricalFilters.sortBy === sortBy && submittedHistoricalFilters.sortDirection === 'desc'
+        ? 'asc'
+        : 'desc';
+    const nextFilters = {
+      ...historicalFilters,
+      sortBy,
+      sortDirection,
+    };
+    setHistoricalFilters(nextFilters);
+    setSubmittedHistoricalFilters(nextFilters);
+    setHistoricalPage(1);
+    setActiveView('historicalValue');
+  };
+
   return (
     <div className="mx-auto max-w-[1800px] space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-900 p-6 text-white shadow-xl lg:flex-row lg:items-end lg:justify-between">
@@ -1295,9 +1311,14 @@ export default function CustomerRecoveryReportPage() {
           data={historicalData}
           loading={historicalLoading}
           page={historicalPage}
+          activeSort={{
+            sortBy: submittedHistoricalFilters.sortBy,
+            sortDirection: submittedHistoricalFilters.sortDirection,
+          }}
           onPageChange={setHistoricalPage}
           onFilterChange={updateHistoricalFilter}
           onRun={runHistoricalReport}
+          onSort={sortHistorical}
         />
       )}
 
@@ -1612,17 +1633,21 @@ function HistoricalValueSection({
   data,
   loading,
   page,
+  activeSort,
   onPageChange,
   onFilterChange,
   onRun,
+  onSort,
 }: {
   filters: HistoricalFilterState;
   data: CustomerRecoveryHistoricalValueData | null;
   loading: boolean;
   page: number;
+  activeSort: { sortBy: HistoricalSortBy; sortDirection: SortDirection };
   onPageChange: (page: number) => void;
   onFilterChange: <K extends keyof HistoricalFilterState>(key: K, value: HistoricalFilterState[K]) => void;
   onRun: () => void;
+  onSort: (sortBy: HistoricalSortBy) => void;
 }) {
   const summary = data?.summary;
   const metadata = data?.metadata;
@@ -1663,6 +1688,7 @@ function HistoricalValueSection({
             }}>
               <option value="lostPotentialAdjusted:desc">Tahmini kayip yuksek</option>
               <option value="peakAdjustedAmount:desc">En yuksek ay degeri</option>
+              <option value="totalRawAmount:desc">Nominal toplam yuksek</option>
               <option value="totalAdjustedAmount:desc">Toplam bugunku deger</option>
               <option value="lastSaleDate:asc">Son satis en eski</option>
               <option value="maxConsecutiveActiveMonths:desc">Ardisik ay sayisi</option>
@@ -1733,14 +1759,14 @@ function HistoricalValueSection({
           <Table containerClassName="max-h-[720px]">
             <TableHeader className="sticky top-0 z-10 bg-slate-50">
               <TableRow>
-                <TableHead>Cari</TableHead>
+                <HistoricalSortableTableHead label="Cari" sortBy="customerName" activeSort={activeSort} onSort={onSort} />
                 <TableHead>Durum</TableHead>
-                <TableHead>Son aktif ay</TableHead>
-                <TableHead>Ardisik aktiflik</TableHead>
-                <TableHead>En yuksek ay</TableHead>
-                <TableHead className="text-right">Nominal toplam</TableHead>
-                <TableHead className="text-right">Bugunku deger</TableHead>
-                <TableHead className="text-right">Tahmini kayip</TableHead>
+                <HistoricalSortableTableHead label="Son aktif ay" sortBy="lastSaleDate" activeSort={activeSort} onSort={onSort} />
+                <HistoricalSortableTableHead label="Ardisik aktiflik" sortBy="maxConsecutiveActiveMonths" activeSort={activeSort} onSort={onSort} />
+                <HistoricalSortableTableHead label="En yuksek ay" sortBy="peakAdjustedAmount" activeSort={activeSort} onSort={onSort} />
+                <HistoricalSortableTableHead label="Nominal toplam" sortBy="totalRawAmount" activeSort={activeSort} onSort={onSort} align="right" />
+                <HistoricalSortableTableHead label="Bugunku deger" sortBy="totalAdjustedAmount" activeSort={activeSort} onSort={onSort} align="right" />
+                <HistoricalSortableTableHead label="Tahmini kayip" sortBy="lostPotentialAdjusted" activeSort={activeSort} onSort={onSort} align="right" />
                 <TableHead>En degerli aylar</TableHead>
               </TableRow>
             </TableHeader>
@@ -1880,6 +1906,31 @@ function SortableTableHead({
   sortBy: SortBy;
   activeSort: { sortBy: SortBy; sortDirection: SortDirection };
   onSort: (sortBy: SortBy) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = activeSort.sortBy === sortBy;
+  return (
+    <TableHead className={cn('cursor-pointer select-none', align === 'right' && 'text-right')} onClick={() => onSort(sortBy)}>
+      <span className={cn('inline-flex items-center gap-1', align === 'right' && 'justify-end')}>
+        {label}
+        <ArrowUpDown className={cn('h-3.5 w-3.5', active ? 'text-emerald-600' : 'text-gray-400')} />
+        {active && <span className="text-[10px] text-emerald-700">{activeSort.sortDirection === 'asc' ? 'Artan' : 'Azalan'}</span>}
+      </span>
+    </TableHead>
+  );
+}
+
+function HistoricalSortableTableHead({
+  label,
+  sortBy,
+  activeSort,
+  onSort,
+  align = 'left',
+}: {
+  label: string;
+  sortBy: HistoricalSortBy;
+  activeSort: { sortBy: HistoricalSortBy; sortDirection: SortDirection };
+  onSort: (sortBy: HistoricalSortBy) => void;
   align?: 'left' | 'right';
 }) {
   const active = activeSort.sortBy === sortBy;
