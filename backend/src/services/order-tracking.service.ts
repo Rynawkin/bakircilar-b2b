@@ -33,6 +33,13 @@ interface PendingOrderItem {
     preferredAfterTotalDemand: number;
     hasAggregateRisk: boolean;
   };
+  stockStatus?: {
+    code: 'full' | 'partial' | 'none';
+    label: string;
+    color: 'green' | 'yellow' | 'red';
+    totalStock: number;
+  };
+  estimatedStockEntryDate?: Date | string | null;
   quantity: number;
   deliveredQty: number;
   remainingQty: number;
@@ -92,6 +99,23 @@ const getWarehouseName = (warehouseCode?: string | null): string => {
   if (code === '1') return 'Merkez';
   if (code === '6') return 'Topca';
   return code || '-';
+};
+
+const resolveStockStatus = (
+  remainingQty: number,
+  stocks: { merkez: number; topca: number }
+): NonNullable<PendingOrderItem['stockStatus']> => {
+  const totalStock = Math.max(toNumber(stocks.merkez), 0) + Math.max(toNumber(stocks.topca), 0);
+
+  if (remainingQty <= 0 || totalStock >= remainingQty) {
+    return { code: 'full', label: 'Stok var', color: 'green', totalStock };
+  }
+
+  if (totalStock > 0) {
+    return { code: 'partial', label: 'Kısmi stok mevcut', color: 'yellow', totalStock };
+  }
+
+  return { code: 'none', label: 'Stok yok', color: 'red', totalStock };
 };
 
 class OrderTrackingService {
@@ -490,7 +514,7 @@ class OrderTrackingService {
     return Array.from(orderMap.values()).filter((order) => order.itemCount > 0);
   }
 
-  private async enrichOrdersWithWarehouseAvailability<T extends { items: any }>(
+  async enrichOrdersWithWarehouseAvailability<T extends { items: any }>(
     orders: T[]
   ): Promise<T[]> {
     const productCodes = Array.from(
@@ -522,6 +546,8 @@ class OrderTrackingService {
       });
     });
 
+    const purchaseEtaByProductCode = await this.getEarliestPendingPurchaseDeliveryByProduct(productCodes);
+
     const demandByProductAndWarehouse = new Map<string, number>();
     orders.forEach((order) => {
       const items = Array.isArray(order.items) ? order.items : [];
@@ -552,10 +578,16 @@ class OrderTrackingService {
           const preferredStock = warehouseCode === '6' ? stocks.topca : stocks.merkez;
           const preferredTotalDemand = warehouseCode === '6' ? topcaTotalDemand : merkezTotalDemand;
           const preferredAfterTotalDemand = preferredStock - preferredTotalDemand;
+          const stockStatus = resolveStockStatus(remainingQty, stocks);
 
           return {
             ...item,
             warehouseStocks: stocks,
+            stockStatus,
+            estimatedStockEntryDate:
+              stockStatus.code === 'full'
+                ? null
+                : purchaseEtaByProductCode.get(productCode) || null,
             fulfillment: {
               preferredWarehouseCode: warehouseCode,
               preferredWarehouseName: getWarehouseName(warehouseCode),
@@ -574,6 +606,55 @@ class OrderTrackingService {
         }),
       };
     });
+  }
+
+  private async getEarliestPendingPurchaseDeliveryByProduct(productCodes: string[]): Promise<Map<string, Date | string>> {
+    const result = new Map<string, Date | string>();
+    const normalizedCodes = Array.from(new Set(productCodes.map(normalizeCode).filter(Boolean)));
+
+    if (normalizedCodes.length === 0) {
+      return result;
+    }
+
+    const chunkSize = 800;
+
+    for (let i = 0; i < normalizedCodes.length; i += chunkSize) {
+      const chunk = normalizedCodes.slice(i, i + chunkSize);
+      const inClause = chunk.map((code) => `'${code.replace(/'/g, "''")}'`).join(', ');
+
+      try {
+        const rows = await mikroService.executeQuery(`
+          SELECT
+            LTRIM(RTRIM(ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE}, ''))) as productCode,
+            MIN(CASE
+              WHEN s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERY_DATE} IS NOT NULL
+                AND s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERY_DATE} >= '2000-01-01'
+              THEN s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERY_DATE}
+              ELSE NULL
+            END) as estimatedStockEntryDate
+          FROM ${MIKRO_TABLES.ORDERS} s WITH (NOLOCK)
+          WHERE s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE} IN (${inClause})
+            AND s.${MIKRO_TABLES.ORDERS_COLUMNS.TYPE} = 1
+            AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CANCELLED}, 0) = 0
+            AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.CLOSED}, 0) = 0
+            AND ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.WAREHOUSE_NO}, 0) IN (1, 6)
+            AND (ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.QUANTITY}, 0) - ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.DELIVERED_QUANTITY}, 0)) > 0
+          GROUP BY LTRIM(RTRIM(ISNULL(s.${MIKRO_TABLES.ORDERS_COLUMNS.PRODUCT_CODE}, '')))
+        `);
+
+        for (const row of rows || []) {
+          const productCode = normalizeCode(row.productCode);
+          const eta = row.estimatedStockEntryDate;
+          if (productCode && eta) {
+            result.set(productCode, eta);
+          }
+        }
+      } catch (error: any) {
+        console.warn('Pending purchase delivery date lookup failed:', error?.message || error);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -654,7 +735,7 @@ class OrderTrackingService {
           syncEnabled: true,
           syncSchedule: '0 8 * * 2,5', // SalÄ± + Cuma, 08:00
           emailEnabled: true,
-          emailSubject: 'Bekleyen SipariÅŸleriniz',
+          emailSubject: 'Bekleyen Siparişleriniz',
           emailTemplate: 'default',
         },
       });

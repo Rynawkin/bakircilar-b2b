@@ -17,6 +17,7 @@ interface OrderEmailData {
     orderDate: Date;
     deliveryDate: Date | null;
     items: Array<{
+      productCode?: string;
       productName: string;
       unit: string;
       quantity: number;          // Toplam sipariÅŸ miktarÄ±
@@ -24,6 +25,17 @@ interface OrderEmailData {
       remainingQty: number;      // Kalan miktar
       unitPrice: number;
       lineTotal: number;
+      warehouseStocks?: {
+        merkez: number;
+        topca: number;
+      };
+      stockStatus?: {
+        code: 'full' | 'partial' | 'none';
+        label: string;
+        color: 'green' | 'yellow' | 'red';
+        totalStock: number;
+      };
+      estimatedStockEntryDate?: Date | string | null;
     }>;
     totalAmount: number;
     totalVAT: number;
@@ -31,6 +43,43 @@ interface OrderEmailData {
   }>;
   totalOrdersAmount: number;
 }
+
+const fixMojibakeText = (value: unknown): string => {
+  let text = String(value ?? '');
+  const replacements: Array<[RegExp, string]> = [
+    [/Ä±/g, 'ı'],
+    [/Ä°/g, 'İ'],
+    [/ÅŸ/g, 'ş'],
+    [/Åž/g, 'Ş'],
+    [/ÄŸ/g, 'ğ'],
+    [/Äž/g, 'Ğ'],
+    [/Ã¼/g, 'ü'],
+    [/Ãœ/g, 'Ü'],
+    [/Ã¶/g, 'ö'],
+    [/Ã–/g, 'Ö'],
+    [/Ã§/g, 'ç'],
+    [/Ã‡/g, 'Ç'],
+    [/âœ“/g, '✓'],
+    [/Â©/g, '©'],
+    [/â„¹ï¸/g, 'Bilgi:'],
+    [/ğŸ“‹/g, ''],
+    [/ğŸ“¦/g, ''],
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    text = text.replace(pattern, replacement);
+  }
+
+  return text;
+};
+
+const escapeHtml = (value: unknown): string =>
+  fixMojibakeText(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 type MarginSummaryBucket = {
   totalRecords: number;
@@ -146,7 +195,7 @@ class EmailService {
       process.env.BREVO_API_KEY || ''
     );
     this.senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@bakircilar.com';
-    this.senderName = process.env.BREVO_SENDER_NAME || 'BakÄ±rcÄ±lar B2B';
+    this.senderName = process.env.BREVO_SENDER_NAME || 'Bakırcılar B2B';
   }
 
   /**
@@ -171,7 +220,7 @@ class EmailService {
       // 2. Her mÃ¼ÅŸteriye mail gÃ¶nder
       for (const customer of customers) {
         try {
-          await this.sendOrderEmail(customer, 'Bekleyen SipariÅŸleriniz');
+          await this.sendOrderEmail(customer, 'Bekleyen Siparişleriniz');
           sentCount++;
 
           // GÃ¶nderildi olarak iÅŸaretle
@@ -192,7 +241,7 @@ class EmailService {
               recipientEmail: customer.customerEmail,
               recipientName: customer.customerName,
               customerCode: customer.customerCode,
-              subject: 'Bekleyen SipariÅŸleriniz',
+              subject: 'Bekleyen Siparişleriniz',
               ordersCount: customer.orders.length,
               totalAmount: customer.totalOrdersAmount,
               success: false,
@@ -234,14 +283,17 @@ class EmailService {
    * Tek bir mÃ¼ÅŸteriye mail gÃ¶nder
    */
   async sendOrderEmail(data: OrderEmailData, subject?: string): Promise<void> {
-    const emailSubject = subject || 'Bekleyen SipariÅŸleriniz';
+    const emailSubject = fixMojibakeText(subject || 'Bekleyen Siparişleriniz');
     const htmlContent = this.generateEmailHTML(data);
 
     const sendSmtpEmail = new brevo.SendSmtpEmail();
-    sendSmtpEmail.sender = { email: this.senderEmail, name: this.senderName };
-    sendSmtpEmail.to = [{ email: data.customerEmail, name: data.customerName }];
+    sendSmtpEmail.sender = { email: this.senderEmail, name: fixMojibakeText(this.senderName) };
+    sendSmtpEmail.to = [{ email: data.customerEmail, name: fixMojibakeText(data.customerName) }];
     sendSmtpEmail.subject = emailSubject;
     sendSmtpEmail.htmlContent = htmlContent;
+    sendSmtpEmail.headers = {
+      'Content-Type': 'text/html; charset=UTF-8',
+    };
 
     const response = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
 
@@ -260,15 +312,29 @@ class EmailService {
     });
   }
 
+  private async enrichOrdersForCustomerEmail<T extends { items: any }>(orders: T[]): Promise<T[]> {
+    if (!orders.length) {
+      return orders;
+    }
+
+    const normalizedOrders = orders.map((order) => ({
+      ...order,
+      items: Array.isArray(order.items) ? order.items : [],
+    }));
+
+    return orderTrackingService.enrichOrdersWithWarehouseAvailability(normalizedOrders as any) as Promise<T[]>;
+  }
+
   /**
    * Mail gÃ¶nderilecek mÃ¼ÅŸterileri ve sipariÅŸlerini getir
    */
   private async getCustomersWithPendingOrders(): Promise<OrderEmailData[]> {
     // 1. Bekleyen sipariÅŸleri Ã§ek
-    const orders = await prisma.pendingMikroOrder.findMany({
+    const rawOrders = await prisma.pendingMikroOrder.findMany({
       where: { emailSent: false },
       orderBy: { orderDate: 'desc' },
     });
+    const orders = await this.enrichOrdersForCustomerEmail(rawOrders as any[]);
 
     // 2. MÃ¼ÅŸteri bazÄ±nda grupla
     const customerMap = new Map<string, OrderEmailData>();
@@ -319,31 +385,99 @@ class EmailService {
    * Email HTML template oluÅŸtur
    */
   private generateEmailHTML(data: OrderEmailData): string {
+    type EmailItem = OrderEmailData['orders'][number]['items'][number];
+    type EmailStockStatus = NonNullable<EmailItem['stockStatus']>;
+
     const formatCurrency = (value: number) => {
       return new Intl.NumberFormat('tr-TR', {
         style: 'currency',
         currency: 'TRY',
         minimumFractionDigits: 2,
-      }).format(value);
+      }).format(Number(value) || 0);
     };
 
-    const formatDate = (date: Date | null) => {
+    const formatDate = (date: Date | string | null | undefined) => {
       if (!date) return '-';
+      const parsedDate = new Date(date);
+      if (Number.isNaN(parsedDate.getTime()) || parsedDate.getFullYear() < 2000) return '-';
+
       return new Intl.DateTimeFormat('tr-TR', {
         day: '2-digit',
         month: 'long',
         year: 'numeric',
-      }).format(new Date(date));
+      }).format(parsedDate);
+    };
+
+    const statusLabelByCode: Record<EmailStockStatus['code'], string> = {
+      full: 'Stok var',
+      partial: 'Kısmi stok mevcut',
+      none: 'Stok yok',
+    };
+
+    const statusColorByCode: Record<EmailStockStatus['code'], EmailStockStatus['color']> = {
+      full: 'green',
+      partial: 'yellow',
+      none: 'red',
+    };
+
+    const statusStyleByCode: Record<EmailStockStatus['code'], string> = {
+      full: 'display: inline-block; min-width: 92px; text-align: center; background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 4px 8px; border-radius: 999px; font-weight: 700; font-size: 12px;',
+      partial: 'display: inline-block; min-width: 120px; text-align: center; background: #fef9c3; color: #854d0e; border: 1px solid #fde68a; padding: 4px 8px; border-radius: 999px; font-weight: 700; font-size: 12px;',
+      none: 'display: inline-block; min-width: 92px; text-align: center; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; padding: 4px 8px; border-radius: 999px; font-weight: 700; font-size: 12px;',
+    };
+
+    const isValidStatusCode = (code: unknown): code is EmailStockStatus['code'] =>
+      code === 'full' || code === 'partial' || code === 'none';
+
+    const resolveItemStockStatus = (item: EmailItem): EmailStockStatus | null => {
+      if (isValidStatusCode(item.stockStatus?.code)) {
+        return {
+          code: item.stockStatus.code,
+          label: statusLabelByCode[item.stockStatus.code],
+          color: statusColorByCode[item.stockStatus.code],
+          totalStock: Number(item.stockStatus.totalStock) || 0,
+        };
+      }
+
+      if (!item.warehouseStocks) {
+        return null;
+      }
+
+      const merkez = Math.max(Number(item.warehouseStocks.merkez) || 0, 0);
+      const topca = Math.max(Number(item.warehouseStocks.topca) || 0, 0);
+      const totalStock = merkez + topca;
+      const remainingQty = Math.max(Number(item.remainingQty) || 0, 0);
+      const code: EmailStockStatus['code'] =
+        remainingQty <= 0 || totalStock >= remainingQty
+          ? 'full'
+          : totalStock > 0
+            ? 'partial'
+            : 'none';
+
+      return {
+        code,
+        label: statusLabelByCode[code],
+        color: statusColorByCode[code],
+        totalStock,
+      };
     };
 
     let ordersHTML = '';
 
     for (const order of data.orders) {
-      let itemsHTML = '';
-      for (const item of order.items) {
-        const isFullyDelivered = item.remainingQty === 0;
+      const orderItems = Array.isArray(order.items) ? order.items : [];
+      const orderHasStockStatus = orderItems.some((item) => Boolean(resolveItemStockStatus(item)));
+      const orderNeedsEtaColumn = orderHasStockStatus
+        && orderItems.some((item) => {
+          const status = resolveItemStockStatus(item);
+          return Boolean(status && status.code !== 'full');
+        });
 
-        // TamamÄ± teslim edilmiÅŸ Ã¼rÃ¼nler iÃ§in farklÄ± stil
+      let itemsHTML = '';
+      for (const item of orderItems) {
+        const isFullyDelivered = Number(item.remainingQty) === 0;
+        const status = resolveItemStockStatus(item);
+
         const rowStyle = isFullyDelivered
           ? 'padding: 8px; border-bottom: 1px solid #eee; background-color: #f3f4f6; opacity: 0.7;'
           : 'padding: 8px; border-bottom: 1px solid #eee;';
@@ -353,41 +487,64 @@ class EmailService {
           : '';
 
         const deliveryBadge = isFullyDelivered
-          ? '<span style="display: inline-block; background-color: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">âœ“ TESLÄ°M EDÄ°LDÄ°</span>'
+          ? '<span style="display: inline-block; background-color: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">TESLİM EDİLDİ</span>'
+          : '';
+
+        const stockStatusCell = orderHasStockStatus
+          ? `
+            <td style="${rowStyle} text-align: center; white-space: nowrap;">
+              ${status
+                ? `<span style="${statusStyleByCode[status.code]}">${escapeHtml(status.label)}</span>`
+                : '-'
+              }
+            </td>
+          `
+          : '';
+
+        const etaCell = orderNeedsEtaColumn
+          ? `
+            <td style="${rowStyle} text-align: center; white-space: nowrap;">
+              ${status && status.code !== 'full' ? formatDate(item.estimatedStockEntryDate) : '-'}
+            </td>
+          `
           : '';
 
         itemsHTML += `
           <tr>
             <td style="${rowStyle}">
-              <span style="${productNameStyle}">${item.productName}</span>${deliveryBadge}
+              <span style="${productNameStyle}">${escapeHtml(item.productName)}</span>${deliveryBadge}
             </td>
-            <td style="${rowStyle} text-align: center;">
+            <td style="${rowStyle} text-align: center; white-space: nowrap;">
               ${isFullyDelivered
-                ? `<span style="color: #6b7280;">${item.quantity} ${item.unit}</span>`
-                : `${item.remainingQty} ${item.unit}`
+                ? `<span style="color: #6b7280;">${Number(item.quantity) || 0} ${escapeHtml(item.unit)}</span>`
+                : `${Number(item.remainingQty) || 0} ${escapeHtml(item.unit)}`
               }
             </td>
-            <td style="${rowStyle} text-align: right;">${formatCurrency(item.unitPrice)}</td>
-            <td style="${rowStyle} text-align: right;">${formatCurrency(item.lineTotal)}</td>
+            <td style="${rowStyle} text-align: right; white-space: nowrap;">${formatCurrency(item.unitPrice)}</td>
+            <td style="${rowStyle} text-align: right; white-space: nowrap;">${formatCurrency(item.lineTotal)}</td>
+            ${stockStatusCell}
+            ${etaCell}
           </tr>
         `;
       }
 
       ordersHTML += `
         <div style="background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          <h3 style="color: #2563eb; margin-top: 0;">ğŸ“¦ SipariÅŸ No: ${order.mikroOrderNumber}</h3>
+          <h3 style="color: #2563eb; margin-top: 0;">Sipariş No: ${escapeHtml(order.mikroOrderNumber)}</h3>
           <p style="margin: 8px 0; color: #666;">
-            <strong>SipariÅŸ Tarihi:</strong> ${formatDate(order.orderDate)}<br>
+            <strong>Sipariş Tarihi:</strong> ${formatDate(order.orderDate)}<br>
             <strong>Planlanan Teslimat:</strong> ${formatDate(order.deliveryDate)}
           </p>
 
           <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
             <thead>
               <tr style="background: #f3f4f6;">
-                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">ÃœrÃ¼n</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Ürün</th>
                 <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Kalan Miktar</th>
                 <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Birim Fiyat</th>
                 <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Kalan Tutar</th>
+                ${orderHasStockStatus ? '<th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Stok Durumu</th>' : ''}
+                ${orderNeedsEtaColumn ? '<th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Tahmini Stok Giriş Tarihi</th>' : ''}
               </tr>
             </thead>
             <tbody>
@@ -404,45 +561,48 @@ class EmailService {
       `;
     }
 
+    const frontendUrl = escapeHtml(process.env.FRONTEND_URL || 'https://www.bakircilarkampanya.com');
+
     return `
       <!DOCTYPE html>
       <html>
       <head>
-        <meta charset="utf-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
       </head>
       <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
-        <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+        <div style="max-width: 960px; margin: 0 auto; padding: 20px;">
           <div style="background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; padding: 30px; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0; font-size: 28px;">ğŸ“‹ BakÄ±rcÄ±lar Ambalaj SipariÅŸ Bakiyesi</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">SayÄ±n ${data.customerName},</p>
+            <h1 style="margin: 0; font-size: 28px;">Bakırcılar Ambalaj Sipariş Bakiyesi</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">Sayın ${escapeHtml(data.customerName)},</p>
           </div>
 
           <div style="background: #f9fafb; padding: 20px;">
             <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-              AÅŸaÄŸÄ±da bekleyen sipariÅŸ bakiyelerinizi bulabilirsiniz:
+              Aşağıda bekleyen sipariş bakiyelerinizi bulabilirsiniz:
             </p>
 
             ${ordersHTML}
 
             <div style="background: white; border-radius: 8px; padding: 20px; margin-top: 20px; text-align: center; border: 2px dashed #2563eb;">
-              <p style="margin: 0; font-size: 20px; color: #2563eb;"><strong>TOPLAM BAKIYE</strong></p>
+              <p style="margin: 0; font-size: 20px; color: #2563eb;"><strong>TOPLAM BAKİYE</strong></p>
               <p style="margin: 10px 0 0 0; font-size: 32px; color: #1e40af; font-weight: bold;">${formatCurrency(data.totalOrdersAmount)}</p>
             </div>
 
             <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin-top: 20px; border-radius: 4px;">
               <p style="margin: 0; color: #92400e; font-size: 14px;">
-                â„¹ï¸ SipariÅŸ detaylarÄ± ve gÃ¼ncel durumunuz iÃ§in <a href="${process.env.FRONTEND_URL}" style="color: #2563eb; text-decoration: none;"><strong>B2B PortalÄ±mÄ±zÄ±</strong></a> ziyaret edebilirsiniz.
+                Bilgi: Sipariş detayları ve güncel durumunuz için <a href="${frontendUrl}" style="color: #2563eb; text-decoration: none;"><strong>B2B Portalımızı</strong></a> ziyaret edebilirsiniz.
               </p>
             </div>
           </div>
 
           <div style="background: #374151; color: white; padding: 20px; border-radius: 0 0 8px 8px; text-align: center;">
             <p style="margin: 0; font-size: 14px; opacity: 0.8;">
-              SorularÄ±nÄ±z iÃ§in: <a href="mailto:info@bakircilarambalaj.com" style="color: white; text-decoration: none;">info@bakircilarambalaj.com</a>
+              Sorularınız için: <a href="mailto:info@bakircilarambalaj.com" style="color: white; text-decoration: none;">info@bakircilarambalaj.com</a>
             </p>
             <p style="margin: 10px 0 0 0; font-size: 12px; opacity: 0.6;">
-              Â© ${new Date().getFullYear()} BakÄ±rcÄ±lar Ambalaj. TÃ¼m haklarÄ± saklÄ±dÄ±r.
+              © ${new Date().getFullYear()} Bakırcılar Ambalaj. Tüm hakları saklıdır.
             </p>
           </div>
         </div>
@@ -467,13 +627,14 @@ class EmailService {
       console.log(`Mail gonderimi basladi: ${customerCode}${emailOverride ? ` (override: ${emailOverride})` : ''}`);
 
       const settings = await prisma.orderTrackingSettings.findFirst();
-      const customerSubject = settings?.customerEmailSubject || 'Bekleyen Siparisleriniz';
-      const supplierSubject = settings?.supplierEmailSubject || 'Bekleyen Tedarikci Siparisleri';
+      const customerSubject = fixMojibakeText(settings?.customerEmailSubject || 'Bekleyen Siparişleriniz');
+      const supplierSubject = fixMojibakeText(settings?.supplierEmailSubject || 'Bekleyen Tedarikçi Siparişleri');
 
-      const orders = await prisma.pendingMikroOrder.findMany({
+      const rawOrders = await prisma.pendingMikroOrder.findMany({
         where: { customerCode },
         orderBy: { orderDate: 'desc' },
       });
+      const orders = await this.enrichOrdersForCustomerEmail(rawOrders as any[]);
 
       let customerName = orders[0]?.customerName || customerCode;
       let sourceEmail = orders[0]?.customerEmail || '';
@@ -603,7 +764,7 @@ class EmailService {
   async sendTestEmail(toEmail: string): Promise<void> {
     const testData: OrderEmailData = {
       customerCode: 'TEST001',
-      customerName: 'Test MÃ¼ÅŸteri',
+      customerName: 'Test Müşteri',
       customerEmail: toEmail,
       orders: [
         {
@@ -612,7 +773,7 @@ class EmailService {
           deliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           items: [
             {
-              productName: 'Test ÃœrÃ¼n 1 (KÄ±smi Teslim)',
+              productName: 'Test Ürün 1 (Kısmi Teslim)',
               unit: 'ADET',
               quantity: 20,
               deliveredQty: 10,
@@ -621,7 +782,7 @@ class EmailService {
               lineTotal: 1000,
             },
             {
-              productName: 'Test ÃœrÃ¼n 2 (Bekliyor)',
+              productName: 'Test Ürün 2 (Bekliyor)',
               unit: 'KG',
               quantity: 5,
               deliveredQty: 0,
@@ -630,7 +791,7 @@ class EmailService {
               lineTotal: 1000,
             },
             {
-              productName: 'Test ÃœrÃ¼n 3 (Teslim Edildi)',
+              productName: 'Test Ürün 3 (Teslim Edildi)',
               unit: 'ADET',
               quantity: 15,
               deliveredQty: 15,
@@ -664,10 +825,10 @@ class EmailService {
 
       // AyarlarÄ± al
       const settings = await prisma.orderTrackingSettings.findFirst();
-      const emailSubject = settings?.customerEmailSubject || 'Bekleyen SipariÅŸleriniz';
+      const emailSubject = fixMojibakeText(settings?.customerEmailSubject || 'Bekleyen Siparişleriniz');
 
       // 1. MÃ¼ÅŸterilerin bekleyen sipariÅŸlerini al (SATICI olmayanlar)
-      const orders = await prisma.pendingMikroOrder.findMany({
+      const rawOrders = await prisma.pendingMikroOrder.findMany({
         where: {
           emailSent: false,
           OR: [
@@ -683,6 +844,7 @@ class EmailService {
         },
         orderBy: { orderDate: 'desc' },
       });
+      const orders = await this.enrichOrdersForCustomerEmail(rawOrders as any[]);
 
       console.log(`âœ… ${orders.length} mÃ¼ÅŸteri sipariÅŸi bulundu`);
 
@@ -766,7 +928,7 @@ class EmailService {
       console.log('Tedarikcilere mail gonderimi basladi...');
 
       const settings = await prisma.orderTrackingSettings.findFirst();
-      const emailSubject = settings?.supplierEmailSubject || 'Bekleyen Tedarikci Siparisleri';
+      const emailSubject = fixMojibakeText(settings?.supplierEmailSubject || 'Bekleyen Tedarikçi Siparişleri');
       const supplierSummaries = await orderTrackingService.getSupplierSummary();
 
       console.log(`${supplierSummaries.length} tedarikci kaydi bulundu`);
