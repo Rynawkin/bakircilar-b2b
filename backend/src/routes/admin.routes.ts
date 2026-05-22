@@ -565,9 +565,9 @@ router.get('/reports/ucarer-depo/operation-logs', requirePermission('reports:uca
 router.get('/reports/ucarer-incoming-order-details', requirePermission('reports:ucarer-depo'), adminController.getUcarerIncomingOrderDetails);
 router.get('/reports/ucarer-supplier-recent-series', requirePermission('reports:ucarer-depo'), adminController.getUcarerSupplierRecentSeries);
 router.post('/reports/ucarer-depo/order-product-change-requests', requirePermission('reports:ucarer-depo'), adminController.createUcarerOrderProductChangeRequests);
-router.get('/order-product-change-requests', requireAnyPermission(['dashboard:orders', 'reports:ucarer-depo']), adminController.getOrderProductChangeRequests);
-router.post('/order-product-change-requests/:id/approve', requireAnyPermission(['dashboard:orders', 'reports:ucarer-depo']), adminController.approveOrderProductChangeRequest);
-router.post('/order-product-change-requests/:id/reject', requireAnyPermission(['dashboard:orders', 'reports:ucarer-depo']), adminController.rejectOrderProductChangeRequest);
+router.get('/order-product-change-requests', requireAnyPermission(['dashboard:orders', 'admin:orders', 'admin:quotes', 'admin:field-sales', 'reports:ucarer-depo']), adminController.getOrderProductChangeRequests);
+router.post('/order-product-change-requests/:id/approve', requireAnyPermission(['dashboard:orders', 'admin:orders', 'admin:quotes', 'admin:field-sales', 'reports:ucarer-depo']), adminController.approveOrderProductChangeRequest);
+router.post('/order-product-change-requests/:id/reject', requireAnyPermission(['dashboard:orders', 'admin:orders', 'admin:quotes', 'admin:field-sales', 'reports:ucarer-depo']), adminController.rejectOrderProductChangeRequest);
 router.get('/reports/ucarer-product-sales-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductSalesHistory);
 router.post('/reports/ucarer-product-sales-history/mark-toplu', requirePermission('reports:ucarer-depo'), adminController.markUcarerSalesLineAsToplu);
 router.get('/reports/ucarer-product-purchase-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductPurchaseHistory);

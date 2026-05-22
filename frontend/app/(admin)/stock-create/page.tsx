@@ -61,6 +61,8 @@ type StockForm = {
   packageName: string;
   shelfCode: string;
   currentCost: string;
+  costT: string;
+  costP: string;
   mainUnit: string;
   mainUnitWeightKg: string;
   mainUnitWidthCm: string;
@@ -132,6 +134,8 @@ const defaultForm = (templateCode = 'B108423'): StockForm => ({
   packageName: '',
   shelfCode: '',
   currentCost: '',
+  costT: '',
+  costP: '',
   mainUnit: '',
   mainUnitWeightKg: '',
   mainUnitWidthCm: '',
@@ -144,6 +148,20 @@ const defaultForm = (templateCode = 'B108423'): StockForm => ({
 });
 
 const normalizeNumberText = (value: unknown) => String(value ?? '').trim().replace('.', ',');
+const parseNumberText = (value: unknown) => {
+  const parsed = Number(String(value ?? '').trim().replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const formatNumberText = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return String(Math.round(value * 10000) / 10000).replace('.', ',');
+};
+const costPFromCostT = (costT: string, vatRatePercent: string) => {
+  const parsedCostT = parseNumberText(costT);
+  const parsedVat = parseNumberText(vatRatePercent || '20');
+  if (parsedCostT <= 0) return '';
+  return formatNumberText(parsedCostT * (1 + parsedVat / 200));
+};
 
 const statusStyle = {
   valid: 'border-emerald-200 bg-emerald-50 text-emerald-800',
@@ -206,7 +224,9 @@ function mapExcelRow(row: Record<string, any>, index: number, templateCode: stri
     packageCode: get('Ambalaj Kodu', 'Ambalaj'),
     packageName: get('Ambalaj Adi', 'Yeni Ambalaj Adi'),
     shelfCode: get('Raf Kodu', 'Reyon Kodu'),
-    currentCost: normalizeNumberText(get('Guncel Maliyet', 'Güncel Maliyet')),
+    costT: normalizeNumberText(get('Maliyet T', 'Toptan Maliyet', 'Guncel Maliyet T', 'Güncel Maliyet T', 'Guncel Maliyet', 'Güncel Maliyet')),
+    costP: normalizeNumberText(get('Maliyet P', 'Perakende Maliyet', 'Guncel Maliyet P', 'Güncel Maliyet P')),
+    currentCost: normalizeNumberText(get('Maliyet P', 'Perakende Maliyet', 'Guncel Maliyet P', 'Güncel Maliyet P', 'Guncel Maliyet', 'Güncel Maliyet')),
     mainUnit: get('Ana Birim', 'Birim 1', '1. Birim') || 'ADET',
     mainUnitWeightKg: normalizeNumberText(get('Ana Birim Kg', '1. Birim Kg', 'Birim 1 Kg')),
     mainUnitWidthCm: normalizeNumberText(get('Ana Birim En cm', '1. Birim En cm', 'Birim 1 En cm')),
@@ -485,7 +505,9 @@ export default function StockCreatePage() {
     stockCode: raw?.stockCode ? String(raw.stockCode) : undefined,
     templateCode: String(raw?.templateCode || raw?.stockCode || defaultTemplateCode),
     vatRatePercent: String(raw?.vatRatePercent || '20'),
-    currentCost: String(raw?.currentCost || ''),
+    costT: String(raw?.costT || raw?.currentCost || ''),
+    costP: String(raw?.costP || raw?.currentCost || ''),
+    currentCost: String(raw?.costP || raw?.currentCost || ''),
     mainUnitWeightKg: String(raw?.mainUnitWeightKg || ''),
     mainUnitWidthCm: String(raw?.mainUnitWidthCm || ''),
     mainUnitLengthCm: String(raw?.mainUnitLengthCm || ''),
@@ -539,6 +561,23 @@ export default function StockCreatePage() {
   const updateForm = (patch: Partial<StockForm>) => {
     setForm((prev) => ({ ...prev, ...patch }));
     setPreviewRows([]);
+  };
+
+  const updateVatRatePercent = (vatRatePercent: string) => {
+    setForm((prev) => {
+      const costP = prev.costT ? costPFromCostT(prev.costT, vatRatePercent) : prev.costP;
+      return { ...prev, vatRatePercent, costP, currentCost: costP || prev.currentCost };
+    });
+    setPreviewRows([]);
+  };
+
+  const updateCostT = (costT: string) => {
+    const costP = costPFromCostT(costT, form.vatRatePercent);
+    updateForm({ costT, costP, currentCost: costP });
+  };
+
+  const updateCostP = (costP: string) => {
+    updateForm({ costP, currentCost: costP });
   };
 
   const updateMargin = (index: number, value: string) => {
@@ -699,7 +738,8 @@ export default function StockCreatePage() {
         'Marj 3': 1.3,
         'Marj 4': 1.2,
         'Marj 5': 1.15,
-        'Guncel Maliyet': '',
+        'Maliyet T': '',
+        'Maliyet P': '',
         'Raf Kodu': '',
         'Barkod': '',
         'Not': '',
@@ -915,7 +955,7 @@ export default function StockCreatePage() {
                   <div>
                     <label className={labelClass}>KDV % *</label>
                     <div className="relative">
-                      <select value={form.vatRatePercent} onChange={(event) => updateForm({ vatRatePercent: event.target.value })} className={`${textInputClass} ${templateStock?.vatRatePercent ? 'pr-11' : ''}`}>
+                      <select value={form.vatRatePercent} onChange={(event) => updateVatRatePercent(event.target.value)} className={`${textInputClass} ${templateStock?.vatRatePercent ? 'pr-11' : ''}`}>
                         <option value="20">%20</option>
                         <option value="10">%10</option>
                         <option value="1">%1</option>
@@ -983,12 +1023,24 @@ export default function StockCreatePage() {
                     onCopy={() => copyFromTemplate({ mainUnit: templateStock?.mainUnit || '' })}
                   />
                   <CopyableInput
-                    label="Guncel Maliyet"
-                    value={form.currentCost}
-                    onChange={(currentCost) => updateForm({ currentCost })}
-                    placeholder="Opsiyonel"
-                    copyValue={templateStock?.currentCost}
-                    onCopy={() => copyFromTemplate({ currentCost: templateStock?.currentCost || '' })}
+                    label="Maliyet T (Toptan)"
+                    value={form.costT}
+                    onChange={updateCostT}
+                    placeholder="KDV haric"
+                    copyValue={templateStock?.costT}
+                    onCopy={() => {
+                      const costT = templateStock?.costT || '';
+                      const costP = costPFromCostT(costT, form.vatRatePercent) || templateStock?.costP || '';
+                      copyFromTemplate({ costT, costP, currentCost: costP });
+                    }}
+                  />
+                  <CopyableInput
+                    label="Maliyet P (Perakende)"
+                    value={form.costP}
+                    onChange={updateCostP}
+                    placeholder="Yarim KDV otomatik"
+                    copyValue={templateStock?.costP}
+                    onCopy={() => copyFromTemplate({ costP: templateStock?.costP || '', currentCost: templateStock?.costP || '' })}
                   />
                   <CopyableInput
                     label="Raf / Reyon Kodu"
@@ -1311,7 +1363,7 @@ export default function StockCreatePage() {
             <Card className="rounded-[2rem] border-0 bg-slate-950 p-5 text-white shadow-xl">
               <h2 className="mb-3 text-lg font-black">Excel Kolonlari</h2>
               <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
-                {['Stok Adi', 'Ana Saglayici Kodu', 'Marka Kodu/Adi', 'Kategori Kodu', 'Ambalaj Kodu/Adi (opsiyonel)', 'Ana Birim', 'Ana Birim Olculeri', 'KDV', 'Marj 1-5', '2. Birim', '2. Katsayi', 'Guncel Maliyet', 'Raf Kodu'].map((item) => (
+                {['Stok Adi', 'Ana Saglayici Kodu', 'Marka Kodu/Adi', 'Kategori Kodu', 'Ambalaj Kodu/Adi (opsiyonel)', 'Ana Birim', 'Ana Birim Olculeri', 'KDV', 'Marj 1-5', '2. Birim', '2. Katsayi', 'Maliyet T/P', 'Raf Kodu'].map((item) => (
                   <div key={item} className="rounded-xl bg-white/10 px-3 py-2">{item}</div>
                 ))}
               </div>

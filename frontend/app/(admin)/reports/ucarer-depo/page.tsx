@@ -2138,7 +2138,7 @@ export default function UcarerDepotReportPage() {
       pendingSupplierRows.forEach((row) => {
         const current = prev[row.supplierCode];
         next[row.supplierCode] = current || {
-          series: 'H',
+          series: '',
           applyVAT: true,
           deliveryType: 'D',
           deliveryDate: defaultDate,
@@ -2225,7 +2225,7 @@ export default function UcarerDepotReportPage() {
       const supplierCode = String(row.supplierCodeOverride || '').trim().toUpperCase();
       if (!supplierCode || defaults[supplierCode]) return;
       defaults[supplierCode] = {
-        series: 'H',
+        series: '',
         applyVAT: true,
         deliveryType: 'D',
         deliveryDate: defaultDate,
@@ -2333,7 +2333,7 @@ export default function UcarerDepotReportPage() {
         supplierConfigs: Object.fromEntries(
           pendingSupplierRows.map((row) => {
             const cfg = supplierOrderConfigs[row.supplierCode] || {
-              series: 'H',
+              series: '',
               applyVAT: true,
               deliveryType: 'D',
               deliveryDate: '',
@@ -4254,7 +4254,7 @@ export default function UcarerDepotReportPage() {
                   <tbody>
                     {pendingSupplierRows.map((row) => {
                       const cfg = supplierOrderConfigs[row.supplierCode] || {
-                        series: 'H',
+                        series: '',
                         applyVAT: true,
                         deliveryType: 'D',
                         deliveryDate: '',

@@ -231,9 +231,13 @@ class OrderProductChangeRequestService {
 
   private async resolveAssignee(input: { orderNumber: string; productCode: string; customerCode?: string; sectorCode?: string | null }) {
     const localOrder = await this.findLocalOrder(input.orderNumber, input.productCode);
-    if (localOrder?.requestedBy && STAFF_ROLES.has(String(localOrder.requestedBy.role)) && localOrder.requestedBy.active) {
+    if (localOrder?.requestedBy?.role === 'SALES_REP' && localOrder.requestedBy.active) {
       return { assignedToId: localOrder.requestedBy.id, localOrder };
     }
+    const fallbackStaffId =
+      localOrder?.requestedBy && STAFF_ROLES.has(String(localOrder.requestedBy.role)) && localOrder.requestedBy.active
+        ? localOrder.requestedBy.id
+        : null;
 
     const customer =
       localOrder?.user ||
@@ -256,7 +260,7 @@ class OrderProductChangeRequestService {
       if (salesRep?.id) return { assignedToId: salesRep.id, localOrder };
     }
 
-    return { assignedToId: null as string | null, localOrder };
+    return { assignedToId: fallbackStaffId, localOrder };
   }
 
   private async adminRecipients() {
