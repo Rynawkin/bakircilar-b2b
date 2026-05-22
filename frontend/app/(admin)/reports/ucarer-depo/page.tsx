@@ -527,19 +527,21 @@ export default function UcarerDepotReportPage() {
     return families.map((family) => {
       let rawNeed = 0;
       const visibleItems = getVisibleFamilyItems(family);
+      const familyCoverage = getFamilyCoverage(family);
+      const familyCovered = isFamilyCoveredByMinimum(familyCoverage);
       const itemSignals: Array<{ code: string; raw: number; orderDriven: number; incomingOrders: number }> = [];
       visibleItems.forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const row = rowByProductCode.get(code);
         if (!row) return;
-        const raw = getRawSuggestedQty(row);
+        const raw = familyCovered ? 0 : getRawSuggestedQty(row);
         rawNeed += raw;
         const orderDriven = thirdIssueColumn ? Math.max(0, toNumberFlexible(row?.[thirdIssueColumn])) : 0;
         const incomingOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row?.[incomingOrderColumn])) : 0;
         itemSignals.push({ code, raw, orderDriven, incomingOrders });
       });
       const redirectSuggestions: Array<{ type: 'ORDER' | 'DEPOT'; text: string }> = [];
-      if (Math.trunc(rawNeed) < 0) {
+      if (!familyCovered && Math.trunc(rawNeed) < 0) {
         const sources = itemSignals
           .filter((item) => item.raw > 0)
           .sort((a, b) => (b.orderDriven - a.orderDriven) || (b.raw - a.raw))
@@ -576,6 +578,9 @@ export default function UcarerDepotReportPage() {
         itemCount: visibleItems.length,
         suggestedRaw: Math.trunc(rawNeed),
         suggested: Math.max(0, Math.trunc(rawNeed)),
+        coveredByFamilyMinimum: familyCovered,
+        familyMinimum: familyCoverage.minimum,
+        familyEffectiveQuantity: familyCoverage.effective,
         redirectSuggestions,
       };
     });
@@ -594,6 +599,24 @@ export default function UcarerDepotReportPage() {
   }
   function getSuggestedQty(row: Record<string, any>): number {
     return Math.max(0, getRawSuggestedQty(row));
+  }
+  function getFamilyCoverage(family: ProductFamily): { minimum: number; effective: number } {
+    let minimum = 0;
+    let effective = 0;
+    getVisibleFamilyItems(family).forEach((item) => {
+      const code = String(item.productCode || '').trim().toUpperCase();
+      const row = rowByProductCode.get(code);
+      if (!row) return;
+      const minQty = minQtyColumn ? Math.max(0, toNumberFlexible(row[minQtyColumn])) : 0;
+      const realQty = realQtyColumn ? toNumberFlexible(row[realQtyColumn]) : 0;
+      const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
+      minimum += minQty;
+      effective += realQty + incomingDsv;
+    });
+    return { minimum, effective };
+  }
+  function isFamilyCoveredByMinimum(coverage: { minimum: number; effective: number }): boolean {
+    return coverage.minimum > 0 && coverage.effective >= coverage.minimum;
   }
   const totalSuggestedQty = useMemo(
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
@@ -1285,6 +1308,8 @@ export default function UcarerDepotReportPage() {
   };
 
   const getFamilyNeed = (family: ProductFamily): number => {
+    const coverage = getFamilyCoverage(family);
+    if (isFamilyCoveredByMinimum(coverage)) return 0;
     let total = 0;
     getVisibleFamilyItems(family).forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
@@ -1682,10 +1707,11 @@ export default function UcarerDepotReportPage() {
       supplierName: string;
       colorRank: number;
     }>;
+    const familyCovered = Boolean(activeFamilySuggestion?.coveredByFamilyMinimum);
     const rows = activeFamilyItems.map((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
-      const suggested = row ? getRawSuggestedQty(row) : 0;
+      const suggested = familyCovered ? 0 : row ? getRawSuggestedQty(row) : 0;
       const allocation = manualAllocations[activeFamily.id]?.[code] ?? 0;
       const diff = allocation - suggested;
       return {
@@ -1729,10 +1755,12 @@ export default function UcarerDepotReportPage() {
     });
   }, [
     activeFamily,
+    activeFamilySuggestion,
     activeFamilyItems,
     currentCostByCode,
     depotQtyColumn,
     familySort,
+    incomingDsvColumn,
     incomingOrderColumn,
     manualAllocations,
     maxQtyColumn,
@@ -1859,14 +1887,14 @@ export default function UcarerDepotReportPage() {
   const suggestedFamilies = useMemo(
     () =>
       familySuggestionsFiltered.filter(
-        (family) => !(family.suggestedRaw < 0 && (!family.redirectSuggestions || family.redirectSuggestions.length === 0))
+        (family) => family.suggested > 0 || Boolean(family.redirectSuggestions?.length)
       ),
     [familySuggestionsFiltered]
   );
   const unsuggestedFamilies = useMemo(
     () =>
       familySuggestionsFiltered.filter(
-        (family) => family.suggestedRaw < 0 && (!family.redirectSuggestions || family.redirectSuggestions.length === 0)
+        (family) => family.suggested <= 0 && !family.redirectSuggestions?.length
       ),
     [familySuggestionsFiltered]
   );
@@ -1885,11 +1913,12 @@ export default function UcarerDepotReportPage() {
   );
   const fillActiveBySuggestions = () => {
     if (!activeFamily) return;
+    const familyCovered = Boolean(activeFamilySuggestion?.coveredByFamilyMinimum);
     const next: Record<string, number> = {};
     getVisibleFamilyItems(activeFamily).forEach((item) => {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
-      next[code] = row ? getSuggestedQty(row) : 0;
+      next[code] = familyCovered ? 0 : row ? getSuggestedQty(row) : 0;
     });
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
   };
@@ -1950,6 +1979,7 @@ export default function UcarerDepotReportPage() {
   const buildOrderAllocations = (): SupplierOrderAllocation[] => {
     const allocations: SupplierOrderAllocation[] = [];
     families.forEach((family) => {
+      if (isFamilyCoveredByMinimum(getFamilyCoverage(family))) return;
       const familyAllocation = manualAllocations[family.id] || {};
       getVisibleFamilyItems(family).forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
@@ -2143,6 +2173,7 @@ export default function UcarerDepotReportPage() {
     const transferAllocations: Array<{ productCode: string; quantity: number }> = [];
     const selectedSet = new Set(selectedCodes);
     families.forEach((family) => {
+      if (isFamilyCoveredByMinimum(getFamilyCoverage(family))) return;
       const familyAllocation = manualAllocations[family.id] || {};
       getVisibleFamilyItems(family).forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
