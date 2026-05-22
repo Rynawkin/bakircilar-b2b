@@ -15,6 +15,7 @@ import orderService from '../services/order.service';
 import pricingService from '../services/pricing.service';
 import mikroService from '../services/mikroFactory.service';
 import reportsService from '../services/reports.service';
+import orderProductChangeRequestService from '../services/order-product-change-request.service';
 import customer360Service from '../services/customer360.service';
 import fieldSalesService from '../services/field-sales.service';
 import customerRecoveryService from '../services/customer-recovery.service';
@@ -4529,6 +4530,101 @@ export class AdminController {
     try {
       const productCode = String(req.query.productCode || '').trim();
       const data = await reportsService.getUcarerIncomingOrderDetails(productCode);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/ucarer-supplier-recent-series
+   */
+  async getUcarerSupplierRecentSeries(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rawCodes = Array.isArray(req.query.codes)
+        ? req.query.codes.join(',')
+        : String(req.query.codes || '');
+      const supplierCodes = rawCodes
+        .split(',')
+        .map((code) => String(code || '').trim())
+        .filter(Boolean);
+      const data = await reportsService.getUcarerRecentSupplierOrderSeries(supplierCodes);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/reports/ucarer-depo/order-product-change-requests
+   */
+  async createUcarerOrderProductChangeRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await orderProductChangeRequestService.createFromUcarerRedirect({
+        sourceProductCode: String(req.body?.sourceProductCode || ''),
+        targetProductCode: String(req.body?.targetProductCode || ''),
+        depot: req.body?.depot ? String(req.body.depot) : null,
+        familyId: req.body?.familyId ? String(req.body.familyId) : null,
+        familyCode: req.body?.familyCode ? String(req.body.familyCode) : null,
+        familyName: req.body?.familyName ? String(req.body.familyName) : null,
+        note: req.body?.note ? String(req.body.note) : null,
+        requestedById: req.user?.userId || null,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/order-product-change-requests
+   */
+  async getOrderProductChangeRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await orderProductChangeRequestService.list(
+        {
+          userId: req.user?.userId || null,
+          role: req.user?.role || null,
+        },
+        {
+          status: req.query.status ? String(req.query.status) : 'PENDING',
+          limit: req.query.limit ? Number(req.query.limit) : undefined,
+        }
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/order-product-change-requests/:id/approve
+   */
+  async approveOrderProductChangeRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await orderProductChangeRequestService.approve(String(req.params.id || ''), {
+        userId: req.user?.userId || null,
+        role: req.user?.role || null,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/admin/order-product-change-requests/:id/reject
+   */
+  async rejectOrderProductChangeRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await orderProductChangeRequestService.reject(
+        String(req.params.id || ''),
+        {
+          userId: req.user?.userId || null,
+          role: req.user?.role || null,
+        },
+        req.body?.reason ? String(req.body.reason) : null
+      );
       res.json({ success: true, data });
     } catch (error) {
       next(error);

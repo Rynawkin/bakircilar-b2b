@@ -111,6 +111,15 @@ interface SupplierOrderAllocation {
   persistSupplierOverride?: boolean;
 }
 
+interface FamilyRedirectSuggestion {
+  type: 'ORDER' | 'DEPOT';
+  text: string;
+  sourceCode: string;
+  sourceName: string;
+  targetCode: string;
+  targetName: string;
+}
+
 interface CreatedSupplierOrderSummary {
   supplierCode: string;
   supplierName: string | null;
@@ -345,7 +354,9 @@ export default function UcarerDepotReportPage() {
   const [showUnsuggestedFamilies, setShowUnsuggestedFamilies] = useState(false);
   const [expandedSupplierRows, setExpandedSupplierRows] = useState<Record<string, boolean>>({});
   const [supplierOrderConfigs, setSupplierOrderConfigs] = useState<Record<string, SupplierOrderConfig>>({});
+  const [supplierRecentSeriesByCode, setSupplierRecentSeriesByCode] = useState<Record<string, Array<{ series: string; lastOrderNumber: string; lastOrderDate: string | null }>>>({});
   const [pendingAllocations, setPendingAllocations] = useState<SupplierOrderAllocation[]>([]);
+  const [sendingRedirectKey, setSendingRedirectKey] = useState<string>('');
   const [activeFamilyId, setActiveFamilyId] = useState<string>('');
   const [orderPanelTab, setOrderPanelTab] = useState<'work' | 'history' | 'operationHistory'>('work');
   const [panelHighlight, setPanelHighlight] = useState(false);
@@ -540,7 +551,7 @@ export default function UcarerDepotReportPage() {
         const incomingOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row?.[incomingOrderColumn])) : 0;
         itemSignals.push({ code, raw, orderDriven, incomingOrders });
       });
-      const redirectSuggestions: Array<{ type: 'ORDER' | 'DEPOT'; text: string }> = [];
+      const redirectSuggestions: FamilyRedirectSuggestion[] = [];
       if (!familyCovered && Math.trunc(rawNeed) < 0) {
         const sources = itemSignals
           .filter((item) => item.raw > 0)
@@ -558,11 +569,19 @@ export default function UcarerDepotReportPage() {
             redirectSuggestions.push({
               type: 'ORDER',
               text: `Siparis yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`,
+              sourceCode: source.code,
+              sourceName,
+              targetCode: target.code,
+              targetName,
             });
           } else {
             redirectSuggestions.push({
               type: 'DEPOT',
               text: `Depo yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`,
+              sourceCode: source.code,
+              sourceName,
+              targetCode: target.code,
+              targetName,
             });
           }
         });
@@ -599,6 +618,9 @@ export default function UcarerDepotReportPage() {
   }
   function getSuggestedQty(row: Record<string, any>): number {
     return Math.max(0, getRawSuggestedQty(row));
+  }
+  function isPriceListUpdateChecked(code: string): boolean {
+    return updatePriceListsByCode[String(code || '').trim().toUpperCase()] !== false;
   }
   function getFamilyCoverage(family: ProductFamily): { minimum: number; effective: number } {
     let minimum = 0;
@@ -1434,7 +1456,7 @@ export default function UcarerDepotReportPage() {
         productCode: code,
         costP: parsedCostP,
         costT: parsedCostT,
-        updatePriceLists: Boolean(updatePriceListsByCode[code]),
+        updatePriceLists: isPriceListUpdateChecked(code),
       });
       const newCostP = Number(result.data?.costP || parsedCostP);
       const newCostT = Number(result.data?.costT || parsedCostT);
@@ -1443,7 +1465,7 @@ export default function UcarerDepotReportPage() {
       setCostPInputByCode((prev) => ({ ...prev, [code]: String(newCostP) }));
       setCostTInputByCode((prev) => ({ ...prev, [code]: String(newCostT) }));
       const missing = result.data?.missingLists || [];
-      if (Boolean(updatePriceListsByCode[code])) {
+      if (isPriceListUpdateChecked(code)) {
         if (missing.length > 0) {
           toast.success(`Maliyet guncellendi. Eksik liste satiri: ${missing.join(', ')}`);
         } else {
@@ -1887,14 +1909,14 @@ export default function UcarerDepotReportPage() {
   const suggestedFamilies = useMemo(
     () =>
       familySuggestionsFiltered.filter(
-        (family) => family.suggested > 0 || Boolean(family.redirectSuggestions?.length)
+        (family) => family.suggested > 0 || Boolean(family.redirectSuggestions?.some((item) => item.type === 'ORDER'))
       ),
     [familySuggestionsFiltered]
   );
   const unsuggestedFamilies = useMemo(
     () =>
       familySuggestionsFiltered.filter(
-        (family) => family.suggested <= 0 && !family.redirectSuggestions?.length
+        (family) => family.suggested <= 0 && !family.redirectSuggestions?.some((item) => item.type === 'ORDER')
       ),
     [familySuggestionsFiltered]
   );
@@ -1929,6 +1951,42 @@ export default function UcarerDepotReportPage() {
       next[String(item.productCode || '').trim().toUpperCase()] = 0;
     });
     setManualAllocations((prev) => ({ ...prev, [activeFamily.id]: next }));
+  };
+  const sendRedirectSuggestionToSales = async (suggestion: FamilyRedirectSuggestion) => {
+    if (!activeFamily) return;
+    if (suggestion.type !== 'ORDER') {
+      toast.error('Sadece alinan siparise bagli yonlendirme satis onayina gonderilebilir.');
+      return;
+    }
+    const requestKey = `${activeFamily.id}:${suggestion.sourceCode}:${suggestion.targetCode}`;
+    setSendingRedirectKey(requestKey);
+    try {
+      const result = await adminApi.createUcarerOrderProductChangeRequests({
+        sourceProductCode: suggestion.sourceCode,
+        targetProductCode: suggestion.targetCode,
+        depot,
+        familyId: activeFamily.id,
+        familyCode: activeFamily.code || null,
+        familyName: activeFamily.name,
+        note: suggestion.text,
+      });
+      const createdCount = Number(result.data?.createdCount || 0);
+      const duplicateCount = Number(result.data?.skippedDuplicateCount || 0);
+      if (createdCount > 0) {
+        toast.success(`${createdCount} siparis satiri satis onayina gonderildi.`);
+      } else if (duplicateCount > 0) {
+        toast.success('Bu yonlendirme icin bekleyen onay talebi zaten var.');
+      } else {
+        toast.error('Satis onayina gonderilecek acik siparis satiri bulunamadi.');
+      }
+      if ((result.data?.unassigned || []).length > 0) {
+        toast.error('Bazi satirlar icin satis kullanicisi bulunamadi; yonetici bildirimine dustu.');
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Satis onayina gonderilemedi');
+    } finally {
+      setSendingRedirectKey('');
+    }
   };
   const splitActiveEvenly = () => {
     if (!activeFamily) return;
@@ -2100,6 +2158,24 @@ export default function UcarerDepotReportPage() {
       return next;
     });
   }, [pendingSupplierRows, seriesModalOpen]);
+
+  useEffect(() => {
+    if (!seriesModalOpen || pendingSupplierRows.length === 0) return;
+    let active = true;
+    const supplierCodes = pendingSupplierRows.map((row) => row.supplierCode).filter(Boolean);
+    (async () => {
+      try {
+        const result = await adminApi.getUcarerSupplierRecentSeries(supplierCodes);
+        if (!active) return;
+        setSupplierRecentSeriesByCode(result.data?.bySupplier || {});
+      } catch {
+        if (active) setSupplierRecentSeriesByCode({});
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [seriesModalOpen, pendingSupplierRows]);
 
   const createSupplierOrders = async () => {
     const allocations = buildOrderAllocations();
@@ -2768,16 +2844,27 @@ export default function UcarerDepotReportPage() {
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
             <strong>Yonlendirme Onerileri:</strong>
             {(activeFamilySuggestion?.redirectSuggestions || []).map((item, idx) => (
-              <p
+              <div
                 key={`inline-redir-${idx}`}
                 className={
                   item.type === 'ORDER'
-                    ? 'rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-900'
-                    : 'rounded border border-amber-200 bg-amber-100 px-2 py-1 text-amber-900'
+                    ? 'flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-900'
+                    : 'flex flex-wrap items-center justify-between gap-2 rounded border border-amber-200 bg-amber-100 px-2 py-1 text-amber-900'
                 }
               >
-                {item.text}
-              </p>
+                <span className="min-w-0 flex-1">{item.text}</span>
+                {item.type === 'ORDER' && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => sendRedirectSuggestionToSales(item)}
+                    disabled={sendingRedirectKey === `${activeFamily.id}:${item.sourceCode}:${item.targetCode}`}
+                  >
+                    {sendingRedirectKey === `${activeFamily.id}:${item.sourceCode}:${item.targetCode}` ? 'Gonderiliyor...' : 'Satisa Gonder'}
+                  </Button>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -3201,7 +3288,7 @@ export default function UcarerDepotReportPage() {
                           <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                             <input
                               type="checkbox"
-                              checked={Boolean(updatePriceListsByCode[code])}
+                              checked={isPriceListUpdateChecked(code)}
                               onChange={(e) =>
                                 setUpdatePriceListsByCode((prev) => ({
                                   ...prev,
@@ -3812,7 +3899,7 @@ export default function UcarerDepotReportPage() {
                                 <label className="inline-flex items-center gap-1 text-[10px] text-gray-600">
                                   <input
                                     type="checkbox"
-                                    checked={Boolean(updatePriceListsByCode[code])}
+                                    checked={isPriceListUpdateChecked(code)}
                                     onChange={(e) =>
                                       setUpdatePriceListsByCode((prev) => ({
                                         ...prev,
@@ -4174,6 +4261,8 @@ export default function UcarerDepotReportPage() {
                       };
                       const detailRows = pendingSupplierItemsByCode[row.supplierCode] || [];
                       const isExpanded = Boolean(expandedSupplierRows[row.supplierCode]);
+                      const recentSeries = supplierRecentSeriesByCode[row.supplierCode] || [];
+                      const seriesListId = `ucarer-series-${row.supplierCode.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
                       return (
                         <Fragment key={row.supplierCode}>
                           <tr className="border-t">
@@ -4198,6 +4287,7 @@ export default function UcarerDepotReportPage() {
                             <td className="px-2 py-2 text-right">{row.totalQuantity.toLocaleString('tr-TR')}</td>
                             <td className="px-2 py-2">
                               <input
+                                list={seriesListId}
                                 className="w-20 rounded border px-2 py-1 uppercase"
                                 maxLength={20}
                                 value={cfg.series}
@@ -4211,6 +4301,15 @@ export default function UcarerDepotReportPage() {
                                   }))
                                 }
                               />
+                              {recentSeries.length > 0 && (
+                                <datalist id={seriesListId}>
+                                  {recentSeries.map((item) => (
+                                    <option key={`${row.supplierCode}-${item.series}`} value={item.series}>
+                                      {item.lastOrderNumber}
+                                    </option>
+                                  ))}
+                                </datalist>
+                              )}
                             </td>
                             <td className="px-2 py-2">
                               <label className="inline-flex items-center gap-1">

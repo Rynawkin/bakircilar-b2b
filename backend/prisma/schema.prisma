@@ -390,6 +390,9 @@ model User {
   hotSaleStockLedgers  HotSaleStockLedger[] @relation("HotSaleStockLedgerCreatedBy")
   hotSaleTransactionsAsCustomer HotSaleTransaction[] @relation("HotSaleTransactionCustomer")
   hotSaleTransactionsCreated HotSaleTransaction[] @relation("HotSaleTransactionCreatedBy")
+  orderProductChangeRequestsCreated OrderProductChangeRequest[] @relation("OrderProductChangeRequestCreator")
+  orderProductChangeRequestsAssigned OrderProductChangeRequest[] @relation("OrderProductChangeRequestAssignee")
+  orderProductChangeRequestsDecided OrderProductChangeRequest[] @relation("OrderProductChangeRequestDecider")
 
   quotesUpdated      Quote[]       @relation("QuoteUpdater")
   quoteHistories     QuoteHistory[] @relation("QuoteHistoryActor")
@@ -2484,6 +2487,68 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([createdAt])
+}
+
+model OrderProductChangeRequest {
+  id                         String   @id @default(uuid())
+  status                     String   @default("PENDING")
+  source                     String   @default("UCARER_DEPOT")
+  depot                      String?
+
+  orderNumber                String
+  orderSeries                String
+  orderSequence              Int
+  orderLineNo                Int
+  mikroLineGuid              String?
+  orderDate                  DateTime?
+
+  customerCode               String?
+  customerName               String?
+
+  sourceProductCode          String
+  sourceProductName          String?
+  targetProductCode          String
+  targetProductName          String?
+
+  quantity                   Float    @default(0)
+  remainingQuantity          Float    @default(0)
+  unitPrice                  Float    @default(0)
+  vatRate                    Float?
+
+  sourceCurrentCost          Float?
+  sourceLastEntryCost        Float?
+  sourceCurrentMarginPercent Float?
+  sourceLastEntryMarginPercent Float?
+  targetCurrentCost          Float?
+  targetLastEntryCost        Float?
+  targetCurrentMarginPercent Float?
+  targetLastEntryMarginPercent Float?
+
+  familyId                   String?
+  familyCode                 String?
+  familyName                 String?
+  note                       String?
+  rejectReason               String?
+
+  requestedById              String?
+  requestedBy                User?    @relation("OrderProductChangeRequestCreator", fields: [requestedById], references: [id], onDelete: SetNull)
+  assignedToId               String?
+  assignedTo                 User?    @relation("OrderProductChangeRequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  decidedById                String?
+  decidedBy                  User?    @relation("OrderProductChangeRequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt                  DateTime?
+  appliedAt                  DateTime?
+  failedReason               String?
+
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([assignedToId, status])
+  @@index([orderNumber])
+  @@index([sourceProductCode])
+  @@index([targetProductCode])
+  @@index([customerCode])
 }
 
 

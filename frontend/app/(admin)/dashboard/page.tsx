@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { DashboardStats } from '@/types';
-import adminApi from '@/lib/api/admin';
+import adminApi, { OrderProductChangeRequest } from '@/lib/api/admin';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Card } from '@/components/ui/Card';
@@ -61,6 +61,10 @@ export default function AdminDashboardPage() {
     size?: number;
   }> | null>(null);
   const [showEkstreModal, setShowEkstreModal] = useState(false);
+  const [orderProductChangeRequests, setOrderProductChangeRequests] = useState<OrderProductChangeRequest[]>([]);
+  const [orderProductChangePendingCount, setOrderProductChangePendingCount] = useState(0);
+  const [orderProductChangeLoading, setOrderProductChangeLoading] = useState(false);
+  const [orderProductChangeActingId, setOrderProductChangeActingId] = useState<string>('');
 
   // Refs to store interval and timeout IDs for cleanup
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -432,6 +436,67 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const fetchOrderProductChangeRequests = async () => {
+    setOrderProductChangeLoading(true);
+    try {
+      const result = await adminApi.getOrderProductChangeRequests({ status: 'PENDING', limit: 12 });
+      setOrderProductChangeRequests(result.data?.requests || []);
+      setOrderProductChangePendingCount(Number(result.data?.pendingCount || 0));
+    } catch {
+      setOrderProductChangeRequests([]);
+      setOrderProductChangePendingCount(0);
+    } finally {
+      setOrderProductChangeLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    if (!['HEAD_ADMIN', 'ADMIN', 'MANAGER', 'SALES_REP'].includes(user.role)) return;
+    fetchOrderProductChangeRequests();
+  }, [user?.id, user?.role]);
+
+  const formatPercent = (value?: number | null) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return '-';
+    return `%${parsed.toLocaleString('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
+  };
+
+  const getMarginTone = (value?: number | null) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 'text-slate-500';
+    if (parsed < 0) return 'text-red-700';
+    if (parsed < 5) return 'text-amber-700';
+    return 'text-emerald-700';
+  };
+
+  const approveOrderProductChange = async (id: string) => {
+    setOrderProductChangeActingId(id);
+    try {
+      await adminApi.approveOrderProductChangeRequest(id);
+      toast.success('Urun degisimi onaylandi ve Mikro siparis satiri guncellendi.');
+      await fetchOrderProductChangeRequests();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Urun degisimi onaylanamadi');
+    } finally {
+      setOrderProductChangeActingId('');
+    }
+  };
+
+  const rejectOrderProductChange = async (id: string) => {
+    const reason = window.prompt('Red nedeni (opsiyonel)') || '';
+    setOrderProductChangeActingId(id);
+    try {
+      await adminApi.rejectOrderProductChangeRequest(id, reason);
+      toast.success('Urun degisimi reddedildi.');
+      await fetchOrderProductChangeRequests();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Urun degisimi reddedilemedi');
+    } finally {
+      setOrderProductChangeActingId('');
+    }
+  };
+
   const summaryPeriodLabel =
     stats?.period === 'daily'
       ? 'Gunluk'
@@ -635,6 +700,100 @@ export default function AdminDashboardPage() {
             )}
             </div>
           </>
+        )}
+
+        {(orderProductChangePendingCount > 0 || orderProductChangeLoading) && (
+          <Card className="mb-8 border-amber-200 bg-gradient-to-br from-amber-50 to-white shadow-lg">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Onaylanacak Urun Siparis Degisimleri</h2>
+                  <p className="text-sm text-slate-600">
+                    Ucarer depo siparis yonlendirme onerilerinden gelen satir bazli degisim onaylari.
+                  </p>
+                </div>
+                <div className="rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-800">
+                  Bekleyen: {orderProductChangePendingCount.toLocaleString('tr-TR')}
+                </div>
+              </div>
+
+              {orderProductChangeLoading ? (
+                <p className="rounded-xl bg-white p-4 text-sm font-semibold text-slate-500">Yukleniyor...</p>
+              ) : (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {orderProductChangeRequests.map((request) => (
+                    <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">
+                            {request.orderNumber} / Satir {request.orderLineNo}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {request.customerCode || '-'} - {request.customerName || '-'}
+                          </p>
+                        </div>
+                        <p className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
+                          {Number(request.remainingQuantity || request.quantity || 0).toLocaleString('tr-TR')} adet
+                        </p>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs font-bold uppercase text-slate-500">Mevcut urun</p>
+                          <p className="mt-1 font-bold text-slate-900">{request.sourceProductCode}</p>
+                          <p className="line-clamp-2 text-xs text-slate-600">{request.sourceProductName || '-'}</p>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <span className={getMarginTone(request.sourceCurrentMarginPercent)}>
+                              Guncel: {formatPercent(request.sourceCurrentMarginPercent)}
+                            </span>
+                            <span className={getMarginTone(request.sourceLastEntryMarginPercent)}>
+                              Giris: {formatPercent(request.sourceLastEntryMarginPercent)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                          <p className="text-xs font-bold uppercase text-emerald-700">Onerilen urun</p>
+                          <p className="mt-1 font-bold text-emerald-950">{request.targetProductCode}</p>
+                          <p className="line-clamp-2 text-xs text-emerald-800">{request.targetProductName || '-'}</p>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <span className={getMarginTone(request.targetCurrentMarginPercent)}>
+                              Guncel: {formatPercent(request.targetCurrentMarginPercent)}
+                            </span>
+                            <span className={getMarginTone(request.targetLastEntryMarginPercent)}>
+                              Giris: {formatPercent(request.targetLastEntryMarginPercent)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-slate-500">
+                          Birim fiyat ayni kalir: <strong>{formatCurrency(Number(request.unitPrice || 0))}</strong>
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={orderProductChangeActingId === request.id}
+                            onClick={() => rejectOrderProductChange(request.id)}
+                          >
+                            Reddet
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={orderProductChangeActingId === request.id}
+                            onClick={() => approveOrderProductChange(request.id)}
+                          >
+                            {orderProductChangeActingId === request.id ? 'Isleniyor...' : 'Onayla'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
         )}
 
         {/* Hızlı Arama Widgetları */}

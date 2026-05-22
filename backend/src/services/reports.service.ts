@@ -6311,6 +6311,68 @@ export class ReportsService {
     };
   }
 
+  async getUcarerRecentSupplierOrderSeries(supplierCodesInput: string[]): Promise<{
+    rows: Array<{ supplierCode: string; series: string; lastOrderNumber: string; lastOrderDate: string | null }>;
+    bySupplier: Record<string, Array<{ series: string; lastOrderNumber: string; lastOrderDate: string | null }>>;
+  }> {
+    const supplierCodes = Array.from(
+      new Set((supplierCodesInput || []).map((code) => String(code || '').trim().toUpperCase()).filter(Boolean))
+    ).slice(0, 100);
+    if (supplierCodes.length === 0) return { rows: [], bySupplier: {} };
+
+    const inClause = supplierCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+    const rowsRaw = await mikroService.executeQuery(`
+      WITH SeriesRows AS (
+        SELECT
+          LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))) AS supplierCode,
+          LTRIM(RTRIM(ISNULL(sip_evrakno_seri, ''))) AS series,
+          MAX(ISNULL(sip_tarih, sip_create_date)) AS lastOrderDate,
+          MAX(ISNULL(sip_evrakno_sira, 0)) AS lastSequence,
+          ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(ISNULL(sip_musteri_kod, '')))
+            ORDER BY MAX(ISNULL(sip_tarih, sip_create_date)) DESC, MAX(ISNULL(sip_evrakno_sira, 0)) DESC
+          ) AS rn
+        FROM SIPARISLER WITH (NOLOCK)
+        WHERE sip_tip = 1
+          AND LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))) IN (${inClause})
+          AND LTRIM(RTRIM(ISNULL(sip_evrakno_seri, ''))) <> ''
+        GROUP BY
+          LTRIM(RTRIM(ISNULL(sip_musteri_kod, ''))),
+          LTRIM(RTRIM(ISNULL(sip_evrakno_seri, '')))
+      )
+      SELECT supplierCode, series, lastOrderDate, lastSequence
+      FROM SeriesRows
+      WHERE rn <= 3
+      ORDER BY supplierCode, rn
+    `);
+
+    const rows = (Array.isArray(rowsRaw) ? rowsRaw : []).map((row: any) => {
+      const supplierCode = String(row?.supplierCode || '').trim().toUpperCase();
+      const series = String(row?.series || '').trim().toUpperCase();
+      const lastSequence = Math.trunc(Number(row?.lastSequence || 0));
+      const parsedDate = row?.lastOrderDate ? new Date(row.lastOrderDate) : null;
+      const lastOrderDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : null;
+      return {
+        supplierCode,
+        series,
+        lastOrderNumber: series && lastSequence > 0 ? `${series}-${lastSequence}` : series,
+        lastOrderDate,
+      };
+    }).filter((row) => row.supplierCode && row.series);
+
+    const bySupplier: Record<string, Array<{ series: string; lastOrderNumber: string; lastOrderDate: string | null }>> = {};
+    rows.forEach((row) => {
+      bySupplier[row.supplierCode] = bySupplier[row.supplierCode] || [];
+      bySupplier[row.supplierCode].push({
+        series: row.series,
+        lastOrderNumber: row.lastOrderNumber,
+        lastOrderDate: row.lastOrderDate,
+      });
+    });
+
+    return { rows, bySupplier };
+  }
+
   async getUcarerProductSalesHistory(productCodeInput: string): Promise<{
     productCode: string;
     rows: Array<{

@@ -179,6 +179,38 @@ export interface CustomerRecoveryRow {
   monthlySales: Array<{ month: string; amount: number; documentCount: number }>;
 }
 
+export interface OrderProductChangeRequest {
+  id: string;
+  status: string;
+  orderNumber: string;
+  orderSeries: string;
+  orderSequence: number;
+  orderLineNo: number;
+  orderDate?: string | null;
+  customerCode?: string | null;
+  customerName?: string | null;
+  sourceProductCode: string;
+  sourceProductName?: string | null;
+  targetProductCode: string;
+  targetProductName?: string | null;
+  quantity: number;
+  remainingQuantity: number;
+  unitPrice: number;
+  sourceCurrentCost?: number | null;
+  sourceLastEntryCost?: number | null;
+  sourceCurrentMarginPercent?: number | null;
+  sourceLastEntryMarginPercent?: number | null;
+  targetCurrentCost?: number | null;
+  targetLastEntryCost?: number | null;
+  targetCurrentMarginPercent?: number | null;
+  targetLastEntryMarginPercent?: number | null;
+  familyName?: string | null;
+  familyCode?: string | null;
+  assignedTo?: { id: string; name?: string | null; displayName?: string | null; mikroName?: string | null; email?: string | null } | null;
+  requestedBy?: { id: string; name?: string | null; displayName?: string | null; mikroName?: string | null; email?: string | null } | null;
+  createdAt: string;
+}
+
 export interface CustomerRecoveryReportData {
   rows: CustomerRecoveryRow[];
   summary: {
@@ -2955,6 +2987,54 @@ export const adminApi = {
     const queryParams = new URLSearchParams();
     queryParams.append('productCode', productCode);
     const response = await apiClient.get(`/admin/reports/ucarer-incoming-order-details?${queryParams.toString()}`);
+    return response.data;
+  },
+  getUcarerSupplierRecentSeries: async (supplierCodes: string[]): Promise<{
+    success: boolean;
+    data: {
+      rows: Array<{ supplierCode: string; series: string; lastOrderNumber: string; lastOrderDate: string | null }>;
+      bySupplier: Record<string, Array<{ series: string; lastOrderNumber: string; lastOrderDate: string | null }>>;
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (supplierCodes.length > 0) queryParams.append('codes', supplierCodes.join(','));
+    const response = await apiClient.get(`/admin/reports/ucarer-supplier-recent-series?${queryParams.toString()}`);
+    return response.data;
+  },
+  createUcarerOrderProductChangeRequests: async (payload: {
+    sourceProductCode: string;
+    targetProductCode: string;
+    depot?: string | null;
+    familyId?: string | null;
+    familyCode?: string | null;
+    familyName?: string | null;
+    note?: string | null;
+  }): Promise<{
+    success: boolean;
+    data: {
+      createdCount: number;
+      skippedDuplicateCount: number;
+      skippedDuplicates: string[];
+      unassigned: string[];
+      requests: OrderProductChangeRequest[];
+    };
+  }> => {
+    const response = await apiClient.post('/admin/reports/ucarer-depo/order-product-change-requests', payload);
+    return response.data;
+  },
+  getOrderProductChangeRequests: async (params?: { status?: string; limit?: number }): Promise<{
+    success: boolean;
+    data: { requests: OrderProductChangeRequest[]; pendingCount: number };
+  }> => {
+    const response = await apiClient.get('/admin/order-product-change-requests', { params });
+    return response.data;
+  },
+  approveOrderProductChangeRequest: async (id: string): Promise<{ success: boolean; data: OrderProductChangeRequest }> => {
+    const response = await apiClient.post(`/admin/order-product-change-requests/${encodeURIComponent(id)}/approve`);
+    return response.data;
+  },
+  rejectOrderProductChangeRequest: async (id: string, reason?: string): Promise<{ success: boolean; data: OrderProductChangeRequest }> => {
+    const response = await apiClient.post(`/admin/order-product-change-requests/${encodeURIComponent(id)}/reject`, { reason });
     return response.data;
   },
   getUcarerProductSalesHistory: async (productCode: string): Promise<{
