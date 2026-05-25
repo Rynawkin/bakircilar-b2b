@@ -231,6 +231,197 @@ class MikroService {
     return this.sipExtraColumns;
   }
 
+  public async upsertOrderDocumentDescription(
+    transaction: sql.Transaction,
+    params: {
+      evrakSeri: string;
+      evrakSira: number;
+      documentDescription?: string | null;
+      mikroUserNo?: number | null;
+    }
+  ): Promise<void> {
+    const evrakSeri = String(params.evrakSeri || '').trim();
+    const evrakSira = Number(params.evrakSira);
+    if (!evrakSeri || !Number.isFinite(evrakSira) || evrakSira <= 0) {
+      return;
+    }
+
+    const documentDescriptionValue = String(params.documentDescription ?? '').trim().slice(0, 127);
+    const mikroUserNoRaw = Number(params.mikroUserNo || process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
+    const mikroUserNo =
+      Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0
+        ? Math.trunc(mikroUserNoRaw)
+        : 1;
+
+    await transaction
+      .request()
+      .input('seri', sql.NVarChar(20), evrakSeri)
+      .input('sira', sql.Int, evrakSira)
+      .input('aciklama2', sql.NVarChar(127), documentDescriptionValue)
+      .input('lastupUser', sql.SmallInt, mikroUserNo)
+      .query(`
+        DECLARE @dosyaNo smallint;
+
+        SELECT TOP 1 @dosyaNo = ISNULL(sip_fileid, 21)
+        FROM SIPARISLER
+        WHERE sip_evrakno_seri = @seri
+          AND sip_evrakno_sira = @sira
+          AND sip_fileid IS NOT NULL
+        ORDER BY sip_satirno ASC;
+
+        IF @dosyaNo IS NULL SET @dosyaNo = 21;
+
+        UPDATE SIPARISLER
+        SET
+          sip_aciklama2 = @aciklama2,
+          sip_lastup_date = GETDATE(),
+          sip_lastup_user = @lastupUser
+        WHERE sip_evrakno_seri = @seri
+          AND sip_evrakno_sira = @sira;
+
+        IF OBJECT_ID('EVRAK_ACIKLAMALARI', 'U') IS NOT NULL
+        BEGIN
+          IF @aciklama2 = ''
+          BEGIN
+            UPDATE EVRAK_ACIKLAMALARI
+            SET
+              egk_evracik1 = '',
+              egk_lastup_date = GETDATE(),
+              egk_lastup_user = @lastupUser
+            WHERE egk_evr_seri = @seri
+              AND egk_evr_sira = @sira
+              AND egk_hareket_tip = 0
+              AND egk_evr_tip = 0;
+          END
+          ELSE IF EXISTS (
+            SELECT 1
+            FROM EVRAK_ACIKLAMALARI
+            WHERE egk_evr_seri = @seri
+              AND egk_evr_sira = @sira
+              AND egk_hareket_tip = 0
+              AND egk_evr_tip = 0
+          )
+          BEGIN
+            UPDATE EVRAK_ACIKLAMALARI
+            SET
+              egk_evracik1 = @aciklama2,
+              egk_lastup_date = GETDATE(),
+              egk_lastup_user = @lastupUser
+            WHERE egk_evr_seri = @seri
+              AND egk_evr_sira = @sira
+              AND egk_hareket_tip = 0
+              AND egk_evr_tip = 0;
+          END
+          ELSE
+          BEGIN
+            INSERT INTO EVRAK_ACIKLAMALARI (
+              egk_fileid,
+              egk_dosyano,
+              egk_create_user,
+              egk_lastup_user,
+              egk_iptal,
+              egk_hidden,
+              egk_kilitli,
+              egk_degisti,
+              egk_checksum,
+              egk_special1,
+              egk_special2,
+              egk_special3,
+              egk_evr_ustkod,
+              egk_evr_doksayisi,
+              egk_prevwiewsayisi,
+              egk_emailsayisi,
+              egk_Evrakopno_verildi_fl,
+              egk_evr_seri,
+              egk_evr_sira,
+              egk_hareket_tip,
+              egk_evr_tip,
+              egk_evracik1
+            )
+            SELECT TOP 1
+              ISNULL(egk_fileid, 66),
+              @dosyaNo,
+              ISNULL(egk_create_user, @lastupUser),
+              @lastupUser,
+              ISNULL(egk_iptal, 0),
+              ISNULL(egk_hidden, 0),
+              ISNULL(egk_kilitli, 0),
+              ISNULL(egk_degisti, 0),
+              ISNULL(egk_checksum, 0),
+              LEFT(ISNULL(egk_special1, ''), 4),
+              LEFT(ISNULL(egk_special2, ''), 4),
+              LEFT(ISNULL(egk_special3, ''), 4),
+              LEFT(ISNULL(egk_evr_ustkod, ''), 25),
+              ISNULL(egk_evr_doksayisi, 0),
+              ISNULL(egk_prevwiewsayisi, 0),
+              ISNULL(egk_emailsayisi, 0),
+              ISNULL(egk_Evrakopno_verildi_fl, 0),
+              @seri,
+              @sira,
+              0,
+              0,
+              @aciklama2
+            FROM EVRAK_ACIKLAMALARI
+            WHERE egk_dosyano = @dosyaNo
+              AND egk_fileid IS NOT NULL
+            ORDER BY egk_create_date DESC;
+
+            IF @@ROWCOUNT = 0
+            BEGIN
+              INSERT INTO EVRAK_ACIKLAMALARI (
+                egk_fileid,
+                egk_dosyano,
+                egk_create_user,
+                egk_lastup_user,
+                egk_iptal,
+                egk_hidden,
+                egk_kilitli,
+                egk_degisti,
+                egk_checksum,
+                egk_special1,
+                egk_special2,
+                egk_special3,
+                egk_evr_ustkod,
+                egk_evr_doksayisi,
+                egk_prevwiewsayisi,
+                egk_emailsayisi,
+                egk_Evrakopno_verildi_fl,
+                egk_evr_seri,
+                egk_evr_sira,
+                egk_hareket_tip,
+                egk_evr_tip,
+                egk_evracik1
+              )
+              VALUES (
+                66,
+                @dosyaNo,
+                @lastupUser,
+                @lastupUser,
+                0,
+                0,
+                0,
+                0,
+                0,
+                '',
+                '',
+                '',
+                '',
+                0,
+                0,
+                0,
+                0,
+                @seri,
+                @sira,
+                0,
+                0,
+                @aciklama2
+              );
+            END
+          END
+        END
+      `);
+  }
+
   /**
    * Mikro teklif satirlarini getir
    */
@@ -2010,30 +2201,21 @@ class MikroService {
       throw new Error('Invalid Mikro order sequence');
     }
 
-    const documentDescriptionValue = params.documentDescription
-      ? String(params.documentDescription).trim().slice(0, 127)
-      : '';
+    const hasDocumentDescription = Object.prototype.hasOwnProperty.call(params, 'documentDescription');
+    const documentDescriptionValue = hasDocumentDescription
+      ? String(params.documentDescription ?? '').trim().slice(0, 127)
+      : null;
 
     const transaction = this.pool!.transaction();
     try {
       await transaction.begin();
 
-      if (documentDescriptionValue) {
-        try {
-          await transaction
-            .request()
-            .input('seri', sql.NVarChar(20), evrakSeri)
-            .input('sira', sql.Int, evrakSira)
-            .input('aciklama2', sql.NVarChar(127), documentDescriptionValue)
-            .query(`
-              UPDATE SIPARISLER
-              SET sip_aciklama2 = @aciklama2
-              WHERE sip_evrakno_seri = @seri
-                AND sip_evrakno_sira = @sira
-            `);
-        } catch (error) {
-          console.warn('WARN: sip_aciklama2 guncellenemedi:', error);
-        }
+      if (hasDocumentDescription) {
+        await this.upsertOrderDocumentDescription(transaction, {
+          evrakSeri,
+          evrakSira,
+          documentDescription: documentDescriptionValue,
+        });
       }
 
       const existingRowsResult = await transaction
