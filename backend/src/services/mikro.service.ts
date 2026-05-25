@@ -247,6 +247,7 @@ class MikroService {
     }
 
     const documentDescriptionValue = String(params.documentDescription ?? '').trim().slice(0, 127);
+    const sipDescriptionValue = documentDescriptionValue.slice(0, 50);
     const mikroUserNoRaw = Number(params.mikroUserNo || process.env.MIKRO_USER_NO || process.env.MIKRO_USERNO || 1);
     const mikroUserNo =
       Number.isFinite(mikroUserNoRaw) && mikroUserNoRaw > 0
@@ -257,7 +258,8 @@ class MikroService {
       .request()
       .input('seri', sql.NVarChar(20), evrakSeri)
       .input('sira', sql.Int, evrakSira)
-      .input('aciklama2', sql.NVarChar(127), documentDescriptionValue)
+      .input('sipAciklama2', sql.NVarChar(50), sipDescriptionValue)
+      .input('evrakAciklama', sql.NVarChar(127), documentDescriptionValue)
       .input('lastupUser', sql.SmallInt, mikroUserNo)
       .query(`
         DECLARE @dosyaNo smallint;
@@ -273,7 +275,7 @@ class MikroService {
 
         UPDATE SIPARISLER
         SET
-          sip_aciklama2 = @aciklama2,
+          sip_aciklama2 = @sipAciklama2,
           sip_lastup_date = GETDATE(),
           sip_lastup_user = @lastupUser
         WHERE sip_evrakno_seri = @seri
@@ -281,7 +283,7 @@ class MikroService {
 
         IF OBJECT_ID('EVRAK_ACIKLAMALARI', 'U') IS NOT NULL
         BEGIN
-          IF @aciklama2 = ''
+          IF @evrakAciklama = ''
           BEGIN
             UPDATE EVRAK_ACIKLAMALARI
             SET
@@ -304,7 +306,7 @@ class MikroService {
           BEGIN
             UPDATE EVRAK_ACIKLAMALARI
             SET
-              egk_evracik1 = @aciklama2,
+              egk_evracik1 = @evrakAciklama,
               egk_lastup_date = GETDATE(),
               egk_lastup_user = @lastupUser
             WHERE egk_evr_seri = @seri
@@ -360,7 +362,7 @@ class MikroService {
               @sira,
               0,
               0,
-              @aciklama2
+              @evrakAciklama
             FROM EVRAK_ACIKLAMALARI
             WHERE egk_dosyano = @dosyaNo
               AND egk_fileid IS NOT NULL
@@ -414,7 +416,7 @@ class MikroService {
                 @sira,
                 0,
                 0,
-                @aciklama2
+                @evrakAciklama
               );
             END
           END
