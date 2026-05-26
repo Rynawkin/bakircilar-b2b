@@ -150,6 +150,23 @@ const decimalText = (value: unknown) => {
 };
 const roundMoney = (value: number) => Math.round(value * 10000) / 10000;
 
+const deriveUiCostsFromMikro = (
+  mikroCostPValue: unknown,
+  mikroCostTValue: unknown,
+  standardCostValue: unknown,
+  vatRatePercentValue: unknown
+) => {
+  const mikroCostP = toNumber(mikroCostPValue, 0);
+  const mikroCostT = toNumber(mikroCostTValue, 0);
+  const standardCost = toNumber(standardCostValue, 0);
+  const vatRatePercent = toNumber(vatRatePercentValue, 20);
+  const hasBothCosts = mikroCostP > 0 && mikroCostT > 0;
+  const usesUcarerConvention = !hasBothCosts || vatRatePercent <= 0 || mikroCostT >= mikroCostP;
+  const costT = usesUcarerConvention ? mikroCostP || standardCost : mikroCostT || standardCost;
+  const costP = (usesUcarerConvention ? mikroCostT : mikroCostP) || (costT > 0 ? roundMoney(costT * (1 + vatRatePercent / 200)) : 0);
+  return { currentCost: costT, costT, costP };
+};
+
 const vatRateToCode = (percent: number) => {
   const normalized = Math.round(percent * 100) / 100;
   if (normalized === 20 || normalized === 18) return 5;
@@ -250,7 +267,7 @@ class StockCreateService {
       packageCode: normalizeText(input.packageCode),
       packageName: normalizeText(input.packageName),
       shelfCode: upperText(input.shelfCode),
-      currentCost: costP,
+      currentCost: costT,
       costP,
       costT,
       mainUnit: upperText(input.mainUnit),
@@ -549,6 +566,8 @@ class StockCreateService {
       })
       .filter(Boolean);
 
+    const costs = deriveUiCostsFromMikro(row.costP, row.costT, row.currentCost, row.vatRatePercent);
+
     return {
       templateCode: normalizeText(row.templateCode),
       name: normalizeText(row.name),
@@ -565,9 +584,9 @@ class StockCreateService {
       packageName: normalizeText(row.packageName),
       shelfCode: normalizeText(row.shelfCode),
       shelfName: normalizeText(row.shelfName),
-      currentCost: decimalText(row.costP ?? row.currentCost),
-      costP: decimalText(row.costP ?? row.currentCost),
-      costT: decimalText(row.costT ?? row.currentCost),
+      currentCost: decimalText(costs.currentCost),
+      costP: decimalText(costs.costP),
+      costT: decimalText(costs.costT),
       mainUnit: normalizeText(row.mainUnit),
       mainUnitWeightKg: decimalText(row.mainUnitWeightKg),
       mainUnitWidthCm: mmToCmText(row.mainUnitWidthMm),
@@ -787,7 +806,7 @@ class StockCreateService {
       sto_birim1_en: toSqlNumber(item.mainUnitWidthMm),
       sto_birim1_boy: toSqlNumber(item.mainUnitLengthMm),
       sto_birim1_yukseklik: toSqlNumber(item.mainUnitHeightMm),
-      sto_standartmaliyet: toSqlNumber(item.costP),
+      sto_standartmaliyet: toSqlNumber(item.costT),
       sto_reyon_kodu: toSqlString(item.shelfCode),
       sto_min_stok: '0',
       sto_siparis_stok: '0',
@@ -870,13 +889,13 @@ class StockCreateService {
     item.margins.forEach((margin, index) => {
       const marginMultiplier = toNumber(margin, 0);
       if (!Number.isFinite(marginMultiplier) || marginMultiplier <= 0) return;
-      if (item.costT > 0) {
-        const value = roundMoney(item.costT * marginMultiplier);
-        rows.push({ listNo: index + 1, value, marginMultiplier, baseCost: item.costT });
-      }
       if (item.costP > 0) {
         const value = roundMoney(item.costP * marginMultiplier);
-        rows.push({ listNo: index + 6, value, marginMultiplier, baseCost: item.costP });
+        rows.push({ listNo: index + 1, value, marginMultiplier, baseCost: item.costP });
+      }
+      if (item.costT > 0) {
+        const value = roundMoney(item.costT * marginMultiplier);
+        rows.push({ listNo: index + 6, value, marginMultiplier, baseCost: item.costT });
       }
     });
     return rows;
@@ -920,7 +939,7 @@ class StockCreateService {
     const data: Record<string, any> = {
       productName: item.name,
       lastChangeDate: new Date(),
-      currentCost: item.costP,
+      currentCost: item.costT,
     };
 
     for (let listNo = 1; listNo <= 10; listNo += 1) {
@@ -940,7 +959,7 @@ class StockCreateService {
         productName: item.name,
         lastChangeDate: data.lastChangeDate,
         totalChanges: 0,
-        currentCost: item.costP,
+        currentCost: item.costT,
         currentPriceList1: data.currentPriceList1,
         currentPriceList2: data.currentPriceList2,
         currentPriceList3: data.currentPriceList3,
@@ -991,7 +1010,7 @@ class StockCreateService {
         unit2: unit2?.name || null,
         unit2Factor: unit2?.mikroFactor || null,
         categoryId: category.id,
-        currentCost: item.costP || null,
+        currentCost: item.costT || null,
         currentCostDate: item.costP > 0 || item.costT > 0 ? new Date() : null,
         vatRate: item.vatRatePercent / 100,
         active: true,
@@ -1005,7 +1024,7 @@ class StockCreateService {
         unit2: unit2?.name || null,
         unit2Factor: unit2?.mikroFactor || null,
         categoryId: category.id,
-        currentCost: item.costP || null,
+        currentCost: item.costT || null,
         currentCostDate: item.costP > 0 || item.costT > 0 ? new Date() : null,
         vatRate: item.vatRatePercent / 100,
         warehouseStocks: {},
@@ -1086,8 +1105,8 @@ class StockCreateService {
               Marj_3 = ${toSqlString(item.margins[2])},
               Marj_4 = ${toSqlString(item.margins[3])},
               Marj_5 = ${toSqlString(item.margins[4])},
-              MaliyetP = ${toSqlNumber(item.costP)},
-              MaliyetT = ${toSqlNumber(item.costT)},
+              MaliyetP = ${toSqlNumber(item.costT)},
+              MaliyetT = ${toSqlNumber(item.costP)},
               MaliyetTarihi = ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')},
               FiyatDegisimTarihi = ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}
           WHERE Record_uid = @guid${index};
@@ -1097,7 +1116,7 @@ class StockCreateService {
           INSERT INTO STOKLAR_USER
             (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi, SKT)
           VALUES
-            (@guid${index}, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${toSqlNumber(item.costP)}, ${toSqlNumber(item.costT)}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
+            (@guid${index}, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${toSqlNumber(item.costT)}, ${toSqlNumber(item.costP)}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
         END
 
         ${this.buildMikroPriceListStatements(`@code${index}`, item)}
@@ -1246,9 +1265,9 @@ class StockCreateService {
 
     const extraByIndex = new Map(item.extraUnits.map((unit) => [unit.index, unit]));
     const marginDate = toDateOnly();
-    const currentCostSql = toSqlNumber(item.costP);
-    const costTSql = toSqlNumber(item.costT);
-    const hasCostSql = `(${currentCostSql} > 0 OR ${costTSql} > 0)`;
+    const currentCostSql = toSqlNumber(item.costT);
+    const retailCostSql = toSqlNumber(item.costP);
+    const hasCostSql = `(${currentCostSql} > 0 OR ${retailCostSql} > 0)`;
     const costChangedExpression = `ABS(ISNULL(sto_standartmaliyet, 0) - ${currentCostSql}) > 0.0001 AND ${hasCostSql}`;
     const stockAssignments = [
       `sto_isim = ${toSqlString(item.name)}`,
@@ -1285,7 +1304,7 @@ class StockCreateService {
     stockAssignments.push('sto_lastup_user = 1');
     stockAssignments.push('sto_lastup_date = GETDATE()');
 
-    const userCostChangedExpression = `(ABS(ISNULL(MaliyetP, 0) - ${currentCostSql}) > 0.0001 OR ABS(ISNULL(MaliyetT, 0) - ${costTSql}) > 0.0001) AND ${hasCostSql}`;
+    const userCostChangedExpression = `(ABS(ISNULL(MaliyetP, 0) - ${currentCostSql}) > 0.0001 OR ABS(ISNULL(MaliyetT, 0) - ${retailCostSql}) > 0.0001) AND ${hasCostSql}`;
     const barcodeSql = item.barcode
       ? `
         IF EXISTS (SELECT 1 FROM BARKOD_TANIMLARI WITH (UPDLOCK, HOLDLOCK) WHERE bar_kodu = ${toSqlString(item.barcode)} AND bar_stokkodu <> @stockCode)
@@ -1352,7 +1371,7 @@ class StockCreateService {
               Marj_4 = ${toSqlString(item.margins[3])},
               Marj_5 = ${toSqlString(item.margins[4])},
               MaliyetP = ${currentCostSql},
-              MaliyetT = ${costTSql},
+              MaliyetT = ${retailCostSql},
               MaliyetTarihi = CASE WHEN ${userCostChangedExpression} THEN ${toSqlString(marginDate)} ELSE MaliyetTarihi END,
               FiyatDegisimTarihi = CASE WHEN ${userCostChangedExpression} THEN ${toSqlString(marginDate)} ELSE FiyatDegisimTarihi END
           WHERE Record_uid = @stockGuid;
@@ -1362,7 +1381,7 @@ class StockCreateService {
           INSERT INTO STOKLAR_USER
             (Record_uid, Maliyet_Tar, GUNCEL_MALIYET_TARIHI, TOPCA_MIN, TOPCA_MAX, Marj_1, Marj_2, Marj_3, Marj_4, Marj_5, MaliyetP, MaliyetT, MaliyetTarihi, FiyatDegisimTarihi, Yatan_Stok, Birim_1_Desi, SKT)
           VALUES
-            (@stockGuid, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${currentCostSql}, ${costTSql}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
+            (@stockGuid, NULL, 0, 0, 0, ${toSqlString(item.margins[0])}, ${toSqlString(item.margins[1])}, ${toSqlString(item.margins[2])}, ${toSqlString(item.margins[3])}, ${toSqlString(item.margins[4])}, ${currentCostSql}, ${retailCostSql}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, ${toSqlString(item.costP > 0 || item.costT > 0 ? marginDate : '')}, N'', 0, N'');
         END
 
         ${this.buildMikroPriceListStatements('@stockCode', item)}

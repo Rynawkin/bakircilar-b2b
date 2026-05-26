@@ -2980,6 +2980,7 @@ export const adminApi = {
         quantity: number;
         deliveredQuantity: number;
         remainingQuantity: number;
+        unitPrice: number;
       }>;
       total: number;
     };

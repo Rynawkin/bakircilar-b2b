@@ -226,7 +226,7 @@ function mapExcelRow(row: Record<string, any>, index: number, templateCode: stri
     shelfCode: get('Raf Kodu', 'Reyon Kodu'),
     costT: normalizeNumberText(get('Maliyet T', 'Toptan Maliyet', 'Guncel Maliyet T', 'Güncel Maliyet T', 'Guncel Maliyet', 'Güncel Maliyet')),
     costP: normalizeNumberText(get('Maliyet P', 'Perakende Maliyet', 'Guncel Maliyet P', 'Güncel Maliyet P')),
-    currentCost: normalizeNumberText(get('Maliyet P', 'Perakende Maliyet', 'Guncel Maliyet P', 'Güncel Maliyet P', 'Guncel Maliyet', 'Güncel Maliyet')),
+    currentCost: normalizeNumberText(get('Maliyet T', 'Toptan Maliyet', 'Guncel Maliyet T', 'Güncel Maliyet T', 'Guncel Maliyet', 'Güncel Maliyet')),
     mainUnit: get('Ana Birim', 'Birim 1', '1. Birim') || 'ADET',
     mainUnitWeightKg: normalizeNumberText(get('Ana Birim Kg', '1. Birim Kg', 'Birim 1 Kg')),
     mainUnitWidthCm: normalizeNumberText(get('Ana Birim En cm', '1. Birim En cm', 'Birim 1 En cm')),
@@ -507,7 +507,7 @@ export default function StockCreatePage() {
     vatRatePercent: String(raw?.vatRatePercent || '20'),
     costT: String(raw?.costT || raw?.currentCost || ''),
     costP: String(raw?.costP || raw?.currentCost || ''),
-    currentCost: String(raw?.costP || raw?.currentCost || ''),
+    currentCost: String(raw?.costT || raw?.currentCost || ''),
     mainUnitWeightKg: String(raw?.mainUnitWeightKg || ''),
     mainUnitWidthCm: String(raw?.mainUnitWidthCm || ''),
     mainUnitLengthCm: String(raw?.mainUnitLengthCm || ''),
@@ -566,18 +566,19 @@ export default function StockCreatePage() {
   const updateVatRatePercent = (vatRatePercent: string) => {
     setForm((prev) => {
       const costP = prev.costT ? costPFromCostT(prev.costT, vatRatePercent) : prev.costP;
-      return { ...prev, vatRatePercent, costP, currentCost: costP || prev.currentCost };
+      return { ...prev, vatRatePercent, costP, currentCost: prev.costT || prev.currentCost };
     });
     setPreviewRows([]);
   };
 
   const updateCostT = (costT: string) => {
     const costP = costPFromCostT(costT, form.vatRatePercent);
-    updateForm({ costT, costP, currentCost: costP });
+    updateForm({ costT, costP, currentCost: costT });
   };
 
   const updateCostP = (costP: string) => {
-    updateForm({ costP, currentCost: costP });
+    setForm((prev) => ({ ...prev, costP, currentCost: prev.costT || prev.currentCost }));
+    setPreviewRows([]);
   };
 
   const updateMargin = (index: number, value: string) => {
@@ -1031,7 +1032,7 @@ export default function StockCreatePage() {
                     onCopy={() => {
                       const costT = templateStock?.costT || '';
                       const costP = costPFromCostT(costT, form.vatRatePercent) || templateStock?.costP || '';
-                      copyFromTemplate({ costT, costP, currentCost: costP });
+                      copyFromTemplate({ costT, costP, currentCost: costT });
                     }}
                   />
                   <CopyableInput
@@ -1040,7 +1041,7 @@ export default function StockCreatePage() {
                     onChange={updateCostP}
                     placeholder="Yarim KDV otomatik"
                     copyValue={templateStock?.costP}
-                    onCopy={() => copyFromTemplate({ costP: templateStock?.costP || '', currentCost: templateStock?.costP || '' })}
+                    onCopy={() => copyFromTemplate({ costP: templateStock?.costP || '' })}
                   />
                   <CopyableInput
                     label="Raf / Reyon Kodu"

@@ -73,6 +73,7 @@ interface IncomingOrderDetailRow {
   quantity: number;
   deliveredQuantity: number;
   remainingQuantity: number;
+  unitPrice: number;
 }
 
 interface ProductSalesHistoryRow {
@@ -4088,17 +4089,18 @@ export default function UcarerDepotReportPage() {
                       <th className="px-2 py-2 text-right">Siparis Miktari</th>
                       <th className="px-2 py-2 text-right">Teslim</th>
                       <th className="px-2 py-2 text-right">Kalan</th>
+                      <th className="px-2 py-2 text-right">Birim Fiyat</th>
                       <th className="px-2 py-2 text-left">Tarih</th>
                     </tr>
                   </thead>
                   <tbody>
                     {incomingOrdersLoading ? (
                       <tr>
-                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Yukleniyor...</td>
+                        <td colSpan={8} className="px-2 py-6 text-center text-gray-500">Yukleniyor...</td>
                       </tr>
                     ) : incomingOrdersDetailRows.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-2 py-6 text-center text-gray-500">Detay bulunamadi.</td>
+                        <td colSpan={8} className="px-2 py-6 text-center text-gray-500">Detay bulunamadi.</td>
                       </tr>
                     ) : (
                       incomingOrdersDetailRows.map((row, index) => (
@@ -4109,6 +4111,7 @@ export default function UcarerDepotReportPage() {
                           <td className="px-2 py-2 text-right">{row.quantity.toLocaleString('tr-TR')}</td>
                           <td className="px-2 py-2 text-right">{row.deliveredQuantity.toLocaleString('tr-TR')}</td>
                           <td className="px-2 py-2 text-right font-semibold">{row.remainingQuantity.toLocaleString('tr-TR')}</td>
+                          <td className="px-2 py-2 text-right">{Number(row.unitPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL</td>
                           <td className="px-2 py-2">{row.orderDate ? new Date(row.orderDate).toLocaleDateString('tr-TR') : '-'}</td>
                         </tr>
                       ))

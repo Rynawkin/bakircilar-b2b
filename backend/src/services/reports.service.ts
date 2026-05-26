@@ -6208,6 +6208,7 @@ export class ReportsService {
       quantity: number;
       deliveredQuantity: number;
       remainingQuantity: number;
+      unitPrice: number;
     }>;
     total: number;
   }> {
@@ -6256,6 +6257,7 @@ export class ReportsService {
       const quantity = Math.max(0, toNum(readByTokens(row, ['sipmiktar'])));
       const deliveredQuantity = Math.max(0, toNum(readByTokens(row, ['sipteslimmiktar'])));
       const remainingQuantity = Math.max(0, quantity - deliveredQuantity);
+      const unitPrice = Math.max(0, toNum(readByTokens(row, ['sipbfiyat', 'birimfiyat', 'bfiyat'])));
       const orderDateValue = readByTokens(row, ['siptarih', 'tarih']);
       const parsedDate = orderDateValue ? new Date(orderDateValue) : null;
       const orderDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : null;
@@ -6268,6 +6270,7 @@ export class ReportsService {
         quantity,
         deliveredQuantity,
         remainingQuantity,
+        unitPrice,
       };
     });
 
