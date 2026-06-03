@@ -113,6 +113,79 @@ const resolveTabParam = (value: QuoteStatusFilter): string => {
   }
 };
 
+const toFiniteNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatProfitPercent = (value?: number | null) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+  return `%${value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const getProfitTone = (value?: number | null) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'text-gray-600';
+  if (value < 0) return 'text-red-700';
+  if (value < 5) return 'text-amber-700';
+  return 'text-emerald-700';
+};
+
+const calculateQuoteProfitSummary = (quote: Quote) => {
+  return (quote.items || []).reduce(
+    (acc, item) => {
+      const quantity = Math.max(0, toFiniteNumber(item.quantity));
+      const lineTotal = Math.max(0, toFiniteNumber(item.totalPrice) || quantity * toFiniteNumber(item.unitPrice));
+      acc.salesTotal += lineTotal;
+
+      if (item.isManualLine) {
+        acc.manualLines += 1;
+        return acc;
+      }
+
+      const entryCost = Math.max(0, toFiniteNumber(item.product?.lastEntryPrice));
+      const currentCost = Math.max(0, toFiniteNumber(item.product?.currentCost));
+
+      if (entryCost > 0) {
+        acc.entrySalesTotal += lineTotal;
+        acc.entryCostTotal += entryCost * quantity;
+      } else {
+        acc.entryMissingLines += 1;
+      }
+
+      if (currentCost > 0) {
+        acc.currentSalesTotal += lineTotal;
+        acc.currentCostTotal += currentCost * quantity;
+      } else {
+        acc.currentMissingLines += 1;
+      }
+
+      return acc;
+    },
+    {
+      salesTotal: 0,
+      entrySalesTotal: 0,
+      currentSalesTotal: 0,
+      entryCostTotal: 0,
+      currentCostTotal: 0,
+      entryMissingLines: 0,
+      currentMissingLines: 0,
+      manualLines: 0,
+    }
+  );
+};
+
+const completeQuoteProfitSummary = (summary: ReturnType<typeof calculateQuoteProfitSummary>) => {
+  const entryProfit = summary.entrySalesTotal - summary.entryCostTotal;
+  const currentProfit = summary.currentSalesTotal - summary.currentCostTotal;
+  return {
+    ...summary,
+    entryProfit,
+    currentProfit,
+    entryProfitPercent: summary.entryCostTotal > 0 ? (entryProfit / summary.entryCostTotal) * 100 : null,
+    currentProfitPercent: summary.currentCostTotal > 0 ? (currentProfit / summary.currentCostTotal) * 100 : null,
+  };
+};
+
 function AdminQuotesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1463,6 +1536,7 @@ function AdminQuotesPageContent() {
               const updatedAtText = quote.updatedAt ? formatDate(quote.updatedAt) : '-';
               const createdByName = quote.createdBy?.name || '-';
               const updatedByName = quote.updatedBy?.name || createdByName || '-';
+              const profitSummary = completeQuoteProfitSummary(calculateQuoteProfitSummary(quote));
 
               return (
                 <Card key={quote.id} className="overflow-hidden">
@@ -1627,6 +1701,44 @@ function AdminQuotesPageContent() {
                             </div>
                           ))}
                         </div>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-gray-800">Dip Toplam Karlilik Ozeti</p>
+                          <p className="text-xs text-gray-500">Hesap KDV haric satis tutari uzerinden yapilir.</p>
+                        </div>
+                        <div className="grid gap-3 lg:grid-cols-3">
+                          <div className="rounded-lg bg-white p-3 shadow-sm">
+                            <p className="text-xs font-medium text-gray-500">KDV Haric Satis Toplami</p>
+                            <p className="mt-1 text-lg font-bold text-gray-900">{formatCurrency(profitSummary.salesTotal)}</p>
+                          </div>
+                          <div className="rounded-lg bg-white p-3 shadow-sm">
+                            <p className="text-xs font-medium text-gray-500">Giris Maliyetine Gore</p>
+                            <p className="mt-1 text-sm text-gray-700">Toplam maliyet: <span className="font-semibold">{formatCurrency(profitSummary.entryCostTotal)}</span></p>
+                            <p className={`text-sm font-semibold ${getProfitTone(profitSummary.entryProfitPercent)}`}>
+                              Kar: {formatCurrency(profitSummary.entryProfit)} ({formatProfitPercent(profitSummary.entryProfitPercent)})
+                            </p>
+                            {profitSummary.entryMissingLines > 0 && (
+                              <p className="mt-1 text-[11px] text-amber-700">{profitSummary.entryMissingLines} satirda giris maliyeti yok.</p>
+                            )}
+                          </div>
+                          <div className="rounded-lg bg-white p-3 shadow-sm">
+                            <p className="text-xs font-medium text-gray-500">Guncel Maliyete Gore</p>
+                            <p className="mt-1 text-sm text-gray-700">Toplam maliyet: <span className="font-semibold">{formatCurrency(profitSummary.currentCostTotal)}</span></p>
+                            <p className={`text-sm font-semibold ${getProfitTone(profitSummary.currentProfitPercent)}`}>
+                              Kar: {formatCurrency(profitSummary.currentProfit)} ({formatProfitPercent(profitSummary.currentProfitPercent)})
+                            </p>
+                            {profitSummary.currentMissingLines > 0 && (
+                              <p className="mt-1 text-[11px] text-amber-700">{profitSummary.currentMissingLines} satirda guncel maliyet yok.</p>
+                            )}
+                          </div>
+                        </div>
+                        {(profitSummary.entryMissingLines > 0 || profitSummary.currentMissingLines > 0 || profitSummary.manualLines > 0) && (
+                          <p className="mt-3 text-xs text-gray-500">
+                            Maliyeti olmayan veya manuel girilen satirlar kar hesabina dahil edilmez.
+                          </p>
+                        )}
                       </div>
 
                       <div className="pt-4 border-t border-gray-200" />

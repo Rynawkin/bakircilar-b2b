@@ -2341,6 +2341,60 @@ function AdminQuoteNewPageContent() {
     );
   }, [quoteItems, vatZeroed]);
 
+  const profitTotals = useMemo(() => {
+    const summary = quoteItems.reduce(
+      (acc, item) => {
+        const quantity = Math.max(0, item.quantity || 0);
+        const unitPrice = roundUp2(item.unitPrice || 0);
+        const lineTotal = quantity * unitPrice;
+        acc.salesTotal += lineTotal;
+
+        if (item.isManualLine) {
+          acc.manualLines += 1;
+          return acc;
+        }
+
+        const entryCost = Math.max(0, item.lastEntryPrice || 0);
+        const currentCost = Math.max(0, item.currentCost || 0);
+
+        if (entryCost > 0) {
+          acc.entrySalesTotal += lineTotal;
+          acc.entryCostTotal += entryCost * quantity;
+        } else {
+          acc.entryMissingLines += 1;
+        }
+
+        if (currentCost > 0) {
+          acc.currentSalesTotal += lineTotal;
+          acc.currentCostTotal += currentCost * quantity;
+        } else {
+          acc.currentMissingLines += 1;
+        }
+
+        return acc;
+      },
+      {
+        salesTotal: 0,
+        entrySalesTotal: 0,
+        currentSalesTotal: 0,
+        entryCostTotal: 0,
+        currentCostTotal: 0,
+        entryMissingLines: 0,
+        currentMissingLines: 0,
+        manualLines: 0,
+      }
+    );
+    const entryProfit = summary.entrySalesTotal - summary.entryCostTotal;
+    const currentProfit = summary.currentSalesTotal - summary.currentCostTotal;
+    return {
+      ...summary,
+      entryProfit,
+      currentProfit,
+      entryProfitPercent: summary.entryCostTotal > 0 ? (entryProfit / summary.entryCostTotal) * 100 : null,
+      currentProfitPercent: summary.currentCostTotal > 0 ? (currentProfit / summary.currentCostTotal) * 100 : null,
+    };
+  }, [quoteItems]);
+
   const hasBlockedPreview = useMemo(() => {
     return quoteItems.some((item) => getMarginInfo(item)?.blocked);
   }, [quoteItems]);
@@ -3759,6 +3813,43 @@ function AdminQuoteNewPageContent() {
                 <p className="text-sm text-gray-500">Genel Toplam</p>
                 <p className="text-2xl font-bold text-primary-600">{formatCurrency(totals.grandTotal)}</p>
               </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-gray-800">KDV Haric Karlilik Ozeti</p>
+                <p className="text-xs text-gray-500">Toplam maliyet ve kar satir miktarlariyla hesaplanir.</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                  <p className="text-xs font-medium text-amber-800">Giris maliyetine gore</p>
+                  <p className="mt-1 text-sm text-gray-700">
+                    Toplam maliyet: <span className="font-semibold text-gray-900">{formatCurrency(profitTotals.entryCostTotal)}</span>
+                  </p>
+                  <p className={`text-sm font-semibold ${getPercentTone(profitTotals.entryProfitPercent)}`}>
+                    Kar: {formatCurrency(profitTotals.entryProfit)} ({formatPercent(profitTotals.entryProfitPercent)})
+                  </p>
+                  {profitTotals.entryMissingLines > 0 && (
+                    <p className="mt-1 text-[11px] text-amber-700">{profitTotals.entryMissingLines} satirda giris maliyeti yok.</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                  <p className="text-xs font-medium text-emerald-800">Guncel maliyete gore</p>
+                  <p className="mt-1 text-sm text-gray-700">
+                    Toplam maliyet: <span className="font-semibold text-gray-900">{formatCurrency(profitTotals.currentCostTotal)}</span>
+                  </p>
+                  <p className={`text-sm font-semibold ${getPercentTone(profitTotals.currentProfitPercent)}`}>
+                    Kar: {formatCurrency(profitTotals.currentProfit)} ({formatPercent(profitTotals.currentProfitPercent)})
+                  </p>
+                  {profitTotals.currentMissingLines > 0 && (
+                    <p className="mt-1 text-[11px] text-amber-700">{profitTotals.currentMissingLines} satirda guncel maliyet yok.</p>
+                  )}
+                </div>
+              </div>
+              {(profitTotals.entryMissingLines > 0 || profitTotals.currentMissingLines > 0 || profitTotals.manualLines > 0) && (
+                <p className="mt-3 text-xs text-gray-500">
+                  Maliyeti olmayan veya manuel girilen satirlar kar hesabina dahil edilmez.
+                </p>
+              )}
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-xs text-gray-500">{quoteItems.length} kalem secili</p>
