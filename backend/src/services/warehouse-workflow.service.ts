@@ -2242,6 +2242,25 @@ class WarehouseWorkflowService {
     }
     const whereSql = whereParts.join(' AND ');
 
+    const currentDeliveryRows = await mikroService.executeQuery(`
+      SELECT MIN(sth_create_date) as delivery_create_date
+      FROM STOK_HAREKETLERI
+      WHERE sth_evraktip = 1
+        AND sth_evrakno_seri = ${this.toSqlLiteral(params.deliverySeries)}
+        AND sth_evrakno_sira = ${this.toSqlLiteral(params.deliverySequence)}
+        AND ISNULL(sth_iptal, 0) = 0
+    `);
+    const deliveryCreateDate = (currentDeliveryRows as any[])?.[0]?.delivery_create_date;
+    if (deliveryCreateDate) {
+      // If an old delivery note was deleted from stock movements, Mikro can leave
+      // orphan e-delivery rows behind. Reusing that number must not reuse those rows.
+      await mikroService.executeQuery(`
+        DELETE FROM E_IRSALIYE_DETAYLARI
+        WHERE ${whereSql}
+          AND eir_create_date < DATEADD(minute, -5, ${this.toSqlLiteral(new Date(deliveryCreateDate))})
+      `);
+    }
+
     const existingRows = await mikroService.executeQuery(`
       SELECT TOP 50 *
       FROM E_IRSALIYE_DETAYLARI
@@ -2521,9 +2540,17 @@ class WarehouseWorkflowService {
     const templateDocType = 1;
 
     const nextRows = await mikroService.executeQuery(`
-      SELECT ISNULL(MAX(sth_evrakno_sira), 0) + 1 as next_sira
-      FROM STOK_HAREKETLERI
-      WHERE sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
+      SELECT ISNULL(MAX(last_sira), 0) + 1 as next_sira
+      FROM (
+        SELECT MAX(sth_evrakno_sira) as last_sira
+        FROM STOK_HAREKETLERI
+        WHERE sth_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
+        UNION ALL
+        SELECT MAX(eir_evrakno_sira) as last_sira
+        FROM E_IRSALIYE_DETAYLARI
+        WHERE eir_evrakno_seri = '${deliverySeries.replace(/'/g, "''")}'
+          AND ISNULL(eir_evrak_tip, 1) = 1
+      ) seq
     `);
     const deliverySequence = Number((nextRows as any[])?.[0]?.next_sira || 0);
     if (!Number.isFinite(deliverySequence) || deliverySequence <= 0) {
