@@ -338,6 +338,7 @@ class WarehouseWorkflowController {
         error.message?.includes('gerekli') ||
         error.message?.includes('baslatilmadan') ||
         error.message?.includes('zaten') ||
+        error.message?.includes('Mikro sofor karti bulunamadi') ||
         error.message?.includes('ornek kayit') ||
         error.message?.includes('uygun ornek')
           ? 400

@@ -54,6 +54,7 @@ type DispatchTransportInfo = {
   driverTcNo: string;
   vehicleName: string;
   vehiclePlate: string;
+  driverUid?: string | null;
 };
 type OrderContext = {
   documentNo: string | null;
@@ -2116,6 +2117,60 @@ class WarehouseWorkflowService {
     return null;
   }
 
+  private normalizeIdentityNo(value: unknown): string {
+    return normalizeCode(value).replace(/[^\d]/g, '');
+  }
+
+  private isZeroGuid(value: unknown): boolean {
+    const normalized = normalizeCode(value).toLowerCase();
+    return !normalized || normalized === '00000000-0000-0000-0000-000000000000';
+  }
+
+  private isPlaceholderDispatchDriver(transport: DispatchTransportInfo): boolean {
+    const tcNo = this.normalizeIdentityNo(transport.driverTcNo);
+    const firstName = normalizeCode(transport.driverFirstName).toUpperCase();
+    const lastName = normalizeCode(transport.driverLastName).toUpperCase();
+    const vehiclePlate = normalizeCode(transport.vehiclePlate).toUpperCase();
+    return tcNo === '11111111111' || (firstName === 'KARGO' && lastName === 'KARGO') || vehiclePlate === 'KARGO';
+  }
+
+  private async resolveDispatchDriverUid(transport: DispatchTransportInfo): Promise<string | null> {
+    const tcNo = this.normalizeIdentityNo(transport.driverTcNo);
+    const firstName = normalizeCode(transport.driverFirstName).replace(/'/g, "''");
+    const lastName = normalizeCode(transport.driverLastName).replace(/'/g, "''");
+
+    const queries: string[] = [];
+    if (tcNo) {
+      queries.push(`
+        SELECT TOP 1 CONVERT(varchar(36), cari_per_Guid) AS driver_uid
+        FROM CARI_PERSONEL_TANIMLARI WITH (NOLOCK)
+        WHERE ISNULL(cari_per_iptal, 0) = 0
+          AND REPLACE(REPLACE(REPLACE(REPLACE(ISNULL(cari_per_TcKimlikNo, ''), ' ', ''), '-', ''), '.', ''), '/', '') = '${tcNo.replace(/'/g, "''")}'
+        ORDER BY cari_per_lastup_date DESC, cari_per_create_date DESC
+      `);
+    }
+    if (firstName && lastName) {
+      queries.push(`
+        SELECT TOP 1 CONVERT(varchar(36), cari_per_Guid) AS driver_uid
+        FROM CARI_PERSONEL_TANIMLARI WITH (NOLOCK)
+        WHERE ISNULL(cari_per_iptal, 0) = 0
+          AND UPPER(LTRIM(RTRIM(ISNULL(cari_per_adi, '')))) = UPPER('${firstName}')
+          AND UPPER(LTRIM(RTRIM(ISNULL(cari_per_soyadi, '')))) = UPPER('${lastName}')
+        ORDER BY cari_per_lastup_date DESC, cari_per_create_date DESC
+      `);
+    }
+
+    for (const query of queries) {
+      const rows = await mikroService.executeQuery(query);
+      const driverUid = normalizeCode((rows as any[])?.[0]?.driver_uid);
+      if (!this.isZeroGuid(driverUid)) {
+        return driverUid;
+      }
+    }
+
+    return null;
+  }
+
   private applyDispatchTransportFields(
     values: Record<string, unknown>,
     columns: Set<string>,
@@ -2158,6 +2213,20 @@ class WarehouseWorkflowService {
   }): Promise<void> {
     const eirsColumns = await this.getTableColumns('E_IRSALIYE_DETAYLARI');
     if (eirsColumns.size === 0) return;
+
+    const resolvedDriverUid =
+      !this.isZeroGuid(params.transport.driverUid)
+        ? normalizeCode(params.transport.driverUid)
+        : await this.resolveDispatchDriverUid(params.transport);
+    if (!resolvedDriverUid && !this.isPlaceholderDispatchDriver(params.transport)) {
+      console.warn('WARN: Mikro sofor karti bulunamadi, e-irsaliye sofor_uid bos yazilacak:', {
+        driverFirstName: normalizeCode(params.transport.driverFirstName),
+        driverLastName: normalizeCode(params.transport.driverLastName),
+        driverTcNo: normalizeCode(params.transport.driverTcNo),
+      });
+    }
+    const driverUidValue = resolvedDriverUid || '00000000-0000-0000-0000-000000000000';
+    const driverUidSql = this.raw(`CAST('${driverUidValue.replace(/'/g, "''")}' as uniqueidentifier)`);
 
     const evrakTipColumn = this.pickFirstColumn(eirsColumns, ['eir_evrak_tip', 'eir_evraktip']);
     const seriColumn = this.pickFirstColumn(eirsColumns, ['eir_evrakno_seri', 'eir_evrak_seri']);
@@ -2218,7 +2287,7 @@ class WarehouseWorkflowService {
     const gonderildiColumn = this.pickFirstColumn(eirsColumns, ['eir_gonderildi_fl']);
     if (gonderildiColumn) updateValues[gonderildiColumn] = toNumber(eirsTemplateRow.eir_gonderildi_fl) ? 1 : 0;
     const soforUidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor_uid']);
-    if (soforUidColumn) updateValues[soforUidColumn] = this.raw(`CAST('00000000-0000-0000-0000-000000000000' as uniqueidentifier)`);
+    if (soforUidColumn) updateValues[soforUidColumn] = driverUidSql;
     const sofor2UidColumn = this.pickFirstColumn(eirsColumns, ['eir_sofor2_uid']);
     if (sofor2UidColumn) updateValues[sofor2UidColumn] = this.raw(`CAST('00000000-0000-0000-0000-000000000000' as uniqueidentifier)`);
     const matbuTarihColumn = this.pickFirstColumn(eirsColumns, ['eir_matbu_tarih']);
@@ -2263,6 +2332,7 @@ class WarehouseWorkflowService {
       if (evrakTipColumn) forceValues[evrakTipColumn] = 1;
       forceAssign(['eir_tipi'], 3);
       forceAssign(['eir_pozisyon'], 0);
+      forceAssign(['eir_sofor_uid'], driverUidSql);
       forceAssign(['eir_sofor_adi', 'eir_surucu_adi'], params.transport.driverFirstName);
       forceAssign(['eir_sofor_soyadi', 'eir_surucu_soyadi'], params.transport.driverLastName);
       forceAssign(['eir_sofor_tckn', 'eir_sofor_tc', 'eir_sofor_tcno'], params.transport.driverTcNo);
@@ -2705,17 +2775,24 @@ class WarehouseWorkflowService {
     if (!deliverySeries) {
       throw new Error('Irsaliye serisi gerekli');
     }
-    const transport = payload.transport;
+    const transportInput = payload.transport;
     if (
-      !transport ||
-      !normalizeCode(transport.driverFirstName) ||
-      !normalizeCode(transport.driverLastName) ||
-      !normalizeCode(transport.driverTcNo) ||
-      !normalizeCode(transport.vehicleName) ||
-      !normalizeCode(transport.vehiclePlate)
+      !transportInput ||
+      !normalizeCode(transportInput.driverFirstName) ||
+      !normalizeCode(transportInput.driverLastName) ||
+      !normalizeCode(transportInput.driverTcNo) ||
+      !normalizeCode(transportInput.vehicleName) ||
+      !normalizeCode(transportInput.vehiclePlate)
     ) {
       throw new Error('Sofor ve arac bilgileri gerekli');
     }
+    const driverUid = await this.resolveDispatchDriverUid(transportInput);
+    if (!driverUid && !this.isPlaceholderDispatchDriver(transportInput)) {
+      throw new Error(
+        `Mikro sofor karti bulunamadi: ${normalizeCode(transportInput.driverFirstName)} ${normalizeCode(transportInput.driverLastName)} / ${normalizeCode(transportInput.driverTcNo)}`
+      );
+    }
+    const transport: DispatchTransportInfo = { ...transportInput, driverUid };
 
     const parsedOrder = parseMikroOrderNumber(orderNo);
     if (!parsedOrder) {
