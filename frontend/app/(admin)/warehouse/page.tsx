@@ -28,6 +28,10 @@ type OrderCoverageStatus = 'FULL' | 'PARTIAL' | 'NONE';
 type OrderSortField = 'orderDate' | 'customerName' | 'grandTotal' | 'coveredPercent';
 type OrderSortDirection = 'asc' | 'desc';
 type OrderViewMode = 'order' | 'customer';
+type KeyboardTarget =
+  | { type: 'search' }
+  | { type: 'delivery'; orderNumber: string }
+  | { type: 'shelf'; orderNumber: string; lineKey: string };
 
 interface WarehouseSeriesRow {
   series: string;
@@ -245,6 +249,8 @@ export default function WarehousePage() {
   const [deliveryNoteDrafts, setDeliveryNoteDrafts] = useState<Record<string, string>>({});
   const [dispatchDriverDrafts, setDispatchDriverDrafts] = useState<Record<string, string>>({});
   const [dispatchVehicleDrafts, setDispatchVehicleDrafts] = useState<Record<string, string>>({});
+  const [sktCheckedLines, setSktCheckedLines] = useState<Record<string, boolean>>({});
+  const [confirmCompleteKeys, setConfirmCompleteKeys] = useState<Record<string, boolean>>({});
   const [dispatchDrivers, setDispatchDrivers] = useState<DriverOption[]>([]);
   const [dispatchVehicles, setDispatchVehicles] = useState<VehicleOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -254,7 +260,7 @@ export default function WarehousePage() {
   const [newVehicleName, setNewVehicleName] = useState('');
   const [newVehiclePlate, setNewVehiclePlate] = useState('');
   const [showDispatchCatalogAdmin, setShowDispatchCatalogAdmin] = useState(false);
-  const [keyboardTarget, setKeyboardTarget] = useState<{ type: 'search' | 'delivery'; orderNumber?: string } | null>(null);
+  const [keyboardTarget, setKeyboardTarget] = useState<KeyboardTarget | null>(null);
   const [keyboardValue, setKeyboardValue] = useState('');
   const [qtyPadTarget, setQtyPadTarget] = useState<{
     type: 'picked' | 'extra';
@@ -466,6 +472,24 @@ export default function WarehousePage() {
   const getDeliveryDraft = (mikroOrderNumber: string) => (deliveryNoteDrafts[mikroOrderNumber] || '').trim();
   const getDriverDraft = (mikroOrderNumber: string) => (dispatchDriverDrafts[mikroOrderNumber] || '').trim();
   const getVehicleDraft = (mikroOrderNumber: string) => (dispatchVehicleDrafts[mikroOrderNumber] || '').trim();
+  const getUncheckedSktLines = (mikroOrderNumber: string) => {
+    const detail = detailByOrder[mikroOrderNumber];
+    if (!detail) return [];
+    return detail.lines.filter((line) => !sktCheckedLines[getShelfDraftKey(mikroOrderNumber, line.lineKey)]);
+  };
+  const ensureSktChecks = (mikroOrderNumber: string) => {
+    const missingLines = getUncheckedSktLines(mikroOrderNumber);
+    if (missingLines.length === 0) return true;
+    const sample = missingLines
+      .slice(0, 4)
+      .map((line) => `${line.productCode} - ${line.productName}`)
+      .join(', ');
+    toast.error(
+      `SKT kontrolu yapilmamis ${missingLines.length} satir var. ${sample}${missingLines.length > 4 ? '...' : ''}`,
+      { duration: 7000 }
+    );
+    return false;
+  };
 
   const loadOrderDetail = async (
     mikroOrderNumber: string,
@@ -698,10 +722,28 @@ export default function WarehousePage() {
     await updateLine(mikroOrderNumber, line, { shelfCode: draft || null }, 'Raf kodu guncellendi');
   };
 
+  const handleCompleteLine = async (mikroOrderNumber: string, line: WarehouseOrderDetail['lines'][number]) => {
+    const actionKey = getShelfDraftKey(mikroOrderNumber, line.lineKey);
+    if (!confirmCompleteKeys[actionKey]) {
+      setConfirmCompleteKeys((prev) => ({ ...prev, [actionKey]: true }));
+      toast('Satiri toplandi yapmak icin beyaz Tamamladim butonuna tekrar basin', { duration: 3500 });
+      return;
+    }
+
+    setConfirmCompleteKeys((prev) => {
+      const next = { ...prev };
+      delete next[actionKey];
+      return next;
+    });
+    await updateLine(mikroOrderNumber, line, { pickedQty: line.remainingQty });
+  };
+
   const handleDispatchWithDeliveryNote = async (
     mikroOrderNumber: string,
     options?: { deliverySeries?: string; driverId?: string; vehicleId?: string }
   ) => {
+    if (!ensureSktChecks(mikroOrderNumber)) return;
+
     const deliverySeries = (options?.deliverySeries || getDeliveryDraft(mikroOrderNumber)).trim();
     const selectedDriver = activeDrivers.find((item) => item.id === (options?.driverId || getDriverDraft(mikroOrderNumber)));
     const selectedVehicle = activeVehicles.find((item) => item.id === (options?.vehicleId || getVehicleDraft(mikroOrderNumber)));
@@ -751,6 +793,7 @@ export default function WarehousePage() {
   };
 
   const openDispatchModal = (mikroOrderNumber: string) => {
+    if (!ensureSktChecks(mikroOrderNumber)) return;
     setDispatchModalOrderNumber(mikroOrderNumber);
     setDispatchModalSeries(getDeliveryDraft(mikroOrderNumber));
     setDispatchModalDriverId(getDriverDraft(mikroOrderNumber));
@@ -820,6 +863,26 @@ export default function WarehousePage() {
       }
       return next;
     });
+    setSktCheckedLines((prev) => {
+      const next: Record<string, boolean> = {};
+      const prefix = `${mikroOrderNumber}::`;
+      for (const [key, value] of Object.entries(prev)) {
+        if (!key.startsWith(prefix)) {
+          next[key] = value;
+        }
+      }
+      return next;
+    });
+    setConfirmCompleteKeys((prev) => {
+      const next: Record<string, boolean> = {};
+      const prefix = `${mikroOrderNumber}::`;
+      for (const [key, value] of Object.entries(prev)) {
+        if (!key.startsWith(prefix)) {
+          next[key] = value;
+        }
+      }
+      return next;
+    });
     setDeliveryNoteDrafts((prev) => {
       const next = { ...prev };
       delete next[mikroOrderNumber];
@@ -861,17 +924,38 @@ export default function WarehousePage() {
     setKeyboardValue(deliveryNoteDrafts[mikroOrderNumber] || '');
   };
 
-  const applyKeyboard = () => {
+  const openShelfKeyboard = (mikroOrderNumber: string, line: WarehouseOrderDetail['lines'][number]) => {
+    const draftKey = getShelfDraftKey(mikroOrderNumber, line.lineKey);
+    setKeyboardTarget({ type: 'shelf', orderNumber: mikroOrderNumber, lineKey: line.lineKey });
+    setKeyboardValue(shelfDrafts[draftKey] ?? line.shelfCode ?? '');
+  };
+
+  const applyKeyboard = async () => {
     if (!keyboardTarget) return;
     if (keyboardTarget.type === 'search') {
       setSearchText(keyboardValue.trim());
-    } else if (keyboardTarget.orderNumber) {
+      setKeyboardTarget(null);
+      return;
+    }
+
+    if (keyboardTarget.type === 'delivery') {
       setDeliveryNoteDrafts((prev) => ({
         ...prev,
-        [keyboardTarget.orderNumber as string]: keyboardValue.trim(),
+        [keyboardTarget.orderNumber]: keyboardValue.trim(),
       }));
+      setKeyboardTarget(null);
+      return;
     }
+
+    const detailForOrder = detailByOrder[keyboardTarget.orderNumber];
+    const line = detailForOrder?.lines.find((item) => item.lineKey === keyboardTarget.lineKey);
+    const draftKey = getShelfDraftKey(keyboardTarget.orderNumber, keyboardTarget.lineKey);
+    const nextShelf = keyboardValue.trim();
+    setShelfDrafts((prev) => ({ ...prev, [draftKey]: nextShelf }));
     setKeyboardTarget(null);
+    if (line) {
+      await updateLine(keyboardTarget.orderNumber, line, { shelfCode: nextShelf || null }, 'Raf kodu guncellendi');
+    }
   };
 
   const openQtyPad = (
@@ -1405,6 +1489,7 @@ export default function WarehousePage() {
                     const visibleLines = showCompletedLines
                       ? panelDetail.lines
                       : panelDetail.lines.filter((line) => line.remainingQty > 0 && line.pickedQty < line.remainingQty);
+                    const missingSktLines = getUncheckedSktLines(orderNumber);
 
                     return (
                       <div
@@ -1500,6 +1585,11 @@ export default function WarehousePage() {
                             </Button>
                           </div>
                         </div>
+                        {missingSktLines.length > 0 && (
+                          <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+                            SKT kontrolu eksik: {missingSktLines.length} satir. Irsaliye olusturmak icin satirlarin sagindaki SKT kontrolunu isaretleyin.
+                          </div>
+                        )}
 
                         <div className={panelLineAreaClass}>
                           {visibleLines.map((line, lineIndex) => {
@@ -1512,6 +1602,8 @@ export default function WarehousePage() {
                             const imageIssueKey = `${orderNumber}::${line.lineKey}`;
                             const imageIssueReported = Boolean(reportedImageKeys[imageIssueKey]);
                             const imageIssueReporting = reportingImageKey === imageIssueKey;
+                            const sktChecked = Boolean(sktCheckedLines[draftKey]);
+                            const confirmComplete = Boolean(confirmCompleteKeys[draftKey]);
                             const unitLabel = getUnitConversionLabel(line.unit, line.unit2, line.unit2Factor);
                             const zebraClass = lineIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/80';
                             const statusBorderClass = isLineCompleted
@@ -1596,6 +1688,19 @@ export default function WarehousePage() {
                                           Topca: {line.warehouseStocks.topca}
                                         </span>
                                         <button
+                                          type="button"
+                                          onClick={() =>
+                                            setSktCheckedLines((prev) => ({ ...prev, [draftKey]: !Boolean(prev[draftKey]) }))
+                                          }
+                                          className={`min-w-[118px] text-[10px] px-2 py-1 rounded-lg border font-black transition-colors ${
+                                            sktChecked
+                                              ? 'border-emerald-400 bg-emerald-100 text-emerald-800'
+                                              : 'border-amber-300 bg-amber-50 text-amber-800'
+                                          }`}
+                                        >
+                                          {sktChecked ? 'SKT OK' : 'SKT Kontrolu'}
+                                        </button>
+                                        <button
                                           onClick={() => reportImageIssue(orderNumber, line)}
                                           disabled={imageIssueReported || imageIssueReporting}
                                           className={`text-[10px] px-2 py-1 rounded-lg border font-bold disabled:opacity-60 ${
@@ -1653,11 +1758,15 @@ export default function WarehousePage() {
                                               +
                                             </button>
                                             <button
-                                              onClick={() => updateLine(orderNumber, line, { pickedQty: line.remainingQty })}
+                                              onClick={() => handleCompleteLine(orderNumber, line)}
                                               disabled={saving || !panelCanEditLines}
-                                              className="h-7 px-2 rounded-md bg-emerald-600 text-[10px] text-white font-bold disabled:opacity-50 whitespace-nowrap"
+                                              className={`h-7 px-2 rounded-md text-[10px] font-bold disabled:opacity-50 whitespace-nowrap ${
+                                                confirmComplete
+                                                  ? 'border border-slate-900 bg-white text-slate-900 shadow-sm'
+                                                  : 'bg-emerald-600 text-white'
+                                              }`}
                                             >
-                                              Tamami
+                                              {confirmComplete ? 'Tamamladim' : 'Tamami'}
                                             </button>
                                           </div>
                                         </div>
@@ -1704,6 +1813,12 @@ export default function WarehousePage() {
                                               onChange={(event) =>
                                                 setShelfDrafts((prev) => ({ ...prev, [draftKey]: event.target.value }))
                                               }
+                                              onFocus={() => {
+                                                if (panelCanEditLines) openShelfKeyboard(orderNumber, line);
+                                              }}
+                                              onClick={() => {
+                                                if (panelCanEditLines) openShelfKeyboard(orderNumber, line);
+                                              }}
                                               onBlur={() => {
                                                 if (panelCanEditLines) saveShelf(orderNumber, line);
                                               }}
@@ -1819,7 +1934,13 @@ export default function WarehousePage() {
                   vehicleId: dispatchModalVehicleId,
                 });
               }}
-              disabled={actionLoading || !dispatchModalSeries.trim() || !dispatchModalDriverId || !dispatchModalVehicleId}
+              disabled={
+                actionLoading ||
+                !dispatchModalSeries.trim() ||
+                !dispatchModalDriverId ||
+                !dispatchModalVehicleId ||
+                Boolean(dispatchModalOrderNumber && getUncheckedSktLines(dispatchModalOrderNumber).length > 0)
+              }
             >
               Irsaliyelestir
             </Button>
@@ -1830,6 +1951,11 @@ export default function WarehousePage() {
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
             Siparis: <strong>{dispatchModalOrderNumber || '-'}</strong>
           </div>
+          {dispatchModalOrderNumber && getUncheckedSktLines(dispatchModalOrderNumber).length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+              SKT kontrolu eksik {getUncheckedSktLines(dispatchModalOrderNumber).length} satir var. Once satirlarin sagindaki SKT kontrolunu isaretleyin.
+            </div>
+          )}
           <div>
             <p className="text-xs font-bold text-slate-600 mb-1">Irsaliye Serisi</p>
             <Input
@@ -1874,12 +2000,18 @@ export default function WarehousePage() {
       <Modal
         isOpen={Boolean(keyboardTarget)}
         onClose={() => setKeyboardTarget(null)}
-        title={keyboardTarget?.type === 'delivery' ? 'Irsaliye Serisi Klavyesi' : 'Siparis Arama Klavyesi'}
+        title={
+          keyboardTarget?.type === 'delivery'
+            ? 'Irsaliye Serisi Klavyesi'
+            : keyboardTarget?.type === 'shelf'
+            ? 'Raf Kodu Klavyesi'
+            : 'Siparis Arama Klavyesi'
+        }
         size="xl"
         footer={
           <div className="flex w-full items-center justify-between gap-2">
             <Button variant="secondary" onClick={() => setKeyboardValue('')}>Temizle</Button>
-            <Button onClick={applyKeyboard}>OK</Button>
+            <Button onClick={() => void applyKeyboard()}>OK</Button>
           </div>
         }
       >
@@ -1891,7 +2023,7 @@ export default function WarehousePage() {
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
-                applyKeyboard();
+                void applyKeyboard();
               }
             }}
             className="h-12 text-lg font-bold"

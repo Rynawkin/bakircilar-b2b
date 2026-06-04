@@ -922,6 +922,27 @@ class WarehouseWorkflowService {
       shelfMap.set(normalizeCode(shelfLocation.productCode), normalizeCode(shelfLocation.shelfCode) || null);
     }
 
+    try {
+      const quotedCodes = uniqueCodes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+      const mikroShelfRows = await mikroService.executeQuery(`
+        SELECT
+          sto_kod as productCode,
+          NULLIF(LTRIM(RTRIM(ISNULL(sto_reyon_kodu, ''))), '') as shelfCode
+        FROM STOKLAR
+        WHERE sto_kod IN (${quotedCodes})
+      `);
+
+      for (const row of mikroShelfRows as any[]) {
+        const code = normalizeCode(row.productCode || row.sto_kod);
+        const shelfCode = normalizeCode(row.shelfCode || row.sto_reyon_kodu);
+        if (code && shelfCode && !shelfMap.get(code)) {
+          shelfMap.set(code, shelfCode);
+        }
+      }
+    } catch (error) {
+      console.warn('[warehouse-workflow] Mikro raf kodlari okunamadi', error);
+    }
+
     return { stockMap, warehouseBreakdownMap, imageMap, shelfMap, unitInfoMap };
   }
 
@@ -1514,7 +1535,9 @@ class WarehouseWorkflowService {
         toItemStatus(pickedQty, extraQty, shortageQty, effectiveRemainingQty);
       const normalizedCode = normalizeCode(item.productCode);
       const stockAvailable = stockMap.get(normalizedCode) || 0;
-      const shelfCode = workflowItem?.shelfCode || shelfMap.get(normalizedCode) || null;
+      const workflowShelfCode = normalizeCode(workflowItem?.shelfCode);
+      const mappedShelfCode = normalizeCode(shelfMap.get(normalizedCode));
+      const shelfCode = workflowShelfCode && workflowShelfCode !== '-' ? workflowShelfCode : mappedShelfCode || null;
       const unitInfo = unitInfoMap.get(normalizedCode) || { unit2: null, unit2Factor: null };
       const warehouseStocks = warehouseBreakdownMap.get(normalizedCode) || { merkez: 0, topca: 0 };
       const reservationsForProduct = activeReservationsByProduct.get(normalizeProductCode(normalizedCode)) || [];
