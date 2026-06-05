@@ -22,9 +22,11 @@ import {
   Send,
   ShieldCheck,
   ShoppingCart,
+  Sparkles,
   Trash2,
   UserRound,
   Warehouse,
+  X,
 } from 'lucide-react';
 import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
@@ -40,6 +42,7 @@ import {
 } from '@/lib/utils/unit';
 
 type TabKey = 'customer' | 'products' | 'draft' | 'history';
+type ProductMode = 'search' | 'purchased' | 'stock' | 'opportunity';
 
 type DraftItem = {
   productId?: string | null;
@@ -285,6 +288,63 @@ const getProductPrice = (product: any) => {
   return { value: fallback, source: getPriceListLabel(6), priceListNo: 6, priceSource: 'PRICE_LIST' };
 };
 
+const getOpportunityRows = (opportunities: any) => [
+  ...(opportunities?.stalePurchased || []),
+  ...(opportunities?.agreementNoRecent || []),
+  ...(opportunities?.similarSector || []),
+];
+
+const normalizeProductLike = (rawProduct: any) => {
+  if (!rawProduct) return {};
+  return rawProduct.mikroCode
+    ? rawProduct
+    : {
+        ...rawProduct,
+        mikroCode: rawProduct.productCode,
+        name: rawProduct.productName,
+      };
+};
+
+const matchesProductSearch = (product: any, search: string) => {
+  const tokens = normalizeSearchText(search).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const haystack = normalizeSearchText([
+    product.productCode,
+    product.mikroCode,
+    product.productName,
+    product.name,
+    product.categoryName,
+    product.brandCode,
+  ].filter(Boolean).join(' '));
+  return tokens.every((token) => haystack.includes(token));
+};
+
+const bumpDecimalText = (value: string, diff: number) => {
+  const parsed = parseDecimalInput(value);
+  const next = Math.max(0.0001, (parsed === undefined ? 0 : parsed) + diff);
+  return formatDecimalInput(roundUnitValue(next));
+};
+
+const getCostValue = (source: any) => {
+  const cost = source?.cost || source;
+  const value = Number(cost?.currentCostVatIncluded || cost?.currentCost || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+};
+
+const getProfitInfo = (unitPrice: number, source: any) => {
+  const cost = getCostValue(source);
+  const price = Number(unitPrice || 0);
+  if (!cost || !price) return null;
+  const profit = price - cost;
+  const percent = (profit / cost) * 100;
+  return {
+    cost,
+    profit,
+    percent,
+    tone: profit < 0 ? 'red' : percent < 5 ? 'amber' : 'emerald',
+  };
+};
+
 const buildWhatsappText = (customer: any, product: any, safeMode: boolean) => {
   const price = getProductPrice(product);
   const stockLine = getActiveWarehouses(product)
@@ -317,11 +377,13 @@ export default function FieldSalesPage() {
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
   const [productSearch, setProductSearch] = useState('');
-  const [productMode, setProductMode] = useState<'search' | 'purchased'>('search');
+  const [productMode, setProductMode] = useState<ProductMode>('search');
   const [products, setProducts] = useState<any[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [productQuantities, setProductQuantities] = useState<Record<string, string>>({});
+  const productSearchCacheRef = useRef<Map<string, any[]>>(new Map());
+  const productDetailCacheRef = useRef<Map<string, any>>(new Map());
 
   const [draft, setDraft] = useState<DraftItem[]>([]);
   const [quoteNote, setQuoteNote] = useState('Saha satis taslagi');
@@ -386,7 +448,7 @@ export default function FieldSalesPage() {
   }, [selectedCustomer?.id, selectedCustomer?.mikroCariCode]);
 
   useEffect(() => {
-    if (productMode !== 'search') return;
+    if (productMode !== 'search' && productMode !== 'stock') return;
     if (!productSearch.trim() || productSearch.trim().length < 2) {
       setProducts([]);
       return;
@@ -434,6 +496,12 @@ export default function FieldSalesPage() {
   const searchProducts = async () => {
     const term = productSearch.trim();
     if (term.length < 2) return;
+    const cacheKey = `${customerIdForApi || 'no-customer'}::${safeMode ? 'safe' : 'internal'}::${term.toLocaleLowerCase('tr-TR')}`;
+    const cached = productSearchCacheRef.current.get(cacheKey);
+    if (cached) {
+      setProducts(cached);
+      return;
+    }
     setProductsLoading(true);
     try {
       const result = await adminApi.searchFieldSalesProducts({
@@ -442,7 +510,9 @@ export default function FieldSalesPage() {
         limit: 30,
         safeMode,
       });
-      setProducts(result.products || []);
+      const nextProducts = result.products || [];
+      productSearchCacheRef.current.set(cacheKey, nextProducts);
+      setProducts(nextProducts);
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Urun aramasi yapilamadi.');
     } finally {
@@ -451,17 +521,28 @@ export default function FieldSalesPage() {
   };
 
   const openProductDetail = async (product: any) => {
-    setSelectedProduct(product);
-    upsertRecent(RECENT_PRODUCTS_KEY, product, (row) => String(row.mikroCode || ''));
+    const normalizedProduct = normalizeProductLike(product);
+    const code = String(normalizedProduct?.mikroCode || '').trim();
+    setSelectedProduct(normalizedProduct);
+    upsertRecent(RECENT_PRODUCTS_KEY, normalizedProduct, (row) => String(row.mikroCode || ''));
     setRecentProducts(loadJson<any[]>(RECENT_PRODUCTS_KEY, []));
+    if (!code) return;
+    const cacheKey = `${customerIdForApi || 'no-customer'}::${safeMode ? 'safe' : 'internal'}::${code}`;
+    const cached = productDetailCacheRef.current.get(cacheKey);
+    if (cached) {
+      setSelectedProduct(cached);
+      return;
+    }
     try {
-      const result = await adminApi.getFieldSalesProduct(product.mikroCode, {
+      const result = await adminApi.getFieldSalesProduct(code, {
         customerId: customerIdForApi || undefined,
         safeMode,
       });
-      setSelectedProduct(result.data.product || product);
+      const detail = result.data.product || normalizedProduct;
+      productDetailCacheRef.current.set(cacheKey, detail);
+      setSelectedProduct(detail);
     } catch {
-      setSelectedProduct(product);
+      setSelectedProduct(normalizedProduct);
     }
   };
 
@@ -469,18 +550,32 @@ export default function FieldSalesPage() {
     const code = String(product?.mikroCode || product?.productCode || '').trim();
     if (!code) return product;
     if (product?.priceLists || product?.customerPrice) return { ...product, mikroCode: code };
+    const cacheKey = `${customerIdForApi || 'no-customer'}::${safeMode ? 'safe' : 'internal'}::${code}`;
+    const cached = productDetailCacheRef.current.get(cacheKey);
+    if (cached) return cached;
     try {
       const result = await adminApi.getFieldSalesProduct(code, {
         customerId: customerIdForApi || undefined,
         safeMode,
       });
-      return result.data.product || { ...product, mikroCode: code };
+      const detail = result.data.product || { ...product, mikroCode: code };
+      productDetailCacheRef.current.set(cacheKey, detail);
+      return detail;
     } catch {
       return { ...product, mikroCode: code };
     }
   };
 
-  const addToDraft = async (product: any, options?: { priceSource?: DraftItem['priceSource']; priceListNo?: number; saleIndex?: number; unitPrice?: number }) => {
+  const addToDraft = async (
+    product: any,
+    options?: {
+      priceSource?: DraftItem['priceSource'];
+      priceListNo?: number;
+      saleIndex?: number;
+      unitPrice?: number;
+      selectedUnit?: string;
+    }
+  ) => {
     const resolvedProduct = await resolveProductForDraft(product);
     const code = String(resolvedProduct?.mikroCode || resolvedProduct?.productCode || '').trim();
     if (!code) {
@@ -488,7 +583,7 @@ export default function FieldSalesPage() {
       return;
     }
     const price = getProductPrice(resolvedProduct);
-    const selectedUnit = resolvedProduct.unit || 'ADET';
+    const selectedUnit = options?.selectedUnit || resolvedProduct.unit || 'ADET';
     const quantityInput = productQuantities[code] || productQuantities[resolvedProduct.mikroCode] || '1';
     const displayQuantity = Math.max(0.0001, parseDecimalInput(quantityInput) || 1);
     const quantity = convertQuantityToBaseUnit(displayQuantity, selectedUnit, resolvedProduct.unit, resolvedProduct.unit2, resolvedProduct.unit2Factor);
@@ -928,10 +1023,13 @@ export default function FieldSalesPage() {
               setProductMode={setProductMode}
               products={products}
               purchasedProducts={snapshot?.recentPurchases || []}
+              opportunities={snapshot?.opportunities}
               productsLoading={productsLoading}
               searchProducts={searchProducts}
               startBarcodeScanner={startBarcodeScanner}
               safeMode={safeMode}
+              selectedCustomer={selectedCustomer}
+              snapshot={snapshot}
               productQuantities={productQuantities}
               setProductQuantities={setProductQuantities}
               addToDraft={addToDraft}
@@ -976,6 +1074,14 @@ export default function FieldSalesPage() {
           </div>
         </main>
       </div>
+
+      <FloatingDraftBar
+        draftCount={draft.length}
+        draftTotal={draftTotal}
+        selectedCustomer={selectedCustomer}
+        onOpenDraft={() => setActiveTab('draft')}
+        activeTab={activeTab}
+      />
 
       <BottomTabs activeTab={activeTab} setActiveTab={setActiveTab} draftCount={draft.length} />
 
@@ -1330,10 +1436,13 @@ function ProductPanel(props: any) {
     setProductMode,
     products,
     purchasedProducts,
+    opportunities,
     productsLoading,
     searchProducts,
     startBarcodeScanner,
     safeMode,
+    selectedCustomer,
+    snapshot,
     productQuantities,
     setProductQuantities,
     addToDraft,
@@ -1341,40 +1450,68 @@ function ProductPanel(props: any) {
     shareProduct,
   } = props;
   const purchasedRows = useMemo(() => {
-    const tokens = normalizeSearchText(productSearch).split(/\s+/).filter(Boolean);
     const rows = Array.isArray(purchasedProducts) ? purchasedProducts : [];
-    if (tokens.length === 0) return rows;
-    return rows.filter((product: any) => {
-      const haystack = normalizeSearchText([
-        product.productCode,
-        product.mikroCode,
-        product.productName,
-        product.name,
-        product.categoryName,
-      ].filter(Boolean).join(' '));
-      return tokens.every((token) => haystack.includes(token));
-    });
+    return rows.filter((product: any) => matchesProductSearch(product, productSearch));
   }, [purchasedProducts, productSearch]);
-  const visibleProducts = productMode === 'purchased' ? purchasedRows : products;
+  const opportunityRows = useMemo(
+    () => getOpportunityRows(opportunities).filter((product: any) => matchesProductSearch(product, productSearch)),
+    [opportunities, productSearch]
+  );
+  const visibleProducts = productMode === 'purchased'
+    ? purchasedRows
+    : productMode === 'opportunity'
+    ? opportunityRows
+    : productMode === 'stock'
+    ? products.filter((product: any) => activeSellable(product) > 0)
+    : products;
+  const productModes: Array<{ key: ProductMode; label: string; count?: number }> = [
+    { key: 'search', label: 'Tum urunler', count: products.length },
+    { key: 'purchased', label: 'Aldiklari', count: purchasedRows.length },
+    { key: 'stock', label: 'Stokta', count: products.filter((product: any) => activeSellable(product) > 0).length },
+    { key: 'opportunity', label: 'Firsatlar', count: opportunityRows.length },
+  ];
+  const placeholder = productMode === 'purchased'
+    ? 'Daha once aldiklarinda ara...'
+    : productMode === 'opportunity'
+    ? 'Firsatlarda urun/kategori ara...'
+    : 'Stok kodu, barkod, urun adi...';
 
   return (
     <section className="flex flex-col gap-4">
       <Panel title="Urun ara" icon={Package}>
-        <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
-          <button
-            type="button"
-            onClick={() => setProductMode('search')}
-            className={cn('rounded-xl px-3 py-2 text-sm font-black transition', productMode === 'search' ? 'bg-white text-slate-950 shadow' : 'text-slate-500')}
-          >
-            Tum urunler
-          </button>
-          <button
-            type="button"
-            onClick={() => setProductMode('purchased')}
-            className={cn('rounded-xl px-3 py-2 text-sm font-black transition', productMode === 'purchased' ? 'bg-white text-slate-950 shadow' : 'text-slate-500')}
-          >
-            Daha once aldiklari
-          </button>
+        {selectedCustomer && (
+          <div className="mb-3 grid gap-2 rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900 sm:grid-cols-3">
+            <div>
+              <p className="font-black">Cari</p>
+              <p className="truncate font-semibold">{selectedCustomer.displayTitle || selectedCustomer.mikroCariCode}</p>
+            </div>
+            <div>
+              <p className="font-black">Son satis</p>
+              <p className="font-semibold">{safeDate(snapshot?.summary?.lastSaleDate)}</p>
+            </div>
+            <div>
+              <p className="font-black">Acik siparis / teklif</p>
+              <p className="font-semibold">{snapshot?.summary?.openOrderCount || 0} / {snapshot?.summary?.openQuoteCount || 0}</p>
+            </div>
+          </div>
+        )}
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 lg:grid-cols-4">
+          {productModes.map((mode) => (
+            <button
+              key={mode.key}
+              type="button"
+              onClick={() => setProductMode(mode.key)}
+              className={cn(
+                'rounded-xl px-3 py-2 text-sm font-black transition',
+                productMode === mode.key ? 'bg-white text-slate-950 shadow' : 'text-slate-500'
+              )}
+            >
+              {mode.label}
+              {mode.count !== undefined && (
+                <span className="ml-1 rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">{mode.count}</span>
+              )}
+            </button>
+          ))}
         </div>
         <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
           <div className="relative">
@@ -1383,11 +1520,11 @@ function ProductPanel(props: any) {
               value={productSearch}
               onChange={(event) => setProductSearch(event.target.value)}
               onFocus={(event) => event.currentTarget.select()}
-              placeholder={productMode === 'purchased' ? 'Daha once aldiklarinda ara...' : 'Stok kodu, barkod, urun adi...'}
+              placeholder={placeholder}
               className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-base font-semibold outline-none focus:border-amber-500 focus:bg-white"
             />
           </div>
-          <Button className="h-14 rounded-2xl" onClick={productMode === 'search' ? searchProducts : undefined}>
+          <Button className="h-14 rounded-2xl" onClick={productMode === 'search' || productMode === 'stock' ? searchProducts : undefined}>
             Ara
           </Button>
           <Button variant="secondary" className="h-14 rounded-2xl" onClick={startBarcodeScanner}>
@@ -1400,25 +1537,33 @@ function ProductPanel(props: any) {
         </div>
       </Panel>
 
-      <div className="grid gap-3 2xl:grid-cols-2">
-        {productMode === 'search' && productsLoading && <LoadingCard />}
+      <div className="grid gap-3 xl:grid-cols-2">
+        {(productMode === 'search' || productMode === 'stock') && productsLoading && <LoadingCard />}
         {!productsLoading && visibleProducts.length === 0 && (
-          <div className="2xl:col-span-2">
-            <EmptyText text={productMode === 'purchased' ? 'Bu carinin daha once aldiklarinda sonuc yok.' : 'Urun aramak icin stok kodu, ad veya barkod okutun.'} />
+          <div className="xl:col-span-2">
+            <EmptyText
+              text={
+                productMode === 'purchased'
+                  ? 'Bu carinin daha once aldiklarinda sonuc yok.'
+                  : productMode === 'opportunity'
+                  ? 'Bu cari icin firsat listesinde sonuc yok.'
+                  : productMode === 'stock'
+                  ? 'Arama sonucunda merkez/topca stogu olan urun yok.'
+                  : 'Urun aramak icin stok kodu, ad veya barkod okutun.'
+              }
+            />
           </div>
         )}
         {visibleProducts.map((rawProduct: any) => {
-          const isPurchasedSummary = productMode === 'purchased' && !rawProduct.mikroCode;
-          const product = rawProduct.mikroCode ? rawProduct : {
-            ...rawProduct,
-            mikroCode: rawProduct.productCode,
-            name: rawProduct.productName,
-          };
+          const isSummaryRow = !rawProduct.mikroCode;
+          const product = normalizeProductLike(rawProduct);
           const price = getProductPrice(product);
           const qty = productQuantities[product.mikroCode] || '1';
           const merkez = getWarehouseByNo(product, 1);
           const topca = getWarehouseByNo(product, 6);
           const categoryInfo = getCategoryLastPurchaseInfo(product);
+          const stockTotal = activeSellable(product);
+          const stockTone = stockTotal > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800';
           return (
             <article key={product.mikroCode} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg">
               <button onClick={() => openProductDetail(product)} className="block w-full p-4 text-left">
@@ -1428,25 +1573,59 @@ function ProductPanel(props: any) {
                     <p className="truncate text-sm font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-base lg:leading-snug">{product.name}</p>
                     <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
                     <CategoryLastPurchasePill info={categoryInfo} />
+                    {rawProduct.reason && (
+                      <p className="mt-1 line-clamp-2 text-xs font-semibold text-amber-700">{rawProduct.reason}</p>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-black">
+                      <span className={cn('rounded-full border px-2 py-1', stockTone)}>
+                        Merkez+Topca: {isSummaryRow ? 'Detayda' : n(stockTotal)}
+                      </span>
+                      {rawProduct.lastPurchaseDate && (
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
+                          Son alim: {safeDate(rawProduct.lastPurchaseDate)}
+                        </span>
+                      )}
+                      {rawProduct.title && (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                          {rawProduct.title}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
-                      <Mini label="Fiyat" value={isPurchasedSummary ? 'Detayda' : money(price.value)} />
-                      <Mini label="Kaynak" value={isPurchasedSummary ? 'Son alim' : price.source} />
-                      <Mini label="Merkez" value={isPurchasedSummary ? '-' : n(merkez?.sellable || 0)} />
-                      <Mini label="Topca" value={isPurchasedSummary ? '-' : n(topca?.sellable || 0)} />
+                      <Mini label="Fiyat" value={isSummaryRow ? 'Detayda' : money(price.value)} />
+                      <Mini label="Kaynak" value={isSummaryRow ? 'Detayda' : price.source} />
+                      <Mini label="Merkez" value={isSummaryRow ? '-' : n(merkez?.sellable || 0)} />
+                      <Mini label="Topca" value={isSummaryRow ? '-' : n(topca?.sellable || 0)} />
                     </div>
                   </div>
                 </div>
               </button>
-              <div className="grid grid-cols-[88px_1fr_1fr] gap-2 border-t border-slate-100 p-3">
-                <input
-                  value={qty}
-                  onChange={(event) => setProductQuantities((current: any) => ({ ...current, [product.mikroCode]: event.target.value }))}
-                  onFocus={(event) => event.currentTarget.select()}
-                  inputMode="decimal"
-                  className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-black outline-none focus:border-amber-500"
-                />
-                <Button variant="secondary" className="rounded-2xl" onClick={() => shareProduct(product)}>
-                  WhatsApp
+              <div className="grid gap-2 border-t border-slate-100 p-3 sm:grid-cols-[148px_1fr_1fr]">
+                <div className="grid grid-cols-[36px_1fr_36px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setProductQuantities((current: any) => ({ ...current, [product.mikroCode]: bumpDecimalText(qty, -1) }))}
+                    className="text-sm font-black text-slate-600"
+                  >
+                    -
+                  </button>
+                  <input
+                    value={qty}
+                    onChange={(event) => setProductQuantities((current: any) => ({ ...current, [product.mikroCode]: event.target.value }))}
+                    onFocus={(event) => event.currentTarget.select()}
+                    inputMode="decimal"
+                    className="h-11 bg-transparent px-2 text-center text-sm font-black outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setProductQuantities((current: any) => ({ ...current, [product.mikroCode]: bumpDecimalText(qty, 1) }))}
+                    className="text-sm font-black text-slate-600"
+                  >
+                    +
+                  </button>
+                </div>
+                <Button variant="secondary" className="rounded-2xl" onClick={() => (isSummaryRow ? openProductDetail(product) : shareProduct(product))}>
+                  {isSummaryRow ? 'Detay' : 'WhatsApp'}
                 </Button>
                 <Button className="rounded-2xl" onClick={() => addToDraft(product)}>
                   <Plus className="mr-1 h-4 w-4" /> Ekle
@@ -1572,6 +1751,7 @@ function DraftPanel(props: any) {
           const selectedSale = item.selectedSaleIndex !== null && item.selectedSaleIndex !== undefined
             ? item.lastSales?.[item.selectedSaleIndex]
             : null;
+          const profitInfo = getProfitInfo(item.unitPrice, item);
           return (
             <div key={`${item.productCode}-${index}`} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex gap-3">
@@ -1591,11 +1771,25 @@ function DraftPanel(props: any) {
 
                   <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(170px,0.9fr)_minmax(220px,1.2fr)_minmax(220px,1.2fr)_120px]">
                     <div className="grid grid-cols-[1fr_92px] gap-2">
-                      <LabeledInput
-                        label="Miktar"
-                        value={displayQuantity ? formatDecimalInput(displayQuantity) : ''}
-                        onChange={(value: string) => updateQuantity(index, item, value)}
-                      />
+                      <div>
+                        <LabeledInput
+                          label="Miktar"
+                          value={displayQuantity ? formatDecimalInput(displayQuantity) : ''}
+                          onChange={(value: string) => updateQuantity(index, item, value)}
+                        />
+                        <div className="mt-1 grid grid-cols-3 gap-1">
+                          {[-1, 1, 5].map((diff) => (
+                            <button
+                              key={diff}
+                              type="button"
+                              onClick={() => updateQuantity(index, item, bumpDecimalText(formatDecimalInput(displayQuantity), diff))}
+                              className="rounded-xl bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600"
+                            >
+                              {diff > 0 ? `+${diff}` : diff}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <label className="block">
                         <span className="mb-1 block text-[11px] font-black uppercase tracking-wide text-slate-500">Birim</span>
                         <select
@@ -1698,6 +1892,20 @@ function DraftPanel(props: any) {
                     {!safeMode && item.cost?.currentCost && (
                       <span className="rounded-full bg-red-50 px-2 py-1 font-bold text-red-700">
                         Maliyet: {money(item.cost.currentCost)}
+                      </span>
+                    )}
+                    {!safeMode && profitInfo && (
+                      <span
+                        className={cn(
+                          'rounded-full px-2 py-1 font-bold',
+                          profitInfo.tone === 'red'
+                            ? 'bg-red-100 text-red-800'
+                            : profitInfo.tone === 'amber'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        )}
+                      >
+                        Kar: {money(profitInfo.profit)} / %{n(profitInfo.percent, 1)}
                       </span>
                     )}
                   </div>
@@ -1816,29 +2024,86 @@ function HistoryPanel({ recentCustomers, recentProducts, setSelectedCustomer, op
 function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, quantity, setQuantity }: any) {
   const price = getProductPrice(product);
   const [imageOpen, setImageOpen] = useState(false);
+  const [selectedUnit, setSelectedUnit] = useState(product?.unit || 'ADET');
+  useEffect(() => {
+    setSelectedUnit(product?.unit || 'ADET');
+  }, [product?.mikroCode, product?.unit]);
   const visibleWarehouses = getActiveWarehouses(product);
   const categoryInfo = getCategoryLastPurchaseInfo(product);
+  const availableUnits = getAvailableUnits(product.unit, product.unit2, product.unit2Factor);
+  const displayPrice = convertPriceFromBaseUnit(price.value, selectedUnit, product.unit, product.unit2, product.unit2Factor);
+  const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
+  const profitInfo = getProfitInfo(price.value, product);
+  const requestPriceCheck = () => {
+    if (typeof window === 'undefined') return;
+    void navigator.clipboard?.writeText(product.mikroCode || '');
+    window.open('/supplier-costs?tab=requests', '_blank');
+  };
   return (
-    <div className="fixed inset-0 z-40 bg-slate-950/60 p-3 backdrop-blur-sm lg:flex lg:items-center lg:justify-center lg:p-6" onClick={onClose}>
-      <div className="ml-auto flex h-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl lg:ml-0 lg:h-auto lg:max-h-[90vh] lg:w-full lg:max-w-6xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-4 lg:p-6">
-          <div className="flex min-w-0 gap-3">
-            <ProductImage product={product} />
-            <div className="min-w-0">
-              <p className="truncate text-lg font-black text-slate-950 lg:overflow-visible lg:whitespace-normal lg:text-clip lg:text-2xl lg:leading-tight">{product.name}</p>
-              <p className="text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
-              <CategoryLastPurchasePill info={categoryInfo} />
+    <div
+      className="fixed inset-0 z-40 flex items-end bg-slate-950/65 p-0 backdrop-blur-sm lg:items-center lg:justify-center lg:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-[96svh] w-full flex-col overflow-hidden rounded-t-[2rem] bg-white shadow-2xl lg:h-[90vh] lg:max-w-6xl lg:rounded-[2rem]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 p-4 shadow-sm backdrop-blur lg:p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 gap-3">
+              <button type="button" onClick={() => setImageOpen(true)} className="shrink-0">
+                <ProductImage product={product} />
+              </button>
+              <div className="min-w-0">
+                <p className="max-h-20 overflow-y-auto text-lg font-black leading-tight text-slate-950 lg:text-2xl">
+                  {product.name}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-500">{product.mikroCode} - {product.unit}</p>
+                {unitLabel && <p className="mt-1 text-xs font-semibold text-sky-700">{unitLabel}</p>}
+                <CategoryLastPurchasePill info={categoryInfo} />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white shadow-lg"
+              aria-label="Kapat"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black lg:grid-cols-5">
+            <div className="rounded-2xl bg-amber-50 px-2 py-2 text-amber-900">
+              <p className="opacity-70">Cari fiyat</p>
+              <p>{money(displayPrice)}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 px-2 py-2 text-slate-800">
+              <p className="opacity-70">Kaynak</p>
+              <p className="truncate">{price.source}</p>
+            </div>
+            <div className="rounded-2xl bg-emerald-50 px-2 py-2 text-emerald-800">
+              <p className="opacity-70">M+T stok</p>
+              <p>{n(activeSellable(product))}</p>
+            </div>
+            <div className="hidden rounded-2xl bg-slate-50 px-2 py-2 text-slate-800 lg:block">
+              <p className="opacity-70">Son teklif</p>
+              <p>{safeDate(product.lastQuotes?.[0]?.quoteDate)}</p>
+            </div>
+            <div className="hidden rounded-2xl bg-slate-50 px-2 py-2 text-slate-800 lg:block">
+              <p className="opacity-70">Son satis</p>
+              <p>{safeDate(product.customerPrice?.lastSales?.[0]?.saleDate)}</p>
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={onClose}>Kapat</Button>
         </div>
-        <div className="flex-1 overflow-auto p-4 lg:p-6">
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 lg:p-6">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] lg:items-start">
-            <div className="space-y-4">
+            <div className="min-w-0">
+              <div className="space-y-4">
               <ProductLargeImage product={product} onOpen={() => setImageOpen(true)} />
 
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Metric label="Cari fiyat" value={money(price.value)} tone="amber" />
+                <Metric label="Cari fiyat" value={money(displayPrice)} tone="amber" />
                 <Metric label="Kaynak" value={price.source} />
                 <Metric label="Merkez+Topca" value={n(activeSellable(product))} tone="emerald" />
                 <Metric label="KDV" value={`%${n(product.vatRate, 0)}`} />
@@ -1863,12 +2128,30 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
 
               <div>
                 <p className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900"><DollarSign className="h-4 w-4" /> Fiyat listeleri</p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:grid-cols-5">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   {Object.entries(product.priceLists || {}).map(([listNo, value]) => (
-                    <Mini key={listNo} label={getPriceListLabel(listNo)} value={money(value)} />
+                    <button
+                      key={listNo}
+                      type="button"
+                      onClick={() =>
+                        addToDraft(product, {
+                          priceSource: 'PRICE_LIST',
+                          priceListNo: Number(listNo),
+                          unitPrice: Number(value || 0),
+                          selectedUnit,
+                        })
+                      }
+                      className="rounded-2xl bg-slate-50 px-3 py-2 text-left transition hover:bg-amber-50"
+                    >
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{getPriceListLabel(listNo)}</p>
+                      <p className="mt-0.5 truncate text-sm font-black text-slate-900">
+                        {money(convertPriceFromBaseUnit(Number(value || 0), selectedUnit, product.unit, product.unit2, product.unit2Factor))}
+                      </p>
+                    </button>
                   ))}
                 </div>
               </div>
+            </div>
             </div>
 
             <div className="space-y-4">
@@ -1881,8 +2164,54 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
                     <Mini label="Maliyet tarihi" value={safeDate(product.cost.currentCostDate)} />
                     <Mini label="Son giris" value={safeDate(product.cost.lastEntryDate)} />
                   </div>
+                  {profitInfo && (
+                    <div className={cn(
+                      'mt-3 rounded-2xl px-3 py-2 text-sm font-black',
+                      profitInfo.tone === 'red'
+                        ? 'bg-red-100 text-red-800'
+                        : profitInfo.tone === 'amber'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-emerald-100 text-emerald-800'
+                    )}>
+                      Cari fiyatta kar: {money(profitInfo.profit)} / %{n(profitInfo.percent, 1)}
+                    </div>
+                  )}
                 </div>
               )}
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                <p className="mb-3 text-sm font-black text-slate-900">Hizli ekleme</p>
+                <div className="grid grid-cols-[1fr_120px] gap-2">
+                  <input
+                    value={quantity}
+                    onChange={(event) => setQuantity(event.target.value)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    inputMode="decimal"
+                    className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-black outline-none focus:border-amber-500"
+                  />
+                  <select
+                    value={selectedUnit}
+                    onChange={(event) => setSelectedUnit(event.target.value)}
+                    className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-black outline-none focus:border-amber-500"
+                  >
+                    {availableUnits.map((unit) => (
+                      <option key={unit} value={unit}>{unit}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {[-1, 1, 5, 10].map((diff) => (
+                    <button
+                      key={diff}
+                      type="button"
+                      onClick={() => setQuantity(bumpDecimalText(quantity, diff))}
+                      className="h-10 rounded-2xl bg-slate-100 text-sm font-black text-slate-700"
+                    >
+                      {diff > 0 ? `+${diff}` : diff}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div>
                 <p className="mb-2 text-sm font-black text-slate-900">Son satislar</p>
@@ -1903,7 +2232,7 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
                       variant="secondary"
                       size="sm"
                       className="mt-2 rounded-full"
-                      onClick={() => addToDraft(product, { priceSource: 'LAST_SALE', saleIndex: index, unitPrice: sale.unitPrice })}
+                      onClick={() => addToDraft(product, { priceSource: 'LAST_SALE', saleIndex: index, unitPrice: sale.unitPrice, selectedUnit })}
                     >
                       Bu fiyatla ekle
                     </Button>
@@ -1916,25 +2245,40 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
                 {(product.lastQuotes || []).length === 0 && <EmptyText text="Bu urun icin son teklif bulunamadi." />}
                 {(product.lastQuotes || []).slice(0, 3).map((quote: any, index: number) => (
                   <div key={`${quote.documentNo || quote.quoteDate}-${index}`} className="mb-2 rounded-2xl bg-indigo-50 p-3 text-sm">
-                    <span className="font-bold text-indigo-950">{safeDate(quote.quoteDate)}</span>
-                    <span className="ml-2 text-indigo-700">{quote.documentNo || quote.quoteNumber || '-'}</span>
-                    <span className="ml-2 font-bold text-indigo-950">{n(quote.quantity)} x {money(quote.unitPrice)}</span>
+                    <div>
+                      <span className="font-bold text-indigo-950">{safeDate(quote.quoteDate)}</span>
+                      <span className="ml-2 text-indigo-700">{quote.documentNo || quote.quoteNumber || '-'}</span>
+                      <span className="ml-2 font-bold text-indigo-950">{n(quote.quantity)} x {money(quote.unitPrice)}</span>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2 rounded-full"
+                      onClick={() => addToDraft(product, { priceSource: 'MANUAL', unitPrice: Number(quote.unitPrice || 0), selectedUnit })}
+                    >
+                      Teklif fiyatiyla ekle
+                    </Button>
                   </div>
                 ))}
               </div>
+
+              <button
+                type="button"
+                onClick={requestPriceCheck}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800"
+              >
+                <Sparkles className="h-4 w-4" />
+                Fiyat teyidi ekranini ac
+              </button>
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-[96px_1fr_1fr] gap-2 border-t border-slate-100 p-4 lg:grid-cols-[140px_1fr_1fr] lg:p-6">
-          <input
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-            onFocus={(event) => event.currentTarget.select()}
-            inputMode="decimal"
-            className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-black outline-none focus:border-amber-500"
-          />
+        <div className="sticky bottom-0 z-20 grid grid-cols-[1fr_1fr] gap-2 border-t border-slate-100 bg-white/95 p-4 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:grid-cols-[1fr_1fr_1fr] lg:p-6">
+          <div className="hidden rounded-2xl bg-slate-50 px-3 py-2 text-sm font-black text-slate-800 lg:block">
+            {quantity || '1'} {selectedUnit} x {money(displayPrice)}
+          </div>
           <Button variant="secondary" className="h-12 rounded-2xl" onClick={() => shareProduct(product)}>WhatsApp</Button>
-          <Button className="h-12 rounded-2xl" onClick={() => addToDraft(product)}><Plus className="mr-2 h-4 w-4" /> Ekle</Button>
+          <Button className="h-12 rounded-2xl" onClick={() => addToDraft(product, { selectedUnit })}><Plus className="mr-2 h-4 w-4" /> Ekle</Button>
         </div>
       </div>
       {imageOpen && (
@@ -1946,7 +2290,11 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
           }}
         >
           <div className="relative max-h-full max-w-5xl">
-            <button className="absolute right-2 top-2 rounded-full bg-white/90 px-4 py-2 text-sm font-black text-slate-900 shadow" type="button">
+            <button
+              className="absolute right-2 top-2 rounded-full bg-white/90 px-4 py-2 text-sm font-black text-slate-900 shadow"
+              type="button"
+              onClick={() => setImageOpen(false)}
+            >
               Kapat
             </button>
             {product?.imageUrl ? (
@@ -2105,6 +2453,27 @@ function LoadingCard() {
     <div className="rounded-3xl border border-slate-200 bg-white p-5">
       <LoadingLine label="Urunler yukleniyor" />
     </div>
+  );
+}
+
+function FloatingDraftBar({ draftCount, draftTotal, selectedCustomer, onOpenDraft, activeTab }: any) {
+  if (!draftCount || activeTab === 'draft') return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpenDraft}
+      className="fixed bottom-20 left-3 right-3 z-30 flex items-center justify-between rounded-3xl border border-amber-200 bg-slate-950 px-4 py-3 text-left text-white shadow-2xl lg:bottom-5 lg:left-auto lg:right-6 lg:w-[420px]"
+    >
+      <div className="min-w-0">
+        <p className="truncate text-xs font-semibold text-white/65">
+          {selectedCustomer?.displayTitle || selectedCustomer?.mikroCariCode || 'Cari secilmedi'}
+        </p>
+        <p className="text-sm font-black">{draftCount} kalem taslak kayitli</p>
+      </div>
+      <div className="shrink-0 rounded-2xl bg-amber-400 px-3 py-2 text-sm font-black text-slate-950">
+        {money(draftTotal)}
+      </div>
+    </button>
   );
 }
 
