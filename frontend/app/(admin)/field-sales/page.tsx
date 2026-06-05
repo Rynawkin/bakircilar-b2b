@@ -2026,6 +2026,36 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
   const [imageOpen, setImageOpen] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState(product?.unit || 'ADET');
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const scrollY = window.scrollY;
+    const bodyStyle = document.body.style;
+    const htmlStyle = document.documentElement.style;
+    const previous = {
+      bodyOverflow: bodyStyle.overflow,
+      bodyPosition: bodyStyle.position,
+      bodyTop: bodyStyle.top,
+      bodyWidth: bodyStyle.width,
+      htmlOverscrollBehavior: htmlStyle.overscrollBehavior,
+    };
+
+    bodyStyle.overflow = 'hidden';
+    bodyStyle.position = 'fixed';
+    bodyStyle.top = `-${scrollY}px`;
+    bodyStyle.width = '100%';
+    htmlStyle.overscrollBehavior = 'none';
+
+    return () => {
+      bodyStyle.overflow = previous.bodyOverflow;
+      bodyStyle.position = previous.bodyPosition;
+      bodyStyle.top = previous.bodyTop;
+      bodyStyle.width = previous.bodyWidth;
+      htmlStyle.overscrollBehavior = previous.htmlOverscrollBehavior;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
+  useEffect(() => {
     setSelectedUnit(product?.unit || 'ADET');
   }, [product?.mikroCode, product?.unit]);
   const visibleWarehouses = getActiveWarehouses(product);
@@ -2041,14 +2071,16 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
   };
   return (
     <div
-      className="fixed inset-0 z-40 flex items-end bg-slate-950/65 p-0 backdrop-blur-sm lg:items-center lg:justify-center lg:p-6"
+      className="fixed inset-0 z-[90] flex items-end overflow-hidden bg-slate-950/65 p-0 backdrop-blur-sm lg:items-center lg:justify-center lg:p-6"
       onClick={onClose}
     >
       <div
-        className="flex h-[96svh] w-full flex-col overflow-hidden rounded-t-[2rem] bg-white shadow-2xl lg:h-[90vh] lg:max-w-6xl lg:rounded-[2rem]"
+        className="flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-[96svh] sm:rounded-t-[2rem] lg:h-[90vh] lg:max-w-6xl lg:rounded-[2rem]"
         onClick={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
       >
-        <div className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 p-4 shadow-sm backdrop-blur lg:p-6">
+        <div className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] shadow-sm backdrop-blur lg:p-6">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 gap-3">
               <button type="button" onClick={() => setImageOpen(true)} className="shrink-0">
@@ -2283,7 +2315,7 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
       </div>
       {imageOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4"
           onClick={(event) => {
             event.stopPropagation();
             setImageOpen(false);
