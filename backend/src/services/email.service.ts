@@ -1461,7 +1461,7 @@ class EmailService {
                 Yuksek: <strong>${formatCount(params.summary.highMarginCount)}</strong> | Dusuk: <strong>${formatCount(params.summary.lowMarginCount)}</strong> | Zarar: <strong>${formatCount(params.summary.negativeMarginCount)}</strong>
               </p>
               <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
-                "Guncel" alanlari Mikro raporundaki teklif kolonlarindan, "Son Giris" alanlari ise SÖ kolonlarindan hesaplanir.
+                "Guncel" alanlari satis tutari ile A.Teklif maliyetinden yeniden hesaplanir; "Son Giris" alanlari ise SÖ kolonlarindan hesaplanir.
               </p>
             </div>
 

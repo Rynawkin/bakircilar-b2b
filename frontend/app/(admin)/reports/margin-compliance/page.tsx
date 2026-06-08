@@ -151,6 +151,88 @@ const BASE_DATA_KEYS = new Set([
 
 const COLUMN_STORAGE_KEY = 'margin-analysis-columns';
 
+const normalizeDataKey = (value: unknown) =>
+  String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/Ä±/g, 'i')
+    .replace(/ÅŸ/g, 's')
+    .replace(/ÄŸ/g, 'g')
+    .replace(/Ã¼/g, 'u')
+    .replace(/Ã¶/g, 'o')
+    .replace(/Ã§/g, 'c')
+    .replace(/Ã„Â±/g, 'i')
+    .replace(/Ã…ÂŸ/g, 's')
+    .replace(/Ã„ÂŸ/g, 'g')
+    .replace(/ÃƒÂ¼/g, 'u')
+    .replace(/ÃƒÂ¶/g, 'o')
+    .replace(/ÃƒÂ§/g, 'c')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
+const getRowValue = (row: MarginAnalysisRow, keys: string[], fallbackToken?: string) => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(row, key) && row[key] !== null && row[key] !== undefined) {
+      return row[key];
+    }
+  }
+
+  const normalizedKeys = keys.map(normalizeDataKey);
+  const normalizedFallback = fallbackToken ? normalizeDataKey(fallbackToken) : '';
+  const foundKey = Object.keys(row).find((key) => {
+    const normalized = normalizeDataKey(key);
+    return normalizedKeys.some((candidate) => normalized.includes(candidate)) ||
+      (normalizedFallback ? normalized.includes(normalizedFallback) : false);
+  });
+  return foundKey ? row[foundKey] : undefined;
+};
+
+const getRowNumber = (row: MarginAnalysisRow, keys: string[], fallbackToken?: string) => {
+  const value = getRowValue(row, keys, fallbackToken);
+  const parsed = typeof value === 'string' ? Number(value.replace(/\./g, '').replace(',', '.')) : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const isNoVatSaleRow = (row: MarginAnalysisRow) => {
+  const status = normalizeDataKey(getRowValue(row, ['SatısDurumu', 'SatisDurumu', 'SatışDurumu'], 'satisdurumu'));
+  if (status.includes('vergiyok')) return true;
+  if (status.includes('vergivar')) return false;
+  return getRowNumber(row, ['Vergi'], 'vergi') === 0;
+};
+
+const getCurrentCostBasis = (row: MarginAnalysisRow) => {
+  const noVatSale = isNoVatSaleRow(row);
+  const withoutVat = getRowNumber(row, ['A.Teklif+'], 'ateklif');
+  const withVat = getRowNumber(row, ['A.TeklifDahil', 'A.Teklif KDV Dahil'], 'ateklifdahil');
+  return noVatSale ? (withVat > 0 ? withVat : withoutVat) : (withoutVat > 0 ? withoutVat : withVat);
+};
+
+const getCurrentRevenueBasis = (row: MarginAnalysisRow) => {
+  const noVatSale = isNoVatSaleRow(row);
+  const withoutVat = getRowNumber(row, ['Tutar'], 'tutar');
+  const withVat = getRowNumber(row, ['TutarKDV', 'Tutar KDV', 'VergiDahil'], 'tutarkdv');
+  return noVatSale && withVat > 0 ? withVat : withoutVat || withVat;
+};
+
+const getCurrentUnitRevenueBasis = (row: MarginAnalysisRow) => {
+  const noVatSale = isNoVatSaleRow(row);
+  const withoutVat = getRowNumber(row, ['BirimSatÄ±ÅŸ', 'BirimSatış', 'BirimSatis', 'Birim Satış'], 'birimsatis');
+  const withVat = getRowNumber(row, ['BirimSatÄ±ÅŸKDV', 'BirimSatışKDV', 'BirimSatisKDV', 'Birim Satış KDV'], 'birimsatiskdv');
+  return noVatSale && withVat > 0 ? withVat : withoutVat || withVat;
+};
+
+const getCurrentUnitProfit = (row: MarginAnalysisRow) => getCurrentUnitRevenueBasis(row) - getCurrentCostBasis(row);
+
+const getCurrentTotalProfit = (row: MarginAnalysisRow) =>
+  getCurrentRevenueBasis(row) - getCurrentCostBasis(row) * getRowNumber(row, ['Miktar'], 'miktar');
+
+const getCurrentMarginPercent = (row: MarginAnalysisRow) => {
+  const totalCost = getCurrentCostBasis(row) * getRowNumber(row, ['Miktar'], 'miktar');
+  const profit = getCurrentTotalProfit(row);
+  const revenue = getCurrentRevenueBasis(row);
+  return totalCost > 0 ? (profit / totalCost) * 100 : revenue > 0 ? (profit / revenue) * 100 : 0;
+};
+
 const getDefaultDateValue = () => {
   const date = new Date();
   date.setDate(date.getDate() - 1);
@@ -532,35 +614,35 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'avgCost',
-      label: 'Guncel Maliyet (KDV Dahil)',
+      label: 'Guncel Maliyet (Kar Hesap Bazi)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => formatCurrency(row['A.TeklifDahil'] ?? row['A.Teklif+']),
-      exportValue: (row: MarginAnalysisRow) => row['A.TeklifDahil'] ?? row['A.Teklif+'],
+      render: (row: MarginAnalysisRow) => formatCurrency(getCurrentCostBasis(row)),
+      exportValue: (row: MarginAnalysisRow) => getCurrentCostBasis(row),
     },
     {
       id: 'unitProfit',
       label: 'Birim Kar (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => formatCurrency(row.TeklifAdetKar),
-      exportValue: (row: MarginAnalysisRow) => row.TeklifAdetKar,
+      render: (row: MarginAnalysisRow) => formatCurrency(getCurrentUnitProfit(row)),
+      exportValue: (row: MarginAnalysisRow) => getCurrentUnitProfit(row),
     },
     {
       id: 'totalProfit',
       label: 'Toplam Kar (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right font-semibold whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => formatCurrency(row.TeklifToplamKar),
-      exportValue: (row: MarginAnalysisRow) => row.TeklifToplamKar,
+      render: (row: MarginAnalysisRow) => formatCurrency(getCurrentTotalProfit(row)),
+      exportValue: (row: MarginAnalysisRow) => getCurrentTotalProfit(row),
     },
     {
       id: 'margin',
       label: 'Kar % (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => getMarginBadge(row.TeklifKarYuzde),
-      exportValue: (row: MarginAnalysisRow) => row.TeklifKarYuzde,
+      render: (row: MarginAnalysisRow) => getMarginBadge(getCurrentMarginPercent(row)),
+      exportValue: (row: MarginAnalysisRow) => getCurrentMarginPercent(row),
     },
   ];
 
@@ -570,14 +652,47 @@ export default function MarginAnalysisPage() {
     const remainingKeys = rowKeys.filter((key) => !BASE_DATA_KEYS.has(key));
     remainingKeys.sort((a, b) => a.localeCompare(b, 'tr'));
     extraColumnDefs.push(
-      ...remainingKeys.map((key) => ({
-        id: key,
-        label: key,
-        headerClassName: 'whitespace-nowrap',
-        cellClassName: 'whitespace-nowrap',
-        render: (row: MarginAnalysisRow) => formatCellValue(row[key]),
-        exportValue: (row: MarginAnalysisRow) => formatExportValue(row[key]),
-      }))
+      ...remainingKeys.map((key) => {
+        const normalizedKey = normalizeDataKey(key);
+        if (normalizedKey === 'teklifadetkar') {
+          return {
+            id: key,
+            label: `${key} (Hesaplanan)`,
+            headerClassName: 'text-right whitespace-nowrap',
+            cellClassName: 'text-right whitespace-nowrap',
+            render: (row: MarginAnalysisRow) => formatCurrency(getCurrentUnitProfit(row)),
+            exportValue: (row: MarginAnalysisRow) => getCurrentUnitProfit(row),
+          };
+        }
+        if (normalizedKey === 'tekliftoplamkar') {
+          return {
+            id: key,
+            label: `${key} (Hesaplanan)`,
+            headerClassName: 'text-right whitespace-nowrap',
+            cellClassName: 'text-right whitespace-nowrap',
+            render: (row: MarginAnalysisRow) => formatCurrency(getCurrentTotalProfit(row)),
+            exportValue: (row: MarginAnalysisRow) => getCurrentTotalProfit(row),
+          };
+        }
+        if (normalizedKey === 'teklifkaryuzde') {
+          return {
+            id: key,
+            label: `${key} (Hesaplanan)`,
+            headerClassName: 'text-right whitespace-nowrap',
+            cellClassName: 'text-right whitespace-nowrap',
+            render: (row: MarginAnalysisRow) => getMarginBadge(getCurrentMarginPercent(row)),
+            exportValue: (row: MarginAnalysisRow) => getCurrentMarginPercent(row),
+          };
+        }
+        return {
+          id: key,
+          label: key,
+          headerClassName: 'whitespace-nowrap',
+          cellClassName: 'whitespace-nowrap',
+          render: (row: MarginAnalysisRow) => formatCellValue(row[key]),
+          exportValue: (row: MarginAnalysisRow) => formatExportValue(row[key]),
+        };
+      })
     );
   }
 

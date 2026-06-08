@@ -745,23 +745,82 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(num) ? num : 0;
 };
 
+const hasNumericValue = (value: unknown): boolean => {
+  if (value === null || value === undefined || value === '') return false;
+  return Number.isFinite(toNumber(value));
+};
+
+const isNoVatSaleRow = (data: Record<string, any>): boolean => {
+  const rawStatus = resolveDataValueByCandidates(
+    data,
+    ['SatısDurumu', 'SatisDurumu', 'SatışDurumu', 'Satış Durumu'],
+    'satisdurumu'
+  );
+  const status = normalizeKeyToken(rawStatus);
+  if (status.includes('vergiyok')) return true;
+  if (status.includes('vergivar')) return false;
+  return toNumber(resolveDataValueByCandidates(data, ['Vergi'], 'vergi')) === 0;
+};
+
+const pickCurrentCostWithoutVat = (data: Record<string, any>): number => {
+  const value = resolveDataValueByCandidates(data, ['A.Teklif+'], 'ateklif');
+  return toNumber(value);
+};
+
+const pickCurrentCostWithVat = (data: Record<string, any>): number => {
+  const value = resolveDataValueByCandidates(data, ['A.TeklifDahil', 'A.Teklif KDV Dahil'], 'ateklifdahil');
+  return toNumber(value);
+};
+
+const pickCurrentCostBasis = (data: Record<string, any>): number => {
+  const noVatSale = isNoVatSaleRow(data);
+  const withoutVat = pickCurrentCostWithoutVat(data);
+  const withVat = pickCurrentCostWithVat(data);
+  if (noVatSale) return hasNumericValue(withVat) && withVat > 0 ? withVat : withoutVat;
+  return hasNumericValue(withoutVat) && withoutVat > 0 ? withoutVat : withVat;
+};
+
+const pickCurrentRevenueBasis = (data: Record<string, any>): number => {
+  const noVatSale = isNoVatSaleRow(data);
+  const withoutVat = resolveDataValueByCandidates(data, ['Tutar'], 'tutar');
+  const withVat = resolveDataValueByCandidates(data, ['TutarKDV', 'Tutar KDV', 'VergiDahil'], 'tutarkdv');
+  if (noVatSale && hasNumericValue(withVat)) return toNumber(withVat);
+  if (hasNumericValue(withoutVat)) return toNumber(withoutVat);
+  return toNumber(withVat);
+};
+
+const pickCurrentUnitRevenueBasis = (data: Record<string, any>): number => {
+  const noVatSale = isNoVatSaleRow(data);
+  const withoutVat = resolveDataValueByCandidates(
+    data,
+    ['BirimSatış', 'BirimSatis', 'Birim Satış', 'Birim Satis'],
+    'birimsatis'
+  );
+  const withVat = resolveDataValueByCandidates(
+    data,
+    ['BirimSatışKDV', 'BirimSatisKDV', 'Birim Satış KDV', 'Birim Satis KDV'],
+    'birimsatiskdv'
+  );
+  if (noVatSale && hasNumericValue(withVat)) return toNumber(withVat);
+  if (hasNumericValue(withoutVat)) return toNumber(withoutVat);
+  return toNumber(withVat);
+};
+
+const calculateCurrentProfit = (data: Record<string, any>): { unitProfit: number; totalProfit: number; margin: number; costBasis: number; revenueBasis: number } => {
+  const quantity = pickQuantity(data);
+  const costBasis = pickCurrentCostBasis(data);
+  const revenueBasis = pickCurrentRevenueBasis(data);
+  const unitRevenue = pickCurrentUnitRevenueBasis(data);
+  const unitProfit = unitRevenue - costBasis;
+  const totalProfit = revenueBasis - costBasis * quantity;
+  const totalCost = costBasis * quantity;
+  const margin = totalCost > 0 ? (totalProfit / totalCost) * 100 : revenueBasis > 0 ? (totalProfit / revenueBasis) * 100 : 0;
+  return { unitProfit, totalProfit, margin, costBasis, revenueBasis };
+};
+
 const pickTotalProfit = (row: Record<string, any>): number => {
   if (!row || typeof row !== 'object') return 0;
-
-  const direct = resolveDataValueByCandidates(
-    row,
-    ['TeklifToplamKar'],
-    'tekliftoplamkar'
-  );
-  if (direct !== undefined && direct !== null) {
-    return toNumber(direct);
-  }
-
-  const key = Object.keys(row).find((candidate) =>
-    normalizeKeyToken(candidate).includes('tekliftoplamkar')
-  );
-
-  return key ? toNumber(row[key]) : 0;
+  return calculateCurrentProfit(row).totalProfit;
 };
 
 const formatExportValue = (value: unknown): string | number | null => {
@@ -847,23 +906,11 @@ const resolveDataValueByCandidates = (
 
 
 const pickUnitProfit = (data: Record<string, any>): number => {
-  return toNumber(
-    resolveDataValueByCandidates(
-      data,
-      ['TeklifAdetKar'],
-      'teklifadetkar'
-    )
-  );
+  return calculateCurrentProfit(data).unitProfit;
 };
 
 const pickAvgMargin = (data: Record<string, any>): number => {
-  return toNumber(
-    resolveDataValueByCandidates(
-      data,
-      ['TeklifKarYuzde', 'TeklifKarYÃ¼zde'],
-      'teklifkaryuzde'
-    )
-  );
+  return calculateCurrentProfit(data).margin;
 };
 
 const pickEntryProfit = (data: Record<string, any>): number => {
@@ -884,13 +931,7 @@ const pickEntryProfit = (data: Record<string, any>): number => {
 };
 
 const pickCurrentCost = (data: Record<string, any>): number => {
-  return toNumber(
-    resolveDataValueByCandidates(
-      data,
-      ['A.TeklifDahil', 'A.Teklif+'],
-      'ateklifdahil'
-    )
-  );
+  return pickCurrentCostBasis(data);
 };
 
 const pickEntryMargin = (data: Record<string, any>, revenue?: number): number => {
@@ -1306,7 +1347,7 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
   },
   avgCost: {
-    label: 'Guncel Maliyet (KDV Dahil)',
+    label: 'Guncel Maliyet (Kar Hesap Bazi)',
     resolve: (data) => pickCurrentCost(data),
   },
   unitProfit: {
@@ -1319,6 +1360,18 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
   },
   margin: {
     label: 'Kar % (Guncel)',
+    resolve: (data) => pickAvgMargin(data),
+  },
+  TeklifAdetKar: {
+    label: 'TeklifAdetKar (Hesaplanan)',
+    resolve: (data) => pickUnitProfit(data),
+  },
+  TeklifToplamKar: {
+    label: 'TeklifToplamKar (Hesaplanan)',
+    resolve: (data) => pickTotalProfit(data),
+  },
+  TeklifKarYuzde: {
+    label: 'TeklifKarYuzde (Hesaplanan)',
     resolve: (data) => pickAvgMargin(data),
   },
 };
