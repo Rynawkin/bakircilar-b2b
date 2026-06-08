@@ -750,6 +750,11 @@ const hasNumericValue = (value: unknown): boolean => {
   return Number.isFinite(toNumber(value));
 };
 
+const areSameMoney = (left: number, right: number): boolean => {
+  if (left <= 0 || right <= 0) return false;
+  return Math.abs(left - right) < 0.01;
+};
+
 const isNoVatSaleRow = (data: Record<string, any>): boolean => {
   const rawStatus = resolveDataValueByCandidates(
     data,
@@ -772,12 +777,52 @@ const pickCurrentCostWithVat = (data: Record<string, any>): number => {
   return toNumber(value);
 };
 
+const pickHalfVatFactor = (data: Record<string, any>): number => {
+  const ratioCandidates: Array<[unknown, unknown]> = [
+    [resolveDataValueByCandidates(data, ['P1'], 'p1'), resolveDataValueByCandidates(data, ['F1'], 'f1')],
+    [resolveDataValueByCandidates(data, ['P3'], 'p3'), resolveDataValueByCandidates(data, ['F3'], 'f3')],
+    [resolveDataValueByCandidates(data, ['P5'], 'p5'), resolveDataValueByCandidates(data, ['F5'], 'f5')],
+    [pickCurrentCostWithVat(data), pickCurrentCostWithoutVat(data)],
+  ];
+
+  for (const [withHalfVat, withoutHalfVat] of ratioCandidates) {
+    const left = toNumber(withHalfVat);
+    const right = toNumber(withoutHalfVat);
+    if (left > 0 && right > 0) {
+      const ratio = left / right;
+      if (ratio > 1 && ratio < 1.3) return ratio;
+    }
+  }
+
+  const revenue = toNumber(resolveDataValueByCandidates(data, ['Tutar'], 'tutar'));
+  const vat = toNumber(resolveDataValueByCandidates(data, ['Vergi'], 'vergi'));
+  if (revenue > 0 && vat > 0) {
+    return 1 + (vat / revenue) / 2;
+  }
+
+  const entryCost = toNumber(resolveDataValueByCandidates(data, ['SÖ-BirimMaliyet', 'SO-BirimMaliyet'], 'sobirimmaliyet'));
+  const entryCostVat = toNumber(resolveDataValueByCandidates(data, ['Sö-BirimMaliyetKdv', 'SO-BirimMaliyetKdv'], 'sobirimmaliyetkdv'));
+  if (entryCost > 0 && entryCostVat > entryCost) {
+    return 1 + ((entryCostVat / entryCost) - 1) / 2;
+  }
+
+  return 1.1;
+};
+
 const pickCurrentCostBasis = (data: Record<string, any>): number => {
   const noVatSale = isNoVatSaleRow(data);
   const withoutVat = pickCurrentCostWithoutVat(data);
   const withVat = pickCurrentCostWithVat(data);
-  if (noVatSale) return hasNumericValue(withVat) && withVat > 0 ? withVat : withoutVat;
-  return hasNumericValue(withoutVat) && withoutVat > 0 ? withoutVat : withVat;
+  const halfVatFactor = pickHalfVatFactor(data);
+  const sameCost = areSameMoney(withoutVat, withVat);
+
+  if (noVatSale) {
+    if (sameCost) return withVat * halfVatFactor;
+    return hasNumericValue(withVat) && withVat > 0 ? withVat : withoutVat * halfVatFactor;
+  }
+
+  if (sameCost) return withoutVat / halfVatFactor;
+  return hasNumericValue(withoutVat) && withoutVat > 0 ? withoutVat : withVat / halfVatFactor;
 };
 
 const pickCurrentRevenueBasis = (data: Record<string, any>): number => {

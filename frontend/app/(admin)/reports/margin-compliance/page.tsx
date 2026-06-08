@@ -193,6 +193,8 @@ const getRowNumber = (row: MarginAnalysisRow, keys: string[], fallbackToken?: st
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const areSameMoney = (left: number, right: number) => left > 0 && right > 0 && Math.abs(left - right) < 0.01;
+
 const isNoVatSaleRow = (row: MarginAnalysisRow) => {
   const status = normalizeDataKey(getRowValue(row, ['SatısDurumu', 'SatisDurumu', 'SatışDurumu'], 'satisdurumu'));
   if (status.includes('vergiyok')) return true;
@@ -200,11 +202,43 @@ const isNoVatSaleRow = (row: MarginAnalysisRow) => {
   return getRowNumber(row, ['Vergi'], 'vergi') === 0;
 };
 
+const getHalfVatFactor = (row: MarginAnalysisRow) => {
+  const ratioPairs = [
+    [getRowNumber(row, ['P1'], 'p1'), getRowNumber(row, ['F1'], 'f1')],
+    [getRowNumber(row, ['P3'], 'p3'), getRowNumber(row, ['F3'], 'f3')],
+    [getRowNumber(row, ['P5'], 'p5'), getRowNumber(row, ['F5'], 'f5')],
+    [getRowNumber(row, ['A.TeklifDahil', 'A.Teklif KDV Dahil'], 'ateklifdahil'), getRowNumber(row, ['A.Teklif+'], 'ateklif')],
+  ];
+  for (const [withHalfVat, withoutHalfVat] of ratioPairs) {
+    if (withHalfVat > 0 && withoutHalfVat > 0) {
+      const ratio = withHalfVat / withoutHalfVat;
+      if (ratio > 1 && ratio < 1.3) return ratio;
+    }
+  }
+
+  const revenue = getRowNumber(row, ['Tutar'], 'tutar');
+  const vat = getRowNumber(row, ['Vergi'], 'vergi');
+  if (revenue > 0 && vat > 0) return 1 + (vat / revenue) / 2;
+
+  const entryCost = getRowNumber(row, ['SÖ-BirimMaliyet', 'SO-BirimMaliyet'], 'sobirimmaliyet');
+  const entryCostVat = getRowNumber(row, ['Sö-BirimMaliyetKdv', 'SO-BirimMaliyetKdv'], 'sobirimmaliyetkdv');
+  if (entryCost > 0 && entryCostVat > entryCost) return 1 + ((entryCostVat / entryCost) - 1) / 2;
+
+  return 1.1;
+};
+
 const getCurrentCostBasis = (row: MarginAnalysisRow) => {
   const noVatSale = isNoVatSaleRow(row);
   const withoutVat = getRowNumber(row, ['A.Teklif+'], 'ateklif');
   const withVat = getRowNumber(row, ['A.TeklifDahil', 'A.Teklif KDV Dahil'], 'ateklifdahil');
-  return noVatSale ? (withVat > 0 ? withVat : withoutVat) : (withoutVat > 0 ? withoutVat : withVat);
+  const halfVatFactor = getHalfVatFactor(row);
+  const sameCost = areSameMoney(withoutVat, withVat);
+  if (noVatSale) {
+    if (sameCost) return withVat * halfVatFactor;
+    return withVat > 0 ? withVat : withoutVat * halfVatFactor;
+  }
+  if (sameCost) return withoutVat / halfVatFactor;
+  return withoutVat > 0 ? withoutVat : withVat / halfVatFactor;
 };
 
 const getCurrentRevenueBasis = (row: MarginAnalysisRow) => {
