@@ -145,55 +145,11 @@ const BASE_DATA_KEYS = new Set([
   'TutarKDV',
   'OrtalamaMaliyetKDVli',
   'BirimKarOrtMalGÃ¶re',
-  'BirimKarOrtMalGöre',
   'ToplamKarOrtMalGÃ¶re',
-  'ToplamKarOrtMalGöre',
   'OrtalamaKarYuzde',
 ]);
 
 const COLUMN_STORAGE_KEY = 'margin-analysis-columns';
-
-const normalizeDataKey = (value: unknown) =>
-  String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/Ä±/g, 'i')
-    .replace(/ÅŸ/g, 's')
-    .replace(/ÄŸ/g, 'g')
-    .replace(/Ã¼/g, 'u')
-    .replace(/Ã¶/g, 'o')
-    .replace(/Ã§/g, 'c')
-    .replace(/Ã„Â±/g, 'i')
-    .replace(/Ã…ÂŸ/g, 's')
-    .replace(/Ã„ÂŸ/g, 'g')
-    .replace(/ÃƒÂ¼/g, 'u')
-    .replace(/ÃƒÂ¶/g, 'o')
-    .replace(/ÃƒÂ§/g, 'c')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '');
-
-const getRowValue = (row: MarginAnalysisRow, keys: string[], fallbackToken?: string) => {
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(row, key) && row[key] !== null && row[key] !== undefined) {
-      return row[key];
-    }
-  }
-
-  const normalizedKeys = keys.map(normalizeDataKey);
-  const normalizedFallback = fallbackToken ? normalizeDataKey(fallbackToken) : '';
-  const foundKey = Object.keys(row).find((key) => {
-    const normalized = normalizeDataKey(key);
-    return normalizedKeys.some((candidate) => normalized.includes(candidate)) ||
-      (normalizedFallback ? normalized.includes(normalizedFallback) : false);
-  });
-  return foundKey ? row[foundKey] : undefined;
-};
-
-const getRowNumber = (row: MarginAnalysisRow, keys: string[], fallbackToken?: string) => {
-  const value = getRowValue(row, keys, fallbackToken);
-  const parsed = typeof value === 'string' ? Number(value.replace(/\./g, '').replace(',', '.')) : Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
 
 const getDefaultDateValue = () => {
   const date = new Date();
@@ -465,7 +421,7 @@ export default function MarginAnalysisPage() {
             <span className="font-semibold">{formatCurrency(bucket.totalRevenue)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar (Ortalama Maliyet, KDV Haric)</span>
+            <span className="text-gray-500">Kar (Guncel, KDV Haric)</span>
             <span className="font-semibold">{formatCurrency(bucket.totalProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -473,7 +429,7 @@ export default function MarginAnalysisPage() {
             <span className="font-semibold">{formatCurrency(bucket.entryProfit)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">Kar % (Ortalama Maliyet)</span>
+            <span className="text-gray-500">Kar % (Guncel)</span>
             <span className="font-semibold">{formatPercent(bucket.avgMargin)}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -576,35 +532,35 @@ export default function MarginAnalysisPage() {
     },
     {
       id: 'avgCost',
-      label: 'Ortalama Maliyet (KDV Dahil)',
+      label: 'Guncel Maliyet (KDV Dahil)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => formatCurrency(getRowNumber(row, ['OrtalamaMaliyetKDVli', 'OrtalamaMaliyetKdvli', 'A.TeklifDahil', 'A.Teklif+'], 'ortalamamaliyetkdvli')),
-      exportValue: (row: MarginAnalysisRow) => getRowNumber(row, ['OrtalamaMaliyetKDVli', 'OrtalamaMaliyetKdvli', 'A.TeklifDahil', 'A.Teklif+'], 'ortalamamaliyetkdvli'),
+      render: (row: MarginAnalysisRow) => formatCurrency(row['A.TeklifDahil'] ?? row['A.Teklif+']),
+      exportValue: (row: MarginAnalysisRow) => row['A.TeklifDahil'] ?? row['A.Teklif+'],
     },
     {
       id: 'unitProfit',
-      label: 'Birim Kar (Ort. Mal.)',
+      label: 'Birim Kar (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => formatCurrency(getRowNumber(row, ['BirimKarOrtMalGöre', 'BirimKarOrtMalGore', 'BirimKarOrtMalGÃ¶re', 'TeklifAdetKar'], 'birimkarortmalgore')),
-      exportValue: (row: MarginAnalysisRow) => getRowNumber(row, ['BirimKarOrtMalGöre', 'BirimKarOrtMalGore', 'BirimKarOrtMalGÃ¶re', 'TeklifAdetKar'], 'birimkarortmalgore'),
+      render: (row: MarginAnalysisRow) => formatCurrency(row.TeklifAdetKar),
+      exportValue: (row: MarginAnalysisRow) => row.TeklifAdetKar,
     },
     {
       id: 'totalProfit',
-      label: 'Toplam Kar (Ort. Mal.)',
+      label: 'Toplam Kar (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right font-semibold whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => formatCurrency(getRowNumber(row, ['ToplamKarOrtMalGöre', 'ToplamKarOrtMalGore', 'ToplamKarOrtMalGÃ¶re', 'TeklifToplamKar'], 'toplamkarortmalgore')),
-      exportValue: (row: MarginAnalysisRow) => getRowNumber(row, ['ToplamKarOrtMalGöre', 'ToplamKarOrtMalGore', 'ToplamKarOrtMalGÃ¶re', 'TeklifToplamKar'], 'toplamkarortmalgore'),
+      render: (row: MarginAnalysisRow) => formatCurrency(row.TeklifToplamKar),
+      exportValue: (row: MarginAnalysisRow) => row.TeklifToplamKar,
     },
     {
       id: 'margin',
-      label: 'Kar % (Ort. Mal.)',
+      label: 'Kar % (Guncel)',
       headerClassName: 'text-right whitespace-nowrap',
       cellClassName: 'text-right whitespace-nowrap',
-      render: (row: MarginAnalysisRow) => getMarginBadge(getRowNumber(row, ['OrtalamaKarYuzde', 'OrtalamaKarYüzde', 'TeklifKarYuzde'], 'ortalamakaryuzde')),
-      exportValue: (row: MarginAnalysisRow) => getRowNumber(row, ['OrtalamaKarYuzde', 'OrtalamaKarYüzde', 'TeklifKarYuzde'], 'ortalamakaryuzde'),
+      render: (row: MarginAnalysisRow) => getMarginBadge(row.TeklifKarYuzde),
+      exportValue: (row: MarginAnalysisRow) => row.TeklifKarYuzde,
     },
   ];
 
@@ -766,7 +722,7 @@ export default function MarginAnalysisPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Toplam Kar (Ortalama Maliyet)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Toplam Kar (Guncel)</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -789,7 +745,7 @@ export default function MarginAnalysisPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Kar % (Ortalama Maliyet)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Kar % (Guncel)</CardTitle>
                   <Percent className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -824,13 +780,13 @@ export default function MarginAnalysisPage() {
                       </TableRow>
                       <TableRow>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar (Ort. Mal.)</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar % (Ort. Mal.)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar (Guncel)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar % (Guncel)</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Ciro</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar (Ort. Mal.)</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">Kar % (Ort. Mal.)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar (Guncel)</TableHead>
+                        <TableHead className="text-right whitespace-nowrap">Kar % (Guncel)</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Evrak</TableHead>
                         <TableHead className="text-right whitespace-nowrap">Zararli Satir</TableHead>
                       </TableRow>
