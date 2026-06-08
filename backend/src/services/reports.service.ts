@@ -748,16 +748,26 @@ const toNumber = (value: unknown): number => {
 const pickTotalProfit = (row: Record<string, any>): number => {
   if (!row || typeof row !== 'object') return 0;
 
-  const direct = resolveDataValueByCandidates(
+  const averageCostProfit = resolveDataValueByCandidates(
+    row,
+    ['ToplamKarOrtMalGöre', 'ToplamKarOrtMalGore', 'ToplamKarOrtMalGÃ¶re'],
+    'toplamkarortmalgore'
+  );
+  if (averageCostProfit !== undefined && averageCostProfit !== null) {
+    return toNumber(averageCostProfit);
+  }
+
+  const quoteProfit = resolveDataValueByCandidates(
     row,
     ['TeklifToplamKar'],
     'tekliftoplamkar'
   );
-  if (direct !== undefined && direct !== null) {
-    return toNumber(direct);
+  if (quoteProfit !== undefined && quoteProfit !== null) {
+    return toNumber(quoteProfit);
   }
 
   const key = Object.keys(row).find((candidate) =>
+    normalizeKeyToken(candidate).includes('toplamkarortmalgore') ||
     normalizeKeyToken(candidate).includes('tekliftoplamkar')
   );
 
@@ -850,8 +860,8 @@ const pickUnitProfit = (data: Record<string, any>): number => {
   return toNumber(
     resolveDataValueByCandidates(
       data,
-      ['TeklifAdetKar'],
-      'teklifadetkar'
+      ['BirimKarOrtMalGöre', 'BirimKarOrtMalGore', 'BirimKarOrtMalGÃ¶re', 'TeklifAdetKar'],
+      'birimkarortmalgore'
     )
   );
 };
@@ -860,8 +870,8 @@ const pickAvgMargin = (data: Record<string, any>): number => {
   return toNumber(
     resolveDataValueByCandidates(
       data,
-      ['TeklifKarYuzde', 'TeklifKarYÃ¼zde'],
-      'teklifkaryuzde'
+      ['OrtalamaKarYuzde', 'OrtalamaKarYüzde', 'TeklifKarYuzde', 'TeklifKarYÃ¼zde'],
+      'ortalamakaryuzde'
     )
   );
 };
@@ -887,8 +897,8 @@ const pickCurrentCost = (data: Record<string, any>): number => {
   return toNumber(
     resolveDataValueByCandidates(
       data,
-      ['A.TeklifDahil', 'A.Teklif+'],
-      'ateklifdahil'
+      ['OrtalamaMaliyetKDVli', 'OrtalamaMaliyetKdvli', 'A.TeklifDahil', 'A.Teklif+'],
+      'ortalamamaliyetkdvli'
     )
   );
 };
@@ -1306,19 +1316,19 @@ const BASE_MARGIN_REPORT_COLUMNS: Record<string, { label: string; resolve: (data
     resolve: (data) => resolveDataValueByCandidates(data, ['TutarKDV'], 'tutarkdv'),
   },
   avgCost: {
-    label: 'Guncel Maliyet (KDV Dahil)',
+    label: 'Ortalama Maliyet (KDV Dahil)',
     resolve: (data) => pickCurrentCost(data),
   },
   unitProfit: {
-    label: 'Birim Kar (Guncel)',
+    label: 'Birim Kar (Ort. Mal.)',
     resolve: (data) => pickUnitProfit(data),
   },
   totalProfit: {
-    label: 'Toplam Kar (Guncel)',
+    label: 'Toplam Kar (Ort. Mal.)',
     resolve: (data) => pickTotalProfit(data),
   },
   margin: {
-    label: 'Kar % (Guncel)',
+    label: 'Kar % (Ort. Mal.)',
     resolve: (data) => pickAvgMargin(data),
   },
 };

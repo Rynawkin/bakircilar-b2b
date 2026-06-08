@@ -1150,9 +1150,9 @@ class EmailService {
           ${renderBucketRow('Toplam Satir', formatCount(bucket.totalRecords))}
           ${renderBucketRow('Toplam Evrak', formatCount(bucket.totalDocuments))}
           ${renderBucketRow('Ciro (KDV Haric)', formatCurrency(bucket.totalRevenue))}
-          ${renderBucketRow('Kar (Guncel, KDV Haric)', formatCurrency(bucket.totalProfit))}
+          ${renderBucketRow('Kar (Ortalama Maliyet, KDV Haric)', formatCurrency(bucket.totalProfit))}
           ${renderBucketRow('Kar (Son Giris, KDV Haric)', formatCurrency(bucket.entryProfit))}
-          ${renderBucketRow('Kar % (Guncel)', formatPercent(bucket.avgMargin))}
+          ${renderBucketRow('Kar % (Ortalama Maliyet)', formatPercent(bucket.avgMargin))}
           ${renderBucketRow('Kar % (Son Giris)', formatPercent(calcEntryMargin(bucket)))}
           ${renderBucketRow('Zararli Evrak', formatCount(bucket.negativeDocuments))}
           ${renderBucketRow('Zararli Satir', formatCount(bucket.negativeLines))}
@@ -1167,10 +1167,10 @@ class EmailService {
 
       const profitLabel = options.useEntry
         ? 'Kar (Son Giris)'
-        : 'Kar (Guncel)';
+        : 'Kar (Ort. Mal.)';
       const marginLabel = options.useEntry
         ? 'Kar % (Son Giris)'
-        : 'Kar % (Guncel)';
+        : 'Kar % (Ort. Mal.)';
 
       const body = rows
         .map((row) => {
@@ -1258,8 +1258,8 @@ class EmailService {
             <tr>
               <th style="text-align: left; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ad</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Ciro</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Guncel)</th>
-              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Guncel)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Ort. Mal.)</th>
+              <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Ort. Mal.)</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar (Son Giris)</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Kar % (Son Giris)</th>
               <th style="text-align: right; padding: 6px; border-bottom: 1px solid #e5e7eb;">Satir</th>
@@ -1324,7 +1324,7 @@ class EmailService {
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalRevenue)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Guncel, KDV Haric)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar (Ortalama Maliyet, KDV Haric)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.overall.totalProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.orders.totalProfit)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.totalProfit)}</td>
@@ -1336,7 +1336,7 @@ class EmailService {
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatCurrency(summary.sales.entryProfit)}</td>
             </tr>
             <tr>
-              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (Guncel)</td>
+              <td style="padding: 6px; border-top: 1px solid #e5e7eb;">Kar % (Ortalama Maliyet)</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.overall.avgMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.orders.avgMargin)}</td>
               <td style="padding: 6px; border-top: 1px solid #e5e7eb; text-align: right;">${formatPercent(summary.sales.avgMargin)}</td>
@@ -1380,13 +1380,13 @@ class EmailService {
             </tr>
             <tr>
               <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (Guncel)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (Guncel)</th>
+              <th style="padding: 6px; text-align: right;">Kar (Ort. Mal.)</th>
+              <th style="padding: 6px; text-align: right;">Kar % (Ort. Mal.)</th>
               <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
               <th style="padding: 6px; text-align: right;">Zararli Satir</th>
               <th style="padding: 6px; text-align: right;">Ciro</th>
-              <th style="padding: 6px; text-align: right;">Kar (Guncel)</th>
-              <th style="padding: 6px; text-align: right;">Kar % (Guncel)</th>
+              <th style="padding: 6px; text-align: right;">Kar (Ort. Mal.)</th>
+              <th style="padding: 6px; text-align: right;">Kar % (Ort. Mal.)</th>
               <th style="padding: 6px; text-align: right;">Zararli Evrak</th>
               <th style="padding: 6px; text-align: right;">Zararli Satir</th>
             </tr>
@@ -1401,12 +1401,12 @@ class EmailService {
     const alertsHtml = `
       <div style="margin-top: 12px;">
         <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Siparis Uyarilari</h3>
-        ${renderAlertSection('Guncel', params.summary.alerts.order.current, { useEntry: false })}
+        ${renderAlertSection('Ortalama Maliyet', params.summary.alerts.order.current, { useEntry: false })}
         ${renderAlertSection('Son Giris', params.summary.alerts.order.entry, { useEntry: true })}
       </div>
       <div style="margin-top: 16px;">
         <h3 style="margin: 0 0 8px 0; font-size: 14px; color: #111827;">Satis Uyarilari</h3>
-        ${renderAlertSection('Guncel', params.summary.alerts.sales.current, { useEntry: false })}
+        ${renderAlertSection('Ortalama Maliyet', params.summary.alerts.sales.current, { useEntry: false })}
         ${renderAlertSection('Son Giris', params.summary.alerts.sales.entry, { useEntry: true })}
       </div>
     `;
@@ -1450,9 +1450,9 @@ class EmailService {
               ${renderBucketRow('Toplam Evrak', formatCount(params.summary.totalDocuments))}
               ${renderBucketRow('Satis Cirosu (KDV Haric)', formatCurrency(params.summary.salesSummary.totalRevenue))}
               ${renderBucketRow('Bekleyen Siparis Tutari (KDV Haric)', formatCurrency(params.summary.orderSummary.totalRevenue))}
-              ${renderBucketRow('Toplam Kar (Guncel, KDV Haric)', formatCurrency(params.summary.totalProfit))}
+              ${renderBucketRow('Toplam Kar (Ortalama Maliyet, KDV Haric)', formatCurrency(params.summary.totalProfit))}
               ${renderBucketRow('Toplam Kar (Son Giris, KDV Haric)', formatCurrency(params.summary.entryProfit))}
-              ${renderBucketRow('Kar % (Guncel)', formatPercent(params.summary.avgMargin))}
+              ${renderBucketRow('Kar % (Ortalama Maliyet)', formatPercent(params.summary.avgMargin))}
               ${renderBucketRow('Kar % (Son Giris)', formatPercent(calcEntryMargin(params.summary)))}
             </table>
 
@@ -1461,7 +1461,7 @@ class EmailService {
                 Yuksek: <strong>${formatCount(params.summary.highMarginCount)}</strong> | Dusuk: <strong>${formatCount(params.summary.lowMarginCount)}</strong> | Zarar: <strong>${formatCount(params.summary.negativeMarginCount)}</strong>
               </p>
               <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
-                "Guncel" alanlari Mikro raporundaki teklif kolonlarindan, "Son Giris" alanlari ise SÖ kolonlarindan hesaplanir.
+                "Ortalama Maliyet" alanlari Mikro raporundaki OrtalamaMaliyet/ToplamKarOrtMalGore kolonlarindan, "Son Giris" alanlari ise SÖ kolonlarindan hesaplanir.
               </p>
             </div>
 
