@@ -249,7 +249,6 @@ export default function WarehousePage() {
   const [deliveryNoteDrafts, setDeliveryNoteDrafts] = useState<Record<string, string>>({});
   const [dispatchDriverDrafts, setDispatchDriverDrafts] = useState<Record<string, string>>({});
   const [dispatchVehicleDrafts, setDispatchVehicleDrafts] = useState<Record<string, string>>({});
-  const [sktCheckedLines, setSktCheckedLines] = useState<Record<string, boolean>>({});
   const [confirmCompleteKeys, setConfirmCompleteKeys] = useState<Record<string, boolean>>({});
   const [dispatchDrivers, setDispatchDrivers] = useState<DriverOption[]>([]);
   const [dispatchVehicles, setDispatchVehicles] = useState<VehicleOption[]>([]);
@@ -472,24 +471,6 @@ export default function WarehousePage() {
   const getDeliveryDraft = (mikroOrderNumber: string) => (deliveryNoteDrafts[mikroOrderNumber] || '').trim();
   const getDriverDraft = (mikroOrderNumber: string) => (dispatchDriverDrafts[mikroOrderNumber] || '').trim();
   const getVehicleDraft = (mikroOrderNumber: string) => (dispatchVehicleDrafts[mikroOrderNumber] || '').trim();
-  const getUncheckedSktLines = (mikroOrderNumber: string) => {
-    const detail = detailByOrder[mikroOrderNumber];
-    if (!detail) return [];
-    return detail.lines.filter((line) => !sktCheckedLines[getShelfDraftKey(mikroOrderNumber, line.lineKey)]);
-  };
-  const ensureSktChecks = (mikroOrderNumber: string) => {
-    const missingLines = getUncheckedSktLines(mikroOrderNumber);
-    if (missingLines.length === 0) return true;
-    const sample = missingLines
-      .slice(0, 4)
-      .map((line) => `${line.productCode} - ${line.productName}`)
-      .join(', ');
-    toast.error(
-      `SKT kontrolu yapilmamis ${missingLines.length} satir var. ${sample}${missingLines.length > 4 ? '...' : ''}`,
-      { duration: 7000 }
-    );
-    return false;
-  };
 
   const loadOrderDetail = async (
     mikroOrderNumber: string,
@@ -742,8 +723,6 @@ export default function WarehousePage() {
     mikroOrderNumber: string,
     options?: { deliverySeries?: string; driverId?: string; vehicleId?: string }
   ) => {
-    if (!ensureSktChecks(mikroOrderNumber)) return;
-
     const deliverySeries = (options?.deliverySeries || getDeliveryDraft(mikroOrderNumber)).trim();
     const selectedDriver = activeDrivers.find((item) => item.id === (options?.driverId || getDriverDraft(mikroOrderNumber)));
     const selectedVehicle = activeVehicles.find((item) => item.id === (options?.vehicleId || getVehicleDraft(mikroOrderNumber)));
@@ -793,7 +772,6 @@ export default function WarehousePage() {
   };
 
   const openDispatchModal = (mikroOrderNumber: string) => {
-    if (!ensureSktChecks(mikroOrderNumber)) return;
     setDispatchModalOrderNumber(mikroOrderNumber);
     setDispatchModalSeries(getDeliveryDraft(mikroOrderNumber));
     setDispatchModalDriverId(getDriverDraft(mikroOrderNumber));
@@ -854,16 +832,6 @@ export default function WarehousePage() {
       return next;
     });
     setReportedImageKeys((prev) => {
-      const next: Record<string, boolean> = {};
-      const prefix = `${mikroOrderNumber}::`;
-      for (const [key, value] of Object.entries(prev)) {
-        if (!key.startsWith(prefix)) {
-          next[key] = value;
-        }
-      }
-      return next;
-    });
-    setSktCheckedLines((prev) => {
       const next: Record<string, boolean> = {};
       const prefix = `${mikroOrderNumber}::`;
       for (const [key, value] of Object.entries(prev)) {
@@ -1489,7 +1457,6 @@ export default function WarehousePage() {
                     const visibleLines = showCompletedLines
                       ? panelDetail.lines
                       : panelDetail.lines.filter((line) => line.remainingQty > 0 && line.pickedQty < line.remainingQty);
-                    const missingSktLines = getUncheckedSktLines(orderNumber);
 
                     return (
                       <div
@@ -1585,12 +1552,6 @@ export default function WarehousePage() {
                             </Button>
                           </div>
                         </div>
-                        {missingSktLines.length > 0 && (
-                          <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
-                            SKT kontrolu eksik: {missingSktLines.length} satir. Irsaliye olusturmak icin satirlarin sagindaki SKT kontrolunu isaretleyin.
-                          </div>
-                        )}
-
                         <div className={panelLineAreaClass}>
                           {visibleLines.map((line, lineIndex) => {
                             const draftKey = getShelfDraftKey(orderNumber, line.lineKey);
@@ -1602,7 +1563,6 @@ export default function WarehousePage() {
                             const imageIssueKey = `${orderNumber}::${line.lineKey}`;
                             const imageIssueReported = Boolean(reportedImageKeys[imageIssueKey]);
                             const imageIssueReporting = reportingImageKey === imageIssueKey;
-                            const sktChecked = Boolean(sktCheckedLines[draftKey]);
                             const confirmComplete = Boolean(confirmCompleteKeys[draftKey]);
                             const unitLabel = getUnitConversionLabel(line.unit, line.unit2, line.unit2Factor);
                             const zebraClass = lineIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/80';
@@ -1687,19 +1647,6 @@ export default function WarehousePage() {
                                         <span className="text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 font-semibold text-slate-700">
                                           Topca: {line.warehouseStocks.topca}
                                         </span>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setSktCheckedLines((prev) => ({ ...prev, [draftKey]: !Boolean(prev[draftKey]) }))
-                                          }
-                                          className={`min-w-[118px] text-[10px] px-2 py-1 rounded-lg border font-black transition-colors ${
-                                            sktChecked
-                                              ? 'border-emerald-400 bg-emerald-100 text-emerald-800'
-                                              : 'border-amber-300 bg-amber-50 text-amber-800'
-                                          }`}
-                                        >
-                                          {sktChecked ? 'SKT OK' : 'SKT Kontrolu'}
-                                        </button>
                                         <button
                                           onClick={() => reportImageIssue(orderNumber, line)}
                                           disabled={imageIssueReported || imageIssueReporting}
@@ -1938,8 +1885,7 @@ export default function WarehousePage() {
                 actionLoading ||
                 !dispatchModalSeries.trim() ||
                 !dispatchModalDriverId ||
-                !dispatchModalVehicleId ||
-                Boolean(dispatchModalOrderNumber && getUncheckedSktLines(dispatchModalOrderNumber).length > 0)
+                !dispatchModalVehicleId
               }
             >
               Irsaliyelestir
@@ -1951,11 +1897,6 @@ export default function WarehousePage() {
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
             Siparis: <strong>{dispatchModalOrderNumber || '-'}</strong>
           </div>
-          {dispatchModalOrderNumber && getUncheckedSktLines(dispatchModalOrderNumber).length > 0 && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
-              SKT kontrolu eksik {getUncheckedSktLines(dispatchModalOrderNumber).length} satir var. Once satirlarin sagindaki SKT kontrolunu isaretleyin.
-            </div>
-          )}
           <div>
             <p className="text-xs font-bold text-slate-600 mb-1">Irsaliye Serisi</p>
             <Input
