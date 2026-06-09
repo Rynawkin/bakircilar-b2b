@@ -306,6 +306,65 @@ class SupplierCostService {
     return { result, cost: this.mapCost(updatedCost), application: log };
   }
 
+  async markProductCostCurrent(input: { productCode: string; note?: string | null }, user: UserContext) {
+    const productCode = normalizeCode(input.productCode);
+    if (!productCode) throw new AppError('Stok kodu zorunludur.', 400, ErrorCode.BAD_REQUEST);
+    const product = await this.requireProduct(productCode);
+    const userInfo = await this.resolveUser(user);
+    const escapedCode = escapeSqlLiteral(productCode);
+
+    const rows = await mikroService.executeQuery(`
+      SELECT TOP 1
+        CAST(ISNULL(s.sto_standartmaliyet, 0) AS decimal(18,4)) AS currentCostP,
+        CAST(ISNULL(u.MaliyetP, 0) AS decimal(18,4)) AS userCostP,
+        CAST(ISNULL(u.MaliyetT, 0) AS decimal(18,4)) AS userCostT
+      FROM STOKLAR s WITH (NOLOCK)
+      LEFT JOIN STOKLAR_USER u WITH (NOLOCK) ON u.Record_uid = s.sto_Guid
+      WHERE s.sto_kod = '${escapedCode}'
+    `);
+    const row = rows?.[0] || {};
+    const costP = asNumber(row.userCostP, 0) > 0 ? asNumber(row.userCostP) : asNumber(row.currentCostP, product.currentCost || 0);
+    const costT = asNumber(row.userCostT, 0) > 0 ? asNumber(row.userCostT) : costP;
+    if (!Number.isFinite(costP) || costP <= 0 || !Number.isFinite(costT) || costT <= 0) {
+      throw new AppError('Mevcut Mikro maliyeti okunamadi veya gecersiz.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const previousCost = product.currentCost ?? null;
+    const previousCostDate = product.currentCostDate ?? null;
+    const result = await reportsService.updateUcarerProductCost({
+      productCode,
+      costP,
+      costT,
+      updatePriceLists: false,
+      source: 'SUPPLIER_COST',
+      userId: userInfo.userId || null,
+    });
+
+    const log = await prisma.supplierCostApplicationLog.create({
+      data: {
+        supplierCostId: null,
+        productId: product.id,
+        productCode,
+        productName: product.name || null,
+        supplierCode: null,
+        supplierName: 'Mevcut maliyet teyidi',
+        previousCost,
+        newCostP: result.costP,
+        newCostT: result.costT,
+        previousCostDate,
+        newCostDate: new Date(),
+        updatePriceLists: false,
+        updatedLists: result.updatedLists as unknown as Prisma.InputJsonValue,
+        missingLists: result.missingLists as unknown as Prisma.InputJsonValue,
+        note: input.note ? String(input.note).trim() : 'Mevcut maliyet guncel olarak teyit edildi.',
+        userId: userInfo.userId || null,
+        userName: userInfo.userName || null,
+      },
+    });
+
+    return { result, application: log };
+  }
+
   async importLatestSupplierPriceListMatches(input: { limit?: number }, user: UserContext) {
     const limit = Math.max(1, Math.min(Number(input.limit) || 500, 5000));
     const userInfo = await this.resolveUser(user);

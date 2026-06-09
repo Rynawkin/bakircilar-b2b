@@ -32,7 +32,7 @@ import { formatDateShort } from '@/lib/utils/format';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 
-type TabKey = 'entry' | 'reports' | 'history' | 'requests';
+type TabKey = 'dashboard' | 'entry' | 'reports' | 'history' | 'requests' | 'tenders';
 
 type FormState = {
   productCode: string;
@@ -111,7 +111,7 @@ const costPFromCostT = (costT: string, vatPercent: number) => {
 };
 
 export default function SupplierCostsPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>('entry');
+  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [initialUrlTab, setInitialUrlTab] = useState<string | null>(null);
   const [initialRequestId, setInitialRequestId] = useState<string | null>(null);
   const { loadUserFromStorage } = useAuthStore();
@@ -137,6 +137,8 @@ export default function SupplierCostsPage() {
   const [applying, setApplying] = useState<string | null>(null);
   const [applyTarget, setApplyTarget] = useState<any | null>(null);
   const [applyUpdateLists, setApplyUpdateLists] = useState(true);
+  const [applyAfterSave, setApplyAfterSave] = useState(false);
+  const [applyAfterSaveLists, setApplyAfterSaveLists] = useState(true);
   const [applyNote, setApplyNote] = useState('');
   const [reports, setReports] = useState<any | null>(null);
   const [reportSearch, setReportSearch] = useState('');
@@ -256,12 +258,22 @@ export default function SupplierCostsPage() {
         minOrderQuantity: form.minOrderQuantity ? parseNumberText(form.minOrderQuantity) : undefined,
         leadTimeDays: form.leadTimeDays ? parseNumberText(form.leadTimeDays) : undefined,
       };
+      let savedCost: any = null;
       if (editingCostId) {
-        await adminApi.updateSupplierCost(editingCostId, payload);
+        const result = await adminApi.updateSupplierCost(editingCostId, payload);
+        savedCost = result.cost;
         toast.success('Maliyet kaydi guncellendi');
       } else {
-        await adminApi.createSupplierCost(payload);
+        const result = await adminApi.createSupplierCost(payload);
+        savedCost = result.cost;
         toast.success('Maliyet kaydi eklendi');
+      }
+      if (applyAfterSave && savedCost?.id) {
+        await adminApi.applySupplierCost(savedCost.id, {
+          updatePriceLists: applyAfterSaveLists,
+          note: `${savedCost.productCode || form.productCode} maliyet girisinden uygulandi.`,
+        });
+        toast.success(applyAfterSaveLists ? 'Maliyet ve 10 liste Mikroya uygulandi' : 'Maliyet Mikroya uygulandi');
       }
       await loadProduct(form.productCode);
       await loadHistory();
@@ -398,7 +410,9 @@ export default function SupplierCostsPage() {
 
   useEffect(() => {
     if (permissionsLoading) return;
-    if (initialUrlTab === 'requests' || !canManageSupplierCosts) {
+    if (initialUrlTab === 'requests' || initialUrlTab === 'tenders') {
+      setActiveTab(initialUrlTab as TabKey);
+    } else if (!canManageSupplierCosts) {
       setActiveTab('requests');
     }
   }, [permissionsLoading, initialUrlTab, canManageSupplierCosts]);
@@ -411,10 +425,12 @@ export default function SupplierCostsPage() {
 
   const visibleTabs = useMemo(() => {
     const tabs: Array<[TabKey, string]> = [];
+    tabs.push(['dashboard', 'Ozet']);
     if (canManageSupplierCosts) {
       tabs.push(['entry', 'Maliyet gir / uygula'], ['reports', 'Raporlar'], ['history', 'Gecmis']);
     }
     if (canUsePriceRequests) tabs.push(['requests', 'Fiyat teyit talepleri']);
+    if (canUsePriceRequests) tabs.push(['tenders', 'Ihale maliyet talepleri']);
     return tabs;
   }, [canManageSupplierCosts, canUsePriceRequests]);
 
@@ -466,6 +482,20 @@ export default function SupplierCostsPage() {
 
         {activeTab === 'requests' && (
           <PriceRequestsPanel canManage={canManageSupplierCosts} initialRequestId={initialRequestId} />
+        )}
+
+        {activeTab === 'dashboard' && (
+          <SupplierCostDashboard
+            canManage={canManageSupplierCosts}
+            reports={reports}
+            onOpenRequests={() => setActiveTab('requests')}
+            onOpenTenders={() => setActiveTab('tenders')}
+            onOpenEntry={() => setActiveTab(canManageSupplierCosts ? 'entry' : 'requests')}
+          />
+        )}
+
+        {activeTab === 'tenders' && (
+          <TenderRequestsPanel canManage={canManageSupplierCosts} />
         )}
 
         {activeTab === 'entry' && (
@@ -607,12 +637,38 @@ export default function SupplierCostsPage() {
                         <MiniMetric label="Mevcut Mikro maliyet" value={money(selectedProduct.currentCost)} />
                       </div>
 
+                      <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
+                        <label className="flex items-start gap-3 text-sm font-black text-amber-950">
+                          <input
+                            type="checkbox"
+                            checked={applyAfterSave}
+                            onChange={(event) => setApplyAfterSave(event.target.checked)}
+                            className="mt-1"
+                          />
+                          <span>
+                            Kaydederken Mikro maliyetini de guncelle
+                            <span className="block text-xs font-semibold text-amber-800">
+                              Secilirse Maliyet T/P Ucarer Depo mantigiyla Mikroya yazilir.
+                            </span>
+                          </span>
+                        </label>
+                        <label className="mt-3 flex items-center gap-2 text-sm font-bold text-amber-900">
+                          <input
+                            type="checkbox"
+                            checked={applyAfterSaveLists}
+                            onChange={(event) => setApplyAfterSaveLists(event.target.checked)}
+                            disabled={!applyAfterSave}
+                          />
+                          10 listeyi mevcut marjlara gore guncelle
+                        </label>
+                      </div>
+
                       <div className="flex flex-wrap justify-end gap-2">
                         <Button variant="outline" onClick={() => { setManualCostPOverride(false); setForm({ ...emptyForm, productCode: selectedProduct.mikroCode, unit: selectedProduct.unit || '', vatRate: String(Number(selectedProduct.vatRate || 0) * 100) }); }}>
                           Temizle
                         </Button>
                         <Button onClick={saveCost} isLoading={saving} className="rounded-xl">
-                          {editingCostId ? 'Guncelle' : 'Maliyet kaydet'}
+                          {applyAfterSave ? 'Kaydet ve Mikroya uygula' : editingCostId ? 'Guncelle' : 'Maliyet kaydet'}
                         </Button>
                       </div>
                     </CardContent>
@@ -745,6 +801,77 @@ export default function SupplierCostsPage() {
   );
 }
 
+function SupplierCostDashboard({
+  canManage,
+  reports,
+  onOpenRequests,
+  onOpenTenders,
+  onOpenEntry,
+}: {
+  canManage: boolean;
+  reports: any;
+  onOpenRequests: () => void;
+  onOpenTenders: () => void;
+  onOpenEntry: () => void;
+}) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <Card className="overflow-hidden rounded-[2rem] border-0 bg-slate-950 text-white shadow-xl">
+        <CardContent className="p-6 lg:p-8">
+          <div className="max-w-3xl">
+            <p className="text-sm font-black uppercase tracking-[0.3em] text-amber-300">Satin alma kontrol merkezi</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight lg:text-4xl">Fiyat teyidi, tedarik maliyeti ve ihale talepleri tek akista.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-300">
+              Bekleyen talepleri fiyatlandir, gerekiyorsa satis onayina gonder, secilen maliyeti Ucarer Depo ile ayni Maliyet T/P ve 10 liste mantigiyla Mikroya uygula.
+            </p>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button onClick={onOpenRequests} className="rounded-2xl bg-amber-400 px-5 py-3 font-black text-slate-950 hover:bg-amber-300">
+              Fiyat teyit talepleri
+            </Button>
+            <Button onClick={onOpenTenders} className="rounded-2xl bg-white px-5 py-3 font-black text-slate-950 hover:bg-slate-100">
+              Ihale maliyet talepleri
+            </Button>
+            {canManage && (
+              <Button onClick={onOpenEntry} className="rounded-2xl bg-emerald-500 px-5 py-3 font-black text-white hover:bg-emerald-400">
+                Maliyet gir / uygula
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <MiniMetric label="Maliyet kaydi" value={reports?.summary?.costCount || 0} light />
+        <MiniMetric label="Firsat" value={(reports?.summary?.currentAboveBest || 0) + (reports?.summary?.betterAfterApplied || 0)} light />
+        <MiniMetric label="Riskli maliyet" value={(reports?.summary?.currentBelowSupplier || 0) + (reports?.summary?.expiredCosts || 0)} light />
+        <MiniMetric label="Tek tedarikci" value={reports?.summary?.singleSupplier || 0} light />
+      </div>
+
+      <Card className="rounded-[2rem] xl:col-span-2">
+        <CardHeader>
+          <CardTitle className="text-xl">Yeni sade akis</CardTitle>
+          <CardDescription>Bu ekranda operasyonu uc ana is uzerinden yurutun.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-5">
+            <p className="text-lg font-black text-amber-950">1. Fiyat teyidi</p>
+            <p className="mt-2 text-sm text-amber-800">Satis talep acar; satin alma fiyat girer, guncelse tek tikla tarihi yeniler veya satis onayina yollar.</p>
+          </div>
+          <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5">
+            <p className="text-lg font-black text-emerald-950">2. Maliyet uygulama</p>
+            <p className="mt-2 text-sm text-emerald-800">Maliyet T/P ve 10 liste secimi Ucarer Depo ile ayni backend fiyat motoruna baglidir.</p>
+          </div>
+          <div className="rounded-[1.5rem] border border-sky-200 bg-sky-50 p-5">
+            <p className="text-lg font-black text-sky-950">3. Ihale maliyeti</p>
+            <p className="mt-2 text-sm text-sky-800">Ihale evraki, kalemler, termin, nakliye ve tedarikci teklifleri ihale bazinda takip edilir.</p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const emptyRequestForm = {
   type: 'EXISTING_PRODUCT',
   priority: 'NORMAL',
@@ -756,6 +883,7 @@ const emptyRequestForm = {
   customerCode: '',
   customerName: '',
   salesNote: '',
+  attachments: [],
   stockCreatePayload: {
     templateCode: 'B108423',
     name: '',
@@ -801,6 +929,8 @@ const emptyOfferForm = {
   quoteDate: new Date().toISOString().slice(0, 10),
   note: '',
   attachmentUrl: '',
+  applyToSystem: false,
+  updatePriceLists: true,
 };
 
 function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolean; initialRequestId?: string | null }) {
@@ -825,6 +955,8 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   const [noteText, setNoteText] = useState('');
   const [savingAction, setSavingAction] = useState<string | null>(null);
   const [manualOfferCostPOverride, setManualOfferCostPOverride] = useState(false);
+  const [uploadingRequestAttachment, setUploadingRequestAttachment] = useState(false);
+  const [uploadingOfferAttachment, setUploadingOfferAttachment] = useState(false);
 
   const requestVatPercent = (request: any) =>
     resolveVatPercent(request?.vatRatePercent ?? request?.vatRate ?? request?.stockCreatePayload?.vatRatePercent, 20);
@@ -898,6 +1030,34 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
       return { ...current, stockCreatePayload: { ...current.stockCreatePayload, margins } };
     });
   const updateOfferForm = (patch: any) => setOfferForm((current: any) => ({ ...current, ...patch }));
+  const uploadPriceAttachment = async (file: File | null | undefined, target: 'request' | 'offer') => {
+    if (!file) return;
+    target === 'request' ? setUploadingRequestAttachment(true) : setUploadingOfferAttachment(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploaded = await adminApi.uploadPriceVerificationAttachment(formData);
+      const attachment = {
+        url: uploaded.url || uploaded.attachmentUrl,
+        name: uploaded.originalName || file.name,
+        size: uploaded.size,
+        type: uploaded.type || file.type || null,
+      };
+      if (target === 'request') {
+        setRequestForm((current: any) => ({
+          ...current,
+          attachments: [...(current.attachments || []), attachment],
+        }));
+      } else {
+        updateOfferForm({ attachmentUrl: attachment.url });
+      }
+      toast.success('Dosya eklendi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Dosya yuklenemedi');
+    } finally {
+      target === 'request' ? setUploadingRequestAttachment(false) : setUploadingOfferAttachment(false);
+    }
+  };
   const updateOfferCostT = (value: string) => {
     setOfferForm((current: any) => {
       const patch: any = { costT: value };
@@ -956,6 +1116,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
         customerName: requestForm.customerName || undefined,
         sourceType: 'SUPPLIER_COSTS',
         salesNote: requestForm.salesNote || undefined,
+        attachments: requestForm.attachments || [],
         stockCreatePayload: isNewStock ? requestForm.stockCreatePayload : undefined,
       };
       const result = await adminApi.createPriceVerificationRequest(payload);
@@ -990,9 +1151,11 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
         unitFactor: parseNumberText(offerForm.unitFactor) || 1,
         minOrderQuantity: offerForm.minOrderQuantity ? parseNumberText(offerForm.minOrderQuantity) : undefined,
         leadTimeDays: offerForm.leadTimeDays ? parseNumberText(offerForm.leadTimeDays) : undefined,
+        applyToSystem: Boolean(offerForm.applyToSystem),
+        updatePriceLists: offerForm.updatePriceLists !== false,
       });
       toast.success('Fiyat alternatifi eklendi');
-      setOfferForm(emptyOfferForm);
+      setOfferForm(offerDefaultsForRequest(selectedRequest));
       setSupplierResults([]);
       selectRequest(result.request);
       await loadRequests();
@@ -1054,6 +1217,22 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
       await loadRequests();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Talep tamamlanamadi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const markCurrent = async () => {
+    if (!selectedRequest || !window.confirm('Mevcut Mikro maliyeti degismeden guncel tarih bugune cekilsin mi?')) return;
+    setSavingAction('current');
+    try {
+      const result = await adminApi.markPriceVerificationCurrent(selectedRequest.id, { note: actionNote || undefined });
+      toast.success('Fiyat guncel olarak isaretlendi');
+      selectRequest(result.request);
+      setActionNote('');
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Guncel teyidi yapilamadi');
     } finally {
       setSavingAction(null);
     }
@@ -1202,6 +1381,23 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                 placeholder="Musteri hedef fiyati, aciliyet, marka alternatifi..."
               />
             </label>
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              <p className="mb-2 text-sm font-black text-slate-800">Talep ekleri</p>
+              <label className="flex cursor-pointer items-center justify-center rounded-2xl bg-white px-4 py-4 text-sm font-bold text-slate-600 shadow-sm hover:bg-amber-50">
+                <UploadCloud className="mr-2 h-5 w-5" />
+                {uploadingRequestAttachment ? 'Yukleniyor...' : 'PDF / Excel / gorsel ekle'}
+                <input type="file" className="hidden" onChange={(event) => uploadPriceAttachment(event.target.files?.[0], 'request')} />
+              </label>
+              {(requestForm.attachments || []).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(requestForm.attachments || []).map((attachment: any, index: number) => (
+                    <a key={`${attachment.url}-${index}`} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full bg-white px-3 py-1 text-xs font-bold text-primary-700">
+                      {attachment.name || `Ek ${index + 1}`}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
             <Button onClick={createRequest} isLoading={creating} className="w-full rounded-2xl">
               <Plus className="mr-2 h-4 w-4" /> Talep olustur
             </Button>
@@ -1304,6 +1500,18 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                 {selectedRequest.salesNote && <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700"><b>Satis notu:</b> {selectedRequest.salesNote}</p>}
                 {selectedRequest.procurementNote && <p className="rounded-2xl bg-amber-50 p-3 text-sm text-amber-900"><b>Satin alma notu:</b> {selectedRequest.procurementNote}</p>}
                 {selectedRequest.salesDecisionNote && <p className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900"><b>Satis karar notu:</b> {selectedRequest.salesDecisionNote}</p>}
+                {(selectedRequest.attachments || []).length > 0 && (
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-2 text-sm font-black text-slate-900">Talep ekleri</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(selectedRequest.attachments || []).map((attachment: any, index: number) => (
+                        <a key={`${attachment.url}-${index}`} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-primary-700 hover:bg-amber-50">
+                          {attachment.name || `Ek ${index + 1}`}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {selectedRequest.type === 'NEW_STOCK' && canManage && (
                   <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
                     <div className="mb-3">
@@ -1365,6 +1573,11 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                           <td className="px-3 py-3">
                             <p className="font-black text-slate-900">{offer.supplierName}</p>
                             <p className="text-xs text-slate-500">{offer.supplierCode || '-'} {offer.supplierProductCode ? `| ${offer.supplierProductCode}` : ''}</p>
+                            {offer.attachmentUrl && (
+                              <a href={offer.attachmentUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-xs font-bold text-primary-700 hover:underline">
+                                Teklif dosyasi
+                              </a>
+                            )}
                           </td>
                           <td className="px-3 py-3">{money(offer.costT)} / {money(offer.costP)}<p className="text-xs text-slate-500">{offer.currency} {offer.vatIncluded ? 'KDV dahil' : 'Net'}</p></td>
                           <td className="px-3 py-3 font-black text-emerald-700">{money(offer.normalizedCostT)} / {money(offer.normalizedCostP)}</td>
@@ -1429,9 +1642,53 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                         KDV dahil
                       </label>
                     </div>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr]">
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4">
+                        <p className="mb-2 text-sm font-black text-slate-800">Tedarikci teklif dosyasi</p>
+                        <label className="flex cursor-pointer items-center justify-center rounded-2xl bg-slate-50 px-4 py-4 text-sm font-bold text-slate-600 hover:bg-amber-50">
+                          <UploadCloud className="mr-2 h-5 w-5" />
+                          {uploadingOfferAttachment ? 'Yukleniyor...' : 'PDF / Excel / gorsel yukle'}
+                          <input type="file" className="hidden" onChange={(event) => uploadPriceAttachment(event.target.files?.[0], 'offer')} />
+                        </label>
+                        {offerForm.attachmentUrl && (
+                          <a href={offerForm.attachmentUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-primary-700 hover:underline">
+                            Ek dosyayi ac
+                          </a>
+                        )}
+                      </div>
+                      {selectedRequest.type === 'EXISTING_PRODUCT' && (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                          <label className="flex items-start gap-3 text-sm font-black text-emerald-950">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(offerForm.applyToSystem)}
+                              onChange={(event) => updateOfferForm({ applyToSystem: event.target.checked })}
+                              className="mt-1"
+                            />
+                            <span>
+                              Fiyati eklerken Mikro maliyetini de guncelle
+                              <span className="block text-xs font-semibold text-emerald-800">
+                                Maliyet T/P Ucarer Depo ile ayni fiyat motoruna yazilir.
+                              </span>
+                            </span>
+                          </label>
+                          <label className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-900">
+                            <input
+                              type="checkbox"
+                              checked={offerForm.updatePriceLists !== false}
+                              onChange={(event) => updateOfferForm({ updatePriceLists: event.target.checked })}
+                              disabled={!offerForm.applyToSystem}
+                            />
+                            10 listeyi mevcut marjlara gore guncelle
+                          </label>
+                        </div>
+                      )}
+                    </div>
                     <textarea value={offerForm.note} onChange={(e) => updateOfferForm({ note: e.target.value })} rows={2} className="mt-3 w-full rounded-2xl border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" placeholder="Fiyat notu..." />
                     <div className="mt-3 flex justify-end">
-                      <Button onClick={addOffer} isLoading={savingAction === 'offer'}>Fiyat ekle</Button>
+                      <Button onClick={addOffer} isLoading={savingAction === 'offer'}>
+                        {offerForm.applyToSystem ? 'Fiyat ekle ve Mikroya uygula' : 'Fiyat ekle'}
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -1445,6 +1702,11 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
               <CardContent className="space-y-4">
                 <textarea value={actionNote} onChange={(e) => setActionNote(e.target.value)} rows={2} className="w-full rounded-2xl border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" placeholder="Aksiyon notu..." />
                 <div className="flex flex-wrap gap-2">
+                  {canManage && selectedRequest.type === 'EXISTING_PRODUCT' && !['COMPLETED', 'CANCELLED'].includes(selectedRequest.status) && (
+                    <Button variant="secondary" onClick={markCurrent} isLoading={savingAction === 'current'}>
+                      <CheckCircle2 className="mr-2 h-4 w-4" /> Fiyat guncel, tarihi yenile
+                    </Button>
+                  )}
                   {canManage && selectedRequest.availableActions?.canSendToSales && (
                     <Button onClick={submitToSales} isLoading={savingAction === 'submit'}>
                       <Send className="mr-2 h-4 w-4" /> Satis onayina gonder
@@ -1488,6 +1750,597 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                       </div>
                     ))}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const emptyTenderForm = {
+  title: '',
+  priority: 'NORMAL',
+  customerCode: '',
+  customerName: '',
+  deadline: '',
+  deliveryLocation: '',
+  salesNote: '',
+  attachments: [],
+  items: [
+    { productCode: '', productName: '', unit: '', quantity: '', targetPrice: '', note: '', attachments: [] },
+  ],
+};
+
+const emptyTenderOfferForm = {
+  supplierSearch: '',
+  supplierCode: '',
+  supplierName: '',
+  supplierProductCode: '',
+  costP: '',
+  costT: '',
+  freightCost: '',
+  currency: 'TRY',
+  exchangeRate: '',
+  vatIncluded: false,
+  vatRate: '20',
+  unit: '',
+  unitFactor: '1',
+  leadTimeDays: '',
+  validUntil: '',
+  quoteDate: new Date().toISOString().slice(0, 10),
+  note: '',
+  attachmentUrl: '',
+};
+
+function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
+  const [summary, setSummary] = useState<Record<string, number>>({});
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [mineOnly, setMineOnly] = useState(!canManage);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState<any>(emptyTenderForm);
+  const [offerForms, setOfferForms] = useState<Record<string, any>>({});
+  const [supplierResultsByItem, setSupplierResultsByItem] = useState<Record<string, Array<{ code: string; name: string }>>>({});
+  const [savingAction, setSavingAction] = useState<string | null>(null);
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
+
+  const updateForm = (patch: any) => setForm((current: any) => ({ ...current, ...patch }));
+  const updateItem = (index: number, patch: any) => {
+    setForm((current: any) => {
+      const items = [...(current.items || [])];
+      items[index] = { ...items[index], ...patch };
+      return { ...current, items };
+    });
+  };
+  const addItem = () => setForm((current: any) => ({
+    ...current,
+    items: [...(current.items || []), { productCode: '', productName: '', unit: '', quantity: '', targetPrice: '', note: '', attachments: [] }],
+  }));
+  const removeItem = (index: number) => {
+    setForm((current: any) => ({
+      ...current,
+      items: (current.items || []).filter((_: any, itemIndex: number) => itemIndex !== index),
+    }));
+  };
+
+  const loadRequests = async () => {
+    setLoading(true);
+    try {
+      const result = await adminApi.getTenderCostRequests({
+        search: search || undefined,
+        status: statusFilter,
+        mine: mineOnly,
+        page: 1,
+        limit: 60,
+      });
+      setRequests(result.items || []);
+      setSummary(result.summary || {});
+      if (selectedRequest) {
+        const fresh = (result.items || []).find((item: any) => item.id === selectedRequest.id);
+        if (fresh) setSelectedRequest(fresh);
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Ihale talepleri alinamadi');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRequestDetail = async (id: string) => {
+    try {
+      const result = await adminApi.getTenderCostRequest(id);
+      setSelectedRequest(result.request);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Ihale detayi alinamadi');
+    }
+  };
+
+  useEffect(() => {
+    void loadRequests();
+  }, [statusFilter, mineOnly]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const tenderId = new URLSearchParams(window.location.search).get('tenderId');
+    if (tenderId) void loadRequestDetail(tenderId);
+  }, []);
+
+  const uploadTenderAttachment = async (file: File | null | undefined, target: { type: 'request' | 'item' | 'offer'; index?: number; itemId?: string }) => {
+    if (!file) return;
+    const key = `${target.type}-${target.index ?? target.itemId ?? 'main'}`;
+    setUploadingKey(key);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploaded = await adminApi.uploadPriceVerificationAttachment(formData);
+      const attachment = {
+        url: uploaded.url || uploaded.attachmentUrl,
+        name: uploaded.originalName || file.name,
+        size: uploaded.size,
+        type: uploaded.type || file.type || null,
+      };
+      if (target.type === 'request') {
+        setForm((current: any) => ({ ...current, attachments: [...(current.attachments || []), attachment] }));
+      } else if (target.type === 'item' && typeof target.index === 'number') {
+        setForm((current: any) => {
+          const items = [...(current.items || [])];
+          items[target.index as number] = {
+            ...items[target.index as number],
+            attachments: [...(items[target.index as number]?.attachments || []), attachment],
+          };
+          return { ...current, items };
+        });
+      } else if (target.type === 'offer' && target.itemId) {
+        setOfferForms((current) => ({
+          ...current,
+          [target.itemId as string]: { ...(current[target.itemId as string] || emptyTenderOfferForm), attachmentUrl: attachment.url },
+        }));
+      }
+      toast.success('Dosya eklendi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Dosya yuklenemedi');
+    } finally {
+      setUploadingKey(null);
+    }
+  };
+
+  const createTender = async () => {
+    if (!form.title.trim()) return toast.error('Ihale adi zorunlu');
+    setCreating(true);
+    try {
+      const payload = {
+        ...form,
+        items: (form.items || []).map((item: any) => ({
+          ...item,
+          quantity: item.quantity ? parseNumberText(item.quantity) : undefined,
+          targetPrice: item.targetPrice ? parseNumberText(item.targetPrice) : undefined,
+        })),
+      };
+      const result = await adminApi.createTenderCostRequest(payload);
+      toast.success('Ihale maliyet talebi olusturuldu');
+      setForm(emptyTenderForm);
+      await loadRequests();
+      setSelectedRequest(result.request);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Ihale talebi olusturulamadi');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const updateOfferForm = (itemId: string, patch: any) => {
+    setOfferForms((current) => ({
+      ...current,
+      [itemId]: { ...(current[itemId] || emptyTenderOfferForm), ...patch },
+    }));
+  };
+  const updateOfferCostT = (itemId: string, value: string) => {
+    setOfferForms((current) => {
+      const currentForm = current[itemId] || emptyTenderOfferForm;
+      return {
+        ...current,
+        [itemId]: {
+          ...currentForm,
+          costT: value,
+          costP: currentForm.costP ? currentForm.costP : costPFromCostT(value, resolveVatPercent(currentForm.vatRate, 20)),
+        },
+      };
+    });
+  };
+
+  const searchSuppliers = async (itemId: string) => {
+    const itemForm = offerForms[itemId] || emptyTenderOfferForm;
+    try {
+      const result = await adminApi.searchPriceVerificationSuppliers({ search: itemForm.supplierSearch, limit: 25 });
+      setSupplierResultsByItem((current) => ({ ...current, [itemId]: result.suppliers || [] }));
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Tedarikci aramasi yapilamadi');
+    }
+  };
+
+  const addOffer = async (item: any) => {
+    if (!selectedRequest) return;
+    const itemForm = offerForms[item.id] || emptyTenderOfferForm;
+    const costT = parseNumberText(itemForm.costT);
+    const costP = parseNumberText(itemForm.costP);
+    if (!Number.isFinite(costT) || costT <= 0) return toast.error('Maliyet T zorunlu');
+    if (!Number.isFinite(costP) || costP <= 0) return toast.error('Maliyet P zorunlu');
+    setSavingAction(`offer-${item.id}`);
+    try {
+      const result = await adminApi.addTenderCostOffer(selectedRequest.id, item.id, {
+        ...itemForm,
+        costP,
+        costT,
+        freightCost: itemForm.freightCost ? parseNumberText(itemForm.freightCost) : undefined,
+        exchangeRate: itemForm.currency === 'TRY' ? undefined : parseNumberText(itemForm.exchangeRate),
+        vatRate: itemForm.vatRate ? parseNumberText(itemForm.vatRate) : undefined,
+        unitFactor: parseNumberText(itemForm.unitFactor) || 1,
+        leadTimeDays: itemForm.leadTimeDays ? parseNumberText(itemForm.leadTimeDays) : undefined,
+      });
+      toast.success('Ihale kalemine fiyat eklendi');
+      setOfferForms((current) => ({ ...current, [item.id]: emptyTenderOfferForm }));
+      setSupplierResultsByItem((current) => ({ ...current, [item.id]: [] }));
+      setSelectedRequest(result.request);
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Ihale fiyati eklenemedi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const completeTender = async () => {
+    if (!selectedRequest) return;
+    setSavingAction('complete');
+    try {
+      const result = await adminApi.completeTenderCostRequest(selectedRequest.id, { note: noteText || undefined });
+      toast.success('Ihale talebi tamamlandi');
+      setNoteText('');
+      setSelectedRequest(result.request);
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Ihale tamamlanamadi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const cancelTender = async () => {
+    if (!selectedRequest || !window.confirm('Ihale maliyet talebi iptal edilsin mi?')) return;
+    setSavingAction('cancel');
+    try {
+      const result = await adminApi.cancelTenderCostRequest(selectedRequest.id, { note: noteText || undefined });
+      toast.success('Ihale talebi iptal edildi');
+      setNoteText('');
+      setSelectedRequest(result.request);
+      await loadRequests();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Ihale iptal edilemedi');
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const addNote = async () => {
+    if (!selectedRequest || !noteText.trim()) return;
+    try {
+      await adminApi.addTenderCostNote(selectedRequest.id, { body: noteText.trim() });
+      setNoteText('');
+      await loadRequestDetail(selectedRequest.id);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Not eklenemedi');
+    }
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[440px_1fr]">
+      <div className="space-y-6">
+        <Card className="rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-xl">Yeni ihale maliyet talebi</CardTitle>
+            <CardDescription>Ihale evragi, gorsel, Excel ve kalemleri tek talepte toplayin.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Input label="Ihale adi" value={form.title} onChange={(e) => updateForm({ title: e.target.value })} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SelectBox label="Oncelik" value={form.priority} onChange={(value) => updateForm({ priority: value })} options={['LOW', 'NORMAL', 'HIGH', 'URGENT']} />
+              <Input label="Son teklif tarihi" type="date" value={form.deadline} onChange={(e) => updateForm({ deadline: e.target.value })} />
+              <Input label="Cari kodu" value={form.customerCode} onChange={(e) => updateForm({ customerCode: e.target.value })} />
+              <Input label="Cari adi" value={form.customerName} onChange={(e) => updateForm({ customerName: e.target.value })} />
+            </div>
+            <Input label="Teslim yeri / lokasyon" value={form.deliveryLocation} onChange={(e) => updateForm({ deliveryLocation: e.target.value })} />
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Talep notu</span>
+              <textarea value={form.salesNote} onChange={(e) => updateForm({ salesNote: e.target.value })} rows={3} className="w-full rounded-2xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500" />
+            </label>
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              <label className="flex cursor-pointer items-center justify-center rounded-2xl bg-white px-4 py-4 text-sm font-bold text-slate-600 shadow-sm hover:bg-sky-50">
+                <UploadCloud className="mr-2 h-5 w-5" />
+                {uploadingKey === 'request-main' ? 'Yukleniyor...' : 'Ihale evraki / gorsel ekle'}
+                <input type="file" className="hidden" onChange={(event) => uploadTenderAttachment(event.target.files?.[0], { type: 'request' })} />
+              </label>
+              {(form.attachments || []).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(form.attachments || []).map((attachment: any, index: number) => (
+                    <a key={`${attachment.url}-${index}`} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full bg-white px-3 py-1 text-xs font-bold text-primary-700">{attachment.name || `Ek ${index + 1}`}</a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-black text-slate-900">Ihale kalemleri</p>
+                <Button variant="outline" size="sm" onClick={addItem}>Kalem ekle</Button>
+              </div>
+              {(form.items || []).map((item: any, index: number) => (
+                <div key={index} className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input label="Stok kodu" value={item.productCode} onChange={(e) => updateItem(index, { productCode: e.target.value })} />
+                    <Input label="Urun / kalem adi" value={item.productName} onChange={(e) => updateItem(index, { productName: e.target.value })} />
+                    <Input label="Birim" value={item.unit} onChange={(e) => updateItem(index, { unit: e.target.value })} />
+                    <Input label="Miktar" value={item.quantity} onChange={(e) => updateItem(index, { quantity: e.target.value })} inputMode="decimal" />
+                    <Input label="Hedef fiyat" value={item.targetPrice} onChange={(e) => updateItem(index, { targetPrice: e.target.value })} inputMode="decimal" />
+                    <Input label="Not" value={item.note} onChange={(e) => updateItem(index, { note: e.target.value })} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <label className="cursor-pointer rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200">
+                      {uploadingKey === `item-${index}` ? 'Yukleniyor...' : 'Kaleme ek dosya'}
+                      <input type="file" className="hidden" onChange={(event) => uploadTenderAttachment(event.target.files?.[0], { type: 'item', index })} />
+                    </label>
+                    {index > 0 && <button type="button" onClick={() => removeItem(index)} className="text-xs font-bold text-rose-600">Kalemi sil</button>}
+                    {(item.attachments || []).map((attachment: any, attachmentIndex: number) => (
+                      <a key={`${attachment.url}-${attachmentIndex}`} href={attachment.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-primary-700">{attachment.name || `Ek ${attachmentIndex + 1}`}</a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Button onClick={createTender} isLoading={creating} className="w-full rounded-2xl">
+              <Plus className="mr-2 h-4 w-4" /> Ihale talebi olustur
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-xl">Ihale talepleri</CardTitle>
+            <CardDescription>{canManage ? 'Tum ihale maliyet talepleri.' : 'Sadece sizin actiginiz ihale talepleri.'}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ihale, cari, urun ara..." />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <SelectBox label="Durum" value={statusFilter} onChange={setStatusFilter} options={['ALL', 'REQUESTED', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']} />
+              {canManage && (
+                <label className="mt-6 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
+                  <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+                  Sadece benimkiler
+                </label>
+              )}
+            </div>
+            <Button variant="outline" onClick={loadRequests} isLoading={loading}>Ara / Yenile</Button>
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <MiniMetric label="Bekleyen" value={(summary.REQUESTED || 0) + (summary.IN_REVIEW || 0)} light />
+              <MiniMetric label="Tamamlanan" value={summary.COMPLETED || 0} light />
+              <MiniMetric label="Iptal" value={summary.CANCELLED || 0} light />
+            </div>
+            <div className="max-h-[620px] space-y-2 overflow-auto pr-1">
+              {requests.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Ihale talebi yok.</p>
+              ) : requests.map((request) => (
+                <button
+                  key={request.id}
+                  type="button"
+                  onClick={() => setSelectedRequest(request)}
+                  className={cn(
+                    'w-full rounded-2xl border p-3 text-left transition hover:border-sky-300 hover:bg-sky-50',
+                    selectedRequest?.id === request.id ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white'
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-slate-950">{request.requestNo}</p>
+                      <p className="truncate text-xs text-slate-500">{request.title}</p>
+                    </div>
+                    <StatusPill status={request.status} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-slate-600">
+                    <span className="rounded-full bg-slate-100 px-2 py-1">{request.itemCount || 0} kalem</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-1">Fiyatsiz: {request.unpricedLines || 0}</span>
+                    {request.bestTotal && <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">Toplam: {money(request.bestTotal)}</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-6">
+        {!selectedRequest ? (
+          <Card className="rounded-[2rem]">
+            <CardContent className="flex min-h-[520px] flex-col items-center justify-center text-center">
+              <FileUp className="mb-4 h-16 w-16 text-slate-300" />
+              <p className="text-lg font-black text-slate-900">Ihale talebi secin</p>
+              <p className="mt-2 max-w-md text-sm text-slate-500">Evraklar, kalemler, termin, nakliye ve tedarikci fiyatlari burada takip edilir.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Card className="overflow-hidden rounded-[2rem]">
+              <CardHeader className="bg-slate-950 text-white">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-2xl">{selectedRequest.requestNo}</CardTitle>
+                    <CardDescription className="text-slate-300">{selectedRequest.title}</CardDescription>
+                  </div>
+                  <StatusPill status={selectedRequest.status} />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 p-5">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <MiniMetric label="Cari" value={selectedRequest.customerName || selectedRequest.customerCode || '-'} light />
+                  <MiniMetric label="Son teklif" value={dateText(selectedRequest.deadline)} light />
+                  <MiniMetric label="Kalem" value={selectedRequest.itemCount || 0} light />
+                  <MiniMetric label="En iyi toplam" value={selectedRequest.bestTotal ? money(selectedRequest.bestTotal) : '-'} light />
+                </div>
+                {selectedRequest.salesNote && <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700"><b>Talep notu:</b> {selectedRequest.salesNote}</p>}
+                {(selectedRequest.attachments || []).length > 0 && (
+                  <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-2 text-sm font-black text-slate-900">Ihale evraklari</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(selectedRequest.attachments || []).map((attachment: any, index: number) => (
+                        <a key={`${attachment.url}-${index}`} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-primary-700 hover:bg-sky-50">{attachment.name || `Ek ${index + 1}`}</a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {(selectedRequest.items || []).map((item: any) => {
+              const itemForm = offerForms[item.id] || emptyTenderOfferForm;
+              const supplierResults = supplierResultsByItem[item.id] || [];
+              return (
+                <Card key={item.id} className="rounded-[2rem]">
+                  <CardHeader>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-xl">#{item.lineNo} {item.productName}</CardTitle>
+                        <CardDescription>{item.productCode || 'Stok disi'} | {item.quantity || '-'} {item.unit || ''} | Hedef: {item.targetPrice ? money(item.targetPrice) : '-'}</CardDescription>
+                      </div>
+                      {item.bestOffer && <MiniMetric label="En iyi toplam birim" value={money(item.bestOffer.totalUnitCostP)} light />}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {(item.attachments || []).length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {(item.attachments || []).map((attachment: any, index: number) => (
+                          <a key={`${attachment.url}-${index}`} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-primary-700">{attachment.name || `Kalem eki ${index + 1}`}</a>
+                        ))}
+                      </div>
+                    )}
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[760px] text-sm">
+                        <thead>
+                          <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                            <th className="px-3 py-3">Tedarikci</th>
+                            <th className="px-3 py-3">Maliyet T/P</th>
+                            <th className="px-3 py-3">Nakliye</th>
+                            <th className="px-3 py-3">Toplam</th>
+                            <th className="px-3 py-3">Termin</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(item.offers || []).length === 0 ? (
+                            <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-500">Bu kaleme henuz fiyat girilmedi.</td></tr>
+                          ) : item.offers.map((offer: any) => (
+                            <tr key={offer.id} className="border-b hover:bg-slate-50">
+                              <td className="px-3 py-3">
+                                <p className="font-black text-slate-900">{offer.supplierName}</p>
+                                <p className="text-xs text-slate-500">{offer.supplierCode || '-'}</p>
+                                {offer.attachmentUrl && <a href={offer.attachmentUrl} target="_blank" rel="noreferrer" className="text-xs font-bold text-primary-700">Dosya</a>}
+                              </td>
+                              <td className="px-3 py-3">{money(offer.normalizedCostT)} / {money(offer.normalizedCostP)}</td>
+                              <td className="px-3 py-3">{offer.freightCost ? money(offer.freightCost) : '-'}</td>
+                              <td className="px-3 py-3 font-black text-emerald-700">{money(offer.totalUnitCostP)}<p className="text-xs text-slate-500">Satir: {offer.totalLineCostP ? money(offer.totalLineCostP) : '-'}</p></td>
+                              <td className="px-3 py-3">{offer.leadTimeDays ? `${offer.leadTimeDays} gun` : '-'}<p className="text-xs text-slate-500">{dateText(offer.quoteDate || offer.createdAt)}</p></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {canManage && !['COMPLETED', 'CANCELLED'].includes(selectedRequest.status) && (
+                      <div className="rounded-[1.5rem] border border-sky-200 bg-sky-50 p-4">
+                        <p className="mb-3 text-sm font-black text-sky-950">Bu kaleme satin alma fiyati gir</p>
+                        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+                          <Input value={itemForm.supplierSearch} onChange={(event) => updateOfferForm(item.id, { supplierSearch: event.target.value })} placeholder="Tedarikci kodu veya adi ara..." />
+                          <Button variant="secondary" onClick={() => searchSuppliers(item.id)}>Tedarikci ara</Button>
+                        </div>
+                        {supplierResults.length > 0 && (
+                          <div className="mt-3 flex max-h-32 flex-wrap gap-2 overflow-auto rounded-2xl bg-white p-3">
+                            {supplierResults.map((supplier) => (
+                              <button
+                                key={supplier.code}
+                                type="button"
+                                onClick={() => {
+                                  updateOfferForm(item.id, { supplierCode: supplier.code, supplierName: supplier.name, supplierSearch: `${supplier.code} ${supplier.name}` });
+                                  setSupplierResultsByItem((current) => ({ ...current, [item.id]: [] }));
+                                }}
+                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-sky-300"
+                              >
+                                {supplier.code} - {supplier.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          <Input label="Tedarikci kodu" value={itemForm.supplierCode} onChange={(e) => updateOfferForm(item.id, { supplierCode: e.target.value })} />
+                          <Input label="Tedarikci adi" value={itemForm.supplierName} onChange={(e) => updateOfferForm(item.id, { supplierName: e.target.value })} />
+                          <Input label="Maliyet T" value={itemForm.costT} onChange={(e) => updateOfferCostT(item.id, e.target.value)} inputMode="decimal" />
+                          <Input label="Maliyet P" value={itemForm.costP} onChange={(e) => updateOfferForm(item.id, { costP: e.target.value })} inputMode="decimal" />
+                          <Input label="Nakliye maliyeti" value={itemForm.freightCost} onChange={(e) => updateOfferForm(item.id, { freightCost: e.target.value })} inputMode="decimal" />
+                          <Input label="Termin gun" value={itemForm.leadTimeDays} onChange={(e) => updateOfferForm(item.id, { leadTimeDays: e.target.value })} inputMode="numeric" />
+                          <SelectBox label="Para birimi" value={itemForm.currency} onChange={(value) => updateOfferForm(item.id, { currency: value })} options={['TRY', 'USD', 'EUR']} />
+                          <Input label="Kur" value={itemForm.exchangeRate} onChange={(e) => updateOfferForm(item.id, { exchangeRate: e.target.value })} inputMode="decimal" disabled={itemForm.currency === 'TRY'} />
+                          <Input label="Birim" value={itemForm.unit} onChange={(e) => updateOfferForm(item.id, { unit: e.target.value })} />
+                          <Input label="Birim katsayisi" value={itemForm.unitFactor} onChange={(e) => updateOfferForm(item.id, { unitFactor: e.target.value })} inputMode="decimal" />
+                          <Input label="KDV %" value={itemForm.vatRate} onChange={(e) => updateOfferForm(item.id, { vatRate: e.target.value })} inputMode="decimal" />
+                          <Input label="Gecerlilik" type="date" value={itemForm.validUntil} onChange={(e) => updateOfferForm(item.id, { validUntil: e.target.value })} />
+                        </div>
+                        <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
+                          <Input label="Not" value={itemForm.note} onChange={(e) => updateOfferForm(item.id, { note: e.target.value })} />
+                          <label className="mt-6 flex cursor-pointer items-center justify-center rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm hover:bg-sky-100">
+                            {uploadingKey === `offer-${item.id}` ? 'Yukleniyor...' : 'Teklif dosyasi'}
+                            <input type="file" className="hidden" onChange={(event) => uploadTenderAttachment(event.target.files?.[0], { type: 'offer', itemId: item.id })} />
+                          </label>
+                        </div>
+                        {itemForm.attachmentUrl && <a href={itemForm.attachmentUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-primary-700">Ek dosyayi ac</a>}
+                        <div className="mt-3 flex justify-end">
+                          <Button onClick={() => addOffer(item)} isLoading={savingAction === `offer-${item.id}`}>Fiyat ekle</Button>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+
+            <Card className="rounded-[2rem]">
+              <CardHeader>
+                <CardTitle className="text-xl">Aksiyonlar ve notlar</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={2} className="w-full rounded-2xl border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" placeholder="Ihale notu..." />
+                <div className="flex flex-wrap gap-2">
+                  {canManage && !['COMPLETED', 'CANCELLED'].includes(selectedRequest.status) && (
+                    <Button onClick={completeTender} isLoading={savingAction === 'complete'}>Tamamla</Button>
+                  )}
+                  {!['COMPLETED', 'CANCELLED'].includes(selectedRequest.status) && (
+                    <Button variant="outline" onClick={cancelTender} isLoading={savingAction === 'cancel'}>Iptal et</Button>
+                  )}
+                  <Button variant="secondary" onClick={addNote}>Not ekle</Button>
+                </div>
+                <div className="max-h-72 space-y-2 overflow-auto rounded-[1.5rem] bg-slate-50 p-4">
+                  {(selectedRequest.notes || []).length === 0 ? (
+                    <p className="text-sm text-slate-500">Not yok.</p>
+                  ) : selectedRequest.notes.map((note: any) => (
+                    <div key={note.id} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <p className="font-black text-slate-900">{note.authorName || 'Sistem'}</p>
+                        <p className="text-xs text-slate-500">{dateText(note.createdAt)}</p>
+                      </div>
+                      <p className="mt-1 text-slate-700">{note.body}</p>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>

@@ -32,6 +32,8 @@ type OfferInput = {
   quoteDate?: string | Date | null;
   note?: string | null;
   attachmentUrl?: string | null;
+  applyToSystem?: boolean | null;
+  updatePriceLists?: boolean | null;
 };
 
 const REQUEST_TYPES = new Set(['EXISTING_PRODUCT', 'NEW_STOCK']);
@@ -52,6 +54,17 @@ const toDateOrNull = (value: unknown) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 const roundMoney = (value: number) => Number(value.toFixed(4));
+const normalizeAttachments = (value: unknown) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item: any) => ({
+      url: normalizeText(item?.url || item?.attachmentUrl),
+      name: normalizeText(item?.name || item?.originalName || item?.url),
+      size: item?.size !== undefined && item?.size !== null ? asNumber(item.size, 0) : null,
+      type: normalizeText(item?.type || item?.mimeType) || null,
+    }))
+    .filter((item) => item.url);
+};
 
 class PriceVerificationService {
   async listRequests(query: any, actor: Actor) {
@@ -163,6 +176,7 @@ class PriceVerificationService {
         currentCost: product?.currentCost ?? null,
         currentCostDate: product?.currentCostDate ?? null,
         stockCreatePayload: stockPayload ? stockPayload as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
+        attachments: normalizeAttachments(input.attachments) as unknown as Prisma.InputJsonValue,
         salesNote: normalizeText(input.salesNote || input.note) || null,
         createdById: scope.userId,
         createdByName: userInfo.userName,
@@ -188,6 +202,9 @@ class PriceVerificationService {
     }
     const userInfo = await this.resolveUser(actor.userId || null);
     const normalized = await this.normalizeOfferInput(request, input);
+    if (input.applyToSystem && (request.type !== 'EXISTING_PRODUCT' || !request.productCode)) {
+      throw new AppError('Stokta olmayan urun fiyatlari stok acilmadan Mikroya uygulanamaz.', 400, ErrorCode.BAD_REQUEST);
+    }
 
     const offer = await prisma.priceVerificationOffer.create({
       data: {
@@ -198,13 +215,87 @@ class PriceVerificationService {
       },
     });
 
+    let supplierCost: any = null;
+    let application: any = null;
+    if (input.applyToSystem) {
+      supplierCost = await supplierCostService.createCost({
+        productCode: request.productCode || undefined,
+        supplierCode: offer.supplierCode,
+        supplierName: offer.supplierName,
+        supplierProductCode: offer.supplierProductCode,
+        costP: offer.costP,
+        costT: offer.costT,
+        currency: offer.currency,
+        exchangeRate: offer.exchangeRate,
+        vatIncluded: offer.vatIncluded,
+        vatRate: offer.vatRate,
+        unit: offer.unit,
+        unitFactor: offer.unitFactor,
+        minOrderQuantity: offer.minOrderQuantity,
+        leadTimeDays: offer.leadTimeDays,
+        validUntil: offer.validUntil,
+        quoteDate: offer.quoteDate,
+        note: `${request.requestNo} fiyat teyidi girisinden uygulandi. ${offer.note || ''}`.trim(),
+        sourceType: 'PRICE_VERIFICATION',
+        attachmentUrl: offer.attachmentUrl,
+      }, { userId: actor.userId || null });
+      application = await supplierCostService.applyCost({
+        id: supplierCost.cost.id,
+        updatePriceLists: input.updatePriceLists !== false,
+        note: normalizeText(input.note) || `${request.requestNo} fiyat girisinden Mikroya uygulandi.`,
+      }, { userId: actor.userId || null });
+      await prisma.priceVerificationOffer.update({
+        where: { id: offer.id },
+        data: { supplierCostId: supplierCost.cost.id },
+      });
+    }
+
     await prisma.priceVerificationRequest.update({
       where: { id: request.id },
       data: { status: request.status === 'REQUESTED' ? 'IN_REVIEW' : request.status, procurementNote: normalizeText(input.note) || request.procurementNote || null },
     });
-    await this.addSystemNote(request.id, `${offer.supplierName} icin ${offer.normalizedCostP.toLocaleString('tr-TR')} normalize maliyet girildi.`, actor.userId || null);
+    await this.addSystemNote(
+      request.id,
+      `${offer.supplierName} icin ${offer.normalizedCostP.toLocaleString('tr-TR')} normalize maliyet girildi.${application ? ' Mikro maliyet/fiyat listesi uygulandi.' : ''}`,
+      actor.userId || null
+    );
 
     return this.getRequest(request.id, actor);
+  }
+
+  async markCurrent(requestId: string, input: any, actor: Actor) {
+    await this.requireManager(actor);
+    const request = await this.requireRequestForManage(requestId);
+    if (request.type !== 'EXISTING_PRODUCT' || !request.productCode) {
+      throw new AppError('Sadece stoklu urun talepleri guncel olarak isaretlenebilir.', 400, ErrorCode.BAD_REQUEST);
+    }
+    if (['COMPLETED', 'CANCELLED'].includes(request.status)) {
+      throw new AppError('Bu talep zaten kapali.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    const application = await supplierCostService.markProductCostCurrent({
+      productCode: request.productCode,
+      note: normalizeText(input.note) || `${request.requestNo} fiyat guncelligi teyit edildi.`,
+    }, { userId: actor.userId || null });
+
+    const updated = await prisma.priceVerificationRequest.update({
+      where: { id: request.id },
+      data: {
+        status: 'COMPLETED',
+        procurementNote: normalizeText(input.note) || request.procurementNote || 'Mevcut Mikro maliyeti guncel olarak teyit edildi.',
+        completedAt: new Date(),
+      },
+      include: { offers: { orderBy: [{ normalizedCostP: 'asc' }, { createdAt: 'desc' }] }, notes: { orderBy: { createdAt: 'desc' } } },
+    });
+
+    await this.addSystemNote(request.id, 'Mevcut Mikro maliyeti guncel olarak teyit edildi ve maliyet tarihi yenilendi.', actor.userId || null);
+    await notificationService.createForUsers([request.createdById], {
+      title: 'Fiyat guncelligi teyit edildi',
+      body: `${request.requestNo} - ${request.productCode}`,
+      linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
+    });
+
+    return { request: await this.mapRequestWithProductMeta(updated), application };
   }
 
   async submitToSales(requestId: string, input: any, actor: Actor) {
@@ -680,6 +771,7 @@ class PriceVerificationService {
       bestOffer,
       availableActions,
       stockCreatePayload: stockPayload,
+      attachments: normalizeAttachments(request.attachments),
       notes: request.notes || [],
     };
   }

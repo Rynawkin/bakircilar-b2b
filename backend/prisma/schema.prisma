@@ -1072,6 +1072,7 @@ model PriceVerificationRequest {
   currentCostDate      DateTime?
 
   stockCreatePayload   Json?
+  attachments          Json     @default("[]")
   selectedOfferId      String?
   selectedSupplierCostId String?
 
@@ -1149,6 +1150,114 @@ model PriceVerificationNote {
   authorName           String?
   body                 String
   visibility           String   @default("INTERNAL")
+  createdAt            DateTime @default(now())
+
+  @@index([requestId, createdAt])
+  @@index([authorId])
+}
+
+model TenderCostRequest {
+  id                   String   @id @default(uuid())
+  requestNo            String   @unique
+  status               String   @default("REQUESTED")
+  priority             String   @default("NORMAL")
+
+  title                String
+  customerCode         String?
+  customerName         String?
+  deadline             DateTime?
+  deliveryLocation     String?
+  salesNote            String?
+  procurementNote      String?
+  attachments          Json     @default("[]")
+
+  createdById          String?
+  createdByName        String?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+
+  items                TenderCostItem[]
+  notes                TenderCostNote[]
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([customerCode])
+  @@index([createdById, createdAt])
+  @@index([deadline])
+}
+
+model TenderCostItem {
+  id                   String   @id @default(uuid())
+  requestId            String
+  request              TenderCostRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  lineNo               Int
+  productCode          String?
+  productName          String
+  unit                 String?
+  quantity             Float?
+  targetPrice          Float?
+  note                 String?
+  attachments          Json     @default("[]")
+
+  offers               TenderCostOffer[]
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([requestId])
+  @@index([productCode])
+}
+
+model TenderCostOffer {
+  id                   String   @id @default(uuid())
+  itemId               String
+  item                 TenderCostItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  supplierCode         String?
+  supplierName         String
+  supplierProductCode  String?
+  costP                Float
+  costT                Float
+  freightCost          Float?
+  currency             String   @default("TRY")
+  exchangeRate         Float?
+  vatIncluded          Boolean  @default(false)
+  vatRate              Float?
+  unit                 String?
+  unitFactor           Float?
+  normalizedCostP      Float
+  normalizedCostT      Float
+  totalUnitCostP       Float
+  totalLineCostP       Float?
+  leadTimeDays         Int?
+  validUntil           DateTime?
+  quoteDate            DateTime?
+  note                 String?
+  attachmentUrl        String?
+
+  createdById          String?
+  createdByName        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([itemId])
+  @@index([supplierCode])
+  @@index([supplierName])
+  @@index([createdAt])
+}
+
+model TenderCostNote {
+  id                   String   @id @default(uuid())
+  requestId            String
+  request              TenderCostRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  authorId             String?
+  authorName           String?
+  body                 String
   createdAt            DateTime @default(now())
 
   @@index([requestId, createdAt])

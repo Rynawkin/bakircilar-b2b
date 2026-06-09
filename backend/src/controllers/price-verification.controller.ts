@@ -90,6 +90,31 @@ class PriceVerificationController {
     }
   }
 
+  async markCurrent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await priceVerificationService.markCurrent(String(req.params.id || ''), req.body || {}, actorFromRequest(req));
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadAttachment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const file = req.file as Express.Multer.File | undefined;
+      if (!file) return res.status(400).json({ error: 'Dosya zorunludur.' });
+      res.json({
+        attachmentUrl: `/uploads/tasks/${file.filename}`,
+        url: `/uploads/tasks/${file.filename}`,
+        originalName: file.originalname,
+        size: file.size,
+        type: file.mimetype || null,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async previewStockPayload(req: Request, res: Response, next: NextFunction) {
     try {
       const data = await priceVerificationService.previewStockPayload(req.body || {});

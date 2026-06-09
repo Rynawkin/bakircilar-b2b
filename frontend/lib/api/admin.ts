@@ -3523,6 +3523,13 @@ export const adminApi = {
     return response.data;
   },
 
+  uploadPriceVerificationAttachment: async (formData: FormData): Promise<{ attachmentUrl: string; url: string; originalName: string; size: number; type?: string | null }> => {
+    const response = await apiClient.post('/admin/price-verification/attachments', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
   searchPriceVerificationProducts: async (params?: { search?: string; limit?: number }): Promise<{ products: any[] }> => {
     const response = await apiClient.get('/admin/price-verification/products/search', { params });
     return response.data;
@@ -3590,6 +3597,11 @@ export const adminApi = {
     return response.data;
   },
 
+  markPriceVerificationCurrent: async (id: string, payload?: { note?: string }): Promise<{ request: any; application: any }> => {
+    const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/mark-current`, payload || {});
+    return response.data;
+  },
+
   completePriceVerification: async (id: string, payload?: { updatePriceLists?: boolean; note?: string; stockCreatePayload?: any }): Promise<{ request: any; supplierCost: any; application: any }> => {
     const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/complete`, payload || {});
     return response.data;
@@ -3602,6 +3614,47 @@ export const adminApi = {
 
   addPriceVerificationNote: async (id: string, payload: { body: string; visibility?: string }): Promise<{ note: any }> => {
     const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/notes`, payload);
+    return response.data;
+  },
+
+  getTenderCostRequests: async (params?: {
+    search?: string;
+    status?: string;
+    mine?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: any[]; pagination: any; summary: any; scope: { canManage: boolean } }> => {
+    const response = await apiClient.get('/admin/tender-cost-requests', { params });
+    return response.data;
+  },
+
+  getTenderCostRequest: async (id: string): Promise<{ request: any }> => {
+    const response = await apiClient.get(`/admin/tender-cost-requests/${encodeURIComponent(id)}`);
+    return response.data;
+  },
+
+  createTenderCostRequest: async (payload: any): Promise<{ request: any }> => {
+    const response = await apiClient.post('/admin/tender-cost-requests', payload);
+    return response.data;
+  },
+
+  addTenderCostOffer: async (id: string, itemId: string, payload: any): Promise<{ request: any }> => {
+    const response = await apiClient.post(`/admin/tender-cost-requests/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/offers`, payload);
+    return response.data;
+  },
+
+  completeTenderCostRequest: async (id: string, payload?: { note?: string }): Promise<{ request: any }> => {
+    const response = await apiClient.post(`/admin/tender-cost-requests/${encodeURIComponent(id)}/complete`, payload || {});
+    return response.data;
+  },
+
+  cancelTenderCostRequest: async (id: string, payload?: { note?: string }): Promise<{ request: any }> => {
+    const response = await apiClient.post(`/admin/tender-cost-requests/${encodeURIComponent(id)}/cancel`, payload || {});
+    return response.data;
+  },
+
+  addTenderCostNote: async (id: string, payload: { body: string }): Promise<{ note: any }> => {
+    const response = await apiClient.post(`/admin/tender-cost-requests/${encodeURIComponent(id)}/notes`, payload);
     return response.data;
   },
 

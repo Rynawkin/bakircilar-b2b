@@ -12,6 +12,7 @@ import agreementController from '../controllers/agreement.controller';
 import supplierPriceListController from '../controllers/supplier-price-list.controller';
 import supplierCostController from '../controllers/supplier-cost.controller';
 import priceVerificationController from '../controllers/price-verification.controller';
+import tenderCostController from '../controllers/tender-cost.controller';
 import productComplementController from '../controllers/product-complement.controller';
 import operationsIntelligenceController from '../controllers/operations-intelligence.controller';
 import productDimensionsController from '../controllers/product-dimensions.controller';
@@ -235,15 +236,26 @@ router.get('/price-verification/customers/search', requireAnyPermission(priceVer
 router.get('/price-verification/stock-metadata', requireAnyPermission(priceVerificationPermissions), priceVerificationController.getStockMetadata);
 router.get('/price-verification/stock-lookups/:type', requireAnyPermission(priceVerificationPermissions), priceVerificationController.searchStockLookups);
 router.post('/price-verification/stock-preview', requireAnyPermission(priceVerificationPermissions), priceVerificationController.previewStockPayload);
+router.post('/price-verification/attachments', requireAnyPermission(priceVerificationPermissions), taskUpload.single('file'), priceVerificationController.uploadAttachment);
 router.get('/price-verification/requests', requireAnyPermission(priceVerificationPermissions), priceVerificationController.listRequests);
 router.post('/price-verification/requests', requireAnyPermission(priceVerificationPermissions), priceVerificationController.createRequest);
 router.get('/price-verification/requests/:id', requireAnyPermission(priceVerificationPermissions), priceVerificationController.getRequest);
 router.post('/price-verification/requests/:id/offers', requireAnyPermission(priceVerificationPermissions), priceVerificationController.addOffer);
 router.post('/price-verification/requests/:id/submit-to-sales', requireAnyPermission(priceVerificationPermissions), priceVerificationController.submitToSales);
 router.post('/price-verification/requests/:id/sales-decision', requireAnyPermission(priceVerificationPermissions), priceVerificationController.salesDecision);
+router.post('/price-verification/requests/:id/mark-current', requireAnyPermission(priceVerificationPermissions), priceVerificationController.markCurrent);
 router.post('/price-verification/requests/:id/complete', requireAnyPermission(priceVerificationPermissions), priceVerificationController.completeRequest);
 router.post('/price-verification/requests/:id/cancel', requireAnyPermission(priceVerificationPermissions), priceVerificationController.cancelRequest);
 router.post('/price-verification/requests/:id/notes', requireAnyPermission(priceVerificationPermissions), priceVerificationController.addNote);
+
+// Tender cost requests
+router.get('/tender-cost-requests', requireAnyPermission(priceVerificationPermissions), tenderCostController.listRequests);
+router.post('/tender-cost-requests', requireAnyPermission(priceVerificationPermissions), tenderCostController.createRequest);
+router.get('/tender-cost-requests/:id', requireAnyPermission(priceVerificationPermissions), tenderCostController.getRequest);
+router.post('/tender-cost-requests/:id/items/:itemId/offers', requireAnyPermission(priceVerificationPermissions), tenderCostController.addOffer);
+router.post('/tender-cost-requests/:id/complete', requireAnyPermission(priceVerificationPermissions), tenderCostController.completeRequest);
+router.post('/tender-cost-requests/:id/cancel', requireAnyPermission(priceVerificationPermissions), tenderCostController.cancelRequest);
+router.post('/tender-cost-requests/:id/notes', requireAnyPermission(priceVerificationPermissions), tenderCostController.addNote);
 
 // Products - Staff (ADMIN, MANAGER, SALES_REP) + DIVERSEY
 router.get('/products', requireAnyPermission(['admin:products', 'admin:quotes', 'dashboard:diversey-stok', 'reports:cost-update-all-products']), adminController.getProducts);
