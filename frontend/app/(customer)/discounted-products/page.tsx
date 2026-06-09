@@ -169,6 +169,7 @@ export default function DiscountedProductsPage() {
             search: debouncedSearch || undefined,
             warehouse: selectedWarehouse || undefined,
             mode: 'discounted',
+            sort: 'bestsellerValue',
             limit: PAGE_SIZE,
             offset: nextOffset,
           }, { signal: controller.signal });
@@ -200,6 +201,7 @@ export default function DiscountedProductsPage() {
           search: debouncedSearch || undefined,
           warehouse: selectedWarehouse || undefined,
           mode: 'discounted',
+          sort: 'bestsellerValue',
           limit: PAGE_SIZE,
           offset: nextOffset,
         });

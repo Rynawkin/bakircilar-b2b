@@ -48,7 +48,7 @@ export default function PreviouslyPurchasedPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [search, setSearch] = useState('');
   const [documentNoFilter, setDocumentNoFilter] = useState('');
-  const [lastPurchaseSort, setLastPurchaseSort] = useState<'none' | 'date-desc' | 'date-asc'>('none');
+  const [lastPurchaseSort, setLastPurchaseSort] = useState<'none' | 'date-desc' | 'date-asc'>('date-desc');
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
   const productsRequestRef = useRef<AbortController | null>(null);
@@ -168,6 +168,7 @@ export default function PreviouslyPurchasedPage() {
             categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
             search: debouncedSearch || undefined,
             mode: 'purchased',
+            sort: 'lastPurchasedDesc',
             limit: PAGE_SIZE,
             offset: nextOffset,
           }, { signal: controller.signal });
@@ -198,6 +199,7 @@ export default function PreviouslyPurchasedPage() {
           categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
           search: debouncedSearch || undefined,
           mode: 'purchased',
+          sort: 'lastPurchasedDesc',
           limit: PAGE_SIZE,
           offset: nextOffset,
         });
@@ -256,7 +258,7 @@ export default function PreviouslyPurchasedPage() {
     if (search.trim()) count += 1;
     if (selectedCategory) count += 1;
     if (documentNoFilter.trim()) count += 1;
-    if (lastPurchaseSort !== 'none') count += 1;
+    if (lastPurchaseSort !== 'date-desc') count += 1;
     if (advancedFilters.sortBy !== 'none') count += 1;
     if (typeof advancedFilters.minPrice === 'number') count += 1;
     if (typeof advancedFilters.maxPrice === 'number') count += 1;
@@ -269,7 +271,7 @@ export default function PreviouslyPurchasedPage() {
     setSearch('');
     setSelectedCategory('');
     setDocumentNoFilter('');
-    setLastPurchaseSort('none');
+    setLastPurchaseSort('date-desc');
   };
 
   const getDiscountPercent = (listPrice?: number, salePrice?: number) => {
@@ -432,14 +434,14 @@ export default function PreviouslyPurchasedPage() {
                     onChange={(e) => setLastPurchaseSort(e.target.value as 'none' | 'date-desc' | 'date-asc')}
                     className="input h-11 w-full border-2 border-gray-200"
                   >
-                    <option value="none">Varsayilan</option>
-                    <option value="date-desc">Yeniden Eskiye</option>
+                    <option value="date-desc">Varsayilan - Son alis yeniden eskiye</option>
+                    <option value="none">Urun adi varsayilani</option>
                     <option value="date-asc">Eskiden Yeniye</option>
                   </select>
                 </div>
               </div>
 
-              {(search || selectedCategory || documentNoFilter || lastPurchaseSort !== 'none') && (
+              {(search || selectedCategory || documentNoFilter || lastPurchaseSort !== 'date-desc') && (
                 <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 text-xs">
                   <span className="font-semibold text-gray-600">Aktif filtreler:</span>
                   {search && <span className="rounded-full bg-primary-50 px-3 py-1 text-primary-700">Arama: {search}</span>}
@@ -453,9 +455,9 @@ export default function PreviouslyPurchasedPage() {
                       Belge No: {documentNoFilter}
                     </span>
                   )}
-                  {lastPurchaseSort !== 'none' && (
+                  {lastPurchaseSort !== 'date-desc' && (
                     <span className="rounded-full bg-indigo-50 px-3 py-1 text-indigo-700">
-                      Siralama: {lastPurchaseSort === 'date-desc' ? 'Yeniden eskiye' : 'Eskiden yeniye'}
+                      Siralama: {lastPurchaseSort === 'date-asc' ? 'Eskiden yeniye' : 'Urun adi varsayilani'}
                     </span>
                   )}
                   <button

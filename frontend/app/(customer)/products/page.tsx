@@ -180,6 +180,7 @@ export default function ProductsPage() {
         categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
         search: debouncedSearch || undefined,
         mode: 'all' as const,
+        sort: 'bestsellerValue' as const,
         limit: PAGE_SIZE,
         offset: nextOffset,
       };

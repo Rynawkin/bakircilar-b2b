@@ -265,6 +265,7 @@ class StockService {
     limit?: number;
     offset?: number;
     excludeProductCodes?: string[];
+    sort?: 'bestsellerValue' | 'excessStock';
   }): Promise<any[]> {
     const where: any = {
       excessStock: { gt: 0 },
@@ -315,6 +316,11 @@ class StockService {
         unit2: true,
         unit2Factor: true,
         vatRate: true,
+        currentCost: true,
+        lastEntryPrice: true,
+        popularSalesQuantity: true,
+        popularSalesValue: true,
+        popularSalesUpdatedAt: true,
         excessStock: true,
         imageUrl: true,
         warehouseStocks: true,
@@ -328,9 +334,9 @@ class StockService {
           },
         },
       },
-      orderBy: {
-        excessStock: 'desc',
-      },
+      orderBy: filters?.sort === 'bestsellerValue'
+        ? [{ popularSalesValue: 'desc' }, { excessStock: 'desc' }, { name: 'asc' }]
+        : [{ excessStock: 'desc' }, { name: 'asc' }],
       ...(take ? { take, skip } : {}),
     });
 

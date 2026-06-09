@@ -28,6 +28,7 @@ export const customerApi = {
     search?: string;
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
+    sort?: 'bestsellerValue' | 'lastPurchasedDesc' | 'nameAsc';
     limit?: number;
     offset?: number;
   }, options?: { signal?: AbortSignal }): Promise<{ products: Product[] }> => {

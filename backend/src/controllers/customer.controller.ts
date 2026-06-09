@@ -398,6 +398,10 @@ export class CustomerController {
       const isDiscounted = mode === 'discounted' || mode === 'excess';
       const isPurchased = mode === 'purchased';
       const isAgreementMode = mode === 'agreements';
+      const requestedSort = typeof req.query.sort === 'string' ? req.query.sort : '';
+      const productSort = requestedSort || (isPurchased ? 'lastPurchasedDesc' : isAgreementMode ? 'nameAsc' : 'bestsellerValue');
+      const bestsellerOrderBy = [{ popularSalesValue: 'desc' as const }, { name: 'asc' as const }];
+      const nameOrderBy = [{ name: 'asc' as const }];
       const searchTokens = splitSearchTokens(search as string | undefined);
       const rawLimit = Number(req.query.limit);
       const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : undefined;
@@ -432,6 +436,7 @@ export class CustomerController {
               categoryIdsCount: categoryIds.length,
               warehouse: Boolean(warehouse),
               searchTokens: searchTokens.length,
+              sort: productSort,
             },
             ...extra,
           })
@@ -494,13 +499,17 @@ export class CustomerController {
         const localPurchasedRows = await prisma.orderItem.findMany({
           where: { order: { userId: customer.id } },
           select: { mikroCode: true },
-          distinct: ['mikroCode'],
+          orderBy: { createdAt: 'desc' },
           take: 5000,
         });
-        purchasedCodes = localPurchasedRows
-          .map((row) => String(row.mikroCode || '').trim())
-          .filter(Boolean)
-          .filter((code) => !excludedProductCodeSet.has(normalizeMikroCode(code)));
+        const localCodeSet = new Set<string>();
+        for (const row of localPurchasedRows) {
+          const code = String(row.mikroCode || '').trim();
+          const normalized = normalizeMikroCode(code);
+          if (!code || localCodeSet.has(normalized) || excludedProductCodeSet.has(normalized)) continue;
+          localCodeSet.add(normalized);
+          purchasedCodes.push(code);
+        }
 
         if (purchasedCodes.length === 0 && customer.mikroCariCode) {
           try {
@@ -749,6 +758,7 @@ export class CustomerController {
             limit,
             offset,
             excludeProductCodes: excludedProductCodes,
+            sort: productSort === 'bestsellerValue' ? 'bestsellerValue' : 'excessStock',
           })
         : isPurchased
           ? await prisma.product.findMany({
@@ -789,6 +799,12 @@ export class CustomerController {
 
                 lastEntryPrice: true,
 
+                popularSalesQuantity: true,
+
+                popularSalesValue: true,
+
+                popularSalesUpdatedAt: true,
+
                 excessStock: true,
 
                 imageUrl: true,
@@ -817,7 +833,6 @@ export class CustomerController {
               orderBy: {
                 name: 'asc',
               },
-              ...(limit ? { skip: offset, take: limit } : {}),
             })
           : await prisma.product.findMany({
               where: {
@@ -857,6 +872,12 @@ export class CustomerController {
 
                 lastEntryPrice: true,
 
+                popularSalesQuantity: true,
+
+                popularSalesValue: true,
+
+                popularSalesUpdatedAt: true,
+
                 excessStock: true,
 
                 imageUrl: true,
@@ -882,16 +903,30 @@ export class CustomerController {
                 },
 
               },
-              orderBy: {
-                name: 'asc',
-              },
+              orderBy: productSort === 'bestsellerValue' ? bestsellerOrderBy : nameOrderBy,
               ...(limit ? { skip: offset, take: limit } : {}),
             });
 
       lap('productsQuery');
 
+      let pageProducts = products;
+      if (isPurchased) {
+        const orderIndex = new Map(purchasedCodes.map((code, index) => [normalizeMikroCode(code), index]));
+        pageProducts = [...products].sort((a, b) => {
+          if (productSort === 'lastPurchasedDesc') {
+            const aIndex = orderIndex.get(normalizeMikroCode(a.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
+            const bIndex = orderIndex.get(normalizeMikroCode(b.mikroCode)) ?? Number.MAX_SAFE_INTEGER;
+            if (aIndex !== bIndex) return aIndex - bIndex;
+          }
+          return a.name.localeCompare(b.name, 'tr');
+        });
+        if (limit) {
+          pageProducts = pageProducts.slice(offset, offset + limit);
+        }
+      }
+
       const priceStatsMap = await priceListService.getPriceStatsMap(
-        products.map((product) => product.mikroCode)
+        pageProducts.map((product) => product.mikroCode)
       );
       lap('priceStats');
 
@@ -905,13 +940,13 @@ export class CustomerController {
         try {
           const recentOrderItems = await prisma.orderItem.findMany({
             where: {
-              mikroCode: { in: products.map((product) => product.mikroCode) },
+              mikroCode: { in: pageProducts.map((product) => product.mikroCode) },
               order: { userId: customer.id },
             },
             orderBy: {
               order: { createdAt: 'desc' },
             },
-            take: Math.max(200, products.length * 5),
+            take: Math.max(200, pageProducts.length * 5),
             select: {
               mikroCode: true,
               quantity: true,
@@ -954,7 +989,7 @@ export class CustomerController {
           const sales = await withTimeout(
             mikroService.getCustomerSalesMovements(
               customer.mikroCariCode as string,
-              products.map((product) => product.mikroCode),
+              pageProducts.map((product) => product.mikroCode),
               1
             ),
             12000,
@@ -969,7 +1004,7 @@ export class CustomerController {
         agreementRows = await prisma.customerPriceAgreement.findMany({
         where: {
           customerId: customer.id,
-          productId: { in: products.map((product) => product.id) },
+          productId: { in: pageProducts.map((product) => product.id) },
         },
         select: {
           id: true,
@@ -985,7 +1020,7 @@ export class CustomerController {
       lap('agreementsQuery');
       const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
 
-      let productsWithPrices = products.map((product) => {
+      let productsWithPrices = pageProducts.map((product) => {
         const prices = product.prices as unknown as ProductPrices;
         const customerPrices = pricingService.getPriceForCustomer(
           prices,
@@ -1069,6 +1104,9 @@ export class CustomerController {
           unit2: product.unit2 || null,
           unit2Factor: product.unit2Factor ?? null,
           vatRate: product.vatRate ?? 0,
+          popularSalesQuantity: (product as any).popularSalesQuantity ?? 0,
+          popularSalesValue: (product as any).popularSalesValue ?? 0,
+          popularSalesUpdatedAt: (product as any).popularSalesUpdatedAt ?? null,
           excessStock,
           availableStock,
           maxOrderQuantity,

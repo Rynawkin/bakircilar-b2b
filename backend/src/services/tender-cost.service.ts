@@ -24,7 +24,14 @@ const asNumber = (value: unknown, fallback = 0) => {
 const roundMoney = (value: number) => Number(value.toFixed(4));
 const toDateOrNull = (value: unknown) => {
   if (!value) return null;
-  const date = new Date(value as any);
+  const raw = normalizeText(value);
+  const localDateTimeMatch = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?$/);
+  const dateOnlyMatch = raw.match(/^(\d{4}-\d{2}-\d{2})$/);
+  const date = localDateTimeMatch
+    ? new Date(`${localDateTimeMatch[1]}T${localDateTimeMatch[2]}:00+03:00`)
+    : dateOnlyMatch
+      ? new Date(`${dateOnlyMatch[1]}T23:59:00+03:00`)
+      : new Date(value as any);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 const normalizeAttachments = (value: unknown) => {
@@ -46,6 +53,7 @@ class TenderCostService {
     const limit = Math.max(1, Math.min(Number(query.limit) || 40, 100));
     const status = normalizeText(query.status).toUpperCase();
     const mine = String(query.mine || '').toLowerCase() === 'true';
+    const sort = normalizeText(query.sort || 'newest');
     const tokens = splitSearchTokens(query.search || '');
 
     const where: Prisma.TenderCostRequestWhereInput = {};
@@ -69,7 +77,7 @@ class TenderCostService {
       prisma.tenderCostRequest.findMany({
         where,
         include: this.requestInclude(),
-        orderBy: [{ updatedAt: 'desc' }],
+        orderBy: this.resolveOrderBy(sort),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -404,7 +412,32 @@ class TenderCostService {
       itemCount: items.length,
       bestTotal: totals.bestTotal || null,
       unpricedLines: totals.unpricedLines,
+      deadlineRemaining: this.resolveDeadlineRemaining(request.deadline),
       notes: request.notes || [],
+    };
+  }
+
+  private resolveOrderBy(sort: string): Prisma.TenderCostRequestOrderByWithRelationInput[] {
+    if (sort === 'oldest') return [{ createdAt: 'asc' }, { updatedAt: 'asc' }];
+    if (sort === 'deadlineSoon') return [{ deadline: 'asc' }, { createdAt: 'asc' }];
+    return [{ createdAt: 'desc' }, { updatedAt: 'desc' }];
+  }
+
+  private resolveDeadlineRemaining(deadline: Date | null | undefined) {
+    if (!deadline) return null;
+    const deadlineMs = new Date(deadline).getTime();
+    if (!Number.isFinite(deadlineMs)) return null;
+    const diffMs = deadlineMs - Date.now();
+    const absMs = Math.abs(diffMs);
+    const totalHours = Math.floor(absMs / 36e5);
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    return {
+      overdue: diffMs < 0,
+      totalHours: Math.ceil(diffMs / 36e5),
+      days,
+      hours,
+      label: diffMs < 0 ? `${days} gun ${hours} saat gecikti` : `${days} gun ${hours} saat kaldi`,
     };
   }
 

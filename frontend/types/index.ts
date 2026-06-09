@@ -36,6 +36,9 @@ export interface Product {
   unit2?: string | null;
   unit2Factor?: number | null;
   vatRate?: number;
+  popularSalesQuantity?: number;
+  popularSalesValue?: number;
+  popularSalesUpdatedAt?: string | null;
   excessStock: number;
   availableStock?: number;
   maxOrderQuantity?: number;

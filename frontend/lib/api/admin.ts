@@ -3621,6 +3621,7 @@ export const adminApi = {
     search?: string;
     status?: string;
     mine?: boolean;
+    sort?: 'newest' | 'oldest' | 'deadlineSoon';
     page?: number;
     limit?: number;
   }): Promise<{ items: any[]; pagination: any; summary: any; scope: { canManage: boolean } }> => {

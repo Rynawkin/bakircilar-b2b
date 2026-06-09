@@ -94,6 +94,16 @@ const money = (value: any) =>
     ? Number(value).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
     : '-';
 const dateText = (value: any) => (value ? formatDateShort(String(value)) : '-');
+const dateTimeText = (value: any) =>
+  value
+    ? new Date(value).toLocaleString('tr-TR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '-';
 const percent = (value: any) => (Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('tr-TR', { maximumFractionDigits: 2 })}%` : '-');
 const parseNumberText = (value: string) => Number(String(value || '').replace(',', '.'));
 const formatInputNumber = (value: number) => (Number.isFinite(value) ? value.toFixed(4).replace(/\.?0+$/, '') : '');
@@ -943,6 +953,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [mineOnly, setMineOnly] = useState(!canManage);
+  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [requestForm, setRequestForm] = useState<any>(emptyRequestForm);
@@ -1453,6 +1464,30 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
               <MiniMetric label="Satis onayi" value={summary.SENT_TO_SALES || 0} light />
               <MiniMetric label="Tamamlanan" value={summary.COMPLETED || 0} light />
             </div>
+            <div className="flex rounded-2xl bg-slate-100 p-1 text-xs font-black">
+              <button
+                type="button"
+                onClick={() => setViewMode('kanban')}
+                className={cn('flex-1 rounded-xl px-3 py-2', viewMode === 'kanban' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+              >
+                Kanban
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={cn('flex-1 rounded-xl px-3 py-2', viewMode === 'list' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+              >
+                Liste
+              </button>
+            </div>
+            {viewMode === 'kanban' ? (
+              <PriceRequestKanban
+                requests={requests}
+                selectedId={selectedRequest?.id}
+                onSelect={selectRequest}
+                maxHeightClass={canManage ? 'max-h-[760px]' : 'max-h-[620px]'}
+              />
+            ) : (
             <div className={cn('space-y-3 overflow-auto pr-1', canManage ? 'max-h-[760px]' : 'max-h-[620px]')}>
               {requests.length === 0 ? (
                 <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Talep yok.</p>
@@ -1465,6 +1500,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                 />
               ))}
             </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1768,6 +1804,56 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   );
 }
 
+const priceRequestKanbanColumns = [
+  { title: 'Yeni Talep', statuses: ['REQUESTED'], tone: 'border-amber-200 bg-amber-50' },
+  { title: 'Incelemede', statuses: ['IN_REVIEW'], tone: 'border-sky-200 bg-sky-50' },
+  { title: 'Satis Onayi', statuses: ['SENT_TO_SALES'], tone: 'border-blue-200 bg-blue-50' },
+  { title: 'Kapanan', statuses: ['SALES_APPROVED', 'SALES_REJECTED', 'COMPLETED', 'CANCELLED'], tone: 'border-emerald-200 bg-emerald-50' },
+];
+
+function PriceRequestKanban({
+  requests,
+  selectedId,
+  onSelect,
+  maxHeightClass,
+}: {
+  requests: any[];
+  selectedId?: string;
+  onSelect: (request: any) => void;
+  maxHeightClass: string;
+}) {
+  if (requests.length === 0) {
+    return <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Talep yok.</p>;
+  }
+  return (
+    <div className={cn('grid gap-3 overflow-x-auto pb-1 lg:grid-cols-4', maxHeightClass)}>
+      {priceRequestKanbanColumns.map((column) => {
+        const columnRequests = requests.filter((request) => column.statuses.includes(request.status));
+        return (
+          <div key={column.title} className={cn('min-w-[260px] rounded-[1.5rem] border p-3', column.tone)}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-black text-slate-900">{column.title}</p>
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-black text-slate-600">{columnRequests.length}</span>
+            </div>
+            <div className="max-h-[690px] space-y-3 overflow-auto pr-1">
+              {columnRequests.length === 0 ? (
+                <p className="rounded-2xl bg-white/70 p-4 text-center text-xs font-bold text-slate-500">Kayit yok</p>
+              ) : columnRequests.map((request) => (
+                <PriceRequestListCard
+                  key={request.id}
+                  request={request}
+                  selected={selectedId === request.id}
+                  onSelect={() => onSelect(request)}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PriceRequestListCard({ request, selected, onSelect }: { request: any; selected: boolean; onSelect: () => void }) {
   const isNewStock = request.type === 'NEW_STOCK';
   return (
@@ -1856,6 +1942,8 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [mineOnly, setMineOnly] = useState(!canManage);
+  const [sortFilter, setSortFilter] = useState<'newest' | 'oldest' | 'deadlineSoon'>('deadlineSoon');
+  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<any>(emptyTenderForm);
@@ -1892,6 +1980,7 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
         search: search || undefined,
         status: statusFilter,
         mine: mineOnly,
+        sort: sortFilter,
         page: 1,
         limit: 60,
       });
@@ -1919,7 +2008,7 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
 
   useEffect(() => {
     void loadRequests();
-  }, [statusFilter, mineOnly]);
+  }, [statusFilter, mineOnly, sortFilter]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2136,7 +2225,7 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
             <Input label="Ihale adi" value={form.title} onChange={(e) => updateForm({ title: e.target.value })} />
             <div className="grid gap-3 sm:grid-cols-2">
               <SelectBox label="Oncelik" value={form.priority} onChange={(value) => updateForm({ priority: value })} options={['LOW', 'NORMAL', 'HIGH', 'URGENT']} />
-              <Input label="Son teklif tarihi" type="date" value={form.deadline} onChange={(e) => updateForm({ deadline: e.target.value })} />
+              <Input label="Son teklif tarihi ve saati" type="datetime-local" value={form.deadline} onChange={(e) => updateForm({ deadline: e.target.value })} />
               <Input label="Cari kodu" value={form.customerCode} onChange={(e) => updateForm({ customerCode: e.target.value })} />
               <Input label="Cari adi" value={form.customerName} onChange={(e) => updateForm({ customerName: e.target.value })} />
             </div>
@@ -2248,8 +2337,15 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
           <CardContent className="space-y-3">
             <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-3">
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ihale, cari, urun veya stok ara..." className="h-11 rounded-xl bg-white" />
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
               <SelectBox label="Durum" value={statusFilter} onChange={setStatusFilter} options={['ALL', 'REQUESTED', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']} />
+              <SelectBox
+                label="Siralama"
+                value={sortFilter}
+                onChange={(value) => setSortFilter(value as 'newest' | 'oldest' | 'deadlineSoon')}
+                options={['deadlineSoon', 'oldest', 'newest']}
+                optionLabels={{ deadlineSoon: 'En az sure kalanlar', oldest: 'En eski talepler', newest: 'Yeni talepler' }}
+              />
               {canManage && (
                 <label className="mt-6 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
                   <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
@@ -2264,6 +2360,30 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
               <MiniMetric label="Tamamlanan" value={summary.COMPLETED || 0} light />
               <MiniMetric label="Iptal" value={summary.CANCELLED || 0} light />
             </div>
+            <div className="flex rounded-2xl bg-slate-100 p-1 text-xs font-black">
+              <button
+                type="button"
+                onClick={() => setViewMode('kanban')}
+                className={cn('flex-1 rounded-xl px-3 py-2', viewMode === 'kanban' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+              >
+                Kanban
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={cn('flex-1 rounded-xl px-3 py-2', viewMode === 'list' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+              >
+                Liste
+              </button>
+            </div>
+            {viewMode === 'kanban' ? (
+              <TenderRequestKanban
+                requests={requests}
+                selectedId={selectedRequest?.id}
+                onSelect={setSelectedRequest}
+                maxHeightClass={canManage ? 'max-h-[760px]' : 'max-h-[620px]'}
+              />
+            ) : (
             <div className={cn('space-y-3 overflow-auto pr-1', canManage ? 'max-h-[760px]' : 'max-h-[620px]')}>
               {requests.length === 0 ? (
                 <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Ihale talebi yok.</p>
@@ -2276,6 +2396,7 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
                 />
               ))}
             </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -2304,7 +2425,7 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
               <CardContent className="space-y-4 p-5">
                 <div className="grid gap-3 md:grid-cols-4">
                   <MiniMetric label="Cari" value={selectedRequest.customerName || selectedRequest.customerCode || '-'} light />
-                  <MiniMetric label="Son teklif" value={dateText(selectedRequest.deadline)} light />
+                  <MiniMetric label="Son teklif" value={dateTimeText(selectedRequest.deadline)} light />
                   <MiniMetric label="Kalem" value={selectedRequest.itemCount || 0} light />
                   <MiniMetric label="En iyi toplam" value={selectedRequest.bestTotal ? money(selectedRequest.bestTotal) : '-'} light />
                 </div>
@@ -2470,9 +2591,60 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
   );
 }
 
+const tenderKanbanColumns = [
+  { title: 'Yeni Talep', statuses: ['REQUESTED'], tone: 'border-amber-200 bg-amber-50' },
+  { title: 'Incelemede', statuses: ['IN_REVIEW'], tone: 'border-sky-200 bg-sky-50' },
+  { title: 'Tamamlanan', statuses: ['COMPLETED'], tone: 'border-emerald-200 bg-emerald-50' },
+  { title: 'Iptal', statuses: ['CANCELLED'], tone: 'border-rose-200 bg-rose-50' },
+];
+
+function TenderRequestKanban({
+  requests,
+  selectedId,
+  onSelect,
+  maxHeightClass,
+}: {
+  requests: any[];
+  selectedId?: string;
+  onSelect: (request: any) => void;
+  maxHeightClass: string;
+}) {
+  if (requests.length === 0) {
+    return <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Ihale talebi yok.</p>;
+  }
+  return (
+    <div className={cn('grid gap-3 overflow-x-auto pb-1 lg:grid-cols-4', maxHeightClass)}>
+      {tenderKanbanColumns.map((column) => {
+        const columnRequests = requests.filter((request) => column.statuses.includes(request.status));
+        return (
+          <div key={column.title} className={cn('min-w-[260px] rounded-[1.5rem] border p-3', column.tone)}>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-black text-slate-900">{column.title}</p>
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-black text-slate-600">{columnRequests.length}</span>
+            </div>
+            <div className="max-h-[690px] space-y-3 overflow-auto pr-1">
+              {columnRequests.length === 0 ? (
+                <p className="rounded-2xl bg-white/70 p-4 text-center text-xs font-bold text-slate-500">Kayit yok</p>
+              ) : columnRequests.map((request) => (
+                <TenderRequestListCard
+                  key={request.id}
+                  request={request}
+                  selected={selectedId === request.id}
+                  onSelect={() => onSelect(request)}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function TenderRequestListCard({ request, selected, onSelect }: { request: any; selected: boolean; onSelect: () => void }) {
   const itemCount = Number(request.itemCount || request.items?.length || 0);
   const unpricedLines = Number(request.unpricedLines || 0);
+  const remaining = request.deadlineRemaining;
   return (
     <button
       type="button"
@@ -2487,7 +2659,7 @@ function TenderRequestListCard({ request, selected, onSelect }: { request: any; 
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-mono text-xs font-black text-slate-500">{request.requestNo}</p>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">{request.priority || 'NORMAL'}</span>
-            {request.deadline && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-700">Son: {dateText(request.deadline)}</span>}
+            {request.deadline && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-700">Son: {dateTimeText(request.deadline)}</span>}
           </div>
           <p className="mt-1 line-clamp-2 text-sm font-black text-slate-950">{request.title || 'Ihale talebi'}</p>
           <p className="mt-1 truncate text-xs font-semibold text-slate-500">
@@ -2503,6 +2675,11 @@ function TenderRequestListCard({ request, selected, onSelect }: { request: any; 
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
         <span>{dateText(request.createdAt)}</span>
+        {remaining && (
+          <span className={cn('rounded-full px-2 py-0.5', remaining.overdue ? 'bg-rose-100 text-rose-700' : Number(remaining.totalHours) <= 24 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700')}>
+            {remaining.label}
+          </span>
+        )}
         {(request.attachments || []).length > 0 && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Ana ek: {(request.attachments || []).length}</span>}
         {unpricedLines > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">Fiyat bekliyor</span>}
       </div>
@@ -3034,12 +3211,24 @@ function InfoLine({ label, value }: { label: string; value: any }) {
   );
 }
 
-function SelectBox({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+function SelectBox({
+  label,
+  value,
+  onChange,
+  options,
+  optionLabels,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  optionLabels?: Record<string, string>;
+}) {
   return (
     <label className="block">
       <span className="mb-1 block text-sm font-medium text-gray-700">{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500">
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+        {options.map((option) => <option key={option} value={option}>{optionLabels?.[option] || option}</option>)}
       </select>
     </label>
   );

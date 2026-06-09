@@ -780,6 +780,9 @@ model Product {
   // Depo bazlı fazla stoklar (JSON)
   // Örnek: {"DEPO1": 20, "DEPO2": 10, "MERKEZ": 0}
   warehouseExcessStocks   Json      @default("{}")
+  popularSalesQuantity    Float     @default(0)
+  popularSalesValue       Float     @default(0)
+  popularSalesUpdatedAt   DateTime?
 
   // Hesaplanan fiyatlar (JSON)
   // {
@@ -828,6 +831,7 @@ model Product {
   @@index([mikroCode])
   @@index([foreignName])
   @@index([excessStock])
+  @@index([popularSalesValue])
   @@index([categoryId])
   @@index([imageSyncStatus])
   @@index([imageSyncErrorType])

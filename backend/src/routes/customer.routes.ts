@@ -119,11 +119,11 @@ router.get(
     keyGenerator: (req) => {
       const userId = req.user?.userId || 'guest';
       const customerType = req.user?.role || 'default';
-      const { categoryId, categoryIds, search, warehouse, mode, limit, offset } = req.query;
+      const { categoryId, categoryIds, search, warehouse, mode, limit, offset, sort } = req.query;
       const categoryIdsKey = Array.isArray(categoryIds)
         ? categoryIds.join(',')
         : String(categoryIds || '');
-      return `list:${userId}:${customerType}:${mode || 'all'}:${categoryId || ''}:${categoryIdsKey}:${search || ''}:${warehouse || ''}:${limit || ''}:${offset || ''}`;
+      return `list:${userId}:${customerType}:${mode || 'all'}:${categoryId || ''}:${categoryIdsKey}:${search || ''}:${warehouse || ''}:${sort || ''}:${limit || ''}:${offset || ''}`;
     },
   }),
   customerController.getProducts

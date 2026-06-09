@@ -22,6 +22,7 @@ import productComplementService from './services/product-complement.service';
 import customerActivityService from './services/customer-activity.service';
 import eInvoiceService from './services/einvoice.service';
 import customerRecoveryService from './services/customer-recovery.service';
+import productPopularityService from './services/product-popularity.service';
 import { prisma } from './utils/prisma';
 import { getUploadsDir } from './utils/storage';
 
@@ -245,6 +246,23 @@ if (config.enableCron) {
       console.log('Product complement sync completed:', result);
     } catch (error) {
       console.error('Product complement cron error:', error);
+    }
+  }, cronOptions);
+
+  productPopularityService.ensureFresh().then((result) => {
+    console.log('Product popularity cache startup check:', result);
+  }).catch((error) => {
+    console.error('Product popularity startup check error:', error);
+  });
+
+  console.log('Product popularity cron schedule:', config.productPopularityCronSchedule, 'Timezone:', config.cronTimezone);
+  cron.schedule(config.productPopularityCronSchedule, async () => {
+    console.log('Product popularity refresh started...');
+    try {
+      const result = await productPopularityService.refreshPopularSales();
+      console.log('Product popularity refresh completed:', result);
+    } catch (error) {
+      console.error('Product popularity refresh error:', error);
     }
   }, cronOptions);
 
