@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
@@ -957,6 +957,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   const [manualOfferCostPOverride, setManualOfferCostPOverride] = useState(false);
   const [uploadingRequestAttachment, setUploadingRequestAttachment] = useState(false);
   const [uploadingOfferAttachment, setUploadingOfferAttachment] = useState(false);
+  const offerSupplierSearchRef = useRef<HTMLDivElement | null>(null);
 
   const requestVatPercent = (request: any) =>
     resolveVatPercent(request?.vatRatePercent ?? request?.vatRate ?? request?.stockCreatePayload?.vatRatePercent, 20);
@@ -1016,6 +1017,17 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   useEffect(() => {
     if (initialRequestId) void loadRequestDetail(initialRequestId);
   }, [initialRequestId]);
+
+  useEffect(() => {
+    if (supplierResults.length === 0) return undefined;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!offerSupplierSearchRef.current?.contains(event.target as Node)) {
+        setSupplierResults([]);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    return () => document.removeEventListener('mousedown', closeOnOutside);
+  }, [supplierResults.length]);
 
   const updateRequestForm = (patch: any) => setRequestForm((current: any) => ({ ...current, ...patch }));
   const updateStockPayload = (patch: any) =>
@@ -1284,10 +1296,14 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
       return { ...next, margins };
     });
   };
+  const panelGridClass = canManage
+    ? 'grid gap-6 2xl:grid-cols-[minmax(640px,0.95fr)_minmax(0,1.35fr)]'
+    : 'grid gap-6 2xl:grid-cols-[minmax(520px,0.85fr)_minmax(0,1.25fr)]';
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[460px_1fr]">
+    <div className={panelGridClass}>
       <div className="space-y-6">
+        {!canManage && (
         <Card className="rounded-[2rem]">
           <CardHeader>
             <CardTitle className="text-xl">Fiyat teyit talebi olustur</CardTitle>
@@ -1403,16 +1419,23 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
             </Button>
           </CardContent>
         </Card>
+        )}
 
-        <Card className="rounded-[2rem]">
+        <Card className="rounded-[2rem] border-0 shadow-xl">
           <CardHeader>
-            <CardTitle className="text-xl">Talepler</CardTitle>
-            <CardDescription>{canManage ? 'Tum satin alma talepleri.' : 'Sadece sizin actiginiz talepler.'}</CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-xl">Fiyat teyit talepleri</CardTitle>
+                <CardDescription>{canManage ? 'Satin alma icin bekleyen ve tamamlanan tum talepler.' : 'Sadece sizin actiginiz talepler.'}</CardDescription>
+              </div>
+              {canManage && <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white">Talep olusturma satis tarafinda</span>}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid gap-2">
-              <Input value={requestSearch} onChange={(e) => setRequestSearch(e.target.value)} placeholder="Talep, urun, cari ara..." />
-              <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-3">
+              <div className="grid gap-2">
+                <Input value={requestSearch} onChange={(e) => setRequestSearch(e.target.value)} placeholder="Talep no, urun, cari veya not ara..." className="h-11 rounded-xl bg-white" />
+                <div className="grid gap-2 sm:grid-cols-3">
                 <SelectBox label="Durum" value={statusFilter} onChange={setStatusFilter} options={['ALL', 'REQUESTED', 'IN_REVIEW', 'SENT_TO_SALES', 'SALES_APPROVED', 'SALES_REJECTED', 'COMPLETED', 'CANCELLED']} />
                 <SelectBox label="Tip" value={typeFilter} onChange={setTypeFilter} options={['ALL', 'EXISTING_PRODUCT', 'NEW_STOCK']} />
                 {canManage && (
@@ -1421,42 +1444,25 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                     Sadece benimkiler
                   </label>
                 )}
+                </div>
+                <Button variant="outline" onClick={loadRequests} isLoading={loading} className="h-10 rounded-xl">Ara / Yenile</Button>
               </div>
-              <Button variant="outline" onClick={loadRequests} isLoading={loading}>Ara / Yenile</Button>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
               <MiniMetric label="Bekleyen" value={(summary.REQUESTED || 0) + (summary.IN_REVIEW || 0)} light />
               <MiniMetric label="Satis onayi" value={summary.SENT_TO_SALES || 0} light />
               <MiniMetric label="Tamamlanan" value={summary.COMPLETED || 0} light />
             </div>
-            <div className="max-h-[620px] space-y-2 overflow-auto pr-1">
+            <div className={cn('space-y-3 overflow-auto pr-1', canManage ? 'max-h-[760px]' : 'max-h-[620px]')}>
               {requests.length === 0 ? (
                 <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Talep yok.</p>
               ) : requests.map((request) => (
-                <button
+                <PriceRequestListCard
                   key={request.id}
-                  type="button"
-                  onClick={() => {
-                    selectRequest(request);
-                  }}
-                  className={cn(
-                    'w-full rounded-2xl border p-3 text-left transition hover:border-amber-300 hover:bg-amber-50',
-                    selectedRequest?.id === request.id ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white'
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-slate-950">{request.requestNo} - {request.productCode || 'Yeni stok'}</p>
-                      <p className="truncate text-xs text-slate-500">{request.productName}</p>
-                    </div>
-                    <StatusPill status={request.status} />
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-slate-600">
-                    <span className="rounded-full bg-slate-100 px-2 py-1">{request.type === 'NEW_STOCK' ? 'Yeni stok' : 'Stoklu'}</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-1">{request.priority}</span>
-                    {request.bestOffer && <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">En iyi: {money(request.bestOffer.normalizedCostP)}</span>}
-                  </div>
-                </button>
+                  request={request}
+                  selected={selectedRequest?.id === request.id}
+                  onSelect={() => selectRequest(request)}
+                />
               ))}
             </div>
           </CardContent>
@@ -1592,6 +1598,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                 {canManage && selectedRequest.availableActions?.canAddOffer && (
                   <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                     <h3 className="mb-3 font-black text-slate-900">Satin alma fiyat girisi</h3>
+                    <div ref={offerSupplierSearchRef} className="relative">
                     <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
                       <Input value={offerForm.supplierSearch} onChange={(event) => updateOfferForm({ supplierSearch: event.target.value })} placeholder="Tedarikci kodu veya adi ara..." />
                       <Button variant="secondary" onClick={searchSuppliersForOffer}>Tedarikci ara</Button>
@@ -1613,6 +1620,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                         ))}
                       </div>
                     )}
+                    </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <SupplierLookupInput
                         label="Tedarikci kodu"
@@ -1760,6 +1768,52 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   );
 }
 
+function PriceRequestListCard({ request, selected, onSelect }: { request: any; selected: boolean; onSelect: () => void }) {
+  const isNewStock = request.type === 'NEW_STOCK';
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'w-full rounded-[1.5rem] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:bg-amber-50/70 hover:shadow-md',
+        selected ? 'border-amber-400 bg-amber-50 shadow-md' : 'border-slate-200 bg-white'
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-mono text-xs font-black text-slate-500">{request.requestNo}</p>
+            <span className={cn(
+              'rounded-full px-2 py-0.5 text-[11px] font-black',
+              isNewStock ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'
+            )}>
+              {isNewStock ? 'Yeni stok' : 'Stoklu'}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">{request.priority}</span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-sm font-black text-slate-950">
+            {request.productCode || 'Yeni stok'} - {request.productName}
+          </p>
+          <p className="mt-1 truncate text-xs font-semibold text-slate-500">
+            {request.customerName || request.customerCode || 'Cari yok'} | Talep eden: {request.createdByName || '-'}
+          </p>
+        </div>
+        <StatusPill status={request.status} />
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <MiniMetric label="Miktar" value={request.quantity || '-'} light />
+        <MiniMetric label="Mevcut maliyet" value={money(request.currentCost)} light />
+        <MiniMetric label="En iyi teklif" value={request.bestOffer ? money(request.bestOffer.normalizedCostP) : '-'} light />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
+        <span>{dateText(request.createdAt)}</span>
+        {request.sourceType && <span>Kaynak: {getPriceRequestSourceLabel(request)}</span>}
+        {(request.attachments || []).length > 0 && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Ek: {(request.attachments || []).length}</span>}
+      </div>
+    </button>
+  );
+}
+
 const emptyTenderForm = {
   title: '',
   priority: 'NORMAL',
@@ -1770,7 +1824,7 @@ const emptyTenderForm = {
   salesNote: '',
   attachments: [],
   items: [
-    { productCode: '', productName: '', unit: '', quantity: '', targetPrice: '', note: '', attachments: [] },
+    { productSearch: '', productCode: '', productName: '', unit: '', quantity: '', targetPrice: '', note: '', attachments: [] },
   ],
 };
 
@@ -1807,6 +1861,7 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
   const [form, setForm] = useState<any>(emptyTenderForm);
   const [offerForms, setOfferForms] = useState<Record<string, any>>({});
   const [supplierResultsByItem, setSupplierResultsByItem] = useState<Record<string, Array<{ code: string; name: string }>>>({});
+  const [productResultsByItemIndex, setProductResultsByItemIndex] = useState<Record<number, any[]>>({});
   const [savingAction, setSavingAction] = useState<string | null>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
@@ -1821,7 +1876,7 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
   };
   const addItem = () => setForm((current: any) => ({
     ...current,
-    items: [...(current.items || []), { productCode: '', productName: '', unit: '', quantity: '', targetPrice: '', note: '', attachments: [] }],
+    items: [...(current.items || []), { productSearch: '', productCode: '', productName: '', unit: '', quantity: '', targetPrice: '', note: '', attachments: [] }],
   }));
   const removeItem = (index: number) => {
     setForm((current: any) => ({
@@ -1871,6 +1926,20 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
     const tenderId = new URLSearchParams(window.location.search).get('tenderId');
     if (tenderId) void loadRequestDetail(tenderId);
   }, []);
+
+  useEffect(() => {
+    const hasSupplierResults = Object.values(supplierResultsByItem).some((items) => items.length > 0);
+    const hasProductResults = Object.values(productResultsByItemIndex).some((items) => items.length > 0);
+    if (!hasSupplierResults && !hasProductResults) return undefined;
+    const closeOnOutside = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('[data-tender-supplier-search]') || target?.closest('[data-tender-product-search]')) return;
+      setSupplierResultsByItem({});
+      setProductResultsByItemIndex({});
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    return () => document.removeEventListener('mousedown', closeOnOutside);
+  }, [supplierResultsByItem, productResultsByItemIndex]);
 
   const uploadTenderAttachment = async (file: File | null | undefined, target: { type: 'request' | 'item' | 'offer'; index?: number; itemId?: string }) => {
     if (!file) return;
@@ -1965,6 +2034,18 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
     }
   };
 
+  const searchTenderProducts = async (index: number) => {
+    const item = (form.items || [])[index] || {};
+    const term = String(item.productSearch || item.productCode || item.productName || '').trim();
+    if (term.length < 2) return toast.error('Stok kodu veya urun adi girin');
+    try {
+      const result = await adminApi.searchPriceVerificationProducts({ search: term, limit: 20 });
+      setProductResultsByItemIndex((current) => ({ ...current, [index]: result.products || [] }));
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Urun aramasi yapilamadi');
+    }
+  };
+
   const addOffer = async (item: any) => {
     if (!selectedRequest) return;
     const itemForm = offerForms[item.id] || emptyTenderOfferForm;
@@ -2038,10 +2119,14 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
       toast.error(error.response?.data?.error || 'Not eklenemedi');
     }
   };
+  const panelGridClass = canManage
+    ? 'grid gap-6 2xl:grid-cols-[minmax(640px,0.95fr)_minmax(0,1.35fr)]'
+    : 'grid gap-6 2xl:grid-cols-[minmax(540px,0.85fr)_minmax(0,1.25fr)]';
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[440px_1fr]">
+    <div className={panelGridClass}>
       <div className="space-y-6">
+        {!canManage && (
         <Card className="rounded-[2rem]">
           <CardHeader>
             <CardTitle className="text-xl">Yeni ihale maliyet talebi</CardTitle>
@@ -2082,6 +2167,46 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
               </div>
               {(form.items || []).map((item: any, index: number) => (
                 <div key={index} className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <div data-tender-product-search className="relative mb-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3">
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <Input
+                        label="Mevcut stok ara"
+                        value={item.productSearch || ''}
+                        onChange={(e) => updateItem(index, { productSearch: e.target.value })}
+                        onKeyDown={(e) => e.key === 'Enter' && searchTenderProducts(index)}
+                        placeholder="Stok kodu veya urun adi ile ara, yoksa alttan manuel gir"
+                        className="bg-white"
+                      />
+                      <Button variant="secondary" onClick={() => searchTenderProducts(index)} className="mt-6">Stok ara</Button>
+                    </div>
+                    {(productResultsByItemIndex[index] || []).length > 0 && (
+                      <div className="absolute left-3 right-3 top-full z-30 mt-2 max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+                        {(productResultsByItemIndex[index] || []).map((product: any) => (
+                          <button
+                            key={product.mikroCode || product.code}
+                            type="button"
+                            onClick={() => {
+                              updateItem(index, {
+                                productSearch: `${product.mikroCode || product.code} ${product.name || ''}`.trim(),
+                                productCode: product.mikroCode || product.code || '',
+                                productName: product.name || '',
+                                unit: product.mainUnit || product.unit || '',
+                              });
+                              setProductResultsByItemIndex((current) => ({ ...current, [index]: [] }));
+                            }}
+                            className="flex w-full items-center gap-3 rounded-xl p-2 text-left hover:bg-sky-50"
+                          >
+                            <ProductThumb product={product} />
+                            <div className="min-w-0">
+                              <p className="font-mono text-xs font-black text-slate-500">{product.mikroCode || product.code}</p>
+                              <p className="line-clamp-2 text-sm font-black text-slate-900">{product.name}</p>
+                              <p className="text-xs text-slate-500">{product.category?.name || product.brandCode || product.mainUnit || '-'}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <Input label="Stok kodu" value={item.productCode} onChange={(e) => updateItem(index, { productCode: e.target.value })} />
                     <Input label="Urun / kalem adi" value={item.productName} onChange={(e) => updateItem(index, { productName: e.target.value })} />
@@ -2108,15 +2233,22 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
             </Button>
           </CardContent>
         </Card>
+        )}
 
-        <Card className="rounded-[2rem]">
+        <Card className="rounded-[2rem] border-0 shadow-xl">
           <CardHeader>
-            <CardTitle className="text-xl">Ihale talepleri</CardTitle>
-            <CardDescription>{canManage ? 'Tum ihale maliyet talepleri.' : 'Sadece sizin actiginiz ihale talepleri.'}</CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-xl">Ihale maliyet talepleri</CardTitle>
+                <CardDescription>{canManage ? 'Satin alma icin bekleyen ihale maliyet talepleri.' : 'Sadece sizin actiginiz ihale talepleri.'}</CardDescription>
+              </div>
+              {canManage && <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white">Talep olusturma satis tarafinda</span>}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ihale, cari, urun ara..." />
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-3">
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ihale, cari, urun veya stok ara..." className="h-11 rounded-xl bg-white" />
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <SelectBox label="Durum" value={statusFilter} onChange={setStatusFilter} options={['ALL', 'REQUESTED', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']} />
               {canManage && (
                 <label className="mt-6 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
@@ -2125,38 +2257,23 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
                 </label>
               )}
             </div>
-            <Button variant="outline" onClick={loadRequests} isLoading={loading}>Ara / Yenile</Button>
+            <Button variant="outline" onClick={loadRequests} isLoading={loading} className="mt-2 h-10 rounded-xl">Ara / Yenile</Button>
+            </div>
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
               <MiniMetric label="Bekleyen" value={(summary.REQUESTED || 0) + (summary.IN_REVIEW || 0)} light />
               <MiniMetric label="Tamamlanan" value={summary.COMPLETED || 0} light />
               <MiniMetric label="Iptal" value={summary.CANCELLED || 0} light />
             </div>
-            <div className="max-h-[620px] space-y-2 overflow-auto pr-1">
+            <div className={cn('space-y-3 overflow-auto pr-1', canManage ? 'max-h-[760px]' : 'max-h-[620px]')}>
               {requests.length === 0 ? (
                 <p className="rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">Ihale talebi yok.</p>
               ) : requests.map((request) => (
-                <button
+                <TenderRequestListCard
                   key={request.id}
-                  type="button"
-                  onClick={() => setSelectedRequest(request)}
-                  className={cn(
-                    'w-full rounded-2xl border p-3 text-left transition hover:border-sky-300 hover:bg-sky-50',
-                    selectedRequest?.id === request.id ? 'border-sky-400 bg-sky-50' : 'border-slate-200 bg-white'
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-slate-950">{request.requestNo}</p>
-                      <p className="truncate text-xs text-slate-500">{request.title}</p>
-                    </div>
-                    <StatusPill status={request.status} />
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-slate-600">
-                    <span className="rounded-full bg-slate-100 px-2 py-1">{request.itemCount || 0} kalem</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-1">Fiyatsiz: {request.unpricedLines || 0}</span>
-                    {request.bestTotal && <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">Toplam: {money(request.bestTotal)}</span>}
-                  </div>
-                </button>
+                  request={request}
+                  selected={selectedRequest?.id === request.id}
+                  onSelect={() => setSelectedRequest(request)}
+                />
               ))}
             </div>
           </CardContent>
@@ -2261,27 +2378,29 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
                     {canManage && !['COMPLETED', 'CANCELLED'].includes(selectedRequest.status) && (
                       <div className="rounded-[1.5rem] border border-sky-200 bg-sky-50 p-4">
                         <p className="mb-3 text-sm font-black text-sky-950">Bu kaleme satin alma fiyati gir</p>
-                        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-                          <Input value={itemForm.supplierSearch} onChange={(event) => updateOfferForm(item.id, { supplierSearch: event.target.value })} placeholder="Tedarikci kodu veya adi ara..." />
-                          <Button variant="secondary" onClick={() => searchSuppliers(item.id)}>Tedarikci ara</Button>
-                        </div>
-                        {supplierResults.length > 0 && (
-                          <div className="mt-3 flex max-h-32 flex-wrap gap-2 overflow-auto rounded-2xl bg-white p-3">
-                            {supplierResults.map((supplier) => (
-                              <button
-                                key={supplier.code}
-                                type="button"
-                                onClick={() => {
-                                  updateOfferForm(item.id, { supplierCode: supplier.code, supplierName: supplier.name, supplierSearch: `${supplier.code} ${supplier.name}` });
-                                  setSupplierResultsByItem((current) => ({ ...current, [item.id]: [] }));
-                                }}
-                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-sky-300"
-                              >
-                                {supplier.code} - {supplier.name}
-                              </button>
-                            ))}
+                        <div data-tender-supplier-search className="relative">
+                          <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+                            <Input value={itemForm.supplierSearch} onChange={(event) => updateOfferForm(item.id, { supplierSearch: event.target.value })} placeholder="Tedarikci kodu veya adi ara..." />
+                            <Button variant="secondary" onClick={() => searchSuppliers(item.id)}>Tedarikci ara</Button>
                           </div>
-                        )}
+                          {supplierResults.length > 0 && (
+                            <div className="mt-3 flex max-h-32 flex-wrap gap-2 overflow-auto rounded-2xl bg-white p-3">
+                              {supplierResults.map((supplier) => (
+                                <button
+                                  key={supplier.code}
+                                  type="button"
+                                  onClick={() => {
+                                    updateOfferForm(item.id, { supplierCode: supplier.code, supplierName: supplier.name, supplierSearch: `${supplier.code} ${supplier.name}` });
+                                    setSupplierResultsByItem((current) => ({ ...current, [item.id]: [] }));
+                                  }}
+                                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-sky-300"
+                                >
+                                  {supplier.code} - {supplier.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                           <Input label="Tedarikci kodu" value={itemForm.supplierCode} onChange={(e) => updateOfferForm(item.id, { supplierCode: e.target.value })} />
                           <Input label="Tedarikci adi" value={itemForm.supplierName} onChange={(e) => updateOfferForm(item.id, { supplierName: e.target.value })} />
@@ -2351,6 +2470,46 @@ function TenderRequestsPanel({ canManage }: { canManage: boolean }) {
   );
 }
 
+function TenderRequestListCard({ request, selected, onSelect }: { request: any; selected: boolean; onSelect: () => void }) {
+  const itemCount = Number(request.itemCount || request.items?.length || 0);
+  const unpricedLines = Number(request.unpricedLines || 0);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'w-full rounded-[1.5rem] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-50/70 hover:shadow-md',
+        selected ? 'border-sky-400 bg-sky-50 shadow-md' : 'border-slate-200 bg-white'
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-mono text-xs font-black text-slate-500">{request.requestNo}</p>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">{request.priority || 'NORMAL'}</span>
+            {request.deadline && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-700">Son: {dateText(request.deadline)}</span>}
+          </div>
+          <p className="mt-1 line-clamp-2 text-sm font-black text-slate-950">{request.title || 'Ihale talebi'}</p>
+          <p className="mt-1 truncate text-xs font-semibold text-slate-500">
+            {request.customerName || request.customerCode || 'Cari yok'} | Talep eden: {request.createdByName || '-'}
+          </p>
+        </div>
+        <StatusPill status={request.status} />
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <MiniMetric label="Kalem" value={itemCount} light />
+        <MiniMetric label="Fiyatsiz" value={unpricedLines} light />
+        <MiniMetric label="En iyi toplam" value={request.bestTotal ? money(request.bestTotal) : '-'} light />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
+        <span>{dateText(request.createdAt)}</span>
+        {(request.attachments || []).length > 0 && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-indigo-700">Ana ek: {(request.attachments || []).length}</span>}
+        {unpricedLines > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">Fiyat bekliyor</span>}
+      </div>
+    </button>
+  );
+}
+
 type LookupItem = { code: string; name: string };
 
 function NewStockRequestFields({
@@ -2409,10 +2568,20 @@ function SimpleLookupInput({
   const [search, setSearch] = useState(value || '');
   const [items, setItems] = useState<LookupItem[]>([]);
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setSearch(value || '');
   }, [value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    return () => document.removeEventListener('mousedown', closeOnOutside);
+  }, [open]);
 
   const runSearch = async () => {
     try {
@@ -2425,7 +2594,7 @@ function SimpleLookupInput({
   };
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <Input
         label={label}
         value={search}
@@ -2475,10 +2644,20 @@ function CustomerLookupInput({
   const [search, setSearch] = useState(value || '');
   const [items, setItems] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setSearch(value || '');
   }, [value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    return () => document.removeEventListener('mousedown', closeOnOutside);
+  }, [open]);
 
   const runSearch = async () => {
     const term = search.trim();
@@ -2498,7 +2677,7 @@ function CustomerLookupInput({
   };
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <Input
         label={label}
         value={search}
@@ -2550,10 +2729,20 @@ function SupplierLookupInput({
   const [search, setSearch] = useState(value || '');
   const [items, setItems] = useState<LookupItem[]>([]);
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setSearch(value || '');
   }, [value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    return () => document.removeEventListener('mousedown', closeOnOutside);
+  }, [open]);
 
   const runSearch = async () => {
     try {
@@ -2567,7 +2756,7 @@ function SupplierLookupInput({
   };
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <Input
         label={label}
         value={search}
