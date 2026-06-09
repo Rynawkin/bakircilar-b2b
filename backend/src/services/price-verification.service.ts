@@ -273,29 +273,24 @@ class PriceVerificationService {
       throw new AppError('Bu talep zaten kapali.', 400, ErrorCode.BAD_REQUEST);
     }
 
-    const application = await supplierCostService.markProductCostCurrent({
-      productCode: request.productCode,
-      note: normalizeText(input.note) || `${request.requestNo} fiyat guncelligi teyit edildi.`,
-    }, { userId: actor.userId || null });
-
     const updated = await prisma.priceVerificationRequest.update({
       where: { id: request.id },
       data: {
         status: 'COMPLETED',
-        procurementNote: normalizeText(input.note) || request.procurementNote || 'Mevcut Mikro maliyeti guncel olarak teyit edildi.',
+        procurementNote: normalizeText(input.note) || request.procurementNote || 'Mevcut fiyat satin alma tarafindan guncel olarak teyit edildi. Mikroda maliyet veya tarih guncellenmedi.',
         completedAt: new Date(),
       },
       include: { offers: { orderBy: [{ normalizedCostP: 'asc' }, { createdAt: 'desc' }] }, notes: { orderBy: { createdAt: 'desc' } } },
     });
 
-    await this.addSystemNote(request.id, 'Mevcut Mikro maliyeti guncel olarak teyit edildi ve maliyet tarihi yenilendi.', actor.userId || null);
+    await this.addSystemNote(request.id, 'Mevcut fiyat guncel olarak teyit edildi. Mikro maliyeti ve maliyet tarihi degistirilmedi.', actor.userId || null);
     await notificationService.createForUsers([request.createdById], {
       title: 'Fiyat guncelligi teyit edildi',
-      body: `${request.requestNo} - ${request.productCode}`,
+      body: `${request.requestNo} - ${request.productCode} fiyat guncel. Mikroda degisiklik yapilmadi.`,
       linkUrl: `/supplier-costs?tab=requests&requestId=${request.id}`,
     });
 
-    return { request: await this.mapRequestWithProductMeta(updated), application };
+    return { request: await this.mapRequestWithProductMeta(updated), application: null };
   }
 
   async submitToSales(requestId: string, input: any, actor: Actor) {

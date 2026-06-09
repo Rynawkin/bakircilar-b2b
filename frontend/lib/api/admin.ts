@@ -3597,7 +3597,7 @@ export const adminApi = {
     return response.data;
   },
 
-  markPriceVerificationCurrent: async (id: string, payload?: { note?: string }): Promise<{ request: any; application: any }> => {
+  markPriceVerificationCurrent: async (id: string, payload?: { note?: string }): Promise<{ request: any; application: any | null }> => {
     const response = await apiClient.post(`/admin/price-verification/requests/${encodeURIComponent(id)}/mark-current`, payload || {});
     return response.data;
   },

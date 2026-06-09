@@ -856,7 +856,7 @@ function SupplierCostDashboard({
         <CardContent className="grid gap-4 md:grid-cols-3">
           <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-5">
             <p className="text-lg font-black text-amber-950">1. Fiyat teyidi</p>
-            <p className="mt-2 text-sm text-amber-800">Satis talep acar; satin alma fiyat girer, guncelse tek tikla tarihi yeniler veya satis onayina yollar.</p>
+            <p className="mt-2 text-sm text-amber-800">Satis talep acar; satin alma fiyat girer, guncelse tek tikla satis tarafina bilgi verir veya satis onayina yollar.</p>
           </div>
           <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-lg font-black text-emerald-950">2. Maliyet uygulama</p>
@@ -1223,11 +1223,11 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
   };
 
   const markCurrent = async () => {
-    if (!selectedRequest || !window.confirm('Mevcut Mikro maliyeti degismeden guncel tarih bugune cekilsin mi?')) return;
+    if (!selectedRequest || !window.confirm('Fiyat guncel diye satis tarafina bilgi gonderilsin mi? Mikroda maliyet veya tarih degismeyecek.')) return;
     setSavingAction('current');
     try {
       const result = await adminApi.markPriceVerificationCurrent(selectedRequest.id, { note: actionNote || undefined });
-      toast.success('Fiyat guncel olarak isaretlendi');
+      toast.success('Fiyat guncel bilgisi satis tarafina gonderildi');
       selectRequest(result.request);
       setActionNote('');
       await loadRequests();
@@ -1704,7 +1704,7 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
                 <div className="flex flex-wrap gap-2">
                   {canManage && selectedRequest.type === 'EXISTING_PRODUCT' && !['COMPLETED', 'CANCELLED'].includes(selectedRequest.status) && (
                     <Button variant="secondary" onClick={markCurrent} isLoading={savingAction === 'current'}>
-                      <CheckCircle2 className="mr-2 h-4 w-4" /> Fiyat guncel, tarihi yenile
+                      <CheckCircle2 className="mr-2 h-4 w-4" /> Fiyat guncel, satisi bilgilendir
                     </Button>
                   )}
                   {canManage && selectedRequest.availableActions?.canSendToSales && (
