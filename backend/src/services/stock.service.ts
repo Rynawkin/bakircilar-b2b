@@ -270,6 +270,7 @@ class StockService {
     const where: any = {
       excessStock: { gt: 0 },
       active: true,
+      hiddenFromCustomers: false,
     };
 
     const excludedCodes = Array.from(

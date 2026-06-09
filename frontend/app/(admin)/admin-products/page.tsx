@@ -38,6 +38,7 @@ interface Product {
   imageSyncErrorType?: string | null;
   imageSyncErrorMessage?: string | null;
   imageSyncUpdatedAt?: string | null;
+  hiddenFromCustomers: boolean;
   category: {
     id: string;
     name: string;
@@ -83,6 +84,7 @@ export default function AdminProductsPage() {
   const [imageSyncErrorType, setImageSyncErrorType] = useState<'all' | 'NO_IMAGE' | 'NO_GUID' | 'IMAGE_TOO_LARGE' | 'IMAGE_DOWNLOAD_ERROR' | 'IMAGE_PROCESS_ERROR' | 'NO_SERVICE'>('all');
   const [categoryId, setCategoryId] = useState<string>('');
   const [priceListStatus, setPriceListStatus] = useState<'all' | 'missing' | 'available'>('all');
+  const [customerVisibility, setCustomerVisibility] = useState<'all' | 'visible' | 'hidden'>('all');
   const [sortBy, setSortBy] = useState<'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -97,6 +99,7 @@ export default function AdminProductsPage() {
   const [isBulkSyncing, setIsBulkSyncing] = useState(false);
   const [isImageUploading, setIsImageUploading] = useState(false);
   const [isImageDeleting, setIsImageDeleting] = useState(false);
+  const [visibilityUpdatingId, setVisibilityUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -126,6 +129,8 @@ export default function AdminProductsPage() {
       if (imageSyncErrorType !== 'all') params.imageSyncErrorType = imageSyncErrorType;
       if (categoryId) params.categoryId = categoryId;
       if (priceListStatus !== 'all') params.priceListStatus = priceListStatus;
+      if (customerVisibility === 'visible') params.hiddenFromCustomers = 'false';
+      if (customerVisibility === 'hidden') params.hiddenFromCustomers = 'true';
       params.sortBy = sortBy;
       params.sortOrder = sortOrder;
 
@@ -151,7 +156,7 @@ export default function AdminProductsPage() {
       setIsSearching(false);
       setIsInitialLoad(false);
     }
-  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder]);
+  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, customerVisibility, sortBy, sortOrder]);
 
   const fetchData = useCallback(async () => {
     await Promise.all([fetchProducts(1), fetchCategories()]);
@@ -172,7 +177,7 @@ export default function AdminProductsPage() {
       setCurrentPage(1); // Reset page when filters change
       fetchProducts(1);
     }
-  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, sortBy, sortOrder, hasPermission, fetchProducts]);
+  }, [debouncedSearch, debouncedBrand, hasImage, hasStock, imageSyncErrorType, categoryId, priceListStatus, customerVisibility, sortBy, sortOrder, hasPermission, fetchProducts]);
 
   const handleSort = (field: typeof sortBy) => {
     if (sortBy === field) {
@@ -221,6 +226,22 @@ export default function AdminProductsPage() {
       toast.error('Resim senkronu baslatilamadi');
     } finally {
       setIsBulkSyncing(false);
+    }
+  };
+
+  const handleCustomerVisibilityToggle = async (product: Product) => {
+    const nextHidden = !product.hiddenFromCustomers;
+    setVisibilityUpdatingId(product.id);
+    try {
+      const response = await adminApi.updateProductCustomerVisibility(product.id, nextHidden);
+      updateProductState(product.id, {
+        hiddenFromCustomers: response.product?.hiddenFromCustomers ?? nextHidden,
+      });
+      toast.success(response.message || (nextHidden ? 'Urun musteriye gizlendi' : 'Urun musteriye acildi'));
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Musteri gorunurlugu guncellenemedi');
+    } finally {
+      setVisibilityUpdatingId(null);
     }
   };
 
@@ -360,7 +381,7 @@ export default function AdminProductsPage() {
             </div>
 
             {/* Filters Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4">
               {/* Image Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -459,6 +480,21 @@ export default function AdminProductsPage() {
                   <option value="all">Tümü</option>
                   <option value="available">Fiyatı Olanlar</option>
                   <option value="missing">Fiyatı Olmayanlar</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Musteri Gorunumu
+                </label>
+                <select
+                  value={customerVisibility}
+                  onChange={(e) => setCustomerVisibility(e.target.value as any)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="all">Tumu</option>
+                  <option value="visible">Musteriye acik</option>
+                  <option value="hidden">Musteriye gizli</option>
                 </select>
               </div>
 
@@ -612,6 +648,9 @@ export default function AdminProductsPage() {
                     </div>
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Musteri Gorunumu
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                     İşlemler
                   </th>
                 </tr>
@@ -619,7 +658,7 @@ export default function AdminProductsPage() {
               <tbody className="divide-y divide-gray-200">
                 {currentProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
                       Ürün bulunamadı
                     </td>
                   </tr>
@@ -627,7 +666,7 @@ export default function AdminProductsPage() {
                   currentProducts.map((product) => {
                     const unitLabel = getUnitConversionLabel(product.unit, product.unit2, product.unit2Factor);
                     return (
-                    <tr key={product.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={product.id} className={`hover:bg-gray-50 transition-colors ${product.hiddenFromCustomers ? 'bg-rose-50/60' : ''}`}>
                       <td className="px-4 py-3">
                         <input
                           type="checkbox"
@@ -735,6 +774,34 @@ export default function AdminProductsPage() {
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              product.hiddenFromCustomers
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {product.hiddenFromCustomers ? 'Gizli' : 'Acik'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCustomerVisibilityToggle(product)}
+                            disabled={visibilityUpdatingId === product.id}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
+                              product.hiddenFromCustomers ? 'bg-rose-500' : 'bg-emerald-500'
+                            }`}
+                            title={product.hiddenFromCustomers ? 'Musteriye goster' : 'Musteriye gizle'}
+                          >
+                            <span
+                              className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                                product.hiddenFromCustomers ? 'translate-x-1' : 'translate-x-5'
+                              }`}
+                            />
+                          </button>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <Button

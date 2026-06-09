@@ -174,6 +174,10 @@ const productCodesSchema = z.object({
   codes: z.array(z.string()).min(1),
 });
 
+const productCustomerVisibilitySchema = z.object({
+  hiddenFromCustomers: z.boolean(),
+});
+
 const complementRecommendationSchema = z.object({
   productCodes: z.array(z.string()).min(1),
   excludeCodes: z.array(z.string()).optional(),
@@ -266,6 +270,12 @@ router.post(
   adminController.getProductsByCodes
 );
 router.post('/products/image-sync', requirePermission('admin:products'), adminController.triggerSelectedImageSync);
+router.patch(
+  '/products/:id/customer-visibility',
+  requirePermission('admin:products'),
+  validateBody(productCustomerVisibilitySchema),
+  adminController.updateProductCustomerVisibility
+);
 router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admin:order-tracking']), upload.single('image'), adminController.uploadProductImage);
 
 router.get('/stock-create/metadata', requirePermission('admin:stock-create'), stockCreateController.getMetadata);

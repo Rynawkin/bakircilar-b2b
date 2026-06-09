@@ -738,6 +738,9 @@ class OrderService {
       if (!product) {
         throw new Error('Product not found in cart');
       }
+      if (!product.active || product.hiddenFromCustomers) {
+        throw new Error(`Product is not available for customer: ${product.mikroCode || product.name}`);
+      }
 
       const quantity = Number(item.quantity);
       if (!Number.isFinite(quantity) || quantity <= 0) {

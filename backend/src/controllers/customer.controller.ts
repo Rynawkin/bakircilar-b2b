@@ -561,6 +561,7 @@ export class CustomerController {
           OR: [{ validTo: null }, { validTo: { gte: now } }],
           product: {
             active: true,
+            hiddenFromCustomers: false,
             ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
             ...categoryFilter,
           },
@@ -764,6 +765,7 @@ export class CustomerController {
           ? await prisma.product.findMany({
               where: {
                 active: true,
+                hiddenFromCustomers: false,
                 mikroCode: { in: purchasedCodes },
                 ...categoryFilter,
                 ...(searchTokens.length > 0
@@ -837,6 +839,7 @@ export class CustomerController {
           : await prisma.product.findMany({
               where: {
                 active: true,
+                hiddenFromCustomers: false,
                 ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
                 ...categoryFilter,
                 ...(searchTokens.length > 0
@@ -1268,6 +1271,7 @@ export class CustomerController {
 
           prices: true,
           active: true,
+          hiddenFromCustomers: true,
 
           category: {
 
@@ -1284,7 +1288,7 @@ export class CustomerController {
         },
       });
 
-      if (!product || !product.active) {
+      if (!product || !product.active || product.hiddenFromCustomers) {
         return res.status(404).json({ error: 'Product not found' });
       }
 
@@ -1462,6 +1466,7 @@ export class CustomerController {
         where: {
           id: { in: sortedIds },
           active: true,
+          hiddenFromCustomers: false,
           ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
         },
         select: {
@@ -1541,6 +1546,8 @@ export class CustomerController {
       const baseProducts = await prisma.product.findMany({
         where: {
           id: { in: cartProductIds },
+          active: true,
+          hiddenFromCustomers: false,
           ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
         },
         select: { id: true, name: true, mikroCode: true },
@@ -1583,6 +1590,7 @@ export class CustomerController {
         where: {
           id: { in: allRecommendedIds },
           active: true,
+          hiddenFromCustomers: false,
           ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
         },
         select: {
@@ -1756,9 +1764,13 @@ export class CustomerController {
         where: { userId: req.user!.userId },
         include: {
           items: {
-            ...(excludedProductCodes.length > 0
-              ? { where: { product: { mikroCode: { notIn: excludedProductCodes } } } }
-              : {}),
+            where: {
+              product: {
+                active: true,
+                hiddenFromCustomers: false,
+                ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+              },
+            },
             include: {
               product: {
                 select: {
@@ -1847,7 +1859,7 @@ export class CustomerController {
           where: { id: productId },
         });
 
-        if (!product || !product.active) {
+        if (!product || !product.active || product.hiddenFromCustomers) {
           return res.status(404).json({ error: 'Product not found' });
         }
 
@@ -1958,6 +1970,10 @@ export class CustomerController {
 
         if (!cartItem || cartItem.cart.userId !== req.user!.userId) {
           return res.status(404).json({ error: 'Cart item not found' });
+        }
+
+        if (!cartItem.product.active || cartItem.product.hiddenFromCustomers) {
+          return res.status(404).json({ error: 'Product not found' });
         }
 
         const context = await cartPricingService.loadCartCustomerContext(req.user!.userId);

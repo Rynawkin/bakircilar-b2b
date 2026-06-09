@@ -553,6 +553,7 @@ export const adminApi = {
     imageSyncErrorType?: string;
     categoryId?: string;
     priceListStatus?: 'all' | 'missing' | 'available';
+    hiddenFromCustomers?: 'true' | 'false';
     sortBy?: 'name' | 'mikroCode' | 'excessStock' | 'totalStock' | 'lastEntryDate' | 'currentCost' | 'imageSyncErrorType' | 'imageSyncUpdatedAt';
     sortOrder?: 'asc' | 'desc';
     page?: number;
@@ -568,6 +569,17 @@ export const adminApi = {
     const response = await apiClient.post('/admin/products/image-sync', { productIds });
     return response.data;
   },
+
+  updateProductCustomerVisibility: async (
+    productId: string,
+    hiddenFromCustomers: boolean
+  ): Promise<{ success: boolean; product: any; message: string }> => {
+    const response = await apiClient.patch(`/admin/products/${productId}/customer-visibility`, {
+      hiddenFromCustomers,
+    });
+    return response.data;
+  },
+
   getProductComplements: async (productId: string): Promise<{
     mode: 'AUTO' | 'MANUAL';
     limit: number;

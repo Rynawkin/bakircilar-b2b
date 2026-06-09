@@ -26,6 +26,7 @@ import exclusionService from '../services/exclusion.service';
 import priceListService from '../services/price-list.service';
 import productComplementService from '../services/product-complement.service';
 import customerCategoryPurchaseService from '../services/customer-category-purchase.service';
+import { cacheService } from '../services/cache.service';
 import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens } from '../utils/search';
 import { getUploadsDir } from '../utils/storage';
@@ -57,6 +58,7 @@ const PRODUCT_SELECT = {
   vatRate: true,
   prices: true,
   imageUrl: true,
+  hiddenFromCustomers: true,
   category: {
     select: {
       id: true,
@@ -594,6 +596,7 @@ export class AdminController {
         brand,
         customerId,
         customerCode,
+        hiddenFromCustomers,
       } = req.query;
 
       const where: any = { active: true };
@@ -622,6 +625,12 @@ export class AdminController {
 
       if (imageSyncErrorType && imageSyncErrorType !== 'all') {
         where.imageSyncErrorType = imageSyncErrorType as string;
+      }
+
+      if (hiddenFromCustomers === 'true') {
+        where.hiddenFromCustomers = true;
+      } else if (hiddenFromCustomers === 'false') {
+        where.hiddenFromCustomers = false;
       }
 
       // Kategori filtresi
@@ -731,6 +740,7 @@ export class AdminController {
           vatRate: true,
           prices: true,
           imageUrl: true,
+          hiddenFromCustomers: true,
           imageChecksum: true,
           imageSyncStatus: true,
           imageSyncErrorType: true,
@@ -850,6 +860,43 @@ export class AdminController {
           withImage: withImageCount,
           withoutImage: withoutImageCount,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/admin/products/:id/customer-visibility
+   * Müşteri panelindeki ürün görünürlüğünü yönetir.
+   */
+  async updateProductCustomerVisibility(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const hiddenFromCustomers = Boolean(req.body?.hiddenFromCustomers);
+
+      const product = await prisma.product.update({
+        where: { id },
+        data: { hiddenFromCustomers },
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          hiddenFromCustomers: true,
+        },
+      });
+
+      await Promise.all([
+        cacheService.invalidateAllProductCache(),
+        cacheService.deletePattern('recommendations:*'),
+      ]);
+
+      res.json({
+        success: true,
+        product,
+        message: hiddenFromCustomers
+          ? 'Urun musteri panelinden gizlendi'
+          : 'Urun musteri panelinde gosterilecek',
       });
     } catch (error) {
       next(error);

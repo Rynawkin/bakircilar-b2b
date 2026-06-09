@@ -437,6 +437,9 @@ export const syncCartDiscountAllocations = async (userId: string) => {
   for (const items of groups.values()) {
     const first = items[0];
     if (!first) continue;
+    if (!first.product?.active || first.product?.hiddenFromCustomers) {
+      continue;
+    }
     const priceType: CartPriceType = first.priceType === 'WHITE' ? 'WHITE' : 'INVOICED';
     const hasDiscountSignal =
       Number(first.product?.excessStock || 0) > 0 ||
