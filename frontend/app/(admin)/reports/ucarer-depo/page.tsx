@@ -258,6 +258,36 @@ const parseMaybeNumber = (value: unknown): number | null => {
   const num = Number(normalized);
   return Number.isFinite(num) ? num : null;
 };
+
+const getApiErrorMessage = (error: any, fallback: string): string => {
+  const normalize = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (typeof value === 'object') {
+      const message = typeof value.message === 'string' ? value.message.trim() : '';
+      const code = typeof value.code === 'string' ? value.code.trim() : '';
+      if (message && code) return `${message} (${code})`;
+      if (message) return message;
+      if (code) return code;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  };
+
+  return (
+    normalize(error?.response?.data?.error) ||
+    normalize(error?.response?.data?.message) ||
+    normalize(error?.message) ||
+    fallback
+  );
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const cleanPdfText = (value: string | number | null | undefined) =>
   String(value ?? '')
     .replace(/ğ/g, 'g')
@@ -302,6 +332,7 @@ export default function UcarerDepotReportPage() {
   const [depotLimit, setDepotLimit] = useState<string>('ALL');
   const [depotLoading, setDepotLoading] = useState(false);
   const [minMaxLoading, setMinMaxLoading] = useState(false);
+  const [minMaxJobStatusText, setMinMaxJobStatusText] = useState('');
   const [depotRows, setDepotRows] = useState<Array<Record<string, any>>>([]);
   const [depotColumns, setDepotColumns] = useState<string[]>([]);
   const [depotTotal, setDepotTotal] = useState(0);
@@ -992,7 +1023,7 @@ export default function UcarerDepotReportPage() {
       const response = await adminApi.getProductFamilies();
       setFamilies(response.data || []);
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Aile listesi alinamadi');
+      toast.error(getApiErrorMessage(error, 'Aile listesi alinamadi'));
     } finally {
       setFamilyLoading(false);
     }
@@ -1090,7 +1121,7 @@ export default function UcarerDepotReportPage() {
       refreshOperationLogsIfOpen();
       closeFamilyEditModal();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Aile guncellenemedi');
+      toast.error(getApiErrorMessage(error, 'Aile guncellenemedi'));
     } finally {
       setFamilyEditSaving(false);
     }
@@ -1123,7 +1154,7 @@ export default function UcarerDepotReportPage() {
       });
       setOperationLogPage(page);
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Islem gecmisi getirilemedi');
+      toast.error(getApiErrorMessage(error, 'Islem gecmisi getirilemedi'));
       setOperationLogs([]);
     } finally {
       setOperationLogLoading(false);
@@ -1279,7 +1310,7 @@ export default function UcarerDepotReportPage() {
       await loadFamilies();
       await loadMinMaxExcludedCodes();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Ucarer depo raporu alinamadi');
+      toast.error(getApiErrorMessage(error, 'Ucarer depo raporu alinamadi'));
     } finally {
       setDepotLoading(false);
     }
@@ -1287,16 +1318,51 @@ export default function UcarerDepotReportPage() {
 
   const runMinMax = async () => {
     setMinMaxLoading(true);
+    setMinMaxJobStatusText('MinMax hesaplama baslatiliyor...');
     try {
       const response = await adminApi.runUcarerMinMaxReport();
-      const data = response.data;
+      const job = response.data;
+      if (!job?.id) {
+        throw new Error('MinMax job bilgisi alinamadi');
+      }
+
+      setMinMaxJobStatusText(job.status === 'RUNNING' ? 'MinMax hesaplama devam ediyor...' : '');
+      let data = job.data;
+
+      if (job.status === 'FAILED') {
+        throw new Error(job.error || 'MinMax hesaplama tamamlanamadi');
+      }
+
+      if (job.status !== 'COMPLETED') {
+        for (let attempt = 0; attempt < 240; attempt += 1) {
+          await wait(2500);
+          const statusResponse = await adminApi.getUcarerMinMaxJobStatus(job.id);
+          const statusJob = statusResponse.data;
+          if (statusJob.status === 'COMPLETED') {
+            data = statusJob.data;
+            break;
+          }
+          if (statusJob.status === 'FAILED') {
+            throw new Error(statusJob.error || 'MinMax hesaplama tamamlanamadi');
+          }
+          setMinMaxJobStatusText(`MinMax hesaplama devam ediyor... (${attempt + 1})`);
+        }
+      }
+
+      if (!data) {
+        throw new Error('MinMax hesaplama sonucu alinamadi');
+      }
+
       setMinMaxRows(data.rows || []);
       setMinMaxColumns(data.columns || []);
       setMinMaxTotal(Number(data.total || 0));
       toast.success('MinMax hesaplama tamamlandi');
+      setMinMaxJobStatusText('');
       refreshOperationLogsIfOpen();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'MinMax hesaplama calistirilamadi');
+      const message = getApiErrorMessage(error, 'MinMax hesaplama calistirilamadi');
+      setMinMaxJobStatusText(message);
+      toast.error(message);
     } finally {
       setMinMaxLoading(false);
     }
@@ -1477,7 +1543,7 @@ export default function UcarerDepotReportPage() {
       }
       refreshOperationLogsIfOpen();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Maliyet guncellenemedi');
+      toast.error(getApiErrorMessage(error, 'Maliyet guncellenemedi'));
     } finally {
       setUpdatingCostByCode((prev) => ({ ...prev, [code]: false }));
     }
@@ -1502,7 +1568,7 @@ export default function UcarerDepotReportPage() {
       toast.success('Ana saglayici guncellendi.');
       refreshOperationLogsIfOpen();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Ana saglayici guncellenemedi');
+      toast.error(getApiErrorMessage(error, 'Ana saglayici guncellenemedi'));
     } finally {
       setUpdatingSupplierByCode((prev) => ({ ...prev, [code]: false }));
     }
@@ -1527,7 +1593,7 @@ export default function UcarerDepotReportPage() {
       });
       refreshOperationLogsIfOpen();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'MinMax dislama islemi basarisiz');
+      toast.error(getApiErrorMessage(error, 'MinMax dislama islemi basarisiz'));
     } finally {
       setUpdatingMinMaxExclusionByCode((prev) => ({ ...prev, [code]: false }));
     }
@@ -1543,7 +1609,7 @@ export default function UcarerDepotReportPage() {
       setIncomingOrdersDetailRows(Array.isArray(response.data?.rows) ? response.data.rows : []);
     } catch (error: any) {
       setIncomingOrdersDetailRows([]);
-      toast.error(error?.response?.data?.error || 'Alinan siparis detaylari getirilemedi');
+      toast.error(getApiErrorMessage(error, 'Alinan siparis detaylari getirilemedi'));
     } finally {
       setIncomingOrdersLoading(false);
     }
@@ -1576,8 +1642,10 @@ export default function UcarerDepotReportPage() {
         averageUnitPrice: 0,
       });
       toast.error(
-        error?.response?.data?.error ||
-          (mode === 'recentCustomers' ? 'Son alis detaylari getirilemedi' : 'Son 3 ay satis detaylari getirilemedi')
+        getApiErrorMessage(
+          error,
+          mode === 'recentCustomers' ? 'Son alis detaylari getirilemedi' : 'Son 3 ay satis detaylari getirilemedi'
+        )
       );
     } finally {
       setSalesHistoryLoading(false);
@@ -1612,7 +1680,7 @@ export default function UcarerDepotReportPage() {
       await openSalesHistoryModal(productCode, 'minmax');
       refreshOperationLogsIfOpen();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Satir TOPLU yapilamadi');
+      toast.error(getApiErrorMessage(error, 'Satir TOPLU yapilamadi'));
     } finally {
       setMarkingTopluLineKey('');
     }
@@ -1984,7 +2052,7 @@ export default function UcarerDepotReportPage() {
         toast.error('Bazi satirlar icin satis kullanicisi bulunamadi; yonetici bildirimine dustu.');
       }
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Satis onayina gonderilemedi');
+      toast.error(getApiErrorMessage(error, 'Satis onayina gonderilemedi'));
     } finally {
       setSendingRedirectKey('');
     }
@@ -2307,7 +2375,7 @@ export default function UcarerDepotReportPage() {
       });
       refreshOperationLogsIfOpen();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Depolar arasi siparis olusturulamadi');
+      toast.error(getApiErrorMessage(error, 'Depolar arasi siparis olusturulamadi'));
     } finally {
       setCreatingTransferOrder(false);
     }
@@ -2378,7 +2446,7 @@ export default function UcarerDepotReportPage() {
       setSupplierOrderConfigs({});
       refreshOperationLogsIfOpen();
     } catch (error: any) {
-      toast.error(error?.response?.data?.error || 'Tedarikci siparisleri olusturulamadi');
+      toast.error(getApiErrorMessage(error, 'Tedarikci siparisleri olusturulamadi'));
     } finally {
       setCreatingOrders(false);
     }
@@ -3397,6 +3465,11 @@ export default function UcarerDepotReportPage() {
                 <span className="text-xs text-emerald-900">
                   Toplam: <strong>{minMaxTotal.toLocaleString('tr-TR')}</strong>
                 </span>
+                {minMaxJobStatusText && (
+                  <span className="text-xs font-medium text-emerald-800">
+                    {minMaxJobStatusText}
+                  </span>
+                )}
               </div>
               <Select value={suggestionMode} onChange={(e) => setSuggestionMode(e.target.value as SuggestionMode)} className="w-56">
                 <option value="INCLUDE_MINMAX">MinMax Dahil (4. Sorun)</option>

@@ -3142,8 +3142,34 @@ export const adminApi = {
     return response.data;
   },
 
-  runUcarerMinMaxReport: async (): Promise<{ success: boolean; data: { rows: any[]; columns: string[]; total: number } }> => {
+  runUcarerMinMaxReport: async (): Promise<{
+    success: boolean;
+    data: {
+      id: string;
+      status: 'RUNNING' | 'COMPLETED' | 'FAILED';
+      startedAt: string;
+      finishedAt?: string | null;
+      data?: { rows: any[]; columns: string[]; total: number } | null;
+      error?: string | null;
+    };
+  }> => {
     const response = await apiClient.post('/admin/reports/ucarer-minmax/run');
+    return response.data;
+  },
+  getUcarerMinMaxJobStatus: async (jobId: string): Promise<{
+    success: boolean;
+    data: {
+      id: string;
+      status: 'RUNNING' | 'COMPLETED' | 'FAILED';
+      startedAt: string;
+      finishedAt?: string | null;
+      data?: { rows: any[]; columns: string[]; total: number } | null;
+      error?: string | null;
+    };
+  }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('jobId', jobId);
+    const response = await apiClient.get(`/admin/reports/ucarer-minmax/status?${queryParams.toString()}`);
     return response.data;
   },
   getUcarerMinMaxExcludedProductsReport: async (): Promise<{

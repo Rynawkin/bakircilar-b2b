@@ -594,6 +594,7 @@ router.get('/reports/ucarer-product-sales-history', requirePermission('reports:u
 router.post('/reports/ucarer-product-sales-history/mark-toplu', requirePermission('reports:ucarer-depo'), adminController.markUcarerSalesLineAsToplu);
 router.get('/reports/ucarer-product-purchase-history', requirePermission('reports:ucarer-depo'), adminController.getUcarerProductPurchaseHistory);
 router.post('/reports/ucarer-minmax/run', requirePermission('reports:ucarer-minmax'), adminController.runUcarerMinMaxReport);
+router.get('/reports/ucarer-minmax/status', requirePermission('reports:ucarer-minmax'), adminController.getUcarerMinMaxJobStatus);
 router.get('/reports/ucarer-minmax-excluded', requirePermission('reports:ucarer-depo'), adminController.getUcarerMinMaxExcludedProductsReport);
 router.post('/reports/ucarer-minmax-exclusion', requirePermission('reports:ucarer-depo'), adminController.setUcarerMinMaxExclusion);
 router.get('/reports/product-families', requirePermission('reports:ucarer-depo'), adminController.getProductFamilies);

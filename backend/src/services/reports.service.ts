@@ -54,6 +54,22 @@ interface CostUpdateAlertResponse {
   };
 }
 
+type UcarerMinMaxJobStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
+
+interface UcarerMinMaxJobState {
+  id: string;
+  status: UcarerMinMaxJobStatus;
+  startedAt: string;
+  finishedAt?: string | null;
+  requestedById?: string | null;
+  data?: {
+    rows: Record<string, any>[];
+    columns: string[];
+    total: number;
+  } | null;
+  error?: string | null;
+}
+
 // Margin Compliance types
 interface MarginComplianceAlert {
   productCode: string;
@@ -1715,6 +1731,30 @@ const buildMarginComplianceSummary = (
 };
 
 export class ReportsService {
+  private ucarerMinMaxJob: UcarerMinMaxJobState | null = null;
+
+  private normalizeMikroErrorMessage(error: any, fallback: string): string {
+    const rawMessage = String(error?.message || '').trim();
+    const code = String(error?.code || '').trim();
+    const message = rawMessage || (typeof error === 'string' ? error : '');
+    const lower = message.toLowerCase();
+
+    if (
+      lower.includes('timeout') ||
+      lower.includes('timed out') ||
+      lower.includes('failed to cancel') ||
+      code.toUpperCase().includes('ETIME')
+    ) {
+      return fallback;
+    }
+
+    if (message) {
+      return message;
+    }
+
+    return fallback;
+  }
+
   private async resolveUcarerOperationUser(userId?: string | null): Promise<{ userId: string | null; userName: string | null }> {
     const normalizedUserId = String(userId || '').trim();
     if (!normalizedUserId) {
@@ -6877,7 +6917,11 @@ export class ReportsService {
     columns: string[];
     total: number;
   }> {
-    const rows = await mikroService.executeQuery('exec [FEBG_MinMaxHesaplaRES]');
+    await mikroService.connect();
+    const request = mikroService.pool!.request();
+    (request as any).timeout = Number(process.env.UCARER_MINMAX_TIMEOUT_MS || 300000);
+    const queryResult = await request.query('exec [FEBG_MinMaxHesaplaRES]');
+    const rows = queryResult.recordset;
     const normalizedRows = Array.isArray(rows) ? rows : [];
     const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0] || {}) : [];
 
@@ -6898,6 +6942,56 @@ export class ReportsService {
     });
 
     return result;
+  }
+
+  async startUcarerMinMaxJob(options: { userId?: string | null } = {}): Promise<UcarerMinMaxJobState> {
+    if (this.ucarerMinMaxJob?.status === 'RUNNING') {
+      return this.ucarerMinMaxJob;
+    }
+
+    const job: UcarerMinMaxJobState = {
+      id: randomUUID(),
+      status: 'RUNNING',
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      requestedById: options.userId || null,
+      data: null,
+      error: null,
+    };
+    this.ucarerMinMaxJob = job;
+
+    this.runUcarerMinMaxReport({ userId: options.userId || null })
+      .then((data) => {
+        this.ucarerMinMaxJob = {
+          ...job,
+          status: 'COMPLETED',
+          finishedAt: new Date().toISOString(),
+          data,
+          error: null,
+        };
+      })
+      .catch((error) => {
+        console.error('Ucarer MinMax background job failed:', error);
+        this.ucarerMinMaxJob = {
+          ...job,
+          status: 'FAILED',
+          finishedAt: new Date().toISOString(),
+          data: null,
+          error: this.normalizeMikroErrorMessage(error, 'MinMax hesaplama tamamlanamadi. Mikro baglantisi zaman asimina ugradi.'),
+        };
+      });
+
+    return job;
+  }
+
+  getUcarerMinMaxJobStatus(jobId?: string | null): UcarerMinMaxJobState | null {
+    if (!this.ucarerMinMaxJob) {
+      return null;
+    }
+    if (jobId && this.ucarerMinMaxJob.id !== jobId) {
+      return null;
+    }
+    return this.ucarerMinMaxJob;
   }
 
   async setUcarerMinMaxExclusion(input: {
@@ -7139,16 +7233,17 @@ export class ReportsService {
     total: number;
   }> {
     const rows = await mikroService.executeQuery(`
-      SELECT
-        s.sto_kod AS productCode,
-        LTRIM(RTRIM(ISNULL(s.sto_isim, ''))) AS productName,
-        LTRIM(RTRIM(ISNULL(s.sto_model_kodu, ''))) AS stoModelKodu,
-        ISNULL(x.distinctCustomersLast1Month, 0) AS distinctCustomersLast1Month,
-        ISNULL(x.distinctCustomersLast2Months, 0) AS distinctCustomersLast2Months,
-        ISNULL(x.distinctCustomersLast3Months, 0) AS distinctCustomersLast3Months
-      FROM STOKLAR s
-      OUTER APPLY (
+      WITH ExcludedProducts AS (
         SELECT
+          s.sto_kod AS productCode,
+          LTRIM(RTRIM(ISNULL(s.sto_isim, ''))) AS productName,
+          LTRIM(RTRIM(ISNULL(s.sto_model_kodu, ''))) AS stoModelKodu
+        FROM STOKLAR s
+        WHERE UPPER(LTRIM(RTRIM(ISNULL(s.sto_model_kodu, '')))) = 'HAYIR'
+      ),
+      SalesAgg AS (
+        SELECT
+          sth.sth_stok_kod AS productCode,
           COUNT(DISTINCT CASE
             WHEN sth.sth_tarih >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
             THEN LTRIM(RTRIM(ISNULL(sth.sth_cari_kodu, '')))
@@ -7165,17 +7260,28 @@ export class ReportsService {
             ELSE NULL
           END) AS distinctCustomersLast3Months
         FROM STOK_HAREKETLERI sth
-        WHERE sth.sth_stok_kod = s.sto_kod
-          AND sth.sth_cins = 0
+        INNER JOIN ExcludedProducts ep
+          ON ep.productCode = sth.sth_stok_kod
+        WHERE sth.sth_cins = 0
           AND sth.sth_tip = 1
           AND LTRIM(RTRIM(ISNULL(sth.sth_cari_kodu, ''))) <> ''
           AND sth.sth_tarih >= DATEADD(MONTH, -3, CAST(GETDATE() AS date))
-      ) x
-      WHERE UPPER(LTRIM(RTRIM(ISNULL(s.sto_model_kodu, '')))) = 'HAYIR'
+        GROUP BY sth.sth_stok_kod
+      )
+      SELECT
+        ep.productCode,
+        ep.productName,
+        ep.stoModelKodu,
+        ISNULL(x.distinctCustomersLast1Month, 0) AS distinctCustomersLast1Month,
+        ISNULL(x.distinctCustomersLast2Months, 0) AS distinctCustomersLast2Months,
+        ISNULL(x.distinctCustomersLast3Months, 0) AS distinctCustomersLast3Months
+      FROM ExcludedProducts ep
+      LEFT JOIN SalesAgg x
+        ON x.productCode = ep.productCode
       ORDER BY
         ISNULL(x.distinctCustomersLast2Months, 0) DESC,
         ISNULL(x.distinctCustomersLast1Month, 0) DESC,
-        s.sto_kod ASC
+        ep.productCode ASC
     `);
 
     const normalizedRows = (Array.isArray(rows) ? rows : []).map((row: any) => {

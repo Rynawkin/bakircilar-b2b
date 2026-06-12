@@ -4545,9 +4545,29 @@ export class AdminController {
    */
   async runUcarerMinMaxReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await reportsService.runUcarerMinMaxReport({
+      const data = await reportsService.startUcarerMinMaxJob({
         userId: req.user?.userId || null,
       });
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/admin/reports/ucarer-minmax/status
+   */
+  async getUcarerMinMaxJobStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const jobId = typeof req.query.jobId === 'string' ? req.query.jobId : null;
+      const data = reportsService.getUcarerMinMaxJobStatus(jobId);
+      if (!data) {
+        return res.status(404).json({ error: 'MinMax hesaplama isi bulunamadi' });
+      }
 
       res.json({
         success: true,
