@@ -5,6 +5,93 @@ import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
 import { Button } from '@/components/ui/Button';
 
+const EKSTRE_PDF_FONT_NAME = 'NotoSansEkstre';
+const EKSTRE_PDF_FONT_FILE = 'noto-sans-v27-latin-regular.ttf';
+let cachedEkstrePdfFontBase64: string | null = null;
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...Array.from(chunk));
+  }
+
+  return btoa(binary);
+};
+
+const loadEkstrePdfFontBase64 = async (): Promise<string> => {
+  if (cachedEkstrePdfFontBase64) return cachedEkstrePdfFontBase64;
+
+  const response = await fetch(`/fonts/${EKSTRE_PDF_FONT_FILE}`);
+  if (!response.ok) {
+    throw new Error(`PDF fontu yuklenemedi: ${response.status}`);
+  }
+
+  cachedEkstrePdfFontBase64 = arrayBufferToBase64(await response.arrayBuffer());
+  return cachedEkstrePdfFontBase64;
+};
+
+const registerEkstrePdfFont = async (doc: any): Promise<string> => {
+  try {
+    const fontBase64 = await loadEkstrePdfFontBase64();
+    doc.addFileToVFS(EKSTRE_PDF_FONT_FILE, fontBase64);
+    doc.addFont(EKSTRE_PDF_FONT_FILE, EKSTRE_PDF_FONT_NAME, 'normal');
+    doc.addFont(EKSTRE_PDF_FONT_FILE, EKSTRE_PDF_FONT_NAME, 'bold');
+    doc.setFont(EKSTRE_PDF_FONT_NAME, 'normal');
+    return EKSTRE_PDF_FONT_NAME;
+  } catch (error) {
+    console.warn('Ekstre PDF fontu yuklenemedi, varsayilan font kullanilacak:', error);
+    doc.setFont('helvetica', 'normal');
+    return 'helvetica';
+  }
+};
+
+const normalizeTurkishText = (value: any): string => {
+  let text = String(value ?? '');
+
+  const replacements: Array<[string, string]> = [
+    ['Ã„Â°', 'İ'],
+    ['Ã„Â±', 'ı'],
+    ['Ã…Â', 'Ş'],
+    ['Ã…Å¸', 'ş'],
+    ['Ã…ÂŸ', 'ş'],
+    ['Ã„Â', 'Ğ'],
+    ['Ã„Å¸', 'ğ'],
+    ['ÃƒÅ“', 'Ü'],
+    ['ÃƒÂœ', 'Ü'],
+    ['ÃƒÂ¼', 'ü'],
+    ['Ãƒâ€“', 'Ö'],
+    ['ÃƒÂ–', 'Ö'],
+    ['ÃƒÂ¶', 'ö'],
+    ['Ãƒâ€¡', 'Ç'],
+    ['ÃƒÂ‡', 'Ç'],
+    ['ÃƒÂ§', 'ç'],
+    ['Ä°', 'İ'],
+    ['Ä±', 'ı'],
+    ['Å', 'Ş'],
+    ['Åž', 'Ş'],
+    ['ÅŸ', 'ş'],
+    ['Ä', 'Ğ'],
+    ['Äž', 'Ğ'],
+    ['ÄŸ', 'ğ'],
+    ['Ãœ', 'Ü'],
+    ['Ã¼', 'ü'],
+    ['Ã–', 'Ö'],
+    ['Ã¶', 'ö'],
+    ['Ã‡', 'Ç'],
+    ['Ã§', 'ç'],
+  ];
+
+  for (const [broken, fixed] of replacements) {
+    text = text.split(broken).join(fixed);
+  }
+
+  return text;
+};
+
 interface EkstreModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -32,8 +119,15 @@ interface EkstreHareket {
 }
 
 const normalizeColumnKey = (value: any): string => {
-  return String(value ?? '')
+  return normalizeTurkishText(value)
     .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/i̇/g, 'i')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
     .replace(/ı/g, 'i')
     .replace(/İ/g, 'i')
     .replace(/ş/g, 's')
@@ -134,7 +228,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
     if (typeof value === 'number') {
       return value.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
     }
-    return String(value);
+    return normalizeTurkishText(value);
   };
 
   const formatAmount = (value: any) => {
@@ -194,7 +288,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       setCariList(rows.map(mapCariRow));
     } catch (error: any) {
       console.error('Cari arama hatasi:', error);
-      toast.error('Cari aramasi yapilirken bir hata olustu');
+      toast.error('Cari araması yapılırken bir hata oluştu');
     } finally {
       setLoading(false);
     }
@@ -222,19 +316,19 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const openingTotals = normalizeOpening(response.opening);
 
       if (hareketler.length === 0 && openingTotals.borc === 0 && openingTotals.alacak === 0) {
-        toast.error('Bu cari icin hareket bulunamadi');
+        toast.error('Bu cari için hareket bulunamadı');
         return;
       }
 
-      const headers = ['Seri', 'Sira', 'Tarih', 'Belge No', 'Evrak Tipi', 'Odeme Tipi', 'Hareket Tipi', 'Tutar'];
+      const headers = ['Seri', 'Sıra', 'Tarih', 'Belge No', 'Evrak Tipi', 'Ödeme Tipi', 'Hareket Tipi', 'Tutar'];
 
       const exportRows = hareketler.map((row) => ({
         Seri: row.seri || '-',
-        Sira: row.sira || '-',
+        Sıra: row.sira || '-',
         Tarih: formatDateTr(row.tarih),
         'Belge No': row.belgeNo || '-',
         'Evrak Tipi': row.evrakTipi || '-',
-        'Odeme Tipi': row.odemeTipi || '-',
+        'Ödeme Tipi': row.odemeTipi || '-',
         'Hareket Tipi': row.hareketTipi || '-',
         Tutar: row.tutar,
       }));
@@ -251,17 +345,17 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         worksheet,
         [
           {},
-          { Seri: 'DEVIR BORC', Tutar: openingTotals.borc },
-          { Seri: 'DEVIR ALACAK', Tutar: openingTotals.alacak },
-          { Seri: 'DEVIR BAKIYE', Tutar: openingTotals.bakiye },
+          { Seri: 'DEVİR BORÇ', Tutar: openingTotals.borc },
+          { Seri: 'DEVİR ALACAK', Tutar: openingTotals.alacak },
+          { Seri: 'DEVİR BAKİYE', Tutar: openingTotals.bakiye },
           {},
-          { Seri: 'DONEM BORC', Tutar: periodTotals.borc },
-          { Seri: 'DONEM ALACAK', Tutar: periodTotals.alacak },
-          { Seri: 'DONEM BAKIYE', Tutar: periodTotals.bakiye },
+          { Seri: 'DÖNEM BORÇ', Tutar: periodTotals.borc },
+          { Seri: 'DÖNEM ALACAK', Tutar: periodTotals.alacak },
+          { Seri: 'DÖNEM BAKİYE', Tutar: periodTotals.bakiye },
           {},
-          { Seri: 'TOPLAM BORC', Tutar: totals.borc },
+          { Seri: 'TOPLAM BORÇ', Tutar: totals.borc },
           { Seri: 'TOPLAM ALACAK', Tutar: totals.alacak },
-          { Seri: 'GENEL BAKIYE', Tutar: totals.bakiye },
+          { Seri: 'GENEL BAKİYE', Tutar: totals.bakiye },
         ],
         { header: headers, skipHeader: true, origin: -1 }
       );
@@ -269,13 +363,13 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Cari Ekstre');
 
-      const fileName = `${selectedCari.cariCode || 'Cari'}_${selectedCari.cariName || 'Isimsiz'}_${startDate}_${endDate}_Ekstre.xlsx`;
+      const fileName = `${normalizeTurkishText(selectedCari.cariCode || 'Cari')}_${normalizeTurkishText(selectedCari.cariName || 'İsimsiz')}_${startDate}_${endDate}_Ekstre.xlsx`;
       XLSX.writeFile(workbook, fileName);
 
-      toast.success('Excel dosyasi basariyla indirildi');
+      toast.success('Excel dosyası başarıyla indirildi');
     } catch (error: any) {
       console.error('Excel export hatasi:', error);
-      toast.error('Excel dosyasi olusturulurken bir hata olustu');
+      toast.error('Excel dosyası oluşturulurken bir hata oluştu');
     } finally {
       setExportingExcel(false);
     }
@@ -304,7 +398,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
       const openingTotals = normalizeOpening(response.opening);
 
       if (hareketler.length === 0 && openingTotals.borc === 0 && openingTotals.alacak === 0) {
-        toast.error('Bu cari icin hareket bulunamadi');
+        toast.error('Bu cari için hareket bulunamadı');
         return;
       }
 
@@ -320,12 +414,13 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         unit: 'mm',
         format: 'a4',
       });
+      const pdfFont = await registerEkstrePdfFont(doc);
 
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
 
       const cleanText = (text: string) =>
-        String(text || '')
+        normalizeTurkishText(text || '')
           .replace(/Ä°/g, 'I')
           .replace(/Ä±/g, 'i')
           .replace(/Å/g, 'S')
@@ -339,13 +434,15 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
           .replace(/Ã‡/g, 'C')
           .replace(/Ã§/g, 'c');
 
+      doc.setFont(pdfFont, 'bold');
       doc.setFontSize(16);
-      doc.text('CARI HESAP EKSTRESI', pageWidth / 2, 15, { align: 'center' });
+      doc.text('CARİ HESAP EKSTRESİ', pageWidth / 2, 15, { align: 'center' });
 
+      doc.setFont(pdfFont, 'normal');
       doc.setFontSize(10);
       doc.text(`Cari Kodu: ${selectedCari.cariCode}`, 14, 25);
-      doc.text(`Cari Adi: ${cleanText(selectedCari.cariName || '')}`, 14, 30);
-      doc.text(`Donem: ${startDate} - ${endDate}`, 14, 35);
+      doc.text(`Cari Adı: ${cleanText(selectedCari.cariName || '')}`, 14, 30);
+      doc.text(`Dönem: ${startDate} - ${endDate}`, 14, 35);
 
       const tableData = hareketler.length > 0
         ? hareketler.map((row) => [
@@ -362,14 +459,14 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
 
       autoTable(doc, {
         startY: 42,
-        head: [['Seri', 'Sira', 'Tarih', 'Belge No', 'Evrak Tipi', 'Odeme Tipi', 'Hareket Tipi', 'Tutar']],
+        head: [['Seri', 'Sıra', 'Tarih', 'Belge No', 'Evrak Tipi', 'Ödeme Tipi', 'Hareket Tipi', 'Tutar']],
         body: tableData,
         styles: {
           fontSize: 9,
           cellPadding: 3,
           overflow: 'linebreak',
           halign: 'left',
-          font: 'helvetica',
+          font: pdfFont,
         },
         headStyles: {
           fillColor: [66, 139, 202],
@@ -403,37 +500,39 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
         summaryY = 18;
       }
 
+      doc.setFont(pdfFont, 'normal');
       doc.setFontSize(10);
-      doc.text(`Devir Borc: ${formatAmount(openingTotals.borc)} TL`, 14, summaryY);
+      doc.text(`Devir Borç: ${formatAmount(openingTotals.borc)} TL`, 14, summaryY);
       doc.text(`Devir Alacak: ${formatAmount(openingTotals.alacak)} TL`, 14, summaryY + 6);
       doc.text(`Devir Bakiye: ${formatAmount(openingTotals.bakiye)} TL`, 14, summaryY + 12);
 
       const totalsY = summaryY + 20;
-      doc.text(`Donem Borc: ${formatAmount(periodTotals.borc)} TL`, 14, totalsY);
-      doc.text(`Donem Alacak: ${formatAmount(periodTotals.alacak)} TL`, 14, totalsY + 6);
-      doc.text(`Donem Bakiye: ${formatAmount(periodTotals.bakiye)} TL`, 14, totalsY + 12);
+      doc.text(`Dönem Borç: ${formatAmount(periodTotals.borc)} TL`, 14, totalsY);
+      doc.text(`Dönem Alacak: ${formatAmount(periodTotals.alacak)} TL`, 14, totalsY + 6);
+      doc.text(`Dönem Bakiye: ${formatAmount(periodTotals.bakiye)} TL`, 14, totalsY + 12);
 
       const grandY = totalsY + 20;
-      doc.text(`Toplam Borc: ${formatAmount(totals.borc)} TL`, 14, grandY);
+      doc.text(`Toplam Borç: ${formatAmount(totals.borc)} TL`, 14, grandY);
       doc.text(`Toplam Alacak: ${formatAmount(totals.alacak)} TL`, 14, grandY + 6);
       doc.text(`Genel Bakiye: ${formatAmount(totals.bakiye)} TL`, 14, grandY + 12);
 
       const pageCount = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
+        doc.setFont(pdfFont, 'normal');
         doc.setFontSize(8);
         doc.text(`Sayfa ${i} / ${pageCount}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 10, {
           align: 'center',
         });
       }
 
-      const fileName = `${selectedCari.cariCode || 'Cari'}_${selectedCari.cariName || 'Isimsiz'}_${startDate}_${endDate}_Ekstre.pdf`;
+      const fileName = `${normalizeTurkishText(selectedCari.cariCode || 'Cari')}_${normalizeTurkishText(selectedCari.cariName || 'İsimsiz')}_${startDate}_${endDate}_Ekstre.pdf`;
       doc.save(fileName);
 
-      toast.success('PDF dosyasi basariyla indirildi');
+      toast.success('PDF dosyası başarıyla indirildi');
     } catch (error: any) {
       console.error('PDF export hatasi:', error);
-      toast.error('PDF dosyasi olusturulurken bir hata olustu');
+      toast.error('PDF dosyası oluşturulurken bir hata oluştu');
     } finally {
       setExportingPDF(false);
     }
@@ -457,18 +556,18 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
           {!selectedCari ? (
             <>
               <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Cari Adi veya Kodu ile Ara</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cari Adı veya Kodu ile Ara</label>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="Arama yapmak icin yazin..."
+                    placeholder="Arama yapmak için yazın..."
                     className="w-full sm:flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                   <Button onClick={handleSearch} disabled={loading} className="w-full sm:w-auto whitespace-nowrap">
-                    {loading ? 'Araniyor...' : 'Ara'}
+                    {loading ? 'Aranıyor...' : 'Ara'}
                   </Button>
                 </div>
               </div>
@@ -479,8 +578,8 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Cari Kodu</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Cari Adi</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Sektor</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Cari Adı</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Sektör</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase">Grup</th>
                         <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase">Bakiye</th>
                         <th className="px-4 py-3"></th>
@@ -499,7 +598,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
                               onClick={() => handleCariSelect(cari)}
                               className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                             >
-                              Sec -&gt;
+                              Seç -&gt;
                             </button>
                           </td>
                         </tr>
@@ -512,19 +611,19 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
           ) : (
             <>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <h3 className="font-semibold text-lg text-blue-900 mb-2">Secili Cari</h3>
+                <h3 className="font-semibold text-lg text-blue-900 mb-2">Seçili Cari</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-blue-700 font-medium">Cari Kodu:</span>
-                    <span className="ml-2 text-blue-900">{selectedCari.cariCode || '-'}</span>
+                    <span className="ml-2 text-blue-900">{formatValue(selectedCari.cariCode) || '-'}</span>
                   </div>
                   <div>
-                    <span className="text-blue-700 font-medium">Cari Adi:</span>
-                    <span className="ml-2 text-blue-900">{selectedCari.cariName || '-'}</span>
+                    <span className="text-blue-700 font-medium">Cari Adı:</span>
+                    <span className="ml-2 text-blue-900">{formatValue(selectedCari.cariName) || '-'}</span>
                   </div>
                   <div>
-                    <span className="text-blue-700 font-medium">Sektor:</span>
-                    <span className="ml-2 text-blue-900">{selectedCari.sectorCode || '-'}</span>
+                    <span className="text-blue-700 font-medium">Sektör:</span>
+                    <span className="ml-2 text-blue-900">{formatValue(selectedCari.sectorCode) || '-'}</span>
                   </div>
                   <div>
                     <span className="text-blue-700 font-medium">Bakiye:</span>
@@ -535,15 +634,15 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
                   onClick={() => setSelectedCari(null)}
                   className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium"
                 >
-                  &lt;- Farkli Cari Sec
+                  &lt;- Farklı Cari Seç
                 </button>
               </div>
 
               <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <h3 className="font-semibold text-lg text-gray-900 mb-4">Tarih Araligi</h3>
+                <h3 className="font-semibold text-lg text-gray-900 mb-4">Tarih Aralığı</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Baslangic Tarihi</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Başlangıç Tarihi</label>
                     <input
                       type="date"
                       value={startDate}
@@ -552,7 +651,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Bitis Tarihi</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Bitiş Tarihi</label>
                     <input
                       type="date"
                       value={endDate}
@@ -564,8 +663,8 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
               </div>
 
               <div className="space-y-4">
-                <h3 className="font-semibold text-lg text-gray-900">Ekstre Formati Secin</h3>
-                <p className="text-sm text-gray-600">Secilen tarih araligi icin tum hareketler indirilecektir.</p>
+                <h3 className="font-semibold text-lg text-gray-900">Ekstre Formatı Seçin</h3>
+                <p className="text-sm text-gray-600">Seçilen tarih aralığı için tüm hareketler indirilecektir.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button
                     onClick={exportToExcel}
@@ -577,7 +676,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
                     </svg>
                     <div className="text-left">
                       <div className="font-bold text-green-900">Excel</div>
-                      <div className="text-sm text-green-700">{exportingExcel ? 'Indiriliyor...' : '.xlsx dosyasi'}</div>
+                      <div className="text-sm text-green-700">{exportingExcel ? 'İndiriliyor...' : '.xlsx dosyası'}</div>
                     </div>
                   </button>
 
@@ -591,7 +690,7 @@ export function EkstreModal({ isOpen, onClose }: EkstreModalProps) {
                     </svg>
                     <div className="text-left">
                       <div className="font-bold text-red-900">PDF</div>
-                      <div className="text-sm text-red-700">{exportingPDF ? 'Indiriliyor...' : '.pdf dosyasi'}</div>
+                      <div className="text-sm text-red-700">{exportingPDF ? 'İndiriliyor...' : '.pdf dosyası'}</div>
                     </div>
                   </button>
                 </div>
