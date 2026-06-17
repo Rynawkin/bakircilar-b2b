@@ -504,7 +504,10 @@ export default function UcarerDepotReportPage() {
     });
   }, [visibleDepotColumns]);
   const realQtyColumn = useMemo(() => {
-    return visibleDepotColumns.find((column) => normalizeKey(column).includes('reel miktar'));
+    return visibleDepotColumns.find((column) => {
+      const n = normalizeKey(column);
+      return n.includes('reel miktar') || n.includes('satinalma siparisi sonrasi');
+    });
   }, [visibleDepotColumns]);
   const minQtyColumn = useMemo(() => {
     return visibleDepotColumns.find((column) => normalizeKey(column).includes('minimum miktar'));
@@ -572,52 +575,64 @@ export default function UcarerDepotReportPage() {
       const visibleItems = getVisibleFamilyItems(family);
       const familyCoverage = getFamilyCoverage(family);
       const familyCovered = isFamilyCoveredByMinimum(familyCoverage);
-      const itemSignals: Array<{ code: string; raw: number; orderDriven: number; incomingOrders: number }> = [];
+      const itemSignals: Array<{
+        code: string;
+        raw: number;
+        naturalRaw: number;
+        shortage: number;
+        excess: number;
+        incomingOrders: number;
+      }> = [];
       visibleItems.forEach((item) => {
         const code = String(item.productCode || '').trim().toUpperCase();
         const row = rowByProductCode.get(code);
         if (!row) return;
-        const raw = familyCovered ? 0 : getRawSuggestedQty(row);
+        const naturalRaw = getRawSuggestedQty(row);
+        const raw = familyCovered ? 0 : naturalRaw;
         rawNeed += raw;
-        const orderDriven = thirdIssueColumn ? Math.max(0, toNumberFlexible(row?.[thirdIssueColumn])) : 0;
         const incomingOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row?.[incomingOrderColumn])) : 0;
-        itemSignals.push({ code, raw, orderDriven, incomingOrders });
+        itemSignals.push({
+          code,
+          raw,
+          naturalRaw,
+          shortage: getFamilyItemShortage(row),
+          excess: getFamilyItemExcess(row),
+          incomingOrders,
+        });
       });
       const redirectSuggestions: FamilyRedirectSuggestion[] = [];
-      if (!familyCovered && Math.trunc(rawNeed) < 0) {
-        const sources = itemSignals
-          .filter((item) => item.raw > 0)
-          .sort((a, b) => (b.orderDriven - a.orderDriven) || (b.raw - a.raw))
-          .slice(0, 3);
-        const targets = itemSignals
-          .filter((item) => item.raw < 0)
-          .sort((a, b) => a.raw - b.raw);
-        sources.forEach((source, idx) => {
-          const target = targets[idx] || targets[0];
-          if (!target) return;
-          const sourceName = String(rowByProductCode.get(source.code)?.[productNameColumn || ''] || '').trim() || source.code;
-          const targetName = String(rowByProductCode.get(target.code)?.[productNameColumn || ''] || '').trim() || target.code;
-          if (source.incomingOrders > 0) {
-            redirectSuggestions.push({
-              type: 'ORDER',
-              text: `Siparis yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`,
-              sourceCode: source.code,
-              sourceName,
-              targetCode: target.code,
-              targetName,
-            });
-          } else {
-            redirectSuggestions.push({
-              type: 'DEPOT',
-              text: `Depo yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici fazla stok olan ${target.code} - ${targetName} urunune yonlendirilebilir.`,
-              sourceCode: source.code,
-              sourceName,
-              targetCode: target.code,
-              targetName,
-            });
-          }
-        });
-      }
+      const sources = itemSignals
+        .filter((item) => item.naturalRaw > 0 || item.shortage > 0)
+        .sort((a, b) => (b.incomingOrders - a.incomingOrders) || (b.naturalRaw - a.naturalRaw) || (b.shortage - a.shortage))
+        .slice(0, 3);
+      const targets = itemSignals
+        .filter((item) => item.excess > 0)
+        .sort((a, b) => b.excess - a.excess);
+      sources.forEach((source) => {
+        const target = targets.find((item) => item.code !== source.code);
+        if (!target) return;
+        const sourceName = String(rowByProductCode.get(source.code)?.[productNameColumn || ''] || '').trim() || source.code;
+        const targetName = String(rowByProductCode.get(target.code)?.[productNameColumn || ''] || '').trim() || target.code;
+        if (source.incomingOrders > 0) {
+          redirectSuggestions.push({
+            type: 'ORDER',
+            text: `Siparis yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici minimum altina dusmeyen ${target.code} - ${targetName} urunune yonlendirilebilir.`,
+            sourceCode: source.code,
+            sourceName,
+            targetCode: target.code,
+            targetName,
+          });
+        } else if (!familyCovered) {
+          redirectSuggestions.push({
+            type: 'DEPOT',
+            text: `Depo yonlendirme onerisi: ${source.code} - ${sourceName} ihtiyaci, aile ici minimum altina dusmeyen ${target.code} - ${targetName} urunune yonlendirilebilir.`,
+            sourceCode: source.code,
+            sourceName,
+            targetCode: target.code,
+            targetName,
+          });
+        }
+      });
       redirectSuggestions.sort((a, b) => {
         const rank = (item: { type: 'ORDER' | 'DEPOT' }) => (item.type === 'ORDER' ? 0 : 1);
         return rank(a) - rank(b);
@@ -635,7 +650,7 @@ export default function UcarerDepotReportPage() {
         redirectSuggestions,
       };
     });
-  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn, incomingOrderColumn, productNameColumn]);
+  }, [families, rowByProductCode, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn, productNameColumn]);
   const getDepotColumnWidth = (column: string) => depotColumnWidths[column] || defaultColumnWidth;
   const getMinMaxColumnWidth = (column: string) => minMaxColumnWidths[column] || defaultColumnWidth;
   function getRawSuggestedQty(row: Record<string, any>): number {
@@ -643,9 +658,9 @@ export default function UcarerDepotReportPage() {
     if (!sourceColumn) return 0;
     const base = toNumberFlexible(row[sourceColumn]);
     const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
-    const minQty = minQtyColumn ? Math.max(0, toNumberFlexible(row[minQtyColumn])) : 0;
-    const realQty = realQtyColumn ? toNumberFlexible(row[realQtyColumn]) : 0;
-    if (realQty + incomingDsv >= minQty && minQty > 0) return 0;
+    const minQty = getFamilyItemMinimum(row);
+    const netQty = getFamilyItemNetQuantity(row);
+    if (netQty + incomingDsv >= minQty && minQty > 0) return 0;
     return base - incomingDsv;
   }
   function getSuggestedQty(row: Record<string, any>): number {
@@ -654,6 +669,31 @@ export default function UcarerDepotReportPage() {
   function isPriceListUpdateChecked(code: string): boolean {
     return updatePriceListsByCode[String(code || '').trim().toUpperCase()] !== false;
   }
+  function getFamilyItemMinimum(row: Record<string, any>): number {
+    return minQtyColumn ? Math.max(0, toNumberFlexible(row[minQtyColumn])) : 0;
+  }
+  function getFamilyItemNetQuantity(row: Record<string, any>): number {
+    const directColumn = realQtyColumn || thirdIssueColumn;
+    if (directColumn) {
+      const directValue = toNumberFlexible(row[directColumn]);
+      if (Number.isFinite(directValue)) return directValue;
+    }
+
+    const depotQty = depotQtyColumn ? toNumberFlexible(row[depotQtyColumn]) : 0;
+    const incomingCustomerOrders = incomingOrderColumn ? Math.max(0, toNumberFlexible(row[incomingOrderColumn])) : 0;
+    const outgoingSupplierOrders = outgoingOrderColumn ? Math.max(0, toNumberFlexible(row[outgoingOrderColumn])) : 0;
+    return depotQty + outgoingSupplierOrders - incomingCustomerOrders;
+  }
+  function getFamilyItemEffectiveQuantity(row: Record<string, any>): number {
+    const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
+    return getFamilyItemNetQuantity(row) + incomingDsv;
+  }
+  function getFamilyItemShortage(row: Record<string, any>): number {
+    return Math.max(0, getFamilyItemMinimum(row) - getFamilyItemEffectiveQuantity(row));
+  }
+  function getFamilyItemExcess(row: Record<string, any>): number {
+    return Math.max(0, getFamilyItemEffectiveQuantity(row) - getFamilyItemMinimum(row));
+  }
   function getFamilyCoverage(family: ProductFamily): { minimum: number; effective: number } {
     let minimum = 0;
     let effective = 0;
@@ -661,11 +701,8 @@ export default function UcarerDepotReportPage() {
       const code = String(item.productCode || '').trim().toUpperCase();
       const row = rowByProductCode.get(code);
       if (!row) return;
-      const minQty = minQtyColumn ? Math.max(0, toNumberFlexible(row[minQtyColumn])) : 0;
-      const realQty = realQtyColumn ? toNumberFlexible(row[realQtyColumn]) : 0;
-      const incomingDsv = incomingDsvColumn ? Math.max(0, toNumberFlexible(row[incomingDsvColumn])) : 0;
-      minimum += minQty;
-      effective += realQty + incomingDsv;
+      minimum += getFamilyItemMinimum(row);
+      effective += getFamilyItemEffectiveQuantity(row);
     });
     return { minimum, effective };
   }
@@ -674,7 +711,7 @@ export default function UcarerDepotReportPage() {
   }
   const totalSuggestedQty = useMemo(
     () => depotRows.reduce((sum, row) => sum + getSuggestedQty(row), 0),
-    [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn]
+    [depotRows, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn]
   );
   const nonFamilyRows = useMemo(() => {
     if (!stockCodeColumn) return [];
@@ -686,7 +723,7 @@ export default function UcarerDepotReportPage() {
       .filter((item) => item.code && !familyCodeSet.has(item.code))
       .filter((item) => !isRowOperationallyEmpty(item.row))
       .filter((item) => getSuggestedQty(item.row) > 0);
-  }, [depotRows, stockCodeColumn, familyCodeSet, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, minQtyColumn]);
+  }, [depotRows, stockCodeColumn, familyCodeSet, suggestionMode, thirdIssueColumn, fourthIssueColumn, incomingDsvColumn, realQtyColumn, depotQtyColumn, minQtyColumn, incomingOrderColumn, outgoingOrderColumn]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1851,6 +1888,7 @@ export default function UcarerDepotReportPage() {
     currentCostByCode,
     depotQtyColumn,
     familySort,
+    fourthIssueColumn,
     incomingDsvColumn,
     incomingOrderColumn,
     manualAllocations,
@@ -1860,6 +1898,8 @@ export default function UcarerDepotReportPage() {
     packQtyByCode,
     realQtyColumn,
     rowByProductCode,
+    suggestionMode,
+    thirdIssueColumn,
     topcaDepoStockColumn,
     vatRateByCode,
   ]);
@@ -1908,6 +1948,8 @@ export default function UcarerDepotReportPage() {
   }, [
     currentCostByCode,
     depotQtyColumn,
+    fourthIssueColumn,
+    incomingDsvColumn,
     incomingOrderColumn,
     maxQtyColumn,
     minQtyColumn,
@@ -1918,6 +1960,8 @@ export default function UcarerDepotReportPage() {
     packQtyByCode,
     productNameColumn,
     realQtyColumn,
+    suggestionMode,
+    thirdIssueColumn,
     topcaDepoStockColumn,
     vatRateByCode,
   ]);
