@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
-import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
 import { FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -244,15 +243,6 @@ export default function PreviouslyPurchasedPage() {
               </div>
             </div>
           )}
-        </div>
-
-        {/* Kategori mega-menu */}
-        <div className="mb-4">
-          <CategoryMegaMenu
-            categories={categories}
-            selectedCategoryId={selectedCategory}
-            onSelect={(id) => { setSelectedCategory(id); setSearch(''); setDocumentNoFilter(''); }}
-          />
         </div>
 
         {/* Filtre bari */}

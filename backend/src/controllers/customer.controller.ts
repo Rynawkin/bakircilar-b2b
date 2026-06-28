@@ -15,7 +15,7 @@ import warehouseWorkflowService from '../services/warehouse-workflow.service';
 import exclusionService from '../services/exclusion.service';
 import cartPricingService, { CartPriceType } from '../services/cart-pricing.service';
 import vadeService from '../services/vade.service';
-import { splitSearchTokens } from '../utils/search';
+import { splitSearchTokens, normalizeSearchText } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { applyAgreementPrices, isAgreementActive, isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
@@ -575,8 +575,7 @@ export class CustomerController {
           agreementWhere.AND = searchTokens.map((token) => ({
             OR: [
               { customerProductCode: { contains: token, mode: 'insensitive' } },
-              { product: { name: { contains: token, mode: 'insensitive' } } },
-              { product: { mikroCode: { contains: token, mode: 'insensitive' } } },
+              { product: { searchText: { contains: normalizeSearchText(token) } } },
             ],
           }));
         }
@@ -789,8 +788,7 @@ export class CustomerController {
                   ? {
                       AND: searchTokens.map((token) => ({
                         OR: [
-                          { name: { contains: token, mode: 'insensitive' } },
-                          { mikroCode: { contains: token, mode: 'insensitive' } },
+                          { searchText: { contains: normalizeSearchText(token) } },
                         ],
                       })),
                     }
@@ -866,8 +864,7 @@ export class CustomerController {
                   ? {
                       AND: searchTokens.map((token) => ({
                         OR: [
-                          { name: { contains: token, mode: 'insensitive' } },
-                          { mikroCode: { contains: token, mode: 'insensitive' } },
+                          { searchText: { contains: normalizeSearchText(token) } },
                         ],
                       })),
                     }
@@ -981,8 +978,7 @@ export class CustomerController {
         if (searchTokens.length > 0) {
           discountedWhere.AND = searchTokens.map((token) => ({
             OR: [
-              { name: { contains: token, mode: 'insensitive' } },
-              { mikroCode: { contains: token, mode: 'insensitive' } },
+              { searchText: { contains: normalizeSearchText(token) } },
             ],
           }));
         }
@@ -998,8 +994,7 @@ export class CustomerController {
             ? {
                 AND: searchTokens.map((token) => ({
                   OR: [
-                    { name: { contains: token, mode: 'insensitive' } },
-                    { mikroCode: { contains: token, mode: 'insensitive' } },
+                    { searchText: { contains: normalizeSearchText(token) } },
                   ],
                 })),
               }

@@ -14,7 +14,6 @@ import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCa
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { FilterState } from '@/components/customer/AdvancedFilters';
-import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
@@ -271,18 +270,6 @@ export default function ProductsPage() {
               </div>
             </div>
           )}
-        </div>
-
-        {/* Kategori mega-menusu */}
-        <div className="mb-4">
-          <CategoryMegaMenu
-            categories={categories}
-            selectedCategoryId={selectedCategory}
-            onSelect={(id) => {
-              setSelectedCategory(id);
-              setSearch('');
-            }}
-          />
         </div>
 
         {/* Filtre / siralama bari */}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Fragment, useEffect } from 'react';
+import { useState, Fragment, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Menu, Transition } from '@headlessui/react';
@@ -8,6 +8,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import customerApi, { CustomerFinancials } from '@/lib/api/customer';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
+import { buildCategoryTree } from '@/lib/utils/categoryTree';
 import { Notification, Category } from '@/types';
 import {
   Search,
@@ -54,6 +55,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
+  const [shortcutStart, setShortcutStart] = useState(0);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const cartCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) ?? cartItemCount;
@@ -165,8 +167,17 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     router.push(term ? `/products?search=${encodeURIComponent(term)}` : '/products');
   };
 
-  const topCategories = categories.slice(0, 5);
-  const megaCategories = categories.slice(0, 12);
+  // Ana (kok) kategoriler — mikroCode hiyerarsisinden turetilir
+  const { roots, childrenById, nodesById } = useMemo(() => buildCategoryTree(categories), [categories]);
+  // Header kisayollari ana kategorileri donerek gosterir
+  useEffect(() => {
+    if (roots.length <= 5) return;
+    const t = setInterval(() => setShortcutStart((s) => (s + 1) % roots.length), 6000);
+    return () => clearInterval(t);
+  }, [roots.length]);
+  const shortcutRoots = roots.length <= 5
+    ? roots
+    : Array.from({ length: 5 }, (_, i) => roots[(shortcutStart + i) % roots.length]);
   const accountLinks = ACCOUNT_LINKS(pendingRequestCount, isSubUser);
   const isActive = (href: string) => pathname === href;
 
@@ -404,11 +415,12 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             <Link href="/products" className="flex h-12 items-center px-3 text-[13.5px] font-semibold text-primary-600 hover:text-primary-700">
               Tüm Ürünler
             </Link>
-            {topCategories.map((cat) => (
+            {shortcutRoots.map((cat) => (
               <Link
                 key={cat.id}
                 href={`/products?categoryId=${cat.id}`}
-                className="hidden h-12 items-center px-3 text-[13.5px] font-medium text-[var(--ink-2)] hover:text-primary-600 lg:flex"
+                title={cat.name}
+                className="hidden h-12 max-w-[150px] items-center truncate px-3 text-[13.5px] font-medium text-[var(--ink-2)] hover:text-primary-600 lg:flex"
               >
                 {cat.name}
               </Link>
@@ -443,23 +455,59 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           leaveTo="opacity-0"
         >
           <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
-            <div className="mx-auto grid w-full max-w-[1900px] grid-cols-2 gap-x-8 gap-y-2 px-4 py-6 sm:px-6 md:grid-cols-4 lg:grid-cols-5 lg:px-8">
-              {megaCategories.map((cat) => (
-                <Link
-                  key={cat.id}
-                  href={`/products?categoryId=${cat.id}`}
-                  onClick={() => setMegaOpen(false)}
-                  className="rounded-md px-2 py-1.5 text-[13px] text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] hover:text-primary-600"
-                >
-                  {cat.name}
-                </Link>
-              ))}
+            <div className="mx-auto grid w-full max-w-[1900px] grid-cols-2 gap-x-8 gap-y-6 px-4 py-6 sm:px-6 md:grid-cols-4 lg:grid-cols-5 lg:px-8">
+              {roots.slice(0, 8).map((root) => {
+                const children = (childrenById.get(root.id) || [])
+                  .map((id) => nodesById.get(id))
+                  .filter((c): c is Category => Boolean(c))
+                  .slice(0, 6);
+                return (
+                  <div key={root.id} className="flex flex-col gap-1.5">
+                    <Link
+                      href={`/products?categoryId=${root.id}`}
+                      onClick={() => setMegaOpen(false)}
+                      className="mb-1 border-b border-[var(--line)] pb-2 text-[13px] font-semibold text-[var(--ink-1)] transition-colors hover:text-primary-700"
+                    >
+                      {root.name}
+                    </Link>
+                    {children.map((c) => (
+                      <Link
+                        key={c.id}
+                        href={`/products?categoryId=${c.id}`}
+                        onClick={() => setMegaOpen(false)}
+                        className="text-[12.5px] text-[var(--ink-2)] transition-colors hover:text-primary-700"
+                      >
+                        {c.name}
+                      </Link>
+                    ))}
+                    {children.length === 0 && (
+                      <Link
+                        href={`/products?categoryId=${root.id}`}
+                        onClick={() => setMegaOpen(false)}
+                        className="text-[12px] text-[var(--ink-3)] hover:text-primary-700"
+                      >
+                        Ürünleri gör →
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Kampanya karti */}
               <Link
-                href="/products"
+                href="/discounted-products"
                 onClick={() => setMegaOpen(false)}
-                className="rounded-md px-2 py-1.5 text-[13px] font-semibold text-primary-600 hover:bg-[var(--surface-0)]"
+                className="flex flex-col justify-between rounded-xl bg-primary-900 p-5"
               >
-                Tüm ürünleri gör →
+                <div>
+                  <span className="inline-block rounded-full border border-emerald-500/40 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-emerald-300">
+                    KAMPANYA
+                  </span>
+                  <div className="mt-3 text-[15px] font-semibold leading-snug text-white">İndirimli ürünleri keşfet</div>
+                  <div className="mt-1.5 text-[12px] text-primary-100">Fazla stoktan avantajlı fiyatlar — eski → yeni fiyat kartta.</div>
+                </div>
+                <span className="mt-4 inline-flex w-fit items-center rounded-lg bg-white px-3.5 py-2 text-[12.5px] font-semibold text-primary-700">
+                  İndirimliye git →
+                </span>
               </Link>
             </div>
           </div>

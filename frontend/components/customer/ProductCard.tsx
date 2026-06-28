@@ -85,6 +85,8 @@ export function ProductCard({
   const vatPercent = Math.round((Number(product.vatRate) || 0) * 100);
   const displayStock = Number(getDisplayStock(product));
   const isSupply = displayStock <= 0;
+  // Stok rozeti: ondalik artiklarini gizle (218.00336667 -> 218), binlik ayrac
+  const stockBadgeText = Math.round(displayStock).toLocaleString('tr-TR');
   const hasAgreement = Boolean(product.agreement);
   const isDiscountedVariant = variant === 'discounted';
 
@@ -203,7 +205,7 @@ export function ProductCard({
         {!isSupply ? (
           <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-100">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Stok {getDisplayStock(product)} {product.unit}
+            Stok {stockBadgeText} {product.unit}
           </span>
         ) : (
           <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">

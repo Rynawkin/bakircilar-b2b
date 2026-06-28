@@ -811,6 +811,8 @@ model Product {
   isFeatured              Boolean   @default(false)
   featuredOrder           Int       @default(0)
   excludeFromDiscount     Boolean   @default(false)
+  // Aksan/buyuk-kucuk duyarsiz arama icin DB generated normalize metin (asla uygulamadan yazilmaz)
+  searchText              String?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
