@@ -4,12 +4,11 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import customerApi from '@/lib/api/customer';
 import { EInvoiceDocument } from '@/types';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Badge } from '@/components/ui/Badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { formatDateShort } from '@/lib/utils/format';
+import { FileText, Download, Search, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 
 type Pagination = {
   page: number;
@@ -32,9 +31,28 @@ const formatAmount = (value?: number | null, currency?: string) => {
 };
 
 const matchBadge = (status: string) => {
-  if (status === 'MATCHED') return <Badge variant="success">Eslesmis</Badge>;
-  if (status === 'PARTIAL') return <Badge variant="warning">Eksik</Badge>;
-  return <Badge variant="danger">Bulunamadi</Badge>;
+  if (status === 'MATCHED') {
+    return (
+      <span className="badge-success">
+        <CheckCircle2 className="h-3 w-3" />
+        Eşleşmiş
+      </span>
+    );
+  }
+  if (status === 'PARTIAL') {
+    return (
+      <span className="badge-warning">
+        <AlertTriangle className="h-3 w-3" />
+        Eksik
+      </span>
+    );
+  }
+  return (
+    <span className="badge-danger">
+      <XCircle className="h-3 w-3" />
+      Bulunamadı
+    </span>
+  );
 };
 
 export default function CustomerInvoicesPage() {
@@ -62,7 +80,7 @@ export default function CustomerInvoicesPage() {
       setPagination(result.pagination || { page, limit: pagination.limit, total: 0, totalPages: 1 });
     } catch (error) {
       console.error('Faturalar yuklenemedi:', error);
-      toast.error('Faturalar yuklenemedi');
+      toast.error('Faturalar yüklenemedi');
     } finally {
       setLoading(false);
     }
@@ -94,42 +112,51 @@ export default function CustomerInvoicesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <div className="container-custom py-8 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Faturalarim</h1>
-          <p className="text-sm text-gray-600">Sadece size ait yuklenen e-fatura PDF kayitlari.</p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-primary-100">
+            <FileText className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="page-title">Faturalarım</h1>
+            <p className="page-subtitle">Size ait yüklenen e-fatura PDF kayıtları.</p>
+          </div>
         </div>
 
-        <Card title="Filtreler" subtitle="Fatura no veya tarih ile filtreleyin.">
+        <div className="card card-pad">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-600">Arama</label>
+            <div>
+              <label className="field-label">Arama</label>
               <Input
                 placeholder="Fatura no"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-600">Fatura Prefix</label>
+            <div>
+              <label className="field-label">Fatura Prefix</label>
               <Input
                 placeholder="DEF2026"
                 value={invoicePrefix}
                 onChange={(event) => setInvoicePrefix(event.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-600">Baslangic Tarihi</label>
+            <div>
+              <label className="field-label">Başlangıç Tarihi</label>
               <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-600">Bitis Tarihi</label>
+            <div>
+              <label className="field-label">Bitiş Tarihi</label>
               <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
             </div>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={() => loadDocuments(1)} isLoading={loading}>
+              <Search className="mr-1.5 h-4 w-4" />
+              Listele
+            </Button>
             <Button
               variant="secondary"
               onClick={() => {
@@ -142,49 +169,57 @@ export default function CustomerInvoicesPage() {
             >
               Filtre Temizle
             </Button>
-            <Button onClick={() => loadDocuments(1)} isLoading={loading}>
-              Listele
-            </Button>
           </div>
-        </Card>
+        </div>
 
-        <Card title="Fatura Listesi" subtitle={`${pagination.total} kayit`}>
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-gray-800">Fatura Listesi</h2>
+            <span className="chip">{pagination.total} kayıt</span>
+          </div>
+
           {loading ? (
-            <div className="flex justify-center py-10">
+            <div className="flex justify-center py-12">
               <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary-600" />
             </div>
           ) : documents.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-600">
-              Bu filtreye uygun fatura bulunamadi.
+            <div className="px-5 py-12 text-center">
+              <FileText className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+              <p className="text-sm text-gray-500">Bu filtreye uygun fatura bulunamadı.</p>
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Fatura No</TableHead>
                       <TableHead>Tarih</TableHead>
-                      <TableHead>Tutar</TableHead>
+                      <TableHead className="text-right">Tutar</TableHead>
                       <TableHead>Durum</TableHead>
-                      <TableHead>Islem</TableHead>
+                      <TableHead className="text-right">İşlem</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {documents.map((doc) => (
-                      <TableRow key={doc.id}>
-                        <TableCell className="font-mono text-xs">{doc.invoiceNo}</TableCell>
-                        <TableCell>{doc.issueDate ? formatDateShort(doc.issueDate) : '-'}</TableCell>
-                        <TableCell>{formatAmount(doc.totalAmount, doc.currency)}</TableCell>
+                      <TableRow key={doc.id} className="hover:bg-gray-50/60">
+                        <TableCell className="font-mono text-xs text-gray-700">{doc.invoiceNo}</TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {doc.issueDate ? formatDateShort(doc.issueDate) : '-'}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-gray-900">
+                          {formatAmount(doc.totalAmount, doc.currency)}
+                        </TableCell>
                         <TableCell>{matchBadge(doc.matchStatus)}</TableCell>
-                        <TableCell>
+                        <TableCell className="text-right">
                           <Button
                             variant="secondary"
                             size="sm"
                             onClick={() => handleDownload(doc)}
                             disabled={downloadingId === doc.id}
                           >
-                            {downloadingId === doc.id ? 'Indiriliyor...' : 'PDF Indir'}
+                            <Download className="mr-1.5 h-3.5 w-3.5" />
+                            {downloadingId === doc.id ? 'İndiriliyor...' : 'PDF İndir'}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -193,20 +228,22 @@ export default function CustomerInvoicesPage() {
                 </Table>
               </div>
 
-              <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
+              <div className="flex items-center justify-between border-t border-[var(--line)] px-5 py-3 text-sm text-gray-500">
                 <span>
                   Sayfa {pagination.page} / {pagination.totalPages}
                 </span>
                 <div className="flex gap-2">
                   <Button
                     variant="secondary"
+                    size="sm"
                     disabled={pagination.page <= 1 || loading}
                     onClick={() => loadDocuments(pagination.page - 1)}
                   >
-                    Onceki
+                    Önceki
                   </Button>
                   <Button
                     variant="secondary"
+                    size="sm"
                     disabled={pagination.page >= pagination.totalPages || loading}
                     onClick={() => loadDocuments(pagination.page + 1)}
                   >
@@ -216,9 +253,8 @@ export default function CustomerInvoicesPage() {
               </div>
             </>
           )}
-        </Card>
+        </div>
       </div>
     </div>
   );
 }
-

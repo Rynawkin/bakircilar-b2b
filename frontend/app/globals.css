@@ -6,59 +6,88 @@
   :root {
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
+
+    /* Tasarim sistemi - notr yuzey & metin tonlari (premium, dingin) */
+    --surface-0: #f6f7f9;   /* sayfa zemini */
+    --surface-1: #fbfcfd;   /* hafif kart ici */
+    --surface-2: #ffffff;   /* kart */
+    --line: #e8eaee;        /* ince hairline kenarlik */
+    --line-strong: #d6dae1;
+    --ink-1: #0f172a;       /* ana metin */
+    --ink-2: #475569;       /* ikincil metin */
+    --ink-3: #8a93a3;       /* soluk / meta */
   }
 
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply text-gray-900 antialiased;
+    background-color: var(--surface-0);
+    font-feature-settings: "cv05", "ss01";
+    letter-spacing: -0.005em;
   }
+
+  /* Tipografi olcegi - net hiyerarsi */
+  h1 { @apply text-2xl font-semibold tracking-tight text-gray-900; }
+  h2 { @apply text-xl font-semibold tracking-tight text-gray-900; }
+  h3 { @apply text-base font-semibold text-gray-900; }
 }
 
 @layer components {
   .container-custom {
-    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+    @apply max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8;
   }
 
+  /* ---- Butonlar ---- */
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40;
   }
-
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800;
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 shadow-sm shadow-primary-600/20;
   }
-
   .btn-secondary {
-    @apply btn bg-gray-200 text-gray-900 hover:bg-gray-300 active:bg-gray-400;
+    @apply btn bg-white text-gray-800 border border-[var(--line-strong)] hover:bg-gray-50 active:bg-gray-100;
   }
-
+  .btn-ghost {
+    @apply btn text-gray-600 hover:bg-gray-100 active:bg-gray-200;
+  }
   .btn-danger {
     @apply btn bg-red-600 text-white hover:bg-red-700 active:bg-red-800;
   }
 
+  /* ---- Form ---- */
   .input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply w-full px-3 py-2 text-sm bg-white border border-[var(--line-strong)] rounded-lg
+           placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 transition;
   }
+  .field-label { @apply block text-xs font-medium text-gray-500 mb-1.5; }
 
+  /* ---- Yuzeyler ---- */
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+    @apply bg-white rounded-xl border border-[var(--line)];
   }
+  .card-pad { @apply p-5; }
+  .card-hover { @apply transition-all duration-150 hover:border-primary-200; }
+  .card-hover:hover { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 8px 24px -12px rgba(15, 23, 42, 0.14); }
+  .surface { @apply bg-[var(--surface-1)] rounded-lg border border-[var(--line)]; }
 
+  /* ---- Rozetler ---- */
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium leading-tight;
+  }
+  .badge-success { @apply badge bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100; }
+  .badge-warning { @apply badge bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100; }
+  .badge-danger  { @apply badge bg-red-50 text-red-700 ring-1 ring-inset ring-red-100; }
+  .badge-info    { @apply badge bg-primary-50 text-primary-700 ring-1 ring-inset ring-primary-100; }
+  .badge-neutral { @apply badge bg-gray-100 text-gray-600; }
+
+  /* Notr "chip" (kod, kategori, filtre) */
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium
+           bg-gray-50 text-gray-600 border border-[var(--line)];
   }
 
-  .badge-success {
-    @apply badge bg-green-100 text-green-800;
-  }
-
-  .badge-warning {
-    @apply badge bg-yellow-100 text-yellow-800;
-  }
-
-  .badge-danger {
-    @apply badge bg-red-100 text-red-800;
-  }
-
-  .badge-info {
-    @apply badge bg-blue-100 text-blue-800;
-  }
+  /* Sayfa basligi (tum ekranlarda tutarli) */
+  .page-title { @apply text-lg sm:text-xl font-semibold tracking-tight text-gray-900; }
+  .page-subtitle { @apply text-sm text-gray-500 mt-0.5; }
 }

@@ -1211,14 +1211,64 @@ export class CustomerController {
         productsWithPrices = productsWithPrices.filter((p) => p.maxOrderQuantity > 0);
       }
 
+      // INDIRIMLI SAYFA DUZELTMESI: Fazla stogu (excessStock>0) olan ama indirimli fiyati
+      // normal liste fiyatiyla AYNI olan urunler gercekte indirimli degildir; "Indirimli
+      // Urunler" sayfasinda gozukmemeli. Sadece indirimli fiyati liste fiyatinin altinda
+      // olan urunler birakilir. Fiyat HESAPLAMA mantigi degismedi; sadece gosterim filtresi.
+      if (isDiscounted) {
+        const EPS = 0.001;
+        const isGenuinelyDiscounted = (p: any): boolean => {
+          const list = p.listPrices;
+          const disc = p.prices;
+          if (!list || !disc) return false;
+          const invoicedOff = Number(list.invoiced) > 0 && Number(disc.invoiced) < Number(list.invoiced) - EPS;
+          const whiteOff = Number(list.white) > 0 && Number(disc.white) < Number(list.white) - EPS;
+          if (effectiveVisibility === 'WHITE_ONLY') return whiteOff;
+          if (effectiveVisibility === 'INVOICED_ONLY') return invoicedOff;
+          return invoicedOff || whiteOff;
+        };
+        productsWithPrices = productsWithPrices.filter(isGenuinelyDiscounted);
+      }
+
       lap('enrich');
       logTiming({ counts: { products: products.length, agreements: agreementRows.length, purchasedCodes: purchasedCodes.length } });
-      // 1.2: warehouse filtresi sorgu sonrasi (post-query) uygulandigindan DB count'u gercek gorunenle
-      // birebir eslesmez; bu durumda yaniltici olmamak icin total gondermeyiz.
+      // 1.2: warehouse ve indirimli ("gercekten indirimli") filtreleri sorgu SONRASI sayfa
+      // uzerinde calistigindan DB count'u gercek gorunenle birebir eslesmez; bu durumlarda
+      // yaniltici olmamak icin total gondermeyiz (frontend yuklenen adedi gosterir).
       res.json({
         products: productsWithPrices,
-        ...(warehouse ? {} : { total: productsTotal }),
+        ...((warehouse || isDiscounted) ? {} : { total: productsTotal }),
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/agreements/available
+   * "Anlasmali Urunler" menusunu/sayfasini sadece musteriye tanimli AKTIF tarihli
+   * anlasma varsa gostermek icin hafif kontrol (bos sayfa gostermemek icin).
+   */
+  async getAgreementsAvailability(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { id: true, parentCustomer: { select: { id: true } } },
+      });
+      const customerId = user?.parentCustomer?.id || user?.id;
+      if (!customerId) {
+        return res.json({ available: false });
+      }
+      const now = new Date();
+      const count = await prisma.customerPriceAgreement.count({
+        where: {
+          customerId,
+          validFrom: { lte: now },
+          OR: [{ validTo: null }, { validTo: { gte: now } }],
+          product: { active: true, hiddenFromCustomers: false },
+        },
+      });
+      res.json({ available: count > 0 });
     } catch (error) {
       next(error);
     }

@@ -132,6 +132,11 @@ export const customerApi = {
     const response = await apiClient.get('/order-requests/pending-count');
     return response.data;
   },
+  // Anlasmali urunler menusunu sadece aktif anlasma varsa gostermek icin
+  getAgreementsAvailability: async (): Promise<{ available: boolean }> => {
+    const response = await apiClient.get('/agreements/available');
+    return response.data;
+  },
   getOrderRequests: async (): Promise<{ requests: OrderRequest[] }> => {
     const response = await apiClient.get('/order-requests');
     return response.data;

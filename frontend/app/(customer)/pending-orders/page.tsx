@@ -4,8 +4,17 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/lib/store/authStore';
-import { Card } from '@/components/ui/Card';
 import { apiClient } from '@/lib/api/client';
+import {
+  Hourglass,
+  Package,
+  Wallet,
+  CalendarDays,
+  Truck,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 
 interface OrderItem {
   productCode: string;
@@ -88,14 +97,15 @@ export default function CustomerPendingOrdersPage() {
     }).format(new Date(date));
   };
 
-  const getWarehouseStatusText = (status?: PendingOrder['warehouseStatus']) => {
+  // Tek dil: depo durumu metni + .badge-* sinifi
+  const getWarehouseStatusMeta = (status?: PendingOrder['warehouseStatus']) => {
     const current = status || 'PENDING';
-    if (current === 'PICKING') return 'Toplaniyor';
-    if (current === 'READY_FOR_LOADING') return 'Yuklemeye Hazir';
-    if (current === 'PARTIALLY_LOADED') return 'Kismi Yuklendi';
-    if (current === 'LOADED') return 'Yuklendi';
-    if (current === 'DISPATCHED') return 'Sevk Edildi';
-    return 'Beklemede';
+    if (current === 'PICKING') return { label: 'Toplanıyor', badgeClass: 'badge-warning' };
+    if (current === 'READY_FOR_LOADING') return { label: 'Yüklemeye Hazır', badgeClass: 'badge-info' };
+    if (current === 'PARTIALLY_LOADED') return { label: 'Kısmi Yüklendi', badgeClass: 'badge-warning' };
+    if (current === 'LOADED') return { label: 'Yüklendi', badgeClass: 'badge-success' };
+    if (current === 'DISPATCHED') return { label: 'Sevk Edildi', badgeClass: 'badge-success' };
+    return { label: 'Beklemede', badgeClass: 'badge-neutral' };
   };
 
   if (!user || isLoading) {
@@ -111,98 +121,142 @@ export default function CustomerPendingOrdersPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container-custom py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">📋 Bekleyen Siparişlerim</h1>
-          <p className="text-gray-600">Açık sipariş bakiyelerinizi görüntüleyin</p>
+        {/* Sayfa basligi */}
+        <div className="flex items-start gap-3 mb-6">
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+            <Hourglass className="h-5 w-5" strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <h1 className="page-title">Bekleyen Siparişlerim</h1>
+            <p className="page-subtitle">Açık sipariş bakiyelerinizi görüntüleyin.</p>
+          </div>
         </div>
 
-        {/* Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <p className="text-sm font-medium text-blue-800 mb-2">📦 Bekleyen Sipariş</p>
-            <p className="text-4xl font-bold text-blue-600">{orders.length}</p>
-          </Card>
+        {/* Ozet */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <div className="card card-pad flex items-center gap-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+              <Package className="h-5 w-5" strokeWidth={2} />
+            </span>
+            <div>
+              <p className="text-xs font-medium text-gray-500">Bekleyen Sipariş</p>
+              <p className="text-2xl font-bold text-gray-900">{orders.length}</p>
+            </div>
+          </div>
 
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <p className="text-sm font-medium text-green-800 mb-2">💰 Toplam Tutar</p>
-            <p className="text-3xl font-bold text-green-600">{formatCurrency(totalAmount)}</p>
-          </Card>
+          <div className="card card-pad flex items-center gap-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-emerald-100">
+              <Wallet className="h-5 w-5" strokeWidth={2} />
+            </span>
+            <div>
+              <p className="text-xs font-medium text-gray-500">Toplam Tutar</p>
+              <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalAmount)}</p>
+            </div>
+          </div>
         </div>
 
-        {/* Orders */}
+        {/* Siparisler */}
         {orders.length === 0 ? (
-          <Card className="text-center py-12">
-            <div className="text-6xl mb-4">✅</div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Bekleyen Sipariş Yok</h2>
-            <p className="text-gray-600">Şu anda açık sipariş bakiyeniz bulunmamaktadır.</p>
-          </Card>
+          <div className="card card-pad">
+            <div className="flex flex-col items-center justify-center text-center py-12">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-emerald-100 mb-4">
+                <CheckCircle2 className="h-6 w-6" strokeWidth={2} />
+              </span>
+              <h2 className="text-base font-semibold text-gray-900 mb-1">Bekleyen Sipariş Yok</h2>
+              <p className="text-sm text-gray-500">Şu anda açık sipariş bakiyeniz bulunmamaktadır.</p>
+            </div>
+          </div>
         ) : (
           <div className="space-y-4">
             {orders.map((order) => {
               const isExpanded = expandedOrders.has(order.mikroOrderNumber);
+              const statusMeta = getWarehouseStatusMeta(order.warehouseStatus);
               return (
-                <Card key={order.mikroOrderNumber} className="overflow-hidden">
-                  {/* Header */}
-                  <div
-                    className="flex items-center justify-between cursor-pointer hover:bg-gray-50 p-4 -m-4 mb-4"
+                <div key={order.mikroOrderNumber} className="card overflow-hidden">
+                  {/* Baslik */}
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between gap-4 p-4 text-left transition-colors hover:bg-gray-50"
                     onClick={() => toggleOrder(order.mikroOrderNumber)}
                   >
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900 mb-1">
-                        📦 Sipariş No: {order.mikroOrderNumber}
-                      </h3>
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                        <span>📅 Tarih: {formatDate(order.orderDate)}</span>
-                        <span>🚚 Teslimat: {formatDate(order.deliveryDate)}</span>
-                        <span>📦 {order.itemCount} kalem</span>
-                        <span>Depo: {getWarehouseStatusText(order.warehouseStatus)}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        <Package className="h-4 w-4 text-gray-400 flex-shrink-0" strokeWidth={2} />
+                        <h3 className="text-base font-semibold text-gray-900">
+                          Sipariş No: {order.mikroOrderNumber}
+                        </h3>
+                        <span className={statusMeta.badgeClass}>{statusMeta.label}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarDays className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                          Tarih: {formatDate(order.orderDate)}
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <Truck className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                          Teslimat: {formatDate(order.deliveryDate)}
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <Package className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                          {order.itemCount} kalem
+                        </span>
                       </div>
                     </div>
-                    <div className="text-right ml-4">
-                      <div className="text-2xl font-bold text-primary-600">
+                    <div className="text-right ml-2 flex-shrink-0">
+                      <div className="text-lg font-bold text-gray-900">
                         {formatCurrency(order.grandTotal)}
                       </div>
-                      <div className="text-sm text-gray-500">
-                        {isExpanded ? '▲ Gizle' : '▼ Detay'}
+                      <div className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 mt-0.5">
+                        {isExpanded ? (
+                          <>
+                            <ChevronUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+                            Gizle
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.5} />
+                            Detay
+                          </>
+                        )}
                       </div>
                     </div>
-                  </div>
+                  </button>
 
-                  {/* Details */}
+                  {/* Detaylar */}
                   {isExpanded && (
-                    <div className="border-t pt-4">
+                    <div className="border-t border-[var(--line)] p-4">
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">
+                          <thead>
+                            <tr className="border-b border-[var(--line)]">
+                              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-500 uppercase tracking-wide">
                                 Ürün
                               </th>
-                              <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">
+                              <th className="px-3 py-2 text-center text-[11px] font-medium text-gray-500 uppercase tracking-wide">
                                 Miktar
                               </th>
-                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 uppercase">
+                              <th className="px-3 py-2 text-right text-[11px] font-medium text-gray-500 uppercase tracking-wide">
                                 Birim Fiyat
                               </th>
-                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 uppercase">
+                              <th className="px-3 py-2 text-right text-[11px] font-medium text-gray-500 uppercase tracking-wide">
                                 Tutar
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-gray-200">
+                          <tbody className="divide-y divide-[var(--line)]">
                             {order.items.map((item, index) => (
                               <tr key={index}>
-                                <td className="px-3 py-2">
+                                <td className="px-3 py-2.5">
                                   <div className="font-medium text-gray-900">{item.productName}</div>
-                                  <div className="text-xs text-gray-500">{item.productCode}</div>
+                                  <div className="text-[11px] text-gray-400 font-mono">{item.productCode}</div>
                                 </td>
-                                <td className="px-3 py-2 text-center text-gray-700">
+                                <td className="px-3 py-2.5 text-center text-gray-700">
                                   {item.remainingQty} {item.unit}
                                 </td>
-                                <td className="px-3 py-2 text-right text-gray-700">
+                                <td className="px-3 py-2.5 text-right text-gray-700">
                                   {formatCurrency(item.unitPrice)}
                                 </td>
-                                <td className="px-3 py-2 text-right font-semibold text-gray-900">
+                                <td className="px-3 py-2.5 text-right font-semibold text-gray-900">
                                   {formatCurrency(item.lineTotal)}
                                 </td>
                               </tr>
@@ -211,20 +265,20 @@ export default function CustomerPendingOrdersPage() {
                         </table>
                       </div>
 
-                      {/* Totals */}
-                      <div className="mt-4 pt-4 border-t bg-gray-50 -mx-4 -mb-4 px-4 pb-4">
-                        <div className="max-w-md ml-auto space-y-2 text-sm">
+                      {/* Toplamlar */}
+                      <div className="mt-4 pt-4 border-t border-[var(--line)]">
+                        <div className="max-w-xs ml-auto space-y-1.5 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Ara Toplam:</span>
-                            <span className="font-semibold">{formatCurrency(order.totalAmount)}</span>
+                            <span className="text-gray-500">Ara Toplam</span>
+                            <span className="font-medium text-gray-900">{formatCurrency(order.totalAmount)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">KDV:</span>
-                            <span className="font-semibold">{formatCurrency(order.totalVAT)}</span>
+                            <span className="text-gray-500">KDV</span>
+                            <span className="font-medium text-gray-900">{formatCurrency(order.totalVAT)}</span>
                           </div>
-                          <div className="flex justify-between text-lg border-t pt-2">
-                            <span className="font-bold text-gray-900">TOPLAM:</span>
-                            <span className="font-bold text-primary-600">
+                          <div className="flex justify-between border-t border-[var(--line)] pt-2 mt-1">
+                            <span className="font-semibold text-gray-900">TOPLAM</span>
+                            <span className="text-base font-bold text-gray-900">
                               {formatCurrency(order.grandTotal)}
                             </span>
                           </div>
@@ -232,7 +286,7 @@ export default function CustomerPendingOrdersPage() {
                       </div>
                     </div>
                   )}
-                </Card>
+                </div>
               );
             })}
           </div>

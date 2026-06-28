@@ -171,6 +171,9 @@ router.get(
   customerController.getCategories
 );
 
+// Anlasmali urunler erisilebilirligi (nav linkini sadece AKTIF anlasma varsa goster)
+router.get('/agreements/available', customerController.getAgreementsAvailability);
+
 // Warehouses
 router.get('/warehouses', customerController.getWarehouses);
 

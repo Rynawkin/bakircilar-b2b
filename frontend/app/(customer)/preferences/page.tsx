@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import apiClient from '@/lib/api/client';
+import { Wallet, Check, Info, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function PreferencesPage() {
   const router = useRouter();
@@ -54,70 +55,74 @@ export default function PreferencesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-
-
       <div className="container-custom py-8">
         <div className="max-w-3xl mx-auto">
-          <Card className="shadow-lg">
+          {/* Header */}
+          <div className="mb-6">
+            <h1 className="page-title">Tercihlerim</h1>
+            <p className="page-subtitle">Fiyat gösterim ayarlarınızı yönetin</p>
+          </div>
+
+          <Card className="bg-white">
             <div className="flex items-center gap-3 mb-6">
-              <div className="bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-lg w-12 h-12 flex items-center justify-center text-2xl">
-                💰
+              <div className="bg-primary-50 text-primary-700 rounded-lg w-11 h-11 flex items-center justify-center">
+                <Wallet className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-lg text-gray-900">Fiyat Gösterim Tercihi</h3>
-                <p className="text-sm text-gray-600">Faturalı fiyatların nasıl görüntüleneceğini seçin</p>
+                <h3 className="font-semibold text-base text-gray-900">Fiyat Gösterim Tercihi</h3>
+                <p className="text-sm text-gray-500">Faturalı fiyatların nasıl görüntüleneceğini seçin</p>
               </div>
             </div>
 
             {message && (
               <div
-                className={`mb-6 p-4 rounded-lg border-l-4 ${
+                className={`mb-6 p-3.5 rounded-lg border flex items-start gap-2.5 ${
                   message.type === 'success'
-                    ? 'bg-green-50 border-green-500 text-green-800'
-                    : 'bg-red-50 border-red-500 text-red-800'
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                    : 'bg-red-50 border-red-100 text-red-700'
                 }`}
               >
-                {message.text}
+                {message.type === 'success'
+                  ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  : <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+                <span className="text-sm">{message.text}</span>
               </div>
             )}
 
             <div className="space-y-4">
               <div
                 onClick={() => setVatDisplayPreference('WITH_VAT')}
-                className={`p-6 rounded-lg border-2 cursor-pointer transition-all ${
+                className={`p-5 rounded-xl border cursor-pointer transition-all ${
                   vatDisplayPreference === 'WITH_VAT'
-                    ? 'border-primary-600 bg-primary-50 shadow-lg'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500'
+                    : 'border-[var(--line-strong)] hover:border-primary-300 bg-white'
                 }`}
               >
                 <div className="flex items-start gap-4">
-                  <div className="mt-1">
+                  <div className="mt-0.5">
                     <div
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
                         vatDisplayPreference === 'WITH_VAT'
                           ? 'border-primary-600 bg-primary-600'
                           : 'border-gray-300'
                       }`}
                     >
                       {vatDisplayPreference === 'WITH_VAT' && (
-                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
+                        <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
                       )}
                     </div>
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-bold text-gray-900 text-lg mb-2">📄 KDV Dahil Görüntüle</h4>
+                    <h4 className="font-semibold text-gray-900 text-base mb-1.5">KDV Dahil Görüntüle</h4>
                     <p className="text-sm text-gray-600 mb-3">
                       Faturalı fiyatlar KDV dahil olarak gösterilir. Ödeyeceğiniz toplam tutarı direkt görürsünüz.
                     </p>
-                    <div className="bg-white border border-gray-200 rounded p-3 text-sm">
-                      <p className="text-gray-700 mb-1"><strong>Örnek:</strong></p>
+                    <div className="surface p-3 text-sm">
+                      <p className="text-gray-700 mb-1 font-medium">Örnek</p>
                       <p className="text-gray-600">
                         Ürün maliyeti: <span className="font-mono">100 TL</span><br />
                         KDV (%18): <span className="font-mono">+ 18 TL</span><br />
-                        <span className="font-bold text-primary-700">Görünen fiyat: 118 TL</span>
+                        <span className="font-semibold text-primary-700">Görünen fiyat: 118 TL</span>
                       </p>
                     </div>
                   </div>
@@ -126,37 +131,35 @@ export default function PreferencesPage() {
 
               <div
                 onClick={() => setVatDisplayPreference('WITHOUT_VAT')}
-                className={`p-6 rounded-lg border-2 cursor-pointer transition-all ${
+                className={`p-5 rounded-xl border cursor-pointer transition-all ${
                   vatDisplayPreference === 'WITHOUT_VAT'
-                    ? 'border-primary-600 bg-primary-50 shadow-lg'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500'
+                    : 'border-[var(--line-strong)] hover:border-primary-300 bg-white'
                 }`}
               >
                 <div className="flex items-start gap-4">
-                  <div className="mt-1">
+                  <div className="mt-0.5">
                     <div
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
                         vatDisplayPreference === 'WITHOUT_VAT'
                           ? 'border-primary-600 bg-primary-600'
                           : 'border-gray-300'
                       }`}
                     >
                       {vatDisplayPreference === 'WITHOUT_VAT' && (
-                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
+                        <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
                       )}
                     </div>
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-bold text-gray-900 text-lg mb-2">📋 KDV Hariç Görüntüle</h4>
+                    <h4 className="font-semibold text-gray-900 text-base mb-1.5">KDV Hariç Görüntüle</h4>
                     <p className="text-sm text-gray-600 mb-3">
                       Faturalı fiyatlar KDV hariç olarak gösterilir. KDV tutarı sepet ve fatura aşamasında eklenir.
                     </p>
-                    <div className="bg-white border border-gray-200 rounded p-3 text-sm">
-                      <p className="text-gray-700 mb-1"><strong>Örnek:</strong></p>
+                    <div className="surface p-3 text-sm">
+                      <p className="text-gray-700 mb-1 font-medium">Örnek</p>
                       <p className="text-gray-600">
-                        <span className="font-bold text-primary-700">Görünen fiyat: 100 TL</span><br />
+                        <span className="font-semibold text-primary-700">Görünen fiyat: 100 TL</span><br />
                         <span className="text-xs text-gray-500">(KDV sepette hesaplanır)</span>
                       </p>
                     </div>
@@ -165,13 +168,13 @@ export default function PreferencesPage() {
               </div>
             </div>
 
-            <div className="mt-8 pt-6 border-t">
-              <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded mb-6">
+            <div className="mt-8 pt-6 border-t border-[var(--line)]">
+              <div className="bg-primary-50 border border-primary-100 p-4 rounded-lg mb-6">
                 <div className="flex items-start gap-3">
-                  <span className="text-2xl">💡</span>
+                  <Info className="w-5 h-5 text-primary-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-blue-900 mb-1">Not:</p>
-                    <ul className="text-sm text-blue-800 space-y-1">
+                    <p className="text-sm font-semibold text-primary-900 mb-1">Bilgi</p>
+                    <ul className="text-sm text-primary-800 space-y-1">
                       <li>• Bu ayar sadece <strong>Faturalı fiyatları</strong> etkiler</li>
                       <li>• Beyaz fiyatlar her zaman aynı şekilde gösterilir (maliyet + yarım KDV)</li>
                       <li>• Sepet ve sipariş toplamları her zaman doğru hesaplanır</li>
@@ -183,9 +186,9 @@ export default function PreferencesPage() {
               <Button
                 onClick={handleSave}
                 isLoading={isSaving}
-                className="w-full bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold py-3 shadow-lg"
+                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3"
               >
-                {isSaving ? '💾 Kaydediliyor...' : '💾 Ayarları Kaydet'}
+                Ayarları Kaydet
               </Button>
             </div>
           </Card>

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { validateField, validators } from '@/lib/utils/validation';
+import { Eye, EyeOff } from 'lucide-react';
 
 const LoginForm = () => {
   const router = useRouter();
@@ -16,6 +17,7 @@ const LoginForm = () => {
   const [password, setPassword] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,7 +83,7 @@ const LoginForm = () => {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-2xl bg-white shadow-2xl border border-gray-100 p-8 space-y-4">
+          <div className="rounded-2xl bg-white shadow-2xl border border-gray-100 p-8 space-y-5">
             <Input
               label="Email veya Cari Kodu"
               type="text"
@@ -99,42 +101,66 @@ const LoginForm = () => {
               }}
             />
 
-            <Input
-              label="Şifre"
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setPasswordError('');
-              }}
-              placeholder="••••••••"
-              error={passwordError}
-              autoComplete="current-password"
-              onBlur={() => {
-                const validation = validateField(password, { ...validators.password, required: true });
-                setPasswordError(validation.error || '');
-              }}
-            />
+            {/* Sifre - goster/gizle destekli */}
+            <div className="w-full">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Şifre</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setPasswordError('');
+                  }}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  onBlur={() => {
+                    const validation = validateField(password, { ...validators.password, required: true });
+                    setPasswordError(validation.error || '');
+                  }}
+                  className={`w-full px-3 py-2 pr-11 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+                    passwordError ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+              {passwordError && <p className="mt-1 text-sm text-red-600">{passwordError}</p>}
+            </div>
 
             {error && (
-              <div className="rounded-md bg-red-50 p-4">
-                <p className="text-sm text-red-800">{error}</p>
+              <div className="rounded-lg bg-red-50 border border-red-100 p-3.5">
+                <p className="text-sm text-red-700">{error}</p>
               </div>
             )}
 
             <Button
               type="submit"
               isLoading={isLoading}
-              className="w-full mt-6 bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold py-3 shadow-lg"
+              className="w-full mt-1 bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-bold py-3 shadow-lg"
             >
-              🔐 Giriş Yap
+              Giriş Yap
             </Button>
+
+            {/* Sifre yardimi - temsilciyle iletisim */}
+            <div className="pt-1 border-t border-gray-100">
+              <p className="text-center text-xs text-gray-500 pt-3 leading-relaxed">
+                Şifrenizi mi unuttunuz?<br />
+                Lütfen satış temsilciniz ile iletişime geçin.
+              </p>
+            </div>
           </div>
         </form>
 
         {/* Footer */}
         <div className="text-center text-xs text-primary-100">
-          <p>© 2025 Bakırcılar Grup. Tüm hakları saklıdır.</p>
+          <p>© {new Date().getFullYear()} Bakırcılar Grup. Tüm hakları saklıdır.</p>
         </div>
       </div>
     </div>

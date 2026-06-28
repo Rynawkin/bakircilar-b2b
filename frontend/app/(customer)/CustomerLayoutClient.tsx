@@ -153,7 +153,7 @@ export default function CustomerLayout({
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
+      <div className="min-h-screen bg-[var(--surface-0)]">
         <CustomerNavigation cartItemCount={cartItemCount} />
         <main>{children}</main>
       </div>

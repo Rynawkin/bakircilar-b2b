@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import customerApi from '@/lib/api/customer';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
@@ -234,31 +233,31 @@ export default function CustomerRequestsPage() {
       <button
         key={task.id}
         onClick={() => openTaskDetail(task.id)}
-        className="w-full text-left bg-white rounded-lg border border-gray-200 p-3 shadow-sm hover:shadow-md transition-shadow"
+        className="card card-hover w-full p-3 text-left"
       >
         <div className="flex items-start justify-between gap-2">
-          <p className="font-semibold text-sm text-gray-900 line-clamp-2">{task.title}</p>
+          <p className="line-clamp-2 text-sm font-semibold text-gray-900">{task.title}</p>
           <Badge variant={TASK_PRIORITY_BADGE[task.priority] as any}>
             {TASK_PRIORITY_LABELS[task.priority]}
           </Badge>
         </div>
-        <div className="mt-2 text-xs text-gray-500 space-y-1">
-          <div>{TASK_TYPE_LABELS[task.type]}</div>
-          <div>Atanan: {task.assignedTo?.name || '-'}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="chip">{TASK_TYPE_LABELS[task.type]}</span>
+          <span className="text-[11px] text-gray-500">Atanan: {task.assignedTo?.name || '-'}</span>
         </div>
-        <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+        <div className="mt-3 flex items-center justify-between text-xs text-gray-400">
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1">
-              <MessageSquare className="w-3.5 h-3.5" />
+              <MessageSquare className="h-3.5 w-3.5" />
               {task._count?.comments ?? 0}
             </span>
             <span className="inline-flex items-center gap-1">
-              <Paperclip className="w-3.5 h-3.5" />
+              <Paperclip className="h-3.5 w-3.5" />
               {task._count?.attachments ?? 0}
             </span>
           </div>
           {dueLabel && (
-            <span className={isOverdue ? 'text-red-600 font-semibold' : ''}>
+            <span className={isOverdue ? 'font-semibold text-red-600' : ''}>
               {dueLabel}
             </span>
           )}
@@ -268,27 +267,27 @@ export default function CustomerRequestsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <div className="container-custom py-6 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <ListTodo className="w-6 h-6 text-primary-600" />
-              Taleplerim
-            </h1>
-            <p className="text-sm text-gray-600">
-              Taleplerinizi olusturun ve takip edin.
-            </p>
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+              <ListTodo className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="page-title">Taleplerim</h1>
+              <p className="page-subtitle">Taleplerinizi olusturun ve takip edin.</p>
+            </div>
           </div>
-          <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+          <div className="inline-flex overflow-hidden rounded-lg border border-[var(--line-strong)]">
             <button
-              className={`px-4 py-2 text-sm font-medium ${view === 'KANBAN' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700'}`}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${view === 'KANBAN' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
               onClick={() => handleViewChange('KANBAN')}
             >
               Kanban
             </button>
             <button
-              className={`px-4 py-2 text-sm font-medium ${view === 'LIST' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700'}`}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${view === 'LIST' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
               onClick={() => handleViewChange('LIST')}
             >
               Liste
@@ -296,7 +295,8 @@ export default function CustomerRequestsPage() {
           </div>
         </div>
 
-        <Card className="space-y-4">
+        <div className="card card-pad space-y-4">
+          <h2 className="text-base font-semibold text-gray-900">Yeni Talep</h2>
           <Input
             label="Baslik"
             placeholder="Kisa bir baslik yazin"
@@ -304,19 +304,20 @@ export default function CustomerRequestsPage() {
             onChange={(e) => setNewRequest((prev) => ({ ...prev, title: e.target.value }))}
           />
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Aciklama</label>
+            <label className="field-label">Aciklama</label>
             <textarea
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="input"
+              placeholder="Talebinizi detaylandirin (opsiyonel)"
               value={newRequest.description}
               onChange={(e) => setNewRequest((prev) => ({ ...prev, description: e.target.value }))}
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tur</label>
+              <label className="field-label">Tur</label>
               <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="input"
                 value={newRequest.type}
                 onChange={(e) => setNewRequest((prev) => ({ ...prev, type: e.target.value as TaskType }))}
               >
@@ -328,9 +329,9 @@ export default function CustomerRequestsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Oncelik</label>
+              <label className="field-label">Oncelik</label>
               <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="input"
                 value={newRequest.priority}
                 onChange={(e) => setNewRequest((prev) => ({ ...prev, priority: e.target.value as TaskPriority }))}
               >
@@ -342,14 +343,14 @@ export default function CustomerRequestsPage() {
               </select>
             </div>
             <div className="flex items-end">
-              <Button onClick={handleCreateRequest} isLoading={creating}>
+              <Button onClick={handleCreateRequest} isLoading={creating} className="w-full">
                 Talep Gonder
               </Button>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <Card className="space-y-4">
+        <div className="card card-pad">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Input
               label="Arama"
@@ -358,9 +359,9 @@ export default function CustomerRequestsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Durum</label>
+              <label className="field-label">Durum</label>
               <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="input"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as FilterValue)}
               >
@@ -373,7 +374,7 @@ export default function CustomerRequestsPage() {
               </select>
             </div>
           </div>
-        </Card>
+        </div>
 
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
@@ -383,20 +384,18 @@ export default function CustomerRequestsPage() {
           <div className="flex gap-3 overflow-x-auto pb-4">
             {visibleStatuses.map((status) => (
               <div key={status} className="min-w-[220px] max-w-[240px] flex-1">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={TASK_STATUS_BADGE[status] as any}>
-                      {TASK_STATUS_LABELS[status]}
-                    </Badge>
-                    <span className="text-xs text-gray-500">
-                      {groupedTasks.get(status)?.length || 0}
-                    </span>
-                  </div>
+                <div className="mb-3 flex items-center gap-2">
+                  <Badge variant={TASK_STATUS_BADGE[status] as any}>
+                    {TASK_STATUS_LABELS[status]}
+                  </Badge>
+                  <span className="text-xs text-gray-400">
+                    {groupedTasks.get(status)?.length || 0}
+                  </span>
                 </div>
                 <div className="space-y-2">
                   {(groupedTasks.get(status) || []).map(renderTaskCard)}
                   {(groupedTasks.get(status) || []).length === 0 && (
-                    <div className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-2 text-center">
+                    <div className="rounded-lg border border-dashed border-[var(--line-strong)] bg-[var(--surface-1)] p-3 text-center text-xs text-gray-400">
                       Bu kolonda talep yok.
                     </div>
                   )}
@@ -405,47 +404,47 @@ export default function CustomerRequestsPage() {
             ))}
           </div>
         ) : (
-          <Card className="overflow-x-auto">
+          <div className="card overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="text-left text-gray-500 border-b">
+              <thead className="border-b border-[var(--line)] text-left text-xs uppercase tracking-wide text-gray-400">
                 <tr>
-                  <th className="py-3 pr-4">Baslik</th>
-                  <th className="py-3 pr-4">Durum</th>
-                  <th className="py-3 pr-4">Tur</th>
-                  <th className="py-3 pr-4">Oncelik</th>
-                  <th className="py-3 pr-4">Atanan</th>
-                  <th className="py-3">Son Aktivite</th>
+                  <th className="px-5 py-3 font-medium">Baslik</th>
+                  <th className="px-5 py-3 font-medium">Durum</th>
+                  <th className="px-5 py-3 font-medium">Tur</th>
+                  <th className="px-5 py-3 font-medium">Oncelik</th>
+                  <th className="px-5 py-3 font-medium">Atanan</th>
+                  <th className="px-5 py-3 font-medium">Son Aktivite</th>
                 </tr>
               </thead>
               <tbody>
                 {tasks.map((task) => (
                   <tr
                     key={task.id}
-                    className="border-b last:border-b-0 hover:bg-gray-50 cursor-pointer"
+                    className="cursor-pointer border-b border-[var(--line)] last:border-b-0 hover:bg-[var(--surface-1)]"
                     onClick={() => openTaskDetail(task.id)}
                   >
-                    <td className="py-3 pr-4 font-medium text-gray-900">{task.title}</td>
-                    <td className="py-3 pr-4">
+                    <td className="px-5 py-3 font-medium text-gray-900">{task.title}</td>
+                    <td className="px-5 py-3">
                       <Badge variant={TASK_STATUS_BADGE[normalizeTaskStatus(task.status)] as any}>
                         {TASK_STATUS_LABELS[normalizeTaskStatus(task.status)]}
                       </Badge>
                     </td>
-                    <td className="py-3 pr-4">{TASK_TYPE_LABELS[task.type]}</td>
-                    <td className="py-3 pr-4">{TASK_PRIORITY_LABELS[task.priority]}</td>
-                    <td className="py-3 pr-4">{task.assignedTo?.name || '-'}</td>
-                    <td className="py-3">{formatDateShort(task.lastActivityAt)}</td>
+                    <td className="px-5 py-3 text-gray-600">{TASK_TYPE_LABELS[task.type]}</td>
+                    <td className="px-5 py-3 text-gray-600">{TASK_PRIORITY_LABELS[task.priority]}</td>
+                    <td className="px-5 py-3 text-gray-600">{task.assignedTo?.name || '-'}</td>
+                    <td className="px-5 py-3 text-gray-500">{formatDateShort(task.lastActivityAt)}</td>
                   </tr>
                 ))}
                 {tasks.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-gray-500">
+                    <td colSpan={6} className="px-5 py-10 text-center text-gray-500">
                       Talep bulunamadi.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
-          </Card>
+          </div>
         )}
       </div>
 
@@ -468,46 +467,46 @@ export default function CustomerRequestsPage() {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           </div>
         ) : (
-          <div className="space-y-6">
-            <Card className="space-y-2">
+          <div className="space-y-5">
+            <div className="card card-pad space-y-2">
               <div className="text-lg font-semibold text-gray-900">{detailTask.title}</div>
-              <div className="text-sm text-gray-600">{detailTask.description || '-'}</div>
-              <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+              <div className="text-sm text-gray-600 whitespace-pre-wrap">{detailTask.description || '-'}</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
                 <Badge variant={TASK_STATUS_BADGE[normalizeTaskStatus(detailTask.status)] as any}>
                   {TASK_STATUS_LABELS[normalizeTaskStatus(detailTask.status)]}
                 </Badge>
                 <Badge variant={TASK_PRIORITY_BADGE[detailTask.priority] as any}>
                   {TASK_PRIORITY_LABELS[detailTask.priority]}
                 </Badge>
-                <span>{TASK_TYPE_LABELS[detailTask.type]}</span>
+                <span className="chip">{TASK_TYPE_LABELS[detailTask.type]}</span>
                 <span>Atanan: {detailTask.assignedTo?.name || '-'}</span>
                 <span>Olusturma: {formatDate(detailTask.createdAt)}</span>
               </div>
-            </Card>
+            </div>
 
-            <Card className="space-y-4">
+            <div className="card card-pad space-y-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                <MessageSquare className="w-4 h-4" />
+                <MessageSquare className="h-4 w-4 text-primary-600" />
                 Yorumlar
               </div>
               <div className="space-y-3">
                 {detailTask.comments.map((comment) => (
-                  <div key={comment.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>{comment.author?.name || 'Kullanici'}</span>
+                  <div key={comment.id} className="surface p-3">
+                    <div className="flex items-center justify-between text-xs text-gray-400">
+                      <span className="font-medium text-gray-600">{comment.author?.name || 'Kullanici'}</span>
                       <span>{formatDate(comment.createdAt)}</span>
                     </div>
-                    <p className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{comment.body}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">{comment.body}</p>
                   </div>
                 ))}
                 {detailTask.comments.length === 0 && (
-                  <div className="text-sm text-gray-500">Yorum yok.</div>
+                  <div className="text-sm text-gray-400">Yorum yok.</div>
                 )}
               </div>
               <div className="space-y-2">
                 <textarea
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="input"
                   placeholder="Yorum yazin..."
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
@@ -516,11 +515,11 @@ export default function CustomerRequestsPage() {
                   Yorum Ekle
                 </Button>
               </div>
-            </Card>
+            </div>
 
-            <Card className="space-y-4">
+            <div className="card card-pad space-y-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                <Paperclip className="w-4 h-4" />
+                <Paperclip className="h-4 w-4 text-primary-600" />
                 Dosyalar
               </div>
               <div className="space-y-2">
@@ -529,26 +528,28 @@ export default function CustomerRequestsPage() {
                     key={attachment.id}
                     href={attachment.url}
                     target="_blank"
-                    className="block text-sm text-primary-600 hover:underline"
+                    className="inline-flex items-center gap-1.5 text-sm text-primary-600 hover:underline"
                     rel="noreferrer"
                   >
+                    <Paperclip className="h-3.5 w-3.5" />
                     {attachment.originalName} ({Math.round(attachment.size / 1024)} KB)
                   </a>
                 ))}
                 {detailTask.attachments.length === 0 && (
-                  <div className="text-sm text-gray-500">Dosya yok.</div>
+                  <div className="text-sm text-gray-400">Dosya yok.</div>
                 )}
               </div>
               <div className="space-y-2">
                 <input
                   type="file"
+                  className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200"
                   onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
                 />
                 <Button size="sm" onClick={handleUploadAttachment}>
                   Dosya Yukle
                 </Button>
               </div>
-            </Card>
+            </div>
           </div>
         )}
       </Modal>

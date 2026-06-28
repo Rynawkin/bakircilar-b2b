@@ -27,12 +27,20 @@ import { confirmBackorder } from '@/lib/utils/confirm';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
+import { Handshake, ImageOff, BadgeCheck, Hash, CalendarClock } from 'lucide-react';
 
 const PAGE_SIZE = 60;
 const CUSTOMER_PRODUCTS_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
 const AGREEMENT_PRODUCTS_GRID_CLASS = 'grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3 min-[1800px]:grid-cols-4';
 const isCanceledRequest = (error: any) =>
   error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
+
+const formatAgreementDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
 
 export default function AgreementProductsPage() {
   const router = useRouter();
@@ -293,7 +301,7 @@ export default function AgreementProductsPage() {
       });
 
       setQuickAddQuantities((prev) => ({ ...prev, [productId]: 1 }));
-      toast.success('Urun sepete eklendi');
+      toast.success('Ürün sepete eklendi');
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Sepete eklenemedi';
       toast.error(errorMessage);
@@ -316,7 +324,7 @@ export default function AgreementProductsPage() {
         priceType: safePriceType,
         priceMode,
       });
-      toast.success('Urun sepete eklendi');
+      toast.success('Ürün sepete eklendi');
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Sepete eklenemedi';
       toast.error(errorMessage);
@@ -354,23 +362,25 @@ export default function AgreementProductsPage() {
           />
 
           <div className="min-w-0 flex-1">
-            <div className="mb-6 rounded-2xl border border-primary-100 bg-white p-6 shadow-sm">
-              <h1 className="text-2xl font-bold text-gray-900">Anlasmali Urunler</h1>
-              <p className="mt-1 text-sm text-gray-600">
-                Sadece sizin icin tanimlanan anlasmali urun ve fiyatlari listeleyin.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded-full bg-primary-50 px-3 py-1 font-semibold text-primary-700">
-                  {filteredProducts.length} urun listeleniyor
+            <div className="card card-pad mb-6">
+              <div className="flex items-start gap-3">
+                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+                  <Handshake className="h-5 w-5" />
                 </span>
-                {activeFilterCount > 0 && (
-                  <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
-                    {activeFilterCount} aktif filtre
-                  </span>
-                )}
-                {isSearching && (
-                  <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">Arama guncelleniyor</span>
-                )}
+                <div className="min-w-0">
+                  <h1 className="page-title">Anlaşmalı Ürünler</h1>
+                  <p className="page-subtitle">
+                    Size özel tanımlı anlaşma fiyatları. Bu fiyatlar yalnızca sizin firmanız için geçerlidir.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="badge-info">
+                  <Handshake className="h-3 w-3" />
+                  Sadece sizin için
+                </span>
+                <span className="chip">{filteredProducts.length} ürün</span>
+                {activeFilterCount > 0 && <span className="chip">{activeFilterCount} aktif filtre</span>}
               </div>
             </div>
 
@@ -382,25 +392,25 @@ export default function AgreementProductsPage() {
               />
             </div>
 
-            <Card className="mb-6 border border-primary-100 p-5 shadow-sm">
+            <div className="card card-pad mb-6">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-gray-800">Urun Ara</label>
+                  <label className="field-label">Ürün Ara</label>
                   <Input
-                    placeholder="Urun adi veya kodu"
+                    placeholder="Ürün adı veya kodu"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full"
                   />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-gray-800">Depo</label>
+                  <label className="field-label">Depo</label>
                   <select
                     value={selectedWarehouse}
                     onChange={(e) => setSelectedWarehouse(e.target.value)}
                     className="input w-full"
                   >
-                    <option value="">Tum Depolar</option>
+                    <option value="">Tüm Depolar</option>
                     {warehouses.map((warehouse) => (
                       <option key={warehouse} value={warehouse}>
                         {warehouse}
@@ -411,26 +421,19 @@ export default function AgreementProductsPage() {
               </div>
 
               {(search || selectedWarehouse || selectedCategory) && (
-                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 text-xs">
-                  <span className="font-semibold text-gray-600">Aktif filtreler:</span>
-                  {search && <span className="rounded-full bg-primary-50 px-3 py-1 text-primary-700">Arama: {search}</span>}
-                  {selectedWarehouse && (
-                    <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">Depo: {selectedWarehouse}</span>
-                  )}
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--line)] pt-4">
+                  <span className="text-xs font-medium text-gray-500">Aktif filtreler:</span>
+                  {search && <span className="chip">Arama: {search}</span>}
+                  {selectedWarehouse && <span className="chip">Depo: {selectedWarehouse}</span>}
                   {selectedCategory && (
-                    <span className="rounded-full bg-green-50 px-3 py-1 text-green-700">
-                      Kategori: {categories.find((cat) => cat.id === selectedCategory)?.name}
-                    </span>
+                    <span className="chip">Kategori: {categories.find((cat) => cat.id === selectedCategory)?.name}</span>
                   )}
-                  <button
-                    onClick={clearBaseFilters}
-                    className="ml-auto rounded-md border border-red-200 px-3 py-1.5 font-semibold text-red-700 hover:bg-red-50"
-                  >
+                  <button onClick={clearBaseFilters} className="btn-ghost ml-auto px-3 py-1.5 text-xs text-red-600 hover:bg-red-50">
                     Filtreleri Temizle
                   </button>
                 </div>
               )}
-            </Card>
+            </div>
 
             <div className="mb-6">
               <AdvancedFilters
@@ -448,11 +451,11 @@ export default function AgreementProductsPage() {
               <Card>
                 <EmptyState
                   icon={search || selectedCategory || selectedWarehouse ? 'search' : 'products'}
-                  title={search || selectedCategory || selectedWarehouse ? 'Urun bulunamadi' : 'Anlasmali urun bulunamadi'}
+                  title={search || selectedCategory || selectedWarehouse ? 'Ürün bulunamadı' : 'Anlaşmalı ürün bulunamadı'}
                   description={
                     search || selectedCategory || selectedWarehouse
-                      ? 'Arama veya filtre kriterlerini degistirip tekrar deneyebilirsiniz.'
-                      : 'Anlasmali urun tanimlari tamamlandiginda burada listelenecektir.'
+                      ? 'Arama veya filtre kriterlerini değiştirip tekrar deneyebilirsiniz.'
+                      : 'Size özel anlaşma tanımları tamamlandığında ürünler burada listelenecektir.'
                   }
                   actionLabel={search || selectedCategory || selectedWarehouse ? 'Filtreleri Temizle' : undefined}
                   onAction={search || selectedCategory || selectedWarehouse ? clearBaseFilters : undefined}
@@ -461,10 +464,10 @@ export default function AgreementProductsPage() {
             ) : (
               <div className="relative">
                 {isSearching && (
-                  <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-white/60 pt-4 backdrop-blur-[2px]">
+                  <div className="absolute inset-0 z-10 flex items-start justify-center rounded-xl bg-white/70 pt-6 backdrop-blur-[2px]">
                     <div className="flex items-center gap-2 rounded-full bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                      Araniyor...
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Aranıyor…
                     </div>
                   </div>
                 )}
@@ -517,103 +520,215 @@ export default function AgreementProductsPage() {
                     );
                     const selectedVatLabel = getVatLabel(selectedPriceType, vatDisplayPreference);
                     const invoicedVatLabel = getVatLabel('INVOICED', vatDisplayPreference);
+                    const whiteVatLabel = getVatLabel('WHITE', vatDisplayPreference);
+
+                    // "Sadece sizin icin" avantaji: anlasma fiyatini standart liste fiyatiyla kiyasla.
+                    // product.prices = anlasma uygulanmis fiyat, product.listPrices = standart liste fiyati.
+                    const standardSelectedPrice =
+                      selectedPriceType === 'INVOICED' ? product.listPrices?.invoiced : product.listPrices?.white;
+                    const displayStandardSelectedPrice =
+                      typeof standardSelectedPrice === 'number'
+                        ? getDisplayPrice(standardSelectedPrice, product.vatRate, selectedPriceType, vatDisplayPreference)
+                        : undefined;
+                    const agreementDiscount = getDiscountPercent(standardSelectedPrice, selectedPrice);
+                    const showAgreementSaving =
+                      hasAgreement && displayStandardSelectedPrice !== undefined && displayStandardSelectedPrice > displaySelectedPrice;
+
+                    const vatPercent = Math.round((Number(product.vatRate) || 0) * 100);
+                    const stockCount = Number(getDisplayStock(product));
+                    const customerProductCode = product.agreement?.customerProductCode;
+                    const validFromLabel = formatAgreementDate(product.agreement?.validFrom);
+                    const validToLabel = formatAgreementDate(product.agreement?.validTo);
+                    const validityLabel = validFromLabel
+                      ? validToLabel
+                        ? `${validFromLabel} – ${validToLabel}`
+                        : `${validFromLabel} tarihinden itibaren`
+                      : validToLabel
+                        ? `${validToLabel} tarihine kadar`
+                        : null;
 
                     return (
-                      <Card key={product.id} className="flex flex-col gap-4 p-4">
-                        <div className="flex gap-4">
+                      <div
+                        key={product.id}
+                        className="card card-hover group relative flex flex-col gap-3 p-4 ring-1 ring-inset ring-primary-100/60"
+                      >
+                        {/* Size ozel anlasma seridi */}
+                        <div className="-mx-4 -mt-4 mb-1 flex items-center gap-1.5 rounded-t-xl bg-primary-50 px-4 py-1.5 text-[11px] font-semibold text-primary-700">
+                          <Handshake className="h-3.5 w-3.5" />
+                          Size özel anlaşma fiyatı
+                        </div>
+
+                        <div className="flex gap-3">
                           <button
                             onClick={() => openProductModal(product)}
-                            className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white"
+                            className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-gray-50"
                           >
                             {product.imageUrl ? (
-                              <img src={product.imageUrl} alt={product.name} className="h-full w-full object-contain" />
+                              <img
+                                src={product.imageUrl}
+                                alt={product.name}
+                                className="h-full w-full object-contain p-1 transition-transform duration-300 group-hover:scale-105"
+                              />
                             ) : (
-                              <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">Gorsel yok</div>
+                              <div className="flex h-full w-full items-center justify-center text-gray-300">
+                                <ImageOff className="h-7 w-7" />
+                              </div>
+                            )}
+                            {stockCount > 0 ? (
+                              <span className="absolute right-1 top-1 rounded-md bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-emerald-700 shadow-sm ring-1 ring-emerald-200 backdrop-blur">
+                                Stok {getDisplayStock(product)} {product.unit}
+                              </span>
+                            ) : (
+                              <span className="absolute right-1 top-1 rounded-md bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-amber-700 shadow-sm ring-1 ring-amber-200 backdrop-blur">
+                                Tedarikle
+                              </span>
                             )}
                           </button>
 
                           <div className="min-w-0 flex-1">
                             <button
-                              className="text-left text-sm font-semibold text-gray-900 hover:text-primary-700"
+                              className="text-left text-sm font-semibold leading-snug text-gray-900 transition-colors hover:text-primary-600"
                               onClick={() => openProductModal(product)}
                             >
                               <ProductNameTooltip name={product.name} />
                             </button>
-                            <div className="mt-1 text-xs text-gray-500">Kod: {product.mikroCode}</div>
-                            <div className="mt-1 text-xs text-gray-500">Kategori: {product.category.name}</div>
-                            {unitLabel && <div className="mt-1 text-xs text-gray-500">{unitLabel}</div>}
-                            <div className="mt-1 text-xs text-gray-600">
-                              Stok: {getDisplayStock(product)} {product.unit}
+
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span className="font-mono text-[10px] text-gray-400">{product.mikroCode}</span>
+                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                                {product.category.name}
+                              </span>
                             </div>
-                            {product.agreement && (
-                              <div className="mt-2 inline-flex rounded bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
-                                Anlasma min miktar: {product.agreement.minQuantity} {product.unit}
-                              </div>
-                            )}
-                            {product.agreement?.customerProductCode && (
-                              <div className="mt-1 text-[11px] text-blue-700">
-                                Musteri urun kodu: {product.agreement.customerProductCode}
-                              </div>
-                            )}
+
+                            {unitLabel && <div className="mt-1 text-[11px] text-gray-500">{unitLabel}</div>}
+
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-gray-400">
+                              <span>KDV: %{vatPercent}</span>
+                              {product.agreement && (
+                                <span>
+                                  Min. miktar: {product.agreement.minQuantity} {product.unit}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
 
+                        {/* Anlasma detaylari: musteri urun kodu + gecerlilik (sadece sizin icin) */}
+                        {(customerProductCode || validityLabel || product.agreement) && (
+                          <div className="surface flex flex-col gap-1.5 px-3 py-2 text-[11px]">
+                            {product.agreement && (
+                              <div className="flex items-center gap-1.5 text-primary-700">
+                                <BadgeCheck className="h-3.5 w-3.5 flex-shrink-0" />
+                                <span className="font-semibold">
+                                  Min. {product.agreement.minQuantity} {product.unit} sipariş ile anlaşma fiyatı
+                                </span>
+                              </div>
+                            )}
+                            {customerProductCode && (
+                              <div className="flex items-center gap-1.5 text-gray-600">
+                                <Hash className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+                                <span>
+                                  Sizin ürün kodunuz:{' '}
+                                  <span className="font-mono font-semibold text-gray-800">{customerProductCode}</span>
+                                </span>
+                              </div>
+                            )}
+                            {validityLabel && (
+                              <div className="flex items-center gap-1.5 text-gray-600">
+                                <CalendarClock className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+                                <span>Geçerlilik: {validityLabel}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {showPriceTypeSelector ? (
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-2 gap-1.5">
                             {allowedPriceTypes.includes('INVOICED') && (
                               <button
-                                className={`rounded-lg border-2 px-3 py-2 text-left text-xs font-semibold ${
+                                onClick={() => setQuickAddPriceTypes((prev) => ({ ...prev, [product.id]: 'INVOICED' }))}
+                                className={`rounded-lg border px-2 py-2 text-left transition-all ${
                                   selectedPriceType === 'INVOICED'
-                                    ? 'border-primary-600 bg-primary-50 text-primary-700'
-                                    : 'border-gray-200 text-gray-700 hover:border-primary-300'
+                                    ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
+                                    : 'border-gray-200 bg-white text-gray-700 hover:border-primary-300 hover:bg-primary-50'
                                 }`}
-                                onClick={() =>
-                                  setQuickAddPriceTypes((prev) => ({
-                                    ...prev,
-                                    [product.id]: 'INVOICED',
-                                  }))
-                                }
                               >
-                                <div>Faturali</div>
-                                <div className="font-bold">{formatCurrency(displayInvoicedPrice)}</div>
-                                <div className="mt-1 text-[10px] opacity-70">{invoicedVatLabel}</div>
+                                <div
+                                  className={`mb-0.5 text-[10px] font-medium ${
+                                    selectedPriceType === 'INVOICED' ? 'opacity-80' : 'text-gray-500'
+                                  }`}
+                                >
+                                  Faturalı
+                                </div>
+                                <div className="text-sm font-bold">{formatCurrency(displayInvoicedPrice)}</div>
+                                <div
+                                  className={`mt-0.5 text-[10px] ${
+                                    selectedPriceType === 'INVOICED' ? 'opacity-60' : 'text-gray-400'
+                                  }`}
+                                >
+                                  {invoicedVatLabel}
+                                </div>
                               </button>
                             )}
                             {allowedPriceTypes.includes('WHITE') && (
                               <button
-                                className={`rounded-lg border-2 px-3 py-2 text-left text-xs font-semibold ${
+                                onClick={() => setQuickAddPriceTypes((prev) => ({ ...prev, [product.id]: 'WHITE' }))}
+                                className={`rounded-lg border px-2 py-2 text-left transition-all ${
                                   selectedPriceType === 'WHITE'
-                                    ? 'border-gray-700 bg-gray-100 text-gray-800'
-                                    : 'border-gray-200 text-gray-700 hover:border-gray-400'
+                                    ? 'border-gray-800 bg-gray-800 text-white shadow-sm'
+                                    : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                                 }`}
-                                onClick={() =>
-                                  setQuickAddPriceTypes((prev) => ({
-                                    ...prev,
-                                    [product.id]: 'WHITE',
-                                  }))
-                                }
                               >
-                                <div>Beyaz</div>
-                                <div className="font-bold">{formatCurrency(displayWhitePrice)}</div>
-                                <div className="mt-1 text-[10px] opacity-70">{getVatLabel('WHITE', vatDisplayPreference)}</div>
+                                <div
+                                  className={`mb-0.5 text-[10px] font-medium ${
+                                    selectedPriceType === 'WHITE' ? 'opacity-80' : 'text-gray-500'
+                                  }`}
+                                >
+                                  Beyaz
+                                </div>
+                                <div className="text-sm font-bold">{formatCurrency(displayWhitePrice)}</div>
+                                <div
+                                  className={`mt-0.5 text-[10px] ${
+                                    selectedPriceType === 'WHITE' ? 'opacity-60' : 'text-gray-400'
+                                  }`}
+                                >
+                                  {whiteVatLabel}
+                                </div>
                               </button>
                             )}
                           </div>
                         ) : (
-                          <div className="rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
-                            <div>{selectedPriceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}</div>
-                            <div className="font-bold">{formatCurrency(displaySelectedPrice)}</div>
-                            {showExcessPricing && displaySelectedExcessPrice !== undefined && (
-                              <div className="text-[10px] font-semibold text-green-700">
-                                Fazla stok fiyati: {formatCurrency(displaySelectedExcessPrice)}
-                                {selectedExcessDiscount && <span> (-%{selectedExcessDiscount})</span>}
-                              </div>
-                            )}
-                            <div className="mt-1 text-[10px] opacity-70">{selectedVatLabel}</div>
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                            <div className="mb-0.5 text-[10px] font-medium text-gray-500">
+                              {selectedPriceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
+                            </div>
+                            <div className="text-base font-bold text-gray-900">{formatCurrency(displaySelectedPrice)}</div>
+                            <div className="mt-0.5 text-[10px] text-gray-400">{selectedVatLabel}</div>
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2">
+                        {/* Sadece sizin icin avantaji: standart fiyat -> anlasma fiyati + avantaj */}
+                        {showAgreementSaving && (
+                          <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
+                            <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
+                              <span className="text-emerald-600/50 line-through">{formatCurrency(displayStandardSelectedPrice)}</span>
+                              <span className="text-emerald-400">→</span>
+                              <span className="text-sm font-bold">{formatCurrency(displaySelectedPrice)}</span>
+                            </span>
+                            {agreementDiscount && <span className="badge-success">size özel %{agreementDiscount}</span>}
+                          </div>
+                        )}
+
+                        {/* Stok yetersiz - tedarik bilgisi (getirtilebilir ama gecikebilir) */}
+                        {stockCount <= 0 && (
+                          <div className="rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-1.5">
+                            <span className="text-[10px] leading-snug text-amber-700">
+                              Stokta yok — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="mt-auto flex items-center gap-2 pt-1">
                           <Input
                             type="text"
                             inputMode="numeric"
@@ -631,19 +746,19 @@ export default function AgreementProductsPage() {
                                 setQuickAddQuantities((prev) => ({ ...prev, [product.id]: 1 }));
                               }
                             }}
-                            className="h-10 w-16 rounded-lg border-2 border-gray-200 px-2 text-center text-sm font-bold"
+                            className="h-10 w-14 rounded-lg border border-gray-200 text-center text-sm font-bold"
                           />
-                          <span className="text-xs text-gray-500">{product.unit}</span>
+                          <span className="w-8 flex-shrink-0 text-xs font-medium text-gray-500">{product.unit}</span>
                           <Button
                             size="sm"
-                            className="h-10 flex-1 bg-green-600 text-xs font-semibold text-white hover:bg-green-700"
+                            className="h-10 flex-1 bg-primary-600 text-xs font-semibold text-white hover:bg-primary-700"
                             onClick={() => handleQuickAdd(product)}
                             isLoading={addingToCart[product.id]}
                           >
                             Sepete Ekle
                           </Button>
                         </div>
-                      </Card>
+                      </div>
                     );
                   })}
                 </div>
@@ -651,7 +766,7 @@ export default function AgreementProductsPage() {
                 {hasMore && (
                   <div className="mt-6 flex justify-center">
                     <Button className="px-6" onClick={handleLoadMore} isLoading={isLoadingMore}>
-                      Daha Fazla Urun Yukle
+                      Daha Fazla Ürün Yükle
                     </Button>
                   </div>
                 )}

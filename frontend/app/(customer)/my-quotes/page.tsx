@@ -1,29 +1,62 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import customerApi from '@/lib/api/customer';
 import { Quote } from '@/types';
 import { useAuthStore } from '@/lib/store/authStore';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
+import {
+  FileText,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Send,
+  Calendar,
+  Package,
+  ChevronRight,
+} from 'lucide-react';
 
 const getStatusBadge = (status: string) => {
   switch (status) {
     case 'PENDING_APPROVAL':
-      return <Badge variant="warning">Onay Bekliyor</Badge>;
+      return (
+        <span className="badge-warning">
+          <Clock className="h-3 w-3" />
+          Onay Bekliyor
+        </span>
+      );
     case 'SENT_TO_MIKRO':
-      return <Badge variant="success">Gonderildi</Badge>;
+      return (
+        <span className="badge-info">
+          <Send className="h-3 w-3" />
+          Gönderildi
+        </span>
+      );
     case 'REJECTED':
-      return <Badge variant="danger">Reddedildi</Badge>;
+      return (
+        <span className="badge-danger">
+          <XCircle className="h-3 w-3" />
+          Reddedildi
+        </span>
+      );
     case 'CUSTOMER_ACCEPTED':
-      return <Badge variant="success">Kabul Edildi</Badge>;
+      return (
+        <span className="badge-success">
+          <CheckCircle2 className="h-3 w-3" />
+          Kabul Edildi
+        </span>
+      );
     case 'CUSTOMER_REJECTED':
-      return <Badge variant="danger">Red Edildi</Badge>;
+      return (
+        <span className="badge-danger">
+          <XCircle className="h-3 w-3" />
+          Red Edildi
+        </span>
+      );
     default:
-      return <Badge>{status}</Badge>;
+      return <span className="badge-neutral">{status}</span>;
   }
 };
 
@@ -51,59 +84,78 @@ export default function MyQuotesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50 to-gray-100">
-
-
+    <div className="min-h-screen bg-gray-50">
       <div className="container-custom py-8">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-primary-100">
+            <FileText className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="page-title">Tekliflerim</h1>
+            <p className="page-subtitle">Size sunulan tekliflerin durumu ve detayları.</p>
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+            <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600"></div>
           </div>
         ) : quotes.length === 0 ? (
-          <Card>
-            <div className="text-center py-12">
-              <p className="text-gray-600 mb-4">Henuz teklifiniz bulunmuyor</p>
-              <Button onClick={() => router.push('/products')}>
-                Urunleri Incele
-              </Button>
+          <div className="card card-pad text-center">
+            <div className="py-10">
+              <FileText className="mx-auto mb-3 h-12 w-12 text-gray-300" />
+              <p className="mb-4 text-sm text-gray-500">Henüz teklifiniz bulunmuyor.</p>
+              <Button onClick={() => router.push('/products')}>Ürünleri İncele</Button>
             </div>
-          </Card>
+          </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {quotes.map((quote) => (
-              <Card key={quote.id} className="shadow-xl border-2 border-primary-100 bg-white">
-                <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6 pb-6 border-b-2 border-gray-100">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-2xl font-bold text-gray-900">Teklif #{quote.quoteNumber}</h3>
+              <button
+                key={quote.id}
+                onClick={() => router.push(`/my-quotes/${quote.id}`)}
+                className="card card-hover w-full text-left"
+              >
+                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-2 flex flex-wrap items-center gap-2.5">
+                      <h3 className="text-base font-semibold text-gray-900">
+                        Teklif #{quote.quoteNumber}
+                      </h3>
                       {getStatusBadge(quote.status)}
                     </div>
-                    <div className="text-sm text-gray-600">
-                      Olusturma: {formatDate(quote.createdAt)}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                        Oluşturma: {formatDate(quote.createdAt)}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-gray-400" />
+                        Geçerlilik: {formatDate(quote.validityDate)}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Package className="h-3.5 w-3.5 text-gray-400" />
+                        {quote.items.length} ürün
+                      </span>
+                      {quote.mikroNumber && (
+                        <span className="chip font-mono">Mikro No: {quote.mikroNumber}</span>
+                      )}
                     </div>
-                    <div className="text-sm text-gray-600">
-                      Gecerlilik: {formatDate(quote.validityDate)}
-                    </div>
-                    {quote.mikroNumber && (
-                      <div className="mt-2 text-xs text-blue-700">
-                        Mikro No: {quote.mikroNumber}
-                      </div>
-                    )}
                   </div>
-                  <div className="text-right bg-gradient-to-br from-primary-50 to-primary-100 rounded-xl p-4 border-2 border-primary-200">
-                    <p className="text-sm text-gray-600 mb-1">Toplam Tutar</p>
-                    <p className="text-3xl font-bold text-primary-700">
-                      {formatCurrency(quote.grandTotal)}
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">{quote.items.length} urun</p>
+
+                  <div className="flex items-center gap-4 sm:flex-shrink-0">
+                    <div className="text-right">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                        Toplam Tutar
+                      </p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {formatCurrency(quote.grandTotal)}
+                      </p>
+                    </div>
+                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-gray-300" />
                   </div>
                 </div>
-                <div className="flex justify-end">
-                  <Button variant="secondary" onClick={() => router.push(`/my-quotes/${quote.id}`)}>
-                    Detay
-                  </Button>
-                </div>
-              </Card>
+              </button>
             ))}
           </div>
         )}

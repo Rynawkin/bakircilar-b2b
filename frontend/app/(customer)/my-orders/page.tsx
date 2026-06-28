@@ -6,10 +6,20 @@ import { Order } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { apiClient } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/store/authStore';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
+import {
+  ClipboardList,
+  Package,
+  Warehouse,
+  CalendarDays,
+  MapPin,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  StickyNote,
+  ArrowRight,
+} from 'lucide-react';
 
 type WarehouseStatus =
   | 'PENDING'
@@ -28,13 +38,14 @@ interface PendingWarehouseOrder {
   warehouseStatus?: WarehouseStatus;
 }
 
-const warehouseStatusMeta: Record<WarehouseStatus, { label: string; variant: 'default' | 'info' | 'warning' | 'success' | 'danger' }> = {
-  PENDING: { label: 'Beklemede', variant: 'default' },
-  PICKING: { label: 'Toplaniyor', variant: 'warning' },
-  READY_FOR_LOADING: { label: 'Yuklemeye Hazir', variant: 'info' },
-  PARTIALLY_LOADED: { label: 'Kismi Yuklendi', variant: 'warning' },
-  LOADED: { label: 'Yuklendi', variant: 'success' },
-  DISPATCHED: { label: 'Sevk Edildi', variant: 'success' },
+// Tek dil: depo durumlari .badge-* sinifina eslenir
+const warehouseStatusMeta: Record<WarehouseStatus, { label: string; badgeClass: string }> = {
+  PENDING: { label: 'Beklemede', badgeClass: 'badge-neutral' },
+  PICKING: { label: 'Toplanıyor', badgeClass: 'badge-warning' },
+  READY_FOR_LOADING: { label: 'Yüklemeye Hazır', badgeClass: 'badge-info' },
+  PARTIALLY_LOADED: { label: 'Kısmi Yüklendi', badgeClass: 'badge-warning' },
+  LOADED: { label: 'Yüklendi', badgeClass: 'badge-success' },
+  DISPATCHED: { label: 'Sevk Edildi', badgeClass: 'badge-success' },
 };
 
 export default function OrdersPage() {
@@ -65,22 +76,49 @@ export default function OrdersPage() {
     }
   };
 
+  // Siparis durumu -> tek renk dili (.badge-*)
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'PENDING':
-        return <Badge variant="warning">Bekliyor</Badge>;
+        return (
+          <span className="badge-warning">
+            <Clock className="h-3 w-3" strokeWidth={2.5} />
+            Bekliyor
+          </span>
+        );
       case 'APPROVED':
-        return <Badge variant="success">Onaylandi</Badge>;
+        return (
+          <span className="badge-success">
+            <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} />
+            Onaylandı
+          </span>
+        );
       case 'REJECTED':
-        return <Badge variant="danger">Reddedildi</Badge>;
+        return (
+          <span className="badge-danger">
+            <XCircle className="h-3 w-3" strokeWidth={2.5} />
+            Reddedildi
+          </span>
+        );
       default:
-        return <Badge>{status}</Badge>;
+        return <span className="badge-neutral">{status}</span>;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50 to-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <div className="container-custom py-8 space-y-6">
+        {/* Sayfa basligi */}
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+            <ClipboardList className="h-5 w-5" strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <h1 className="page-title">Siparişlerim</h1>
+            <p className="page-subtitle">Siparişlerinizin durumunu ve detaylarını buradan takip edin.</p>
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="flex justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -88,123 +126,158 @@ export default function OrdersPage() {
         ) : (
           <>
             {pendingWarehouseOrders.length > 0 && (
-              <Card className="border-2 border-cyan-100 bg-gradient-to-br from-cyan-50 to-white">
-                <div className="flex items-center justify-between gap-3 mb-4">
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900">Depo Surecindeki Acik Siparisler</h2>
-                    <p className="text-sm text-slate-600">Toplama ve yukleme adimlarini buradan takip edebilirsiniz.</p>
+              <div className="card card-pad">
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+                      <Warehouse className="h-5 w-5" strokeWidth={2} />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="text-base font-semibold text-gray-900">Depo Sürecindeki Açık Siparişler</h2>
+                      <p className="page-subtitle">Toplama ve yükleme adımlarını buradan takip edebilirsiniz.</p>
+                    </div>
                   </div>
-                  <Button variant="secondary" onClick={() => router.push('/pending-orders')}>
-                    Tumunu Gor
-                  </Button>
+                  <button
+                    className="btn-secondary flex-shrink-0"
+                    onClick={() => router.push('/pending-orders')}
+                  >
+                    Tümünü Gör
+                    <ArrowRight className="h-4 w-4" strokeWidth={2} />
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   {pendingWarehouseOrders.slice(0, 6).map((order) => {
                     const status = warehouseStatusMeta[order.warehouseStatus || 'PENDING'];
                     return (
-                      <div key={order.mikroOrderNumber} className="rounded-xl border border-cyan-200 bg-white p-3">
+                      <div key={order.mikroOrderNumber} className="surface p-3">
                         <div className="flex justify-between items-center gap-2 mb-2">
-                          <p className="font-black text-slate-900">{order.mikroOrderNumber}</p>
-                          <Badge variant={status.variant}>{status.label}</Badge>
+                          <p className="font-semibold text-gray-900 truncate">{order.mikroOrderNumber}</p>
+                          <span className={status.badgeClass}>{status.label}</span>
                         </div>
-                        <p className="text-xs text-slate-600">{order.itemCount} kalem</p>
-                        <p className="text-xs text-slate-600">Tarih: {formatDate(order.orderDate)}</p>
-                        <p className="text-sm font-bold text-cyan-700 mt-1">{formatCurrency(order.grandTotal)}</p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                          <span className="inline-flex items-center gap-1">
+                            <Package className="h-3 w-3 text-gray-400" strokeWidth={2} />
+                            {order.itemCount} kalem
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <CalendarDays className="h-3 w-3 text-gray-400" strokeWidth={2} />
+                            {formatDate(order.orderDate)}
+                          </span>
+                        </div>
+                        <p className="text-sm font-bold text-gray-900 mt-2">{formatCurrency(order.grandTotal)}</p>
                       </div>
                     );
                   })}
                 </div>
-              </Card>
+              </div>
             )}
 
             {orders.length === 0 ? (
-              <Card>
-                <div className="text-center py-12">
-                  <p className="text-gray-600 mb-4">Henuz siparisiniz bulunmuyor</p>
-                  <Button onClick={() => router.push('/products')}>Urunleri Incele</Button>
+              <div className="card card-pad">
+                <div className="flex flex-col items-center justify-center text-center py-12">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400 mb-4">
+                    <ClipboardList className="h-6 w-6" strokeWidth={1.75} />
+                  </span>
+                  <p className="text-gray-600 mb-4">Henüz siparişiniz bulunmuyor</p>
+                  <Button onClick={() => router.push('/products')}>Ürünleri İncele</Button>
                 </div>
-              </Card>
+              </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 {orders.map((order) => (
-                  <Card key={order.id} className="shadow-xl border-2 border-primary-100 bg-white hover:shadow-2xl transition-shadow">
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6 pb-6 border-b-2 border-gray-100">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-2xl font-bold text-gray-900">Siparis #{order.orderNumber}</h3>
+                  <div key={order.id} className="card card-hover overflow-hidden">
+                    {/* Siparis basligi */}
+                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 p-5 border-b border-[var(--line)]">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2.5 flex-wrap mb-1.5">
+                          <h3 className="text-lg font-semibold text-gray-900">Sipariş #{order.orderNumber}</h3>
                           {getStatusBadge(order.status)}
                         </div>
-                        <div className="text-sm text-gray-600 mb-2">{formatDate(order.createdAt)}</div>
-                        {order.requestedBy && (
-                          <div className="text-xs text-gray-600 mb-2">
-                            Talep eden: {order.requestedBy.name}
-                            {order.requestedBy.email ? ` (${order.requestedBy.email})` : ''}
-                          </div>
-                        )}
-                        {order.customerOrderNumber && (
-                          <div className="text-xs text-gray-600 mb-2">Musteri Siparis No: {order.customerOrderNumber}</div>
-                        )}
-                        {order.deliveryLocation && (
-                          <div className="text-xs text-gray-600 mb-2">Teslimat: {order.deliveryLocation}</div>
-                        )}
+                        <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-2">
+                          <CalendarDays className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                          {formatDate(order.createdAt)}
+                        </div>
+                        <div className="space-y-1">
+                          {order.requestedBy && (
+                            <div className="text-xs text-gray-500">
+                              Talep eden: {order.requestedBy.name}
+                              {order.requestedBy.email ? ` (${order.requestedBy.email})` : ''}
+                            </div>
+                          )}
+                          {order.customerOrderNumber && (
+                            <div className="text-xs text-gray-500">Müşteri Sipariş No: {order.customerOrderNumber}</div>
+                          )}
+                          {order.deliveryLocation && (
+                            <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                              <MapPin className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                              Teslimat: {order.deliveryLocation}
+                            </div>
+                          )}
+                        </div>
                         {order.approvedAt && (
-                          <div className="bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-sm font-semibold inline-block">
-                            Onaylandi: {formatDate(order.approvedAt)}
+                          <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-1.5 text-xs font-medium text-emerald-700">
+                            <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.5} />
+                            Onaylandı: {formatDate(order.approvedAt)}
                           </div>
                         )}
                         {order.adminNote && (
-                          <div className="mt-3 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded-lg">
-                            <p className="text-xs font-semibold text-yellow-800 mb-1">Admin Notu:</p>
-                            <p className="text-sm text-yellow-700">{order.adminNote}</p>
+                          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5">
+                            <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 mb-1">
+                              <StickyNote className="h-3.5 w-3.5" strokeWidth={2.5} />
+                              Admin Notu
+                            </p>
+                            <p className="text-sm text-amber-700">{order.adminNote}</p>
                           </div>
                         )}
                       </div>
-                      <div className="text-right bg-gradient-to-br from-primary-50 to-primary-100 rounded-xl p-4 border-2 border-primary-200">
-                        <p className="text-sm text-gray-600 mb-1">Toplam Tutar</p>
-                        <p className="text-3xl font-bold text-primary-700">{formatCurrency(order.totalAmount)}</p>
-                        <p className="text-xs text-gray-600 mt-1">{order.items.length} urun</p>
+                      <div className="text-right sm:min-w-[180px]">
+                        <p className="text-xs text-gray-500 mb-0.5">Toplam Tutar</p>
+                        <p className="text-2xl font-bold text-gray-900">{formatCurrency(order.totalAmount)}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{order.items.length} ürün</p>
                       </div>
                     </div>
 
-                    <div>
-                      <p className="text-lg font-bold text-gray-900 mb-4">Siparis Detaylari ({order.items.length} urun)</p>
-                      <div className="space-y-3">
+                    {/* Siparis detaylari */}
+                    <div className="p-5">
+                      <p className="text-sm font-semibold text-gray-900 mb-3">
+                        Sipariş Detayları ({order.items.length} ürün)
+                      </p>
+                      <div className="space-y-2">
                         {order.items.map((item) => (
                           <div
                             key={item.id}
-                            className="bg-gradient-to-r from-gray-50 to-white rounded-xl p-4 border-2 border-gray-200 hover:border-primary-300 hover:shadow-md transition-all"
+                            className="surface px-4 py-3 transition-colors hover:border-primary-200"
                           >
                             <div className="flex justify-between items-start gap-4">
-                              <div className="flex-1">
-                                <p className="font-bold text-gray-900 text-lg mb-1">
-                                  {item.productName || (item as any).product?.name || 'Urun'}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-gray-900 mb-1">
+                                  {item.productName || (item as any).product?.name || 'Ürün'}
                                 </p>
-                                <div className="flex flex-wrap gap-2 items-center">
-                                  <span className="text-sm text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">
+                                <div className="flex flex-wrap gap-1.5 items-center">
+                                  <span className="text-[11px] text-gray-400 font-mono">
                                     {item.mikroCode || (item as any).product?.mikroCode || '-'}
                                   </span>
-                                  <Badge
-                                    variant={item.priceType === 'INVOICED' ? 'info' : 'default'}
-                                    className="text-xs font-semibold"
-                                  >
-                                    {item.priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
-                                  </Badge>
+                                  <span className={item.priceType === 'INVOICED' ? 'badge-info' : 'badge-neutral'}>
+                                    {item.priceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
+                                  </span>
                                 </div>
-                                {item.lineNote && <p className="text-xs text-gray-500 mt-2">Not: {item.lineNote}</p>}
+                                {item.lineNote && (
+                                  <p className="text-xs text-gray-400 mt-1.5">Not: {item.lineNote}</p>
+                                )}
                               </div>
-                              <div className="text-right">
-                                <p className="text-sm text-gray-600 mb-1">
+                              <div className="text-right flex-shrink-0">
+                                <p className="text-xs text-gray-500 mb-0.5">
                                   {item.quantity} x {formatCurrency(item.unitPrice)}
                                 </p>
-                                <p className="text-xl font-bold text-primary-600">{formatCurrency(item.totalPrice)}</p>
+                                <p className="text-base font-bold text-gray-900">{formatCurrency(item.totalPrice)}</p>
                               </div>
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 ))}
               </div>
             )}

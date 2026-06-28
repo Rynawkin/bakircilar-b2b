@@ -3,15 +3,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import {
+  ShoppingCart,
+  FileText,
+  Circle,
+  Trash2,
+  Minus,
+  Plus,
+  Wallet,
+  Info,
+  Check,
+  AlertTriangle,
+  Sparkles,
+} from 'lucide-react';
 import { Product } from '@/types';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import customerApi from '@/lib/api/customer';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
@@ -35,6 +46,10 @@ export default function CartPage() {
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const [recommendationGroups, setRecommendationGroups] = useState<RecommendationGroup[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
+  // Siparis olusturulurken stok yetersiz cikan kalemleri isaretleriz; bu kalemlerde
+  // "tedarik edilebilir, teslim gecikebilir" uyarisi gosteririz. Veri uretmez, sadece
+  // backend'in bildirdigi gercek stok sorununu kalem bazinda gorsellestirir.
+  const [stockShortNames, setStockShortNames] = useState<string[]>([]);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -66,6 +81,18 @@ export default function CartPage() {
     const ids = cart.items.map((item) => item.product.id).sort();
     return ids.join('|');
   }, [cart?.items]);
+
+  // Bir kalemin stok sorunlu olup olmadigini, backend'in dondurdugu uyari metinlerinden
+  // urun adi / Mikro kodu eslestirerek belirleriz.
+  const isItemStockShort = (productName: string, mikroCode: string) => {
+    if (stockShortNames.length === 0) return false;
+    const name = (productName || '').toLowerCase();
+    const code = (mikroCode || '').toLowerCase();
+    return stockShortNames.some((detail) => {
+      const d = (detail || '').toLowerCase();
+      return (name && d.includes(name)) || (code && d.includes(code));
+    });
+  };
 
   const fetchRecommendations = async () => {
     if (!cartSignature) {
@@ -189,6 +216,7 @@ Toplam: ${formatCurrency(cart.total)}`,
             await fetchCart();
             setCustomerOrderNumber('');
             setDeliveryLocation('');
+            setStockShortNames([]);
             toast.success(`Siparis olusturuldu!
 Siparis No: ${result.orderNumber}`, {
               duration: 4000,
@@ -204,7 +232,11 @@ Siparis No: ${result.orderNumber}`, {
           }
         } catch (error: any) {
           if (!isSubUser && error.response?.data?.error === 'INSUFFICIENT_STOCK') {
-            toast.error(`Stok yetersiz!\n${error.response.data.details.join('\n')}`, {
+            const details: string[] = Array.isArray(error.response.data.details)
+              ? error.response.data.details
+              : [];
+            setStockShortNames(details);
+            toast.error(`Stok yetersiz!\n${details.join('\n')}`, {
               duration: 5000,
             });
           } else {
@@ -217,25 +249,51 @@ Siparis No: ${result.orderNumber}`, {
     );
   };
 
+  const invoicedCount = cart?.items.filter((i) => i.priceType === 'INVOICED').length ?? 0;
+  const whiteCount = cart?.items.filter((i) => i.priceType === 'WHITE').length ?? 0;
+
+  const totalItemCount = cart?.items.length ?? 0;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
-
-
+    <div className="min-h-screen bg-[var(--surface-0)]">
       <div className="container-custom py-8">
         <div className="max-w-4xl mx-auto">
+          {/* ── Sayfa basligi ─────────────────────────────────────── */}
+          <div className="mb-6 flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-primary-100">
+              <ShoppingCart className="h-5 w-5" />
+            </span>
+            <div>
+              <h1 className="page-title">{isSubUser ? 'Talep Sepeti' : 'Sepetim'}</h1>
+              <p className="page-subtitle">
+                {totalItemCount > 0
+                  ? `Sepetinizde ${totalItemCount} ürün bulunuyor`
+                  : 'Henüz ürün eklemediniz'}
+              </p>
+            </div>
+          </div>
+
           {!cart || cart.items.length === 0 ? (
-            <Card>
-              <EmptyState
-                icon="cart"
-                title="Sepetiniz Boş"
-                description="Henüz sepetinize ürün eklemediniz. Ürünleri inceleyerek alışverişe başlayın."
-                actionLabel="🛍️ Ürünleri İncele"
-                onAction={() => router.push('/products')}
-              />
-            </Card>
+            /* ── Bos sepet ───────────────────────────────────────── */
+            <div className="card card-pad">
+              <div className="flex flex-col items-center justify-center py-14 px-4 text-center">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-50 ring-1 ring-primary-100">
+                  <ShoppingCart className="h-9 w-9 text-primary-600" strokeWidth={1.75} />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">Sepetiniz boş</h3>
+                <p className="text-sm text-gray-500 max-w-md leading-relaxed mb-6">
+                  Henüz sepetinize ürün eklemediniz. Ürünleri inceleyerek dilediğiniz kalemi
+                  ekleyebilir, hızlıca {isSubUser ? 'talep' : 'sipariş'} oluşturabilirsiniz.
+                </p>
+                <button onClick={() => router.push('/products')} className="btn-primary">
+                  <ShoppingCart className="h-4 w-4" />
+                  Ürünleri İncele
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="space-y-6">
-              {/* Faturalı Ürünler */}
+              {/* ── Faturali Urunler ──────────────────────────────── */}
               {(() => {
                 const invoicedItems = cart.items.filter(item => item.priceType === 'INVOICED');
                 const invoicedSubtotal = invoicedItems.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -245,64 +303,63 @@ Siparis No: ${result.orderNumber}`, {
                 if (invoicedItems.length === 0) return null;
 
                 return (
-                  <Card className="shadow-xl border-2 border-blue-200 bg-gradient-to-br from-white to-blue-50">
-                    <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-blue-100">
-                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                        <span className="text-2xl">📄</span>
-                        Faturalı Ürünler ({invoicedItems.length} ürün)
-                      </h3>
-                      <div className="text-right">
-                        <div className="space-y-1">
-                          <div>
-                            <p className="text-xs text-gray-600">KDV Hariç</p>
-                            <p className="text-sm font-semibold text-gray-700">{formatCurrency(invoicedSubtotal)}</p>
-                          </div>
-                          <div className="border-t border-blue-200 pt-1">
-                            <p className="text-xs text-gray-600">KDV Dahil</p>
-                            <p className="text-lg font-bold text-blue-600">{formatCurrency(invoicedTotal)}</p>
-                          </div>
+                  <div className="card card-pad">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-[var(--line)]">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-primary-100">
+                          <FileText className="h-4 w-4" />
+                        </span>
+                        <div>
+                          <h3 className="text-base font-semibold text-gray-900">Faturalı Ürünler</h3>
+                          <p className="text-xs text-gray-400">{invoicedItems.length} ürün</p>
                         </div>
                       </div>
+                      <div className="text-right">
+                        <p className="text-[11px] text-gray-400">KDV Hariç {formatCurrency(invoicedSubtotal)}</p>
+                        <p className="text-lg font-bold text-primary-700">{formatCurrency(invoicedTotal)}</p>
+                        <p className="text-[11px] text-gray-400">KDV Dahil</p>
+                      </div>
                     </div>
-                    <div className="space-y-4">
-                      {invoicedItems.map((item) => (
-                        <div key={item.id} className="p-5 bg-white rounded-xl border-2 border-blue-100 hover:border-blue-300 hover:shadow-lg transition-all">
+                    <div className="space-y-3">
+                      {invoicedItems.map((item) => {
+                        const stockShort = isItemStockShort(item.product.name, item.product.mikroCode);
+                        return (
+                        <div key={item.id} className="rounded-xl border border-[var(--line)] bg-white p-4 transition-colors hover:border-primary-200">
                           <div className="flex flex-col sm:flex-row gap-4">
-                            {/* Product Image */}
+                            {/* Gorsel */}
                             {item.product.imageUrl && (
-                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-white border border-gray-200 flex-shrink-0">
+                              <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-gray-50">
                                 <img
                                   src={item.product.imageUrl}
                                   alt={item.product.name}
-                                  className="w-full h-full object-contain"
+                                  className="h-full w-full object-contain"
                                 />
                               </div>
                             )}
 
-                            {/* Product Info */}
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-bold text-gray-900 text-lg mb-1">{item.product.name}</h3>
-                              <p className="text-sm text-gray-600 font-mono mb-2">Kod: {item.product.mikroCode}</p>
-                              <Badge variant="info" className="font-semibold">
-                                📄 Faturalı
-                              </Badge>
-                              {item.priceMode === 'EXCESS' && (
-                                <Badge variant="success" className="ml-2 font-semibold">
-                                  Indirimli
-                                </Badge>
-                              )}
+                            {/* Bilgi */}
+                            <div className="min-w-0 flex-1">
+                              <h3 className="text-[15px] font-semibold leading-snug text-gray-900">{item.product.name}</h3>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                <span className="chip font-mono">{item.product.mikroCode}</span>
+                                <span className="badge-info">Faturalı</span>
+                                {item.priceMode === 'EXCESS' && (
+                                  <span className="badge-success">İndirimli</span>
+                                )}
+                              </div>
                             </div>
 
-                            {/* Quantity Controls - Mobile Friendly */}
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
-                              <div className="flex items-center justify-between sm:justify-start gap-3">
-                                <div className="flex items-center gap-2 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
+                            {/* Miktar + fiyat + sil */}
+                            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+                              <div className="flex items-center justify-between gap-3 sm:justify-start">
+                                <div className="flex items-center gap-1 rounded-lg border border-[var(--line-strong)] bg-gray-50 p-1">
                                   <button
                                     onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
+                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-40"
                                     disabled={item.quantity <= 1}
+                                    aria-label="Azalt"
                                   >
-                                    -
+                                    <Minus className="h-4 w-4" />
                                   </button>
                                   <input
                                     type="text"
@@ -317,75 +374,84 @@ Siparis No: ${result.orderNumber}`, {
                                         event.currentTarget.blur();
                                       }
                                     }}
-                                    className="h-9 w-14 rounded-md border border-gray-200 bg-white text-center text-base font-bold text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                                    className="h-8 w-12 rounded-md border border-[var(--line)] bg-white text-center text-sm font-bold text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
                                     aria-label={`${item.product.name} miktari`}
                                   />
                                   <button
                                     onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
+                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100"
+                                    aria-label="Artır"
                                   >
-                                    +
+                                    <Plus className="h-4 w-4" />
                                   </button>
                                 </div>
 
-                                {/* Delete Button - Mobile */}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
+                                {/* Sil - mobil */}
+                                <button
                                   onClick={() => handleRemove(item.id)}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold sm:hidden p-2"
+                                  className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:hidden"
+                                  aria-label="Sepetten çıkar"
                                 >
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </Button>
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                               </div>
 
-                              {/* Price */}
-                              <div className="flex justify-between sm:block sm:text-right sm:min-w-[120px]">
-                                <p className="text-sm text-gray-600">
+                              {/* Fiyat */}
+                              <div className="flex items-end justify-between sm:block sm:min-w-[120px] sm:text-right">
+                                <p className="text-xs text-gray-400">
                                   {formatCurrency(getDisplayPrice(item.unitPrice, item.vatRate, 'INVOICED', vatDisplayPreference))} / adet
-                                  <span className="text-xs ml-1">({getVatLabel('INVOICED', vatDisplayPreference)})</span>
+                                  <span className="ml-1">({getVatLabel('INVOICED', vatDisplayPreference)})</span>
                                 </p>
-                                <p className="text-xl sm:text-2xl font-bold text-blue-600">
-                                  {formatCurrency(getDisplayPrice(item.totalPrice, item.vatRate, 'INVOICED', vatDisplayPreference))}
-                                </p>
-                                <p className="text-xs text-gray-500">{getVatStatusLabel(vatDisplayPreference)}</p>
+                                <div>
+                                  <p className="text-xl font-bold text-primary-700">
+                                    {formatCurrency(getDisplayPrice(item.totalPrice, item.vatRate, 'INVOICED', vatDisplayPreference))}
+                                  </p>
+                                  <p className="text-[11px] text-gray-400">{getVatStatusLabel(vatDisplayPreference)}</p>
+                                </div>
                               </div>
 
-                              {/* Delete Button - Desktop */}
-                              <Button
-                                variant="ghost"
-                                size="sm"
+                              {/* Sil - masaustu */}
+                              <button
                                 onClick={() => handleRemove(item.id)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold hidden sm:block"
+                                className="hidden h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:flex"
+                                aria-label="Sepetten çıkar"
                               >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </Button>
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
-                            <div className="mt-3">
-                              <label className="block text-xs text-gray-500 mb-1">Satir notu (opsiyonel)</label>
-                              <textarea
-                                value={lineNotes[item.id] ?? ''}
-                                onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
-                                onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
-                                className="w-full rounded-lg border border-gray-200 p-2 text-xs"
-                                rows={2}
-                                placeholder="Marka, renk, teslimat notu..."
-                              />
-                            </div>
+                          </div>
 
+                          {/* Stok yetersiz uyarisi (getirtilebilir ama gecikebilir) */}
+                          {stockShort && (
+                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                              <p className="text-xs leading-snug text-amber-700">
+                                Bu üründe stok yetersiz — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Satir notu */}
+                          <div className="mt-3">
+                            <label className="field-label">Satır notu (opsiyonel)</label>
+                            <textarea
+                              value={lineNotes[item.id] ?? ''}
+                              onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
+                              onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
+                              className="input text-xs"
+                              rows={2}
+                              placeholder="Marka, renk, teslimat notu..."
+                            />
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                  </Card>
+                  </div>
                 );
               })()}
 
-              {/* Beyaz Ürünler */}
+              {/* ── Beyaz Urunler ─────────────────────────────────── */}
               {(() => {
                 const whiteItems = cart.items.filter(item => item.priceType === 'WHITE');
                 const whiteTotal = whiteItems.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -393,56 +459,62 @@ Siparis No: ${result.orderNumber}`, {
                 if (whiteItems.length === 0) return null;
 
                 return (
-                  <Card className="shadow-xl border-2 border-gray-300 bg-gradient-to-br from-white to-gray-50">
-                    <div className="flex justify-between items-center mb-6 pb-4 border-b-2 border-gray-200">
-                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                        <span className="text-2xl">⚪</span>
-                        Beyaz Fiyatlı Ürünler ({whiteItems.length} ürün)
-                      </h3>
+                  <div className="card card-pad">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-[var(--line)]">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-gray-500 ring-1 ring-gray-200">
+                          <Circle className="h-4 w-4" />
+                        </span>
+                        <div>
+                          <h3 className="text-base font-semibold text-gray-900">Beyaz Fiyatlı Ürünler</h3>
+                          <p className="text-xs text-gray-400">{whiteItems.length} ürün · özel fiyat</p>
+                        </div>
+                      </div>
                       <div className="text-right">
-                        <p className="text-xs text-gray-600 mb-1">Alt Toplam</p>
+                        <p className="text-[11px] text-gray-400">Alt Toplam</p>
                         <p className="text-lg font-bold text-gray-700">{formatCurrency(whiteTotal)}</p>
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      {whiteItems.map((item) => (
-                        <div key={item.id} className="p-5 bg-white rounded-xl border-2 border-gray-200 hover:border-gray-400 hover:shadow-lg transition-all">
+                    <div className="space-y-3">
+                      {whiteItems.map((item) => {
+                        const stockShort = isItemStockShort(item.product.name, item.product.mikroCode);
+                        return (
+                        <div key={item.id} className="rounded-xl border border-[var(--line)] bg-white p-4 transition-colors hover:border-gray-300">
                           <div className="flex flex-col sm:flex-row gap-4">
-                            {/* Product Image */}
+                            {/* Gorsel */}
                             {item.product.imageUrl && (
-                              <div className="w-20 h-20 rounded-lg overflow-hidden bg-white border border-gray-200 flex-shrink-0">
+                              <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-gray-50">
                                 <img
                                   src={item.product.imageUrl}
                                   alt={item.product.name}
-                                  className="w-full h-full object-contain"
+                                  className="h-full w-full object-contain"
                                 />
                               </div>
                             )}
 
-                            {/* Product Info */}
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-bold text-gray-900 text-lg mb-1">{item.product.name}</h3>
-                              <p className="text-sm text-gray-600 font-mono mb-2">Kod: {item.product.mikroCode}</p>
-                              <Badge variant="default" className="font-semibold bg-gray-200 text-gray-800">
-                                ⚪ Beyaz (Özel)
-                              </Badge>
-                              {item.priceMode === 'EXCESS' && (
-                                <Badge variant="success" className="ml-2 font-semibold">
-                                  Indirimli
-                                </Badge>
-                              )}
+                            {/* Bilgi */}
+                            <div className="min-w-0 flex-1">
+                              <h3 className="text-[15px] font-semibold leading-snug text-gray-900">{item.product.name}</h3>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                <span className="chip font-mono">{item.product.mikroCode}</span>
+                                <span className="badge-neutral">Beyaz (Özel)</span>
+                                {item.priceMode === 'EXCESS' && (
+                                  <span className="badge-success">İndirimli</span>
+                                )}
+                              </div>
                             </div>
 
-                            {/* Quantity Controls - Mobile Friendly */}
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
-                              <div className="flex items-center justify-between sm:justify-start gap-3">
-                                <div className="flex items-center gap-2 bg-gray-50 rounded-lg border-2 border-gray-200 p-1">
+                            {/* Miktar + fiyat + sil */}
+                            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+                              <div className="flex items-center justify-between gap-3 sm:justify-start">
+                                <div className="flex items-center gap-1 rounded-lg border border-[var(--line-strong)] bg-gray-50 p-1">
                                   <button
                                     onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors disabled:opacity-50"
+                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-40"
                                     disabled={item.quantity <= 1}
+                                    aria-label="Azalt"
                                   >
-                                    -
+                                    <Minus className="h-4 w-4" />
                                   </button>
                                   <input
                                     type="text"
@@ -457,78 +529,85 @@ Siparis No: ${result.orderNumber}`, {
                                         event.currentTarget.blur();
                                       }
                                     }}
-                                    className="h-9 w-14 rounded-md border border-gray-200 bg-white text-center text-base font-bold text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                                    className="h-8 w-12 rounded-md border border-[var(--line)] bg-white text-center text-sm font-bold text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
                                     aria-label={`${item.product.name} miktari`}
                                   />
                                   <button
                                     onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                                    className="w-9 h-9 rounded-lg bg-white hover:bg-gray-100 flex items-center justify-center font-bold text-lg transition-colors"
+                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100"
+                                    aria-label="Artır"
                                   >
-                                    +
+                                    <Plus className="h-4 w-4" />
                                   </button>
                                 </div>
 
-                                {/* Delete Button - Mobile */}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
+                                {/* Sil - mobil */}
+                                <button
                                   onClick={() => handleRemove(item.id)}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold sm:hidden p-2"
+                                  className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:hidden"
+                                  aria-label="Sepetten çıkar"
                                 >
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </Button>
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                               </div>
 
-                              {/* Price - Responsive */}
-                              <div className="flex justify-between sm:block sm:text-right sm:min-w-[120px]">
-                                <p className="text-sm text-gray-600">
+                              {/* Fiyat */}
+                              <div className="flex items-end justify-between sm:block sm:min-w-[120px] sm:text-right">
+                                <p className="text-xs text-gray-400">
                                   {formatCurrency(item.unitPrice)} / adet
                                 </p>
-                                <p className="text-xl sm:text-2xl font-bold text-gray-700">
-                                  {formatCurrency(item.totalPrice)}
-                                </p>
-                                <p className="text-xs text-gray-500">Özel Fiyat</p>
+                                <div>
+                                  <p className="text-xl font-bold text-gray-700">
+                                    {formatCurrency(item.totalPrice)}
+                                  </p>
+                                  <p className="text-[11px] text-gray-400">Özel Fiyat</p>
+                                </div>
                               </div>
 
-                              {/* Delete Button - Desktop */}
-                              <Button
-                                variant="ghost"
-                                size="sm"
+                              {/* Sil - masaustu */}
+                              <button
                                 onClick={() => handleRemove(item.id)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 font-semibold hidden sm:block"
+                                className="hidden h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:flex"
+                                aria-label="Sepetten çıkar"
                               >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </Button>
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
-                            <div className="mt-3">
-                              <label className="block text-xs text-gray-500 mb-1">Satir notu (opsiyonel)</label>
-                              <textarea
-                                value={lineNotes[item.id] ?? ''}
-                                onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
-                                onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
-                                className="w-full rounded-lg border border-gray-200 p-2 text-xs"
-                                rows={2}
-                                placeholder="Marka, renk, teslimat notu..."
-                              />
-                            </div>
+                          </div>
 
+                          {/* Stok yetersiz uyarisi */}
+                          {stockShort && (
+                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                              <p className="text-xs leading-snug text-amber-700">
+                                Bu üründe stok yetersiz — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Satir notu */}
+                          <div className="mt-3">
+                            <label className="field-label">Satır notu (opsiyonel)</label>
+                            <textarea
+                              value={lineNotes[item.id] ?? ''}
+                              onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
+                              onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
+                              className="input text-xs"
+                              rows={2}
+                              placeholder="Marka, renk, teslimat notu..."
+                            />
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                  </Card>
+                  </div>
                 );
               })()}
 
-              {/* Sepeti Temizle Button */}
+              {/* Sepeti Temizle */}
               <div className="flex justify-end">
-                <Button
-                  variant="ghost"
-                  size="sm"
+                <button
                   onClick={async () => {
                     await showConfirmDialog(
                       {
@@ -546,24 +625,27 @@ Siparis No: ${result.orderNumber}`, {
                       }
                     );
                   }}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300 font-semibold"
+                  className="btn-ghost text-red-600 hover:bg-red-50 hover:text-red-700"
                 >
-                  🗑️ Sepeti Temizle
-                </Button>
+                  <Trash2 className="h-4 w-4" />
+                  Sepeti Temizle
+                </button>
               </div>
 
-                            {isLoadingRecommendations ? (
-                <Card className="shadow-xl border-2 border-gray-200 bg-white">
-                  <div className="text-sm text-gray-500">Oneriler yukleniyor...</div>
-                </Card>
+              {/* Tamamlayici oneriler */}
+              {isLoadingRecommendations ? (
+                <div className="card card-pad flex items-center gap-2 text-sm text-gray-400">
+                  <Sparkles className="h-4 w-4 text-gray-300" />
+                  Tamamlayıcı öneriler yükleniyor...
+                </div>
               ) : recommendationGroups.length > 0 ? (
                 <div className="space-y-4">
                   {recommendationGroups.map((group) => (
-                    <Card key={group.baseProduct.id} className="shadow-xl border-2 border-gray-200 bg-white">
+                    <Card key={group.baseProduct.id} className="border border-[var(--line)] shadow-none">
                       <ProductRecommendations
                         products={group.products}
-                        title={`${group.baseProduct.mikroCode} - ${group.baseProduct.name} icin tamamlayici urunler`}
-                        icon="+"
+                        title={`${group.baseProduct.mikroCode} · ${group.baseProduct.name} için tamamlayıcı ürünler`}
+                        icon=""
                         onProductClick={(item) => router.push(`/products/${item.id}`)}
                         onAddToCart={handleRecommendationAdd}
                         allowedPriceTypes={allowedPriceTypes}
@@ -574,47 +656,45 @@ Siparis No: ${result.orderNumber}`, {
                 </div>
               ) : null}
 
-              {/* Order Summary */}
-              <Card className="shadow-xl border-2 border-green-100 bg-gradient-to-br from-white to-green-50">
+              {/* ── Siparis Ozeti ─────────────────────────────────── */}
+              <div className="card card-pad">
                 <div className="space-y-6">
-                  <div className="flex items-center gap-3 mb-6 pb-4 border-b-2 border-gray-100">
-                    <div className="bg-gradient-to-br from-green-600 to-green-700 text-white rounded-xl w-14 h-14 flex items-center justify-center text-2xl">
-                      💰
+                  <div className="flex items-center gap-3 pb-4 border-b border-[var(--line)]">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                      <Wallet className="h-5 w-5" />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-gray-900">Sipariş Özeti</h3>
-                      <p className="text-sm text-gray-600">
-                        {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && `${cart.items.filter(i => i.priceType === 'INVOICED').length} Faturalı`}
-                        {cart.items.filter(i => i.priceType === 'INVOICED').length > 0 && cart.items.filter(i => i.priceType === 'WHITE').length > 0 && ' + '}
-                        {cart.items.filter(i => i.priceType === 'WHITE').length > 0 && `${cart.items.filter(i => i.priceType === 'WHITE').length} Beyaz`}
+                      <h3 className="text-base font-semibold text-gray-900">Sipariş Özeti</h3>
+                      <p className="text-xs text-gray-400">
+                        {invoicedCount > 0 && `${invoicedCount} Faturalı`}
+                        {invoicedCount > 0 && whiteCount > 0 && ' · '}
+                        {whiteCount > 0 && `${whiteCount} Beyaz`}
                       </p>
                     </div>
                   </div>
 
-                  <div className="border-t-2 border-gray-200 pt-6">
-                    {/* KDV Detayları */}
-                    <div className="space-y-3 mb-4">
+                  <div>
+                    {/* KDV detaylari */}
+                    <div className="space-y-2.5 mb-4">
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">Ara Toplam (KDV Hariç):</span>
-                        <span className="font-bold text-gray-900">{formatCurrency(cart.subtotal)}</span>
+                        <span className="text-gray-500">Ara Toplam (KDV Hariç)</span>
+                        <span className="font-semibold text-gray-900">{formatCurrency(cart.subtotal)}</span>
                       </div>
                       {cart.totalVat !== undefined && cart.totalVat > 0 && (
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-700">KDV:</span>
-                          <span className="font-bold text-gray-900">{formatCurrency(cart.totalVat)}</span>
+                          <span className="text-gray-500">KDV</span>
+                          <span className="font-semibold text-gray-900">{formatCurrency(cart.totalVat)}</span>
                         </div>
                       )}
                     </div>
 
-                    <div className="bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl p-5 shadow-lg mb-6">
-                      <div className="flex justify-between items-center">
-                        <span className="text-lg font-semibold">Genel Toplam (KDV Dahil):</span>
-                        <span className="text-3xl font-bold">{formatCurrency(cart.total)}</span>
-                      </div>
+                    <div className="mb-6 flex items-center justify-between rounded-xl bg-primary-600 px-5 py-4 text-white shadow-sm shadow-primary-600/20">
+                      <span className="text-sm font-semibold">Genel Toplam (KDV Dahil)</span>
+                      <span className="text-2xl font-bold">{formatCurrency(cart.total)}</span>
                     </div>
 
                     {!isSubUser && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                         <Input
                           label="Teslimat Birimi / Bolge (opsiyonel)"
                           value={deliveryLocation}
@@ -628,8 +708,8 @@ Siparis No: ${result.orderNumber}`, {
                       </div>
                     )}
 
-                                        <Button
-                      className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 text-lg shadow-xl rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                    <Button
+                      className="w-full rounded-xl bg-emerald-600 py-3.5 text-base font-semibold text-white shadow-sm shadow-emerald-600/20 transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={handleCreateOrder}
                       isLoading={isCreatingOrder}
                       disabled={!cart || cart.items.length === 0 || isCreatingOrder}
@@ -641,24 +721,41 @@ Siparis No: ${result.orderNumber}`, {
                           : (isSubUser ? 'Talep Gonder' : 'Siparisi Olustur')}
                     </Button>
 
-                    <div className="mt-4 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
-                      <div className="flex items-start gap-3">
-                        <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                        </svg>
-                        <div className="text-xs text-blue-800">
-                          <p className="font-semibold mb-1">{isSubUser ? 'Talep Bilgilendirmesi' : 'Siparis Bilgilendirmesi'}</p>
+                    {/* Bilgilendirme */}
+                    <div className="mt-4 rounded-xl border border-primary-100 bg-primary-50/60 p-4">
+                      <div className="flex items-start gap-2.5">
+                        <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary-600" />
+                        <div className="text-xs text-primary-900/90">
+                          <p className="mb-1.5 font-semibold">{isSubUser ? 'Talep Bilgilendirmesi' : 'Siparis Bilgilendirmesi'}</p>
                           {isSubUser ? (
                             <ul className="space-y-1">
-                              <li>? Talebiniz yonetici onayina gonderilir</li>
-                              <li>? Fiyat tipi secimi yonetici tarafindan yapilir</li>
-                              <li>? Onaylanan talepler siparise cevrilir</li>
+                              <li className="flex items-start gap-1.5">
+                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
+                                <span>Talebiniz yonetici onayina gonderilir</span>
+                              </li>
+                              <li className="flex items-start gap-1.5">
+                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
+                                <span>Fiyat tipi secimi yonetici tarafindan yapilir</span>
+                              </li>
+                              <li className="flex items-start gap-1.5">
+                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
+                                <span>Onaylanan talepler siparise cevrilir</span>
+                              </li>
                             </ul>
                           ) : (
                             <ul className="space-y-1">
-                              <li>? Siparisiniz olusturulduktan sonra admin onayi bekler</li>
-                              <li>? Faturali ve beyaz urunler ayri siparisler olarak islenir</li>
-                              <li>? Onaylanan siparisler en kisa surede hazirlanir</li>
+                              <li className="flex items-start gap-1.5">
+                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
+                                <span>Siparisiniz olusturulduktan sonra admin onayi bekler</span>
+                              </li>
+                              <li className="flex items-start gap-1.5">
+                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
+                                <span>Faturali ve beyaz urunler ayri siparisler olarak islenir</span>
+                              </li>
+                              <li className="flex items-start gap-1.5">
+                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
+                                <span>Onaylanan siparisler en kisa surede hazirlanir</span>
+                              </li>
                             </ul>
                           )}
                         </div>
@@ -666,7 +763,7 @@ Siparis No: ${result.orderNumber}`, {
                     </div>
                   </div>
                 </div>
-              </Card>
+              </div>
             </div>
           )}
         </div>
@@ -687,8 +784,3 @@ Siparis No: ${result.orderNumber}`, {
     </div>
   );
 }
-
-
-
-
-
