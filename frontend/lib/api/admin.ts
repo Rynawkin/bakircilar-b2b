@@ -44,6 +44,39 @@ type SupplierPriceListOverrides = {
   pdfColumnRoles?: Record<string, string> | null;
 };
 
+export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE';
+
+export interface AdminBanner {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  linkUrl?: string | null;
+  productCode?: string | null;
+  buttonText?: string | null;
+  position: BannerPosition;
+  sortOrder: number;
+  active: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BannerInput {
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  linkUrl?: string | null;
+  productCode?: string | null;
+  buttonText?: string | null;
+  position?: BannerPosition;
+  sortOrder?: number;
+  active?: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+}
+
 export type CustomerRecoveryRiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 export type CustomerRecoveryDevelopmentStatus = 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
 export type CustomerRecoveryPurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
@@ -4052,6 +4085,27 @@ export const adminApi = {
     const response = await apiClient.get(`/admin/supplier-price-lists/${id}/export`, {
       responseType: 'blob',
     });
+    return response.data;
+  },
+
+  // Banners (Bannerlar)
+  getBanners: async (): Promise<{ banners: AdminBanner[] }> => {
+    const response = await apiClient.get('/admin/banners');
+    return response.data;
+  },
+
+  createBanner: async (data: BannerInput): Promise<{ banner: AdminBanner }> => {
+    const response = await apiClient.post('/admin/banners', data);
+    return response.data;
+  },
+
+  updateBanner: async (id: string, data: BannerInput): Promise<{ banner: AdminBanner }> => {
+    const response = await apiClient.put(`/admin/banners/${id}`, data);
+    return response.data;
+  },
+
+  deleteBanner: async (id: string): Promise<{ message: string }> => {
+    const response = await apiClient.delete(`/admin/banners/${id}`);
     return response.data;
   },
 };

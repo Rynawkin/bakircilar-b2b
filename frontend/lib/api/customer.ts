@@ -20,7 +20,30 @@ import {
   EInvoiceDocument,
 } from '@/types';
 
+export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE';
+
+export interface Banner {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  linkUrl?: string | null;
+  productCode?: string | null;
+  buttonText?: string | null;
+  position: BannerPosition;
+  sortOrder?: number;
+  active?: boolean;
+}
+
 export const customerApi = {
+  // Banners (musteri - yalniz aktif)
+  getBanners: async (position?: BannerPosition): Promise<{ banners: Banner[] }> => {
+    const response = await apiClient.get('/banners', {
+      params: position ? { position } : undefined,
+    });
+    return response.data;
+  },
+
   // Products
   getProducts: async (params?: {
     categoryId?: string;

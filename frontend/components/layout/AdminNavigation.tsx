@@ -30,6 +30,7 @@ import {
   Settings,
   Bell,
   ImageOff,
+  Image as ImageIcon,
   ChevronDown,
   Menu as MenuIcon,
   X,
@@ -87,6 +88,7 @@ const navItems: NavItem[] = [
   { name: 'Tedarik Maliyetleri', href: '/supplier-costs', icon: HandCoins, description: 'Coklu tedarikci maliyet ve fiyat teyidi', permission: ['admin:supplier-costs', 'admin:quotes', 'admin:orders', 'admin:field-sales'] },
   { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Görev ve talepler', permission: 'admin:requests' },
   { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları', permission: 'admin:campaigns' },
+  { name: 'Bannerlar', href: '/banners', icon: ImageIcon, description: 'Vitrin banner yönetimi', permission: 'admin:campaigns' },
   {
     name: 'Raporlar',
     href: '/reports',

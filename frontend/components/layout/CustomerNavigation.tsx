@@ -10,6 +10,7 @@ import customerApi from '@/lib/api/customer';
 import { formatDateShort } from '@/lib/utils/format';
 import { Notification } from '@/types';
 import {
+  Home,
   ShoppingBag,
   ShoppingCart,
   Package,
@@ -128,6 +129,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   };
 
   const navItems: NavItem[] = [
+    { name: 'Ana Sayfa', href: '/home', icon: Home },
     { name: 'Ürünler', href: '/products', icon: ShoppingBag },
     // Anlasmali Urunler menusu sadece musteriye tanimli AKTIF anlasma varsa gosterilir
     ...(agreementsAvailable ? [{ name: 'Anlasmali Urunler', href: '/agreements', icon: Tag }] : []),
@@ -149,7 +151,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
         <div className="flex justify-between items-center h-14">
           {/* Logo & Brand */}
           <div className="flex items-center gap-3.5">
-            <LogoLink href="/products" variant="light" />
+            <LogoLink href="/home" variant="light" />
             <div className="hidden md:block border-l border-white/15 pl-3.5 min-w-0">
               <p className="text-sm font-semibold text-white truncate max-w-[220px] leading-tight" title={user?.name}>{user?.name}</p>
               {user?.mikroCariCode && (

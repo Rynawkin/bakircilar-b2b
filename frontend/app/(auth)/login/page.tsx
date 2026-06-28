@@ -51,7 +51,7 @@ const LoginForm = () => {
         if (safeRedirect) {
           router.push(safeRedirect);
         } else {
-          router.push('/products');
+          router.push('/home');
         }
       }
     } catch (err) {

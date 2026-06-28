@@ -10,9 +10,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductDetailModal } from '@/components/customer/ProductDetailModal';
-import { AdvancedFilters, FilterState } from '@/components/customer/AdvancedFilters';
+import { FilterState } from '@/components/customer/AdvancedFilters';
 import { CategoryMegaMenu } from '@/components/customer/CategoryMegaMenu';
-import { CustomerCategorySidebar } from '@/components/customer/CustomerCategorySidebar';
 import { CustomerCartSidebar } from '@/components/customer/CustomerCartSidebar';
 import { ProductNameTooltip } from '@/components/customer/ProductNameTooltip';
 import { applyProductFilters } from '@/lib/utils/productFilters';
@@ -27,7 +26,7 @@ import { confirmBackorder } from '@/lib/utils/confirm';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
-import { Handshake, ImageOff, BadgeCheck, Hash, CalendarClock } from 'lucide-react';
+import { Handshake, ImageOff, BadgeCheck, Hash, CalendarClock, Search, ArrowDownUp, Warehouse, X } from 'lucide-react';
 
 const PAGE_SIZE = 60;
 const CUSTOMER_PRODUCTS_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
@@ -354,15 +353,8 @@ export default function AgreementProductsPage() {
     <div className="min-h-screen bg-gray-50">
       <div className={CUSTOMER_PRODUCTS_CONTAINER_CLASS}>
         <div className="flex gap-4 2xl:gap-6">
-          <CustomerCategorySidebar
-            categories={categories}
-            selectedCategoryId={selectedCategory}
-            onSelect={setSelectedCategory}
-            className="hidden w-64 flex-shrink-0 lg:block 2xl:w-72"
-          />
-
           <div className="min-w-0 flex-1">
-            <div className="card card-pad mb-6">
+            <div className="card card-pad mb-4">
               <div className="flex items-start gap-3">
                 <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
                   <Handshake className="h-5 w-5" />
@@ -384,7 +376,8 @@ export default function AgreementProductsPage() {
               </div>
             </div>
 
-            <div className="mb-4 lg:hidden">
+            {/* ── Kategori mega-menusu (grid ustunde, tam genislik) ──── */}
+            <div className="mb-4">
               <CategoryMegaMenu
                 categories={categories}
                 selectedCategoryId={selectedCategory}
@@ -392,55 +385,162 @@ export default function AgreementProductsPage() {
               />
             </div>
 
-            <div className="card card-pad mb-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
+            {/* ── Yatay filtre / siralama bari ──────────────────────── */}
+            <div className="card mb-6 px-3 py-3 sm:px-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+                {/* Arama */}
+                <div className="min-w-0 flex-1 lg:min-w-[200px]">
                   <label className="field-label">Ürün Ara</label>
-                  <Input
-                    placeholder="Ürün adı veya kodu"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full"
-                  />
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <Input
+                      placeholder="Ürün adı veya kodu"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="w-full pl-9"
+                    />
+                  </div>
                 </div>
-                <div>
+
+                {/* Depo */}
+                <div className="lg:w-44">
                   <label className="field-label">Depo</label>
-                  <select
-                    value={selectedWarehouse}
-                    onChange={(e) => setSelectedWarehouse(e.target.value)}
-                    className="input w-full"
-                  >
-                    <option value="">Tüm Depolar</option>
-                    {warehouses.map((warehouse) => (
-                      <option key={warehouse} value={warehouse}>
-                        {warehouse}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <Warehouse className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <select
+                      value={selectedWarehouse}
+                      onChange={(e) => setSelectedWarehouse(e.target.value)}
+                      className="input w-full pl-9"
+                    >
+                      <option value="">Tüm Depolar</option>
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse} value={warehouse}>
+                          {warehouse}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
+
+                {/* Siralama */}
+                <div className="lg:w-52">
+                  <label className="field-label">Sıralama</label>
+                  <div className="relative">
+                    <ArrowDownUp className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <select
+                      value={advancedFilters.sortBy}
+                      onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, sortBy: e.target.value as FilterState['sortBy'] }))}
+                      className="input w-full pl-9"
+                    >
+                      <option value="none">Varsayılan</option>
+                      <option value="name-asc">İsim (A-Z)</option>
+                      <option value="name-desc">İsim (Z-A)</option>
+                      <option value="price-asc">Fiyat (Düşükten Yükseğe)</option>
+                      <option value="price-desc">Fiyat (Yüksekten Düşüğe)</option>
+                      <option value="stock-asc">Stok (Azdan Çoğa)</option>
+                      <option value="stock-desc">Stok (Çoktan Aza)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Fiyat turu */}
+                {showPriceTypeSelector && (
+                  <div>
+                    <label className="field-label">Fiyat Türü</label>
+                    <div className="flex rounded-lg border border-[var(--line-strong)] p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setAdvancedFilters((prev) => ({ ...prev, priceType: 'invoiced' }))}
+                        className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+                          advancedFilters.priceType === 'invoiced' ? 'bg-primary-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        Faturalı
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdvancedFilters((prev) => ({ ...prev, priceType: 'white' }))}
+                        className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+                          advancedFilters.priceType === 'white' ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        Beyaz
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fiyat araligi */}
+                <div className="lg:w-44">
+                  <label className="field-label">Fiyat Aralığı</label>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="number"
+                      placeholder="Min"
+                      value={advancedFilters.minPrice ?? ''}
+                      onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, minPrice: e.target.value ? Number(e.target.value) : undefined }))}
+                      className="w-full"
+                    />
+                    <span className="text-gray-300">–</span>
+                    <Input
+                      type="number"
+                      placeholder="Max"
+                      value={advancedFilters.maxPrice ?? ''}
+                      onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, maxPrice: e.target.value ? Number(e.target.value) : undefined }))}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+
+                {/* Stok araligi */}
+                <div className="lg:w-44">
+                  <label className="field-label">Stok Aralığı</label>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="number"
+                      placeholder="Min"
+                      value={advancedFilters.minStock ?? ''}
+                      onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, minStock: e.target.value ? Number(e.target.value) : undefined }))}
+                      className="w-full"
+                    />
+                    <span className="text-gray-300">–</span>
+                    <Input
+                      type="number"
+                      placeholder="Max"
+                      value={advancedFilters.maxStock ?? ''}
+                      onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, maxStock: e.target.value ? Number(e.target.value) : undefined }))}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+
+                {/* Temizle */}
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearBaseFilters();
+                      setAdvancedFilters({ sortBy: 'none', priceType: defaultFilterPriceType });
+                    }}
+                    className="btn-ghost h-9 px-3 text-xs text-red-600 hover:bg-red-50 lg:ml-auto"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Filtreleri Temizle
+                  </button>
+                )}
               </div>
 
+              {/* Aktif filtre rozetleri */}
               {(search || selectedWarehouse || selectedCategory) && (
-                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--line)] pt-4">
-                  <span className="text-xs font-medium text-gray-500">Aktif filtreler:</span>
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--line)] pt-3">
+                  <span className="text-xs font-medium text-gray-500">Aktif:</span>
                   {search && <span className="chip">Arama: {search}</span>}
                   {selectedWarehouse && <span className="chip">Depo: {selectedWarehouse}</span>}
                   {selectedCategory && (
                     <span className="chip">Kategori: {categories.find((cat) => cat.id === selectedCategory)?.name}</span>
                   )}
-                  <button onClick={clearBaseFilters} className="btn-ghost ml-auto px-3 py-1.5 text-xs text-red-600 hover:bg-red-50">
-                    Filtreleri Temizle
-                  </button>
                 </div>
               )}
-            </div>
-
-            <div className="mb-6">
-              <AdvancedFilters
-                onFilterChange={(filters) => setAdvancedFilters(filters)}
-                onReset={() => setAdvancedFilters({ sortBy: 'none', priceType: defaultFilterPriceType })}
-                allowedPriceTypes={allowedFilterPriceTypes}
-              />
             </div>
 
             {isLoading ? (

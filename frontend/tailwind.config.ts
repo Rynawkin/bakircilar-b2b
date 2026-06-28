@@ -9,18 +9,23 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Marka mavisi - daha derin, karakterli "kobalt" tonu (premium his)
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
-          950: '#172554',
+          50: '#eef4ff',
+          100: '#d9e6ff',
+          200: '#bcd2ff',
+          300: '#8eb4ff',
+          400: '#5b8dfb',
+          500: '#3667f2',
+          600: '#1f4ddd',
+          700: '#1b3dbb',
+          800: '#1c3597',
+          900: '#1b2f77',
+          950: '#141f4a',
+        },
+        // Vurgu (avantaj/indirim) icin sicak degil, dingin yesil zaten emerald; marka aksani:
+        ink: {
+          DEFAULT: '#0f172a',
         },
       },
       keyframes: {

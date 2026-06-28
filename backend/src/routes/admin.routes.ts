@@ -20,9 +20,11 @@ import stockCreateController from '../controllers/stock-create.controller';
 import hotSaleController from '../controllers/hot-sale.controller';
 import {
   authenticate,
+  requireAdmin,
   requirePermission,
   requireAnyPermission
 } from '../middleware/auth.middleware';
+import bannerController from '../controllers/banner.controller';
 import { trackStaffApiActivity } from '../middleware/staff-activity.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload, taskUpload, invoiceUpload, supplierPriceListUpload, quoteItemImageUpload } from '../middleware/upload.middleware';
@@ -632,5 +634,11 @@ router.get('/exclusions', requirePermission('admin:exclusions'), adminController
 router.post('/exclusions', requirePermission('admin:exclusions'), adminController.createExclusion);
 router.put('/exclusions/:id', requirePermission('admin:exclusions'), adminController.updateExclusion);
 router.delete('/exclusions/:id', requirePermission('admin:exclusions'), adminController.deleteExclusion);
+
+// Banner yonetimi (musteri landing) - HEAD_ADMIN / ADMIN
+router.get('/banners', requireAdmin, bannerController.listAll);
+router.post('/banners', requireAdmin, bannerController.create);
+router.put('/banners/:id', requireAdmin, bannerController.update);
+router.delete('/banners/:id', requireAdmin, bannerController.remove);
 
 export default router;

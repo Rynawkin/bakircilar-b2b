@@ -2666,6 +2666,26 @@ model OrderProductChangeRequest {
   @@index([customerCode])
 }
 
+// ==================== BANNER (Musteri landing - admin yonetimli) ====================
+model Banner {
+  id          String    @id @default(uuid())
+  title       String
+  subtitle    String?
+  imageUrl    String?
+  linkUrl     String?   // tiklayinca gidecek sayfa (or. /discounted-products)
+  productCode String?   // hizli satis icin Mikro urun kodu (opsiyonel)
+  buttonText  String?   // CTA metni (or. "Kampanyayi gor")
+  position    String    @default("HERO") // HERO | STRIP | SIDE
+  sortOrder   Int       @default(0)
+  active      Boolean   @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([active, position, sortOrder])
+}
+
 
 
 

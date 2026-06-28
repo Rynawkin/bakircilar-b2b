@@ -9,6 +9,7 @@ import taskController from '../controllers/task.controller';
 import notificationController from '../controllers/notification.controller';
 import orderRequestController from '../controllers/order-request.controller';
 import eInvoiceController from '../controllers/einvoice.controller';
+import bannerController from '../controllers/banner.controller';
 import { authenticate, requireCustomer } from '../middleware/auth.middleware';
 import { taskUpload } from '../middleware/upload.middleware';
 import { validateBody } from '../middleware/validation.middleware';
@@ -173,6 +174,9 @@ router.get(
 
 // Anlasmali urunler erisilebilirligi (nav linkini sadece AKTIF anlasma varsa goster)
 router.get('/agreements/available', customerController.getAgreementsAvailability);
+
+// Landing bannerlari (aktif, tarih penceresinde)
+router.get('/banners', bannerController.listActive);
 
 // Warehouses
 router.get('/warehouses', customerController.getWarehouses);
