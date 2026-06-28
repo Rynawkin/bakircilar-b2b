@@ -21,7 +21,6 @@ import {
   LayoutGrid,
   Wallet,
   CalendarClock,
-  Truck,
 } from 'lucide-react';
 
 // Banner gorseli yoksa veya hatali yuklenirse kart kirik gorunmesin diye placeholder.
@@ -56,7 +55,6 @@ export default function CustomerHomePage() {
   const [heroIndex, setHeroIndex] = useState(0);
   const [bannersLoading, setBannersLoading] = useState(true);
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
-  const [inTransit, setInTransit] = useState<{ count: number; total: number } | null>(null);
 
   // Fiyat gorunurlugu (urunler sayfasiyla ayni mantik, sadece goruntuleme)
   const isSubUser = Boolean(user?.parentCustomerId);
@@ -72,22 +70,13 @@ export default function CustomerHomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cari bakiye/vade + yoldaki siparis (onaylanmis, hazirlanan siparisler)
+  // Cari bakiye / vadesi gecen ozeti
   useEffect(() => {
     let active = true;
     customerApi
       .getFinancials()
       .then(({ financials: data }) => {
         if (active) setFinancials(data);
-      })
-      .catch(() => {});
-    customerApi
-      .getOrders()
-      .then(({ orders }) => {
-        if (!active) return;
-        const open = (orders || []).filter((o) => o.status === 'APPROVED');
-        const total = open.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
-        setInTransit({ count: open.length, total });
       })
       .catch(() => {});
     return () => {
@@ -348,8 +337,8 @@ export default function CustomerHomePage() {
         )}
 
         {/* ── CARI OZET KUTULARI ───────────────────────────────────── */}
-        {(financials || (inTransit && inTransit.count > 0)) && (
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {financials && (
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {financials && (
               <div className="flex items-center gap-3.5 rounded-xl border border-[var(--line)] bg-white p-4">
                 <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
@@ -375,20 +364,6 @@ export default function CustomerHomePage() {
                   {financials.pastDueDate && (
                     <div className="text-[11.5px] text-[var(--ink-3)]">Son ödeme {formatDateShort(financials.pastDueDate)}</div>
                   )}
-                </div>
-              </div>
-            )}
-            {inTransit && inTransit.count > 0 && (
-              <div className="flex items-center gap-3.5 rounded-xl border border-[var(--line)] bg-white p-4">
-                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
-                  <Truck className="h-5 w-5" strokeWidth={1.9} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-[12px] font-medium text-[var(--ink-3)]">Yoldaki Sipariş</div>
-                  <div className="text-[21px] font-semibold tracking-tight text-[var(--ink-1)]">
-                    {inTransit.count} sipariş · {formatCurrency(inTransit.total)}
-                  </div>
-                  <div className="text-[11.5px] text-[var(--ink-3)]">Onaylandı, hazırlanıyor</div>
                 </div>
               </div>
             )}

@@ -70,12 +70,11 @@ export default function ProductsPage() {
   });
 
   // URL parametreleri degisince kategori/aramayi senkronize et — header kategori
-  // linkleri ([/products?categoryId=...]) ayni sayfadayken de calissin diye reaktif.
+  // linkleri ([/products?categoryId=...]) ayni sayfadayken de calissin + filtre sifirlansin:
+  // kategoriye gidince arama, aramaya gidince kategori temizlenir.
   useEffect(() => {
-    const categoryId = searchParams?.get('categoryId') || '';
-    setSelectedCategory(categoryId);
-    const q = searchParams?.get('search');
-    if (typeof q === 'string') setSearch(q);
+    setSelectedCategory(searchParams?.get('categoryId') || '');
+    setSearch(searchParams?.get('search') || '');
   }, [searchParams]);
 
   useEffect(() => {
@@ -276,7 +275,14 @@ export default function ProductsPage() {
 
         {/* Kategori mega-menusu */}
         <div className="mb-4">
-          <CategoryMegaMenu categories={categories} selectedCategoryId={selectedCategory} onSelect={setSelectedCategory} />
+          <CategoryMegaMenu
+            categories={categories}
+            selectedCategoryId={selectedCategory}
+            onSelect={(id) => {
+              setSelectedCategory(id);
+              setSearch('');
+            }}
+          />
         </div>
 
         {/* Filtre / siralama bari */}
