@@ -1981,25 +1981,56 @@ class QuoteService {
     if (!quote.customer.mikroCariCode) {
       throw new Error("Customer has no Mikro cari code");
     }
-    const mikroResult = await mikroService.writeQuote({
-      cariCode: quote.customer.mikroCariCode,
-      quoteNumber: quote.quoteNumber,
-      validityDate: quote.validityDate,
-      description: quote.note || "",
-      documentNo: quote.documentNo || quote.note || "",
-      responsibleCode: quote.responsibleCode || "",
-      paymentPlanNo: quote.customer.paymentPlanNo ?? 0,
-      items: quote.items.map((item) => ({
-        productCode: item.productCode,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        vatRate: item.vatZeroed ? 0 : item.vatRate,
-        lineDescription: item.isManualLine
-          ? item.productName
-          : item.lineDescription || "",
-        priceListNo: item.priceListNo ?? 0,
-      })),
-    });
+    // 2.3: Onaya dusen teklif zaten Mikro'da yazili ise (maliyet alti kalem
+    // edit sirasinda eklendiginde mikroNumber korunuyor), yeni evrak yazmak
+    // yerine mevcut Mikro teklifini guncelle. Boylece eski evrak Mikro'da
+    // kalip mukerrer olusmaz. mikroNumber yoksa (teklif bastan maliyet alti
+    // olusturuldu) eski davranisla yeni evrak yazilir.
+    const mikroLineItems = quote.items.map((item) => ({
+      productCode: item.productCode,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      vatRate: item.vatZeroed ? 0 : item.vatRate,
+      lineDescription: item.isManualLine
+        ? item.productName
+        : item.lineDescription || "",
+      priceListNo: item.priceListNo ?? 0,
+    }));
+    const existingMikroParsed = quote.mikroNumber
+      ? this.parseMikroNumber(quote.mikroNumber)
+      : null;
+    let resolvedMikroNumber: string;
+    let resolvedMikroGuid: string | null;
+    if (existingMikroParsed) {
+      // 2.3: Mevcut Mikro evragini ayni seri/sira ile guncelle (in-place).
+      const mikroUpdateResult = await mikroService.updateQuote({
+        evrakSeri: existingMikroParsed.evrakSeri,
+        evrakSira: existingMikroParsed.evrakSira,
+        cariCode: quote.customer.mikroCariCode,
+        validityDate: quote.validityDate,
+        description: quote.note || "",
+        documentNo: quote.documentNo || quote.note || "",
+        responsibleCode: quote.responsibleCode || "",
+        paymentPlanNo: quote.customer.paymentPlanNo ?? 0,
+        items: mikroLineItems,
+      });
+      resolvedMikroNumber = mikroUpdateResult?.quoteNumber || quote.mikroNumber!;
+      // 2.3: updateQuote guid dondurmuyor; mevcut guid'i koru.
+      resolvedMikroGuid = quote.mikroGuid || null;
+    } else {
+      const mikroResult = await mikroService.writeQuote({
+        cariCode: quote.customer.mikroCariCode,
+        quoteNumber: quote.quoteNumber,
+        validityDate: quote.validityDate,
+        description: quote.note || "",
+        documentNo: quote.documentNo || quote.note || "",
+        responsibleCode: quote.responsibleCode || "",
+        paymentPlanNo: quote.customer.paymentPlanNo ?? 0,
+        items: mikroLineItems,
+      });
+      resolvedMikroNumber = mikroResult?.quoteNumber || quote.quoteNumber;
+      resolvedMikroGuid = mikroResult?.guid || null;
+    }
     const updated = await prisma.quote.update({
       where: { id: quoteId },
       data: {
@@ -2008,9 +2039,10 @@ class QuoteService {
         adminNote: adminNote?.trim() || null,
         adminUserId,
         adminActionAt: new Date(),
-        mikroNumber: mikroResult?.quoteNumber || null,
-        mikroGuid: mikroResult?.guid || null,
-        quoteNumber: mikroResult?.quoteNumber || quote.quoteNumber,
+        mikroNumber: resolvedMikroNumber || null,
+        mikroGuid: resolvedMikroGuid,
+        quoteNumber: resolvedMikroNumber || quote.quoteNumber,
+        mikroUpdatedAt: new Date(),
       },
       include: { items: { orderBy: { lineOrder: "asc" } } },
     });
@@ -2019,8 +2051,16 @@ class QuoteService {
         quoteId: updated.id,
         action: "STATUS_CHANGED",
         actorId: adminUserId,
-        summary: "Teklif onaylandi ve Mikro'ya gonderildi",
-        payload: { status: updated.status, mikroNumber: updated.mikroNumber },
+        // 2.3: Mevcut Mikro evragi guncellendiyse mukerrer olusmadigini
+        // gecmiste de gorebilmek icin ayri ozet yaz.
+        summary: existingMikroParsed
+          ? "Teklif onaylandi ve mevcut Mikro evragi guncellendi"
+          : "Teklif onaylandi ve Mikro'ya gonderildi",
+        payload: {
+          status: updated.status,
+          mikroNumber: updated.mikroNumber,
+          mikroUpdatedInPlace: Boolean(existingMikroParsed),
+        },
       },
     });
     return updated;

@@ -24,6 +24,9 @@ interface PriceChangeRecord {
 }
 
 class PriceSyncService {
+  // 12.6: Fiyat senkronunun ayni anda iki kez calismasini engelleyen kilit
+  private isRunning = false;
+
   private async syncPriceStatsFromMikro(priceListMap: Map<string, number[]>): Promise<void> {
     const codes = Array.from(priceListMap.keys());
     if (codes.length === 0) return;
@@ -38,21 +41,35 @@ class PriceSyncService {
       const productMap = new Map(
         products.map((product) => [product.mikroCode, product])
       );
+      // 12.2: Mikro kaynakli metin/sayilari SQL'e ham gomerken tek bozuk kayit (ozel
+      // karakter veya NaN/Infinity) tum 500'luk partinin yazimini cokertiyordu.
+      // Cozum: tum string alanlari kacisla temizle, tum sayisal alanlari sonlu sayiya zorla.
+      const num = (v: any): number => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const esc = (v: any): string => String(v ?? '').replace(/'/g, "''");
+
       const values = batch.map((code) => {
         const priceLists = priceListMap.get(code) || Array(10).fill(0);
         const product = productMap.get(code);
-        const productName = (product?.name || code).replace(/'/g, "''");
-        const cost = product?.currentCost;
-        const costValue = cost === null || cost === undefined ? 'NULL' : cost;
+        const safeCode = esc(code);
+        const productName = esc(product?.name || code);
+        const rawCost = product?.currentCost;
+        const cost = rawCost === null || rawCost === undefined || !Number.isFinite(Number(rawCost))
+          ? null
+          : Number(rawCost);
+        const costValue = cost === null ? 'NULL' : cost;
 
-        const margins = priceLists.map((price) => {
-          if (!price || price === 0 || !cost || cost === 0) return 0;
+        const safePrices = priceLists.map(num);
+        const margins = safePrices.map((price) => {
+          if (!price || price === 0 || cost === null || cost === 0) return 0;
           return ((price - cost) / price) * 100;
         });
 
         return `(
           '${randomUUID()}',
-          '${code}',
+          '${safeCode}',
           '${productName}',
           NULL,
           NULL,
@@ -63,26 +80,26 @@ class PriceSyncService {
           NULL,
           ${costValue},
           NULL,
-          ${priceLists[0] || 0},
-          ${priceLists[1] || 0},
-          ${priceLists[2] || 0},
-          ${priceLists[3] || 0},
-          ${priceLists[4] || 0},
-          ${priceLists[5] || 0},
-          ${priceLists[6] || 0},
-          ${priceLists[7] || 0},
-          ${priceLists[8] || 0},
-          ${priceLists[9] || 0},
-          ${margins[0] || 0},
-          ${margins[1] || 0},
-          ${margins[2] || 0},
-          ${margins[3] || 0},
-          ${margins[4] || 0},
-          ${margins[5] || 0},
-          ${margins[6] || 0},
-          ${margins[7] || 0},
-          ${margins[8] || 0},
-          ${margins[9] || 0},
+          ${num(safePrices[0])},
+          ${num(safePrices[1])},
+          ${num(safePrices[2])},
+          ${num(safePrices[3])},
+          ${num(safePrices[4])},
+          ${num(safePrices[5])},
+          ${num(safePrices[6])},
+          ${num(safePrices[7])},
+          ${num(safePrices[8])},
+          ${num(safePrices[9])},
+          ${num(margins[0])},
+          ${num(margins[1])},
+          ${num(margins[2])},
+          ${num(margins[3])},
+          ${num(margins[4])},
+          ${num(margins[5])},
+          ${num(margins[6])},
+          ${num(margins[7])},
+          ${num(margins[8])},
+          ${num(margins[9])},
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP
         )`;
@@ -154,6 +171,13 @@ class PriceSyncService {
     recordsSynced: number;
     error?: string;
   }> {
+    // 12.6: Zaten calisan bir fiyat senkronu varsa yenisini baslatma
+    if (this.isRunning) {
+      console.log('⚠️ Fiyat senkronu zaten calisiyor, yeni istek atlandi.');
+      return { success: false, syncType: 'incremental', recordsSynced: 0, error: 'Fiyat senkronu zaten calisiyor' };
+    }
+    this.isRunning = true;
+
     const syncId = randomUUID();
     const startTime = new Date();
 
@@ -248,6 +272,8 @@ class PriceSyncService {
         recordsSynced: 0,
         error: error.message,
       };
+    } finally {
+      this.isRunning = false;
     }
   }
 
@@ -382,31 +408,32 @@ class PriceSyncService {
         ? (changeAmount / change.fid_eskifiy_tutar) * 100
         : 0;
 
-      const cost = change.sto_standartmaliyet || 0;
+      const cost = Number(change.sto_standartmaliyet) || 0;
       const priceLists = priceListMap.get((change.fid_stok_kod || '').trim());
-      const prices = priceLists
-        ? [...priceLists]
-        : Array(10).fill(0);
+      // 12.2: Tum sayisal degerleri sonlu sayiya zorla (NaN/Infinity SQL'i bozmasin)
+      const prices = (priceLists ? [...priceLists] : Array(10).fill(0)).map((x) => Number(x) || 0);
 
       // Marjları hesapla (10 fiyat)
       const margins = prices.map((price) => {
-        if (!price || price === 0 || cost === 0) return 0;
-        return ((price - cost) / price) * 100; // Kar marjı %
+        const p = Number(price) || 0;
+        if (!p || cost === 0) return 0;
+        const m = ((p - cost) / p) * 100; // Kar marjı %
+        return Number.isFinite(m) ? m : 0;
       });
 
       return `(
         '${randomUUID()}',
-        '${change.fid_stok_kod}',
+        '${(change.fid_stok_kod ?? '').replace(/'/g, "''")}',
         '${change.sto_isim?.replace(/'/g, "''") || ''}',
         ${change.sto_marka_kodu ? `'${change.sto_marka_kodu.replace(/'/g, "''")}'` : 'NULL'},
         'Kategori Yok',
-        '${change.fid_tarih.toISOString()}',
-        ${change.fid_fiyat_no},
-        ${change.fid_eskifiy_tutar},
-        ${change.fid_yenifiy_tutar},
-        ${changeAmount},
-        ${changePercent},
-        ${cost || 0},
+        '${(change.fid_tarih instanceof Date ? change.fid_tarih : new Date(change.fid_tarih)).toISOString()}',
+        ${Number(change.fid_fiyat_no) || 0},
+        ${Number(change.fid_eskifiy_tutar) || 0},
+        ${Number(change.fid_yenifiy_tutar) || 0},
+        ${Number.isFinite(changeAmount) ? changeAmount : 0},
+        ${Number.isFinite(changePercent) ? changePercent : 0},
+        ${Number(cost) || 0},
         0,
         ${prices[0] || 0},
         ${prices[1] || 0},

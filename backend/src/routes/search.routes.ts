@@ -1,11 +1,14 @@
 import express from 'express';
 import * as searchController from '../controllers/search.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, requireNotCustomer } from '../middleware/auth.middleware';
 
 const router = express.Router();
 
 // Tüm route'lar için authentication gerekli
 router.use(authenticate);
+// 11.1: Cari/stok arama hassas veri (maliyet, bakiye, telefon, vergi no) dondurdugu icin
+// musteri rolu erisemez; sadece personel rolleri.
+router.use(requireNotCustomer);
 
 // Stok arama
 router.get('/stocks', searchController.searchStocks);

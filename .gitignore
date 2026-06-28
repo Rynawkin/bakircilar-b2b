@@ -2,3 +2,21 @@ node_modules/
 mobile/_template-*/
 mobile/.gradle-portal/
 mobile/builds/
+
+# === 13.2 Temizlik / 11.3 Guvenlik ===
+# Hassas veritabani yedekleri (musteri + sifre verisi) ASLA repoda olmamali.
+# (backend/prisma/migrations/*.sql etkilenmez; asagidaki /*.sql sadece kok dizini hedefler)
+/*.sql
+mikrob2b_backup.sql
+
+# Build / derleme ciktilari
+/dist/
+backend/dist/
+frontend/.next/
+
+# Gecici / debug scriptleri ve analiz ciktilari (kok dizin)
+tmp_*.js
+backend/tmp_*.js
+/*.csv
+diff42now_*.txt
+inc33_out.txt

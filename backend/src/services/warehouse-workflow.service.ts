@@ -2808,6 +2808,26 @@ class WarehouseWorkflowService {
     };
   }
 
+  // 5.2: Anahtar bazli process-ici kilit. Ayni siparis icin es zamanli irsaliye/sevk
+  // isteklerini serilestirir; mukerrer Mikro irsaliyesi ve cift stok dusumunu onler.
+  private warehouseLockQueue = new Map<string, Promise<void>>();
+  private async acquireWarehouseLock(key: string): Promise<() => void> {
+    const previous = this.warehouseLockQueue.get(key) || Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = previous.then(() => gate);
+    this.warehouseLockQueue.set(key, chained);
+    await previous;
+    return () => {
+      release();
+      if (this.warehouseLockQueue.get(key) === chained) {
+        this.warehouseLockQueue.delete(key);
+      }
+    };
+  }
+
   async dispatchOrderWithDeliveryNote(
     mikroOrderNumber: string,
     payload: {
@@ -2820,6 +2840,11 @@ class WarehouseWorkflowService {
     if (!orderNo) {
       throw new Error('Siparis numarasi gerekli');
     }
+
+    // 5.2: Ayni siparis icin es zamanli irsaliye olusturmayi engelle (mukerrer Mikro
+    // irsaliyesi ve cift stok dusumu riski).
+    const releaseDispatchLock = await this.acquireWarehouseLock(`dispatch:${orderNo}`);
+    try {
 
     const deliverySeries = normalizeCode(payload.deliverySeries).toUpperCase();
     if (!deliverySeries) {
@@ -2836,11 +2861,26 @@ class WarehouseWorkflowService {
     ) {
       throw new Error('Sofor ve arac bilgileri gerekli');
     }
-    const driverUid = await this.resolveDispatchDriverUid(transportInput);
-    if (!driverUid && !this.isPlaceholderDispatchDriver(transportInput)) {
+    let driverUid = await this.resolveDispatchDriverUid(transportInput);
+    const isPlaceholderDriver = this.isPlaceholderDispatchDriver(transportInput);
+    if (!driverUid && !isPlaceholderDriver) {
       throw new Error(
         `Mikro sofor karti bulunamadi: ${normalizeCode(transportInput.driverFirstName)} ${normalizeCode(transportInput.driverLastName)} / ${normalizeCode(transportInput.driverTcNo)}`
       );
+    }
+    // 5.4: KARGO/placeholder tasiyicida e-irsaliyede bos sofor kimligi kalmasin.
+    // Ops bir Mikro tasiyici/kargo carisi tanimlayip GUID'ini MIKRO_KARGO_CARRIER_UID
+    // env'ine koyabilir; tanimliysa onu kullan, degilse gorunur uyari ver.
+    if (!driverUid && isPlaceholderDriver) {
+      const kargoUid = normalizeCode(process.env.MIKRO_KARGO_CARRIER_UID || '');
+      if (kargoUid && !this.isZeroGuid(kargoUid)) {
+        driverUid = kargoUid;
+      } else {
+        console.warn(
+          '⚠️ 5.4 KARGO sevkinde Mikro tasiyici karti tanimli degil (MIKRO_KARGO_CARRIER_UID bos). ' +
+          'E-irsaliyede sofor/tasiyici kimligi bos kalabilir; GIB reddi riski.'
+        );
+      }
     }
     const transport: DispatchTransportInfo = { ...transportInput, driverUid };
 
@@ -2898,6 +2938,19 @@ class WarehouseWorkflowService {
 
     if (linesToDispatch.length === 0) {
       throw new Error('Irsaliyelestirme icin toplanan miktar bulunamadi');
+    }
+
+    // 5.1: "Siparissiz ek" (extraQty) miktarlari bir siparis satirina bagli olmadigindan
+    // bu irsaliyeye DAHIL EDILEMIYOR (Mikro sip_teslim_miktar siparis miktariyla sinirli).
+    // Bu durum eskiden sessizce kayboluyordu; en azindan gorunur sekilde uyar.
+    // KALICI COZUM is karari gerektirir: ya ek icin ayri irsaliye kesilmeli ya da
+    // "siparissiz ek" ozelligi tamamen kaldirilmali.
+    const totalExtraQty = workflowItems.reduce((sum, it) => sum + Math.max(toNumber(it.extraQty), 0), 0);
+    if (totalExtraQty > 0) {
+      console.warn(
+        `⚠️ 5.1 Siparis ${orderNo}: ${totalExtraQty} adet "siparissiz ek" irsaliyeye DAHIL EDILMEDI. ` +
+        `Bu miktar icin ayri irsaliye kesilmesi gerekebilir.`
+      );
     }
 
     const createdDelivery = await this.createMikroDeliveryNote({
@@ -3006,7 +3059,11 @@ class WarehouseWorkflowService {
       }),
     ]);
 
-    return this.getOrderDetail(orderNo, false);
+      return await this.getOrderDetail(orderNo, false);
+    } finally {
+      // 5.2: Sevk kilidini birak
+      releaseDispatchLock();
+    }
   }
 
   async getWorkflowStatusMap(mikroOrderNumbers: string[]) {

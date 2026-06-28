@@ -11,13 +11,41 @@
  */
 
 import { prisma } from '../utils/prisma';
+import { UserRole } from '@prisma/client';
 import mikroService from './mikroFactory.service';
 import pricingService from './pricing.service';
 import stockService from './stock.service';
 import imageService from './image.service';
 import priceSyncService from './priceSync.service';
+import notificationService from './notification.service';
 
 class SyncService {
+  // 12.6: Ayni anda iki tam senkronun calismasini engelleyen kilit
+  private isRunning = false;
+
+  /** 12.3/12.6: Disaridan (or. fiyat senkronu cron'u) tam senkronun calisip
+   *  calismadigini kontrol etmek icin. Ortak Mikro baglantisinin kesilmesini onler. */
+  isBusy(): boolean {
+    return this.isRunning;
+  }
+
+  /**
+   * 12.5 / 12.1: Senkron hatasi veya anomalisinde yoneticilere bildirim gonder.
+   */
+  private async notifyAdmins(title: string, body: string): Promise<void> {
+    try {
+      const admins = await prisma.user.findMany({
+        where: { role: { in: [UserRole.HEAD_ADMIN, UserRole.ADMIN] } },
+        select: { id: true },
+      });
+      await notificationService.createForUsers(
+        admins.map((a) => a.id),
+        { title, body, linkUrl: '/dashboard' }
+      );
+    } catch (e) {
+      console.error('notifyAdmins basarisiz:', e);
+    }
+  }
   /**
    * Tarih string'ini parse et (Türkçe formatı ISO'ya çevir)
    * Geçersiz tarihler için null döner
@@ -77,19 +105,35 @@ class SyncService {
    * Senkronizasyonu arka planda başlat ve log ID'sini döndür
    */
   async startSync(syncType: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<string> {
+    // 12.6: Zaten calisan bir senkron varken yenisini baslatma (cron + manuel cakismasi)
+    if (this.isRunning) {
+      throw new Error('Senkronizasyon zaten calisiyor. Lutfen mevcut islemin bitmesini bekleyin.');
+    }
+    this.isRunning = true;
+
     // Sync log oluştur
-    const syncLog = await prisma.syncLog.create({
-      data: {
-        syncType,
-        status: 'RUNNING',
-        startedAt: new Date(),
-      },
-    });
+    let syncLog;
+    try {
+      syncLog = await prisma.syncLog.create({
+        data: {
+          syncType,
+          status: 'RUNNING',
+          startedAt: new Date(),
+        },
+      });
+    } catch (e) {
+      this.isRunning = false;
+      throw e;
+    }
 
     // Arka planda sync'i çalıştır (await etme!)
-    this.runFullSync(syncLog.id).catch((error) => {
-      console.error('❌ Background sync error:', error);
-    });
+    this.runFullSync(syncLog.id)
+      .catch((error) => {
+        console.error('❌ Background sync error:', error);
+      })
+      .finally(() => {
+        this.isRunning = false;
+      });
 
     if (syncType === 'MANUAL') {
       priceSyncService.syncPriceChanges().catch((error) => {
@@ -184,6 +228,12 @@ class SyncService {
         },
       });
 
+      // 12.5: Senkron sessizce cokmemeli; yoneticilere bildirim gonder
+      await this.notifyAdmins(
+        'Senkronizasyon basarisiz',
+        `Otomatik/manuel senkronizasyon hata verdi: ${error?.message || 'Bilinmeyen hata'}. Fiyat/stok verisi guncellenememis olabilir.`
+      );
+
       return {
         success: false,
         stats: {
@@ -235,15 +285,34 @@ class SyncService {
 
     console.log(`📊 Mikro'dan ${mikroProducts.length} ürün çekildi`);
 
+    // 12.1: Mikro gecici hata/timeout ile EKSIK liste dondurdugunde, listede olmayan
+    // tum urunlerin toptan pasife cekilip vitrinden kaybolmasini onleyen guvenlik esigi.
+    // Donen urun sayisi, mevcut aktif urun sayisinin %50'sinin altindaysa pasiflestirmeyi
+    // ATLA ve yoneticilere bildir (gercek toplu silme degil, eksik veri suphesi).
     if (mikroProducts.length > 0) {
       const mikroCodes = mikroProducts.map((product) => product.code);
-      await prisma.product.updateMany({
-        where: {
-          active: true,
-          mikroCode: { notIn: mikroCodes },
-        },
-        data: { active: false },
-      });
+      const activeCount = await prisma.product.count({ where: { active: true } });
+      const SAFETY_RATIO = 0.5;
+
+      if (activeCount > 0 && mikroProducts.length < activeCount * SAFETY_RATIO) {
+        console.error(
+          `⚠️ Pasiflestirme ATLANDI: Mikro ${mikroProducts.length} urun dondu, mevcut aktif urun ${activeCount}. ` +
+          `Esik (%${SAFETY_RATIO * 100}) altinda kalindi; eksik liste suphesiyle urunler pasife cekilmedi.`
+        );
+        await this.notifyAdmins(
+          'Urun senkronu: eksik liste suphesi',
+          `Mikro beklenenden cok az urun dondurdu (${mikroProducts.length} / aktif ${activeCount}). ` +
+          `Urunlerin yanlislikla pasife cekilmesini onlemek icin pasiflestirme atlandi. Mikro baglantisini/raporu kontrol edin.`
+        );
+      } else {
+        await prisma.product.updateMany({
+          where: {
+            active: true,
+            mikroCode: { notIn: mikroCodes },
+          },
+          data: { active: false },
+        });
+      }
     }
 
     let count = 0;
@@ -279,7 +348,9 @@ class SyncService {
       pendingMap.set(productCode, entry);
     }
 
+    let errorCount = 0;
     for (const mikroProduct of mikroProducts) {
+      try {
       // Kategorisini bul
       const category = await prisma.category.findUnique({
         where: { mikroCode: mikroProduct.categoryId },
@@ -287,6 +358,7 @@ class SyncService {
 
       if (!category) {
         console.warn(`⚠️ Kategori bulunamadı: ${mikroProduct.categoryId} (Ürün: ${mikroProduct.code})`);
+        skippedNoCategory++;
         continue;
       }
 
@@ -364,6 +436,21 @@ class SyncService {
       });
 
       count++;
+      } catch (err: any) {
+        // 12.4: Tek bir urunun hatasi tum senkronu cokertmesin; logla, atla, devam et.
+        errorCount++;
+        console.error(`⚠️ Urun sync hatasi atlandi (${mikroProduct.code}):`, err?.message || err);
+      }
+    }
+
+    if (errorCount > 0) {
+      console.warn(`⚠️ ${errorCount} urun sync sirasinda hata verdi ve atlandi (toplam ${mikroProducts.length}).`);
+      if (errorCount > mikroProducts.length * 0.2) {
+        await this.notifyAdmins(
+          'Urun senkronu: cok sayida urun hatasi',
+          `${mikroProducts.length} urunun ${errorCount} tanesi senkron sirasinda hata verdi ve atlandi. Veri kismen guncel olabilir.`
+        );
+      }
     }
 
     return count;

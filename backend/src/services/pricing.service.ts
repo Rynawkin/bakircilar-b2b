@@ -222,6 +222,55 @@ class PricingService {
   }
 
   /**
+   * 10.2: Tek bir ürün için fiyatları yeniden hesapla
+   *
+   * recalculatePricesForCategory ile AYNI maliyet/fiyat formülünü kullanır;
+   * sadece tek ürünü hedefler. Ürün bazlı override kaydedildikten sonra
+   * o ürünün satış fiyatlarının ANINDA güncellenmesi için kullanılır.
+   * Fiyat formülünü değiştirmez.
+   */
+  async recalculatePricesForProduct(productId: string): Promise<boolean> {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    // Pasif veya bulunamayan ürünü sessizce atla (kategori recalc davranışıyla tutarlı)
+    if (!product || !product.active) {
+      return false;
+    }
+
+    const settings = await prisma.settings.findFirst();
+    if (!settings) {
+      throw new Error('Settings not found');
+    }
+
+    const cost = this.calculateCost({
+      method: settings.costCalculationMethod as any,
+      lastEntryPrice: product.lastEntryPrice || undefined,
+      lastEntryDate: product.lastEntryDate || undefined,
+      currentCost: product.currentCost || undefined,
+      currentCostDate: product.currentCostDate || undefined,
+      dynamicParams: settings.dynamicCostParams as any,
+    });
+
+    const prices = await this.calculateAllPricesForProduct({
+      productId: product.id,
+      cost,
+      vatRate: product.vatRate,
+    });
+
+    await prisma.product.update({
+      where: { id: product.id },
+      data: {
+        calculatedCost: cost,
+        prices: prices as any,
+      },
+    });
+
+    return true;
+  }
+
+  /**
    * Bir kategorinin tüm ürünleri için fiyatları yeniden hesapla
    */
   async recalculatePricesForCategory(categoryId: string): Promise<number> {

@@ -42,6 +42,8 @@ export default function DiscountedProductsPage() {
   const cartItems = cart?.items || [];
 
   const [products, setProducts] = useState<Product[]>([]);
+  // 1.2: Sunucudaki toplam urun sayisi (sadece ekrandaki degil).
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [isStaticDataLoaded, setIsStaticDataLoaded] = useState(false);
@@ -178,6 +180,8 @@ export default function DiscountedProductsPage() {
           setProducts(nextProducts);
           setOffset(nextOffset + nextProducts.length);
           setHasMore(nextProducts.length === PAGE_SIZE);
+          // 1.2: Toplam urun sayisini sunucudan al (warehouse filtresi varsa backend total gondermez).
+          setTotalCount(typeof productsData.total === 'number' ? productsData.total : null);
         } catch (error) {
           if (!isCanceledRequest(error)) {
             console.error('Product fetch error:', error);
@@ -210,6 +214,10 @@ export default function DiscountedProductsPage() {
         setProducts((prev) => (reset ? nextProducts : [...prev, ...nextProducts]));
         setOffset(nextOffset + nextProducts.length);
         setHasMore(nextProducts.length === PAGE_SIZE);
+        // 1.2: Toplam urun sayisini sunucudan al (warehouse filtresi varsa backend total gondermez).
+        if (typeof productsData.total === 'number') {
+          setTotalCount(productsData.total);
+        }
       } catch (error) {
         console.error('Product fetch error:', error);
       } finally {
@@ -363,7 +371,10 @@ export default function DiscountedProductsPage() {
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-full bg-primary-50 px-3 py-1 font-semibold text-primary-700">
-                  {filteredProducts.length} urun listeleniyor
+                  {/* 1.2: Toplam urun sayisi varsa "Toplam N urunden ilk M" goster. */}
+                  {totalCount !== null && totalCount > filteredProducts.length
+                    ? `Toplam ${totalCount} urunden ilk ${filteredProducts.length} gosteriliyor`
+                    : `${filteredProducts.length} urun listeleniyor`}
                 </span>
                 {activeFilterCount > 0 && (
                   <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">

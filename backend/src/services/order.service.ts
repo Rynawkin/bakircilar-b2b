@@ -638,7 +638,7 @@ class OrderService {
     return `${targetSeries}-${Math.trunc(resolvedSequence)}`;
   }
 
-  private async repriceCartItemsForOrder(userId: string, cart: { items: Array<any> }): Promise<RepricedCartItem[]> {
+  private async repriceCartItemsForOrder(userId: string, cart: { items: Array<any> }, skippedHidden?: string[]): Promise<RepricedCartItem[]> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -733,13 +733,18 @@ class OrderService {
       }
     }
 
-    return cart.items.map((item) => {
+    const repriced = cart.items.map((item) => {
       const product = item.product;
       if (!product) {
         throw new Error('Product not found in cart');
       }
       if (!product.active || product.hiddenFromCustomers) {
-        throw new Error(`Product is not available for customer: ${product.mikroCode || product.name}`);
+        // 1.6: Gizlenen/pasif urun tum siparisi reddetmesin; bu satiri sessizce atla ve
+        // hangi urunun cikarildigini bildirmek uzere listeye ekle.
+        if (skippedHidden) {
+          skippedHidden.push(product.name || product.mikroCode || 'Bilinmeyen urun');
+        }
+        return null;
       }
 
       const quantity = Number(item.quantity);
@@ -818,6 +823,9 @@ class OrderService {
         lineNote: item.lineNote ? String(item.lineNote).trim() : null,
       };
     });
+
+    // 1.6: Atlanan (gizli/pasif) satirlari ayikla.
+    return repriced.filter((row) => row !== null) as RepricedCartItem[];
   }
 
   /**
@@ -829,81 +837,98 @@ class OrderService {
   ): Promise<{
     orderId: string;
     orderNumber: string;
+    skippedItems?: string[];
   }> {
-    // 1. Kullanıcının sepetini al
-    await cartPricingService.syncCartDiscountAllocations(userId);
+    // 1.8: Ayni musterinin sepetinden es zamanli/cift-tik ile BIRDEN COK siparis
+    // olusmasini onlemek icin musteri bazli kilit. Kilit icinde sepet yeniden okunur;
+    // ilk istek sepeti bosaltinca ikinci istek "sepet bos" hatasi alir.
+    const releaseLock = await this.acquireKeyedLock(`cart:${userId}`);
+    try {
+      // 1. Kullanıcının sepetini al
+      await cartPricingService.syncCartDiscountAllocations(userId);
 
-    const cart = await prisma.cart.findUnique({
-      where: { userId },
-      include: {
-        items: {
-          include: {
-            product: true,
+      const cart = await prisma.cart.findUnique({
+        where: { userId },
+        include: {
+          items: {
+            include: {
+              product: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    if (!cart || cart.items.length === 0) {
-      throw new Error('Cart is empty');
+      if (!cart || cart.items.length === 0) {
+        throw new Error('Cart is empty');
+      }
+
+      // 1.6: Gizli/pasif urunler tum siparisi reddetmesin; atla ve hangileri cikarildi bildir.
+      const skippedItems: string[] = [];
+      const orderItems = await this.repriceCartItemsForOrder(userId, cart, skippedItems);
+
+      if (orderItems.length === 0) {
+        throw new Error('Sepetinizdeki urunler artik satista degil. Lutfen sepeti guncelleyin.');
+      }
+
+      // 3. Sipariş numarası üret
+      const lastOrder = await prisma.order.findFirst({
+        orderBy: { createdAt: 'desc' },
+        select: { orderNumber: true },
+      });
+
+      const orderNumber = generateOrderNumber(lastOrder?.orderNumber);
+
+      const normalizedCustomerOrderNumber = details?.customerOrderNumber
+        ? String(details.customerOrderNumber).trim()
+        : '';
+      const normalizedDeliveryLocation = details?.deliveryLocation
+        ? String(details.deliveryLocation).trim()
+        : '';
+
+      // 4. Toplam tutarı hesapla
+      const totalAmount = orderItems.reduce(
+        (sum, item) => sum + item.totalPrice,
+        0
+      );
+
+      // 5. 1.8: Siparis olusturma + sepet temizleme TEK ATOMIK islemde.
+      // Boylece yarida kalan / mukerrer durum olusmaz.
+      const [order] = await prisma.$transaction([
+        prisma.order.create({
+          data: {
+            orderNumber,
+            userId,
+            status: 'PENDING',
+            totalAmount,
+            customerOrderNumber: normalizedCustomerOrderNumber || undefined,
+            deliveryLocation: normalizedDeliveryLocation || undefined,
+            items: {
+              create: orderItems.map((item) => ({
+                productId: item.productId,
+                productName: item.productName,
+                mikroCode: item.mikroCode,
+                quantity: item.quantity,
+                priceType: item.priceType,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+                lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
+              })),
+            },
+          },
+        }),
+        prisma.cartItem.deleteMany({
+          where: { cartId: cart.id },
+        }),
+      ]);
+
+      return {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        skippedItems: skippedItems.length > 0 ? skippedItems : undefined,
+      };
+    } finally {
+      releaseLock();
     }
-
-    const orderItems = await this.repriceCartItemsForOrder(userId, cart);
-
-    // 3. Sipariş numarası üret
-    const lastOrder = await prisma.order.findFirst({
-      orderBy: { createdAt: 'desc' },
-      select: { orderNumber: true },
-    });
-
-    const orderNumber = generateOrderNumber(lastOrder?.orderNumber);
-
-    const normalizedCustomerOrderNumber = details?.customerOrderNumber
-      ? String(details.customerOrderNumber).trim()
-      : '';
-    const normalizedDeliveryLocation = details?.deliveryLocation
-      ? String(details.deliveryLocation).trim()
-      : '';
-
-    // 4. Toplam tutarı hesapla
-    const totalAmount = orderItems.reduce(
-      (sum, item) => sum + item.totalPrice,
-      0
-    );
-
-    // 5. Sipariş oluştur
-    const order = await prisma.order.create({
-      data: {
-        orderNumber,
-        userId,
-        status: 'PENDING',
-        totalAmount,
-        customerOrderNumber: normalizedCustomerOrderNumber || undefined,
-        deliveryLocation: normalizedDeliveryLocation || undefined,
-        items: {
-          create: orderItems.map((item) => ({
-            productId: item.productId,
-            productName: item.productName,
-            mikroCode: item.mikroCode,
-            quantity: item.quantity,
-            priceType: item.priceType,
-            unitPrice: item.unitPrice,
-            totalPrice: item.totalPrice,
-            lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
-          })),
-        },
-      },
-    });
-
-    // 5. Sepeti temizle
-    await prisma.cartItem.deleteMany({
-      where: { cartId: cart.id },
-    });
-
-    return {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-    };
   }
 
   async createManualOrder(input: {
@@ -1405,11 +1430,23 @@ class OrderService {
       }
 
       const unitPrice = Number(item.unitPrice);
-      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-        throw new Error(`Invalid unit price for line ${index + 1}`);
+      // 3.6: Sifir/negatif fiyat neredeyse her zaman veri giris hatasidir ve dogrudan
+      // gercek Mikro siparisine yazilmamali.
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new Error(`Gecersiz birim fiyat (satir ${index + 1}): fiyat sifirdan buyuk olmali`);
       }
 
       const priceType: PriceType = item.priceType == 'WHITE' ? 'WHITE' : 'INVOICED';
+
+      // 3.6: Maliyet alti / asiri dusuk fiyat uyarisi (islemi engellemez; operator log'da gorur,
+      // kullanici-yuzu uyari onay ekraninda gosterilir).
+      const lineCost = Number((product as any).currentCost) || 0;
+      if (priceType === 'INVOICED' && lineCost > 0 && unitPrice < lineCost) {
+        console.warn(
+          `⚠️ 3.6 Maliyet alti fiyat (satir ${index + 1}, urun ${product.mikroCode}): ` +
+          `fiyat ${unitPrice} < guncel maliyet ${lineCost}`
+        );
+      }
       const lineNote = item.lineNote?.trim();
       const responsibilityCenter = item.responsibilityCenter?.trim();
       const productName = item.productName?.trim() || product.name;
@@ -1564,9 +1601,12 @@ class OrderService {
           const byCode = existingByMikroCode.get(item.mikroCode) || [];
           existing = byCode.find((candidate) => !seenExistingItemIds.has(candidate.id));
         }
-        if (!existing) {
-          existing = existingItems.find((candidate) => !seenExistingItemIds.has(candidate.id));
-        }
+        // 3.1: ESKI KOR FALLBACK KALDIRILDI.
+        // Onceden, urun/kod ile eslesemeyen kalem, ilgisiz HERHANGI bir mevcut satira
+        // koru koruna eslestiriliyor ve o satirin uzerine yaziliyordu (yanlis urun/fiyat,
+        // yanlis satir kapatma). Artik eslesmeyen kalemler asagidaki extraItems'a dusup
+        // Mikro'ya YENI satir olarak ekleniyor (mevcut, dogru akis). Boylece gercek
+        // musteri siparisindeki ilgisiz satirlar asla ezilmiyor.
         if (!existing) {
           extraItems.push({ index, item });
           return;
@@ -1799,6 +1839,27 @@ class OrderService {
    *
    * KRİTİK: Faturalı ve beyaz ürünler için 2 AYRI sipariş yazılır!
    */
+  // 3.4 / 1.8: Anahtar bazli (siparis/musteri) process-ici kilit. Cift-tik / es zamanli
+  // istekleri serilestirip mukerrer Mikro evraki veya mukerrer siparis olusmasini onler.
+  private keyedLockQueue = new Map<string, Promise<void>>();
+  private async acquireKeyedLock(key: string): Promise<() => void> {
+    const previous = this.keyedLockQueue.get(key) || Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = previous.then(() => gate);
+    this.keyedLockQueue.set(key, chained);
+    await previous;
+    return () => {
+      release();
+      // Bu kilit kuyrugun sonuysa girdiyi temizle (bellek sizintisini onle)
+      if (this.keyedLockQueue.get(key) === chained) {
+        this.keyedLockQueue.delete(key);
+      }
+    };
+  }
+
   async approveOrderAndWriteToMikro(
     orderId: string,
     adminNote?: string,
@@ -1807,6 +1868,9 @@ class OrderService {
     success: boolean;
     mikroOrderIds: string[];
   }> {
+    // 3.4: Es zamanli/cift-tik onaylari serilestir; kilit icinde durumu yeniden oku.
+    const releaseLock = await this.acquireKeyedLock(`approve:${orderId}`);
+    try {
     const order = await this.getOrderById(orderId);
 
     if (order.status !== 'PENDING') {
@@ -1901,7 +1965,26 @@ class OrderService {
       };
     } catch (error: any) {
       console.error('❌ Mikro\'ya sipariş yazma hatası:', error);
+      // 3.4: Mikro'da evrak olustuysa, retry'da mukerrer yazimi onlemek icin durumu
+      // APPROVED'a cek ve operatore acik uyari ver (tekrar onaylamasin, Mikro'yu kontrol etsin).
+      if (mikroOrderIds.length > 0) {
+        try {
+          await prisma.order.update({
+            where: { id: orderId },
+            data: { status: 'APPROVED', mikroOrderIds, approvedAt: new Date(), adminNote },
+          });
+        } catch (persistErr) {
+          console.error('‼️ KRITIK: Mikro evrak(lar)i olustu ama B2B kaydedilemedi:', mikroOrderIds, persistErr);
+        }
+        throw new Error(
+          `Mikro'da siparis evraki olustu (${mikroOrderIds.join(', ')}) ancak islem tam bitmedi. ` +
+          `TEKRAR ONAYLAMAYIN; siparisi Mikro'da kontrol edin. Detay: ${error.message}`
+        );
+      }
       throw new Error(`Failed to write order to Mikro: ${error.message}`);
+    }
+    } finally {
+      releaseLock();
     }
   }
 

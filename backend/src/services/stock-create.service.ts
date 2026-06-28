@@ -113,6 +113,11 @@ const DEFAULT_TEMPLATE_CODE = 'B108423';
 const MAX_ITEMS = 200;
 const UNIT_INDEXES = [2, 3, 4] as const;
 
+// 10.4: Marj carpani makul araligi. Carpan = maliyet x carpan = satis fiyati.
+// 1'in altinda zararina satis (uyari), MARGIN_MAX ustu neredeyse kesin hata (ret).
+const MARGIN_LOSS_THRESHOLD = 1;
+const MARGIN_MAX = 20;
+
 const escapeSql = (value: unknown) => String(value ?? '').replace(/'/g, "''");
 const normalizeText = (value: unknown) => String(value ?? '').trim();
 const upperText = (value: unknown) => normalizeText(value).toLocaleUpperCase('tr-TR');
@@ -314,6 +319,13 @@ class StockCreateService {
       const numeric = toNumber(margin, NaN);
       if (!margin || !Number.isFinite(numeric) || numeric <= 0) {
         errors.push(`Marj ${index + 1} zorunlu ve 0'dan buyuk olmali`);
+        return;
+      }
+      // 10.4: Carpan makul araligin disindaysa uyar/reddet; Mikro fiyat listesine yanlis carpan gitmesin.
+      if (numeric > MARGIN_MAX) {
+        errors.push(`Marj ${index + 1} carpani cok yuksek (${numeric}); makul ust sinir ${MARGIN_MAX}. Hatali girilmis olabilir.`);
+      } else if (numeric < MARGIN_LOSS_THRESHOLD) {
+        warnings.push(`Marj ${index + 1} carpani 1'in altinda (${numeric}); bu carpan zararina satis fiyati uretir.`);
       }
     });
 
@@ -708,7 +720,11 @@ class StockCreateService {
   }
 
   async preview(itemsInput: StockCreateInput[]) {
-    const rawItems = Array.isArray(itemsInput) ? itemsInput.slice(0, MAX_ITEMS) : [];
+    const allItems = Array.isArray(itemsInput) ? itemsInput : [];
+    // 10.3: 200 ustu satir sessizce kesilmesin; ne kadarinin atlandigini hesapla.
+    const requestedTotal = allItems.length;
+    const rawItems = allItems.slice(0, MAX_ITEMS);
+    const skippedCount = Math.max(requestedTotal - rawItems.length, 0);
     if (!rawItems.length) {
       throw new Error('En az bir stok satiri gerekli');
     }
@@ -778,6 +794,15 @@ class StockCreateService {
         valid: results.filter((row) => row.status === 'valid').length,
         warning: results.filter((row) => row.status === 'warning').length,
         error: results.filter((row) => row.status === 'error').length,
+        // 10.3: Limit asildiysa kac satir geldi, kac islendi, kac atlandi acikca dondurulur.
+        requestedTotal,
+        maxItems: MAX_ITEMS,
+        skippedCount,
+        truncated: skippedCount > 0,
+        truncationMessage:
+          skippedCount > 0
+            ? `${requestedTotal} satirdan ilk ${rawItems.length} islendi, ${skippedCount} satir tek seferde islenemez (limit ${MAX_ITEMS}). Kalan satirlari ayri parti olarak yukleyin.`
+            : null,
       },
     };
   }
@@ -1057,6 +1082,15 @@ class StockCreateService {
   }
 
   async create(itemsInput: StockCreateInput[], userId?: string | null) {
+    // 10.3: Limit asildiysa sessizce ilk 200'u yazip "hepsi olustu" demeyelim.
+    // Kullaniciya net hata don; partiyi bolup tekrar gondersin (sessiz kayip yok).
+    const requestedTotal = Array.isArray(itemsInput) ? itemsInput.length : 0;
+    if (requestedTotal > MAX_ITEMS) {
+      throw new Error(
+        `Tek seferde en fazla ${MAX_ITEMS} stok karti acilabilir. ${requestedTotal} satir gonderildi; sessiz kayip olmamasi icin satirlari ${MAX_ITEMS}'lik partilere bolup tekrar yazin.`
+      );
+    }
+
     const preview = await this.preview(itemsInput);
     const invalidRows = preview.results.filter((row) => row.errors.length > 0);
     if (invalidRows.length > 0) {

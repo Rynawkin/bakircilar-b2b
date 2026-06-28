@@ -15,7 +15,9 @@ export const config = {
 
   // JWT
   jwtSecret: process.env.JWT_SECRET!,
-  jwtExpiresIn: '30d', // 30 gün - Uzun sync işlemleri için
+  // 11.2: Oturum suresi 30 gunden makul bir sureye indirildi (env ile ayarlanabilir).
+  // Calinan/eski token'in gecerlilik penceresini kisaltir.
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
 
   // Mikro ERP
   useMockMikro: process.env.USE_MOCK_MIKRO === 'true',
@@ -40,7 +42,9 @@ export const config = {
   enableCron: process.env.ENABLE_CRON === 'true',
   cronTimezone: process.env.CRON_TIMEZONE || 'Europe/Istanbul',
   syncCronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 18 * * *', // Daily at 18:00
-  priceSyncCronSchedule: process.env.PRICE_SYNC_CRON_SCHEDULE || '0 18 * * *',
+  // 12.3: Stok senkronu (18:00) ile ayni anda calisip ortak Mikro baglantisini
+  // kesmemesi icin fiyat senkronu varsayilani 20:00'a alindi.
+  priceSyncCronSchedule: process.env.PRICE_SYNC_CRON_SCHEDULE || '0 20 * * *',
   quoteSyncCronSchedule: process.env.QUOTE_SYNC_CRON_SCHEDULE || '0 18 * * *', // Her gün 18:00
   vadeSyncCronSchedule: process.env.VADE_SYNC_CRON_SCHEDULE || '0 * * * *',
   vadeReminderCronSchedule: process.env.VADE_REMINDER_CRON_SCHEDULE || '0 * * * *',

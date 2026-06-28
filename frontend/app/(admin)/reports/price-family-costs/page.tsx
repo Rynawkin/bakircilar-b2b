@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import * as XLSX from 'xlsx';
+// 13.3: xlsx statik degil; export aninda dinamik import edilir.
 import { ArrowLeft, Download, FolderCog, RefreshCw, Search, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { CardRoot as Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -364,7 +364,7 @@ export default function PriceFamilyCostsPage() {
     </th>
   );
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     const rows = families.flatMap((family) =>
       family.items.map((item) => ({
         'Aile': family.name,
@@ -385,6 +385,8 @@ export default function PriceFamilyCostsPage() {
       toast.error('Aktarilacak veri yok');
       return;
     }
+    // 13.3: xlsx sadece burada (export aninda) dinamik yuklenir.
+    const XLSX = await import('xlsx');
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Fiyat Aileleri');

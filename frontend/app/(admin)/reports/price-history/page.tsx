@@ -30,7 +30,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+// 13.3: xlsx statik degil; export aninda dinamik import edilir.
 
 interface PriceListChange {
   listNo: number;
@@ -135,7 +135,7 @@ export default function PriceHistoryPage() {
     setExpandedRows(newExpanded);
   };
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     const exportData = data.map((change) => ({
       'Tarih': new Date(change.changeDate).toLocaleDateString('tr-TR'),
       'Ürün Kodu': change.productCode,
@@ -148,6 +148,8 @@ export default function PriceHistoryPage() {
       'Eksik Listeler': change.missingLists.join(', ') || 'Yok',
     }));
 
+    // 13.3: xlsx sadece burada (export aninda) dinamik yuklenir.
+    const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Fiyat Geçmişi');

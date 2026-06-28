@@ -241,7 +241,8 @@ const buildCustomerProductPayloads = async (params: {
   const productCodes = products.map((product) => product.mikroCode);
   const now = new Date();
 
-  const [agreementRows, priceStatsList] = await Promise.all([
+  // 1.4: Urun basina ayri fiyat sorgusu yerine tek toplu (batch) sorgu kullan; sonuc ayni kalir.
+  const [agreementRows, priceStatsMap] = await Promise.all([
     prisma.customerPriceAgreement.findMany({
       where: {
         customerId: customer.id,
@@ -257,7 +258,7 @@ const buildCustomerProductPayloads = async (params: {
         validTo: true,
       },
     }),
-    Promise.all(productCodes.map((code) => priceListService.getPriceStats(code))),
+    priceListService.getPriceStatsMap(productCodes),
   ]);
 
   const agreementMap = new Map(agreementRows.map((row) => [row.productId, row]));
@@ -276,14 +277,14 @@ const buildCustomerProductPayloads = async (params: {
     }
   }
 
-  return products.map((product, index) => {
+  return products.map((product) => {
     const prices = product.prices as unknown as ProductPrices;
     const customerPrices = pricingService.getPriceForCustomer(
       prices,
       customer.customerType as any
     );
 
-    const priceStats = priceStatsList[index];
+    const priceStats = priceStatsMap.get(product.mikroCode) || null;
     const productPriceListPair = resolveCustomerPriceListsForProduct(
       basePriceListPair,
       priceListRules,
@@ -529,7 +530,7 @@ export class CustomerController {
         lap('purchasedCodes');
         if (purchasedCodes.length === 0) {
           logTiming({ counts: { purchasedCodes: 0 }, reason: 'no-purchases' });
-          return res.json({ products: [] });
+          return res.json({ products: [], total: 0 });
         }
       }
 
@@ -576,6 +577,9 @@ export class CustomerController {
             ],
           }));
         }
+
+        // 1.2: Toplam anlasma sayisi (sayfalama disinda) - frontend "Toplam N urun" gosterimi icin.
+        const agreementTotal = await prisma.customerPriceAgreement.count({ where: agreementWhere });
 
         const agreementRows = await prisma.customerPriceAgreement.findMany({
           where: agreementWhere,
@@ -624,7 +628,7 @@ export class CustomerController {
 
         if (agreementRows.length == 0) {
           logTiming({ counts: { agreementRows: 0 } });
-          return res.json({ products: [] });
+          return res.json({ products: [], total: agreementTotal });
         }
 
         const agreementProducts = agreementRows.map((row) => row.product);
@@ -748,7 +752,7 @@ export class CustomerController {
 
         lap('enrich');
         logTiming({ counts: { agreementRows: agreementRows.length, products: productsWithPrices.length } });
-        return res.json({ products: productsWithPrices });
+        return res.json({ products: productsWithPrices, total: agreementTotal });
       }
 
       const products = isDiscounted
@@ -927,6 +931,56 @@ export class CustomerController {
           pageProducts = pageProducts.slice(offset, offset + limit);
         }
       }
+
+      // 1.2: Sayfalamadan bagimsiz toplam urun sayisi (frontend "Toplam N urun" gosterimi icin).
+      // Fiyat/stok hesaplama mantigina dokunmaz; sadece ayni filtre uzerinden count alir.
+      let productsTotal: number | undefined;
+      if (isPurchased) {
+        // Purchased modunda DB sorgusu limitsiz cekildigi icin tum eslesen kayit sayisi = products.length.
+        productsTotal = products.length;
+      } else if (isDiscounted) {
+        const discountedWhere: any = {
+          excessStock: { gt: 0 },
+          active: true,
+          hiddenFromCustomers: false,
+        };
+        if (excludedProductCodes.length > 0) {
+          discountedWhere.mikroCode = { notIn: excludedProductCodes };
+        }
+        if (categoryIds.length > 0) {
+          discountedWhere.categoryId = { in: categoryIds };
+        } else if (categoryId) {
+          discountedWhere.categoryId = categoryId as string;
+        }
+        if (searchTokens.length > 0) {
+          discountedWhere.AND = searchTokens.map((token) => ({
+            OR: [
+              { name: { contains: token, mode: 'insensitive' } },
+              { mikroCode: { contains: token, mode: 'insensitive' } },
+            ],
+          }));
+        }
+        productsTotal = await prisma.product.count({ where: discountedWhere });
+      } else {
+        const listWhere: any = {
+          active: true,
+          hiddenFromCustomers: false,
+          ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+          ...categoryFilter,
+          ...(searchTokens.length > 0
+            ? {
+                AND: searchTokens.map((token) => ({
+                  OR: [
+                    { name: { contains: token, mode: 'insensitive' } },
+                    { mikroCode: { contains: token, mode: 'insensitive' } },
+                  ],
+                })),
+              }
+            : {}),
+        };
+        productsTotal = await prisma.product.count({ where: listWhere });
+      }
+      lap('countTotal');
 
       const priceStatsMap = await priceListService.getPriceStatsMap(
         pageProducts.map((product) => product.mikroCode)
@@ -1159,7 +1213,12 @@ export class CustomerController {
 
       lap('enrich');
       logTiming({ counts: { products: products.length, agreements: agreementRows.length, purchasedCodes: purchasedCodes.length } });
-      res.json({ products: productsWithPrices });
+      // 1.2: warehouse filtresi sorgu sonrasi (post-query) uygulandigindan DB count'u gercek gorunenle
+      // birebir eslesmez; bu durumda yaniltici olmamak icin total gondermeyiz.
+      res.json({
+        products: productsWithPrices,
+        ...(warehouse ? {} : { total: productsTotal }),
+      });
     } catch (error) {
       next(error);
     }
@@ -1172,7 +1231,9 @@ export class CustomerController {
     try {
       const { id } = req.params;
       const { mode } = req.query;
-      const isDiscounted = mode === 'discounted' || mode === 'excess';
+      // 1.19: Indirimli moda istek gelse de, stok tukenince teknik hata yerine normal fiyata dusecegiz.
+      const requestedDiscounted = mode === 'discounted' || mode === 'excess';
+      let isDiscounted = requestedDiscounted;
 
       const user = await prisma.user.findUnique({
         where: { id: req.user!.userId },
@@ -1296,8 +1357,9 @@ export class CustomerController {
         return res.status(404).json({ error: 'Product not found' });
       }
 
-      if (isDiscounted && product.excessStock <= 0) {
-        return res.status(400).json({ error: 'Product is not available' });
+      // 1.19: Indirimli urun stogu bittiyse hata donmek yerine urunu normal (liste) fiyatla goster.
+      if (requestedDiscounted && product.excessStock <= 0) {
+        isDiscounted = false;
       }
 
       const prices = product.prices as unknown as ProductPrices;
@@ -2120,6 +2182,8 @@ export class CustomerController {
         message: 'Order created successfully',
         orderId: result.orderId,
         orderNumber: result.orderNumber,
+        // 1.6: Gizli/pasif oldugu icin siparise alinmayan urunler (frontend bilgilendirir)
+        skippedItems: result.skippedItems || [],
       });
     } catch (error) {
       next(error);

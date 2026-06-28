@@ -28,9 +28,37 @@ export default function AdminOrdersPage() {
 
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
+  // 3.9: Coklu secim ve toplu onay/red icin secili siparis id'leri
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
   useEffect(() => {
     fetchOrders();
   }, []);
+
+  // 3.9: Sik kullanilan evrak serileri localStorage'da hatirlanir; onay diyaloglarinda otomatik doldurulur.
+  const INVOICED_SERIES_KEY = 'orders.lastInvoicedSeries';
+  const WHITE_SERIES_KEY = 'orders.lastWhiteSeries';
+
+  const readStoredSeries = (key: string, fallback: string) => {
+    if (typeof window === 'undefined') return fallback;
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored && stored.trim() ? stored : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const writeStoredSeries = (key: string, value: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const trimmed = value.trim();
+      if (trimmed) window.localStorage.setItem(key, trimmed);
+    } catch {
+      // localStorage erisimi yoksa sessizce gec
+    }
+  };
 
   const isCustomerOrder = (order: PendingOrderForAdmin) => {
     return Boolean(order.customerRequest) || (!order.requestedBy && !order.sourceQuote);
@@ -109,8 +137,46 @@ export default function AdminOrdersPage() {
     });
   };
 
-  const openEdit = (order: PendingOrderForAdmin) => {
+  const goToEdit = (order: PendingOrderForAdmin) => {
     router.push(`/quotes/new?mode=order&orderId=${encodeURIComponent(order.id)}`);
+  };
+
+  // 3.7: Onayli (APPROVED) siparis duzenlemesi gercek Mikro siparisini guncelledigi icin
+  // duzenlemeye gecmeden once acik bir onay diyalogu goster. Bekleyen (PENDING) siparislerde
+  // bu uyari cikmaz, dogrudan duzenlemeye gecilir.
+  const openEdit = (order: PendingOrderForAdmin) => {
+    if (order.status !== 'APPROVED') {
+      goToEdit(order);
+      return;
+    }
+
+    toast((t) => (
+      <div className="flex flex-col gap-3 min-w-[320px]">
+        <p className="font-semibold text-amber-700">Onayli siparis duzenleniyor</p>
+        <p className="text-sm text-gray-700">
+          Bu degisiklik Mikro&apos;daki gercek siparisi guncelleyecektir. Devam edilsin mi?
+        </p>
+        <div className="flex gap-2 justify-end pt-1">
+          <button
+            className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+            onClick={() => toast.dismiss(t.id)}
+          >
+            Vazgec
+          </button>
+          <button
+            className="px-3 py-1 text-sm bg-amber-600 text-white rounded hover:bg-amber-700"
+            onClick={() => {
+              toast.dismiss(t.id);
+              goToEdit(order);
+            }}
+          >
+            Devam Et
+          </button>
+        </div>
+      </div>
+    ), {
+      duration: Infinity,
+    });
   };
 
 
@@ -434,8 +500,9 @@ export default function AdminOrdersPage() {
       whiteSeries?: string;
     } | null>((resolve) => {
       let noteValue = '';
-      let invoicedSeries = 'B2BF';
-      let whiteSeries = 'B2BB';
+      // 3.9: Son kullanilan evrak serilerini varsayilan olarak getir
+      let invoicedSeries = readStoredSeries(INVOICED_SERIES_KEY, 'B2BF');
+      let whiteSeries = readStoredSeries(WHITE_SERIES_KEY, 'B2BB');
 
       toast((t) => (
         <div className="flex flex-col gap-3 min-w-[320px]">
@@ -521,6 +588,9 @@ export default function AdminOrdersPage() {
         invoicedSeries: result.invoicedSeries,
         whiteSeries: result.whiteSeries,
       });
+      // 3.9: Kullanilan serileri bir sonraki onay icin hatirla
+      if (result.invoicedSeries) writeStoredSeries(INVOICED_SERIES_KEY, result.invoicedSeries);
+      if (result.whiteSeries) writeStoredSeries(WHITE_SERIES_KEY, result.whiteSeries);
       toast.success('Sipariş onaylandı ve Mikro\'ya gönderildi! ✅');
       fetchOrders();
     } catch (error: any) {
@@ -580,6 +650,273 @@ export default function AdminOrdersPage() {
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Reddetme başarısız');
     }
+  };
+
+  // 3.9: Sadece bekleyen (PENDING) siparisler toplu onay/red icin secilebilir
+  const toggleOrderSelection = (orderId: string) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
+  // 3.9: Mevcut listede gorunen secilebilir (bekleyen) siparisler
+  const selectablePendingOrders = useMemo(
+    () => filteredOrders.filter((order) => order.status === 'PENDING'),
+    [filteredOrders]
+  );
+  const selectedCount = selectedOrderIds.size;
+  const allPendingSelected =
+    selectablePendingOrders.length > 0 &&
+    selectablePendingOrders.every((order) => selectedOrderIds.has(order.id));
+
+  const toggleSelectAllPending = () => {
+    if (allPendingSelected) {
+      setSelectedOrderIds(new Set());
+    } else {
+      setSelectedOrderIds(new Set(selectablePendingOrders.map((order) => order.id)));
+    }
+  };
+
+  // 3.9: Liste/sekme/arama degisince gecersiz secimleri temizle (sadece gorunen bekleyenler secili kalsin)
+  useEffect(() => {
+    setSelectedOrderIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visibleIds = new Set(selectablePendingOrders.map((order) => order.id));
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (visibleIds.has(id)) next.add(id);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [selectablePendingOrders]);
+
+  // 3.9: Toplu onay - tek seferde seri sorulur, secili tum bekleyen siparislere uygulanir.
+  // Fiyat/seri mantigi tek onay ile bire bir ayni; sadece tekrarli giris ortadan kalkar.
+  const handleBulkApprove = async () => {
+    const targets = allOrders.filter(
+      (order) => selectedOrderIds.has(order.id) && order.status === 'PENDING'
+    );
+    if (targets.length === 0) {
+      toast.error('Onaylanacak bekleyen siparis secilmedi');
+      return;
+    }
+
+    const anyInvoiced = targets.some((order) =>
+      order.items.some((item) => item.priceType === 'INVOICED')
+    );
+    const anyWhite = targets.some((order) =>
+      order.items.some((item) => item.priceType === 'WHITE')
+    );
+
+    const result = await new Promise<{
+      note: string;
+      invoicedSeries?: string;
+      whiteSeries?: string;
+    } | null>((resolve) => {
+      let noteValue = '';
+      let invoicedSeries = readStoredSeries(INVOICED_SERIES_KEY, 'B2BF');
+      let whiteSeries = readStoredSeries(WHITE_SERIES_KEY, 'B2BB');
+
+      toast((t) => (
+        <div className="flex flex-col gap-3 min-w-[320px]">
+          <p className="font-semibold">{targets.length} siparis toplu onaylanacak</p>
+          <p className="text-xs text-gray-600">
+            Secili siparisler onaylanip Mikro&apos;ya gonderilecek. Seriler son kullanilan degerlerle dolduruldu.
+          </p>
+          <p className="font-medium text-sm">Onay notu (opsiyonel):</p>
+          <input
+            type="text"
+            className="border rounded px-3 py-2 text-sm"
+            placeholder="Not ekleyin..."
+            onChange={(e) => noteValue = e.target.value}
+          />
+
+          {anyInvoiced && (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">Faturalı evrak seri:</p>
+              <input
+                type="text"
+                className="border rounded px-3 py-2 text-sm"
+                defaultValue={invoicedSeries}
+                onChange={(e) => invoicedSeries = e.target.value}
+              />
+            </div>
+          )}
+
+          {anyWhite && (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">Beyaz evrak seri:</p>
+              <input
+                type="text"
+                className="border rounded px-3 py-2 text-sm"
+                defaultValue={whiteSeries}
+                onChange={(e) => whiteSeries = e.target.value}
+              />
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-end pt-1">
+            <button
+              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(null);
+              }}
+            >
+              İptal
+            </button>
+            <button
+              className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+              onClick={() => {
+                const trimmedInvoiced = invoicedSeries.trim();
+                const trimmedWhite = whiteSeries.trim();
+
+                if (anyInvoiced && !trimmedInvoiced) {
+                  toast.error('Faturalı evrak serisi gerekli');
+                  return;
+                }
+                if (anyWhite && !trimmedWhite) {
+                  toast.error('Beyaz evrak serisi gerekli');
+                  return;
+                }
+
+                toast.dismiss(t.id);
+                resolve({
+                  note: noteValue,
+                  invoicedSeries: anyInvoiced ? trimmedInvoiced.slice(0, 20) : undefined,
+                  whiteSeries: anyWhite ? trimmedWhite.slice(0, 20) : undefined,
+                });
+              }}
+            >
+              {targets.length} Siparisi Onayla
+            </button>
+          </div>
+        </div>
+      ), {
+        duration: Infinity,
+      });
+    });
+
+    if (!result) return;
+
+    // 3.9: Kullanilan serileri hatirla
+    if (result.invoicedSeries) writeStoredSeries(INVOICED_SERIES_KEY, result.invoicedSeries);
+    if (result.whiteSeries) writeStoredSeries(WHITE_SERIES_KEY, result.whiteSeries);
+
+    setIsBulkProcessing(true);
+    let success = 0;
+    let failed = 0;
+    // 3.9: Mikro yazma islemi oldugu icin siparisler sirayla gonderilir (paralel degil)
+    for (const order of targets) {
+      // Her siparise sadece kendi kalemlerinde gecen tipe ait seriyi gonder
+      const orderHasInvoiced = order.items.some((item) => item.priceType === 'INVOICED');
+      const orderHasWhite = order.items.some((item) => item.priceType === 'WHITE');
+      try {
+        await adminApi.approveOrder(order.id, {
+          adminNote: result.note.trim() || undefined,
+          invoicedSeries: orderHasInvoiced ? result.invoicedSeries : undefined,
+          whiteSeries: orderHasWhite ? result.whiteSeries : undefined,
+        });
+        success += 1;
+      } catch (error: any) {
+        failed += 1;
+        const reason = error.response?.data?.error || 'bilinmeyen hata';
+        toast.error(`#${order.orderNumber} onaylanamadi: ${reason}`);
+      }
+    }
+    setIsBulkProcessing(false);
+
+    if (success > 0) {
+      toast.success(`${success} siparis onaylandi ve Mikro'ya gonderildi`);
+    }
+    if (failed === 0) {
+      setSelectedOrderIds(new Set());
+    }
+    fetchOrders();
+  };
+
+  // 3.9: Toplu red - tek red sebebi alinir, secili tum bekleyen siparislere uygulanir.
+  const handleBulkReject = async () => {
+    const targets = allOrders.filter(
+      (order) => selectedOrderIds.has(order.id) && order.status === 'PENDING'
+    );
+    if (targets.length === 0) {
+      toast.error('Reddedilecek bekleyen siparis secilmedi');
+      return;
+    }
+
+    const note = await new Promise<string>((resolve) => {
+      let inputValue = '';
+      toast((t) => (
+        <div className="flex flex-col gap-3 min-w-[300px]">
+          <p className="font-medium text-red-700">{targets.length} siparis icin red sebebi (zorunlu):</p>
+          <textarea
+            className="border rounded px-3 py-2 text-sm resize-none"
+            rows={3}
+            placeholder="Red sebebini yazın..."
+            onChange={(e) => inputValue = e.target.value}
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve('__CANCEL__');
+              }}
+            >
+              İptal
+            </button>
+            <button
+              className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+              onClick={() => {
+                toast.dismiss(t.id);
+                if (!inputValue.trim()) {
+                  toast.error('Red sebebi girilmelidir');
+                  resolve('__CANCEL__');
+                } else {
+                  resolve(inputValue);
+                }
+              }}
+            >
+              {targets.length} Siparisi Reddet
+            </button>
+          </div>
+        </div>
+      ), {
+        duration: Infinity,
+      });
+    });
+
+    if (note === '__CANCEL__') return;
+
+    setIsBulkProcessing(true);
+    let success = 0;
+    let failed = 0;
+    for (const order of targets) {
+      try {
+        await adminApi.rejectOrder(order.id, note);
+        success += 1;
+      } catch (error: any) {
+        failed += 1;
+        const reason = error.response?.data?.error || 'bilinmeyen hata';
+        toast.error(`#${order.orderNumber} reddedilemedi: ${reason}`);
+      }
+    }
+    setIsBulkProcessing(false);
+
+    if (success > 0) {
+      toast.success(`${success} siparis reddedildi`);
+    }
+    if (failed === 0) {
+      setSelectedOrderIds(new Set());
+    }
+    fetchOrders();
   };
 
   const getStatusBadge = (status: string) => {
@@ -787,6 +1124,52 @@ export default function AdminOrdersPage() {
           )}
         </div>
 
+        {/* 3.9: Toplu islem cubugu - sadece listede bekleyen siparis varken gorunur */}
+        {selectablePendingOrders.length > 0 && (
+          <div className="mb-4 flex flex-col gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300"
+                checked={allPendingSelected}
+                onChange={toggleSelectAllPending}
+              />
+              Bekleyenleri sec ({selectablePendingOrders.length})
+              {selectedCount > 0 && (
+                <span className="text-xs font-normal text-gray-500">- {selectedCount} secili</span>
+              )}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={selectedCount === 0 || isBulkProcessing}
+                onClick={handleBulkApprove}
+              >
+                {isBulkProcessing ? 'Isleniyor...' : 'Secilenleri Onayla'}
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={selectedCount === 0 || isBulkProcessing}
+                onClick={handleBulkReject}
+              >
+                Secilenleri Reddet
+              </Button>
+              {selectedCount > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={isBulkProcessing}
+                  onClick={() => setSelectedOrderIds(new Set())}
+                >
+                  Secimi Temizle
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
         {filteredOrders.length === 0 ? (
           <Card>
             <p className="text-center text-gray-600 py-8">
@@ -812,6 +1195,17 @@ export default function AdminOrdersPage() {
 
               <Card key={order.id} className="overflow-hidden">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    {/* 3.9: Sadece bekleyen siparisler toplu islem icin secilebilir */}
+                    {order.status === 'PENDING' && (
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-gray-300"
+                        checked={selectedOrderIds.has(order.id)}
+                        onChange={() => toggleOrderSelection(order.id)}
+                        aria-label="Siparisi sec"
+                      />
+                    )}
                   <div>
                     <div className="text-xs text-gray-500">Cari</div>
                     <div className="font-semibold text-gray-900">{customerName}</div>
@@ -875,6 +1269,7 @@ export default function AdminOrdersPage() {
                         )}
                       </div>
                     )}
+                  </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                     {getStatusBadge(order.status)}

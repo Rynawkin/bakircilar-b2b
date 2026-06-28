@@ -26,7 +26,7 @@ import {
 import Link from 'next/link';
 import { adminApi } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+// 8.2 + 13.3: xlsx artik statik degil; sadece Excel'e basinca dinamik import edilir.
 
 interface TopCustomer {
   customerCode: string;
@@ -62,6 +62,8 @@ export default function TopCustomersPage() {
   const [sortBy, setSortBy] = useState<'revenue' | 'profit' | 'margin' | 'orderCount'>('revenue');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  // 8.2: Excel indir tum veriyi cekerken buton kilitlensin.
+  const [exportLoading, setExportLoading] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -95,65 +97,109 @@ export default function TopCustomersPage() {
     fetchData();
   }, [page, sortBy, startDate, endDate, sector]);
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    if (exportLoading) return;
     if (data.length === 0) {
       toast.error('Dışa aktarılacak veri yok');
       return;
     }
 
-    const excelData = data.map((item) => ({
-      'Müşteri Kodu': item.customerCode,
-      'Müşteri Adı': item.customerName,
-      'Sektör': item.sector || '-',
-      'Sipariş Sayısı': item.orderCount,
-      'Ciro (TL)': parseFloat(item.revenue.toFixed(2)),
-      'Maliyet (TL)': parseFloat(item.cost.toFixed(2)),
-      'Kar (TL)': parseFloat(item.profit.toFixed(2)),
-      'Kar Marjı (%)': parseFloat(item.profitMargin.toFixed(2)),
-      'Ort. Sipariş (TL)': parseFloat(item.avgOrderAmount.toFixed(2)),
-      'En Çok Aldığı Kategori': item.topCategory || '-',
-      'Son Sipariş': formatDate(item.lastOrderDate),
-    }));
+    setExportLoading(true);
+    try {
+      // 8.2: Excel tum veriyi icermeli. Mevcut filtrelerle butun sayfalari cekip topla.
+      const exportLimit = 500; // her istekte daha cok kayit cekip istek sayisini azalt
+      const allCustomers: TopCustomer[] = [];
+      let currentPage = 1;
+      let pagesTotal = 1;
+      let exportSummary: Summary | null = summary;
 
-    if (summary) {
-      excelData.push({} as any);
-      excelData.push({
-        'Müşteri Kodu': 'TOPLAM',
-        'Müşteri Adı': `${summary.totalCustomers} müşteri`,
-        'Sektör': '',
-        'Sipariş Sayısı': '',
-        'Ciro (TL)': parseFloat(summary.totalRevenue.toFixed(2)),
-        'Maliyet (TL)': '',
-        'Kar (TL)': parseFloat(summary.totalProfit.toFixed(2)),
-        'Kar Marjı (%)': parseFloat(summary.avgProfitMargin.toFixed(2)),
-        'Ort. Sipariş (TL)': '',
-        'En Çok Aldığı Kategori': '',
-        'Son Sipariş': '',
-      } as any);
+      do {
+        const result = await adminApi.getTopCustomers({
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          sector: sector || undefined,
+          sortBy,
+          page: currentPage,
+          limit: exportLimit,
+        });
+
+        if (!result.success) {
+          throw new Error('Veri çekilemedi');
+        }
+
+        allCustomers.push(...result.data.customers);
+        // Summary tum veri seti bazinda gelir; TOPLAM satiri ile satirlar tutarli olsun.
+        exportSummary = result.data.summary;
+        pagesTotal = result.data.pagination.totalPages || 1;
+        currentPage += 1;
+      } while (currentPage <= pagesTotal);
+
+      if (allCustomers.length === 0) {
+        toast.error('Dışa aktarılacak veri yok');
+        return;
+      }
+
+      const excelData: any[] = allCustomers.map((item) => ({
+        'Müşteri Kodu': item.customerCode,
+        'Müşteri Adı': item.customerName,
+        'Sektör': item.sector || '-',
+        'Sipariş Sayısı': item.orderCount,
+        'Ciro (TL)': parseFloat(item.revenue.toFixed(2)),
+        'Maliyet (TL)': parseFloat(item.cost.toFixed(2)),
+        'Kar (TL)': parseFloat(item.profit.toFixed(2)),
+        'Kar Marjı (%)': parseFloat(item.profitMargin.toFixed(2)),
+        'Ort. Sipariş (TL)': parseFloat(item.avgOrderAmount.toFixed(2)),
+        'En Çok Aldığı Kategori': item.topCategory || '-',
+        'Son Sipariş': formatDate(item.lastOrderDate),
+      }));
+
+      if (exportSummary) {
+        excelData.push({} as any);
+        excelData.push({
+          'Müşteri Kodu': 'TOPLAM',
+          'Müşteri Adı': `${exportSummary.totalCustomers} müşteri`,
+          'Sektör': '',
+          'Sipariş Sayısı': '',
+          'Ciro (TL)': parseFloat(exportSummary.totalRevenue.toFixed(2)),
+          'Maliyet (TL)': '',
+          'Kar (TL)': parseFloat(exportSummary.totalProfit.toFixed(2)),
+          'Kar Marjı (%)': parseFloat(exportSummary.avgProfitMargin.toFixed(2)),
+          'Ort. Sipariş (TL)': '',
+          'En Çok Aldığı Kategori': '',
+          'Son Sipariş': '',
+        } as any);
+      }
+
+      // 13.3: xlsx sadece burada (export aninda) dinamik yuklenir.
+      const XLSX = await import('xlsx');
+
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      ws['!cols'] = [
+        { wch: 15 },  // Müşteri Kodu
+        { wch: 40 },  // Müşteri Adı
+        { wch: 15 },  // Sektör
+        { wch: 15 },  // Sipariş Sayısı
+        { wch: 15 },  // Ciro
+        { wch: 15 },  // Maliyet
+        { wch: 15 },  // Kar
+        { wch: 15 },  // Kar Marjı
+        { wch: 15 },  // Ort. Sipariş
+        { wch: 25 },  // En Çok Aldığı Kategori
+        { wch: 18 },  // Son Sipariş
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'En İyi Müşteriler');
+
+      const fileName = `en-iyi-musteriler-${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      toast.success(`${allCustomers.length} kayıt Excel'e aktarıldı`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Excel oluşturulamadı');
+    } finally {
+      setExportLoading(false);
     }
-
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    ws['!cols'] = [
-      { wch: 15 },  // Müşteri Kodu
-      { wch: 40 },  // Müşteri Adı
-      { wch: 15 },  // Sektör
-      { wch: 15 },  // Sipariş Sayısı
-      { wch: 15 },  // Ciro
-      { wch: 15 },  // Maliyet
-      { wch: 15 },  // Kar
-      { wch: 15 },  // Kar Marjı
-      { wch: 15 },  // Ort. Sipariş
-      { wch: 25 },  // En Çok Aldığı Kategori
-      { wch: 18 },  // Son Sipariş
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'En İyi Müşteriler');
-
-    const fileName = `en-iyi-musteriler-${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-
-    toast.success(`${data.length} kayıt Excel'e aktarıldı`);
   };
 
   const formatCurrency = (value: number) => {
@@ -207,9 +253,13 @@ export default function TopCustomersPage() {
               <RefreshCw className="h-4 w-4 mr-2" />
               Yenile
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExportExcel}>
-              <Download className="h-4 w-4 mr-2" />
-              Excel İndir
+            <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={exportLoading}>
+              {exportLoading ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {exportLoading ? 'Hazırlanıyor...' : 'Excel İndir (Tümü)'}
             </Button>
           </div>
         </div>

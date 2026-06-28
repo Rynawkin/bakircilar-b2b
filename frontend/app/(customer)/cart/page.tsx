@@ -193,6 +193,13 @@ Toplam: ${formatCurrency(cart.total)}`,
 Siparis No: ${result.orderNumber}`, {
               duration: 4000,
             });
+            // 1.6: Gizli/pasif oldugu icin siparise alinmayan urunler varsa kullaniciyi bilgilendir.
+            if (Array.isArray(result.skippedItems) && result.skippedItems.length > 0) {
+              toast.error(
+                `Su urunler artik satista degil, siparise alinmadi:\n${result.skippedItems.join('\n')}`,
+                { duration: 8000 }
+              );
+            }
             router.push('/my-orders');
           }
         } catch (error: any) {

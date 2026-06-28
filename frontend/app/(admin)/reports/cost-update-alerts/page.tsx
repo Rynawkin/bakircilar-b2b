@@ -31,7 +31,7 @@ import { adminApi } from '@/lib/api/admin';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import { formatDateShort } from '@/lib/utils/format';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+// 13.3: xlsx statik degil; export aninda dinamik import edilir.
 
 interface CostUpdateAlert {
   productCode: string;
@@ -321,6 +321,9 @@ export default function CostUpdateAlertsPage() {
           'Satış Fiyatı (TL)': '',
         } as any);
       }
+
+      // 13.3: xlsx sadece burada (export aninda) dinamik yuklenir.
+      const XLSX = await import('xlsx');
 
       // Worksheet oluştur
       const ws = XLSX.utils.json_to_sheet(excelData);

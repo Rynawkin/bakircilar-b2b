@@ -31,7 +31,7 @@ export const customerApi = {
     sort?: 'bestsellerValue' | 'lastPurchasedDesc' | 'nameAsc';
     limit?: number;
     offset?: number;
-  }, options?: { signal?: AbortSignal }): Promise<{ products: Product[] }> => {
+  }, options?: { signal?: AbortSignal }): Promise<{ products: Product[]; total?: number }> => {
     const response = await apiClient.get('/products', {
       params: {
         ...params,
@@ -112,7 +112,7 @@ export const customerApi = {
   createOrder: async (data?: {
     customerOrderNumber?: string;
     deliveryLocation?: string;
-  }): Promise<{ orderId: string; orderNumber: string; message: string }> => {
+  }): Promise<{ orderId: string; orderNumber: string; message: string; skippedItems?: string[] }> => {
     const response = await apiClient.post('/orders', data);
     return response.data;
   },

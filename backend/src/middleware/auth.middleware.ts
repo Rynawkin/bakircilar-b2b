@@ -5,7 +5,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/jwt';
+import { verifyToken, passwordFingerprint } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
 import { rolePermissionService } from '../services/role-permission.service';
 
@@ -25,15 +25,28 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     const decoded = verifyToken(token);
 
-    // SALES_REP için sektör bilgilerini al
-    let assignedSectorCodes: string[] = [];
-    if (decoded.role === 'SALES_REP') {
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: { assignedSectorCodes: true },
-      });
-      assignedSectorCodes = user?.assignedSectorCodes || [];
+    // 11.2: Her istekte kullaniciyi dogrula. Hesap pasifse veya sifre degismisse
+    // (parmak izi uyusmuyorsa) eski/calinan token sunucu tarafinda reddedilir.
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { assignedSectorCodes: true, active: true, password: true },
+    });
+
+    if (!user) {
+      res.status(401).json({ error: 'User not found' });
+      return;
     }
+    if (!user.active) {
+      res.status(401).json({ error: 'Account is inactive' });
+      return;
+    }
+    // Eski token'larda pwfp olmayabilir; sadece varsa dogrula (kademeli gecis).
+    if (decoded.pwfp && decoded.pwfp !== passwordFingerprint(user.password)) {
+      res.status(401).json({ error: 'Session expired, please login again' });
+      return;
+    }
+
+    const assignedSectorCodes = decoded.role === 'SALES_REP' ? (user.assignedSectorCodes || []) : [];
 
     // req.user'a kullanıcı bilgilerini ekle
     req.user = {
@@ -96,6 +109,25 @@ export const requireCustomer = (req: Request, res: Response, next: NextFunction)
 
   if (req.user.role !== 'CUSTOMER') {
     res.status(403).json({ error: 'Customer access required' });
+    return;
+  }
+
+  next();
+};
+
+/**
+ * 11.1: Musteri (CUSTOMER) disindaki giris yapmis tum roller erisebilir.
+ * Cari/stok arama gibi hassas servisleri (maliyet, bakiye, telefon, vergi no)
+ * musteri rolunden korur. Personel rolleri (admin/manager/sales/depocu/diversey) gecer.
+ */
+export const requireNotCustomer = (req: Request, res: Response, next: NextFunction): void => {
+  if (!req.user) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  if (req.user.role === 'CUSTOMER') {
+    res.status(403).json({ error: 'Staff access required' });
     return;
   }
 

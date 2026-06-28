@@ -70,6 +70,19 @@ export default function AdminProductOverridesPage() {
       });
       toast.success(`${selectedProduct.name} için ${getCustomerTypeName(customerType)} kar marjı güncellendi! ✅`);
       setOverrideMargins({ ...overrideMargins, [customerType]: '' });
+
+      // 10.2: Backend override sonrası fiyatı aninda yeniden hesapliyor;
+      // listeyi tazeleyip secili urunun guncel fiyatlarini ekranda goster.
+      try {
+        const { products: refreshed } = await adminApi.getProducts();
+        setProducts(refreshed);
+        const updated = refreshed.find((p: Product) => p.id === selectedProduct.id);
+        if (updated) {
+          setSelectedProduct((prev) => (prev ? { ...prev, prices: updated.prices } : prev));
+        }
+      } catch (refreshError) {
+        console.error('Fiyat tazeleme hatasi:', refreshError);
+      }
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Güncelleme başarısız');
     } finally {

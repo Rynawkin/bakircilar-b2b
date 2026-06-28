@@ -106,6 +106,8 @@ type CreationLog = {
 };
 
 const DRAFT_KEY = 'stock-create:draft:v2';
+// 10.3: Backend ile ayni tek seferlik satir limiti; toplu yuklemede sessiz kayip olmasin.
+const MAX_BULK_ITEMS = 200;
 const textInputClass = 'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100';
 const labelClass = 'mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500';
 
@@ -656,9 +658,13 @@ export default function StockCreatePage() {
       const res = await apiClient.post('/admin/stock-create/preview', { items: activeItems });
       setPreviewRows(res.data.results || []);
       const summary = res.data.summary;
+      // 10.3: Limit asildiysa kullaniciyi acikca uyar (sessiz kayip olmasin).
+      if (summary?.truncated) {
+        toast.error(summary.truncationMessage || `Sadece ilk ${summary.maxItems} satir on kontrolden gecti.`, { duration: 8000 });
+      }
       if (summary?.error > 0) toast.error(`${summary.error} satir hatali`);
       else if (summary?.warning > 0) toast(`${summary.warning} satir uyarili, yine de kaydedilebilir`);
-      else toast.success('Tum satirlar kayda hazir');
+      else if (!summary?.truncated) toast.success('Tum satirlar kayda hazir');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'On kontrol yapilamadi');
     } finally {
@@ -765,6 +771,13 @@ export default function StockCreatePage() {
       setActiveTab('bulk');
       setPreviewRows([]);
       toast.success(`${mapped.length} satir yuklendi`);
+      // 10.3: Limit asildiysa daha yukleme aninda acikca uyar.
+      if (mapped.length > MAX_BULK_ITEMS) {
+        toast.error(
+          `${mapped.length} satir yuklendi ancak tek seferde en fazla ${MAX_BULK_ITEMS} satir islenebilir. Kalan ${mapped.length - MAX_BULK_ITEMS} satir icin ayri parti yukleyin.`,
+          { duration: 9000 }
+        );
+      }
     } catch (error) {
       toast.error('Excel okunamadi');
     } finally {
@@ -1207,6 +1220,15 @@ export default function StockCreatePage() {
                     <div className="text-2xl font-black text-slate-900">{bulkItems.length}</div>
                   </div>
                 </div>
+                {bulkItems.length > MAX_BULK_ITEMS && (
+                  <div className="mb-4 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                    <span>
+                      {bulkItems.length} satir yuklendi; tek seferde en fazla {MAX_BULK_ITEMS} satir islenir. Mikroya yazim engellenir.
+                      Kalan {bulkItems.length - MAX_BULK_ITEMS} satiri ayri bir parti olarak yukleyin.
+                    </span>
+                  </div>
+                )}
                 {bulkItems.length === 0 ? (
                   <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-300 bg-slate-50 text-center">
                     <FileSpreadsheet className="h-16 w-16 text-slate-300" />
@@ -1276,7 +1298,7 @@ export default function StockCreatePage() {
                         <Search className="mr-2 h-4 w-4" />
                         On Kontrol
                       </Button>
-                      <Button onClick={createStocks} isLoading={creating} disabled={!previewRows.length || hasErrors} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                      <Button onClick={createStocks} isLoading={creating} disabled={!previewRows.length || hasErrors || activeItems.length > MAX_BULK_ITEMS} className="bg-emerald-600 text-white hover:bg-emerald-700">
                         <Save className="mr-2 h-4 w-4" />
                         Mikroya Yaz
                       </Button>

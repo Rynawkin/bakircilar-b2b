@@ -43,6 +43,12 @@ import {
 
 type TabKey = 'customer' | 'products' | 'draft' | 'history';
 type ProductMode = 'search' | 'purchased' | 'stock' | 'opportunity';
+type PriceType = 'INVOICED' | 'WHITE';
+
+// 4.2: Carinin priceVisibility tercihine gore varsayilan fiyat tipini belirler.
+// Sadece "varsayilan secim"i etkiler; fiyat hesabini degistirmez.
+const defaultPriceTypeForCustomer = (customer: any): PriceType =>
+  customer?.priceVisibility === 'WHITE_ONLY' ? 'WHITE' : 'INVOICED';
 
 type DraftItem = {
   productId?: string | null;
@@ -71,6 +77,7 @@ type DraftItem = {
 };
 
 const DRAFT_KEY = 'field-sales:draft';
+const DRAFT_CUSTOMER_KEY = 'field-sales:draft-customer'; // 4.4: taslagi sahibi cari ile baglamak icin
 const RECENT_CUSTOMERS_KEY = 'field-sales:recent-customers';
 const RECENT_PRODUCTS_KEY = 'field-sales:recent-products';
 const SAFE_MODE_KEY = 'field-sales:safe-mode';
@@ -222,6 +229,9 @@ const saveJson = (key: string, value: unknown) => {
   window.localStorage.setItem(key, JSON.stringify(value));
 };
 
+// 4.4: Cari icin sabit anahtar (id varsa id, yoksa mikro kod).
+const customerKey = (customer: any) => String(customer?.id || customer?.mikroCariCode || '');
+
 const upsertRecent = (key: string, item: any, idGetter: (row: any) => string) => {
   const id = idGetter(item);
   if (!id) return;
@@ -274,18 +284,26 @@ const readCompressedVisitPhoto = async (file: File): Promise<string> => {
   }
 };
 
-const getProductPrice = (product: any) => {
+// 4.2: Faturali/Beyaz secimi. Fiyat hesabi DEGISMEZ; backend'in zaten dondurdugu
+// customerPrice.invoiced / customerPrice.white degerlerinden dogru olani secilir.
+const getProductPrice = (product: any, priceType: PriceType = 'INVOICED') => {
   const customerPrice = product?.customerPrice;
-  if (customerPrice?.invoiced > 0) {
+  const isWhite = priceType === 'WHITE';
+  const chosenValue = isWhite ? Number(customerPrice?.white) : Number(customerPrice?.invoiced);
+  const chosenListNo = isWhite ? customerPrice?.whitePriceListNo : customerPrice?.priceListNo;
+  if (chosenValue > 0) {
     return {
-      value: Number(customerPrice.invoiced),
-      source: customerPrice.source === 'AGREEMENT' ? 'Anlasma' : getPriceListLabel(customerPrice.priceListNo),
-      priceListNo: customerPrice.source === 'AGREEMENT' ? null : customerPrice.priceListNo,
+      value: chosenValue,
+      source: customerPrice.source === 'AGREEMENT' ? 'Anlasma' : getPriceListLabel(chosenListNo),
+      priceListNo: customerPrice.source === 'AGREEMENT' ? null : chosenListNo,
       priceSource: customerPrice.source === 'AGREEMENT' ? 'MANUAL' : 'PRICE_LIST',
+      priceType,
     };
   }
-  const fallback = Number(product?.priceLists?.['6'] || product?.priceLists?.[6] || 0);
-  return { value: fallback, source: getPriceListLabel(6), priceListNo: 6, priceSource: 'PRICE_LIST' };
+  // Fallback: faturali icin Toptan 1 (6), beyaz icin Perakende 1 (1) listesi.
+  const fallbackListNo = isWhite ? 1 : 6;
+  const fallback = Number(product?.priceLists?.[String(fallbackListNo)] || product?.priceLists?.[fallbackListNo] || 0);
+  return { value: fallback, source: getPriceListLabel(fallbackListNo), priceListNo: fallbackListNo, priceSource: 'PRICE_LIST', priceType };
 };
 
 const getOpportunityRows = (opportunities: any) => [
@@ -369,6 +387,8 @@ export default function FieldSalesPage() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('customer');
   const [safeMode, setSafeMode] = useState(true);
+  const [priceType, setPriceType] = useState<PriceType>('INVOICED'); // 4.2: Faturali/Beyaz secimi
+  const [isOnline, setIsOnline] = useState(true); // 4.5: cevrimici/cevrimdisi gostergesi
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [customerSearch, setCustomerSearch] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
@@ -386,6 +406,8 @@ export default function FieldSalesPage() {
   const productDetailCacheRef = useRef<Map<string, any>>(new Map());
 
   const [draft, setDraft] = useState<DraftItem[]>([]);
+  // 4.4: Taslagin hangi cariye ait oldugunu tutar (cihazdaki taslagi cari ile baglar).
+  const [draftCustomer, setDraftCustomer] = useState<{ id?: string | null; mikroCariCode?: string | null; title?: string | null } | null>(null);
   const [quoteNote, setQuoteNote] = useState('Saha satis taslagi');
   const [validityDate, setValidityDate] = useState('');
   const [orderWarehouse, setOrderWarehouse] = useState('1');
@@ -408,6 +430,7 @@ export default function FieldSalesPage() {
   const [newVisitPhotoUrl, setNewVisitPhotoUrl] = useState<string | null>(null);
   const [newVisitLocation, setNewVisitLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [newVisitSaving, setNewVisitSaving] = useState(false);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<any[]>([]); // 4.6: benzer cari adaylari
 
   const [recentCustomers, setRecentCustomers] = useState<any[]>([]);
   const [recentProducts, setRecentProducts] = useState<any[]>([]);
@@ -415,6 +438,7 @@ export default function FieldSalesPage() {
 
   useEffect(() => {
     setDraft(loadJson<DraftItem[]>(DRAFT_KEY, []));
+    setDraftCustomer(loadJson<any>(DRAFT_CUSTOMER_KEY, null)); // 4.4
     setRecentCustomers(loadJson<any[]>(RECENT_CUSTOMERS_KEY, []));
     setRecentProducts(loadJson<any[]>(RECENT_PRODUCTS_KEY, []));
     const savedSafeMode = loadJson<boolean | null>(SAFE_MODE_KEY, null);
@@ -422,12 +446,26 @@ export default function FieldSalesPage() {
     const date = new Date();
     date.setDate(date.getDate() + 7);
     setValidityDate(date.toISOString().slice(0, 10));
-    return () => stopBarcodeScanner();
+    // 4.5: cevrimici/cevrimdisi durumu izle
+    if (typeof navigator !== 'undefined') setIsOnline(navigator.onLine);
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      stopBarcodeScanner();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   useEffect(() => {
     saveJson(DRAFT_KEY, draft);
   }, [draft]);
+
+  useEffect(() => {
+    saveJson(DRAFT_CUSTOMER_KEY, draftCustomer); // 4.4
+  }, [draftCustomer]);
 
   useEffect(() => {
     saveJson(SAFE_MODE_KEY, safeMode);
@@ -445,6 +483,31 @@ export default function FieldSalesPage() {
     void loadCustomerSnapshot(selectedCustomer.id || selectedCustomer.mikroCariCode);
     upsertRecent(RECENT_CUSTOMERS_KEY, selectedCustomer, (row) => String(row.id || row.mikroCariCode || ''));
     setRecentCustomers(loadJson<any[]>(RECENT_CUSTOMERS_KEY, []));
+
+    // 4.2: cari degisince varsayilan fiyat tipini carinin tercihine gore ayarla.
+    setPriceType(defaultPriceTypeForCustomer(selectedCustomer));
+
+    // 4.3: cari degisince onceki carinin fiyat/detay onbellegini temizle (eski fiyat gosterme).
+    productSearchCacheRef.current.clear();
+    productDetailCacheRef.current.clear();
+    setProducts([]);
+    setSelectedProduct(null);
+
+    // 4.4: taslakta urun varsa ve baska cariye aitse kullaniciyi uyar.
+    const nextKey = customerKey(selectedCustomer);
+    if (draft.length > 0 && draftCustomer && customerKey(draftCustomer) && customerKey(draftCustomer) !== nextKey) {
+      toast(
+        `Taslakta "${draftCustomer.title || draftCustomer.mikroCariCode}" carisine ait ${draft.length} kalem var. Yeni cari ile karismamasi icin once taslagi gonderin veya temizleyin.`,
+        { icon: '⚠️', duration: 6000 }
+      );
+    } else if (draft.length === 0 || !draftCustomer) {
+      // Taslak bos ya da sahipsizse yeni secili cariye baglanir.
+      setDraftCustomer({
+        id: selectedCustomer.id || null,
+        mikroCariCode: selectedCustomer.mikroCariCode || null,
+        title: selectedCustomer.displayTitle || selectedCustomer.name || selectedCustomer.mikroCariCode || null,
+      });
+    }
   }, [selectedCustomer?.id, selectedCustomer?.mikroCariCode]);
 
   useEffect(() => {
@@ -574,6 +637,7 @@ export default function FieldSalesPage() {
       saleIndex?: number;
       unitPrice?: number;
       selectedUnit?: string;
+      priceType?: PriceType; // 4.2: ozellikle bir tip istenirse (yoksa ekrandaki secim)
     }
   ) => {
     const resolvedProduct = await resolveProductForDraft(product);
@@ -582,7 +646,10 @@ export default function FieldSalesPage() {
       toast.error('Urun kodu bulunamadi.');
       return;
     }
-    const price = getProductPrice(resolvedProduct);
+    // 4.2: ekrandaki Faturali/Beyaz secimine gore dogru (backend'den gelen) fiyati sec.
+    const effectivePriceType: PriceType = options?.priceType ?? priceType;
+    const isWhite = effectivePriceType === 'WHITE';
+    const price = getProductPrice(resolvedProduct, effectivePriceType);
     const selectedUnit = options?.selectedUnit || resolvedProduct.unit || 'ADET';
     const quantityInput = productQuantities[code] || productQuantities[resolvedProduct.mikroCode] || '1';
     const displayQuantity = Math.max(0.0001, parseDecimalInput(quantityInput) || 1);
@@ -604,8 +671,9 @@ export default function FieldSalesPage() {
       priceSource: priceSource as DraftItem['priceSource'],
       priceListNo: options?.priceListNo ?? price.priceListNo ?? null,
       selectedSaleIndex: options?.saleIndex ?? null,
-      vatZeroed: Boolean(sale?.vatZeroed),
-      priceType: 'INVOICED',
+      // 4.2: Beyaz secimde KDV sifirlanir (siparis tarafindaki mevcut beyaz mantigi ile ayni).
+      vatZeroed: isWhite ? true : Boolean(sale?.vatZeroed),
+      priceType: effectivePriceType,
       priceLists: resolvedProduct.priceLists || {},
       lastSales: resolvedProduct.customerPrice?.lastSales || [],
       lastQuotes: resolvedProduct.lastQuotes || [],
@@ -615,20 +683,44 @@ export default function FieldSalesPage() {
       cost: resolvedProduct.cost || null,
     };
 
+    // 4.4: taslaga ilk urun eklenirken sahibi cariyi sabitle.
+    if (selectedCustomer && (draft.length === 0 || !draftCustomer)) {
+      setDraftCustomer({
+        id: selectedCustomer.id || null,
+        mikroCariCode: selectedCustomer.mikroCariCode || null,
+        title: selectedCustomer.displayTitle || selectedCustomer.name || selectedCustomer.mikroCariCode || null,
+      });
+    }
+
+    // 4.8: ekleme kararini (birlestir / uyar / yeni satir) state guncellemesinden once belirle.
+    const isExactRow = (row: DraftItem) =>
+      row.productCode === item.productCode
+      && row.unitPrice === item.unitPrice
+      && getSelectedUnit(row) === getSelectedUnit(item)
+      && row.priceSource === item.priceSource
+      && row.priceType === item.priceType;
+    const hasExact = draft.some(isExactRow);
+    const hasSameProduct = draft.some((row) => row.productCode === item.productCode);
+
     setDraft((current) => {
-      const existing = current.find((row) =>
-        row.productCode === item.productCode
-        && row.unitPrice === item.unitPrice
-        && getSelectedUnit(row) === getSelectedUnit(item)
-        && row.priceSource === item.priceSource
-      );
-      if (!existing) return [...current, item];
-      return current.map((row) =>
-        row === existing ? { ...row, quantity: Number(row.quantity || 0) + quantity } : row
-      );
+      const exact = current.find(isExactRow);
+      if (exact) {
+        return current.map((row) =>
+          row === exact ? { ...row, quantity: Number(row.quantity || 0) + quantity } : row
+        );
+      }
+      return [...current, item];
     });
+
+    if (hasExact) {
+      toast.success('Ayni satir bulundu, miktar birlestirildi.');
+    } else if (hasSameProduct) {
+      // 4.8: ayni urun farkli kosulla zaten taslakta -> uyar, yine de ayri satir eklenir.
+      toast('Bu urun taslakta zaten var; farkli kosulla yeni satir olarak eklendi.', { icon: '⚠️', duration: 5000 });
+    } else {
+      toast.success('Taslak sepete eklendi.');
+    }
     setProductQuantities((current) => ({ ...current, [code]: '1' }));
-    toast.success('Taslak sepete eklendi.');
   };
 
   const updateDraftItem = (index: number, changes: Partial<DraftItem>) => {
@@ -642,9 +734,19 @@ export default function FieldSalesPage() {
   const clearDraft = () => {
     setDraft([]);
     saveJson(DRAFT_KEY, []);
+    setDraftCustomer(null); // 4.4: taslak temizlenince cari baglantisini da kaldir
+  };
+
+  // 4.4: Taslagin sahibi cari ile secili cari uyusmuyorsa gonderimi engelle.
+  const ensureDraftCustomerMatches = () => {
+    if (!draftCustomer || !customerKey(draftCustomer)) return true;
+    if (customerKey(draftCustomer) === customerKey(selectedCustomer)) return true;
+    toast.error(`Taslak "${draftCustomer.title || draftCustomer.mikroCariCode}" carisine ait. Once o cariyi secin veya taslagi temizleyin.`);
+    return false;
   };
 
   const createQuote = async () => {
+    if (submitting) return; // 4.5: mukerrer gonderim korumasi
     if (!selectedCustomer?.id) {
       toast.error('Once cari secin.');
       setActiveTab('customer');
@@ -656,6 +758,11 @@ export default function FieldSalesPage() {
     }
     if (!validityDate) {
       toast.error('Teklif gecerlilik tarihi gerekli.');
+      return;
+    }
+    if (!ensureDraftCustomerMatches()) return; // 4.4
+    if (!isOnline) { // 4.5: cevrimdisi uyarisi
+      toast.error('Internet baglantisi yok. Baglanti gelince tekrar deneyin.');
       return;
     }
 
@@ -679,7 +786,7 @@ export default function FieldSalesPage() {
           unitPrice: Number(item.unitPrice || 0),
           priceSource: item.priceSource,
           priceListNo: item.priceSource === 'PRICE_LIST' ? item.priceListNo : undefined,
-          priceType: 'INVOICED',
+          priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED', // 4.2
           vatZeroed: item.vatZeroed || false,
           lastSale: item.priceSource === 'LAST_SALE' && item.selectedSaleIndex !== null && item.selectedSaleIndex !== undefined
             ? item.lastSales?.[item.selectedSaleIndex]
@@ -690,13 +797,19 @@ export default function FieldSalesPage() {
       clearDraft();
       router.push(`/quotes?tab=sent${result.quote?.id ? `&download=${result.quote.id}` : ''}`);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Teklif olusturulamadi.');
+      // 4.5: baglanti hatasini ayri mesajla goster
+      if (!error.response) {
+        toast.error('Baglanti hatasi: Teklif gonderilemedi. Internet baglantinizi kontrol edip tekrar deneyin.');
+      } else {
+        toast.error(error.response?.data?.error || 'Teklif olusturulamadi.');
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
   const createOrder = async () => {
+    if (submitting) return; // 4.5: mukerrer gonderim korumasi
     if (!selectedCustomer?.id) {
       toast.error('Once cari secin.');
       return;
@@ -709,6 +822,16 @@ export default function FieldSalesPage() {
       toast.error('Siparis seri no girin.');
       return;
     }
+    if (!ensureDraftCustomerMatches()) return; // 4.4
+    if (!isOnline) { // 4.5: cevrimdisi uyarisi
+      toast.error('Internet baglantisi yok. Baglanti gelince tekrar deneyin.');
+      return;
+    }
+
+    // 4.2: Faturali ve beyaz kalemler ayri Mikro evragina yazilir; seri her ikisine de uygulanir.
+    const series = orderSeries.trim();
+    const hasWhite = draft.some((item) => item.priceType === 'WHITE');
+    const hasInvoiced = draft.some((item) => item.priceType !== 'WHITE');
 
     setSubmitting(true);
     try {
@@ -717,7 +840,8 @@ export default function FieldSalesPage() {
         warehouseNo: Number(orderWarehouse),
         description: quoteNote || 'Saha satis siparisi',
         documentDescription: quoteNote || undefined,
-        invoicedSeries: orderSeries.trim(),
+        invoicedSeries: hasInvoiced ? series : undefined,
+        whiteSeries: hasWhite ? series : undefined,
         items: draft.map((item) => ({
           productId: item.productId || undefined,
           productCode: item.productCode,
@@ -728,7 +852,7 @@ export default function FieldSalesPage() {
           selectedUnit: getSelectedUnit(item),
           quantity: Number(item.quantity || 0),
           unitPrice: Number(item.unitPrice || 0),
-          priceType: 'INVOICED',
+          priceType: item.priceType === 'WHITE' ? 'WHITE' : 'INVOICED', // 4.2
           vatZeroed: item.vatZeroed || false,
           lineDescription: item.productName,
         })),
@@ -737,7 +861,12 @@ export default function FieldSalesPage() {
       clearDraft();
       router.push('/orders');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Siparis olusturulamadi.');
+      // 4.5: baglanti hatasini ayri mesajla goster
+      if (!error.response) {
+        toast.error('Baglanti hatasi: Siparis gonderilemedi. Internet baglantinizi kontrol edip tekrar deneyin.');
+      } else {
+        toast.error(error.response?.data?.error || 'Siparis olusturulamadi.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -796,9 +925,14 @@ export default function FieldSalesPage() {
     }
   };
 
-  const saveNewVisitCustomer = async () => {
+  // 4.6: force=true ise benzer cari uyarisini bilerek gecip yine de yeni cari acar.
+  const saveNewVisitCustomer = async (force = false) => {
     if (!newVisitName.trim()) {
       toast.error('Musteri adi zorunlu.');
+      return;
+    }
+    if (!isOnline) { // 4.5: cevrimdisi uyarisi
+      toast.error('Internet baglantisi yok. Baglanti gelince tekrar deneyin.');
       return;
     }
     setNewVisitSaving(true);
@@ -812,11 +946,13 @@ export default function FieldSalesPage() {
         photoUrl: newVisitPhotoUrl,
         latitude: newVisitLocation?.latitude || null,
         longitude: newVisitLocation?.longitude || null,
-      });
+        ...(force ? { force: true } : {}),
+      } as any);
       const customer = result.data.customer;
       setSelectedCustomer(customer);
       setCustomerSearch(customer.displayTitle || customer.mikroCariCode || '');
       setNewVisitOpen(false);
+      setDuplicateCandidates([]);
       setNewVisitName('');
       setNewVisitPhone('');
       setNewVisitNote('');
@@ -826,10 +962,35 @@ export default function FieldSalesPage() {
       setNewVisitLocation(null);
       toast.success(`Ziyaret carisi acildi: ${customer.mikroCariCode}`);
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Ziyaret carisi olusturulamadi.');
+      // 4.6: benzer cari bulundu -> aday listesini goster, kullanici karar versin.
+      const details = error.response?.data?.details;
+      if (error.response?.status === 409 && details?.kind === 'DUPLICATE_VISIT_CUSTOMER') {
+        setDuplicateCandidates(Array.isArray(details.candidates) ? details.candidates : []);
+        toast('Benzer cari(ler) bulundu. Mevcut cariyi secebilir veya yine de olusturabilirsiniz.', { icon: '⚠️', duration: 6000 });
+      } else if (!error.response) {
+        toast.error('Baglanti hatasi: Ziyaret carisi olusturulamadi. Internet baglantinizi kontrol edin.');
+      } else {
+        toast.error(error.response?.data?.error || 'Ziyaret carisi olusturulamadi.');
+      }
     } finally {
       setNewVisitSaving(false);
     }
+  };
+
+  // 4.6: Uyari ekranindan mevcut bir cariyi secip yeni cari acmaktan vazgecmek.
+  const selectExistingDuplicate = (candidate: any) => {
+    setSelectedCustomer(candidate);
+    setCustomerSearch(candidate.displayTitle || candidate.mikroCariCode || '');
+    setNewVisitOpen(false);
+    setDuplicateCandidates([]);
+    setNewVisitName('');
+    setNewVisitPhone('');
+    setNewVisitNote('');
+    setNewVisitDemand('');
+    setNewVisitCompetitorInfo('');
+    setNewVisitPhotoUrl(null);
+    setNewVisitLocation(null);
+    toast.success(`Mevcut cari secildi: ${candidate.mikroCariCode || candidate.displayTitle}`);
   };
 
   const pickPhoto = async (file?: File | null) => {
@@ -930,13 +1091,41 @@ export default function FieldSalesPage() {
             <div className="absolute bottom-0 left-1/2 h-24 w-72 -translate-x-1/2 bg-emerald-400/10 blur-3xl" />
             <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-200">Mobil saha satis</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-200">Mobil saha satis</p>
+                  {/* 4.5: cevrimici/cevrimdisi gostergesi */}
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-black',
+                      isOnline ? 'bg-emerald-400/20 text-emerald-100' : 'bg-red-400/25 text-red-100'
+                    )}
+                  >
+                    <span className={cn('h-2 w-2 rounded-full', isOnline ? 'bg-emerald-300' : 'bg-red-300')} />
+                    {isOnline ? 'Cevrimici' : 'Cevrimdisi'}
+                  </span>
+                </div>
                 <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">Saha Masasi</h1>
                 <p className="mt-2 max-w-2xl text-sm text-amber-50/80">
                   Cari, bakiye, stok, fiyat, maliyet, son alim, firsat ve taslak teklif/siparis tek ekranda.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:flex">
+                {/* 4.2: Faturali / Beyaz fiyat tipi secimi (varsayilan cariye gore gelir) */}
+                <button
+                  onClick={() => setPriceType((value) => (value === 'WHITE' ? 'INVOICED' : 'WHITE'))}
+                  className={cn(
+                    'rounded-2xl border px-4 py-3 text-left text-sm font-bold transition',
+                    priceType === 'WHITE' ? 'border-sky-300/40 bg-sky-300/15 text-sky-50' : 'border-amber-300/40 bg-amber-300/15 text-amber-50'
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    {priceType === 'WHITE' ? 'Beyaz' : 'Faturali'}
+                  </span>
+                  <span className="mt-1 block text-xs font-medium opacity-75">
+                    {priceType === 'WHITE' ? 'KDV sifir / beyaz fiyat' : 'KDV dahil / faturali fiyat'}
+                  </span>
+                </button>
                 <button
                   onClick={() => setSafeMode((value) => !value)}
                   className={cn(
@@ -1012,6 +1201,9 @@ export default function FieldSalesPage() {
               captureNewVisitLocation={captureNewVisitLocation}
               saveNewVisitCustomer={saveNewVisitCustomer}
               newVisitSaving={newVisitSaving}
+              duplicateCandidates={duplicateCandidates}
+              setDuplicateCandidates={setDuplicateCandidates}
+              selectExistingDuplicate={selectExistingDuplicate}
             />
           </div>
 
@@ -1028,6 +1220,7 @@ export default function FieldSalesPage() {
               searchProducts={searchProducts}
               startBarcodeScanner={startBarcodeScanner}
               safeMode={safeMode}
+              priceType={priceType}
               selectedCustomer={selectedCustomer}
               snapshot={snapshot}
               productQuantities={productQuantities}
@@ -1059,6 +1252,8 @@ export default function FieldSalesPage() {
               shareDraft={shareDraft}
               submitting={submitting}
               safeMode={safeMode}
+              priceType={priceType}
+              setPriceType={setPriceType}
             />
           </div>
 
@@ -1089,6 +1284,7 @@ export default function FieldSalesPage() {
         <ProductDrawer
           product={selectedProduct}
           safeMode={safeMode}
+          priceType={priceType}
           onClose={() => setSelectedProduct(null)}
           addToDraft={addToDraft}
           shareProduct={shareProduct}
@@ -1199,6 +1395,9 @@ function CustomerPanel(props: any) {
     captureNewVisitLocation,
     saveNewVisitCustomer,
     newVisitSaving,
+    duplicateCandidates,
+    setDuplicateCandidates,
+    selectExistingDuplicate,
   } = props;
 
   return (
@@ -1207,7 +1406,10 @@ function CustomerPanel(props: any) {
         <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
           <button
             type="button"
-            onClick={() => setNewVisitOpen((value: boolean) => !value)}
+            onClick={() => {
+              setDuplicateCandidates([]); // 4.6: dialog acilip kapaninca aday listesini sifirla
+              setNewVisitOpen((value: boolean) => !value);
+            }}
             className={cn(
               'rounded-2xl border px-4 py-3 text-left text-sm font-black transition',
               newVisitOpen ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700 hover:border-amber-300'
@@ -1223,14 +1425,14 @@ function CustomerPanel(props: any) {
             <div className="grid gap-2">
               <input
                 value={newVisitName}
-                onChange={(event) => setNewVisitName(event.target.value)}
+                onChange={(event) => { setNewVisitName(event.target.value); setDuplicateCandidates([]); }}
                 onFocus={(event) => event.currentTarget.select()}
                 placeholder="Musteri / isletme adi *"
                 className="h-12 rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold outline-none focus:border-emerald-500"
               />
               <input
                 value={newVisitPhone}
-                onChange={(event) => setNewVisitPhone(event.target.value)}
+                onChange={(event) => { setNewVisitPhone(event.target.value); setDuplicateCandidates([]); }}
                 onFocus={(event) => event.currentTarget.select()}
                 placeholder="Telefon"
                 className="h-12 rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold outline-none focus:border-emerald-500"
@@ -1287,7 +1489,47 @@ function CustomerPanel(props: any) {
                   {newVisitLocation ? 'Konum eklendi.' : ''}
                 </div>
               )}
-              <Button className="h-12 rounded-2xl bg-emerald-700 text-white hover:bg-emerald-800" isLoading={newVisitSaving} onClick={saveNewVisitCustomer}>
+
+              {/* 4.6: benzer cari uyarisi - mevcut cariyi sec ya da yine de olustur */}
+              {(duplicateCandidates?.length || 0) > 0 && (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3">
+                  <p className="text-sm font-black text-amber-900">Benzer cari(ler) bulundu</p>
+                  <p className="mt-0.5 text-xs font-medium text-amber-800">
+                    Mukerrer cari acmamak icin once asagidakilerden birini secebilirsiniz.
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {duplicateCandidates.map((candidate: any) => (
+                      <button
+                        key={candidate.id || candidate.mikroCariCode}
+                        type="button"
+                        onClick={() => selectExistingDuplicate(candidate)}
+                        className="w-full rounded-2xl border border-amber-200 bg-white px-3 py-2 text-left"
+                      >
+                        <p className="text-sm font-black text-slate-900">{candidate.displayTitle || candidate.name || candidate.mikroCariCode}</p>
+                        <p className="text-xs font-semibold text-slate-500">
+                          {candidate.mikroCariCode}
+                          {candidate.phone ? ` - ${candidate.phone}` : ''}
+                          {candidate.matchReason ? ` - ${candidate.matchReason}` : ''}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className="mt-2 h-11 w-full rounded-2xl border-amber-300 text-amber-900"
+                    isLoading={newVisitSaving}
+                    onClick={() => saveNewVisitCustomer(true)}
+                  >
+                    Yine de yeni cari olustur
+                  </Button>
+                </div>
+              )}
+
+              <Button
+                className="h-12 rounded-2xl bg-emerald-700 text-white hover:bg-emerald-800"
+                isLoading={newVisitSaving}
+                onClick={() => saveNewVisitCustomer()}
+              >
                 Ziyaret carisi ac ve notu kaydet
               </Button>
             </div>
@@ -1441,6 +1683,7 @@ function ProductPanel(props: any) {
     searchProducts,
     startBarcodeScanner,
     safeMode,
+    priceType = 'INVOICED',
     selectedCustomer,
     snapshot,
     productQuantities,
@@ -1531,9 +1774,13 @@ function ProductPanel(props: any) {
             <Barcode className="mr-2 h-5 w-5" /> Okut
           </Button>
         </div>
-        <div className="mt-3 flex items-center gap-2 rounded-2xl bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50 p-3 text-xs text-slate-600">
           <ShieldCheck className="h-4 w-4 text-emerald-700" />
           {safeMode ? 'Musteri modu acik: maliyet/marj gizli.' : 'Ic gorunum acik: maliyet ve marj gorunur.'}
+          {/* 4.2: hangi fiyat tipinin gosterildigini belirt */}
+          <span className={cn('rounded-full px-2 py-1 font-black', priceType === 'WHITE' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800')}>
+            {priceType === 'WHITE' ? 'Beyaz fiyat' : 'Faturali fiyat'}
+          </span>
         </div>
       </Panel>
 
@@ -1557,7 +1804,7 @@ function ProductPanel(props: any) {
         {visibleProducts.map((rawProduct: any) => {
           const isSummaryRow = !rawProduct.mikroCode;
           const product = normalizeProductLike(rawProduct);
-          const price = getProductPrice(product);
+          const price = getProductPrice(product, priceType); // 4.2: secili fiyat tipine gore
           const qty = productQuantities[product.mikroCode] || '1';
           const merkez = getWarehouseByNo(product, 1);
           const topca = getWarehouseByNo(product, 6);
@@ -1660,6 +1907,8 @@ function DraftPanel(props: any) {
     shareDraft,
     submitting,
     safeMode,
+    priceType = 'INVOICED',
+    setPriceType,
   } = props;
   const updateQuantity = (index: number, item: DraftItem, value: string) => {
     const parsed = parseDecimalInput(value);
@@ -1729,6 +1978,14 @@ function DraftPanel(props: any) {
       : convertPriceToBaseUnit(parsed, getSelectedUnit(item), item.unit, item.unit2, item.unit2Factor);
     updateDraftItem(index, { unitPrice: basePrice, manualPriceInput: value });
   };
+  // 4.2: Satir bazinda Faturali/Beyaz. Fiyat numarasini DEGISTIRMEZ; sadece tip + KDV (beyaz=KDV sifir)
+  // bayragini gunceller. Fiyat numarasi yine fiyat kaynagi/liste secimiyle belirlenir.
+  const updateLinePriceType = (index: number, item: DraftItem, nextType: PriceType) => {
+    updateDraftItem(index, {
+      priceType: nextType,
+      vatZeroed: nextType === 'WHITE' ? true : Boolean(item.selectedSaleIndex !== null && item.selectedSaleIndex !== undefined ? item.lastSales?.[item.selectedSaleIndex]?.vatZeroed : false),
+    });
+  };
 
   return (
     <Panel title="Taslak teklif / siparis" icon={ShoppingCart}>
@@ -1736,7 +1993,18 @@ function DraftPanel(props: any) {
         <Metric label="Cari" value={selectedCustomer?.displayTitle || selectedCustomer?.mikroCariCode || 'Secilmedi'} />
         <Metric label="Kalem" value={draft.length} />
         <Metric label="Toplam" value={money(draftTotal)} tone="amber" />
-        <Metric label="Mod" value="Faturali" tone="emerald" />
+        {/* 4.2: yeni eklenecek kalemler icin varsayilan fiyat tipi (Faturali/Beyaz) */}
+        <button
+          type="button"
+          onClick={() => setPriceType?.((value: PriceType) => (value === 'WHITE' ? 'INVOICED' : 'WHITE'))}
+          className={cn(
+            'rounded-2xl px-4 py-3 text-left transition',
+            priceType === 'WHITE' ? 'bg-sky-50 text-sky-900' : 'bg-amber-50 text-amber-900'
+          )}
+        >
+          <p className="text-xs font-semibold opacity-70">Yeni kalem tipi</p>
+          <p className="mt-1 text-base font-black">{priceType === 'WHITE' ? 'Beyaz' : 'Faturali'}</p>
+        </button>
       </div>
 
       <div className="space-y-3">
@@ -1763,6 +2031,24 @@ function DraftPanel(props: any) {
                       <p className="text-xs font-bold text-slate-500">{item.productCode} - {item.unit}</p>
                       {unitLabel && <p className="mt-1 text-xs font-semibold text-sky-700">{unitLabel}</p>}
                       <CategoryLastPurchasePill info={categoryInfo} />
+                      {/* 4.2: satir bazinda Faturali/Beyaz; fiyat numarasini degil sadece tip+KDV'yi degistirir */}
+                      <div className="mt-2 inline-flex overflow-hidden rounded-full border border-slate-200 text-[11px] font-black">
+                        {(['INVOICED', 'WHITE'] as PriceType[]).map((typeOption) => (
+                          <button
+                            key={typeOption}
+                            type="button"
+                            onClick={() => updateLinePriceType(index, item, typeOption)}
+                            className={cn(
+                              'px-3 py-1 transition',
+                              item.priceType === typeOption
+                                ? typeOption === 'WHITE' ? 'bg-sky-600 text-white' : 'bg-amber-500 text-slate-950'
+                                : 'bg-white text-slate-500'
+                            )}
+                          >
+                            {typeOption === 'WHITE' ? 'Beyaz' : 'Faturali'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <button onClick={() => removeDraftItem(index)} className="rounded-2xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
                       <Trash2 className="h-4 w-4" />
@@ -2021,8 +2307,8 @@ function HistoryPanel({ recentCustomers, recentProducts, setSelectedCustomer, op
   );
 }
 
-function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, quantity, setQuantity }: any) {
-  const price = getProductPrice(product);
+function ProductDrawer({ product, safeMode, priceType = 'INVOICED', onClose, addToDraft, shareProduct, quantity, setQuantity }: any) {
+  const price = getProductPrice(product, priceType); // 4.2: secili fiyat tipine gore goster
   const [imageOpen, setImageOpen] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState(product?.unit || 'ADET');
   useEffect(() => {
@@ -2106,7 +2392,7 @@ function ProductDrawer({ product, safeMode, onClose, addToDraft, shareProduct, q
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black lg:grid-cols-5">
             <div className="rounded-2xl bg-amber-50 px-2 py-2 text-amber-900">
-              <p className="opacity-70">Cari fiyat</p>
+              <p className="opacity-70">Cari fiyat ({priceType === 'WHITE' ? 'Beyaz' : 'Faturali'})</p>
               <p>{money(displayPrice)}</p>
             </div>
             <div className="rounded-2xl bg-slate-50 px-2 py-2 text-slate-800">

@@ -130,6 +130,24 @@ const isDateRecent = (value: unknown, cutoff: Date) => {
   return !Number.isNaN(date.getTime()) && date.getTime() >= cutoff.getTime();
 };
 
+// 4.6: Yeni ziyaret carisi acarken mukerrer/cop cari olusmasini zorlastirmak icin
+// isim ve telefon normalizasyon yardimcilari. Sadece karsilastirma amacli kullanilir.
+const normalizeNameForMatch = (value: unknown) =>
+  String(value || '')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // birlesik aksan isaretlerini kaldir
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+// Telefonun son 10 hanesini alir (ulke kodu / bosluk / parantez farklarini eler).
+const normalizePhoneForMatch = (value: unknown) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
 class FieldSalesService {
   private cariColumnsCache: string[] | null = null;
 
@@ -1071,6 +1089,74 @@ class FieldSalesService {
     }
   }
 
+  // 4.6: Yeni cari olusturmadan once isim+telefon benzerligi ile mevcut carileri arar.
+  // Mukerrer/cop cari olusmasini engellemek icin aday listesi dondurur (yazma yapmaz).
+  private async findSimilarCustomers(input: { customerName: string; phone: string; scope: StaffScope }) {
+    const normalizedName = normalizeNameForMatch(input.customerName);
+    const normalizedPhone = normalizePhoneForMatch(input.phone);
+    const nameTokens = normalizedName.split(' ').filter((token) => token.length >= 2);
+    if (!normalizedPhone && nameTokens.length === 0) return [];
+
+    const scopedWhere = this.buildCustomerScope(input.scope);
+    const orConditions: Prisma.UserWhereInput[] = [];
+
+    // Telefon eslesmesi guclu sinyaldir: rakamlardan arindirilmis son 10 hane.
+    if (normalizedPhone) {
+      orConditions.push({ phone: { contains: normalizedPhone } });
+    }
+    // Isim eslesmesi: tum anlamli token'lari iceren cariler (yaklasik benzerlik).
+    if (nameTokens.length > 0) {
+      orConditions.push({
+        AND: nameTokens.map((token) => ({
+          OR: [
+            { displayName: { contains: token, mode: 'insensitive' as const } },
+            { mikroName: { contains: token, mode: 'insensitive' as const } },
+            { name: { contains: token, mode: 'insensitive' as const } },
+          ],
+        })),
+      });
+    }
+    if (orConditions.length === 0) return [];
+
+    const where: Prisma.UserWhereInput = {
+      AND: [
+        { role: UserRole.CUSTOMER, parentCustomerId: null },
+        ...(scopedWhere ? [scopedWhere] : []),
+        { OR: orConditions },
+      ],
+    };
+
+    const candidates = await prisma.user.findMany({
+      where,
+      select: CUSTOMER_SELECT,
+      take: 10,
+      orderBy: [{ active: 'desc' }, { updatedAt: 'desc' }],
+    });
+
+    return candidates
+      .map((candidate) => {
+        const phoneMatch = Boolean(normalizedPhone) && normalizePhoneForMatch(candidate.phone) === normalizedPhone;
+        const candidateName = normalizeNameForMatch(candidate.displayName || candidate.mikroName || candidate.name);
+        const nameMatch =
+          nameTokens.length > 0 && nameTokens.every((token) => candidateName.includes(token));
+        return {
+          candidate,
+          phoneMatch,
+          nameMatch,
+        };
+      })
+      .filter((row) => row.phoneMatch || row.nameMatch)
+      .map((row) => ({
+        ...row.candidate,
+        displayTitle: displayName(row.candidate),
+        matchReason: row.phoneMatch && row.nameMatch
+          ? 'Ayni telefon ve benzer isim'
+          : row.phoneMatch
+            ? 'Ayni telefon'
+            : 'Benzer isim',
+      }));
+  }
+
   async createVisitCustomer(input: {
     customerName?: string;
     phone?: string | null;
@@ -1081,6 +1167,7 @@ class FieldSalesService {
     photoUrl?: string | null;
     latitude?: number | null;
     longitude?: number | null;
+    force?: boolean;
     scope: StaffScope;
   }) {
     const customerName = String(input.customerName || '').trim();
@@ -1096,6 +1183,20 @@ class FieldSalesService {
     if (email) {
       const existingEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } });
       if (existingEmail) throw new AppError('Bu email ile kayitli musteri zaten var.', 400, ErrorCode.BAD_REQUEST);
+    }
+
+    // 4.6: Mikro yazmadan once isim+telefon benzerligine bakip mukerrer cari olusmasini zorlastir.
+    // Kullanici bilerek "yine de olustur" derse (force) gecilir.
+    if (!input.force) {
+      const similar = await this.findSimilarCustomers({ customerName, phone, scope: input.scope });
+      if (similar.length > 0) {
+        throw new AppError(
+          'Benzer cari(ler) bulundu. Mevcut cariyi secebilir veya yine de yeni cari olusturabilirsiniz.',
+          409,
+          ErrorCode.BAD_REQUEST,
+          { kind: 'DUPLICATE_VISIT_CUSTOMER', candidates: similar }
+        );
+      }
     }
 
     const createdMikro = await this.createMikroVisitCustomer({ customerName, phone, email });

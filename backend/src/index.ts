@@ -120,12 +120,10 @@ if (config.enableCron) {
   cron.schedule(config.syncCronSchedule, async () => {
     console.log('🔄 Otomatik senkronizasyon başladı...');
     try {
-      const result = await syncService.runFullSync('AUTO');
-      if (result.success) {
-        console.log('✅ Otomatik senkronizasyon tamamlandı:', result.stats);
-      } else {
-        console.error('❌ Otomatik senkronizasyon başarısız:', result.error);
-      }
+      // 12.3/12.6: startSync hem kilit uygular hem de gercek bir syncLog olusturur.
+      // (Eski kod runFullSync('AUTO') cagiriyordu; 'AUTO' gecersiz bir syncLog id'siydi.)
+      await syncService.startSync('AUTO');
+      console.log('✅ Otomatik senkronizasyon kuyruğa alındı.');
     } catch (error) {
       console.error('❌ Cron job hatası:', error);
     }
@@ -135,6 +133,12 @@ if (config.enableCron) {
   cron.schedule(config.priceSyncCronSchedule, async () => {
     console.log("Automatic price sync started...");
     try {
+      // 12.3: Stok senkronu ile ayni Mikro baglantisini paylastiklari icin, stok
+      // senkronu devam ederken fiyat senkronu baglantiyi kesmemeli; bu turu atla.
+      if (syncService.isBusy()) {
+        console.warn('⏳ Stok senkronu calisiyor; fiyat senkronu bu tur atlandi (cakisma onleme).');
+        return;
+      }
       const result = await priceSyncService.syncPriceChanges();
       if (result.success) {
         console.log("Automatic price sync completed:", result.recordsSynced);

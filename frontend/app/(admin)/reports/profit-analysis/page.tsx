@@ -30,7 +30,7 @@ import { Badge } from '@/components/ui/Badge';
 import { adminApi } from '@/lib/api/admin';
 import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+// 13.3: xlsx statik degil; export aninda dinamik import edilir.
 
 // 019703 Raporu veri yapÄ±sÄ±
 interface MarginAnalysisRow {
@@ -766,7 +766,7 @@ export default function MarginAnalysisPage() {
 
   const visibleColumnDefs = columnDefs.filter((column) => visibleColumns.includes(column.id));
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     if (filteredData.length === 0) {
       toast.error('DÄ±ÅŸa aktarÄ±lacak veri yok');
       return;
@@ -780,6 +780,8 @@ export default function MarginAnalysisPage() {
       return record;
     });
 
+    // 13.3: xlsx sadece burada (export aninda) dinamik yuklenir.
+    const XLSX = await import('xlsx');
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Kar MarjÄ± Analizi');

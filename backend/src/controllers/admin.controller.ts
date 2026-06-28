@@ -2137,6 +2137,7 @@ export class AdminController {
         photoUrl: req.body?.photoUrl,
         latitude: req.body?.latitude,
         longitude: req.body?.longitude,
+        force: parseBooleanQuery(req.body?.force), // 4.6: benzer cari uyarisini bilerek gecmek icin
         scope: buildReportRequestContext(req),
       });
       res.status(201).json({ success: true, data });
@@ -2863,8 +2864,13 @@ export class AdminController {
         },
       });
 
+      // 10.2: Override kaydedilince o ürünün satış fiyatlarını ANINDA yeniden hesapla.
+      // Fiyat formülü değişmez; sadece kayıttan sonra recalc tetiklenir.
+      const recalculated = await pricingService.recalculatePricesForProduct(productId);
+
       res.json({
         message: 'Price override set successfully',
+        recalculated,
       });
     } catch (error) {
       next(error);

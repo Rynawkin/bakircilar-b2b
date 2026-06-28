@@ -2582,6 +2582,18 @@ export class ReportsService {
       limit = 50,
     } = options;
 
+    // 8.5: Tarih verilmediyse tum gecmisi taramak yerine son 12 ay ile sinirla.
+    // Boylece her acilista yillarca biriken hareket bellege yuklenmez.
+    let effStartDate = startDate;
+    let effEndDate = endDate;
+    if (!effStartDate && !effEndDate) {
+      const _now = new Date();
+      const _past = new Date(_now);
+      _past.setFullYear(_past.getFullYear() - 1);
+      effStartDate = _past.toISOString().slice(0, 10);
+      effEndDate = _now.toISOString().slice(0, 10);
+    }
+
     await mikroService.connect();
 
     // WHERE koÅŸullarÄ± - STOK_HAREKETLERI kullan (gerÃ§ek satÄ±ÅŸlar)
@@ -2590,11 +2602,11 @@ export class ReportsService {
       'sth_tip = 1'    // Normal hareket (fatura/irsaliye)
     ];
 
-    if (startDate) {
-      whereConditions.push(`sth_tarih >= '${startDate}'`);
+    if (effStartDate) {
+      whereConditions.push(`sth_tarih >= '${effStartDate}'`);
     }
-    if (endDate) {
-      whereConditions.push(`sth_tarih <= '${endDate}'`);
+    if (effEndDate) {
+      whereConditions.push(`sth_tarih <= '${effEndDate}'`);
     }
 
     // Add exclusion conditions
@@ -2635,6 +2647,23 @@ export class ReportsService {
     console.log('First 3 product codes:', rawData.slice(0, 3).map((p: any) => p.productCode));
     await mikroService.disconnect();
 
+    // 8.3: Kategori bilgisini B2B Category tablosundan (senkronlu veri) doldur.
+    // Mikro sorgusu kategori dondurmuyordu; bu yuzden kategori sutunu sabit "Kategori"
+    // gorunuyor, kategori filtresi de bos sonuc veriyordu.
+    const productCodes = rawData
+      .map((p: any) => String(p.productCode || '').trim())
+      .filter((c: string) => c.length > 0);
+    const categoryMap = new Map<string, string>();
+    if (productCodes.length > 0) {
+      const dbProducts = await prisma.product.findMany({
+        where: { mikroCode: { in: productCodes } },
+        select: { mikroCode: true, category: { select: { name: true } } },
+      });
+      for (const dp of dbProducts) {
+        if (dp.mikroCode) categoryMap.set(dp.mikroCode, dp.category?.name || '');
+      }
+    }
+
     // Filtreleme
     let filteredData = rawData;
     const brandTokens = buildSearchTokens(brand);
@@ -2647,7 +2676,8 @@ export class ReportsService {
     const categoryTokens = buildSearchTokens(category);
     if (categoryTokens.length > 0) {
       filteredData = filteredData.filter((p: any) => {
-        const haystack = normalizeSearchText(p.category || '');
+        const catName = categoryMap.get(String(p.productCode || '').trim()) || '';
+        const haystack = normalizeSearchText(catName);
         return matchesSearchTokens(haystack, categoryTokens);
       });
     }
@@ -2664,7 +2694,7 @@ export class ReportsService {
         productCode: p.productCode,
         productName: p.productName || 'Bilinmiyor',
         brand: p.brand || 'BelirtilmemiÅŸ',
-        category: 'Kategori', // TODO: Get from category table
+        category: categoryMap.get(String(p.productCode || '').trim()) || 'Bilinmiyor',
         quantity: p.quantity,
         revenue,
         cost,
@@ -2777,6 +2807,17 @@ export class ReportsService {
       limit = 50,
     } = options;
 
+    // 8.5: Tarih verilmediyse tum gecmisi taramak yerine son 12 ay ile sinirla.
+    let effStartDate = startDate;
+    let effEndDate = endDate;
+    if (!effStartDate && !effEndDate) {
+      const _now = new Date();
+      const _past = new Date(_now);
+      _past.setFullYear(_past.getFullYear() - 1);
+      effStartDate = _past.toISOString().slice(0, 10);
+      effEndDate = _now.toISOString().slice(0, 10);
+    }
+
     await mikroService.connect();
 
     // WHERE koÅŸullarÄ± - STOK_HAREKETLERI kullan (gerÃ§ek satÄ±ÅŸlar)
@@ -2785,11 +2826,11 @@ export class ReportsService {
       'sth_tip = 1'    // Normal hareket (fatura/irsaliye)
     ];
 
-    if (startDate) {
-      whereConditions.push(`sth_tarih >= '${startDate}'`);
+    if (effStartDate) {
+      whereConditions.push(`sth_tarih >= '${effStartDate}'`);
     }
-    if (endDate) {
-      whereConditions.push(`sth_tarih <= '${endDate}'`);
+    if (effEndDate) {
+      whereConditions.push(`sth_tarih <= '${effEndDate}'`);
     }
 
     // Add exclusion conditions
@@ -2803,7 +2844,7 @@ export class ReportsService {
       SELECT
         sth.sth_cari_kodu as customerCode,
         MAX(c.cari_unvan1) as customerName,
-        MAX(c.cari_sektor) as sector,
+        MAX(c.cari_sektor_kodu) as sector,
         MAX(c.cari_sektor_kodu) as sectorCode,
         COUNT(DISTINCT sth.sth_evrakno_seri + CAST(sth.sth_evrakno_sira AS VARCHAR)) as orderCount,
         SUM(sth.sth_tutar) as revenue,

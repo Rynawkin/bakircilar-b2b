@@ -52,6 +52,8 @@ export default function ProductsPage() {
   const showPriceTypeSelector = allowedPriceTypes.length > 1;
 
   const [products, setProducts] = useState<Product[]>([]);
+  // 1.2: Sunucudaki toplam urun sayisi (sadece ekrandaki degil).
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
@@ -190,6 +192,10 @@ export default function ProductsPage() {
       setProducts((prev) => (reset ? nextProducts : [...prev, ...nextProducts]));
       setOffset(nextOffset + nextProducts.length);
       setHasMore(nextProducts.length === PAGE_SIZE);
+      // 1.2: Toplam urun sayisini sunucudan al (mevcut ise).
+      if (typeof productsData.total === 'number') {
+        setTotalCount(productsData.total);
+      }
     } catch (error) {
       if (isCanceledRequest(error)) return;
       console.error('Ürün yükleme hatası:', error);
@@ -535,9 +541,19 @@ export default function ProductsPage() {
             </div>
 
             {/* Result count */}
+            {/* 1.2: Toplam urun sayisi ve ekranda gosterilen sayiyi birlikte goster (yaniltici olmamasi icin). */}
             {!isInitialLoad && filteredProducts.length > 0 && (
               <p className="text-sm text-gray-500 mb-3">
-                <span className="font-medium text-gray-800">{filteredProducts.length}</span> ürün listeleniyor
+                {totalCount !== null && totalCount > filteredProducts.length ? (
+                  <>
+                    Toplam <span className="font-medium text-gray-800">{totalCount}</span> ürün içinden ilk{' '}
+                    <span className="font-medium text-gray-800">{filteredProducts.length}</span> tanesi gösteriliyor
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-gray-800">{filteredProducts.length}</span> ürün listeleniyor
+                  </>
+                )}
               </p>
             )}
 

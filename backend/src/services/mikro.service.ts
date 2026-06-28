@@ -1213,7 +1213,7 @@ class MikroService {
   }
 
   /**
-   * Bekleyen sipari�ler (depo bazl�)
+   * Bekleyen sipari�ler (depo bazl�)
    */
   async getPendingOrdersByWarehouse(): Promise<MikroPendingOrderByWarehouse[]> {
     await this.connect();
@@ -1415,6 +1415,22 @@ class MikroService {
    * 2. Her item için ayrı satır eklenir (satirno: 0, 1, 2...)
    * 3. Transaction içinde çalışır (hepsi veya hiçbiri)
    */
+  // 3.2: SIPARISLER trigger'i gecici devre disi birakilirken iki siparis AYNI ANDA
+  // yazilirsa biri trigger'i tekrar acarken digeri yarida kalabilir ve OZET/yan kayitlar
+  // bozulabilir. Bu process-ici kilit, trigger devre-disi kritik bolumunu
+  // (disable -> insert -> enable) seri hale getirir.
+  #orderWriteQueue: Promise<void> = Promise.resolve();
+  async #acquireOrderWriteLock(): Promise<() => void> {
+    let release!: () => void;
+    const next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prev = this.#orderWriteQueue;
+    this.#orderWriteQueue = prev.then(() => next);
+    await prev;
+    return release;
+  }
+
   async writeOrder(orderData: {
     cariCode: string;
     items: Array<{
@@ -1544,6 +1560,9 @@ class MikroService {
       paymentPlanNo: paymentPlanNoValue || null,
       resolvedPlanNo: resolvedPlanNo || null,
     });
+
+    // 3.2: Trigger devre-disi kritik bolumunu serilestir (es zamanli siparis yazimini onle)
+    const releaseOrderLock = await this.#acquireOrderWriteLock();
 
     // SIPARISLER_OZET trigger'ını geçici olarak devre dışı bırak
     // Bu trigger duplicate key hatası veriyor ve transaction'ı uncommittable yapıyor
@@ -2172,6 +2191,8 @@ class MikroService {
       } catch (err) {
         console.error('⚠️ Trigger tekrar etkinleştirilemedi:', err);
       }
+      // 3.2: Sirali siparis yazimi kilidini birak
+      releaseOrderLock();
     }
   }
 
@@ -2279,19 +2300,32 @@ class MikroService {
         return lineNo as number;
       };
 
+      // 3.1: Yalnizca GERCEKTEN BOS (urun kodu olmayan) satirlari yedek olarak kullan.
+      const emptyLineNos = new Set<number>(
+        existingRows
+          .filter((row: any) => !String(row.productCode || '').trim())
+          .map((row: any) => row.lineNo)
+      );
+
       const consumeAnyLineNo = (): number | null => {
-        const lineNo = availableOpenLineNos.length > 0
-          ? (availableOpenLineNos.shift() as number)
-          : (availableAllLineNos.shift() as number | undefined);
-        if (!Number.isFinite(lineNo as number)) return null;
-        removeFromAvailable(lineNo as number);
+        // Eskiden ilgisiz/aktif HERHANGI bir satiri kapip uzerine yaziyordu; bu, ayni
+        // urunden cok satir olan veya kod eslesmeyen durumlarda yanlis satira yanlis
+        // urun/fiyat yaziyor, yanlis satiri kapatiyordu. Artik sadece bos satir
+        // kullanilir; bos satir yoksa null doner (satir koru koruna ezilmek yerine atlanir).
+        const candidateIndex = availableOpenLineNos.findIndex((ln: number) => emptyLineNos.has(ln));
+        if (candidateIndex < 0) {
+          return null;
+        }
+        const lineNo = availableOpenLineNos[candidateIndex] as number;
+        removeFromAvailable(lineNo);
+        emptyLineNos.delete(lineNo);
         lineNosByCode.forEach((list) => {
-          const index = list.indexOf(lineNo as number);
+          const index = list.indexOf(lineNo);
           if (index >= 0) {
             list.splice(index, 1);
           }
         });
-        return lineNo as number;
+        return lineNo;
       };
 
       for (const item of params.items) {

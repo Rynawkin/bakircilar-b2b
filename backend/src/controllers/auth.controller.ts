@@ -5,7 +5,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { comparePassword } from '../utils/password';
-import { generateToken } from '../utils/jwt';
+import { generateToken, passwordFingerprint } from '../utils/jwt';
 import { LoginRequest, UserResponse } from '../types';
 
 export class AuthController {
@@ -68,11 +68,12 @@ export class AuthController {
         return;
       }
 
-      // JWT token üret
+      // JWT token üret (11.2: sifre parmak izi ile)
       const token = generateToken({
         userId: user.id,
         email: user.email || user.mikroCariCode || '',
         role: user.role,
+        pwfp: passwordFingerprint(user.password),
       });
 
       // Kullanıcı bilgilerini döndür

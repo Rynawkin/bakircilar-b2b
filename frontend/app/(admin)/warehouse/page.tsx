@@ -270,6 +270,13 @@ export default function WarehousePage() {
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const suggestedCustomerCodesRef = useRef<Set<string>>(new Set());
+  // 5.5: Toplanan/ek miktar +/- icin debounce zamanlayicilari (her satir+alan icin ayri)
+  const qtyDebounceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // 5.5: Debounce ile kaydedilmeyi bekleyen son miktar degerleri (optimistic)
+  const pendingQtyRef = useRef<Record<string, { mikroOrderNumber: string; lineKey: string; field: 'pickedQty' | 'extraQty'; value: number }>>({});
+  // 5.6: Kullanici aktif olarak miktar/raf girerken otomatik yenilemeyi duraklatmak icin
+  const isEditingRef = useRef(false);
+  const [activeInputCount, setActiveInputCount] = useState(0);
 
   const layoutClass = isPortrait
     ? 'grid grid-cols-1 gap-3'
@@ -331,9 +338,38 @@ export default function WarehousePage() {
 
     fetchOverview(true);
     fetchDispatchCatalog();
-    const interval = setInterval(() => fetchOverview(false), 15000);
+    // 5.6: Kullanici aktif olarak miktar/raf girerken (input odakli veya bekleyen kayit varken)
+    // 15 sn'lik otomatik yenilemeyi atla; acik girdileri/optimistic degerleri koru.
+    const interval = setInterval(() => {
+      if (isEditingRef.current) return;
+      fetchOverview(false);
+    }, 15000);
     return () => clearInterval(interval);
   }, [user, permissionsLoading, selectedSeriesKey, selectedStatus, searchDebounced]);
+
+  // 5.6: Odakli input sayisi veya bekleyen miktar kaydi oldukca duzenleme modunu acik tut
+  useEffect(() => {
+    isEditingRef.current = activeInputCount > 0;
+  }, [activeInputCount]);
+
+  // 5.5: Sayfa kapanirken bekleyen miktar kayitlarini gonder ve zamanlayicilari temizle.
+  useEffect(() => {
+    return () => {
+      const timers = qtyDebounceTimersRef.current;
+      const pendings = pendingQtyRef.current;
+      for (const pendingKey of Object.keys(timers)) {
+        clearTimeout(timers[pendingKey]);
+      }
+      for (const pendingKey of Object.keys(pendings)) {
+        const pending = pendings[pendingKey];
+        void adminApi
+          .updateWarehouseItem(pending.mikroOrderNumber, pending.lineKey, { [pending.field]: pending.value })
+          .catch(() => {});
+      }
+      qtyDebounceTimersRef.current = {};
+      pendingQtyRef.current = {};
+    };
+  }, []);
 
   const sortedOrders = useMemo(() => {
     const sorted = [...orders];
@@ -482,8 +518,12 @@ export default function WarehousePage() {
     if (makeActive) {
       setActiveOrderNumber(mikroOrderNumber);
     }
-    setOpenReservationKey(null);
-    setPreviewImage(null);
+    // 5.6: Sessiz reconcile/yenilemede acik rezerve veya resim onizlemesini kapatma
+    // (toplama sirasinda ekrani sifirlamamak icin); sadece kullanici acikca siparis secince temizle.
+    if (!silent) {
+      setOpenReservationKey(null);
+      setPreviewImage(null);
+    }
     setDetailLoadingOrder(mikroOrderNumber);
     setOpenOrderNumbers((prev) => (prev.includes(mikroOrderNumber) ? prev : [...prev, mikroOrderNumber]));
     try {
@@ -499,7 +539,11 @@ export default function WarehousePage() {
       setShelfDrafts((prev) => {
         const next = { ...prev };
         for (const line of response.lines) {
-          next[getShelfDraftKey(mikroOrderNumber, line.lineKey)] = line.shelfCode || '';
+          const draftKey = getShelfDraftKey(mikroOrderNumber, line.lineKey);
+          // 5.6: Sessiz reconcile'da kullanicinin yazmakta oldugu raf taslagini ezme;
+          // sadece henuz taslagi olmayan satirlar icin sunucu degerini yaz.
+          if (silent && draftKey in next) continue;
+          next[draftKey] = line.shelfCode || '';
         }
         return next;
       });
@@ -677,22 +721,127 @@ export default function WarehousePage() {
     }
   };
 
-  const changePicked = async (
+  // 5.5: Toplanan/ek miktari UI'da aninda guncelle (Mikro'ya gitmeden optimistic).
+  // Boylece her +/- tiklamasinda tum siparis detayi yeniden cekilmez.
+  const applyOptimisticQty = (
     mikroOrderNumber: string,
-    line: WarehouseOrderDetail['lines'][number],
-    diff: number
+    lineKey: string,
+    field: 'pickedQty' | 'extraQty',
+    value: number
   ) => {
-    const next = Math.max(0, line.pickedQty + diff);
-    await updateLine(mikroOrderNumber, line, { pickedQty: next });
+    setDetailByOrder((prev) => {
+      const current = prev[mikroOrderNumber];
+      if (!current) return prev;
+      const lines = current.lines.map((item) =>
+        item.lineKey === lineKey ? { ...item, [field]: value } : item
+      );
+      return { ...prev, [mikroOrderNumber]: { ...current, lines } };
+    });
   };
 
-  const changeExtra = async (
+  // 5.5: Debounce'lanan miktari arka planda kaydet. Kayit sonrasi sadece bu satir icin
+  // yeni bir bekleyen degisiklik yoksa detayi sessizce yenile (turetilmis alanlar guncellensin).
+  const flushQtySave = async (
+    mikroOrderNumber: string,
+    lineKey: string,
+    field: 'pickedQty' | 'extraQty',
+    value: number
+  ) => {
+    const pendingKey = `${mikroOrderNumber}::${lineKey}::${field}`;
+    delete pendingQtyRef.current[pendingKey];
+    try {
+      await adminApi.updateWarehouseItem(mikroOrderNumber, lineKey, { [field]: value });
+      // Kayit bitti; bu siparis icin bekleyen baska bir miktar degisikligi yoksa
+      // detayi sessizce reconcile et (reconcile tum satirlari degistirdiginden,
+      // ayni sipariste bekleyen baska satir varsa optimistic deger korunsun diye atlanir).
+      const orderPrefix = `${mikroOrderNumber}::`;
+      const hasOtherPending =
+        Object.keys(pendingQtyRef.current).some((key) => key.startsWith(orderPrefix)) ||
+        Object.keys(qtyDebounceTimersRef.current).some((key) => key.startsWith(orderPrefix));
+      if (!hasOtherPending) {
+        await loadOrderDetail(mikroOrderNumber, { makeActive: false, silent: true });
+        await fetchOverview(false);
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Satir guncellenemedi');
+      // Hata olursa optimistic deger gercek veriyle eslesmeyebilir; detayi geri al.
+      await loadOrderDetail(mikroOrderNumber, { makeActive: false, silent: true });
+    } finally {
+      setActiveInputCount((count) => Math.max(0, count - 1));
+    }
+  };
+
+  // 5.5: +/- tiklamalarini optimistic uygula + 600ms debounce ile tek seferde kaydet.
+  const queueQtyChange = (
+    mikroOrderNumber: string,
+    line: WarehouseOrderDetail['lines'][number],
+    field: 'pickedQty' | 'extraQty',
+    value: number
+  ) => {
+    const pendingKey = `${mikroOrderNumber}::${line.lineKey}::${field}`;
+    applyOptimisticQty(mikroOrderNumber, line.lineKey, field, value);
+    // Yeni bekleyen degisiklik varsa: onceki debounce zamanlayicisini sifirla.
+    const hadPending = Boolean(qtyDebounceTimersRef.current[pendingKey]);
+    if (hadPending) {
+      clearTimeout(qtyDebounceTimersRef.current[pendingKey]);
+    } else {
+      // Bekleyen kayit basladi -> otomatik yenilemeyi duraklat (5.6).
+      setActiveInputCount((count) => count + 1);
+    }
+    pendingQtyRef.current[pendingKey] = { mikroOrderNumber, lineKey: line.lineKey, field, value };
+    qtyDebounceTimersRef.current[pendingKey] = setTimeout(() => {
+      delete qtyDebounceTimersRef.current[pendingKey];
+      const latest = pendingQtyRef.current[pendingKey]?.value ?? value;
+      void flushQtySave(mikroOrderNumber, line.lineKey, field, latest);
+    }, 600);
+  };
+
+  // 5.5: Bekleyen +/- degisikligini iptal et (qtyPad/Tamami gibi mutlak deger yazan islemlerde,
+  // debounce'lanan kaydin sonradan mutlak degeri ezmesini onlemek icin).
+  const cancelPendingQty = (mikroOrderNumber: string, lineKey: string) => {
+    for (const field of ['pickedQty', 'extraQty'] as const) {
+      const pendingKey = `${mikroOrderNumber}::${lineKey}::${field}`;
+      const timer = qtyDebounceTimersRef.current[pendingKey];
+      if (timer) {
+        clearTimeout(timer);
+        delete qtyDebounceTimersRef.current[pendingKey];
+      }
+      if (pendingQtyRef.current[pendingKey]) {
+        delete pendingQtyRef.current[pendingKey];
+        // Bu satir icin bekleyen kaydi iptal ettik -> duraklatma sayacini dusur (5.6).
+        setActiveInputCount((count) => Math.max(0, count - 1));
+      }
+    }
+  };
+
+  // 5.5: Hizli pespese tiklamalarda dogru toplam icin son optimistic/bekleyen degeri taban al.
+  const getCurrentQty = (
+    mikroOrderNumber: string,
+    line: WarehouseOrderDetail['lines'][number],
+    field: 'pickedQty' | 'extraQty'
+  ) => {
+    const pendingKey = `${mikroOrderNumber}::${line.lineKey}::${field}`;
+    const pending = pendingQtyRef.current[pendingKey];
+    if (pending) return pending.value;
+    return field === 'pickedQty' ? line.pickedQty : line.extraQty;
+  };
+
+  const changePicked = (
     mikroOrderNumber: string,
     line: WarehouseOrderDetail['lines'][number],
     diff: number
   ) => {
-    const next = Math.max(0, line.extraQty + diff);
-    await updateLine(mikroOrderNumber, line, { extraQty: next });
+    const next = Math.max(0, getCurrentQty(mikroOrderNumber, line, 'pickedQty') + diff);
+    queueQtyChange(mikroOrderNumber, line, 'pickedQty', next);
+  };
+
+  const changeExtra = (
+    mikroOrderNumber: string,
+    line: WarehouseOrderDetail['lines'][number],
+    diff: number
+  ) => {
+    const next = Math.max(0, getCurrentQty(mikroOrderNumber, line, 'extraQty') + diff);
+    queueQtyChange(mikroOrderNumber, line, 'extraQty', next);
   };
 
   const saveShelf = async (mikroOrderNumber: string, line: WarehouseOrderDetail['lines'][number]) => {
@@ -716,6 +865,8 @@ export default function WarehousePage() {
       delete next[actionKey];
       return next;
     });
+    // 5.5: Bekleyen +/- kaydini iptal et; "Tamami" mutlak deger yazdigindan debounce ezmesin.
+    cancelPendingQty(mikroOrderNumber, line.lineKey);
     await updateLine(mikroOrderNumber, line, { pickedQty: line.remainingQty });
   };
 
@@ -806,6 +957,25 @@ export default function WarehousePage() {
   };
 
   const closeOrderTab = (mikroOrderNumber: string) => {
+    // 5.5: Bu siparis icin bekleyen miktar kayitlarini sekme kapanmadan once gonder (kayip olmasin).
+    const prefix = `${mikroOrderNumber}::`;
+    for (const pendingKey of Object.keys(pendingQtyRef.current)) {
+      if (!pendingKey.startsWith(prefix)) continue;
+      const timer = qtyDebounceTimersRef.current[pendingKey];
+      if (timer) {
+        clearTimeout(timer);
+        delete qtyDebounceTimersRef.current[pendingKey];
+      }
+      const pending = pendingQtyRef.current[pendingKey];
+      delete pendingQtyRef.current[pendingKey];
+      setActiveInputCount((count) => Math.max(0, count - 1));
+      if (pending) {
+        // Detay siliniyor; reconcile fetch yapmadan sadece kaydi gonder.
+        void adminApi
+          .updateWarehouseItem(pending.mikroOrderNumber, pending.lineKey, { [pending.field]: pending.value })
+          .catch(() => {});
+      }
+    }
     setOpenReservationKey(null);
     setPreviewImage(null);
     setOpenOrderNumbers((prev) => {
@@ -954,6 +1124,8 @@ export default function WarehousePage() {
       return;
     }
 
+    // 5.5: Numpad mutlak deger yazar; bekleyen +/- kaydini iptal et ki sonradan ezmesin.
+    cancelPendingQty(qtyPadTarget.mikroOrderNumber, qtyPadTarget.lineKey);
     await updateLine(
       qtyPadTarget.mikroOrderNumber,
       line,
@@ -1761,12 +1933,16 @@ export default function WarehousePage() {
                                                 setShelfDrafts((prev) => ({ ...prev, [draftKey]: event.target.value }))
                                               }
                                               onFocus={() => {
+                                                // 5.6: Raf kodu girilirken otomatik yenilemeyi duraklat
+                                                setActiveInputCount((count) => count + 1);
                                                 if (panelCanEditLines) openShelfKeyboard(orderNumber, line);
                                               }}
                                               onClick={() => {
                                                 if (panelCanEditLines) openShelfKeyboard(orderNumber, line);
                                               }}
                                               onBlur={() => {
+                                                // 5.6: Odak gidince duraklatma sayacini dusur
+                                                setActiveInputCount((count) => Math.max(0, count - 1));
                                                 if (panelCanEditLines) saveShelf(orderNumber, line);
                                               }}
                                               placeholder="A-03-12"

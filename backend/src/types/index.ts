@@ -6,6 +6,8 @@ export interface JwtPayload {
   userId: string;
   email: string;
   role: string;
+  // 11.2: Sifre hash'inin parmak izi. Sifre degisince eski token'lar gecersiz olur.
+  pwfp?: string;
 }
 
 export interface LoginRequest {

@@ -120,6 +120,29 @@ const costPFromCostT = (costT: string, vatPercent: number) => {
   return formatInputNumber(parsedCostT * (1 + Math.max(vatPercent, 0) / 200));
 };
 
+// 6.1: Maliyet Mikroya yazilmadan once degisim ozeti gosterilir. Bu esigin uzeri
+// degisimlerde (parmak hatasi, or. 1.250 yerine 12.500) ek/ikinci onay istenir.
+const BIG_COST_CHANGE_PERCENT = 30;
+// 6.1: Mevcut maliyet -> yeni maliyet yuzde degisimini hesaplar (yon bilgisiyle birlikte).
+const computeCostChange = (currentCost: any, newCost: any) => {
+  const current = Number(currentCost);
+  const next = Number(newCost);
+  const hasCurrent = Number.isFinite(current) && current > 0;
+  const hasNext = Number.isFinite(next) && next > 0;
+  if (!hasNext) return { percent: null as number | null, isBig: false, hasCurrent, direction: 'same' as 'up' | 'down' | 'same' };
+  if (!hasCurrent) {
+    // Mevcut maliyet yoksa yuzde hesaplanamaz; yine de yeni deger gosterilir, esik tetiklenmez.
+    return { percent: null as number | null, isBig: false, hasCurrent, direction: 'same' as 'up' | 'down' | 'same' };
+  }
+  const pct = ((next - current) / current) * 100;
+  return {
+    percent: pct,
+    isBig: Math.abs(pct) >= BIG_COST_CHANGE_PERCENT,
+    hasCurrent,
+    direction: pct > 0 ? ('up' as const) : pct < 0 ? ('down' as const) : ('same' as const),
+  };
+};
+
 export default function SupplierCostsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [initialUrlTab, setInitialUrlTab] = useState<string | null>(null);
@@ -147,9 +170,20 @@ export default function SupplierCostsPage() {
   const [applying, setApplying] = useState<string | null>(null);
   const [applyTarget, setApplyTarget] = useState<any | null>(null);
   const [applyUpdateLists, setApplyUpdateLists] = useState(true);
+  // 6.1: Buyuk degisimde uygula modalinda istenen ek/ikinci onay.
+  const [applyBigChangeAck, setApplyBigChangeAck] = useState(false);
   const [applyAfterSave, setApplyAfterSave] = useState(false);
   const [applyAfterSaveLists, setApplyAfterSaveLists] = useState(true);
   const [applyNote, setApplyNote] = useState('');
+  // 6.1: "Kaydet ve Mikroya uygula" akisinda, Mikroya yazmadan once gosterilen onay/ozet diyalogu.
+  const [saveApplyConfirm, setSaveApplyConfirm] = useState<{
+    payload: any;
+    currentCost: number;
+    newCostT: number | null;
+    newCostP: number | null;
+    updateLists: boolean;
+  } | null>(null);
+  const [saveApplyBigChangeAck, setSaveApplyBigChangeAck] = useState(false);
   const [reports, setReports] = useState<any | null>(null);
   const [reportSearch, setReportSearch] = useState('');
   const [staleDays, setStaleDays] = useState(60);
@@ -278,17 +312,58 @@ export default function SupplierCostsPage() {
         savedCost = result.cost;
         toast.success('Maliyet kaydi eklendi');
       }
+      // 6.1: Mikroya yazmadan ONCE onay/ozet diyalogu ac. Kayit (PostgreSQL) yapildi;
+      // Mikro maliyet yazimi sadece kullanici ozeti onayladiktan sonra calisir.
       if (applyAfterSave && savedCost?.id) {
-        await adminApi.applySupplierCost(savedCost.id, {
-          updatePriceLists: applyAfterSaveLists,
-          note: `${savedCost.productCode || form.productCode} maliyet girisinden uygulandi.`,
+        const newCostT = Number.isFinite(Number(savedCost?.normalizedCostT))
+          ? Number(savedCost.normalizedCostT)
+          : (normalizedPreview ? normalizedPreview.costT : null);
+        const newCostP = Number.isFinite(Number(savedCost?.normalizedCostP))
+          ? Number(savedCost.normalizedCostP)
+          : (normalizedPreview ? normalizedPreview.costP : null);
+        setSaveApplyBigChangeAck(false);
+        setSaveApplyConfirm({
+          payload: {
+            id: savedCost.id,
+            productCode: savedCost.productCode || form.productCode,
+            updatePriceLists: applyAfterSaveLists,
+            note: `${savedCost.productCode || form.productCode} maliyet girisinden uygulandi.`,
+          },
+          currentCost: Number(selectedProduct?.currentCost),
+          newCostT,
+          newCostP,
+          updateLists: applyAfterSaveLists,
         });
-        toast.success(applyAfterSaveLists ? 'Maliyet ve 10 liste Mikroya uygulandi' : 'Maliyet Mikroya uygulandi');
+        // Diyalog acildiktan sonra liste tazelensin; Mikro yazimi confirm handler'da.
+        await loadProduct(form.productCode);
+        await loadHistory();
+        return;
       }
       await loadProduct(form.productCode);
       await loadHistory();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Kayit yapilamadi');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 6.1: "Kaydet ve Mikroya uygula" ozeti onaylandiktan sonra Mikro maliyet yazimini calistirir.
+  const confirmSaveApply = async () => {
+    if (!saveApplyConfirm) return;
+    setSaving(true);
+    try {
+      await adminApi.applySupplierCost(saveApplyConfirm.payload.id, {
+        updatePriceLists: saveApplyConfirm.payload.updatePriceLists,
+        note: saveApplyConfirm.payload.note,
+      });
+      toast.success(saveApplyConfirm.payload.updatePriceLists ? 'Maliyet ve 10 liste Mikroya uygulandi' : 'Maliyet Mikroya uygulandi');
+      setSaveApplyConfirm(null);
+      setSaveApplyBigChangeAck(false);
+      if (saveApplyConfirm.payload.productCode) await loadProduct(saveApplyConfirm.payload.productCode);
+      await loadHistory();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Maliyet uygulanamadi');
     } finally {
       setSaving(false);
     }
@@ -344,6 +419,7 @@ export default function SupplierCostsPage() {
       toast.success(applyUpdateLists ? 'Maliyet ve fiyat listeleri guncellendi' : 'Maliyet guncellendi');
       setApplyTarget(null);
       setApplyNote('');
+      setApplyBigChangeAck(false); // 6.1: ek onay isaretini sifirla
       if (applyTarget.productCode) await loadProduct(applyTarget.productCode);
       await Promise.all([loadReports(), loadHistory()]);
     } catch (error: any) {
@@ -684,7 +760,7 @@ export default function SupplierCostsPage() {
                     </CardContent>
                   </Card>
 
-                  <CostTable costs={costs} onEdit={editCost} onArchive={archiveCost} onApply={(cost: any) => { setApplyTarget(cost); setApplyUpdateLists(true); }} applying={applying} />
+                  <CostTable costs={costs} onEdit={editCost} onArchive={archiveCost} onApply={(cost: any) => { setApplyTarget(cost); setApplyUpdateLists(true); setApplyBigChangeAck(false); }} applying={applying} />
                   <ApplicationHistory applications={applications} />
                 </>
               ) : (
@@ -769,7 +845,7 @@ export default function SupplierCostsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <CostTable costs={historyRows} onEdit={(cost: any) => { setActiveTab('entry'); void loadProduct(cost.productCode).then(() => editCost(cost)); }} onArchive={archiveCost} onApply={(cost: any) => { setApplyTarget(cost); setApplyUpdateLists(true); }} applying={applying} />
+              <CostTable costs={historyRows} onEdit={(cost: any) => { setActiveTab('entry'); void loadProduct(cost.productCode).then(() => editCost(cost)); }} onArchive={archiveCost} onApply={(cost: any) => { setApplyTarget(cost); setApplyUpdateLists(true); setApplyBigChangeAck(false); }} applying={applying} />
             </CardContent>
           </Card>
         )}
@@ -792,17 +868,89 @@ export default function SupplierCostsPage() {
               <MiniMetric label="Yeni Maliyet T" value={money(applyTarget.normalizedCostT)} light />
               <MiniMetric label="Yeni Maliyet P" value={money(applyTarget.normalizedCostP)} light />
             </div>
+            {/* 6.1: Mevcut -> yeni maliyet degisim ozeti. Liste guncelleniyorsa etkilenecek satir sayisi da gosterilir. */}
+            <CostChangeSummary
+              currentCost={applyTarget.currentCost}
+              newCostT={applyTarget.normalizedCostT}
+              updateLists={applyUpdateLists}
+            />
             <label className="mt-4 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
               <input type="checkbox" checked={applyUpdateLists} onChange={(event) => setApplyUpdateLists(event.target.checked)} />
               Liste 1-10 satis fiyatlarini mevcut marjlara gore guncelle
             </label>
+            {/* 6.1: Esik ustu degisimde ek/ikinci onay; parmak hatasini (or. 1.250 -> 12.500) yakalar. */}
+            {computeCostChange(applyTarget.currentCost, applyTarget.normalizedCostT).isBig && (
+              <label className="mt-4 flex items-start gap-2 rounded-2xl border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-800">
+                <input type="checkbox" checked={applyBigChangeAck} onChange={(event) => setApplyBigChangeAck(event.target.checked)} className="mt-0.5" />
+                <span>
+                  Bu degisim %{BIG_COST_CHANGE_PERCENT}'in uzerinde. Yeni maliyetin dogru oldugunu kontrol ettim ve Mikroya yazilmasini onayliyorum.
+                </span>
+              </label>
+            )}
             <label className="mt-4 block">
               <span className="mb-1 block text-sm font-medium text-gray-700">Uygulama notu</span>
               <textarea value={applyNote} onChange={(e) => setApplyNote(e.target.value)} rows={3} className="w-full rounded-2xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500" />
             </label>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setApplyTarget(null)}>Vazgec</Button>
-              <Button onClick={applyCost} isLoading={applying === applyTarget.id}>Mikroya uygula</Button>
+              <Button
+                onClick={applyCost}
+                isLoading={applying === applyTarget.id}
+                disabled={computeCostChange(applyTarget.currentCost, applyTarget.normalizedCostT).isBig && !applyBigChangeAck}
+              >
+                Mikroya uygula
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6.1: "Kaydet ve Mikroya uygula" akisinda Mikro yazimi oncesi onay/ozet diyalogu. */}
+      {saveApplyConfirm && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-950">Mikro maliyetini guncellemeyi onayla</h2>
+                <p className="mt-1 text-sm text-slate-500">{saveApplyConfirm.payload.productCode}</p>
+              </div>
+              <button onClick={() => { setSaveApplyConfirm(null); setSaveApplyBigChangeAck(false); }} className="rounded-full bg-slate-100 p-2 hover:bg-slate-200">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mt-3 text-sm text-slate-500">
+              Maliyet kaydi kaydedildi. Asagidaki deger Mikroya yazilmadan once kontrol edin.
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <MiniMetric label="Mevcut Mikro maliyet" value={money(saveApplyConfirm.currentCost)} light />
+              <MiniMetric label="Yeni Maliyet T" value={money(saveApplyConfirm.newCostT)} light />
+              <MiniMetric label="Yeni Maliyet P" value={money(saveApplyConfirm.newCostP)} light />
+            </div>
+            <CostChangeSummary
+              currentCost={saveApplyConfirm.currentCost}
+              newCostT={saveApplyConfirm.newCostT}
+              updateLists={saveApplyConfirm.updateLists}
+            />
+            {/* 6.1: Esik ustu degisimde ek/ikinci onay. */}
+            {computeCostChange(saveApplyConfirm.currentCost, saveApplyConfirm.newCostT).isBig && (
+              <label className="mt-4 flex items-start gap-2 rounded-2xl border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-800">
+                <input type="checkbox" checked={saveApplyBigChangeAck} onChange={(event) => setSaveApplyBigChangeAck(event.target.checked)} className="mt-0.5" />
+                <span>
+                  Bu degisim %{BIG_COST_CHANGE_PERCENT}'in uzerinde. Yeni maliyetin dogru oldugunu kontrol ettim ve Mikroya yazilmasini onayliyorum.
+                </span>
+              </label>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setSaveApplyConfirm(null); setSaveApplyBigChangeAck(false); }}>
+                Vazgec (Mikroya yazma)
+              </Button>
+              <Button
+                onClick={confirmSaveApply}
+                isLoading={saving}
+                disabled={computeCostChange(saveApplyConfirm.currentCost, saveApplyConfirm.newCostT).isBig && !saveApplyBigChangeAck}
+              >
+                Mikroya uygula
+              </Button>
             </div>
           </div>
         </div>
@@ -1163,6 +1311,25 @@ function PriceRequestsPanel({ canManage, initialRequestId }: { canManage: boolea
     const costP = parseNumberText(offerForm.costP);
     if (!Number.isFinite(costT) || costT <= 0) return toast.error('Maliyet T zorunlu');
     if (!Number.isFinite(costP) || costP <= 0) return toast.error('Maliyet P zorunlu');
+    // 6.1: "Fiyati eklerken Mikro maliyetini de guncelle" secilirse, Mikroya yazmadan once
+    // mevcut -> yeni maliyet ozetiyle onay iste; esik ustu degisimde uyari verilir.
+    if (offerForm.applyToSystem) {
+      const change = computeCostChange(selectedRequest.currentCost, costT);
+      const lines: string[] = [];
+      lines.push(`Mevcut maliyet: ${money(selectedRequest.currentCost)}`);
+      lines.push(`Yeni Maliyet T (girilen): ${money(costT)}`);
+      if (change.percent !== null) lines.push(`Degisim: ${change.direction === 'up' ? '+' : ''}${percent(change.percent)}`);
+      lines.push(offerForm.updatePriceLists !== false
+        ? 'Maliyet ve 10 satis listesi Mikroya yazilacak.'
+        : 'Sadece Mikro maliyet alani yazilacak.');
+      if (change.isBig) {
+        lines.push('');
+        lines.push(`DIKKAT: Degisim %${BIG_COST_CHANGE_PERCENT}'in uzerinde. Yeni maliyeti dogru girdiginizden emin misiniz?`);
+      }
+      lines.push('');
+      lines.push('Mikroya yazilsin mi?');
+      if (!window.confirm(lines.join('\n'))) return;
+    }
     setSavingAction('offer');
     try {
       const result = await adminApi.addPriceVerificationOffer(selectedRequest.id, {
@@ -3207,6 +3374,59 @@ function InfoLine({ label, value }: { label: string; value: any }) {
     <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
       <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
       <p className="mt-0.5 truncate font-black text-slate-800">{String(value || '-')}</p>
+    </div>
+  );
+}
+
+// 6.1: Mikroya yazmadan once gosterilen maliyet degisim ozeti.
+// Eski maliyet -> yeni maliyet, degisim %, yon ve (liste guncelleniyorsa) etkilenecek satir sayisi.
+function CostChangeSummary({
+  currentCost,
+  newCostT,
+  updateLists,
+}: {
+  currentCost: any;
+  newCostT: any;
+  updateLists: boolean;
+}) {
+  const change = computeCostChange(currentCost, newCostT);
+  const big = change.isBig;
+  // Liste guncelleniyorsa Mikroya yazilacak satir: 1 maliyet + 10 satis listesi = 11; degilse sadece maliyet.
+  const affectedRows = updateLists ? 11 : 1;
+  return (
+    <div
+      className={cn(
+        'mt-4 rounded-2xl border p-4',
+        big ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-3 text-sm font-black">
+        <span className="text-slate-500">{money(currentCost)}</span>
+        <span className="text-slate-400">{'->'}</span>
+        <span className={cn(big ? 'text-red-700' : 'text-slate-900')}>{money(newCostT)}</span>
+        {change.percent !== null && (
+          <span
+            className={cn(
+              'rounded-full px-2 py-1 text-xs',
+              big ? 'bg-red-200 text-red-800' : change.direction === 'down' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
+            )}
+          >
+            {change.direction === 'up' ? '+' : ''}{percent(change.percent)}
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-xs font-bold text-slate-500">
+        {change.percent === null
+          ? 'Mevcut maliyet bos; degisim yuzdesi hesaplanamadi.'
+          : updateLists
+            ? `Maliyet ve 10 satis listesi (toplam ${affectedRows} satir) Mikroya yazilacak.`
+            : 'Sadece Mikro maliyet alani yazilacak (1 satir).'}
+      </p>
+      {big && (
+        <p className="mt-1 text-xs font-black text-red-700">
+          Dikkat: Degisim %{BIG_COST_CHANGE_PERCENT}'in uzerinde. Lutfen yeni maliyeti tekrar kontrol edin.
+        </p>
+      )}
     </div>
   );
 }
