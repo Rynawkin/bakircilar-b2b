@@ -94,6 +94,17 @@ class BannerController {
       res.json({ success: true });
     } catch (e) { next(e); }
   }
+
+  /** Admin: banner gorseli yukle (multipart "image") -> public URL doner */
+  async uploadImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Dosya yuklenmedi' });
+      }
+      const imageUrl = `/uploads/${req.file.filename}`;
+      res.json({ imageUrl });
+    } catch (e) { next(e); }
+  }
 }
 
 export default new BannerController();

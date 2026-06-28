@@ -43,6 +43,13 @@ const POSITION_BADGE: Record<BannerPosition, string> = {
   SIDE: 'bg-slate-100 text-slate-700',
 };
 
+// Pozisyona gore onerilen gorsel olcusu
+const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
+  HERO: 'Önerilen ölçü: 1920 × 640 px (yatay, ~3:1) · maks 5MB',
+  STRIP: 'Önerilen ölçü: 1200 × 140 px (ince şerit) · maks 5MB',
+  SIDE: 'Önerilen ölçü: 600 × 500 px · maks 5MB',
+};
+
 const emptyForm: BannerInput = {
   title: '',
   subtitle: '',
@@ -76,6 +83,7 @@ export default function BannersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editing, setEditing] = useState<AdminBanner | null>(null);
@@ -159,6 +167,32 @@ export default function BannersPage() {
     startsAt: toIsoOrNull(formData.startsAt),
     endsAt: toIsoOrNull(formData.endsAt),
   });
+
+  const handleBannerImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Lütfen resim dosyası seçin');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Dosya boyutu 5MB\'dan küçük olmalıdır');
+      return;
+    }
+    setUploadingImage(true);
+    const fd = new FormData();
+    fd.append('image', file);
+    try {
+      const { imageUrl } = await adminApi.uploadBannerImage(fd);
+      setFormData((prev) => ({ ...prev, imageUrl }));
+      toast.success('Görsel yüklendi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Görsel yüklenemedi');
+    } finally {
+      setUploadingImage(false);
+      e.target.value = '';
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,16 +495,33 @@ export default function BannersPage() {
                       />
                     </div>
 
-                    {/* Görsel URL */}
+                    {/* Görsel: dosyadan yükle veya URL */}
                     <div>
                       <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                        Görsel URL
+                        Görsel
                       </label>
+                      <div className="mb-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleBannerImageUpload}
+                          disabled={uploadingImage}
+                          className="block w-full text-sm text-gray-500 file:mr-2 file:rounded file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-primary-700 hover:file:bg-primary-100"
+                        />
+                        <p className="mt-1.5 text-xs font-medium text-amber-700">
+                          {RECOMMENDED_SIZE[formData.position ?? 'HERO']}
+                        </p>
+                        {uploadingImage && (
+                          <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-600">
+                            <Loader2 className="h-3 w-3 animate-spin" /> Yükleniyor…
+                          </p>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={formData.imageUrl ?? ''}
                         onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                        placeholder="https://... veya /uploads/banner.jpg"
+                        placeholder="…veya görsel URL yapıştır (https:// ya da /uploads/...)"
                         className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
                       />
                       {formData.imageUrl?.trim() ? (

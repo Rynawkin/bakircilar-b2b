@@ -4103,6 +4103,13 @@ export const adminApi = {
     return response.data;
   },
 
+  uploadBannerImage: async (formData: FormData): Promise<{ imageUrl: string }> => {
+    const response = await apiClient.post('/admin/banners/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
   createBanner: async (data: BannerInput): Promise<{ banner: AdminBanner }> => {
     const response = await apiClient.post('/admin/banners', data);
     return response.data;

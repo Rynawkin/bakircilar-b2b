@@ -649,6 +649,7 @@ router.delete('/exclusions/:id', requirePermission('admin:exclusions'), adminCon
 
 // Banner yonetimi (musteri landing) - HEAD_ADMIN / ADMIN
 router.get('/banners', requireAdmin, bannerController.listAll);
+router.post('/banners/upload', requireAdmin, upload.single('image'), bannerController.uploadImage);
 router.post('/banners', requireAdmin, bannerController.create);
 router.put('/banners/:id', requireAdmin, bannerController.update);
 router.delete('/banners/:id', requireAdmin, bannerController.remove);
