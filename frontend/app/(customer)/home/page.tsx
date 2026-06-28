@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { Product, Category } from '@/types';
 import customerApi, { Banner } from '@/lib/api/customer';
 import { useAuthStore } from '@/lib/store/authStore';
-import { formatCurrency } from '@/lib/utils/format';
-import { getDisplayPrice } from '@/lib/utils/vatDisplay';
+import { useCartStore } from '@/lib/store/cartStore';
+import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import {
   Percent,
@@ -42,6 +42,7 @@ function BannerImage({ src, alt }: { src?: string | null; alt: string }) {
 
 export default function CustomerHomePage() {
   const { user, loadUserFromStorage } = useAuthStore();
+  const { addToCart } = useCartStore();
 
   const [heroBanners, setHeroBanners] = useState<Banner[]>([]);
   const [stripBanners, setStripBanners] = useState<Banner[]>([]);
@@ -161,26 +162,12 @@ export default function CustomerHomePage() {
     primary: { ring: 'ring-primary-100', bg: 'bg-primary-50', text: 'text-primary-600' },
   };
 
-  const resolvePrice = (product: Product) => {
-    const priceType = allowedPriceTypes.includes(defaultPriceType) ? defaultPriceType : (allowedPriceTypes[0] || 'INVOICED');
-    const base = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
-    const excessRaw = priceType === 'INVOICED' ? product.excessPrices?.invoiced : product.excessPrices?.white;
-    const hasExcess =
-      !product.agreement &&
-      product.excessStock > 0 &&
-      typeof excessRaw === 'number' &&
-      typeof base === 'number' &&
-      excessRaw < base;
-    const displayBase = getDisplayPrice(base, product.vatRate, priceType, vatDisplayPreference);
-    const displayExcess = hasExcess
-      ? getDisplayPrice(excessRaw as number, product.vatRate, priceType, vatDisplayPreference)
-      : undefined;
-    const discountPercent =
-      hasExcess && base && excessRaw && base > 0
-        ? Math.round(((base - excessRaw) / base) * 100)
-        : null;
-    return { displayBase, displayExcess, discountPercent: discountPercent && discountPercent > 0 ? discountPercent : null };
-  };
+  const handleAdd = useCallback(
+    async (args: ProductCardAddArgs) => {
+      await addToCart(args);
+    },
+    [addToCart]
+  );
 
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
@@ -402,52 +389,18 @@ export default function CustomerHomePage() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {featured.map((product) => {
-                const { displayBase, displayExcess, discountPercent } = resolvePrice(product);
-                return (
-                  <Link
-                    key={product.id}
-                    href={`/products/${product.id}`}
-                    className="group flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white transition-all duration-200 hover:border-primary-300 hover:shadow-md"
-                  >
-                    <div className="relative aspect-square overflow-hidden bg-gray-50">
-                      {product.imageUrl ? (
-                        <img
-                          src={product.imageUrl}
-                          alt={product.name}
-                          className="h-full w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <Package className="h-10 w-10 text-gray-300" strokeWidth={1.5} />
-                        </div>
-                      )}
-                      {discountPercent && (
-                        <span className="absolute left-2 top-2 rounded-md bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                          %{discountPercent} avantaj
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-1 flex-col gap-1 px-3 pb-3 pt-2.5">
-                      <p className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900 group-hover:text-primary-600">
-                        {product.name}
-                      </p>
-                      <span className="font-mono text-[10px] text-gray-400">{product.mikroCode}</span>
-                      <div className="mt-auto pt-1.5">
-                        {displayExcess !== undefined ? (
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="text-sm font-bold text-emerald-600">{formatCurrency(displayExcess)}</span>
-                            <span className="text-[11px] text-gray-400 line-through">{formatCurrency(displayBase)}</span>
-                          </div>
-                        ) : (
-                          <span className="text-sm font-bold text-gray-900">{formatCurrency(displayBase)}</span>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
+            <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+              {featured.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  allowedPriceTypes={allowedPriceTypes}
+                  defaultPriceType={defaultPriceType}
+                  vatDisplayPreference={vatDisplayPreference}
+                  variant={featuredMode === 'discounted' ? 'discounted' : 'default'}
+                  onAdd={handleAdd}
+                />
+              ))}
             </div>
           </section>
         )}

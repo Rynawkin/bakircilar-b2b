@@ -25,8 +25,12 @@ interface ProductCardProps {
   allowedPriceTypes: PriceType[];
   defaultPriceType: PriceType;
   vatDisplayPreference: 'WITH_VAT' | 'WITHOUT_VAT';
-  /** 'agreement' ekraninda anlasma min/gecerlilik/musteri-kodu vurgulanir */
-  variant?: 'default' | 'agreement';
+  /**
+   * 'default'    : Tum Urunler (prices=temel, excessPrices=indirim)
+   * 'discounted' : Indirimli/One cikan (listPrices=eski, prices/excessPrices=indirimli, hep EXCESS)
+   * 'agreement'  : Anlasmali (default + gecerlilik tarihi vurgusu)
+   */
+  variant?: 'default' | 'discounted' | 'agreement';
   onAdd: (args: ProductCardAddArgs) => Promise<void>;
 }
 
@@ -64,7 +68,6 @@ export function ProductCard({
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
 
-  // Secili fiyat tipi izin verilenler arasinda degilse varsayilana don.
   useEffect(() => {
     if (!allowedPriceTypes.includes(priceType)) {
       setPriceType(defaultPriceType);
@@ -78,43 +81,53 @@ export function ProductCard({
   const displayStock = Number(getDisplayStock(product));
   const isSupply = displayStock <= 0;
   const hasAgreement = Boolean(product.agreement);
+  const isDiscountedVariant = variant === 'discounted';
 
-  // ── Fiyat hesabi (urunler sayfasiyla BIREBIR ayni mantik) ─────────────
-  const excessInvoiced = resolveValidExcessPrice(product.prices.invoiced, product.excessPrices?.invoiced);
-  const excessWhite = resolveValidExcessPrice(product.prices.white, product.excessPrices?.white);
-  const showExcessPricing =
-    !hasAgreement &&
-    product.excessStock > 0 &&
-    (excessInvoiced !== undefined || excessWhite !== undefined);
+  // ── Varyant-farkindalı fiyat hesabi (mevcut sayfa mantiklari birebir) ──
+  let baseInvoiced: number | undefined;
+  let baseWhite: number | undefined;
+  let discInvoiced: number | undefined;
+  let discWhite: number | undefined;
 
-  const selectedBase = priceType === 'INVOICED' ? product.prices.invoiced : product.prices.white;
-  const selectedExcess = showExcessPricing
-    ? priceType === 'INVOICED'
-      ? excessInvoiced
-      : excessWhite
+  if (isDiscountedVariant) {
+    // Indirimli: listPrices = eski, prices/excessPrices = indirimli
+    baseInvoiced = product.listPrices?.invoiced ?? product.prices.invoiced;
+    baseWhite = product.listPrices?.white ?? product.prices.white;
+    discInvoiced = resolveValidExcessPrice(baseInvoiced, product.excessPrices?.invoiced ?? product.prices.invoiced);
+    discWhite = resolveValidExcessPrice(baseWhite, product.excessPrices?.white ?? product.prices.white);
+  } else {
+    // Tum Urunler / Anlasmali: prices = temel, excessPrices = indirim (anlasmada indirim yok)
+    baseInvoiced = product.prices.invoiced;
+    baseWhite = product.prices.white;
+    discInvoiced =
+      !hasAgreement && product.excessStock > 0
+        ? resolveValidExcessPrice(baseInvoiced, product.excessPrices?.invoiced)
+        : undefined;
+    discWhite =
+      !hasAgreement && product.excessStock > 0
+        ? resolveValidExcessPrice(baseWhite, product.excessPrices?.white)
+        : undefined;
+  }
+
+  const selectedBase = priceType === 'INVOICED' ? baseInvoiced : baseWhite;
+  const selectedDisc = priceType === 'INVOICED' ? discInvoiced : discWhite;
+  const hasDiscount = selectedDisc !== undefined;
+  const discountPct = hasDiscount ? getDiscountPercent(selectedBase, selectedDisc) : null;
+
+  const displayShown = getDisplayPrice(
+    hasDiscount ? (selectedDisc as number) : (selectedBase as number),
+    product.vatRate,
+    priceType,
+    vatDisplayPreference
+  );
+  const displayOld = hasDiscount
+    ? getDisplayPrice(selectedBase as number, product.vatRate, priceType, vatDisplayPreference)
     : undefined;
-  const selectedDiscount =
-    showExcessPricing && selectedExcess
-      ? getDiscountPercent(selectedBase, selectedExcess)
-      : null;
-
-  const displayBase = getDisplayPrice(selectedBase, product.vatRate, priceType, vatDisplayPreference);
-  const displayExcess =
-    selectedExcess !== undefined
-      ? getDisplayPrice(selectedExcess, product.vatRate, priceType, vatDisplayPreference)
-      : undefined;
   const vatLabel = getVatLabel(priceType, vatDisplayPreference);
-
   const agreementValidTo = formatAgreementDate(product.agreement?.validTo);
 
   const handleAdd = async () => {
-    const hasSelectedExcess = showExcessPricing
-      ? priceType === 'INVOICED'
-        ? excessInvoiced !== undefined
-        : excessWhite !== undefined
-      : false;
-    const priceMode: 'LIST' | 'EXCESS' = hasSelectedExcess ? 'EXCESS' : 'LIST';
-
+    const priceMode: 'LIST' | 'EXCESS' = isDiscountedVariant ? 'EXCESS' : hasDiscount ? 'EXCESS' : 'LIST';
     setAdding(true);
     try {
       const maxQty =
@@ -122,11 +135,7 @@ export function ProductCard({
           ? Math.max(getMaxOrderQuantity(product, 'LIST'), Number(product.excessStock) || 0)
           : getMaxOrderQuantity(product, 'LIST');
       if (qty > maxQty) {
-        const confirmed = await confirmBackorder({
-          requestedQty: qty,
-          availableQty: maxQty,
-          unit: product.unit,
-        });
+        const confirmed = await confirmBackorder({ requestedQty: qty, availableQty: maxQty, unit: product.unit });
         if (!confirmed) {
           setAdding(false);
           return;
@@ -139,8 +148,7 @@ export function ProductCard({
       setTimeout(() => setAdded(false), 1400);
       toast.success('Ürün sepete eklendi', { duration: 2000 });
     } catch (error: any) {
-      const message =
-        error?.response?.data?.message || error?.response?.data?.error || 'Sepete eklenemedi';
+      const message = error?.response?.data?.message || error?.response?.data?.error || 'Sepete eklenemedi';
       toast.error(message);
     } finally {
       setAdding(false);
@@ -166,12 +174,14 @@ export function ProductCard({
       {/* ── Gorsel ──────────────────────────────────────────────── */}
       <Link
         href={`/products/${product.id}`}
+        prefetch
         className="relative block aspect-square overflow-hidden border-b border-[var(--line)] bg-[var(--surface-0)]"
       >
         {product.imageUrl ? (
           <img
             src={product.imageUrl}
             alt={product.name}
+            loading="lazy"
             className="h-full w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
@@ -185,7 +195,6 @@ export function ProductCard({
           </div>
         )}
 
-        {/* Stok / tedarik rozeti */}
         {!isSupply ? (
           <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-100">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -197,10 +206,9 @@ export function ProductCard({
           </span>
         )}
 
-        {/* Indirim rozeti */}
-        {showExcessPricing && selectedDiscount && (
+        {hasDiscount && discountPct && (
           <span className="absolute left-2.5 top-2.5 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">
-            %{selectedDiscount} avantaj
+            %{discountPct} avantaj
           </span>
         )}
       </Link>
@@ -213,6 +221,7 @@ export function ProductCard({
 
         <Link
           href={`/products/${product.id}`}
+          prefetch
           className="line-clamp-2 min-h-[36px] text-[13.5px] font-medium leading-snug text-[var(--ink-1)] transition-colors hover:text-primary-700"
           title={product.name}
         >
@@ -232,7 +241,6 @@ export function ProductCard({
           </span>
         </div>
 
-        {/* Anlasma kutusu */}
         {hasAgreement && (
           <div className="rounded-lg border border-primary-100 bg-primary-50 px-2.5 py-1.5">
             <div className="flex items-center gap-2">
@@ -251,7 +259,6 @@ export function ProductCard({
           </div>
         )}
 
-        {/* Stok yetersiz - tedarik bilgisi */}
         {isSupply && (
           <div className="flex gap-1.5 rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-1.5">
             <span className="text-[10.5px] leading-snug text-amber-700">
@@ -277,22 +284,21 @@ export function ProductCard({
             </div>
           )}
 
-          {showExcessPricing && displayExcess !== undefined ? (
+          {hasDiscount && displayOld !== undefined ? (
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="text-[13px] text-gray-400 line-through">{formatCurrency(displayBase)}</span>
-              <span className="text-xl font-semibold text-emerald-700">{formatCurrency(displayExcess)}</span>
+              <span className="text-[13px] text-gray-400 line-through">{formatCurrency(displayOld)}</span>
+              <span className="text-xl font-semibold text-emerald-700">{formatCurrency(displayShown)}</span>
               <span className="text-[10.5px] text-[var(--ink-3)]">{vatLabel}</span>
             </div>
           ) : (
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-xl font-semibold text-[var(--ink-1)]">{formatCurrency(displayBase)}</span>
+              <span className="text-xl font-semibold text-[var(--ink-1)]">{formatCurrency(displayShown)}</span>
               <span className="text-[10.5px] text-[var(--ink-3)]">{vatLabel}</span>
             </div>
           )}
 
-          {/* Indirimli adet limiti (excessStock) */}
           <div className="mt-1 min-h-[15px]">
-            {showExcessPricing && (
+            {hasDiscount && product.excessStock > 0 && (
               <span className="text-[11px] text-amber-700">
                 İlk {product.excessStock} {product.unit} indirimli fiyattan
               </span>
