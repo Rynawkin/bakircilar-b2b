@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { Minus, Plus, ShoppingCart, Check } from 'lucide-react';
+import { Minus, Plus, ShoppingCart, Check, CalendarDays } from 'lucide-react';
 import { Product } from '@/types';
 import { formatCurrency } from '@/lib/utils/format';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
@@ -31,6 +31,9 @@ interface ProductCardProps {
    * 'agreement'  : Anlasmali (default + gecerlilik tarihi vurgusu)
    */
   variant?: 'default' | 'discounted' | 'agreement';
+  /** Daha Once Aldiklarim: kartta "Son alis" satiri + "Son 5 Alis" butonu */
+  lastBuy?: { date?: string | null; belge?: string | null } | null;
+  onHistory?: () => void;
   onAdd: (args: ProductCardAddArgs) => Promise<void>;
 }
 
@@ -60,6 +63,8 @@ export function ProductCard({
   defaultPriceType,
   vatDisplayPreference,
   variant = 'default',
+  lastBuy,
+  onHistory,
   onAdd,
 }: ProductCardProps) {
   const [qty, setQty] = useState(1);
@@ -255,6 +260,25 @@ export function ProductCard({
             </div>
             {variant === 'agreement' && agreementValidTo && (
               <div className="mt-0.5 text-[10.5px] text-[var(--ink-2)]">Geçerli: {agreementValidTo}</div>
+            )}
+          </div>
+        )}
+
+        {lastBuy?.date && (
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-1)] px-2.5 py-1.5">
+            <CalendarDays className="h-3.5 w-3.5 flex-shrink-0 text-[var(--ink-3)]" />
+            <span className="text-[10.5px] text-[var(--ink-2)]">
+              Son alış <b className="font-semibold text-[var(--ink-1)]">{lastBuy.date}</b>
+            </span>
+            {lastBuy.belge && <span className="font-mono text-[10px] text-[var(--ink-3)]">{lastBuy.belge}</span>}
+            {onHistory && (
+              <button
+                type="button"
+                onClick={onHistory}
+                className="ml-auto whitespace-nowrap text-[10.5px] font-semibold text-primary-700 hover:underline"
+              >
+                Son 5 Alış →
+              </button>
             )}
           </div>
         )}
