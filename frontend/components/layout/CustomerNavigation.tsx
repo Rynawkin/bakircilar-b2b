@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Menu, Transition } from '@headlessui/react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
-import customerApi from '@/lib/api/customer';
+import customerApi, { CustomerFinancials } from '@/lib/api/customer';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
 import { Notification, Category } from '@/types';
 import {
@@ -53,6 +53,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [agreementsAvailable, setAgreementsAvailable] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const cartCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) ?? cartItemCount;
@@ -105,6 +106,16 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     }
   };
 
+  const fetchFinancials = async () => {
+    if (!user) return;
+    try {
+      const { financials: data } = await customerApi.getFinancials();
+      setFinancials(data);
+    } catch (error) {
+      console.error('Financials not loaded:', error);
+    }
+  };
+
   const handleMarkAllRead = async () => {
     try {
       await customerApi.markNotificationsReadAll();
@@ -134,6 +145,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
     fetchPendingRequestCount();
     fetchAgreementsAvailability();
     fetchCategories();
+    fetchFinancials();
     const interval = setInterval(() => {
       fetchNotifications();
       fetchPendingRequestCount();
@@ -189,6 +201,25 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               className="min-w-0 flex-1 border-none bg-transparent text-sm text-[var(--ink-1)] outline-none placeholder:text-[var(--ink-3)]"
             />
           </form>
+
+          {/* Bakiye / Vadesi gecen */}
+          {financials && (
+            <div className="hidden flex-shrink-0 items-center gap-3 rounded-xl border border-[var(--line)] px-3.5 py-1.5 xl:flex">
+              <div className="flex flex-col leading-tight">
+                <span className="text-[10px] font-medium text-[var(--ink-3)]">Bakiye</span>
+                <span className="text-[13px] font-semibold text-[var(--ink-1)]">{formatCurrency(financials.totalBalance)}</span>
+              </div>
+              {financials.pastDueBalance > 0 && (
+                <>
+                  <span className="h-6 w-px bg-[var(--line)]" />
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-[10px] font-medium text-[var(--ink-3)]">Vadesi geçen</span>
+                    <span className="text-[13px] font-semibold text-amber-700">{formatCurrency(financials.pastDueBalance)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Bildirim */}
           <Menu as="div" className="relative flex-shrink-0">

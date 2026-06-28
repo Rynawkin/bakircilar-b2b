@@ -14,6 +14,7 @@ import customerActivityService from '../services/customer-activity.service';
 import warehouseWorkflowService from '../services/warehouse-workflow.service';
 import exclusionService from '../services/exclusion.service';
 import cartPricingService, { CartPriceType } from '../services/cart-pricing.service';
+import vadeService from '../services/vade.service';
 import { splitSearchTokens } from '../utils/search';
 import { MikroCustomerSaleMovement, ProductPrices } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
@@ -1269,6 +1270,41 @@ export class CustomerController {
         },
       });
       res.json({ available: count > 0 });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/financials
+   * Musteri cari bakiye + vadesi gecen ozeti (vade senkronundan okunur, hizli; canli Mikro yok).
+   * Kayit yoksa { financials: null } doner -> arayuz kutulari gizler.
+   */
+  async getFinancials(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { id: true, parentCustomer: { select: { id: true } } },
+      });
+      const customerId = user?.parentCustomer?.id || user?.id;
+      if (!customerId) {
+        return res.json({ financials: null });
+      }
+      const balance = await vadeService.getBalanceByUserId(customerId);
+      if (!balance) {
+        return res.json({ financials: null });
+      }
+      res.json({
+        financials: {
+          totalBalance: balance.totalBalance,
+          pastDueBalance: balance.pastDueBalance,
+          pastDueDate: balance.pastDueDate,
+          notDueBalance: balance.notDueBalance,
+          notDueDate: balance.notDueDate,
+          paymentTermLabel: balance.paymentTermLabel,
+          referenceDate: balance.referenceDate,
+        },
+      });
     } catch (error) {
       next(error);
     }

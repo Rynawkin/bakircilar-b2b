@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Product, Category } from '@/types';
-import customerApi, { Banner } from '@/lib/api/customer';
+import customerApi, { Banner, CustomerFinancials } from '@/lib/api/customer';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
+import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import {
   Percent,
   Tag,
@@ -18,6 +19,9 @@ import {
   ArrowRight,
   Sparkles,
   LayoutGrid,
+  Wallet,
+  CalendarClock,
+  Truck,
 } from 'lucide-react';
 
 // Banner gorseli yoksa veya hatali yuklenirse kart kirik gorunmesin diye placeholder.
@@ -51,6 +55,8 @@ export default function CustomerHomePage() {
   const [featuredMode, setFeaturedMode] = useState<'discounted' | 'all'>('discounted');
   const [heroIndex, setHeroIndex] = useState(0);
   const [bannersLoading, setBannersLoading] = useState(true);
+  const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
+  const [inTransit, setInTransit] = useState<{ count: number; total: number } | null>(null);
 
   // Fiyat gorunurlugu (urunler sayfasiyla ayni mantik, sadece goruntuleme)
   const isSubUser = Boolean(user?.parentCustomerId);
@@ -64,6 +70,29 @@ export default function CustomerHomePage() {
   useEffect(() => {
     loadUserFromStorage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cari bakiye/vade + yoldaki siparis (onaylanmis, hazirlanan siparisler)
+  useEffect(() => {
+    let active = true;
+    customerApi
+      .getFinancials()
+      .then(({ financials: data }) => {
+        if (active) setFinancials(data);
+      })
+      .catch(() => {});
+    customerApi
+      .getOrders()
+      .then(({ orders }) => {
+        if (!active) return;
+        const open = (orders || []).filter((o) => o.status === 'APPROVED');
+        const total = open.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+        setInTransit({ count: open.length, total });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Bannerlar
@@ -315,6 +344,54 @@ export default function CustomerHomePage() {
                 <div key={banner.id}>{content}</div>
               );
             })}
+          </section>
+        )}
+
+        {/* ── CARI OZET KUTULARI ───────────────────────────────────── */}
+        {(financials || (inTransit && inTransit.count > 0)) && (
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {financials && (
+              <div className="flex items-center gap-3.5 rounded-xl border border-[var(--line)] bg-white p-4">
+                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+                  <Wallet className="h-5 w-5" strokeWidth={1.9} />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[12px] font-medium text-[var(--ink-3)]">Cari Bakiye</div>
+                  <div className="text-[21px] font-semibold tracking-tight text-[var(--ink-1)]">{formatCurrency(financials.totalBalance)}</div>
+                  {financials.notDueBalance > 0 && (
+                    <div className="text-[11.5px] text-[var(--ink-3)]">Vadesi gelmemiş {formatCurrency(financials.notDueBalance)}</div>
+                  )}
+                </div>
+              </div>
+            )}
+            {financials && (
+              <div className="flex items-center gap-3.5 rounded-xl border border-[var(--line)] bg-white p-4">
+                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+                  <CalendarClock className="h-5 w-5" strokeWidth={1.9} />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[12px] font-medium text-[var(--ink-3)]">Vadesi Geçen</div>
+                  <div className="text-[21px] font-semibold tracking-tight text-amber-700">{formatCurrency(financials.pastDueBalance)}</div>
+                  {financials.pastDueDate && (
+                    <div className="text-[11.5px] text-[var(--ink-3)]">Son ödeme {formatDateShort(financials.pastDueDate)}</div>
+                  )}
+                </div>
+              </div>
+            )}
+            {inTransit && inTransit.count > 0 && (
+              <div className="flex items-center gap-3.5 rounded-xl border border-[var(--line)] bg-white p-4">
+                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
+                  <Truck className="h-5 w-5" strokeWidth={1.9} />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[12px] font-medium text-[var(--ink-3)]">Yoldaki Sipariş</div>
+                  <div className="text-[21px] font-semibold tracking-tight text-[var(--ink-1)]">
+                    {inTransit.count} sipariş · {formatCurrency(inTransit.total)}
+                  </div>
+                  <div className="text-[11.5px] text-[var(--ink-3)]">Onaylandı, hazırlanıyor</div>
+                </div>
+              </div>
+            )}
           </section>
         )}
 

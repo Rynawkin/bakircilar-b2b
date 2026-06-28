@@ -178,6 +178,9 @@ router.get('/agreements/available', customerController.getAgreementsAvailability
 // Landing bannerlari (aktif, tarih penceresinde)
 router.get('/banners', bannerController.listActive);
 
+// Cari bakiye + vadesi gecen ozeti (header cipi + ana sayfa kutulari)
+router.get('/financials', requireCustomer, customerController.getFinancials);
+
 // Warehouses
 router.get('/warehouses', customerController.getWarehouses);
 

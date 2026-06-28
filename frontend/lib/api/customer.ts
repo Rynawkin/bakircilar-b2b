@@ -35,12 +35,28 @@ export interface Banner {
   active?: boolean;
 }
 
+export interface CustomerFinancials {
+  totalBalance: number;
+  pastDueBalance: number;
+  pastDueDate?: string | null;
+  notDueBalance: number;
+  notDueDate?: string | null;
+  paymentTermLabel?: string | null;
+  referenceDate?: string | null;
+}
+
 export const customerApi = {
   // Banners (musteri - yalniz aktif)
   getBanners: async (position?: BannerPosition): Promise<{ banners: Banner[] }> => {
     const response = await apiClient.get('/banners', {
       params: position ? { position } : undefined,
     });
+    return response.data;
+  },
+
+  // Cari bakiye + vadesi gecen ozeti (kayit yoksa financials: null)
+  getFinancials: async (): Promise<{ financials: CustomerFinancials | null }> => {
+    const response = await apiClient.get('/financials');
     return response.data;
   },
 
