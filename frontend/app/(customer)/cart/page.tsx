@@ -2,21 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
   ShoppingCart,
-  FileText,
-  Circle,
   Trash2,
   Minus,
   Plus,
-  Wallet,
-  Info,
-  Check,
   AlertTriangle,
-  Sparkles,
+  ChevronLeft,
+  ArrowRight,
+  Pencil,
+  ShieldCheck,
 } from 'lucide-react';
-import { Product } from '@/types';
+import { CartItem, Product } from '@/types';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import customerApi from '@/lib/api/customer';
@@ -41,14 +40,12 @@ export default function CartPage() {
   const { cart, fetchCart, removeItem, updateQuantity, updateItemNote, addToCart } = useCartStore();
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
+  const [noteOpen, setNoteOpen] = useState<Record<string, boolean>>({});
   const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>({});
   const [customerOrderNumber, setCustomerOrderNumber] = useState('');
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const [recommendationGroups, setRecommendationGroups] = useState<RecommendationGroup[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
-  // Siparis olusturulurken stok yetersiz cikan kalemleri isaretleriz; bu kalemlerde
-  // "tedarik edilebilir, teslim gecikebilir" uyarisi gosteririz. Veri uretmez, sadece
-  // backend'in bildirdigi gercek stok sorununu kalem bazinda gorsellestirir.
   const [stockShortNames, setStockShortNames] = useState<string[]>([]);
   const { dialogState, isLoading, showConfirmDialog, closeDialog } = useConfirmDialog();
   const isSubUser = Boolean(user?.parentCustomerId);
@@ -68,12 +65,15 @@ export default function CartPage() {
     if (!cart?.items) return;
     const nextNotes: Record<string, string> = {};
     const nextQuantities: Record<string, string> = {};
+    const nextOpen: Record<string, boolean> = {};
     cart.items.forEach((item) => {
       nextNotes[item.id] = item.lineNote || '';
       nextQuantities[item.id] = String(item.quantity);
+      if (item.lineNote) nextOpen[item.id] = true;
     });
     setLineNotes(nextNotes);
     setQuantityInputs(nextQuantities);
+    setNoteOpen((prev) => ({ ...nextOpen, ...prev }));
   }, [cart?.items]);
 
   const cartSignature = useMemo(() => {
@@ -82,8 +82,6 @@ export default function CartPage() {
     return ids.join('|');
   }, [cart?.items]);
 
-  // Bir kalemin stok sorunlu olup olmadigini, backend'in dondurdugu uyari metinlerinden
-  // urun adi / Mikro kodu eslestirerek belirleriz.
   const isItemStockShort = (productName: string, mikroCode: string) => {
     if (stockShortNames.length === 0) return false;
     const name = (productName || '').toLowerCase();
@@ -113,6 +111,7 @@ export default function CartPage() {
 
   useEffect(() => {
     fetchRecommendations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cartSignature]);
 
   const handleRecommendationAdd = async (productId: string) => {
@@ -120,12 +119,7 @@ export default function CartPage() {
       const safePriceType = allowedPriceTypes.includes(defaultPriceType)
         ? defaultPriceType
         : (allowedPriceTypes[0] || 'INVOICED');
-      await addToCart({
-        productId,
-        quantity: 1,
-        priceType: safePriceType,
-        priceMode: 'LIST',
-      });
+      await addToCart({ productId, quantity: 1, priceType: safePriceType, priceMode: 'LIST' });
       toast.success('Urun sepete eklendi!');
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Sepete eklenirken hata olustu');
@@ -189,7 +183,6 @@ export default function CartPage() {
       toast.error('Sepetiniz bos!');
       return;
     }
-
     await showConfirmDialog(
       {
         title: isSubUser ? 'Talebi Onayla' : 'Siparisi Onayla',
@@ -218,10 +211,7 @@ Toplam: ${formatCurrency(cart.total)}`,
             setDeliveryLocation('');
             setStockShortNames([]);
             toast.success(`Siparis olusturuldu!
-Siparis No: ${result.orderNumber}`, {
-              duration: 4000,
-            });
-            // 1.6: Gizli/pasif oldugu icin siparise alinmayan urunler varsa kullaniciyi bilgilendir.
+Siparis No: ${result.orderNumber}`, { duration: 4000 });
             if (Array.isArray(result.skippedItems) && result.skippedItems.length > 0) {
               toast.error(
                 `Su urunler artik satista degil, siparise alinmadi:\n${result.skippedItems.join('\n')}`,
@@ -232,13 +222,9 @@ Siparis No: ${result.orderNumber}`, {
           }
         } catch (error: any) {
           if (!isSubUser && error.response?.data?.error === 'INSUFFICIENT_STOCK') {
-            const details: string[] = Array.isArray(error.response.data.details)
-              ? error.response.data.details
-              : [];
+            const details: string[] = Array.isArray(error.response.data.details) ? error.response.data.details : [];
             setStockShortNames(details);
-            toast.error(`Stok yetersiz!\n${details.join('\n')}`, {
-              duration: 5000,
-            });
+            toast.error(`Stok yetersiz!\n${details.join('\n')}`, { duration: 5000 });
           } else {
             toast.error(error.response?.data?.error || (isSubUser ? 'Talep gonderilemedi' : 'Siparis olusturulurken hata olustu'));
           }
@@ -249,383 +235,247 @@ Siparis No: ${result.orderNumber}`, {
     );
   };
 
-  const invoicedCount = cart?.items.filter((i) => i.priceType === 'INVOICED').length ?? 0;
-  const whiteCount = cart?.items.filter((i) => i.priceType === 'WHITE').length ?? 0;
+  const handleClearCart = async () => {
+    if (!cart) return;
+    await showConfirmDialog(
+      {
+        title: 'Sepeti Temizle',
+        message: 'Tüm ürünleri sepetten çıkarmak istediğinizden emin misiniz?',
+        confirmLabel: 'Sepeti Temizle',
+        cancelLabel: 'İptal',
+        type: 'danger',
+      },
+      async () => {
+        for (const item of cart.items) {
+          await removeItem(item.id);
+        }
+        toast.success('Sepet temizlendi');
+      }
+    );
+  };
 
+  const invoicedItems = cart?.items.filter((i) => i.priceType === 'INVOICED') ?? [];
+  const whiteItems = cart?.items.filter((i) => i.priceType === 'WHITE') ?? [];
+  const invoicedSubtotal = invoicedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+  const invoicedVat = invoicedItems.reduce((sum, item) => sum + item.totalPrice * item.vatRate, 0);
+  const whiteSubtotal = whiteItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const totalItemCount = cart?.items.length ?? 0;
 
-  return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
-      <div className="container-custom py-8">
-        <div className="max-w-4xl mx-auto">
-          {/* ── Sayfa basligi ─────────────────────────────────────── */}
-          <div className="mb-6 flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-primary-100">
-              <ShoppingCart className="h-5 w-5" />
-            </span>
-            <div>
-              <h1 className="page-title">{isSubUser ? 'Talep Sepeti' : 'Sepetim'}</h1>
-              <p className="page-subtitle">
-                {totalItemCount > 0
-                  ? `Sepetinizde ${totalItemCount} ürün bulunuyor`
-                  : 'Henüz ürün eklemediniz'}
-              </p>
+  // ── Tek satir render (Faturali + Beyaz ortak) ─────────────────────────
+  const renderLine = (item: CartItem) => {
+    const stockShort = isItemStockShort(item.product.name, item.product.mikroCode);
+    const isInvoiced = item.priceType === 'INVOICED';
+    const unitDisplay = isInvoiced
+      ? getDisplayPrice(item.unitPrice, item.vatRate, 'INVOICED', vatDisplayPreference)
+      : item.unitPrice;
+    const lineDisplay = isInvoiced
+      ? getDisplayPrice(item.totalPrice, item.vatRate, 'INVOICED', vatDisplayPreference)
+      : item.totalPrice;
+    const open = noteOpen[item.id];
+    return (
+      <div key={item.id} className="rounded-xl border border-[var(--line)] bg-white p-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          {item.product.imageUrl ? (
+            <div className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-0)]">
+              <img src={item.product.imageUrl} alt={item.product.name} className="h-full w-full object-contain" />
+            </div>
+          ) : (
+            <div className="flex h-[52px] w-[52px] flex-shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface-0)]">
+              <ShoppingCart className="h-5 w-5 text-gray-300" />
+            </div>
+          )}
+
+          <div className="min-w-[180px] flex-1">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[var(--ink-1)]">{item.product.name}</span>
+              {isInvoiced ? (
+                <span className="badge-info flex-shrink-0">Faturalı</span>
+              ) : (
+                <span className="badge-neutral flex-shrink-0">Beyaz</span>
+              )}
+              {item.priceMode === 'EXCESS' && <span className="badge-success flex-shrink-0">İndirimli</span>}
+            </div>
+            <div className="mt-1 truncate font-mono text-[11px] text-[var(--ink-3)]">
+              {item.product.mikroCode} · KDV %{Math.round((item.vatRate || 0) * 100)}
             </div>
           </div>
 
-          {!cart || cart.items.length === 0 ? (
-            /* ── Bos sepet ───────────────────────────────────────── */
-            <div className="card card-pad">
-              <div className="flex flex-col items-center justify-center py-14 px-4 text-center">
-                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-50 ring-1 ring-primary-100">
-                  <ShoppingCart className="h-9 w-9 text-primary-600" strokeWidth={1.75} />
-                </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">Sepetiniz boş</h3>
-                <p className="text-sm text-gray-500 max-w-md leading-relaxed mb-6">
-                  Henüz sepetinize ürün eklemediniz. Ürünleri inceleyerek dilediğiniz kalemi
-                  ekleyebilir, hızlıca {isSubUser ? 'talep' : 'sipariş'} oluşturabilirsiniz.
-                </p>
-                <button onClick={() => router.push('/products')} className="btn-primary">
-                  <ShoppingCart className="h-4 w-4" />
-                  Ürünleri İncele
-                </button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+            <div className="flex items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
+              <button
+                onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                disabled={item.quantity <= 1}
+                className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] disabled:opacity-40"
+                aria-label="Azalt"
+              >
+                <Minus className="h-3.5 w-3.5" strokeWidth={2.4} />
+              </button>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={quantityInputs[item.id] ?? String(item.quantity)}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => handleQuantityInputChange(item.id, e.target.value)}
+                onBlur={() => void commitQuantityInput(item.id, item.quantity)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                className="h-8 w-11 border-x border-[var(--line)] text-center text-sm font-semibold text-[var(--ink-1)] focus:outline-none"
+                aria-label={`${item.product.name} miktari`}
+              />
+              <button
+                onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                className="flex h-8 w-8 items-center justify-center text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                aria-label="Artır"
+              >
+                <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
+              </button>
+            </div>
+
+            <div className="min-w-[88px] text-right">
+              <div className="text-[12.5px] text-[var(--ink-2)]">{formatCurrency(unitDisplay)}</div>
+              <div className="text-[10.5px] text-[var(--ink-3)]">birim</div>
+            </div>
+            <div className="min-w-[96px] text-right">
+              <div className="text-[15px] font-semibold text-[var(--ink-1)]">{formatCurrency(lineDisplay)}</div>
+              <div className="text-[10.5px] text-[var(--ink-3)]">
+                {isInvoiced ? getVatStatusLabel(vatDisplayPreference) : 'Özel Fiyat'}
               </div>
             </div>
+            <button
+              onClick={() => handleRemove(item.id)}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--line)] text-[var(--ink-3)] transition-colors hover:border-red-200 hover:text-red-600"
+              aria-label="Sepetten çıkar"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {stockShort && (
+          <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+            <p className="text-xs leading-snug text-amber-700">
+              Bu üründe stok yetersiz — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-2.5">
+          {!open ? (
+            <button
+              type="button"
+              onClick={() => setNoteOpen((prev) => ({ ...prev, [item.id]: true }))}
+              className="flex items-center gap-1.5 text-xs text-[var(--ink-3)] transition-colors hover:text-primary-700"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Satır notu ekle
+            </button>
           ) : (
-            <div className="space-y-6">
-              {/* ── Faturali Urunler ──────────────────────────────── */}
-              {(() => {
-                const invoicedItems = cart.items.filter(item => item.priceType === 'INVOICED');
-                const invoicedSubtotal = invoicedItems.reduce((sum, item) => sum + item.totalPrice, 0);
-                const invoicedVat = invoicedItems.reduce((sum, item) => sum + (item.totalPrice * item.vatRate), 0);
-                const invoicedTotal = invoicedSubtotal + invoicedVat;
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-0)] px-2.5">
+              <Pencil className="h-3.5 w-3.5 flex-shrink-0 text-[var(--ink-3)]" />
+              <input
+                value={lineNotes[item.id] ?? ''}
+                onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
+                onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
+                placeholder="Satır notu (marka, renk, teslimat talebi)"
+                className="h-9 flex-1 border-none bg-transparent text-[12.5px] text-[var(--ink-1)] outline-none"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
-                if (invoicedItems.length === 0) return null;
+  return (
+    <div className="min-h-screen bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6">
+        {/* Baslik */}
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">
+              {isSubUser ? 'Talep Sepeti' : 'Sepetim'}
+            </h1>
+            <p className="mt-1 text-[13px] text-[var(--ink-3)]">
+              {totalItemCount > 0
+                ? `${totalItemCount} kalem · Faturalı ve Beyaz olarak gruplanmıştır`
+                : 'Henüz ürün eklemediniz'}
+            </p>
+          </div>
+          {totalItemCount > 0 && (
+            <Link
+              href="/products"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] bg-white px-3.5 py-2 text-[13px] font-medium text-primary-600 transition-colors hover:bg-[var(--surface-0)]"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Alışverişe devam et
+            </Link>
+          )}
+        </div>
 
-                return (
-                  <div className="card card-pad">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-[var(--line)]">
-                      <div className="flex items-center gap-2.5">
-                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-primary-100">
-                          <FileText className="h-4 w-4" />
-                        </span>
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900">Faturalı Ürünler</h3>
-                          <p className="text-xs text-gray-400">{invoicedItems.length} ürün</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[11px] text-gray-400">KDV Hariç {formatCurrency(invoicedSubtotal)}</p>
-                        <p className="text-lg font-bold text-primary-700">{formatCurrency(invoicedTotal)}</p>
-                        <p className="text-[11px] text-gray-400">KDV Dahil</p>
-                      </div>
+        {!cart || cart.items.length === 0 ? (
+          /* Bos sepet */
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-[var(--line)] bg-white px-6 py-16 text-center">
+            <span className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-50 ring-1 ring-inset ring-primary-100">
+              <ShoppingCart className="h-8 w-8 text-primary-600" strokeWidth={1.7} />
+            </span>
+            <h2 className="mb-2 text-xl font-semibold text-[var(--ink-1)]">Sepetiniz şu an boş</h2>
+            <p className="mb-6 max-w-sm text-[13.5px] leading-relaxed text-[var(--ink-3)]">
+              Eklediğiniz ürünler Faturalı ve Beyaz olarak burada gruplanır. Daha önce aldıklarınızdan tek tıkla tekrar
+              {isSubUser ? ' talep' : ' sipariş'} verebilirsiniz.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button onClick={() => router.push('/products')} className="btn-primary">
+                Ürünlere göz at
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <button onClick={() => router.push('/previously-purchased')} className="btn-secondary">
+                Daha önce aldıklarım
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-start gap-5 lg:flex-row">
+            {/* SOL: kalemler */}
+            <div className="min-w-0 flex-1 space-y-5">
+              {invoicedItems.length > 0 && (
+                <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--surface-1)] px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="badge-info">Faturalı</span>
+                      <span className="text-[12.5px] text-[var(--ink-3)]">{invoicedItems.length} kalem · +KDV</span>
                     </div>
-                    <div className="space-y-3">
-                      {invoicedItems.map((item) => {
-                        const stockShort = isItemStockShort(item.product.name, item.product.mikroCode);
-                        return (
-                        <div key={item.id} className="rounded-xl border border-[var(--line)] bg-white p-4 transition-colors hover:border-primary-200">
-                          <div className="flex flex-col sm:flex-row gap-4">
-                            {/* Gorsel */}
-                            {item.product.imageUrl && (
-                              <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-gray-50">
-                                <img
-                                  src={item.product.imageUrl}
-                                  alt={item.product.name}
-                                  className="h-full w-full object-contain"
-                                />
-                              </div>
-                            )}
-
-                            {/* Bilgi */}
-                            <div className="min-w-0 flex-1">
-                              <h3 className="text-[15px] font-semibold leading-snug text-gray-900">{item.product.name}</h3>
-                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className="chip font-mono">{item.product.mikroCode}</span>
-                                <span className="badge-info">Faturalı</span>
-                                {item.priceMode === 'EXCESS' && (
-                                  <span className="badge-success">İndirimli</span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Miktar + fiyat + sil */}
-                            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
-                              <div className="flex items-center justify-between gap-3 sm:justify-start">
-                                <div className="flex items-center gap-1 rounded-lg border border-[var(--line-strong)] bg-gray-50 p-1">
-                                  <button
-                                    onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-40"
-                                    disabled={item.quantity <= 1}
-                                    aria-label="Azalt"
-                                  >
-                                    <Minus className="h-4 w-4" />
-                                  </button>
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    value={quantityInputs[item.id] ?? String(item.quantity)}
-                                    onFocus={(event) => event.target.select()}
-                                    onChange={(event) => handleQuantityInputChange(item.id, event.target.value)}
-                                    onBlur={() => void commitQuantityInput(item.id, item.quantity)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'Enter') {
-                                        event.currentTarget.blur();
-                                      }
-                                    }}
-                                    className="h-8 w-12 rounded-md border border-[var(--line)] bg-white text-center text-sm font-bold text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                                    aria-label={`${item.product.name} miktari`}
-                                  />
-                                  <button
-                                    onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100"
-                                    aria-label="Artır"
-                                  >
-                                    <Plus className="h-4 w-4" />
-                                  </button>
-                                </div>
-
-                                {/* Sil - mobil */}
-                                <button
-                                  onClick={() => handleRemove(item.id)}
-                                  className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:hidden"
-                                  aria-label="Sepetten çıkar"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-
-                              {/* Fiyat */}
-                              <div className="flex items-end justify-between sm:block sm:min-w-[120px] sm:text-right">
-                                <p className="text-xs text-gray-400">
-                                  {formatCurrency(getDisplayPrice(item.unitPrice, item.vatRate, 'INVOICED', vatDisplayPreference))} / adet
-                                  <span className="ml-1">({getVatLabel('INVOICED', vatDisplayPreference)})</span>
-                                </p>
-                                <div>
-                                  <p className="text-xl font-bold text-primary-700">
-                                    {formatCurrency(getDisplayPrice(item.totalPrice, item.vatRate, 'INVOICED', vatDisplayPreference))}
-                                  </p>
-                                  <p className="text-[11px] text-gray-400">{getVatStatusLabel(vatDisplayPreference)}</p>
-                                </div>
-                              </div>
-
-                              {/* Sil - masaustu */}
-                              <button
-                                onClick={() => handleRemove(item.id)}
-                                className="hidden h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:flex"
-                                aria-label="Sepetten çıkar"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Stok yetersiz uyarisi (getirtilebilir ama gecikebilir) */}
-                          {stockShort && (
-                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
-                              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-                              <p className="text-xs leading-snug text-amber-700">
-                                Bu üründe stok yetersiz — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Satir notu */}
-                          <div className="mt-3">
-                            <label className="field-label">Satır notu (opsiyonel)</label>
-                            <textarea
-                              value={lineNotes[item.id] ?? ''}
-                              onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
-                              onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
-                              className="input text-xs"
-                              rows={2}
-                              placeholder="Marka, renk, teslimat notu..."
-                            />
-                          </div>
-                        </div>
-                        );
-                      })}
+                    <div className="text-[12.5px] text-[var(--ink-2)]">
+                      KDV hariç <b className="font-semibold text-[var(--ink-1)]">{formatCurrency(invoicedSubtotal)}</b> · dahil{' '}
+                      <b className="font-semibold text-[var(--ink-1)]">{formatCurrency(invoicedSubtotal + invoicedVat)}</b>
                     </div>
                   </div>
-                );
-              })()}
+                  <div className="space-y-2.5 p-3.5">{invoicedItems.map(renderLine)}</div>
+                </div>
+              )}
 
-              {/* ── Beyaz Urunler ─────────────────────────────────── */}
-              {(() => {
-                const whiteItems = cart.items.filter(item => item.priceType === 'WHITE');
-                const whiteTotal = whiteItems.reduce((sum, item) => sum + item.totalPrice, 0);
-
-                if (whiteItems.length === 0) return null;
-
-                return (
-                  <div className="card card-pad">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-[var(--line)]">
-                      <div className="flex items-center gap-2.5">
-                        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-gray-500 ring-1 ring-gray-200">
-                          <Circle className="h-4 w-4" />
-                        </span>
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900">Beyaz Fiyatlı Ürünler</h3>
-                          <p className="text-xs text-gray-400">{whiteItems.length} ürün · özel fiyat</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[11px] text-gray-400">Alt Toplam</p>
-                        <p className="text-lg font-bold text-gray-700">{formatCurrency(whiteTotal)}</p>
-                      </div>
+              {whiteItems.length > 0 && (
+                <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--surface-1)] px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="badge-neutral">Beyaz (Özel)</span>
+                      <span className="text-[12.5px] text-[var(--ink-3)]">{whiteItems.length} kalem · özel fiyat</span>
                     </div>
-                    <div className="space-y-3">
-                      {whiteItems.map((item) => {
-                        const stockShort = isItemStockShort(item.product.name, item.product.mikroCode);
-                        return (
-                        <div key={item.id} className="rounded-xl border border-[var(--line)] bg-white p-4 transition-colors hover:border-gray-300">
-                          <div className="flex flex-col sm:flex-row gap-4">
-                            {/* Gorsel */}
-                            {item.product.imageUrl && (
-                              <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-gray-50">
-                                <img
-                                  src={item.product.imageUrl}
-                                  alt={item.product.name}
-                                  className="h-full w-full object-contain"
-                                />
-                              </div>
-                            )}
-
-                            {/* Bilgi */}
-                            <div className="min-w-0 flex-1">
-                              <h3 className="text-[15px] font-semibold leading-snug text-gray-900">{item.product.name}</h3>
-                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <span className="chip font-mono">{item.product.mikroCode}</span>
-                                <span className="badge-neutral">Beyaz (Özel)</span>
-                                {item.priceMode === 'EXCESS' && (
-                                  <span className="badge-success">İndirimli</span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Miktar + fiyat + sil */}
-                            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
-                              <div className="flex items-center justify-between gap-3 sm:justify-start">
-                                <div className="flex items-center gap-1 rounded-lg border border-[var(--line-strong)] bg-gray-50 p-1">
-                                  <button
-                                    onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-40"
-                                    disabled={item.quantity <= 1}
-                                    aria-label="Azalt"
-                                  >
-                                    <Minus className="h-4 w-4" />
-                                  </button>
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    value={quantityInputs[item.id] ?? String(item.quantity)}
-                                    onFocus={(event) => event.target.select()}
-                                    onChange={(event) => handleQuantityInputChange(item.id, event.target.value)}
-                                    onBlur={() => void commitQuantityInput(item.id, item.quantity)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'Enter') {
-                                        event.currentTarget.blur();
-                                      }
-                                    }}
-                                    className="h-8 w-12 rounded-md border border-[var(--line)] bg-white text-center text-sm font-bold text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                                    aria-label={`${item.product.name} miktari`}
-                                  />
-                                  <button
-                                    onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md bg-white text-gray-600 transition-colors hover:bg-gray-100"
-                                    aria-label="Artır"
-                                  >
-                                    <Plus className="h-4 w-4" />
-                                  </button>
-                                </div>
-
-                                {/* Sil - mobil */}
-                                <button
-                                  onClick={() => handleRemove(item.id)}
-                                  className="flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:hidden"
-                                  aria-label="Sepetten çıkar"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-
-                              {/* Fiyat */}
-                              <div className="flex items-end justify-between sm:block sm:min-w-[120px] sm:text-right">
-                                <p className="text-xs text-gray-400">
-                                  {formatCurrency(item.unitPrice)} / adet
-                                </p>
-                                <div>
-                                  <p className="text-xl font-bold text-gray-700">
-                                    {formatCurrency(item.totalPrice)}
-                                  </p>
-                                  <p className="text-[11px] text-gray-400">Özel Fiyat</p>
-                                </div>
-                              </div>
-
-                              {/* Sil - masaustu */}
-                              <button
-                                onClick={() => handleRemove(item.id)}
-                                className="hidden h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 sm:flex"
-                                aria-label="Sepetten çıkar"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Stok yetersiz uyarisi */}
-                          {stockShort && (
-                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
-                              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-                              <p className="text-xs leading-snug text-amber-700">
-                                Bu üründe stok yetersiz — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Satir notu */}
-                          <div className="mt-3">
-                            <label className="field-label">Satır notu (opsiyonel)</label>
-                            <textarea
-                              value={lineNotes[item.id] ?? ''}
-                              onChange={(e) => handleLineNoteChange(item.id, e.target.value)}
-                              onBlur={() => handleLineNoteBlur(item.id, item.lineNote)}
-                              className="input text-xs"
-                              rows={2}
-                              placeholder="Marka, renk, teslimat notu..."
-                            />
-                          </div>
-                        </div>
-                        );
-                      })}
+                    <div className="text-[12.5px] text-[var(--ink-2)]">
+                      Alt toplam <b className="font-semibold text-[var(--ink-1)]">{formatCurrency(whiteSubtotal)}</b>
                     </div>
                   </div>
-                );
-              })()}
+                  <div className="space-y-2.5 p-3.5">{whiteItems.map(renderLine)}</div>
+                </div>
+              )}
 
-              {/* Sepeti Temizle */}
+              {/* Sepeti temizle */}
               <div className="flex justify-end">
                 <button
-                  onClick={async () => {
-                    await showConfirmDialog(
-                      {
-                        title: 'Sepeti Temizle',
-                        message: 'Tüm ürünleri sepetten çıkarmak istediğinizden emin misiniz?',
-                        confirmLabel: 'Sepeti Temizle',
-                        cancelLabel: 'İptal',
-                        type: 'danger',
-                      },
-                      async () => {
-                        for (const item of cart.items) {
-                          await removeItem(item.id);
-                        }
-                        toast.success('Sepet temizlendi');
-                      }
-                    );
-                  }}
-                  className="btn-ghost text-red-600 hover:bg-red-50 hover:text-red-700"
+                  onClick={handleClearCart}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
                 >
                   <Trash2 className="h-4 w-4" />
                   Sepeti Temizle
@@ -633,12 +483,7 @@ Siparis No: ${result.orderNumber}`, {
               </div>
 
               {/* Tamamlayici oneriler */}
-              {isLoadingRecommendations ? (
-                <div className="card card-pad flex items-center gap-2 text-sm text-gray-400">
-                  <Sparkles className="h-4 w-4 text-gray-300" />
-                  Tamamlayıcı öneriler yükleniyor...
-                </div>
-              ) : recommendationGroups.length > 0 ? (
+              {recommendationGroups.length > 0 && (
                 <div className="space-y-4">
                   {recommendationGroups.map((group) => (
                     <Card key={group.baseProduct.id} className="border border-[var(--line)] shadow-none">
@@ -654,122 +499,95 @@ Siparis No: ${result.orderNumber}`, {
                     </Card>
                   ))}
                 </div>
-              ) : null}
+              )}
+            </div>
 
-              {/* ── Siparis Ozeti ─────────────────────────────────── */}
-              <div className="card card-pad">
-                <div className="space-y-6">
-                  <div className="flex items-center gap-3 pb-4 border-b border-[var(--line)]">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
-                      <Wallet className="h-5 w-5" />
+            {/* SAG: siparis ozeti */}
+            <aside className="w-full flex-shrink-0 lg:sticky lg:top-[120px] lg:w-[348px]">
+              <div className="rounded-2xl border border-[var(--line)] bg-white p-[18px]">
+                <h3 className="mb-3.5 text-[15px] font-semibold text-[var(--ink-1)]">Sipariş Özeti</h3>
+
+                <div className="space-y-2 text-[13px]">
+                  {invoicedItems.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--ink-2)]">Faturalı <span className="text-[var(--ink-3)]">(KDV hariç)</span></span>
+                      <span className="font-medium text-[var(--ink-1)]">{formatCurrency(invoicedSubtotal)}</span>
                     </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-900">Sipariş Özeti</h3>
-                      <p className="text-xs text-gray-400">
-                        {invoicedCount > 0 && `${invoicedCount} Faturalı`}
-                        {invoicedCount > 0 && whiteCount > 0 && ' · '}
-                        {whiteCount > 0 && `${whiteCount} Beyaz`}
-                      </p>
+                  )}
+                  {whiteItems.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--ink-2)]">Beyaz <span className="text-[var(--ink-3)]">(KDV hariç)</span></span>
+                      <span className="font-medium text-[var(--ink-1)]">{formatCurrency(whiteSubtotal)}</span>
                     </div>
+                  )}
+                </div>
+
+                <div className="my-3.5 border-t border-[var(--line)]" />
+
+                <div className="space-y-2 text-[13px]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[var(--ink-2)]">Ara toplam (KDV hariç)</span>
+                    <span className="font-medium text-[var(--ink-1)]">{formatCurrency(cart.subtotal)}</span>
                   </div>
-
-                  <div>
-                    {/* KDV detaylari */}
-                    <div className="space-y-2.5 mb-4">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Ara Toplam (KDV Hariç)</span>
-                        <span className="font-semibold text-gray-900">{formatCurrency(cart.subtotal)}</span>
-                      </div>
-                      {cart.totalVat !== undefined && cart.totalVat > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-500">KDV</span>
-                          <span className="font-semibold text-gray-900">{formatCurrency(cart.totalVat)}</span>
-                        </div>
-                      )}
+                  {cart.totalVat !== undefined && cart.totalVat > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--ink-2)]">KDV</span>
+                      <span className="font-medium text-[var(--ink-1)]">{formatCurrency(cart.totalVat)}</span>
                     </div>
+                  )}
+                </div>
 
-                    <div className="mb-6 flex items-center justify-between rounded-xl bg-primary-600 px-5 py-4 text-white shadow-sm shadow-primary-600/20">
-                      <span className="text-sm font-semibold">Genel Toplam (KDV Dahil)</span>
-                      <span className="text-2xl font-bold">{formatCurrency(cart.total)}</span>
-                    </div>
+                <div className="my-3.5 border-t border-[var(--line)]" />
 
-                    {!isSubUser && (
-                      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <Input
-                          label="Teslimat Birimi / Bolge (opsiyonel)"
-                          value={deliveryLocation}
-                          onChange={(e) => setDeliveryLocation(e.target.value)}
-                        />
-                        <Input
-                          label="Musteri Siparis No (opsiyonel)"
-                          value={customerOrderNumber}
-                          onChange={(e) => setCustomerOrderNumber(e.target.value)}
-                        />
-                      </div>
-                    )}
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm font-semibold text-[var(--ink-1)]">Genel Toplam</span>
+                  <span className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">{formatCurrency(cart.total)}</span>
+                </div>
+                <div className="mt-0.5 text-right text-[11px] text-[var(--ink-3)]">KDV dahil</div>
 
-                    <Button
-                      className="w-full rounded-xl bg-emerald-600 py-3.5 text-base font-semibold text-white shadow-sm shadow-emerald-600/20 transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={handleCreateOrder}
-                      isLoading={isCreatingOrder}
-                      disabled={!cart || cart.items.length === 0 || isCreatingOrder}
-                    >
-                      {isCreatingOrder
-                        ? (isSubUser ? 'Gonderiliyor...' : 'Olusturuluyor...')
-                        : !cart || cart.items.length === 0
-                          ? 'Sepet Bos'
-                          : (isSubUser ? 'Talep Gonder' : 'Siparisi Olustur')}
-                    </Button>
-
-                    {/* Bilgilendirme */}
-                    <div className="mt-4 rounded-xl border border-primary-100 bg-primary-50/60 p-4">
-                      <div className="flex items-start gap-2.5">
-                        <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary-600" />
-                        <div className="text-xs text-primary-900/90">
-                          <p className="mb-1.5 font-semibold">{isSubUser ? 'Talep Bilgilendirmesi' : 'Siparis Bilgilendirmesi'}</p>
-                          {isSubUser ? (
-                            <ul className="space-y-1">
-                              <li className="flex items-start gap-1.5">
-                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
-                                <span>Talebiniz yonetici onayina gonderilir</span>
-                              </li>
-                              <li className="flex items-start gap-1.5">
-                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
-                                <span>Fiyat tipi secimi yonetici tarafindan yapilir</span>
-                              </li>
-                              <li className="flex items-start gap-1.5">
-                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
-                                <span>Onaylanan talepler siparise cevrilir</span>
-                              </li>
-                            </ul>
-                          ) : (
-                            <ul className="space-y-1">
-                              <li className="flex items-start gap-1.5">
-                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
-                                <span>Siparisiniz olusturulduktan sonra admin onayi bekler</span>
-                              </li>
-                              <li className="flex items-start gap-1.5">
-                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
-                                <span>Faturali ve beyaz urunler ayri siparisler olarak islenir</span>
-                              </li>
-                              <li className="flex items-start gap-1.5">
-                                <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary-500" />
-                                <span>Onaylanan siparisler en kisa surede hazirlanir</span>
-                              </li>
-                            </ul>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                {!isSubUser && (
+                  <div className="mt-4 space-y-3">
+                    <Input
+                      label="Teslimat birimi / bölge (opsiyonel)"
+                      value={deliveryLocation}
+                      onChange={(e) => setDeliveryLocation(e.target.value)}
+                      placeholder="Örn. Merkez depodan teslim"
+                    />
+                    <Input
+                      label="Müşteri sipariş no (opsiyonel)"
+                      value={customerOrderNumber}
+                      onChange={(e) => setCustomerOrderNumber(e.target.value)}
+                      placeholder="Örn. SAT-2026-0481"
+                    />
                   </div>
+                )}
+
+                <Button
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-base font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={handleCreateOrder}
+                  isLoading={isCreatingOrder}
+                  disabled={!cart || cart.items.length === 0 || isCreatingOrder}
+                >
+                  {isCreatingOrder
+                    ? (isSubUser ? 'Gönderiliyor…' : 'Oluşturuluyor…')
+                    : (isSubUser ? 'Talebi Gönder' : 'Siparişi Tamamla')}
+                  {!isCreatingOrder && <ArrowRight className="h-4 w-4" />}
+                </Button>
+
+                <div className="mt-3.5 flex items-start gap-2 border-t border-[var(--line)] pt-3.5">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary-600" />
+                  <span className="text-[11.5px] leading-relaxed text-[var(--ink-2)]">
+                    {isSubUser
+                      ? 'Talebiniz yöneticinize iletilir; fiyat tipi yönetici tarafından seçilir ve onaylanınca siparişe çevrilir.'
+                      : 'Siparişiniz temsilcinize iletilir; stok ve fiyat onayından sonra kesinleşir. Faturalı ve beyaz ürünler ayrı işlenir.'}
+                  </span>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            </aside>
+          </div>
+        )}
       </div>
 
-      {/* Confirmation Dialog */}
       <ConfirmDialog
         isOpen={dialogState.isOpen}
         onClose={closeDialog}

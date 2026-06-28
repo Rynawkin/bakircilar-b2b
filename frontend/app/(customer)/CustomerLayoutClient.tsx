@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { CustomerNavigation } from '@/components/layout/CustomerNavigation';
+import { CustomerFooter } from '@/components/layout/CustomerFooter';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 
@@ -153,9 +154,10 @@ export default function CustomerLayout({
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-[var(--surface-0)]">
+      <div className="flex min-h-screen flex-col bg-[var(--surface-0)]">
         <CustomerNavigation cartItemCount={cartItemCount} />
-        <main>{children}</main>
+        <main className="flex-1">{children}</main>
+        <CustomerFooter />
       </div>
     </ErrorBoundary>
   );

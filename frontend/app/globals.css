@@ -7,15 +7,15 @@
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
 
-    /* Tasarim sistemi - notr yuzey & metin tonlari (premium, dingin) */
-    --surface-0: #f6f7f9;   /* sayfa zemini */
+    /* Tasarim sistemi - claude.ai tasarim tonlari (derin lacivert + notr) */
+    --surface-0: #f4f6fa;   /* sayfa zemini */
     --surface-1: #fbfcfd;   /* hafif kart ici */
     --surface-2: #ffffff;   /* kart */
-    --line: #e8eaee;        /* ince hairline kenarlik */
-    --line-strong: #d6dae1;
-    --ink-1: #0f172a;       /* ana metin */
-    --ink-2: #475569;       /* ikincil metin */
-    --ink-3: #8a93a3;       /* soluk / meta */
+    --line: #e7ebf2;        /* ince hairline kenarlik */
+    --line-strong: #d8e0ec;
+    --ink-1: #14223b;       /* ana metin */
+    --ink-2: #51607a;       /* ikincil metin */
+    --ink-3: #8b97ac;       /* soluk / meta */
   }
 
   body {

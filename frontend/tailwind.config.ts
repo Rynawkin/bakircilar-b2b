@@ -9,19 +9,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Marka mavisi - daha derin, karakterli "kobalt" tonu (premium his)
+        // Marka mavisi - derin, kurumsal lacivert (claude.ai tasarim tonu #15356b)
         primary: {
-          50: '#eef4ff',
-          100: '#d9e6ff',
-          200: '#bcd2ff',
-          300: '#8eb4ff',
-          400: '#5b8dfb',
-          500: '#3667f2',
-          600: '#1f4ddd',
-          700: '#1b3dbb',
-          800: '#1c3597',
-          900: '#1b2f77',
-          950: '#141f4a',
+          50: '#eef2fa',
+          100: '#d6e0f1',
+          200: '#b9caea',
+          300: '#8ba8d7',
+          400: '#577fbb',
+          500: '#2f5a98',
+          600: '#15356b', // marka temel (butonlar, header, logo)
+          700: '#1c4585', // link / vurgu (tasarimda hover acik mavi)
+          800: '#102c54', // koyu yuzeyler
+          900: '#0c2247', // hero / en koyu
+          950: '#081a3a',
         },
         // Vurgu (avantaj/indirim) icin sicak degil, dingin yesil zaten emerald; marka aksani:
         ink: {
