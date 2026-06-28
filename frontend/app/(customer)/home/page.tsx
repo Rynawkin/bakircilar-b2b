@@ -125,6 +125,15 @@ export default function CustomerHomePage() {
     let active = true;
     const load = async () => {
       try {
+        // 1) Yonetici tarafindan "one cikar" isaretli urunler
+        const featuredRes = await customerApi.getProducts({ mode: 'all', featured: true, limit: 8 });
+        if (!active) return;
+        if (featuredRes.products?.length) {
+          setFeatured(featuredRes.products);
+          setFeaturedMode('all');
+          return;
+        }
+        // 2) Yoksa indirimli urunler
         const discounted = await customerApi.getProducts({ mode: 'discounted', limit: 8 });
         if (!active) return;
         if (discounted.products?.length) {
@@ -132,6 +141,7 @@ export default function CustomerHomePage() {
           setFeaturedMode('discounted');
           return;
         }
+        // 3) Yoksa cok satanlar
         const all = await customerApi.getProducts({ mode: 'all', sort: 'bestsellerValue', limit: 8 });
         if (!active) return;
         setFeatured(all.products || []);

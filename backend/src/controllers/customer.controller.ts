@@ -400,6 +400,8 @@ export class CustomerController {
       const isDiscounted = mode === 'discounted' || mode === 'excess';
       const isPurchased = mode === 'purchased';
       const isAgreementMode = mode === 'agreements';
+      // Ana sayfa "one cikan" -> sadece yonetici isaretli urunler
+      const featuredOnly = req.query.featured === 'true' || req.query.featured === '1';
       const requestedSort = typeof req.query.sort === 'string' ? req.query.sort : '';
       const productSort = requestedSort || (isPurchased ? 'lastPurchasedDesc' : isAgreementMode ? 'nameAsc' : 'bestsellerValue');
       const bestsellerOrderBy = [{ popularSalesValue: 'desc' as const }, { name: 'asc' as const }];
@@ -756,6 +758,16 @@ export class CustomerController {
         return res.json({ products: productsWithPrices, total: agreementTotal });
       }
 
+      // Indirime sokulmamasi istenen urun kodlari (yalniz indirimli listeyi etkiler)
+      const discountExcludedCodes = isDiscounted
+        ? (
+            await prisma.product.findMany({
+              where: { excludeFromDiscount: true },
+              select: { mikroCode: true },
+            })
+          ).map((p) => p.mikroCode)
+        : [];
+
       const products = isDiscounted
         ? await stockService.getExcessStockProducts({
             categoryId: categoryId as string,
@@ -763,7 +775,7 @@ export class CustomerController {
             search: search as string,
             limit,
             offset,
-            excludeProductCodes: excludedProductCodes,
+            excludeProductCodes: [...excludedProductCodes, ...discountExcludedCodes],
             sort: productSort === 'bestsellerValue' ? 'bestsellerValue' : 'excessStock',
           })
         : isPurchased
@@ -814,6 +826,8 @@ export class CustomerController {
 
                 excessStock: true,
 
+                excludeFromDiscount: true,
+
                 imageUrl: true,
 
                 warehouseStocks: true,
@@ -845,6 +859,7 @@ export class CustomerController {
               where: {
                 active: true,
                 hiddenFromCustomers: false,
+                ...(featuredOnly ? { isFeatured: true } : {}),
                 ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
                 ...categoryFilter,
                 ...(searchTokens.length > 0
@@ -888,6 +903,8 @@ export class CustomerController {
 
                 excessStock: true,
 
+                excludeFromDiscount: true,
+
                 imageUrl: true,
 
                 warehouseStocks: true,
@@ -911,9 +928,16 @@ export class CustomerController {
                 },
 
               },
-              orderBy: productSort === 'bestsellerValue' ? bestsellerOrderBy : nameOrderBy,
+              orderBy: featuredOnly
+                ? [{ featuredOrder: 'asc' as const }, { name: 'asc' as const }]
+                : productSort === 'bestsellerValue' ? bestsellerOrderBy : nameOrderBy,
               ...(limit ? { skip: offset, take: limit } : {}),
             });
+
+      // Indirime sokulmamasi istenen urunlerde fazla stogu sifirla -> her yerde normal fiyattan gosterilir.
+      for (const p of products as any[]) {
+        if (p && p.excludeFromDiscount) p.excessStock = 0;
+      }
 
       lap('productsQuery');
 
@@ -945,8 +969,9 @@ export class CustomerController {
           active: true,
           hiddenFromCustomers: false,
         };
-        if (excludedProductCodes.length > 0) {
-          discountedWhere.mikroCode = { notIn: excludedProductCodes };
+        const allDiscountExcluded = [...excludedProductCodes, ...discountExcludedCodes];
+        if (allDiscountExcluded.length > 0) {
+          discountedWhere.mikroCode = { notIn: allDiscountExcluded };
         }
         if (categoryIds.length > 0) {
           discountedWhere.categoryId = { in: categoryIds };
@@ -966,6 +991,7 @@ export class CustomerController {
         const listWhere: any = {
           active: true,
           hiddenFromCustomers: false,
+          ...(featuredOnly ? { isFeatured: true } : {}),
           ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
           ...categoryFilter,
           ...(searchTokens.length > 0
@@ -1815,7 +1841,11 @@ export class CustomerController {
     try {
       const categories = await getCachedValue('customer:categories', () =>
         prisma.category.findMany({
-          where: { active: true },
+          // Yalniz musteriye gosterilebilir urunu OLAN kategoriler (bos kategori gizlenir)
+          where: {
+            active: true,
+            products: { some: { active: true, hiddenFromCustomers: false } },
+          },
           select: {
             id: true,
             name: true,

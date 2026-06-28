@@ -180,6 +180,12 @@ const productCustomerVisibilitySchema = z.object({
   hiddenFromCustomers: z.boolean(),
 });
 
+const productAdminFlagsSchema = z.object({
+  isFeatured: z.boolean().optional(),
+  featuredOrder: z.number().int().optional(),
+  excludeFromDiscount: z.boolean().optional(),
+});
+
 const complementRecommendationSchema = z.object({
   productCodes: z.array(z.string()).min(1),
   excludeCodes: z.array(z.string()).optional(),
@@ -277,6 +283,12 @@ router.patch(
   requirePermission('admin:products'),
   validateBody(productCustomerVisibilitySchema),
   adminController.updateProductCustomerVisibility
+);
+router.patch(
+  '/products/:id/flags',
+  requirePermission('admin:products'),
+  validateBody(productAdminFlagsSchema),
+  adminController.updateProductFlags
 );
 router.post('/products/:id/image', requireAnyPermission(['admin:products', 'admin:order-tracking']), upload.single('image'), adminController.uploadProductImage);
 

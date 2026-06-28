@@ -68,6 +68,7 @@ export const customerApi = {
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';
     sort?: 'bestsellerValue' | 'lastPurchasedDesc' | 'nameAsc';
+    featured?: boolean;
     limit?: number;
     offset?: number;
   }, options?: { signal?: AbortSignal }): Promise<{ products: Product[]; total?: number }> => {

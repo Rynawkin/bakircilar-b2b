@@ -23,6 +23,9 @@ interface Product {
   prices: any;
   category: { id: string; name: string };
   imageUrl?: string | null;
+  isFeatured?: boolean;
+  featuredOrder?: number;
+  excludeFromDiscount?: boolean;
 }
 
 export default function AdminProductOverridesPage() {
@@ -38,6 +41,39 @@ export default function AdminProductOverridesPage() {
   const [searchInput, setSearchInput] = useState('');
   const [isSaving, setIsSaving] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [featuredOrderInput, setFeaturedOrderInput] = useState('');
+
+  const handleToggleFlag = async (flag: 'isFeatured' | 'excludeFromDiscount', value: boolean) => {
+    if (!selectedProduct) return;
+    setIsSaving(flag);
+    try {
+      await adminApi.setProductFlags(selectedProduct.id, { [flag]: value });
+      setProducts((prev) => prev.map((p) => (p.id === selectedProduct.id ? { ...p, [flag]: value } : p)));
+      setSelectedProduct((prev) => (prev ? { ...prev, [flag]: value } : prev));
+      toast.success('Güncellendi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Güncellenemedi');
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
+  const handleSaveFeaturedOrder = async () => {
+    if (!selectedProduct) return;
+    const n = parseInt(featuredOrderInput || '0', 10);
+    const order = Number.isFinite(n) ? n : 0;
+    setIsSaving('featuredOrder');
+    try {
+      await adminApi.setProductFlags(selectedProduct.id, { featuredOrder: order });
+      setProducts((prev) => prev.map((p) => (p.id === selectedProduct.id ? { ...p, featuredOrder: order } : p)));
+      setSelectedProduct((prev) => (prev ? { ...prev, featuredOrder: order } : prev));
+      toast.success('Sıra güncellendi');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Güncellenemedi');
+    } finally {
+      setIsSaving(null);
+    }
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -244,7 +280,10 @@ export default function AdminProductOverridesPage() {
                           ? 'border-primary-600 bg-primary-50 shadow-md'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
-                      onClick={() => setSelectedProduct(product)}
+                      onClick={() => {
+                        setSelectedProduct(product);
+                        setFeaturedOrderInput(String(product.featuredOrder ?? 0));
+                      }}
                     >
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
@@ -371,6 +410,58 @@ export default function AdminProductOverridesPage() {
                   <p className="text-xs text-gray-500 mt-2">
                     Max 5MB, JPG, PNG, GIF, WebP
                   </p>
+                </div>
+
+                {/* Vitrin kontrolleri: one cikar + indirime sokma */}
+                <div className="mb-6 space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+                  <h4 className="text-sm font-bold text-gray-900">Vitrin Kontrolleri</h4>
+
+                  <div className="flex items-center justify-between">
+                    <div className="pr-3">
+                      <p className="text-sm font-medium text-gray-800">Ana sayfada öne çıkar</p>
+                      <p className="text-xs text-gray-500">&quot;Öne Çıkan&quot; bölümünde gösterilir</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!!selectedProduct.isFeatured}
+                      onClick={() => handleToggleFlag('isFeatured', !selectedProduct.isFeatured)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${selectedProduct.isFeatured ? 'bg-primary-600' : 'bg-gray-300'}`}
+                    >
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${selectedProduct.isFeatured ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+
+                  {selectedProduct.isFeatured && (
+                    <div className="flex items-center gap-2 pl-1">
+                      <span className="text-xs text-gray-600">Sıra (küçük önce):</span>
+                      <Input
+                        type="number"
+                        value={featuredOrderInput}
+                        onChange={(e) => setFeaturedOrderInput(e.target.value)}
+                        className="w-20 text-center"
+                      />
+                      <Button size="sm" onClick={handleSaveFeaturedOrder} isLoading={isSaving === 'featuredOrder'}>
+                        Kaydet
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                    <div className="pr-3">
+                      <p className="text-sm font-medium text-gray-800">İndirime sokma</p>
+                      <p className="text-xs text-gray-500">Fazla stok olsa bile indirimli gösterilmez (normal fiyat)</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!!selectedProduct.excludeFromDiscount}
+                      onClick={() => handleToggleFlag('excludeFromDiscount', !selectedProduct.excludeFromDiscount)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${selectedProduct.excludeFromDiscount ? 'bg-amber-500' : 'bg-gray-300'}`}
+                    >
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${selectedProduct.excludeFromDiscount ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">

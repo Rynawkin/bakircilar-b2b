@@ -59,6 +59,9 @@ const PRODUCT_SELECT = {
   prices: true,
   imageUrl: true,
   hiddenFromCustomers: true,
+  isFeatured: true,
+  featuredOrder: true,
+  excludeFromDiscount: true,
   category: {
     select: {
       id: true,
@@ -898,6 +901,46 @@ export class AdminController {
           ? 'Urun musteri panelinden gizlendi'
           : 'Urun musteri panelinde gosterilecek',
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/admin/products/:id/flags
+   * Yonetici flag'leri: ana sayfada one cikar (isFeatured/featuredOrder) +
+   * fazla stok olsa bile indirime sokma (excludeFromDiscount).
+   */
+  async updateProductFlags(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data: { isFeatured?: boolean; featuredOrder?: number; excludeFromDiscount?: boolean } = {};
+      if (typeof req.body?.isFeatured === 'boolean') data.isFeatured = req.body.isFeatured;
+      if (typeof req.body?.excludeFromDiscount === 'boolean') data.excludeFromDiscount = req.body.excludeFromDiscount;
+      if (req.body?.featuredOrder !== undefined && req.body?.featuredOrder !== null) {
+        const n = Number(req.body.featuredOrder);
+        if (Number.isFinite(n)) data.featuredOrder = Math.trunc(n);
+      }
+
+      const product = await prisma.product.update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          mikroCode: true,
+          name: true,
+          isFeatured: true,
+          featuredOrder: true,
+          excludeFromDiscount: true,
+        },
+      });
+
+      await Promise.all([
+        cacheService.invalidateAllProductCache(),
+        cacheService.deletePattern('recommendations:*'),
+      ]);
+
+      res.json({ success: true, product });
     } catch (error) {
       next(error);
     }

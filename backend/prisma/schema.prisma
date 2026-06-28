@@ -807,6 +807,10 @@ model Product {
 
   active                  Boolean   @default(true)
   hiddenFromCustomers     Boolean   @default(false)
+  // Yonetici kontrolleri: ana sayfada one cikar + fazla stok olsa bile indirime sokma
+  isFeatured              Boolean   @default(false)
+  featuredOrder           Int       @default(0)
+  excludeFromDiscount     Boolean   @default(false)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
@@ -838,6 +842,7 @@ model Product {
   @@index([imageSyncErrorType])
   @@index([imageSyncUpdatedAt])
   @@index([hiddenFromCustomers])
+  @@index([isFeatured])
 }
 
 model ProductComplementAuto {

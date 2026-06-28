@@ -613,6 +613,15 @@ export const adminApi = {
     return response.data;
   },
 
+  // Yonetici flag'leri: ana sayfada one cikar + indirime sokmama
+  setProductFlags: async (
+    productId: string,
+    flags: { isFeatured?: boolean; featuredOrder?: number; excludeFromDiscount?: boolean }
+  ): Promise<{ success: boolean; product: any }> => {
+    const response = await apiClient.patch(`/admin/products/${productId}/flags`, flags);
+    return response.data;
+  },
+
   getProductComplements: async (productId: string): Promise<{
     mode: 'AUTO' | 'MANUAL';
     limit: number;
