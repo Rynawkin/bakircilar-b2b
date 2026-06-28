@@ -69,14 +69,14 @@ export default function ProductsPage() {
     priceType: 'invoiced',
   });
 
-  // URL'den gelen kategori (ana sayfadan "kategoriler" linkleri)
+  // URL parametreleri degisince kategori/aramayi senkronize et — header kategori
+  // linkleri ([/products?categoryId=...]) ayni sayfadayken de calissin diye reaktif.
   useEffect(() => {
-    const categoryId = searchParams?.get('categoryId');
-    if (categoryId) setSelectedCategory(categoryId);
+    const categoryId = searchParams?.get('categoryId') || '';
+    setSelectedCategory(categoryId);
     const q = searchParams?.get('search');
-    if (q) setSearch(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (typeof q === 'string') setSearch(q);
+  }, [searchParams]);
 
   useEffect(() => {
     setAdvancedFilters((prev) => {

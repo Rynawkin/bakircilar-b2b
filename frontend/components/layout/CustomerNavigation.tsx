@@ -171,15 +171,16 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
         <div className="mx-auto flex h-16 w-full max-w-[1900px] items-center gap-3 px-4 sm:px-6 lg:gap-4 lg:px-8">
           {/* Logo */}
           <Link href="/home" className="flex flex-shrink-0 items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-[17px] font-semibold text-white">B</span>
-            <span className="hidden flex-col leading-none sm:flex">
-              <span className="text-[15px] font-semibold tracking-wide text-[var(--ink-1)]">BAKIRCILAR</span>
-              <span className="mt-1 text-[9px] font-medium tracking-[0.17em] text-[var(--ink-3)]">TOPTAN SİPARİŞ PORTALI</span>
+            <span className="flex h-10 items-center justify-center rounded-lg bg-primary-600 px-3">
+              <img src="/logo.png" alt="Bakırcılar" className="h-[22px] w-auto object-contain" />
+            </span>
+            <span className="mt-0.5 hidden text-[9px] font-medium tracking-[0.17em] text-[var(--ink-3)] xl:block">
+              TOPTAN SİPARİŞ PORTALI
             </span>
           </Link>
 
           {/* Arama */}
-          <form onSubmit={handleSearch} className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-0)] px-3 lg:max-w-xl">
+          <form onSubmit={handleSearch} className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-0)] px-3">
             <Search className="h-4 w-4 flex-shrink-0 text-[var(--ink-3)]" />
             <input
               value={searchTerm}

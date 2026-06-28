@@ -9,7 +9,6 @@ import { formatCurrency } from '@/lib/utils/format';
 import { getDisplayPrice } from '@/lib/utils/vatDisplay';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import {
-  ShoppingBag,
   Percent,
   Tag,
   Clock,
@@ -185,20 +184,7 @@ export default function CustomerHomePage() {
 
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
-      <div className="container-custom py-6 space-y-8">
-
-        {/* ── HOS GELDIN ───────────────────────────────────────────── */}
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
-            <ShoppingBag className="h-5 w-5" strokeWidth={2} />
-          </span>
-          <div className="min-w-0">
-            <h1 className="page-title">
-              {firstName ? `Hos geldiniz, ${firstName}` : 'Hos geldiniz'}
-            </h1>
-            <p className="page-subtitle">Bakircilar B2B ile siparislerinizi hizlica yonetin.</p>
-          </div>
-        </div>
+      <div className="mx-auto w-full max-w-[1900px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
 
         {/* ── HERO BANNER CAROUSEL ─────────────────────────────────── */}
         <section>
