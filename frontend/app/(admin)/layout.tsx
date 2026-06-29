@@ -5,6 +5,7 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AdminAiAssistant } from '@/components/ai/AdminAiAssistant';
+import { AdminThemeIntro } from '@/components/admin/AdminThemeIntro';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { loadUserFromStorage } = useAuthStore();
@@ -19,6 +20,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <AdminNavigation />
         <main>{children}</main>
         <AdminAiAssistant />
+        <AdminThemeIntro />
       </div>
     </ErrorBoundary>
   );

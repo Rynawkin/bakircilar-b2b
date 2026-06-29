@@ -10,6 +10,7 @@ import adminApi from '@/lib/api/admin';
 import { formatDateShort } from '@/lib/utils/format';
 import { Notification } from '@/types';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useUiThemeStore } from '@/lib/store/uiThemeStore';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -138,6 +139,7 @@ export function AdminNavigation() {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const { hasPermission, loading: permissionsLoading } = usePermissions();
+  const { theme: uiTheme, setTheme: setUiTheme, hydrate: hydrateUiTheme } = useUiThemeStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -194,6 +196,18 @@ export function AdminNavigation() {
   const handleLogout = () => {
     logout();
     router.push('/login');
+  };
+
+  // Gorunum tercihini localStorage'dan yukle (cihaz bazli).
+  useEffect(() => {
+    hydrateUiTheme();
+  }, [hydrateUiTheme]);
+
+  const changeUiTheme = (next: 'new' | 'old') => {
+    if (next === uiTheme) return;
+    setUiTheme(next);
+    // Tum ekranlarin tercihi temiz almasi icin yenile.
+    if (typeof window !== 'undefined') window.location.reload();
   };
 
   const isActive = (href: string) => pathname === href;
@@ -440,6 +454,34 @@ export function AdminNavigation() {
                     <p className="text-xs text-primary-600 font-medium mt-1">Admin</p>
                   </div>
                   <div className="p-2">
+                    <div className="px-3 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      Görünüm
+                    </div>
+                    <div className="mb-1 flex gap-1 px-2">
+                      <button
+                        type="button"
+                        onClick={() => changeUiTheme('new')}
+                        className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${
+                          uiTheme === 'new'
+                            ? 'bg-primary-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        Yeni
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => changeUiTheme('old')}
+                        className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${
+                          uiTheme === 'old'
+                            ? 'bg-primary-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        Klasik
+                      </button>
+                    </div>
+                    <div className="my-1 border-t border-gray-100" />
                     <Menu.Item>
                       {({ active }) => (
                         <button
