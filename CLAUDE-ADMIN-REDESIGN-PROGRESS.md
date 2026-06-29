@@ -86,9 +86,9 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 ## 8. Talep / Kampanya / Banner / Override
 | # | Ekran | Route | Durum |
 |---|---|---|---|
-| 8.1 | Talepler | /requests | ⬜ |
-| 8.2 | Kampanyalar | /campaigns | ⬜ |
-| 8.3 | Bannerlar | /banners | ⬜ |
+| 8.1 | Talepler | /requests | ✅ (hook+Classic+New) |
+| 8.2 | Kampanyalar | /campaigns | ✅ (hook+Classic+New) |
+| 8.3 | Bannerlar | /banners | ✅ (hook+Classic+New) |
 | 8.4 | Ürün Override (Vitrin Kontrolleri) | /product-overrides | ⬜ |
 
 ## 9. Raporlar (genel + özel)
@@ -125,7 +125,7 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 | 11.1 | Kategoriler (fiyatlandırma) | /categories | ✅ (hook+Classic+New) |
 | 11.2 | Dışlama Kuralları | /exclusions | ✅ (hook+Classic+New) |
 | 11.3 | Personel | /staff | ✅ (hook+Classic+New) |
-| 11.4 | Rol İzinleri | /role-permissions | ⬜ |
+| 11.4 | Rol İzinleri | /role-permissions | ✅ (hook+Classic+New) |
 | 11.5 | Sistem Ayarları | /settings | ✅ (hook+Classic+New) |
 
 ---
