@@ -1,0 +1,1471 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import toast from 'react-hot-toast';
+import adminApi from '@/lib/api/admin';
+import { Quote, QuoteHistory, QuoteStatus } from '@/types';
+import { Badge } from '@/components/ui/Badge';
+import { useAuthStore } from '@/lib/store/authStore';
+import { usePermissions } from '@/hooks/usePermissions';
+import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
+import * as XLSX from 'xlsx';
+
+// Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
+export type { Quote, QuoteHistory, QuoteStatus } from '@/types';
+
+export type QuoteStatusFilter = QuoteStatus | 'ALL';
+
+export const DEFAULT_WHATSAPP_TEMPLATE =
+  'Merhaba {{customerName}}, teklifiniz hazır. Teklif No: {{quoteNumber}}. Link: {{quoteLink}}. Geçerlilik: {{validUntil}}.';
+
+export const normalizeTurkishText = (text: string) => {
+  return text
+    .replace(/Ã‡/g, 'Ç')
+    .replace(/Ã§/g, 'ç')
+    .replace(/Ä°/g, 'İ')
+    .replace(/Ä±/g, 'ı')
+    .replace(/Ã–/g, 'Ö')
+    .replace(/Ã¶/g, 'ö')
+    .replace(/Ãœ/g, 'Ü')
+    .replace(/Ã¼/g, 'ü')
+    .replace(/Ä/g, 'Ğ')
+    .replace(/ÄŸ/g, 'ğ')
+    .replace(/Å/g, 'Ş')
+    .replace(/ÅŸ/g, 'ş');
+};
+
+export const getStatusBadge = (status: QuoteStatus) => {
+  switch (status) {
+    case 'PENDING_APPROVAL':
+      return <Badge variant="warning">⏳ Onay Bekliyor</Badge>;
+    case 'SENT_TO_MIKRO':
+      return <Badge variant="success">✅ Mikro'ya Gönderildi</Badge>;
+    case 'REJECTED':
+      return <Badge variant="danger">❌ Reddedildi</Badge>;
+    case 'CUSTOMER_ACCEPTED':
+      return <Badge variant="success">🤝 Müşteri Kabul</Badge>;
+    case 'CUSTOMER_REJECTED':
+      return <Badge variant="danger">🚫 Müşteri Red</Badge>;
+    default:
+      return null;
+  }
+};
+
+export const buildWhatsappMessage = (template: string, quote: Quote, link: string, customerName: string) => {
+  const safeTemplate = normalizeTurkishText(template || DEFAULT_WHATSAPP_TEMPLATE);
+  const safeCustomerName = normalizeTurkishText(customerName || '');
+  return safeTemplate
+    .replace(/{{customerName}}/g, safeCustomerName)
+    .replace(/{{quoteNumber}}/g, quote.quoteNumber)
+    .replace(/{{quoteLink}}/g, link)
+    .replace(/{{validUntil}}/g, formatDate(quote.validityDate));
+};
+
+export const cleanPdfText = (text: string | number | null | undefined) => {
+  const value = text ?? '';
+  return String(value)
+    .replace(/\r?\n/g, ' ')
+    .replace(/₺/g, 'TL')
+    .replace(/İ/g, 'I')
+    .replace(/ı/g, 'i')
+    .replace(/Ş/g, 'S')
+    .replace(/ş/g, 's')
+    .replace(/Ğ/g, 'G')
+    .replace(/ğ/g, 'g')
+    .replace(/Ü/g, 'U')
+    .replace(/ü/g, 'u')
+    .replace(/Ö/g, 'O')
+    .replace(/ö/g, 'o')
+    .replace(/Ç/g, 'C')
+    .replace(/ç/g, 'c');
+};
+
+export const TAB_PARAM_MAP: Record<string, QuoteStatusFilter> = {
+  pending: 'PENDING_APPROVAL',
+  sent: 'SENT_TO_MIKRO',
+  rejected: 'REJECTED',
+  accepted: 'CUSTOMER_ACCEPTED',
+  all: 'ALL',
+};
+
+export const resolveTabFilter = (value: string | null): QuoteStatusFilter | null => {
+  if (!value) return null;
+  const key = value.toLowerCase();
+  return TAB_PARAM_MAP[key] || null;
+};
+
+export const resolveTabParam = (value: QuoteStatusFilter): string => {
+  switch (value) {
+    case 'PENDING_APPROVAL':
+      return 'pending';
+    case 'SENT_TO_MIKRO':
+      return 'sent';
+    case 'REJECTED':
+      return 'rejected';
+    case 'CUSTOMER_ACCEPTED':
+      return 'accepted';
+    case 'ALL':
+      return 'all';
+    default:
+      return 'pending';
+  }
+};
+
+export const toFiniteNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+export const formatProfitPercent = (value?: number | null) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+  return `%${value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+export const getProfitTone = (value?: number | null) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'text-gray-600';
+  if (value < 0) return 'text-red-700';
+  if (value < 5) return 'text-amber-700';
+  return 'text-emerald-700';
+};
+
+export const calculateQuoteProfitSummary = (quote: Quote) => {
+  return (quote.items || []).reduce(
+    (acc, item) => {
+      const quantity = Math.max(0, toFiniteNumber(item.quantity));
+      const lineTotal = Math.max(0, toFiniteNumber(item.totalPrice) || quantity * toFiniteNumber(item.unitPrice));
+      acc.salesTotal += lineTotal;
+
+      if (item.isManualLine) {
+        acc.manualLines += 1;
+        return acc;
+      }
+
+      const entryCost = Math.max(0, toFiniteNumber(item.product?.lastEntryPrice));
+      const currentCost = Math.max(0, toFiniteNumber(item.product?.currentCost));
+
+      if (entryCost > 0) {
+        acc.entrySalesTotal += lineTotal;
+        acc.entryCostTotal += entryCost * quantity;
+      } else {
+        acc.entryMissingLines += 1;
+      }
+
+      if (currentCost > 0) {
+        acc.currentSalesTotal += lineTotal;
+        acc.currentCostTotal += currentCost * quantity;
+      } else {
+        acc.currentMissingLines += 1;
+      }
+
+      return acc;
+    },
+    {
+      salesTotal: 0,
+      entrySalesTotal: 0,
+      currentSalesTotal: 0,
+      entryCostTotal: 0,
+      currentCostTotal: 0,
+      entryMissingLines: 0,
+      currentMissingLines: 0,
+      manualLines: 0,
+    }
+  );
+};
+
+export const completeQuoteProfitSummary = (summary: ReturnType<typeof calculateQuoteProfitSummary>) => {
+  const entryProfit = summary.entrySalesTotal - summary.entryCostTotal;
+  const currentProfit = summary.currentSalesTotal - summary.currentCostTotal;
+  return {
+    ...summary,
+    entryProfit,
+    currentProfit,
+    entryProfitPercent: summary.entryCostTotal > 0 ? (entryProfit / summary.entryCostTotal) * 100 : null,
+    currentProfitPercent: summary.currentCostTotal > 0 ? (currentProfit / summary.currentCostTotal) * 100 : null,
+  };
+};
+
+/**
+ * Teklifler ekraninin TUM mantigi (state/ref/effect/handler/turetilmis deger).
+ * Klasik ve yeni gorunum bu hook'u kullanir; gorsel disindaki hicbir mantik degismez.
+ */
+export function useTeklifler() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user } = useAuthStore();
+  const { hasPermission } = usePermissions();
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [allQuotes, setAllQuotes] = useState<Quote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [syncingQuoteId, setSyncingQuoteId] = useState<string | null>(null);
+  const [markingCustomerPdfSentId, setMarkingCustomerPdfSentId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<QuoteStatusFilter>('PENDING_APPROVAL');
+  const [whatsappTemplate, setWhatsappTemplate] = useState(DEFAULT_WHATSAPP_TEMPLATE);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
+
+  const [pendingDownloadId, setPendingDownloadId] = useState<string | null>(null);
+  const [downloadPromptQuote, setDownloadPromptQuote] = useState<Quote | null>(null);
+  const [downloadPromptOpen, setDownloadPromptOpen] = useState(false);
+  const [downloadPromptLoading, setDownloadPromptLoading] = useState(false);
+  const [downloadPromptRecommendedLoading, setDownloadPromptRecommendedLoading] = useState(false);
+  const [stockPdfLoadingId, setStockPdfLoadingId] = useState<string | null>(null);
+  const [recommendedPdfLoadingId, setRecommendedPdfLoadingId] = useState<string | null>(null);
+  const handledDownloadRef = useRef<string | null>(null);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyQuote, setHistoryQuote] = useState<Quote | null>(null);
+  const [historyItems, setHistoryItems] = useState<QuoteHistory[]>([]);
+  const [expandedHistoryEntries, setExpandedHistoryEntries] = useState<Set<string>>(new Set());
+  const [pendingHistoryId, setPendingHistoryId] = useState<string | null>(null);
+  const handledHistoryRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    fetchQuotes();
+    fetchPreferences();
+  }, []);
+
+  useEffect(() => {
+    const tabParam = resolveTabFilter(searchParams.get('tab'));
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+    const downloadId = searchParams.get('download');
+    if (downloadId !== pendingDownloadId) {
+      setPendingDownloadId(downloadId);
+    }
+    const historyId = searchParams.get('history');
+    if (historyId !== pendingHistoryId) {
+      setPendingHistoryId(historyId);
+    }
+  }, [searchParams, activeTab, pendingDownloadId, pendingHistoryId]);
+
+  useEffect(() => {
+    if (!pendingDownloadId) return;
+    if (handledDownloadRef.current === pendingDownloadId) return;
+    const targetQuote = allQuotes.find((quote) => quote.id === pendingDownloadId);
+    if (!targetQuote) return;
+    handledDownloadRef.current = pendingDownloadId;
+    setDownloadPromptQuote(targetQuote);
+    setDownloadPromptOpen(true);
+  }, [pendingDownloadId, allQuotes]);
+
+  useEffect(() => {
+    if (!pendingHistoryId) return;
+    if (handledHistoryRef.current === pendingHistoryId) return;
+    const targetQuote = allQuotes.find((quote) => quote.id === pendingHistoryId);
+    if (!targetQuote) return;
+    handledHistoryRef.current = pendingHistoryId;
+    handleOpenHistory(targetQuote);
+  }, [pendingHistoryId, allQuotes]);
+
+  useEffect(() => {
+    if (activeTab === 'ALL') {
+      setQuotes(allQuotes);
+    } else {
+      setQuotes(allQuotes.filter((quote) => quote.status === activeTab));
+    }
+  }, [activeTab, allQuotes]);
+
+  const fetchQuotes = async () => {
+    try {
+      const { quotes } = await adminApi.getQuotes();
+      setAllQuotes(quotes);
+      setQuotes(quotes.filter((quote) => quote.status === 'PENDING_APPROVAL'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPreferences = async () => {
+    try {
+      const { preferences } = await adminApi.getQuotePreferences();
+      if (preferences?.whatsappTemplate) {
+        setWhatsappTemplate(normalizeTurkishText(preferences.whatsappTemplate));
+      }
+    } catch (error) {
+      console.error('Teklif tercihleri alınamadı:', error);
+    }
+  };
+
+  const handleApprove = async (quoteId: string) => {
+    const note = await new Promise<string>((resolve) => {
+      let inputValue = '';
+      toast(
+        (t) => (
+          <div className="flex flex-col gap-3 min-w-[300px]">
+            <p className="font-medium">Onay notu (opsiyonel):</p>
+            <input
+              type="text"
+              className="border rounded px-3 py-2 text-sm"
+              placeholder="Not ekleyin..."
+              onChange={(e) => (inputValue = e.target.value)}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  resolve('__CANCEL__');
+                }}
+              >
+                İptal
+              </button>
+              <button
+                className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  resolve(inputValue);
+                }}
+              >
+                Onayla
+              </button>
+            </div>
+          </div>
+        ),
+        { duration: Infinity }
+      );
+    });
+
+    if (note === '__CANCEL__') return;
+
+    try {
+      await adminApi.approveQuote(quoteId, note || undefined);
+      toast.success('Teklif onaylandı ve Mikro\'ya gönderildi');
+      fetchQuotes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Onaylama başarısız');
+    }
+  };
+
+  const handleReject = async (quoteId: string) => {
+    const note = await new Promise<string>((resolve) => {
+      let inputValue = '';
+      toast(
+        (t) => (
+          <div className="flex flex-col gap-3 min-w-[300px]">
+            <p className="font-medium text-red-700">Red sebebi (zorunlu):</p>
+            <textarea
+              className="border rounded px-3 py-2 text-sm resize-none"
+              rows={3}
+              placeholder="Red sebebini yazın..."
+              onChange={(e) => (inputValue = e.target.value)}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  resolve('__CANCEL__');
+                }}
+              >
+                İptal
+              </button>
+              <button
+                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  if (!inputValue.trim()) {
+                    toast.error('Red sebebi girilmelidir');
+                    resolve('__CANCEL__');
+                  } else {
+                    resolve(inputValue);
+                  }
+                }}
+              >
+                Reddet
+              </button>
+            </div>
+          </div>
+        ),
+        { duration: Infinity }
+      );
+    });
+
+    if (note === '__CANCEL__') return;
+
+    try {
+      await adminApi.rejectQuote(quoteId, note);
+      toast.success('Teklif reddedildi');
+      fetchQuotes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Reddetme başarısız');
+    }
+  };
+
+  const handleWhatsappShare = async (quote: Quote) => {
+    const customerName = quote.customer?.displayName || quote.customer?.name || '';
+    const redirectPath = `/my-quotes/${quote.id}`;
+    const quoteLink = `${window.location.origin}/login?redirect=${encodeURIComponent(redirectPath)}`;
+    const message = buildWhatsappMessage(whatsappTemplate, quote, quoteLink, customerName);
+
+    const canShareFile = typeof navigator !== 'undefined' && !!navigator.share && !!navigator.canShare;
+    if (canShareFile) {
+      try {
+        const { doc, fileName } = await buildQuotePdf(quote);
+        const blob = doc.output('blob');
+        const file = new File([blob], fileName, { type: 'application/pdf' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], text: message, title: fileName });
+          return;
+        }
+      } catch (error) {
+        console.error('PDF paylaşımı başarısız:', error);
+      }
+    }
+
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  const parseStockNumber = (value: unknown) => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    let raw = String(value).trim();
+    if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(raw)) {
+      raw = raw.replace(/\./g, '').replace(',', '.');
+    } else if (/^-?\d+,\d+$/.test(raw)) {
+      raw = raw.replace(',', '.');
+    } else if (/^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(raw)) {
+      raw = raw.replace(/,/g, '');
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const resolveStockValue = (row: Record<string, unknown> | null | undefined, keys: string[]) => {
+    if (!row) return null;
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(row, key)) {
+        const value = parseStockNumber((row as Record<string, unknown>)[key]);
+        if (value !== null) return value;
+      }
+    }
+    return null;
+  };
+
+  const getStockStatusLabel = (totalStock: number | null, quantity: number) => {
+    if (!Number.isFinite(totalStock)) return 'Stok bilgisi yok';
+    if ((totalStock ?? 0) <= 0) return 'Stok yok';
+    if ((totalStock ?? 0) < quantity) return 'Kismi karsiliyor';
+    return 'Stok karsiliyor';
+  };
+
+  const buildStockStatusMap = async (quote: Quote) => {
+    const codes = Array.from(new Set(
+      (quote.items || [])
+        .map((item) => item.productCode)
+        .filter((code) => typeof code === 'string' && code.trim().length > 0)
+    ));
+    if (codes.length === 0) return {} as Record<string, string>;
+
+    try {
+      const { data } = await adminApi.getStocksByCodes(codes);
+      const stockByCode = new Map<string, number | null>();
+      (data || []).forEach((row: Record<string, unknown>) => {
+        const code = String(row?.['msg_S_0078'] ?? row?.['Stok Kodu'] ?? row?.['stok kod'] ?? '').trim();
+        if (!code) return;
+        const totalStock = resolveStockValue(row, [
+          'Toplam Satılabilir',
+          'Toplam Satilabilir',
+          'Toplam SatÄ±labilir',
+          'Toplam Eldeki Miktar',
+        ]);
+        stockByCode.set(code, totalStock);
+      });
+
+      const statusMap: Record<string, string> = {};
+      (quote.items || []).forEach((item) => {
+        const code = String(item.productCode || '').trim();
+        if (!code) return;
+        const totalStock = stockByCode.has(code) ? stockByCode.get(code) ?? null : null;
+        statusMap[code] = getStockStatusLabel(totalStock, Number(item.quantity) || 0);
+      });
+      return statusMap;
+    } catch (error) {
+      console.error('Stok bilgisi alinmadi:', error);
+      const fallback: Record<string, string> = {};
+      (quote.items || []).forEach((item) => {
+        fallback[item.productCode] = 'Stok bilgisi yok';
+      });
+      return fallback;
+    }
+  };
+
+  const buildQuotePdf = async (
+    quote: Quote,
+    options?: {
+      includeStockStatus?: boolean;
+      stockStatusMap?: Record<string, string>;
+      recommendedProducts?: Array<{ mikroCode: string; name: string; imageUrl?: string | null }>;
+    }
+  ) => {
+    const { default: jsPDF } = await import('jspdf');
+    const autoTableModule = await import('jspdf-autotable');
+    const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
+    if (typeof autoTable !== 'function') {
+      throw new Error('autoTable is not available');
+    }
+    const includeStockStatus = options?.includeStockStatus === true;
+    const stockStatusMap = options?.stockStatusMap || {};
+    const recommendedProducts = options?.recommendedProducts || [];
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 14;
+    const formatCurrencyTL = (value?: number | null) => {
+      const amount = Number.isFinite(value) ? (value as number) : 0;
+      return `${amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+    };
+
+      const formatRate = (value?: number | null) => {
+        if (!Number.isFinite(value)) return '-';
+        return Number(value).toLocaleString('tr-TR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+      };
+
+      const safeCurrency = (value?: number | null) => formatCurrencyTL(value);
+
+      const colors = {
+        primary: [37, 99, 235] as const,
+        dark: [15, 23, 42] as const,
+        muted: [100, 116, 139] as const,
+        light: [248, 250, 252] as const,
+        border: [226, 232, 240] as const,
+      };
+
+      const resolveImageUrl = (url?: string | null) => {
+        if (!url) return null;
+        if (url.startsWith('http://') || url.startsWith('https://')) return url;
+        if (url.startsWith('/')) return `${window.location.origin}${url}`;
+        return `${window.location.origin}/${url}`;
+      };
+
+      const loadImageData = async (url: string): Promise<string | null> => {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) return null;
+          const blob = await response.blob();
+          return await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        } catch (error) {
+          return null;
+        }
+      };
+
+      const getImageFormat = (dataUrl: string) =>
+        dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
+
+      const getImageDimensions = (dataUrl: string): Promise<{ width: number; height: number } | null> =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const width = img.naturalWidth || img.width;
+            const height = img.naturalHeight || img.height;
+            if (!width || !height) {
+              resolve(null);
+              return;
+            }
+            resolve({ width, height });
+          };
+          img.onerror = () => resolve(null);
+          img.src = dataUrl;
+        });
+
+      const fitWithin = (width: number, height: number, maxWidth: number, maxHeight: number) => {
+        if (!width || !height) {
+          return { width: maxWidth, height: maxHeight };
+        }
+        const ratio = width / height;
+        let fittedWidth = maxWidth;
+        let fittedHeight = fittedWidth / ratio;
+        if (fittedHeight > maxHeight) {
+          fittedHeight = maxHeight;
+          fittedWidth = fittedHeight * ratio;
+        }
+        return { width: fittedWidth, height: fittedHeight };
+      };
+
+      const logoPath = '/quote-logo.png';
+      const logoUrl = resolveImageUrl(logoPath);
+      const logoData = logoUrl ? await loadImageData(logoUrl) : null;
+      const logoDimensions = logoData ? await getImageDimensions(logoData) : null;
+      const logoMaxWidth = 70;
+      const logoMaxHeight = 20;
+      const logoSize = logoData
+        ? logoDimensions
+          ? fitWithin(logoDimensions.width, logoDimensions.height, logoMaxWidth, logoMaxHeight)
+          : { width: logoMaxWidth, height: logoMaxHeight }
+        : null;
+
+      let usdRate: number | null = null;
+      try {
+        const usdResult = await adminApi.getUsdSellingRate();
+        const parsed = Number(usdResult?.rate);
+        usdRate = Number.isFinite(parsed) ? parsed : null;
+      } catch (error) {
+        console.error('USD kur alinamadi:', error);
+      }
+
+      const companyName =
+        quote.customer?.mikroName ||
+        quote.customer?.displayName ||
+        quote.customer?.name ||
+        '-';
+      const contactName =
+        quote.contactName ||
+        quote.customer?.displayName ||
+        quote.customer?.name ||
+        '-';
+      const customerPhone = quote.contactPhone || quote.customer?.phone || '-';
+      const customerEmail = quote.contactEmail || quote.customer?.email || '-';
+      const quoteDate = quote.createdAt ? formatDateShort(quote.createdAt) : '-';
+      const validityText = quote.validityDate ? formatDateShort(quote.validityDate) : '-';
+      const documentNo = quote.documentNo || '-';
+      const createdByName = quote.createdBy?.name || '-';
+      const createdByEmail = quote.createdBy?.email || '-';
+      const createdByPhone = quote.createdBy?.phone || '-';
+
+      const headerHeight = 28;
+      doc.setFillColor(255, 255, 255);
+      doc.rect(0, 0, pageWidth, headerHeight, 'F');
+
+      if (logoData && logoSize) {
+        const logoFormat = getImageFormat(logoData);
+        const logoY = (headerHeight - logoSize.height) / 2;
+        const logoX = (pageWidth - logoSize.width) / 2;
+        doc.addImage(logoData, logoFormat, logoX, logoY, logoSize.width, logoSize.height);
+      }
+
+      const infoY = 28;
+      const boxHeight = 52;
+      const boxGap = 6;
+      const boxWidth = (pageWidth - marginX * 2 - boxGap) / 2;
+      const rightBoxX = marginX + boxWidth + boxGap;
+      const lineGap = 4.5;
+
+      doc.setFillColor(...colors.light);
+      doc.setDrawColor(...colors.border);
+      doc.roundedRect(marginX, infoY, boxWidth, boxHeight, 2, 2, 'F');
+      doc.roundedRect(rightBoxX, infoY, boxWidth, boxHeight, 2, 2, 'F');
+
+      const writeLines = (lines: string[], x: number, startY: number, width: number) => {
+        let currentY = startY;
+        lines.forEach((line) => {
+          const wrapped = doc.splitTextToSize(cleanPdfText(line), width) as string[];
+          wrapped.forEach((chunk) => {
+            doc.text(chunk, x, currentY);
+            currentY += lineGap;
+          });
+        });
+      };
+
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.muted);
+      doc.text(cleanPdfText('FIRMA BILGILERI'), marginX + 4, infoY + 6);
+      doc.setTextColor(...colors.dark);
+      writeLines(
+        [
+          `Firma: ${companyName}`,
+          `Ilgili: ${contactName}`,
+          `Tel: ${customerPhone}`,
+          `Mail: ${customerEmail}`,
+        ],
+        marginX + 4,
+        infoY + 12,
+        boxWidth - 8
+      );
+
+      doc.setTextColor(...colors.muted);
+      doc.text(cleanPdfText('TEKLIF BILGILERI'), rightBoxX + 4, infoY + 6);
+      doc.setTextColor(...colors.dark);
+      writeLines(
+        [
+          `Tarih: ${quoteDate}`,
+          `Teklif No: ${quote.quoteNumber || '-'}`,
+          `Belge No: ${documentNo}`,
+          `Gecerlilik: ${validityText}`,
+          `Teklifi Veren: ${createdByName}`,
+          `Mail: ${createdByEmail}`,
+          `Tel: ${createdByPhone}`,
+        ],
+        rightBoxX + 4,
+        infoY + 12,
+        boxWidth - 8
+      );
+
+      const tableStartY = infoY + boxHeight + 10;
+      const items = Array.isArray(quote.items) ? quote.items : [];
+      const imageCache = new Map<string, { dataUrl: string | null; dimensions: { width: number; height: number } | null }>();
+      const imageDataByIndex = await Promise.all(
+        items.map(async (item) => {
+          const imageUrl = resolveImageUrl(item.manualImageUrl || item.product?.imageUrl || null);
+          if (!imageUrl) return null;
+          const cached = imageCache.get(imageUrl);
+          if (cached) {
+            return cached;
+          }
+          const dataUrl = await loadImageData(imageUrl);
+          const dimensions = dataUrl ? await getImageDimensions(dataUrl) : null;
+          const entry = { dataUrl, dimensions };
+          imageCache.set(imageUrl, entry);
+          return entry;
+        })
+      );
+      const recommendedImageData = await Promise.all(
+        recommendedProducts.map(async (product) => {
+          const imageUrl = resolveImageUrl(product.imageUrl || null);
+          if (!imageUrl) return null;
+          const cached = imageCache.get(imageUrl);
+          if (cached) {
+            return cached;
+          }
+          const dataUrl = await loadImageData(imageUrl);
+          const dimensions = dataUrl ? await getImageDimensions(dataUrl) : null;
+          const entry = { dataUrl, dimensions };
+          imageCache.set(imageUrl, entry);
+          return entry;
+        })
+      );
+      const imageMap = new Map<string, { dataUrl: string; dimensions: { width: number; height: number } | null }>();
+
+      const stockFallbackLabel = 'Stok bilgisi yok';
+      const emptyRowBase = [
+        cleanPdfText('Urun yok'),
+        '',
+        '0',
+        '-',
+        '-',
+        '-',
+        '',
+      ];
+      const tableData = items.length > 0
+        ? items.map((item, index) => {
+          const imageEntry = imageDataByIndex[index];
+          const imageKey = imageEntry?.dataUrl ? `img_${index}` : '';
+          if (imageKey && imageEntry?.dataUrl) {
+            imageMap.set(imageKey, { dataUrl: imageEntry.dataUrl, dimensions: imageEntry.dimensions });
+          }
+          const row = [
+            cleanPdfText(item.productName || '-'),
+            { content: '', imageKey },
+            String(item.quantity ?? 0),
+            cleanPdfText(item.unit || item.product?.unit || '-'),
+            cleanPdfText(safeCurrency(item.unitPrice)),
+            cleanPdfText(safeCurrency(item.totalPrice)),
+            cleanPdfText(item.lineDescription || ''),
+          ];
+          if (includeStockStatus) {
+            const statusKey = String(item.productCode || '').trim();
+            const statusLabel = statusKey ? (stockStatusMap[statusKey] || stockFallbackLabel) : stockFallbackLabel;
+            row.push(cleanPdfText(statusLabel));
+          }
+          return row;
+        })
+        : [includeStockStatus ? [...emptyRowBase, cleanPdfText(stockFallbackLabel)] : emptyRowBase];
+
+      const tableHead = [
+        'Urun Adi',
+        'Gorsel',
+        'Miktar',
+        'Birim',
+        'Birim Fiyat',
+        'Toplam',
+        'Aciklama',
+      ];
+      if (includeStockStatus) {
+        tableHead.push('Stok Durumu');
+      }
+
+      const columnStyles = includeStockStatus
+        ? {
+          0: { cellWidth: 60 },
+          1: { cellWidth: 16, halign: 'center' },
+          2: { cellWidth: 12, halign: 'right' },
+          3: { cellWidth: 14, halign: 'center' },
+          4: { cellWidth: 24, halign: 'right' },
+          5: { cellWidth: 24, halign: 'right' },
+          6: { cellWidth: 18 },
+          7: { cellWidth: 26, halign: 'center' },
+        }
+        : {
+          0: { cellWidth: 68 },
+          1: { cellWidth: 18, halign: 'center' },
+          2: { cellWidth: 14, halign: 'right' },
+          3: { cellWidth: 16, halign: 'center' },
+          4: { cellWidth: 28, halign: 'right' },
+          5: { cellWidth: 28, halign: 'right' },
+          6: { cellWidth: 22 },
+        };
+
+      autoTable(doc, {
+        startY: tableStartY,
+        head: [tableHead],
+        body: tableData,
+        styles: {
+          fontSize: 9,
+          cellPadding: 2,
+          minCellHeight: 18,
+          overflow: 'linebreak',
+          halign: 'left',
+          font: 'helvetica',
+          textColor: colors.dark,
+          lineColor: colors.border,
+          lineWidth: 0.1,
+        },
+        headStyles: {
+          fillColor: colors.primary,
+          textColor: 255,
+          fontStyle: 'bold',
+          halign: 'center',
+          fontSize: 10,
+        },
+        columnStyles,
+        alternateRowStyles: {
+          fillColor: [245, 247, 250],
+        },
+        margin: { left: 8, right: 8 },
+        didDrawCell: (data: any) => {
+          if (data.section !== 'body' || data.column.index !== 1) return;
+          const raw = data.cell.raw as { imageKey?: string };
+          const imageKey = raw?.imageKey;
+          if (!imageKey) return;
+          const imageEntry = imageMap.get(imageKey);
+          if (!imageEntry?.dataUrl) return;
+          const format = getImageFormat(imageEntry.dataUrl);
+          const maxSize = Math.min(data.cell.width - 2, data.cell.height - 2);
+          const fitted = imageEntry.dimensions
+            ? fitWithin(imageEntry.dimensions.width, imageEntry.dimensions.height, maxSize, maxSize)
+            : { width: maxSize, height: maxSize };
+          const x = data.cell.x + (data.cell.width - fitted.width) / 2;
+          const y = data.cell.y + (data.cell.height - fitted.height) / 2;
+          doc.addImage(imageEntry.dataUrl, format, x, y, fitted.width, fitted.height);
+        },
+      });
+
+      const finalY = (doc as any).lastAutoTable?.finalY || tableStartY;
+      const summaryWidth = 74;
+      const summaryX = pageWidth - marginX - summaryWidth;
+
+      const toDateOnly = (value?: string | Date | null) => {
+        if (!value) return null;
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        return date;
+      };
+
+      const createdDate = toDateOnly(quote.createdAt);
+      const validDate = toDateOnly(quote.validityDate);
+      const validityDays =
+        createdDate && validDate
+          ? Math.max(0, Math.round((validDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)))
+          : 0;
+      const paymentTerm = quote.customer?.paymentTerm;
+      const paymentPlanLabel = quote.customer?.paymentPlanName || quote.customer?.paymentPlanCode
+        ? [quote.customer?.paymentPlanCode, quote.customer?.paymentPlanName].filter(Boolean).join(' - ')
+        : paymentTerm !== undefined && paymentTerm !== null
+          ? `${paymentTerm} gun`
+          : '-';
+
+      const terms = [
+        `Teklif gecerlilik suresi: ${validityDays} gun`,
+        `Vade: ${paymentPlanLabel}`,
+        'Fiyatlarimiza KDV dahil degildir.',
+        'Dovizli islemlerde TCMB USD satis kuru baz alinir.',
+        `USD satis kuru: ${usdRate ? formatRate(usdRate) : '-'}`,
+      ];
+
+      const summaryRows = [
+        { label: 'Ara Toplam', value: safeCurrency(quote.totalAmount) },
+        { label: 'Iskonto', value: safeCurrency(0) },
+        { label: 'KDV', value: safeCurrency(quote.totalVat) },
+        { label: 'Genel Toplam', value: safeCurrency(quote.grandTotal), highlight: true },
+      ];
+
+      const termLineGap = 4.2;
+      const termPadding = 5;
+      const termTitle = 'TEKLIF SARTLARI';
+      const termTitleOffset = 6;
+      const termBoxWidth = pageWidth - marginX * 2 - summaryWidth - 8;
+      const wrappedTerms = terms.flatMap((line) =>
+        doc.splitTextToSize(cleanPdfText(line), termBoxWidth - 8) as string[]
+      );
+      const termBoxHeight = Math.max(
+        wrappedTerms.length * termLineGap + termPadding * 2 + termTitleOffset,
+        26
+      );
+
+      const summaryLineGap = 5;
+      const summaryHeight = Math.max(summaryRows.length * summaryLineGap + 6, 26);
+
+      const footerLineGap = 4.2;
+      const footerLines = [
+        'BAKIRCILAR AMBALAJ END.-TEM VE KIRTASIYE',
+        'MERKEZ: RASIMPASA MAH. ATATURK BLV. NO:69/A HENDEK/SAKARYA',
+        'SUBE 1: TOPCA TOPTANCILAR CARSISI A BLOK NO: 20 - ERENLER/SAKARYA',
+        'TEL: 0264 614 67 77  FAX: 0264 614 66 60 - info@bakircilarambalaj.com',
+        'www.bakircilargrup.com',
+      ];
+      const footerHeight = footerLines.length * footerLineGap + 4;
+
+      let sectionY = finalY + 8;
+      const sectionHeight = Math.max(termBoxHeight, summaryHeight);
+
+      if (sectionY + sectionHeight + footerHeight > pageHeight - 10) {
+        doc.addPage();
+        sectionY = 20;
+      }
+
+      doc.setFillColor(...colors.light);
+      doc.roundedRect(marginX, sectionY, termBoxWidth, termBoxHeight, 2, 2, 'F');
+      doc.setFontSize(8);
+      doc.setTextColor(...colors.muted);
+      doc.text(cleanPdfText(termTitle), marginX + 4, sectionY + 4);
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.dark);
+      let termY = sectionY + termPadding + termTitleOffset;
+      wrappedTerms.forEach((line) => {
+        doc.text(line, marginX + 4, termY);
+        termY += termLineGap;
+      });
+
+      doc.setFillColor(...colors.light);
+      doc.roundedRect(summaryX, sectionY, summaryWidth, summaryHeight, 2, 2, 'F');
+      const summaryStartY = sectionY + 6;
+      summaryRows.forEach((row, index) => {
+        const y = summaryStartY + index * summaryLineGap;
+        const labelSize = row.highlight ? 10 : 9;
+        const valueSize = row.highlight ? 10 : 9;
+        doc.setFontSize(labelSize);
+        doc.setTextColor(...colors.muted);
+        doc.text(cleanPdfText(row.label), summaryX + 4, y);
+        doc.setFontSize(valueSize);
+        doc.setTextColor(...colors.dark);
+        doc.text(cleanPdfText(row.value), summaryX + summaryWidth - 4, y, { align: 'right' });
+      });
+
+      let contentBottomY = sectionY + sectionHeight;
+
+      if (recommendedProducts.length > 0) {
+        const columns = 2;
+        const cardGap = 6;
+        const cardWidth = (pageWidth - marginX * 2 - cardGap) / columns;
+        const cardHeight = 18;
+        const titleGap = 6;
+        const rowGap = 4;
+        const rowsNeeded = Math.ceil(recommendedProducts.length / columns);
+        const sectionHeight = titleGap + rowsNeeded * (cardHeight + rowGap);
+        let recommendedStartY = contentBottomY + 8;
+
+        if (recommendedStartY + sectionHeight + footerHeight > pageHeight - 10) {
+          doc.addPage();
+          recommendedStartY = 20;
+        }
+
+        doc.setFontSize(9);
+        doc.setTextColor(...colors.muted);
+        doc.text(cleanPdfText('ONERILEN URUNLER'), marginX, recommendedStartY);
+
+        const textStartY = recommendedStartY + titleGap;
+        recommendedProducts.forEach((product, index) => {
+          const columnIndex = index % columns;
+          const rowIndex = Math.floor(index / columns);
+          const x = marginX + columnIndex * (cardWidth + cardGap);
+          const y = textStartY + rowIndex * (cardHeight + rowGap);
+          const imageEntry = recommendedImageData[index];
+          const imageSize = 12;
+          const imageX = x + 3;
+          const imageY = y + 3;
+          const textX = imageX + imageSize + 3;
+          const textWidth = cardWidth - (textX - x) - 3;
+
+          doc.setDrawColor(...colors.border);
+          doc.setFillColor(...colors.light);
+          doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'F');
+
+          if (imageEntry?.dataUrl) {
+            const format = getImageFormat(imageEntry.dataUrl);
+            const fitted = imageEntry.dimensions
+              ? fitWithin(imageEntry.dimensions.width, imageEntry.dimensions.height, imageSize, imageSize)
+              : { width: imageSize, height: imageSize };
+            const imgX = imageX + (imageSize - fitted.width) / 2;
+            const imgY = imageY + (imageSize - fitted.height) / 2;
+            doc.addImage(imageEntry.dataUrl, format, imgX, imgY, fitted.width, fitted.height);
+          } else {
+            doc.setDrawColor(...colors.border);
+            doc.rect(imageX, imageY, imageSize, imageSize);
+          }
+
+          doc.setFontSize(8);
+          doc.setTextColor(...colors.dark);
+          const nameLines = doc.splitTextToSize(cleanPdfText(product.name || '-'), textWidth) as string[];
+          const nameLine = nameLines[0] || '-';
+          doc.text(nameLine, textX, y + 7);
+          if (product.mikroCode) {
+            doc.setFontSize(7);
+            doc.setTextColor(...colors.muted);
+            doc.text(cleanPdfText(product.mikroCode), textX, y + 12);
+          }
+        });
+
+        contentBottomY = recommendedStartY + sectionHeight;
+      }
+
+      const footerStartY = contentBottomY + 12;
+
+      if (footerStartY + footerHeight > pageHeight - 8) {
+        doc.addPage();
+        doc.setFontSize(8);
+        doc.setTextColor(...colors.muted);
+        let footerY = 20;
+        footerLines.forEach((line) => {
+          doc.text(cleanPdfText(line), pageWidth / 2, footerY, { align: 'center' });
+          footerY += footerLineGap;
+        });
+      } else {
+        doc.setDrawColor(...colors.border);
+        doc.line(marginX, footerStartY - 6, pageWidth - marginX, footerStartY - 6);
+        doc.setFontSize(8);
+        doc.setTextColor(...colors.muted);
+        let footerY = footerStartY;
+        footerLines.forEach((line) => {
+          doc.text(cleanPdfText(line), pageWidth / 2, footerY, { align: 'center' });
+          footerY += footerLineGap;
+        });
+      }
+
+    const fileName = `${quote.quoteNumber}_${cleanPdfText(companyName || 'Teklif')}.pdf`;
+    return { doc, fileName };
+  };
+
+  const handlePdfExport = async (quote: Quote) => {
+    try {
+      const { doc, fileName } = await buildQuotePdf(quote);
+      doc.save(fileName);
+    } catch (error) {
+      console.error('PDF oluşturma hatası:', error);
+      toast.error('PDF oluşturulamadı');
+    }
+  };
+
+  const handleStockPdfExport = async (quote: Quote) => {
+    setStockPdfLoadingId(quote.id);
+    try {
+      const stockStatusMap = await buildStockStatusMap(quote);
+      const { doc, fileName } = await buildQuotePdf(quote, { includeStockStatus: true, stockStatusMap });
+      const stockFileName = fileName.replace(/\.pdf$/i, '_stok.pdf');
+      doc.save(stockFileName);
+    } catch (error) {
+      console.error('Stoklu PDF olusturma hatasi:', error);
+      toast.error('Stoklu PDF olusturulamadi');
+    } finally {
+      setStockPdfLoadingId(null);
+    }
+  };
+
+  const handleRecommendedPdfExport = async (quote: Quote) => {
+    setRecommendedPdfLoadingId(quote.id);
+    try {
+      const itemCodes = Array.from(
+        new Set(
+          (quote.items || [])
+            .map((item) => String(item.productCode || '').trim())
+            .filter(Boolean)
+        )
+      );
+
+      if (itemCodes.length === 0) {
+        toast.error('Teklifte urun yok');
+        return;
+      }
+
+      const recommendationResult = await adminApi.getComplementRecommendations({
+        productCodes: itemCodes,
+        excludeCodes: itemCodes,
+        limit: 10,
+      });
+      const recommendedProducts = recommendationResult.products || [];
+      const { doc, fileName } = await buildQuotePdf(quote, { recommendedProducts });
+      const recommendedFileName = fileName.replace(/\.pdf$/i, '_onerili.pdf');
+      doc.save(recommendedFileName);
+    } catch (error) {
+      console.error('Onerili PDF olusturma hatasi:', error);
+      toast.error('Onerili PDF olusturulamadi');
+    } finally {
+      setRecommendedPdfLoadingId(null);
+    }
+  };
+
+
+  const handleExcelExport = (quote: Quote) => {
+    try {
+      const customerName =
+        quote.customer?.displayName ||
+        quote.customer?.mikroName ||
+        quote.customer?.name ||
+        '';
+      const safeCustomer = customerName ? customerName.replace(/[^a-zA-Z0-9-_]+/g, '_') : 'Teklif';
+      const headerRows = [
+        ['Teklif No', quote.quoteNumber],
+        ['Cari', customerName || '-'],
+        ['Cari Kodu', quote.customer?.mikroCariCode || '-'],
+        ['Tarih', quote.createdAt ? formatDateShort(quote.createdAt) : '-'],
+        ['Gecerlilik', quote.validityDate ? formatDateShort(quote.validityDate) : '-'],
+      ];
+      const tableHeader = ['Urun Kodu', 'Urun Adi', 'Miktar', 'Birim', 'Birim Fiyat', 'Toplam', 'Tip', 'Aciklama'];
+      const itemRows = (quote.items || []).map((item) => ([
+        item.productCode,
+        item.productName,
+        item.quantity,
+        item.unit || item.product?.unit || '',
+        item.unitPrice,
+        item.totalPrice,
+        item.priceType === 'WHITE' ? 'Beyaz' : 'Faturali',
+        item.lineDescription || '',
+      ]));
+      const rows = [...headerRows, [], tableHeader, ...itemRows];
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Teklif');
+      XLSX.writeFile(workbook, `${quote.quoteNumber}_${safeCustomer}.xlsx`);
+    } catch (error) {
+      console.error('Excel olusturma hatasi:', error);
+      toast.error('Excel olusturulamadi');
+    }
+  };
+
+  const clearDownloadParam = () => {
+    const resolvedTab = resolveTabFilter(searchParams.get('tab')) || activeTab;
+    const query = `?tab=${resolveTabParam(resolvedTab)}`;
+    router.replace(`/quotes${query}`);
+    setPendingDownloadId(null);
+  };
+
+  const handleDownloadPromptClose = () => {
+    setDownloadPromptOpen(false);
+    setDownloadPromptQuote(null);
+    clearDownloadParam();
+  };
+
+  const handleDownloadPromptConfirm = async () => {
+    if (!downloadPromptQuote) {
+      handleDownloadPromptClose();
+      return;
+    }
+    setDownloadPromptLoading(true);
+    try {
+      await handlePdfExport(downloadPromptQuote);
+    } finally {
+      setDownloadPromptLoading(false);
+      handleDownloadPromptClose();
+    }
+  };
+
+  const handleDownloadPromptRecommended = async () => {
+    if (!downloadPromptQuote) {
+      handleDownloadPromptClose();
+      return;
+    }
+    setDownloadPromptRecommendedLoading(true);
+    try {
+      await handleRecommendedPdfExport(downloadPromptQuote);
+    } finally {
+      setDownloadPromptRecommendedLoading(false);
+      handleDownloadPromptClose();
+    }
+  };
+
+  const clearHistoryParam = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('history');
+    if (!params.get('tab')) {
+      params.set('tab', resolveTabParam(activeTab));
+    }
+    const query = params.toString();
+    router.replace(query ? `/quotes?${query}` : '/quotes');
+    setPendingHistoryId(null);
+  };
+
+  const handleHistoryClose = () => {
+    setHistoryOpen(false);
+    setHistoryQuote(null);
+    setHistoryItems([]);
+    setExpandedHistoryEntries(new Set());
+    clearHistoryParam();
+  };
+
+  const handleOpenHistory = async (quote: Quote) => {
+    setHistoryQuote(quote);
+    setHistoryItems([]);
+    setExpandedHistoryEntries(new Set());
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const { history } = await adminApi.getQuoteHistory(quote.id);
+      setHistoryItems(history || []);
+    } catch (error) {
+      console.error('Teklif gecmisi yuklenemedi:', error);
+      toast.error('Teklif gecmisi yuklenemedi.');
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+
+  const toggleHistoryEntry = (entryId: string) => {
+    setExpandedHistoryEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryId)) {
+        next.delete(entryId);
+      } else {
+        next.add(entryId);
+      }
+      return next;
+    });
+  };
+
+  const resolveHistoryLabel = (action: QuoteHistory['action']) => {
+    switch (action) {
+      case 'CREATED':
+        return 'Olusturuldu';
+      case 'UPDATED':
+        return 'Guncellendi';
+      case 'STATUS_CHANGED':
+        return 'Durum degisti';
+      case 'CONVERTED':
+        return 'Siparise cevrildi';
+      default:
+        return 'Islem';
+    }
+  };
+
+  const buildHistoryDetails = (entry: QuoteHistory) => {
+    const payload = entry.payload as any;
+    const summaryLines: string[] = [];
+    const changeLines: string[] = [];
+
+    if (!payload || typeof payload !== 'object') {
+      return { summaryLines, changeLines };
+    }
+
+    if (payload.status) summaryLines.push(`Durum: ${payload.status}`);
+    if (payload.orderNumber) summaryLines.push(`Siparis: ${payload.orderNumber}`);
+    if (payload.customerPdfSentAt) summaryLines.push(`PDF gonderim: ${formatDate(payload.customerPdfSentAt)}`);
+    if (Array.isArray(payload.mikroOrderIds) && payload.mikroOrderIds.length > 0) {
+      summaryLines.push(`Mikro: ${payload.mikroOrderIds.join(', ')}`);
+    }
+    if (payload.itemCount) summaryLines.push(`Kalem: ${payload.itemCount}`);
+    if (payload.totalAmount) summaryLines.push(`Tutar: ${formatCurrency(payload.totalAmount)}`);
+
+    const changes = payload.changes || {};
+    const added = Array.isArray(changes.added) ? changes.added : [];
+    const removed = Array.isArray(changes.removed) ? changes.removed : [];
+    const updated = Array.isArray(changes.updated) ? changes.updated : [];
+
+    added.forEach((item: any) => {
+      if (!item?.productCode) return;
+      changeLines.push(`Eklendi: ${item.productCode} - ${item.productName || ''} (${item.quantity ?? '-'} adet)`);
+    });
+    removed.forEach((item: any) => {
+      if (!item?.productCode) return;
+      changeLines.push(`Silindi: ${item.productCode} - ${item.productName || ''}`);
+    });
+    updated.forEach((item: any) => {
+      const parts: string[] = [];
+      const changesMap = item?.changes || {};
+      if (changesMap.quantity) {
+        parts.push(`Miktar ${changesMap.quantity.from} -> ${changesMap.quantity.to}`);
+      }
+      if (changesMap.unitPrice) {
+        parts.push(`Fiyat ${formatCurrency(changesMap.unitPrice.from)} -> ${formatCurrency(changesMap.unitPrice.to)}`);
+      }
+      if (changesMap.priceType) {
+        parts.push(`Tip ${changesMap.priceType.from} -> ${changesMap.priceType.to}`);
+      }
+      if (changesMap.lineDescription) {
+        parts.push('Aciklama guncellendi');
+      }
+      if (parts.length > 0) {
+        changeLines.push(`${item.productCode} - ${item.productName || ''}: ${parts.join(', ')}`);
+      }
+    });
+
+    return { summaryLines, changeLines };
+  };
+
+  const handleSync = async (quoteId: string) => {
+    setSyncingQuoteId(quoteId);
+    try {
+      const { updated } = await adminApi.syncQuote(quoteId);
+      if (updated) {
+        toast.success('Mikro guncellendi.');
+      } else {
+        toast.success('Mikroda degisiklik yok.');
+      }
+      fetchQuotes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Mikro guncelleme basarisiz');
+    } finally {
+      setSyncingQuoteId(null);
+    }
+  };
+
+  const handleMarkCustomerPdfSent = async (quoteId: string) => {
+    setMarkingCustomerPdfSentId(quoteId);
+    try {
+      const { quote: updatedQuote } = await adminApi.markQuoteCustomerPdfSent(quoteId);
+      setAllQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updatedQuote : quote)));
+      setQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updatedQuote : quote)));
+      toast.success("PDF musteriye gonderildi olarak isaretlendi.");
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || "PDF gonderim bilgisi kaydedilemedi");
+    } finally {
+      setMarkingCustomerPdfSentId(null);
+    }
+  };
+
+  const updateTabParam = (tab: QuoteStatusFilter) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', resolveTabParam(tab));
+    params.delete('history');
+    params.delete('download');
+    const query = params.toString();
+    router.replace(query ? `/quotes?${query}` : '/quotes');
+  };
+
+  const handleTabChange = (tab: QuoteStatusFilter) => {
+    setActiveTab(tab);
+    updateTabParam(tab);
+  };
+
+  const toggleExpanded = (quoteId: string) => {
+    setExpandedQuotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(quoteId)) {
+        next.delete(quoteId);
+      } else {
+        next.add(quoteId);
+      }
+      return next;
+    });
+  };
+
+  const getConversionBadge = (quote: Quote) => {
+    const hasOrders = Array.isArray(quote.orders) && quote.orders.length > 0;
+    if (!quote.convertedAt && !hasOrders) return null;
+    const source = quote.convertedSource || (hasOrders ? 'B2B' : undefined);
+    const sourceLabel = source === 'MIKRO' ? 'Mikro' : 'B2B';
+    return <Badge variant="info">Siparis ({sourceLabel})</Badge>;
+  };
+
+  const counts = {
+    pending: allQuotes.filter((q) => q.status === 'PENDING_APPROVAL').length,
+    sent: allQuotes.filter((q) => q.status === 'SENT_TO_MIKRO').length,
+    rejected: allQuotes.filter((q) => q.status === 'REJECTED').length,
+    accepted: allQuotes.filter((q) => q.status === 'CUSTOMER_ACCEPTED').length,
+    all: allQuotes.length,
+  };
+
+  const filteredQuotes = useMemo(() => {
+    const term = searchTerm.trim();
+    if (!term) return quotes;
+    const normalizedTerm = normalizeTurkishText(term).toLowerCase();
+
+    return quotes.filter((quote) => {
+      const customerName =
+        quote.customer?.displayName ||
+        quote.customer?.mikroName ||
+        quote.customer?.name ||
+        '';
+      const quoteItemSearchText = (quote.items || [])
+        .map((item) => `${item.productCode || ''} ${item.productName || ''}`)
+        .join(' ');
+
+      const haystack = [
+        quote.quoteNumber,
+        quote.documentNo,
+        quote.mikroNumber,
+        quote.customer?.mikroCariCode,
+        customerName,
+        quote.createdBy?.name,
+        quoteItemSearchText,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      return normalizeTurkishText(haystack).toLowerCase().includes(normalizedTerm);
+    });
+  }, [quotes, searchTerm]);
+
+  const isAdmin = hasPermission('admin:quotes');
+
+  return {
+    // router / user / permissions
+    router,
+    user,
+    hasPermission,
+    isAdmin,
+    // veri / liste
+    quotes,
+    allQuotes,
+    loading,
+    filteredQuotes,
+    counts,
+    // tab
+    activeTab,
+    handleTabChange,
+    // arama
+    searchTerm,
+    setSearchTerm,
+    // detay genisletme
+    expandedQuotes,
+    toggleExpanded,
+    // whatsapp sablonu
+    whatsappTemplate,
+    // satir-aksiyon loading state'leri
+    syncingQuoteId,
+    markingCustomerPdfSentId,
+    stockPdfLoadingId,
+    recommendedPdfLoadingId,
+    // handler'lar
+    handleApprove,
+    handleReject,
+    handleWhatsappShare,
+    handlePdfExport,
+    handleStockPdfExport,
+    handleRecommendedPdfExport,
+    handleExcelExport,
+    handleSync,
+    handleMarkCustomerPdfSent,
+    handleOpenHistory,
+    // PDF indir prompt modal
+    downloadPromptQuote,
+    downloadPromptOpen,
+    downloadPromptLoading,
+    downloadPromptRecommendedLoading,
+    handleDownloadPromptClose,
+    handleDownloadPromptConfirm,
+    handleDownloadPromptRecommended,
+    // gecmis modal
+    historyOpen,
+    historyLoading,
+    historyQuote,
+    historyItems,
+    expandedHistoryEntries,
+    handleHistoryClose,
+    toggleHistoryEntry,
+    resolveHistoryLabel,
+    buildHistoryDetails,
+    // turetilmis yardimcilar
+    getConversionBadge,
+  };
+}
+
+export default useTeklifler;
