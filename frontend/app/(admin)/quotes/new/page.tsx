@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/Input';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { Modal } from '@/components/ui/Modal';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
+import { StockFamilySuggestion } from '@/components/admin/StockFamilySuggestion';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import {
@@ -1714,6 +1715,65 @@ function AdminQuoteNewPageContent() {
 
   const addProductToQuote = (product: QuoteProduct, quantity?: number) => {
     addProductsToQuote([product], quantity ? { [product.mikroCode]: quantity } : undefined);
+  };
+
+  // ===== Stok ailesi yonlendirme: kalemi alternatifle DEGISTIR =====
+  const applyFamilySwap = async (
+    item: QuoteItemForm,
+    rec: { productCode: string; productName?: string }
+  ) => {
+    try {
+      const { products } = await adminApi.getProductsByCodes([rec.productCode]);
+      const alt = products && products[0];
+      if (!alt) {
+        toast.error('Onerilen urun bulunamadi.');
+        return;
+      }
+      const newItem = buildQuoteItem(alt as QuoteProduct, item.quantity);
+      setQuoteItems((prev) => prev.map((it) => (it.id === item.id ? { ...newItem, id: it.id } : it)));
+      toast.success(`Kalem "${alt.name}" ile degistirildi.`);
+    } catch {
+      toast.error('Degistirme basarisiz.');
+    }
+  };
+
+  // ===== Stok ailesi yonlendirme: SPLIT (mevcudu azalt + alternatifi yeni kalem ekle) =====
+  const applyFamilySplit = async (
+    item: QuoteItemForm,
+    rec: { productCode: string; fromAlt?: number; fromEntered?: number }
+  ) => {
+    const fromAlt = Number(rec.fromAlt) || 0;
+    const fromEntered = Number(rec.fromEntered) || 0;
+    if (fromAlt <= 0) {
+      toast.error('Aktarilacak miktar yok.');
+      return;
+    }
+    try {
+      const { products } = await adminApi.getProductsByCodes([rec.productCode]);
+      const alt = products && products[0];
+      if (!alt) {
+        toast.error('Onerilen urun bulunamadi.');
+        return;
+      }
+      const altItem = buildQuoteItem(alt as QuoteProduct, fromAlt);
+      setQuoteItems((prev) => {
+        const next: QuoteItemForm[] = [];
+        for (const it of prev) {
+          if (it.id === item.id) {
+            if (fromEntered > 0) {
+              next.push({ ...it, quantity: Math.max(0, roundUnitValue(fromEntered)) });
+            }
+            next.push(altItem); // alternatifi hemen ardina koy
+          } else {
+            next.push(it);
+          }
+        }
+        return next;
+      });
+      toast.success(`${fromAlt} adet yatan stoktan "${alt.name}" eklendi.`);
+    } catch {
+      toast.error('Bolme basarisiz.');
+    }
   };
 
   const handleRecommendationAdd = (product: QuoteProduct) => {
@@ -3835,6 +3895,18 @@ function AdminQuoteNewPageContent() {
                                   </span>
                                 )}
                               </div>
+                            </td>
+                          </tr>
+                        )}
+                        {!item.isManualLine && item.productCode && (
+                          <tr onDragOver={handleRowDragOver} onDrop={handleRowDrop(item.id)}>
+                            <td colSpan={columnsCount} className="px-3">
+                              <StockFamilySuggestion
+                                productCode={item.productCode}
+                                baseQuantity={item.quantity}
+                                onSwap={(rec) => applyFamilySwap(item, rec)}
+                                onSplit={(rec) => applyFamilySplit(item, rec)}
+                              />
                             </td>
                           </tr>
                         )}

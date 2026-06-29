@@ -4004,6 +4004,37 @@ export const adminApi = {
     return response.data;
   },
 
+  // ===== Stok ailesi yonlendirme onerisi =====
+  getStockFamilySuggestions: async (
+    productCode: string,
+    quantity: number
+  ): Promise<{
+    product: { code: string; name: string; unit: string; available: number; excess: number } | null;
+    family: { id: string; name: string } | null;
+    requested: number;
+    enteredAvailable: number;
+    shortfall: number;
+    coversRequested: boolean;
+    alternatives: { productCode: string; productName: string; unit: string; available: number; excess: number }[];
+    warnings: {
+      type: 'INSUFFICIENT' | 'OFFLOAD_EXCESS';
+      message: string;
+      recommended: {
+        productCode: string;
+        productName: string;
+        unit?: string;
+        available?: number;
+        excess?: number;
+        canCoverFull?: boolean;
+        fromAlt?: number;
+        fromEntered?: number;
+      };
+    }[];
+  }> => {
+    const response = await apiClient.post('/admin/stock-family/suggestions', { productCode, quantity });
+    return response.data;
+  },
+
   // Supplier price lists
   getSupplierPriceListSuppliers: async (): Promise<{ suppliers: any[] }> => {
     const response = await apiClient.get('/admin/supplier-price-lists/suppliers');

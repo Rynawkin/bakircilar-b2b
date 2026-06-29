@@ -18,6 +18,7 @@ import operationsIntelligenceController from '../controllers/operations-intellig
 import productDimensionsController from '../controllers/product-dimensions.controller';
 import stockCreateController from '../controllers/stock-create.controller';
 import hotSaleController from '../controllers/hot-sale.controller';
+import stockFamilyController from '../controllers/stock-family.controller';
 import {
   authenticate,
   requireAdmin,
@@ -35,6 +36,13 @@ const router = Router();
 // TÃ¼m route'lar authentication gerektirir, role kontrolÃ¼ route bazÄ±nda yapÄ±lÄ±r
 router.use(authenticate);
 router.use(trackStaffApiActivity);
+
+// Stok ailesi yonlendirme onerisi (teklif/siparis girisinde, salt-okuma)
+router.post(
+  '/stock-family/suggestions',
+  requireAnyPermission(['admin:quotes', 'admin:orders', 'admin:field-sales']),
+  (req, res) => stockFamilyController.suggestions(req, res)
+);
 
 // Validation schemas
 const createCustomerSchema = z.object({
