@@ -59,10 +59,10 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 | # | Ekran | Route | Durum |
 |---|---|---|---|
 | 5.1 | Vade Takip (liste) | /vade | ✅ (hook+Classic+New) |
-| 5.2 | Vade Müşteri Detay | /vade/customers/[id] | ⬜ |
-| 5.3 | Vade Atamaları | /vade/assignments | ⬜ |
-| 5.4 | Hatırlatma Takvimi | /vade/calendar | ⬜ |
-| 5.5 | Not Raporu | /vade/notes | ⬜ |
+| 5.2 | Vade Müşteri Detay | /vade/customers/[id] | ✅ (hook+Classic+New) |
+| 5.3 | Vade Atamaları | /vade/assignments | ✅ (hook+Classic+New) |
+| 5.4 | Hatırlatma Takvimi | /vade/calendar | ✅ (hook+Classic+New) |
+| 5.5 | Not Raporu | /vade/notes | ✅ (hook+Classic+New) |
 | 5.6 | Vade Excel Import | /vade/import | ⬜ |
 
 ## 6. Ürün / Fatura / Stok
