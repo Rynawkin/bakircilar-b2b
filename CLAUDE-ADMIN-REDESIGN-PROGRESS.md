@@ -97,11 +97,11 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 | 9.1 | Rapor Merkezi (indeks) | /reports | ✅ (hook+Classic+New) |
 | 9.2 | En Çok Satan Ürünler | /reports/top-products | ✅ (hook+Classic+New) |
 | 9.3 | En İyi Müşteriler | /reports/top-customers | ✅ (hook+Classic+New) |
-| 9.4 | Kâr Marjı Analizi (019703) | /reports/margin-compliance | ⬜ |
-| 9.5 | Kâr Marjı Analizi (kopya) | /reports/profit-analysis | ⬜ |
+| 9.4 | Kâr Marjı Analizi (019703) | /reports/margin-compliance | ✅ (hook+Classic+New) |
+| 9.5 | Kâr Marjı Analizi (kopya) | /reports/profit-analysis | ✅ (hook+Classic+New) |
 | 9.6 | Ürün Müşteri Detayı | /reports/product-customers/[productCode] | ✅ (hook+Classic+New) |
-| 9.7 | Tamamlayıcı Ürün Eksikleri | /reports/complement-missing | ⬜ |
-| 9.8 | Cari Geri Kazanım | /reports/customer-recovery | ⬜ |
+| 9.7 | Tamamlayıcı Ürün Eksikleri | /reports/complement-missing | ✅ (hook+Classic+New) |
+| 9.8 | Cari Geri Kazanım | /reports/customer-recovery | ✅ (hook+Classic+New) |
 | 9.9 | Bana Atanan Geri Kazanım | /reports/customer-recovery/actions | ⬜ |
 | 9.10 | Müşteri Sepetleri | /reports/customer-carts | ⬜ |
 | 9.11 | Müşteri Aktivite Takibi | /reports/customer-activity | ⬜ |
