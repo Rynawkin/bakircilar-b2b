@@ -32,6 +32,8 @@ export function AdminAiAssistant() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [models, setModels] = useState<{ id: string; label: string }[]>([]);
+  const [model, setModel] = useState<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,7 +42,21 @@ export function AdminAiAssistant() {
       .aiStatus()
       .then((s) => setEnabled(!!s.enabled))
       .catch(() => setEnabled(false));
+    adminApi
+      .aiModels()
+      .then((m) => {
+        setModels(m.models || []);
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('ai-chat-model') : null;
+        const valid = saved && (m.models || []).some((x) => x.id === saved);
+        setModel(valid ? (saved as string) : m.defaultChat);
+      })
+      .catch(() => {});
   }, [open, enabled]);
+
+  const onModelChange = (id: string) => {
+    setModel(id);
+    if (typeof window !== 'undefined') localStorage.setItem('ai-chat-model', id);
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -58,7 +74,7 @@ export function AdminAiAssistant() {
     setInput('');
     setSending(true);
     try {
-      const res = await adminApi.aiChat(next);
+      const res = await adminApi.aiChat(next, model || undefined);
       setMessages([...next, { role: 'assistant', content: res.reply || 'Cevap uretilemedi.' }]);
     } catch (err: any) {
       const msg =
@@ -120,6 +136,24 @@ export function AdminAiAssistant() {
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            {/* Model secici */}
+            {models.length > 0 && (
+              <div className="flex items-center gap-2 border-b border-[var(--line)] bg-white px-4 py-2">
+                <span className="text-[11px] font-medium text-[var(--ink-3)]">Model</span>
+                <select
+                  value={model}
+                  onChange={(e) => onModelChange(e.target.value)}
+                  className="flex-1 rounded-lg border border-[var(--line-strong)] bg-white px-2 py-1 text-[12px] font-medium text-[var(--ink-1)] focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-[var(--surface-0)] p-4">

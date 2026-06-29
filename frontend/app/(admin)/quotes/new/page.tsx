@@ -546,6 +546,8 @@ function AdminQuoteNewPageContent() {
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState<any | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiModels, setAiModels] = useState<{ id: string; label: string }[]>([]);
+  const [aiModel, setAiModel] = useState<string>('');
 
   const buildAiQuotePayload = () => ({
     mode: isOrderMode ? 'order' : 'quote',
@@ -608,6 +610,22 @@ function AdminQuoteNewPageContent() {
     setAiResult(null);
     setAiError(null);
     setShowAiModal(true);
+    if (aiModels.length === 0) {
+      adminApi
+        .aiModels()
+        .then((m) => {
+          setAiModels(m.models || []);
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('ai-analysis-model') : null;
+          const valid = saved && (m.models || []).some((x) => x.id === saved);
+          setAiModel(valid ? (saved as string) : m.defaultAnalysis);
+        })
+        .catch(() => {});
+    }
+  };
+
+  const onAiModelChange = (id: string) => {
+    setAiModel(id);
+    if (typeof window !== 'undefined') localStorage.setItem('ai-analysis-model', id);
   };
 
   const runAiAnalysis = async () => {
@@ -620,6 +638,7 @@ function AdminQuoteNewPageContent() {
         requestText: aiRequestText || undefined,
         requestImageBase64: aiImage?.base64,
         requestImageMediaType: aiImage?.mediaType,
+        model: aiModel || undefined,
       });
       setAiResult(res.analysis);
     } catch (err: any) {
@@ -3989,6 +4008,22 @@ function AdminQuoteNewPageContent() {
             Teklif, asagidaki <b>musteri talebine</b> ve sistemdeki maliyet/marj/gecmis verisine gore analiz edilir.
             Talep metnini (varsa gorselini) eklerseniz analiz daha isabetli olur. AI <b>sadece okur</b>, teklifi degistirmez.
           </div>
+          {aiModels.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-gray-500">AI Modeli</label>
+              <select
+                value={aiModel}
+                onChange={(e) => onAiModelChange(e.target.value)}
+                className="rounded-lg border border-[var(--line-strong)] px-2.5 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+              >
+                {aiModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">
               Musteri talebi (opsiyonel) — musterinin bizden istedigi teklif metni

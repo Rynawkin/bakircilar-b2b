@@ -17,6 +17,7 @@ router.use(trackStaffApiActivity);
 router.use(requirePermission('admin:ai-assistant'));
 
 router.get('/status', (req, res) => aiAssistantController.status(req, res));
+router.get('/models', (req, res) => aiAssistantController.models(req, res));
 router.post('/chat', (req, res) => aiAssistantController.chat(req, res));
 router.post('/analyze-quote', (req, res) => aiAssistantController.analyzeQuote(req, res));
 

@@ -17,6 +17,8 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import fs from 'fs';
+import path from 'path';
 import { config } from '../config';
 import { prisma } from '../utils/prisma';
 import stockService from './stock.service';
@@ -46,6 +48,87 @@ function canAccessAllSectors(role: string): boolean {
 
 function scopeOf(user: AiUserContext) {
   return { role: user.role, assignedSectorCodes: user.assignedSectorCodes || [] };
+}
+
+// ===================== SECILEBILIR MODELLER =====================
+// Kullanici sohbet/analizde model secebilir. Sadece bu listedeki id'ler kabul edilir.
+export interface SelectableModel {
+  id: string;
+  label: string;
+  tier: 'fast' | 'strong';
+  note: string;
+}
+
+export const SELECTABLE_MODELS: SelectableModel[] = [
+  {
+    id: 'claude-sonnet-4-6',
+    label: 'Sonnet 4.6 — Hizli & Ekonomik',
+    tier: 'fast',
+    note: 'Gunluk sorular icin hizli ve dusuk maliyetli.',
+  },
+  {
+    id: 'claude-opus-4-8',
+    label: 'Opus 4.8 — En Guclu',
+    tier: 'strong',
+    note: 'Karmasik analiz/akil yurutme icin en yetenekli (daha yavas/pahali).',
+  },
+];
+
+function resolveModel(requested: string | undefined, fallback: string): string {
+  if (requested && SELECTABLE_MODELS.some((m) => m.id === requested)) return requested;
+  return fallback;
+}
+
+// ===================== KALICI SIRKET BILGISI (knowledge) =====================
+// backend/knowledge/*.md dosyalari sistem-promptuna gomulur (prompt-cache ile).
+// "Egitmeye devam" = bu klasore .md dosyasi eklemek/duzenlemek. Sir/PII KOYMAYIN.
+const KNOWLEDGE_DIR =
+  process.env.AI_KNOWLEDGE_DIR || path.resolve(__dirname, '../../knowledge');
+const KNOWLEDGE_CHAR_CAP = 60000;
+let knowledgeCache: string | null = null;
+
+function loadKnowledge(): string {
+  if (knowledgeCache !== null) return knowledgeCache;
+  try {
+    if (!fs.existsSync(KNOWLEDGE_DIR)) {
+      knowledgeCache = '';
+      return '';
+    }
+    const files = fs
+      .readdirSync(KNOWLEDGE_DIR)
+      .filter((f) => f.toLowerCase().endsWith('.md') && f.toLowerCase() !== 'readme.md')
+      .sort();
+    const parts: string[] = [];
+    let total = 0;
+    for (const f of files) {
+      if (total >= KNOWLEDGE_CHAR_CAP) break;
+      try {
+        const content = fs.readFileSync(path.join(KNOWLEDGE_DIR, f), 'utf8').trim();
+        if (!content) continue;
+        const slice = content.slice(0, Math.max(0, KNOWLEDGE_CHAR_CAP - total));
+        parts.push(slice);
+        total += slice.length;
+      } catch {
+        /* tek dosya okunamazsa atla */
+      }
+    }
+    knowledgeCache = parts.join('\n\n');
+  } catch {
+    knowledgeCache = '';
+  }
+  return knowledgeCache;
+}
+
+function buildSystem(base: string): string {
+  const k = loadKnowledge();
+  if (!k) return base;
+  return (
+    base +
+    '\n\n# SIRKET BILGISI (kalici referans)\n' +
+    'Asagidakiler Bakircilar sirketi ve B2B/Mikro sistemi hakkinda KALICI bilgidir. ' +
+    'Guncel sayilar (stok/fiyat/maliyet/cari/vade) icin DAIMA araclari kullan; bu metindeki bilgiler yapisaldir.\n\n' +
+    k
+  );
 }
 
 function clampLimit(value: any, fallback: number, max: number): number {
@@ -622,6 +705,7 @@ async function runAgentLoop(params: {
   model: string;
   maxTokens: number;
   messages: Anthropic.MessageParam[];
+  thinking?: boolean;
 }): Promise<{ finalText: string; toolsUsed: string[]; steps: number }> {
   const anthropic = getClient();
   const messages = [...params.messages];
@@ -632,13 +716,16 @@ async function runAgentLoop(params: {
   // (maxSteps: kac kez arac cagri turu yapilabilecegi)
   // her turda en az bir model cagrisi; +1 nihai cevap turu.
   for (let i = 0; i <= config.ai.maxSteps; i++) {
-    const response = await anthropic.messages.create({
+    const createParams: any = {
       model: params.model,
       max_tokens: params.maxTokens,
       system: cachedSystem(params.system),
       tools: cachedTools(),
       messages,
-    });
+    };
+    // Adaptif dusunme (Opus/Sonnet 4.6+): derin akil yurutme gerektiren analizde acilir.
+    if (params.thinking) createParams.thinking = { type: 'adaptive' };
+    const response = await anthropic.messages.create(createParams);
     steps++;
 
     if (response.stop_reason !== 'tool_use') {
@@ -669,12 +756,14 @@ async function runAgentLoop(params: {
   }
 
   // Adim limiti asildi: son bir kez araçsiz cevap iste
-  const finalResp = await getClient().messages.create({
+  const finalParams: any = {
     model: params.model,
     max_tokens: params.maxTokens,
     system: cachedSystem(params.system),
     messages,
-  });
+  };
+  if (params.thinking) finalParams.thinking = { type: 'adaptive' };
+  const finalResp = await getClient().messages.create(finalParams);
   return { finalText: extractText(finalResp), toolsUsed, steps: steps + 1 };
 }
 
@@ -692,31 +781,42 @@ class AiAssistantService {
     return config.ai.enabled;
   }
 
+  /** Secilebilir modeller + varsayilanlar (UI icin). */
+  get modelInfo() {
+    return {
+      models: SELECTABLE_MODELS,
+      defaultChat: config.ai.model,
+      defaultAnalysis: config.ai.analysisModel,
+    };
+  }
+
   /**
    * Dogal dil soru-cevap. messages = tum konusma gecmisi (sira: user/assistant...).
    */
   async chat(params: {
     user: AiUserContext;
     messages: AiChatMessage[];
-  }): Promise<{ reply: string; toolsUsed: string[] }> {
+    model?: string;
+  }): Promise<{ reply: string; toolsUsed: string[]; model: string }> {
     const cleaned = (params.messages || [])
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.content })) as Anthropic.MessageParam[];
 
     if (cleaned.length === 0) {
-      return { reply: 'Lutfen bir soru yazin.', toolsUsed: [] };
+      return { reply: 'Lutfen bir soru yazin.', toolsUsed: [], model: config.ai.model };
     }
 
+    const model = resolveModel(params.model, config.ai.model);
     const { finalText, toolsUsed } = await runAgentLoop({
       user: params.user,
-      system: CHAT_SYSTEM,
-      model: config.ai.model,
+      system: buildSystem(CHAT_SYSTEM),
+      model,
       maxTokens: config.ai.maxTokens,
       messages: cleaned,
     });
     audit(params.user, 'chat', toolsUsed);
-    return { reply: finalText || 'Cevap uretilemedi.', toolsUsed };
+    return { reply: finalText || 'Cevap uretilemedi.', toolsUsed, model };
   }
 
   /**
@@ -728,7 +828,8 @@ class AiAssistantService {
     requestText?: string;
     requestImageBase64?: string;
     requestImageMediaType?: string;
-  }): Promise<{ analysis: any; raw: string; toolsUsed: string[] }> {
+    model?: string;
+  }): Promise<{ analysis: any; raw: string; toolsUsed: string[]; model: string }> {
     const quoteContext = JSON.stringify(params.quote || {}).slice(0, 20000);
 
     const userBlocks: any[] = [];
@@ -754,12 +855,15 @@ class AiAssistantService {
 
     const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userBlocks }];
 
+    const model = resolveModel(params.model, config.ai.analysisModel);
     const { finalText, toolsUsed } = await runAgentLoop({
       user: params.user,
-      system: ANALYZE_SYSTEM,
-      model: config.ai.analysisModel,
+      system: buildSystem(ANALYZE_SYSTEM),
+      model,
       maxTokens: config.ai.analysisMaxTokens,
       messages,
+      // Teklif analizi derin akil yurutme ister; adaptif dusunmeyi ac.
+      thinking: true,
     });
 
     audit(params.user, 'analyze_quote', toolsUsed);
@@ -778,6 +882,7 @@ class AiAssistantService {
         },
       raw: finalText,
       toolsUsed,
+      model,
     };
   }
 

@@ -3976,10 +3976,20 @@ export const adminApi = {
     return response.data;
   },
 
+  aiModels: async (): Promise<{
+    models: { id: string; label: string; tier: 'fast' | 'strong'; note: string }[];
+    defaultChat: string;
+    defaultAnalysis: string;
+  }> => {
+    const response = await apiClient.get('/admin/ai/models');
+    return response.data;
+  },
+
   aiChat: async (
-    messages: { role: 'user' | 'assistant'; content: string }[]
-  ): Promise<{ reply: string; toolsUsed: string[] }> => {
-    const response = await apiClient.post('/admin/ai/chat', { messages });
+    messages: { role: 'user' | 'assistant'; content: string }[],
+    model?: string
+  ): Promise<{ reply: string; toolsUsed: string[]; model: string }> => {
+    const response = await apiClient.post('/admin/ai/chat', { messages, model });
     return response.data;
   },
 
@@ -3988,7 +3998,8 @@ export const adminApi = {
     requestText?: string;
     requestImageBase64?: string;
     requestImageMediaType?: string;
-  }): Promise<{ analysis: any; raw: string; toolsUsed: string[] }> => {
+    model?: string;
+  }): Promise<{ analysis: any; raw: string; toolsUsed: string[]; model: string }> => {
     const response = await apiClient.post('/admin/ai/analyze-quote', payload);
     return response.data;
   },
