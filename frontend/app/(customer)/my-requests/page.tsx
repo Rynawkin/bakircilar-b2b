@@ -30,7 +30,14 @@ import {
   TaskType,
   TaskView,
 } from '@/types';
-import { ListTodo, Paperclip, MessageSquare } from 'lucide-react';
+import {
+  ListTodo,
+  Paperclip,
+  MessageSquare,
+  Plus,
+  LayoutGrid,
+  List as ListIcon,
+} from 'lucide-react';
 
 type FilterValue = 'ALL' | TaskStatus;
 
@@ -40,6 +47,21 @@ const DEFAULT_REQUEST = {
   type: 'OTHER' as TaskType,
   priority: 'NONE' as TaskPriority,
 };
+
+// Tek dil: durum/oncelik rozetleri .badge-* sinifina eslenir
+const STATUS_BADGE_CLASS: Record<string, string> = {
+  info: 'badge-info',
+  success: 'badge-success',
+  warning: 'badge-warning',
+  danger: 'badge-danger',
+  destructive: 'badge-danger',
+  default: 'badge-neutral',
+};
+
+const badgeClassFor = (variant?: string) => STATUS_BADGE_CLASS[variant || 'default'] || 'badge-neutral';
+
+// Talep no (gercek veri yok): id'den okunabilir mono token
+const taskRef = (id: string) => `#${id.slice(-6).toUpperCase()}`;
 
 export default function CustomerRequestsPage() {
   const { loadUserFromStorage } = useAuthStore();
@@ -53,6 +75,7 @@ export default function CustomerRequestsPage() {
 
   const [newRequest, setNewRequest] = useState(DEFAULT_REQUEST);
   const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const [detailTask, setDetailTask] = useState<TaskDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -137,6 +160,7 @@ export default function CustomerRequestsPage() {
       });
       toast.success('Talep gonderildi');
       setNewRequest(DEFAULT_REQUEST);
+      setCreateOpen(false);
       fetchTasks();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Talep olusturulamadi');
@@ -233,19 +257,19 @@ export default function CustomerRequestsPage() {
       <button
         key={task.id}
         onClick={() => openTaskDetail(task.id)}
-        className="card card-hover w-full p-3 text-left"
+        className="w-full rounded-xl border border-[var(--line)] bg-white p-3 text-left transition-shadow hover:shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_-12px_rgba(15,23,42,0.14)]"
       >
         <div className="flex items-start justify-between gap-2">
-          <p className="line-clamp-2 text-sm font-semibold text-gray-900">{task.title}</p>
-          <Badge variant={TASK_PRIORITY_BADGE[task.priority] as any}>
+          <p className="line-clamp-2 text-sm font-semibold text-[var(--ink-1)]">{task.title}</p>
+          <span className={badgeClassFor(TASK_PRIORITY_BADGE[task.priority])}>
             {TASK_PRIORITY_LABELS[task.priority]}
-          </Badge>
+          </span>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="chip">{TASK_TYPE_LABELS[task.type]}</span>
-          <span className="text-[11px] text-gray-500">Atanan: {task.assignedTo?.name || '-'}</span>
+          <span className="text-[11px] text-[var(--ink-3)]">Atanan: {task.assignedTo?.name || '-'}</span>
         </div>
-        <div className="mt-3 flex items-center justify-between text-xs text-gray-400">
+        <div className="mt-3 flex items-center justify-between text-xs text-[var(--ink-3)]">
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1">
               <MessageSquare className="h-3.5 w-3.5" />
@@ -267,36 +291,176 @@ export default function CustomerRequestsPage() {
   };
 
   return (
-    <div className="min-h-screen">
-      <div className="container-custom py-6 space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="min-h-screen bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6 space-y-6">
+        {/* Sayfa basligi + aksiyonlar */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
-              <ListTodo className="h-5 w-5" />
-            </div>
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+              <ListTodo className="h-5 w-5" strokeWidth={2} />
+            </span>
             <div>
               <h1 className="page-title">Taleplerim</h1>
-              <p className="page-subtitle">Taleplerinizi olusturun ve takip edin.</p>
+              <p className="page-subtitle">Destek ve iş talepleriniz · durum, öncelik ve termin takibi</p>
             </div>
           </div>
-          <div className="inline-flex overflow-hidden rounded-lg border border-[var(--line-strong)]">
-            <button
-              className={`px-4 py-2 text-sm font-medium transition-colors ${view === 'KANBAN' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-              onClick={() => handleViewChange('KANBAN')}
-            >
-              Kanban
-            </button>
-            <button
-              className={`px-4 py-2 text-sm font-medium transition-colors ${view === 'LIST' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-              onClick={() => handleViewChange('LIST')}
-            >
-              Liste
-            </button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex overflow-hidden rounded-lg border border-[var(--line-strong)]">
+              <button
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${view === 'KANBAN' ? 'bg-primary-600 text-white' : 'bg-white text-[var(--ink-2)] hover:bg-gray-50'}`}
+                onClick={() => handleViewChange('KANBAN')}
+              >
+                <LayoutGrid className="h-4 w-4" strokeWidth={2} />
+                Kanban
+              </button>
+              <button
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${view === 'LIST' ? 'bg-primary-600 text-white' : 'bg-white text-[var(--ink-2)] hover:bg-gray-50'}`}
+                onClick={() => handleViewChange('LIST')}
+              >
+                <ListIcon className="h-4 w-4" strokeWidth={2} />
+                Liste
+              </button>
+            </div>
+            <Button onClick={() => setCreateOpen(true)} className="flex-shrink-0">
+              <Plus className="h-4 w-4" strokeWidth={2.4} />
+              Yeni talep oluştur
+            </Button>
           </div>
         </div>
 
-        <div className="card card-pad space-y-4">
-          <h2 className="text-base font-semibold text-gray-900">Yeni Talep</h2>
+        {/* Filtreler */}
+        <div className="card card-pad">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Input
+              label="Arama"
+              placeholder="Baslik veya aciklama..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div>
+              <label className="field-label">Durum</label>
+              <select
+                className="input"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as FilterValue)}
+              >
+                <option value="ALL">Tum Durumlar</option>
+                {TASK_STATUS_ORDER.map((status) => (
+                  <option key={status} value={status}>
+                    {TASK_STATUS_LABELS[status]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary-600"></div>
+          </div>
+        ) : view === 'KANBAN' ? (
+          <div className="flex gap-3 overflow-x-auto pb-4">
+            {visibleStatuses.map((status) => (
+              <div key={status} className="min-w-[220px] max-w-[240px] flex-1">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className={badgeClassFor(TASK_STATUS_BADGE[status])}>
+                    {TASK_STATUS_LABELS[status]}
+                  </span>
+                  <span className="text-xs text-[var(--ink-3)]">
+                    {groupedTasks.get(status)?.length || 0}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {(groupedTasks.get(status) || []).map(renderTaskCard)}
+                  {(groupedTasks.get(status) || []).length === 0 && (
+                    <div className="rounded-lg border border-dashed border-[var(--line-strong)] bg-[var(--surface-1)] p-3 text-center text-xs text-[var(--ink-3)]">
+                      Bu kolonda talep yok.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* Liste: tasarim tablosu — No / Baslik / Durum / Oncelik / Termin / Atanan */
+          <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-white shadow-[0_1px_2px_rgba(20,34,59,0.04)]">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--line)] bg-[var(--surface-1)] text-left text-[10.5px] font-semibold uppercase tracking-[0.04em] text-[var(--ink-3)]">
+                    <th className="px-[18px] py-3 font-semibold">No</th>
+                    <th className="px-[18px] py-3 font-semibold">Başlık</th>
+                    <th className="px-[18px] py-3 text-center font-semibold">Durum</th>
+                    <th className="px-[18px] py-3 text-center font-semibold">Öncelik</th>
+                    <th className="px-[18px] py-3 font-semibold">Termin</th>
+                    <th className="px-[18px] py-3 font-semibold">Atanan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tasks.map((task) => {
+                    const isOverdue = task.dueDate
+                      ? new Date(task.dueDate) < new Date() && normalizeTaskStatus(task.status) !== 'DONE'
+                      : false;
+                    return (
+                      <tr
+                        key={task.id}
+                        className="cursor-pointer border-t border-[var(--line)] transition-colors hover:bg-[var(--surface-1)]"
+                        onClick={() => openTaskDetail(task.id)}
+                      >
+                        <td className="whitespace-nowrap px-[18px] py-3.5 font-mono text-[var(--ink-3)]">
+                          {taskRef(task.id)}
+                        </td>
+                        <td className="px-[18px] py-3.5 font-medium text-[var(--ink-1)]">{task.title}</td>
+                        <td className="px-[18px] py-3.5 text-center">
+                          <span className={badgeClassFor(TASK_STATUS_BADGE[normalizeTaskStatus(task.status)])}>
+                            {TASK_STATUS_LABELS[normalizeTaskStatus(task.status)]}
+                          </span>
+                        </td>
+                        <td className="px-[18px] py-3.5 text-center">
+                          <span className={badgeClassFor(TASK_PRIORITY_BADGE[task.priority])}>
+                            {TASK_PRIORITY_LABELS[task.priority]}
+                          </span>
+                        </td>
+                        <td className={`whitespace-nowrap px-[18px] py-3.5 ${isOverdue ? 'font-semibold text-red-600' : 'text-[var(--ink-2)]'}`}>
+                          {task.dueDate ? formatDateShort(task.dueDate) : '—'}
+                        </td>
+                        <td className="px-[18px] py-3.5 text-[var(--ink-2)]">{task.assignedTo?.name || '—'}</td>
+                      </tr>
+                    );
+                  })}
+                  {tasks.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-[18px] py-12 text-center text-[var(--ink-3)]">
+                        Talep bulunamadi.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Yeni talep modali — create akisi korunur */}
+      <Modal
+        isOpen={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Yeni Talep"
+        size="lg"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
+              Vazgeç
+            </Button>
+            <Button onClick={handleCreateRequest} isLoading={creating}>
+              Talep Gonder
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
           <Input
             label="Baslik"
             placeholder="Kisa bir baslik yazin"
@@ -313,7 +477,7 @@ export default function CustomerRequestsPage() {
               onChange={(e) => setNewRequest((prev) => ({ ...prev, description: e.target.value }))}
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="field-label">Tur</label>
               <select
@@ -342,111 +506,9 @@ export default function CustomerRequestsPage() {
                 ))}
               </select>
             </div>
-            <div className="flex items-end">
-              <Button onClick={handleCreateRequest} isLoading={creating} className="w-full">
-                Talep Gonder
-              </Button>
-            </div>
           </div>
         </div>
-
-        <div className="card card-pad">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <Input
-              label="Arama"
-              placeholder="Baslik veya aciklama..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <div>
-              <label className="field-label">Durum</label>
-              <select
-                className="input"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as FilterValue)}
-              >
-                <option value="ALL">Tum Durumlar</option>
-                {TASK_STATUS_ORDER.map((status) => (
-                  <option key={status} value={status}>
-                    {TASK_STATUS_LABELS[status]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
-          </div>
-        ) : view === 'KANBAN' ? (
-          <div className="flex gap-3 overflow-x-auto pb-4">
-            {visibleStatuses.map((status) => (
-              <div key={status} className="min-w-[220px] max-w-[240px] flex-1">
-                <div className="mb-3 flex items-center gap-2">
-                  <Badge variant={TASK_STATUS_BADGE[status] as any}>
-                    {TASK_STATUS_LABELS[status]}
-                  </Badge>
-                  <span className="text-xs text-gray-400">
-                    {groupedTasks.get(status)?.length || 0}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {(groupedTasks.get(status) || []).map(renderTaskCard)}
-                  {(groupedTasks.get(status) || []).length === 0 && (
-                    <div className="rounded-lg border border-dashed border-[var(--line-strong)] bg-[var(--surface-1)] p-3 text-center text-xs text-gray-400">
-                      Bu kolonda talep yok.
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="card overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="border-b border-[var(--line)] text-left text-xs uppercase tracking-wide text-gray-400">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Baslik</th>
-                  <th className="px-5 py-3 font-medium">Durum</th>
-                  <th className="px-5 py-3 font-medium">Tur</th>
-                  <th className="px-5 py-3 font-medium">Oncelik</th>
-                  <th className="px-5 py-3 font-medium">Atanan</th>
-                  <th className="px-5 py-3 font-medium">Son Aktivite</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tasks.map((task) => (
-                  <tr
-                    key={task.id}
-                    className="cursor-pointer border-b border-[var(--line)] last:border-b-0 hover:bg-[var(--surface-1)]"
-                    onClick={() => openTaskDetail(task.id)}
-                  >
-                    <td className="px-5 py-3 font-medium text-gray-900">{task.title}</td>
-                    <td className="px-5 py-3">
-                      <Badge variant={TASK_STATUS_BADGE[normalizeTaskStatus(task.status)] as any}>
-                        {TASK_STATUS_LABELS[normalizeTaskStatus(task.status)]}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-3 text-gray-600">{TASK_TYPE_LABELS[task.type]}</td>
-                    <td className="px-5 py-3 text-gray-600">{TASK_PRIORITY_LABELS[task.priority]}</td>
-                    <td className="px-5 py-3 text-gray-600">{task.assignedTo?.name || '-'}</td>
-                    <td className="px-5 py-3 text-gray-500">{formatDateShort(task.lastActivityAt)}</td>
-                  </tr>
-                ))}
-                {tasks.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-gray-500">
-                      Talep bulunamadi.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      </Modal>
 
       <Modal
         isOpen={detailOpen}
@@ -464,20 +526,23 @@ export default function CustomerRequestsPage() {
       >
         {detailLoading || !detailTask ? (
           <div className="flex items-center justify-center py-10">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary-600"></div>
           </div>
         ) : (
           <div className="space-y-5">
             <div className="card card-pad space-y-2">
-              <div className="text-lg font-semibold text-gray-900">{detailTask.title}</div>
-              <div className="text-sm text-gray-600 whitespace-pre-wrap">{detailTask.description || '-'}</div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                <Badge variant={TASK_STATUS_BADGE[normalizeTaskStatus(detailTask.status)] as any}>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs text-[var(--ink-3)]">{taskRef(detailTask.id)}</span>
+                <div className="text-lg font-semibold text-[var(--ink-1)]">{detailTask.title}</div>
+              </div>
+              <div className="whitespace-pre-wrap text-sm text-[var(--ink-2)]">{detailTask.description || '-'}</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--ink-3)]">
+                <span className={badgeClassFor(TASK_STATUS_BADGE[normalizeTaskStatus(detailTask.status)])}>
                   {TASK_STATUS_LABELS[normalizeTaskStatus(detailTask.status)]}
-                </Badge>
-                <Badge variant={TASK_PRIORITY_BADGE[detailTask.priority] as any}>
+                </span>
+                <span className={badgeClassFor(TASK_PRIORITY_BADGE[detailTask.priority])}>
                   {TASK_PRIORITY_LABELS[detailTask.priority]}
-                </Badge>
+                </span>
                 <span className="chip">{TASK_TYPE_LABELS[detailTask.type]}</span>
                 <span>Atanan: {detailTask.assignedTo?.name || '-'}</span>
                 <span>Olusturma: {formatDate(detailTask.createdAt)}</span>
@@ -485,22 +550,22 @@ export default function CustomerRequestsPage() {
             </div>
 
             <div className="card card-pad space-y-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--ink-1)]">
                 <MessageSquare className="h-4 w-4 text-primary-600" />
                 Yorumlar
               </div>
               <div className="space-y-3">
                 {detailTask.comments.map((comment) => (
                   <div key={comment.id} className="surface p-3">
-                    <div className="flex items-center justify-between text-xs text-gray-400">
-                      <span className="font-medium text-gray-600">{comment.author?.name || 'Kullanici'}</span>
+                    <div className="flex items-center justify-between text-xs text-[var(--ink-3)]">
+                      <span className="font-medium text-[var(--ink-2)]">{comment.author?.name || 'Kullanici'}</span>
                       <span>{formatDate(comment.createdAt)}</span>
                     </div>
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">{comment.body}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--ink-1)]">{comment.body}</p>
                   </div>
                 ))}
                 {detailTask.comments.length === 0 && (
-                  <div className="text-sm text-gray-400">Yorum yok.</div>
+                  <div className="text-sm text-[var(--ink-3)]">Yorum yok.</div>
                 )}
               </div>
               <div className="space-y-2">
@@ -518,7 +583,7 @@ export default function CustomerRequestsPage() {
             </div>
 
             <div className="card card-pad space-y-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--ink-1)]">
                 <Paperclip className="h-4 w-4 text-primary-600" />
                 Dosyalar
               </div>
@@ -536,13 +601,13 @@ export default function CustomerRequestsPage() {
                   </a>
                 ))}
                 {detailTask.attachments.length === 0 && (
-                  <div className="text-sm text-gray-400">Dosya yok.</div>
+                  <div className="text-sm text-[var(--ink-3)]">Dosya yok.</div>
                 )}
               </div>
               <div className="space-y-2">
                 <input
                   type="file"
-                  className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200"
+                  className="block w-full text-sm text-[var(--ink-2)] file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--ink-2)] hover:file:bg-gray-200"
                   onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
                 />
                 <Button size="sm" onClick={handleUploadAttachment}>

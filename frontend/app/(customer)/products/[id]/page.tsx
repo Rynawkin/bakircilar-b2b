@@ -7,17 +7,29 @@ import { Product } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { useCartStore } from '@/lib/store/cartStore';
 import { useAuthStore } from '@/lib/store/authStore';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
-import { formatCurrency } from '@/lib/utils/format';
+import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getDisplayPrice, getVatLabel } from '@/lib/utils/vatDisplay';
 import { getUnitConversionLabel } from '@/lib/utils/unit';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDisplayStock, getMaxOrderQuantity } from '@/lib/utils/stock';
 import { confirmBackorder } from '@/lib/utils/confirm';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
-import { ArrowLeft, ImageIcon, ImageOff, CheckCircle2, Minus, Plus, Handshake, Truck, Package } from 'lucide-react';
+import {
+  ChevronRight,
+  ImageIcon,
+  ImageOff,
+  CheckCircle2,
+  Minus,
+  Plus,
+  Handshake,
+  Truck,
+  MapPin,
+  AlertTriangle,
+  ShoppingCart,
+  Search,
+} from 'lucide-react';
 
 export default function ProductDetailPage() {
   const router = useRouter();
@@ -178,17 +190,17 @@ export default function ProductDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="flex min-h-screen items-center justify-center bg-[var(--surface-0)]">
+        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600"></div>
       </div>
     );
   }
 
   if (!product) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="card card-pad text-center">
-          <p className="text-gray-600">Ürün bulunamadı</p>
+      <div className="flex min-h-screen items-center justify-center bg-[var(--surface-0)]">
+        <div className="rounded-2xl border border-[var(--line)] bg-white px-8 py-12 text-center">
+          <p className="text-[var(--ink-2)]">Ürün bulunamadı</p>
           <button onClick={() => router.push('/products')} className="btn-primary mt-4">
             Ürünlere Dön
           </button>
@@ -206,7 +218,7 @@ export default function ProductDetailPage() {
     : getDisplayStock(product);
   const priceMode = isDiscounted ? 'EXCESS' : 'LIST';
   const warehouseBreakdown = isDiscounted ? product.warehouseExcessStocks : product.warehouseStocks;
-  const warehouseLabels: Record<string, string> = { '1': 'Merkez Depo', '6': 'Topca Depo' };
+  const warehouseLabels: Record<string, string> = { '1': 'Merkez Depo', '6': 'Topça Depo' };
   const warehouseEntries = Object.entries(warehouseBreakdown || {})
     .map(([warehouse, stock]) => {
       const match = String(warehouse).match(/\d+/);
@@ -220,7 +232,6 @@ export default function ProductDetailPage() {
   const excessWhite = product.excessPrices?.white;
   const hasAgreement = Boolean(product.agreement);
   const agreementMinQuantity = product.agreement?.minQuantity ?? 1;
-  const priceGridClass = allowedPriceTypes.length === 1 ? 'grid-cols-1' : 'grid-cols-2';
   const calcDiscount = (listPrice?: number, salePrice?: number) => {
     if (!listPrice || listPrice <= 0 || !salePrice || salePrice >= listPrice) return null;
     return Math.round(((listPrice - salePrice) / listPrice) * 100);
@@ -285,359 +296,372 @@ export default function ProductDetailPage() {
 
   const rawDescription = (product as { description?: string | null }).description;
   const descriptionText = typeof rawDescription === 'string' ? rawDescription.trim() : '';
-  const packagingInfo = unitLabel || 'Koli ici bilgisi bulunamadi';
+  const packagingInfo = unitLabel || 'Koli içi bilgisi bulunamadı';
 
   const stockInStock = Number(displayStock) > 0;
+  const totalWarehouseStock = warehouseEntries.reduce((sum, { stock }) => sum + stock, 0);
+  const showInvoicedCard = allowedPriceTypes.includes('INVOICED');
+  const showWhiteCard = allowedPriceTypes.includes('WHITE');
+  const priceCardsGridClass = showInvoicedCard && showWhiteCard ? 'grid-cols-2' : 'grid-cols-1';
+  const lastSales = product.lastSales || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container-custom py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-          <button onClick={() => router.push('/products')} className="btn-ghost">
-            <ArrowLeft className="w-4 h-4" />
-            Ürünlere Dön
+    <div className="min-h-screen bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1280px] px-4 py-6 lg:px-6">
+        {/* Breadcrumb */}
+        <div className="mb-4 flex flex-wrap items-center gap-1.5 text-[12.5px] text-[var(--ink-3)]">
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard')}
+            className="transition-colors hover:text-primary-700"
+          >
+            Ana Sayfa
           </button>
-          <div className="flex items-center gap-2">
-            <span className="chip">{product.category.name}</span>
-            <span className="chip font-mono">{product.mikroCode}</span>
-          </div>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <button
+            type="button"
+            onClick={() => router.push('/products')}
+            className="transition-colors hover:text-primary-700"
+          >
+            Tüm Ürünler
+          </button>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="font-medium text-[var(--ink-2)]">{product.name}</span>
         </div>
 
-        <div className="grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-6">
-          <div className="space-y-5">
-            <div className="card overflow-hidden">
-              <div className="grid md:grid-cols-2 gap-6 p-5">
-                <div className="space-y-4">
-                  <div
-                    className={`relative bg-white border border-gray-200 rounded-xl overflow-hidden aspect-square ${
-                      isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
-                    }`}
-                    onClick={() => setIsZoomed(!isZoomed)}
-                  >
-                    {product.imageUrl ? (
-                      <img
-                        src={product.imageUrl}
-                        alt={product.name}
-                        className={`w-full h-full object-contain p-2 transition-transform duration-300 ${
-                          isZoomed ? 'scale-150' : 'scale-100'
-                        }`}
-                        style={{ transformOrigin: 'center center' }}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-300">
-                        <ImageIcon className="w-16 h-16" strokeWidth={1.5} />
-                      </div>
-                    )}
+        <div className="flex flex-col items-start gap-7 lg:flex-row">
+          {/* SOL: görsel */}
+          <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-1">
+            <div
+              className={`relative flex h-[420px] items-center justify-center overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] ${
+                isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
+              }`}
+              onClick={() => setIsZoomed(!isZoomed)}
+            >
+              {product.imageUrl ? (
+                <img
+                  src={product.imageUrl}
+                  alt={product.name}
+                  className={`h-full w-full object-contain p-3 transition-transform duration-300 ${
+                    isZoomed ? 'scale-150' : 'scale-100'
+                  }`}
+                  style={{ transformOrigin: 'center center' }}
+                />
+              ) : (
+                <ImageIcon className="h-20 w-20 text-[var(--ink-3)]/40" strokeWidth={1.2} />
+              )}
 
-                    {/* Stok rozeti: stok>0 ise emerald, yoksa amber tedarik tonu */}
-                    {stockInStock ? (
-                      <span className="absolute top-3 left-3 bg-white/95 backdrop-blur text-emerald-700 ring-1 ring-emerald-200 text-xs font-semibold px-2.5 py-1 rounded-md leading-tight shadow-sm">
-                        Stok {displayStock} {product.unit}
-                      </span>
-                    ) : (
-                      <span className="absolute top-3 left-3 bg-white/95 backdrop-blur text-amber-700 ring-1 ring-amber-200 text-xs font-semibold px-2.5 py-1 rounded-md leading-tight shadow-sm">
-                        Tedarikle
-                      </span>
-                    )}
+              {product.imageUrl && (
+                <span className="pointer-events-none absolute left-3.5 top-3.5 inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-white px-2.5 py-1 text-[11px] font-medium text-[var(--ink-2)]">
+                  <Search className="h-3 w-3" />
+                  {isZoomed ? 'Küçültmek için tıklayın' : 'Büyütmek için tıklayın'}
+                </span>
+              )}
 
-                    {isDiscounted && (
-                      <span className="absolute top-3 right-3 badge-success shadow-sm">
-                        İndirimli
-                      </span>
-                    )}
-                  </div>
-
-                  {warehouseEntries.length > 0 && (
-                    <div className="surface p-4">
-                      <h4 className="font-semibold text-sm text-gray-900 mb-3">
-                        Depo Dağılımı
-                      </h4>
-                      <div className="space-y-2">
-                        {warehouseEntries.map(({ key, stock }) => (
-                          <div key={key} className="flex justify-between items-center text-sm">
-                            <span className="text-gray-600">{warehouseLabels[key] || key}</span>
-                            <span className="bg-white px-2.5 py-1 rounded-md border border-gray-200 font-semibold text-gray-900">
-                              {stock} {product.unit}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleReportImageIssue}
-                    disabled={imageIssueReported || isReportingImageIssue}
-                    className={`w-full inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
-                      imageIssueReported
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {imageIssueReported ? (
-                      <CheckCircle2 className="w-4 h-4" />
-                    ) : (
-                      <ImageOff className="w-4 h-4" />
-                    )}
-                    {isReportingImageIssue
-                      ? 'Bildiriliyor...'
-                      : imageIssueReported
-                      ? 'Resim hatası bildirildi'
-                      : 'Resim hatası bildir'}
-                  </button>
-                </div>
-
-                <div className="space-y-5">
-                  <div>
-                    <span className="badge-info mb-2">{product.category.name}</span>
-                    <h1 className="text-2xl font-bold text-gray-900 leading-tight">{product.name}</h1>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400">
-                      <span className="font-mono">{product.mikroCode}</span>
-                      {unitLabel && <span>{unitLabel}</span>}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="surface p-3">
-                      <div className="text-xs text-gray-400">KDV Oranı</div>
-                      <div className="text-lg font-semibold text-gray-900">%{vatPercent}</div>
-                    </div>
-                    <div className="surface p-3">
-                      <div className="text-xs text-gray-400">Birim</div>
-                      <div className="text-lg font-semibold text-gray-900">{product.unit}</div>
-                    </div>
-                  </div>
-
-                  {product.agreement && (
-                    <div className="rounded-lg border border-primary-100 bg-primary-50 p-3.5">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-primary-800">
-                        <Handshake className="w-4 h-4" />
-                        Anlaşmalı Fiyat
-                      </div>
-                      <div className="mt-2 grid gap-1 text-xs text-primary-800/90">
-                        <div className="flex justify-between gap-3">
-                          <span className="text-primary-700/70">Min. miktar</span>
-                          <span className="font-medium">{agreementMinQuantity} {product.unit}</span>
-                        </div>
-                        {product.agreement.customerProductCode && (
-                          <div className="flex justify-between gap-3">
-                            <span className="text-primary-700/70">Müşteri ürün kodu</span>
-                            <span className="font-mono font-medium">{product.agreement.customerProductCode}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between gap-3">
-                          <span className="text-primary-700/70">Geçerlilik</span>
-                          <span className="font-medium">
-                            {formatAgreementDate(product.agreement.validFrom)}
-                            {product.agreement.validTo ? ` – ${formatAgreementDate(product.agreement.validTo)}` : ''}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="field-label">
-                      {showPriceTypeSelector ? 'Fiyat Türü Seçin' : 'Fiyat'}
-                    </label>
-                    <div className={`grid ${priceGridClass} gap-3`}>
-                      {allowedPriceTypes.includes('INVOICED') && (
-                        <button
-                          className={`p-4 rounded-xl border-2 text-left transition-all ${
-                            selectedPriceType === 'INVOICED'
-                              ? 'border-primary-500 bg-primary-50 shadow-sm'
-                              : 'border-gray-200 bg-white hover:border-gray-300'
-                          }`}
-                          onClick={() => showPriceTypeSelector && setPriceType('INVOICED')}
-                          disabled={!showPriceTypeSelector}
-                        >
-                          <div className="text-xs text-gray-500 mb-1">Faturalı</div>
-                          <div className="text-2xl font-bold text-primary-600">
-                            {formatCurrency(displayInvoicedPrice)}
-                          </div>
-                          {shouldShowDiscounts && isDiscounted && listInvoiced && listInvoiced > 0 && (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-emerald-700">
-                              <span className="text-xs line-through text-emerald-600/50">{formatCurrency(displayListInvoiced)}</span>
-                              {invoicedDiscount && <span className="badge-success">%{invoicedDiscount} avantaj</span>}
-                            </div>
-                          )}
-                          {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessInvoiced !== undefined && (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-emerald-700">
-                              <span className="text-xs font-semibold">İndirimli: {formatCurrency(displayExcessInvoiced)}</span>
-                              {excessInvoicedDiscount && <span className="badge-success">%{excessInvoicedDiscount}</span>}
-                            </div>
-                          )}
-                          <div className="text-[11px] text-gray-400 mt-1.5">
-                            /{product.unit} · {getVatLabel('INVOICED', vatDisplayPreference)}
-                          </div>
-                        </button>
-                      )}
-
-                      {allowedPriceTypes.includes('WHITE') && (
-                        <button
-                          className={`p-4 rounded-xl border-2 text-left transition-all ${
-                            selectedPriceType === 'WHITE'
-                              ? 'border-gray-700 bg-gray-50 shadow-sm'
-                              : 'border-gray-200 bg-white hover:border-gray-300'
-                          }`}
-                          onClick={() => showPriceTypeSelector && setPriceType('WHITE')}
-                          disabled={!showPriceTypeSelector}
-                        >
-                          <div className="text-xs text-gray-500 mb-1">Beyaz</div>
-                          <div className="text-2xl font-bold text-gray-900">
-                            {formatCurrency(displayWhitePrice)}
-                          </div>
-                          {shouldShowDiscounts && isDiscounted && displayListWhite > 0 && (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-emerald-700">
-                              <span className="text-xs line-through text-emerald-600/50">{formatCurrency(displayListWhite)}</span>
-                              {whiteDiscount && <span className="badge-success">%{whiteDiscount} avantaj</span>}
-                            </div>
-                          )}
-                          {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessWhite !== undefined && (
-                            <div className="mt-1.5 flex items-center gap-1.5 text-emerald-700">
-                              <span className="text-xs font-semibold">İndirimli: {formatCurrency(displayExcessWhite)}</span>
-                              {excessWhiteDiscount && <span className="badge-success">%{excessWhiteDiscount}</span>}
-                            </div>
-                          )}
-                          <div className="text-[11px] text-gray-400 mt-1.5">
-                            /{product.unit} · {getVatLabel('WHITE', vatDisplayPreference)}
-                          </div>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Indirim vurgusu - secili fiyatta eski -> yeni + avantaj */}
-                  {shouldShowDiscounts && isDiscounted && selectedListPrice !== undefined && selectedDiscount && (
-                    <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
-                      <span className="text-sm font-medium text-emerald-700 flex items-center gap-2">
-                        <span className="line-through text-emerald-600/50">{formatCurrency(displaySelectedListPrice)}</span>
-                        <span className="text-emerald-400">→</span>
-                        <span className="text-base font-bold">{formatCurrency(displaySelectedPrice)}</span>
-                      </span>
-                      <span className="badge-success">%{selectedDiscount} avantaj</span>
-                    </div>
-                  )}
-
-                  {/* Stok yetersiz - tedarik tonu (getirtilebilir ama gecikebilir) */}
-                  {!stockInStock && (
-                    <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5">
-                      <Truck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                      <span className="text-xs leading-snug text-amber-700">
-                        Stokta yok — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez.
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
+              {isDiscounted && (
+                <span className="absolute right-3.5 top-3.5 badge-success">İndirimli</span>
+              )}
             </div>
+
+            <button
+              type="button"
+              onClick={handleReportImageIssue}
+              disabled={imageIssueReported || isReportingImageIssue}
+              className={`inline-flex w-fit items-center gap-1.5 px-1 py-1 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                imageIssueReported
+                  ? 'text-emerald-700'
+                  : 'text-[var(--ink-3)] hover:text-amber-700'
+              }`}
+            >
+              {imageIssueReported ? (
+                <CheckCircle2 className="h-4 w-4" />
+              ) : (
+                <ImageOff className="h-4 w-4" />
+              )}
+              {isReportingImageIssue
+                ? 'Bildiriliyor...'
+                : imageIssueReported
+                ? 'Resim hatası bildirildi'
+                : 'Resim hatası bildir'}
+            </button>
           </div>
 
-          <div className="space-y-5 lg:sticky lg:top-6">
-            <div className="card card-pad space-y-5">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">Sipariş Özeti</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Seçilen fiyata göre hesaplanır.</p>
+          {/* SAĞ: bilgi + sipariş */}
+          <div className="flex w-full flex-none flex-col gap-4 lg:w-[440px]">
+            {/* Kategori + ad + kod + stok rozeti */}
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
+                {product.category.name}
               </div>
+              <h1 className="mb-2 mt-1.5 text-[23px] font-semibold leading-tight tracking-tight text-[var(--ink-1)]">
+                {product.name}
+              </h1>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="font-mono text-[12.5px] text-[var(--ink-2)]">{product.mikroCode}</span>
+                {stockInStock ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Stok {displayStock} {product.unit}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                    Tedarikle
+                  </span>
+                )}
+              </div>
+            </div>
 
-              <div>
-                <label className="field-label">
-                  Miktar ({product.unit})
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg w-11 h-11 flex items-center justify-center transition-colors"
-                    aria-label="Azalt"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={quantity}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^0-9]/g, '');
-                      if (value === '' || parseInt(value) === 0) {
-                        return;
-                      }
-                      const numericValue = parseInt(value);
-                      const nextValue = Math.max(1, numericValue);
-                      setQuantity(nextValue);
-                    }}
-                    onBlur={(e) => {
-                      if (e.target.value === '' || parseInt(e.target.value) === 0) {
-                        setQuantity(1);
-                      }
-                    }}
-                    className="text-center font-bold text-lg h-11 w-24 border border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30 rounded-lg px-3"
-                  />
-                  <button
-                    onClick={() => setQuantity(quantity + 1)}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg w-11 h-11 flex items-center justify-center transition-colors"
-                    aria-label="Artır"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+            {/* Koli içi + Sipariş birimi/KDV */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="rounded-xl border border-[var(--line)] bg-white px-3.5 py-3">
+                <div className="text-[11px] text-[var(--ink-3)]">Koli içi</div>
+                <div className="mt-0.5 text-sm font-semibold text-[var(--ink-1)]">{packagingInfo}</div>
+              </div>
+              <div className="rounded-xl border border-[var(--line)] bg-white px-3.5 py-3">
+                <div className="text-[11px] text-[var(--ink-3)]">KDV %{vatPercent}</div>
+                <div className="mt-0.5 text-sm font-semibold text-[var(--ink-1)]">Sipariş birimi: {product.unit}</div>
+              </div>
+            </div>
+
+            {/* Depo bazlı stok */}
+            {warehouseEntries.length > 0 && (
+              <div className="rounded-xl border border-[var(--line)] bg-white p-3.5">
+                <div className="mb-2.5 flex items-center justify-between">
+                  <span className="text-[12.5px] font-semibold text-[var(--ink-1)]">Depo bazlı stok</span>
+                  <span className="text-[12.5px] text-[var(--ink-3)]">
+                    Toplam <b className="font-semibold text-[var(--ink-1)]">{totalWarehouseStock} {product.unit}</b>
+                  </span>
                 </div>
-                <p className="text-xs text-gray-400 mt-2">
-                  Mevcut stok: {maxQuantity} {product.unit}
-                </p>
+                <div className="flex flex-col gap-2">
+                  {warehouseEntries.map(({ key, stock }) => (
+                    <div key={key} className="flex items-center justify-between text-[12.5px]">
+                      <span className="flex items-center gap-1.5 text-[var(--ink-2)]">
+                        <MapPin className="h-3.5 w-3.5 text-[var(--ink-3)]" />
+                        {warehouseLabels[key] || key}
+                      </span>
+                      <span className="font-semibold text-[var(--ink-1)]">{stock} {product.unit}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+            )}
 
-              <div className="rounded-xl bg-primary-50 border border-primary-100 p-4">
-                <div className="flex justify-between items-start">
+            {/* Anlaşma kutusu */}
+            {product.agreement && (
+              <div className="rounded-xl border border-primary-100 bg-primary-50 p-3.5">
+                <div className="mb-2 flex items-center gap-2">
+                  <Handshake className="h-4 w-4 text-primary-700" />
+                  <span className="text-[13px] font-semibold text-primary-800">Size özel anlaşma</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[12px]">
                   <div>
-                    <div className="text-xs text-gray-500 mb-1">Toplam Tutar</div>
-                    <div className="text-2xl font-bold text-primary-700">{formatCurrency(displayTotalPrice)}</div>
+                    <div className="text-primary-700/70">Min. miktar</div>
+                    <div className="mt-0.5 font-semibold text-[var(--ink-1)]">{agreementMinQuantity} {product.unit}</div>
                   </div>
-                  <div className="text-right text-xs text-gray-500">
-                    <div>{quantity} {product.unit} × {formatCurrency(displaySelectedPrice)}</div>
-                    <div className="mt-1 font-medium text-primary-600">
-                      {selectedPriceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
+                  <div>
+                    <div className="text-primary-700/70">Müşteri kodu</div>
+                    <div className="mt-0.5 font-mono font-semibold text-[var(--ink-1)]">
+                      {product.agreement.customerProductCode || '-'}
                     </div>
                   </div>
+                  <div>
+                    <div className="text-primary-700/70">Geçerlilik</div>
+                    <div className="mt-0.5 font-semibold text-[var(--ink-1)]">
+                      {formatAgreementDate(product.agreement.validFrom)}
+                      {product.agreement.validTo ? ` – ${formatAgreementDate(product.agreement.validTo)}` : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Fiyat kartları: Faturalı + Beyaz */}
+            <div className={`grid ${priceCardsGridClass} gap-2.5`}>
+              {showInvoicedCard && (
+                <button
+                  type="button"
+                  onClick={() => showPriceTypeSelector && setPriceType('INVOICED')}
+                  disabled={!showPriceTypeSelector}
+                  className={`rounded-xl p-3.5 text-left transition-all ${
+                    selectedPriceType === 'INVOICED'
+                      ? 'border-[1.5px] border-primary-700 bg-white shadow-sm'
+                      : 'border border-[var(--line)] bg-[var(--surface-1)] hover:border-[var(--line-strong)]'
+                  } ${!showPriceTypeSelector ? 'cursor-default' : ''}`}
+                >
+                  <div className="mb-1.5 text-[11px] font-semibold text-primary-700">
+                    Faturalı{' '}
+                    <span className="font-medium text-[var(--ink-3)]">{getVatLabel('INVOICED', vatDisplayPreference)}</span>
+                  </div>
+                  {shouldShowDiscounts && isDiscounted && listInvoiced && listInvoiced > 0 && (
+                    <div className="text-[12px] text-[var(--ink-3)] line-through">{formatCurrency(displayListInvoiced)}</div>
+                  )}
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[22px] font-semibold tracking-tight text-[var(--ink-1)]">
+                      {formatCurrency(displayInvoicedPrice)}
+                    </span>
+                    {shouldShowDiscounts && isDiscounted && invoicedDiscount && (
+                      <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        %{invoicedDiscount}
+                      </span>
+                    )}
+                  </div>
+                  {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessInvoiced !== undefined && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
+                      <span>İndirimli: {formatCurrency(displayExcessInvoiced)}</span>
+                      {excessInvoicedDiscount && (
+                        <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5">%{excessInvoicedDiscount}</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-1.5 text-[10.5px] text-[var(--ink-3)]">/{product.unit}</div>
+                </button>
+              )}
+
+              {showWhiteCard && (
+                <button
+                  type="button"
+                  onClick={() => showPriceTypeSelector && setPriceType('WHITE')}
+                  disabled={!showPriceTypeSelector}
+                  className={`rounded-xl p-3.5 text-left transition-all ${
+                    selectedPriceType === 'WHITE'
+                      ? 'border-[1.5px] border-[var(--ink-1)] bg-white shadow-sm'
+                      : 'border border-[var(--line)] bg-[var(--surface-1)] hover:border-[var(--line-strong)]'
+                  } ${!showPriceTypeSelector ? 'cursor-default' : ''}`}
+                >
+                  <div className="mb-1.5 text-[11px] font-semibold text-[var(--ink-2)]">
+                    Beyaz{' '}
+                    <span className="font-medium text-[var(--ink-3)]">{getVatLabel('WHITE', vatDisplayPreference)}</span>
+                  </div>
+                  {shouldShowDiscounts && isDiscounted && displayListWhite > 0 && (
+                    <div className="text-[12px] text-[var(--ink-3)] line-through">{formatCurrency(displayListWhite)}</div>
+                  )}
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[22px] font-semibold tracking-tight text-[var(--ink-1)]">
+                      {formatCurrency(displayWhitePrice)}
+                    </span>
+                    {shouldShowDiscounts && isDiscounted && whiteDiscount && (
+                      <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        %{whiteDiscount}
+                      </span>
+                    )}
+                  </div>
+                  {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessWhite !== undefined && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
+                      <span>İndirimli: {formatCurrency(displayExcessWhite)}</span>
+                      {excessWhiteDiscount && (
+                        <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5">%{excessWhiteDiscount}</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-1.5 text-[10.5px] text-[var(--ink-3)]">/{product.unit}</div>
+                </button>
+              )}
+            </div>
+
+            {/* Seçili fiyatta indirim vurgusu - eski -> yeni + avantaj */}
+            {shouldShowDiscounts && isDiscounted && selectedListPrice !== undefined && selectedDiscount && (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-2.5">
+                <span className="flex items-center gap-2 text-sm font-medium text-emerald-700">
+                  <span className="text-[var(--ink-3)] line-through">{formatCurrency(displaySelectedListPrice)}</span>
+                  <span className="text-emerald-400">→</span>
+                  <span className="text-base font-semibold text-emerald-800">{formatCurrency(displaySelectedPrice)}</span>
+                </span>
+                <span className="badge-success">%{selectedDiscount} avantaj</span>
+              </div>
+            )}
+
+            {/* Stok yetersiz - tedarik uyarısı */}
+            {!stockInStock && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                <span className="text-[12px] leading-relaxed text-amber-800">
+                  Stokta yok — tedarik edilebilir, teslim gecikebilir; teslim süresi garanti edilemez. Stok üstü
+                  miktarlar tedarik/backorder onayına tabidir.
+                </span>
+              </div>
+            )}
+
+            {/* Miktar stepper + Toplam + Sepete Ekle */}
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <div className="flex items-center overflow-hidden rounded-xl border border-[var(--line-strong)]">
+                <button
+                  type="button"
+                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  className="flex h-[46px] w-[38px] items-center justify-center bg-white text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                  aria-label="Azalt"
+                >
+                  <Minus className="h-4 w-4" strokeWidth={2.4} />
+                </button>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={quantity}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/[^0-9]/g, '');
+                    if (value === '' || parseInt(value) === 0) {
+                      return;
+                    }
+                    const numericValue = parseInt(value);
+                    const nextValue = Math.max(1, numericValue);
+                    setQuantity(nextValue);
+                  }}
+                  onBlur={(e) => {
+                    if (e.target.value === '' || parseInt(e.target.value) === 0) {
+                      setQuantity(1);
+                    }
+                  }}
+                  className="h-[46px] w-16 border-x border-[var(--line)] text-center text-[15px] font-semibold text-[var(--ink-1)] focus:outline-none"
+                  aria-label="Miktar"
+                />
+                <button
+                  type="button"
+                  onClick={() => setQuantity(quantity + 1)}
+                  className="flex h-[46px] w-[38px] items-center justify-center bg-white text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                  aria-label="Artır"
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2.4} />
+                </button>
+              </div>
+
+              <div className="min-w-[120px] flex-1">
+                <div className="text-[11px] text-[var(--ink-3)]">Toplam ({product.unit})</div>
+                <div className="text-xl font-semibold tracking-tight text-[var(--ink-1)]">{formatCurrency(displayTotalPrice)}</div>
+                <div className="mt-0.5 text-[11px] font-medium text-primary-600">
+                  {quantity} {product.unit} × {formatCurrency(displaySelectedPrice)} · {selectedPriceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
                 </div>
               </div>
 
               <Button
-                className="w-full btn-primary py-3 text-base"
+                className="flex h-[46px] items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 text-sm font-semibold text-white hover:bg-primary-700"
                 onClick={handleAddToCart}
                 isLoading={isAdding}
               >
-                {isAdding ? 'Sepete Ekleniyor...' : 'Sepete Ekle'}
+                <ShoppingCart className="h-[17px] w-[17px]" />
+                {isAdding ? 'Ekleniyor...' : 'Sepete Ekle'}
               </Button>
-
-              {descriptionText && (
-                <div className="surface p-4">
-                  <div className="text-sm font-semibold text-gray-900 mb-1.5">Ürün açıklaması</div>
-                  <p className="text-xs text-gray-600 leading-relaxed">{descriptionText}</p>
-                </div>
-              )}
-
-              {unitLabel && (
-                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-xs">
-                  <span className="inline-flex items-center gap-1.5 font-medium text-gray-700">
-                    <Package className="w-3.5 h-3.5 text-gray-400" />
-                    Paketleme
-                  </span>
-                  <span className="text-gray-500">{packagingInfo}</span>
-                </div>
-              )}
             </div>
+
+            {/* Ürün açıklaması */}
+            {descriptionText && (
+              <div className="rounded-xl border border-[var(--line)] bg-white p-3.5">
+                <div className="mb-1 text-[13px] font-semibold text-[var(--ink-1)]">Ürün açıklaması</div>
+                <p className="text-[12.5px] leading-relaxed text-[var(--ink-2)]">{descriptionText}</p>
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Tamamlayıcı Ürünler */}
         {isLoadingRecommendations ? (
-          <div className="mt-6 text-sm text-gray-400">Öneriler yükleniyor...</div>
+          <div className="mt-9 text-sm text-[var(--ink-3)]">Öneriler yükleniyor...</div>
         ) : recommendations.length > 0 ? (
-          <div className="mt-8">
+          <div className="mt-9">
+            <h2 className="mb-3.5 text-[17px] font-semibold text-[var(--ink-1)]">Tamamlayıcı Ürünler</h2>
             <ProductRecommendations
               products={recommendations}
-              title="Tamamlayıcı Ürünler"
+              title=""
               icon="+"
               onProductClick={(item) => router.push(`/products/${item.id}`)}
               onAddToCart={handleRecommendationAdd}
@@ -646,6 +670,40 @@ export default function ProductDetailPage() {
             />
           </div>
         ) : null}
+
+        {/* Son Satışlar */}
+        {lastSales.length > 0 && (
+          <div className="mb-2 mt-8">
+            <h2 className="mb-3.5 text-[17px] font-semibold text-[var(--ink-1)]">Son Satışlar</h2>
+            <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+              {/* Başlık satırı */}
+              <div className="grid grid-cols-[1fr_1.3fr_1.1fr_0.8fr_1fr_1fr] gap-2 border-b border-[var(--line)] bg-[var(--surface-1)] px-4 py-3 text-[10.5px] font-semibold uppercase tracking-wide text-[var(--ink-3)]">
+                <span>Tarih</span>
+                <span>Belge No</span>
+                <span>Sipariş No</span>
+                <span className="text-right">Miktar</span>
+                <span className="text-right">Birim Fiyat</span>
+                <span className="text-right">Tutar</span>
+              </div>
+              {lastSales.map((sale, index) => {
+                const lineTotal = sale.lineTotal ?? sale.unitPrice * sale.quantity;
+                return (
+                  <div
+                    key={index}
+                    className="grid grid-cols-[1fr_1.3fr_1.1fr_0.8fr_1fr_1fr] items-center gap-2 border-t border-[var(--line)] px-4 py-3 text-[12.5px] text-[var(--ink-1)] first:border-t-0"
+                  >
+                    <span>{formatDateShort(sale.saleDate)}</span>
+                    <span className="truncate font-mono text-[11.5px] text-[var(--ink-2)]">{sale.documentNo || '-'}</span>
+                    <span className="truncate font-mono text-[11.5px] text-[var(--ink-2)]">{sale.orderNumber || '-'}</span>
+                    <span className="text-right">{sale.quantity} {product.unit}</span>
+                    <span className="text-right">{formatCurrency(sale.unitPrice)}</span>
+                    <span className="text-right font-semibold">{formatCurrency(lineTotal)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -2,23 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { Order } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { apiClient } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/store/authStore';
+import { useCartStore } from '@/lib/store/cartStore';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency, formatDate } from '@/lib/utils/format';
 import {
   ClipboardList,
   Package,
-  Warehouse,
   CalendarDays,
-  MapPin,
   CheckCircle2,
   Clock,
   XCircle,
-  StickyNote,
   ArrowRight,
+  FileDown,
+  RotateCcw,
 } from 'lucide-react';
 
 type WarehouseStatus =
@@ -51,9 +52,11 @@ const warehouseStatusMeta: Record<WarehouseStatus, { label: string; badgeClass: 
 export default function OrdersPage() {
   const router = useRouter();
   const { loadUserFromStorage } = useAuthStore();
+  const { addToCart } = useCartStore();
   const [orders, setOrders] = useState<Order[]>([]);
   const [pendingWarehouseOrders, setPendingWarehouseOrders] = useState<PendingWarehouseOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [reorderingId, setReorderingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadUserFromStorage();
@@ -105,67 +108,103 @@ export default function OrdersPage() {
     }
   };
 
+  // Aynisini sepete ekle: siparis kalemlerini mevcut sepet store'u ile tekrar ekler
+  const handleReorder = async (order: Order) => {
+    setReorderingId(order.id);
+    try {
+      let added = 0;
+      const skipped: string[] = [];
+      for (const item of order.items) {
+        const productId = (item as any).product?.id as string | undefined;
+        if (!productId) {
+          skipped.push(item.productName || (item as any).product?.name || item.mikroCode || 'Ürün');
+          continue;
+        }
+        await addToCart({
+          productId,
+          quantity: item.quantity,
+          priceType: item.priceType,
+          priceMode: (item as any).priceMode ?? 'LIST',
+        });
+        added += 1;
+      }
+      if (added > 0) {
+        toast.success(`${added} ürün sepete eklendi`);
+        if (skipped.length > 0) {
+          toast.error(`Bazı kalemler eklenemedi:\n${skipped.join('\n')}`, { duration: 6000 });
+        }
+        router.push('/cart');
+      } else {
+        toast.error('Bu siparişteki ürünler sepete eklenemedi.');
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Sepete eklenirken hata oluştu');
+    } finally {
+      setReorderingId(null);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container-custom py-8 space-y-6">
+    <div className="min-h-screen bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6">
         {/* Sayfa basligi */}
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
-            <ClipboardList className="h-5 w-5" strokeWidth={2} />
-          </span>
-          <div className="min-w-0">
-            <h1 className="page-title">Siparişlerim</h1>
-            <p className="page-subtitle">Siparişlerinizin durumunu ve detaylarını buradan takip edin.</p>
-          </div>
+        <div className="mb-5 mt-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Siparişlerim</h1>
+          <p className="mt-1 text-[13px] text-[var(--ink-3)]">
+            Açık siparişlerin depo süreci ve geçmiş siparişleriniz
+          </p>
         </div>
 
         {isLoading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+          <div className="flex justify-center py-16">
+            <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary-600"></div>
           </div>
         ) : (
           <>
+            {/* ── Bolum 1: Depo Surecindeki Acik Siparisler ───────────── */}
             {pendingWarehouseOrders.length > 0 && (
-              <div className="card card-pad">
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
-                      <Warehouse className="h-5 w-5" strokeWidth={2} />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="text-base font-semibold text-gray-900">Depo Sürecindeki Açık Siparişler</h2>
-                      <p className="page-subtitle">Toplama ve yükleme adımlarını buradan takip edebilirsiniz.</p>
-                    </div>
-                  </div>
+              <div className="mb-8">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h2 className="text-[15px] font-semibold text-[var(--ink-1)]">
+                    Depo Sürecindeki Açık Siparişler
+                  </h2>
                   <button
-                    className="btn-secondary flex-shrink-0"
+                    type="button"
                     onClick={() => router.push('/pending-orders')}
+                    className="inline-flex items-center gap-1 text-[13px] font-medium text-primary-700 transition-colors hover:text-primary-900"
                   >
-                    Tümünü Gör
-                    <ArrowRight className="h-4 w-4" strokeWidth={2} />
+                    Tümünü gör
+                    <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.2} />
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
                   {pendingWarehouseOrders.slice(0, 6).map((order) => {
                     const status = warehouseStatusMeta[order.warehouseStatus || 'PENDING'];
                     return (
-                      <div key={order.mikroOrderNumber} className="surface p-3">
-                        <div className="flex justify-between items-center gap-2 mb-2">
-                          <p className="font-semibold text-gray-900 truncate">{order.mikroOrderNumber}</p>
+                      <div
+                        key={order.mikroOrderNumber}
+                        className="rounded-xl border border-[var(--line)] bg-white p-[15px] transition-shadow hover:shadow-md"
+                      >
+                        <div className="mb-2.5 flex items-center justify-between gap-2">
+                          <span className="font-mono text-[12.5px] font-semibold text-[var(--ink-1)]">
+                            {order.mikroOrderNumber}
+                          </span>
                           <span className={status.badgeClass}>{status.label}</span>
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                        <div className="mb-2.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-[var(--ink-3)]">
+                          <span>{formatDate(order.orderDate)}</span>
+                          <span>·</span>
                           <span className="inline-flex items-center gap-1">
-                            <Package className="h-3 w-3 text-gray-400" strokeWidth={2} />
+                            <Package className="h-3 w-3 text-[var(--ink-3)]" strokeWidth={2} />
                             {order.itemCount} kalem
                           </span>
-                          <span className="inline-flex items-center gap-1">
-                            <CalendarDays className="h-3 w-3 text-gray-400" strokeWidth={2} />
-                            {formatDate(order.orderDate)}
-                          </span>
+                          <span>·</span>
+                          <span>teslim {order.deliveryDate ? formatDate(order.deliveryDate) : '—'}</span>
                         </div>
-                        <p className="text-sm font-bold text-gray-900 mt-2">{formatCurrency(order.grandTotal)}</p>
+                        <div className="text-[18px] font-semibold tracking-tight text-[var(--ink-1)]">
+                          {formatCurrency(order.grandTotal)}
+                        </div>
                       </div>
                     );
                   })}
@@ -173,112 +212,110 @@ export default function OrdersPage() {
               </div>
             )}
 
+            {/* ── Bolum 2: Tum Siparisler ──────────────────────────────── */}
+            <h2 className="mb-3 text-[15px] font-semibold text-[var(--ink-1)]">Tüm Siparişler</h2>
+
             {orders.length === 0 ? (
-              <div className="card card-pad">
-                <div className="flex flex-col items-center justify-center text-center py-12">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400 mb-4">
-                    <ClipboardList className="h-6 w-6" strokeWidth={1.75} />
-                  </span>
-                  <p className="text-gray-600 mb-4">Henüz siparişiniz bulunmuyor</p>
-                  <Button onClick={() => router.push('/products')}>Ürünleri İncele</Button>
-                </div>
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-[var(--line)] bg-white px-6 py-16 text-center">
+                <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+                  <ClipboardList className="h-7 w-7" strokeWidth={1.7} />
+                </span>
+                <h3 className="mb-2 text-lg font-semibold text-[var(--ink-1)]">
+                  Henüz siparişiniz bulunmuyor
+                </h3>
+                <p className="mb-6 max-w-sm text-[13.5px] leading-relaxed text-[var(--ink-3)]">
+                  Ürünleri inceleyerek ilk siparişinizi oluşturabilirsiniz.
+                </p>
+                <Button onClick={() => router.push('/products')}>Ürünleri İncele</Button>
               </div>
             ) : (
-              <div className="space-y-5">
-                {orders.map((order) => (
-                  <div key={order.id} className="card card-hover overflow-hidden">
-                    {/* Siparis basligi */}
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 p-5 border-b border-[var(--line)]">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2.5 flex-wrap mb-1.5">
-                          <h3 className="text-lg font-semibold text-gray-900">Sipariş #{order.orderNumber}</h3>
+              <div className="flex flex-col gap-3">
+                {orders.map((order) => {
+                  // Depo statusu: ayni mikro siparis no ile eslesen acik depo kaydi
+                  const wh = pendingWarehouseOrders.find((p) =>
+                    (order.mikroOrderIds || []).includes(p.mikroOrderNumber)
+                  );
+                  const whMeta = wh ? warehouseStatusMeta[wh.warehouseStatus || 'PENDING'] : null;
+                  const isReordering = reorderingId === order.id;
+                  return (
+                    <div
+                      key={order.id}
+                      className="rounded-xl border border-[var(--line)] bg-white px-[17px] py-[15px] transition-shadow hover:shadow-md"
+                    >
+                      {/* Ust satir: no + durum + tarih ── genel toplam */}
+                      <div className="flex flex-wrap items-center justify-between gap-3.5">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="font-mono text-sm font-semibold text-[var(--ink-1)]">
+                            #{order.orderNumber}
+                          </span>
                           {getStatusBadge(order.status)}
+                          <span className="text-[12.5px] text-[var(--ink-3)]">
+                            {formatDate(order.createdAt)}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-2">
-                          <CalendarDays className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
-                          {formatDate(order.createdAt)}
-                        </div>
-                        <div className="space-y-1">
-                          {order.requestedBy && (
-                            <div className="text-xs text-gray-500">
-                              Talep eden: {order.requestedBy.name}
-                              {order.requestedBy.email ? ` (${order.requestedBy.email})` : ''}
-                            </div>
-                          )}
-                          {order.customerOrderNumber && (
-                            <div className="text-xs text-gray-500">Müşteri Sipariş No: {order.customerOrderNumber}</div>
-                          )}
-                          {order.deliveryLocation && (
-                            <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                              <MapPin className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
-                              Teslimat: {order.deliveryLocation}
-                            </div>
-                          )}
-                        </div>
-                        {order.approvedAt && (
-                          <div className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-1.5 text-xs font-medium text-emerald-700">
-                            <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.5} />
-                            Onaylandı: {formatDate(order.approvedAt)}
+                        <div className="text-right">
+                          <div className="text-[10.5px] text-[var(--ink-3)]">Genel toplam (KDV dahil)</div>
+                          <div className="text-[17px] font-semibold text-[var(--ink-1)]">
+                            {formatCurrency(order.totalAmount)}
                           </div>
-                        )}
-                        {order.adminNote && (
-                          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5">
-                            <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 mb-1">
-                              <StickyNote className="h-3.5 w-3.5" strokeWidth={2.5} />
-                              Admin Notu
-                            </p>
-                            <p className="text-sm text-amber-700">{order.adminNote}</p>
-                          </div>
-                        )}
+                        </div>
                       </div>
-                      <div className="text-right sm:min-w-[180px]">
-                        <p className="text-xs text-gray-500 mb-0.5">Toplam Tutar</p>
-                        <p className="text-2xl font-bold text-gray-900">{formatCurrency(order.totalAmount)}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{order.items.length} ürün</p>
-                      </div>
-                    </div>
 
-                    {/* Siparis detaylari */}
-                    <div className="p-5">
-                      <p className="text-sm font-semibold text-gray-900 mb-3">
-                        Sipariş Detayları ({order.items.length} ürün)
-                      </p>
-                      <div className="space-y-2">
-                        {order.items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="surface px-4 py-3 transition-colors hover:border-primary-200"
+                      {/* Alt satir: meta bilgiler + aksiyonlar */}
+                      <div className="mt-[11px] flex flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[var(--line)] pt-[11px] text-[12px] text-[var(--ink-2)]">
+                        <span>
+                          Kalem:{' '}
+                          <b className="font-semibold text-[var(--ink-1)]">{order.items.length}</b>
+                        </span>
+                        <span>
+                          Teslimat:{' '}
+                          <b className="font-semibold text-[var(--ink-1)]">
+                            {order.deliveryLocation || '—'}
+                          </b>
+                        </span>
+                        <span>
+                          Müşteri sipariş no:{' '}
+                          <b className="font-mono font-semibold text-[var(--ink-1)]">
+                            {order.customerOrderNumber || '—'}
+                          </b>
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          Depo:{' '}
+                          {whMeta ? (
+                            <span className={whMeta.badgeClass}>{whMeta.label}</span>
+                          ) : (
+                            <span className="badge-neutral">—</span>
+                          )}
+                        </span>
+
+                        <div className="ml-auto flex flex-wrap items-center gap-2.5">
+                          {order.mikroOrderIds && order.mikroOrderIds.length > 0 && (
+                            <a
+                              href={`/api/order-tracking/customer/orders/${encodeURIComponent(
+                                order.mikroOrderIds[0]
+                              )}/pdf`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] bg-white px-3.5 py-[7px] text-[12.5px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+                            >
+                              <FileDown className="h-3.5 w-3.5" strokeWidth={2} />
+                              PDF indir
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleReorder(order)}
+                            disabled={isReordering}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-primary-100 bg-primary-50 px-3.5 py-[7px] text-[12.5px] font-semibold text-primary-700 transition-colors hover:bg-primary-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            <div className="flex justify-between items-start gap-4">
-                              <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-gray-900 mb-1">
-                                  {item.productName || (item as any).product?.name || 'Ürün'}
-                                </p>
-                                <div className="flex flex-wrap gap-1.5 items-center">
-                                  <span className="text-[11px] text-gray-400 font-mono">
-                                    {item.mikroCode || (item as any).product?.mikroCode || '-'}
-                                  </span>
-                                  <span className={item.priceType === 'INVOICED' ? 'badge-info' : 'badge-neutral'}>
-                                    {item.priceType === 'INVOICED' ? 'Faturalı' : 'Beyaz'}
-                                  </span>
-                                </div>
-                                {item.lineNote && (
-                                  <p className="text-xs text-gray-400 mt-1.5">Not: {item.lineNote}</p>
-                                )}
-                              </div>
-                              <div className="text-right flex-shrink-0">
-                                <p className="text-xs text-gray-500 mb-0.5">
-                                  {item.quantity} x {formatCurrency(item.unitPrice)}
-                                </p>
-                                <p className="text-base font-bold text-gray-900">{formatCurrency(item.totalPrice)}</p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                            <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
+                            {isReordering ? 'Ekleniyor…' : 'Aynısını sepete ekle'}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>

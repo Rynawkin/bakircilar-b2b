@@ -3,10 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/authStore';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import apiClient from '@/lib/api/client';
-import { Wallet, Check, Info, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Info, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function PreferencesPage() {
   const router = useRouter();
@@ -53,146 +52,133 @@ export default function PreferencesPage() {
     );
   }
 
+  const priceVisibility = user.priceVisibility || 'INVOICED_ONLY';
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container-custom py-8">
-        <div className="max-w-3xl mx-auto">
-          {/* Header */}
-          <div className="mb-6">
-            <h1 className="page-title">Tercihlerim</h1>
-            <p className="page-subtitle">Fiyat gösterim ayarlarınızı yönetin</p>
+    <div className="min-h-screen bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[680px] px-4 py-6 lg:px-6">
+        {/* Header */}
+        <div className="mt-2 mb-4">
+          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Tercihler</h1>
+          <p className="text-sm text-[var(--ink-3)] mt-1">Fiyat ve KDV görünüm tercihleriniz</p>
+        </div>
+
+        {/* Message */}
+        {message && (
+          <div
+            className={`mb-4 p-3.5 rounded-xl border flex items-start gap-2.5 ${
+              message.type === 'success'
+                ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                : 'bg-red-50 border-red-100 text-red-700'
+            }`}
+          >
+            {message.type === 'success'
+              ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              : <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+            <span className="text-sm">{message.text}</span>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3.5">
+          {/* KDV gösterimi */}
+          <div className="bg-white border border-[var(--line)] rounded-xl px-5 py-4 shadow-sm hover:shadow transition-shadow flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-semibold text-[var(--ink-1)]">KDV gösterimi</div>
+              <div className="text-xs text-[var(--ink-3)] mt-0.5">Fiyatların KDV dahil mi hariç mi gösterileceği</div>
+            </div>
+            <div className="inline-flex bg-[var(--surface-0)] rounded-[9px] p-[3px]">
+              <button
+                type="button"
+                onClick={() => setVatDisplayPreference('WITHOUT_VAT')}
+                aria-pressed={vatDisplayPreference === 'WITHOUT_VAT'}
+                className={`px-4 py-2 text-[13px] rounded-md transition-all ${
+                  vatDisplayPreference === 'WITHOUT_VAT'
+                    ? 'bg-white border border-[#d3deef] text-primary-700 font-semibold shadow-sm'
+                    : 'text-[var(--ink-3)] font-medium hover:text-[var(--ink-2)]'
+                }`}
+              >
+                KDV Hariç
+              </button>
+              <button
+                type="button"
+                onClick={() => setVatDisplayPreference('WITH_VAT')}
+                aria-pressed={vatDisplayPreference === 'WITH_VAT'}
+                className={`px-4 py-2 text-[13px] rounded-md transition-all ${
+                  vatDisplayPreference === 'WITH_VAT'
+                    ? 'bg-white border border-[#d3deef] text-primary-700 font-semibold shadow-sm'
+                    : 'text-[var(--ink-3)] font-medium hover:text-[var(--ink-2)]'
+                }`}
+              >
+                KDV Dahil
+              </button>
+            </div>
           </div>
 
-          <Card className="bg-white">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-primary-50 text-primary-700 rounded-lg w-11 h-11 flex items-center justify-center">
-                <Wallet className="w-5 h-5" />
+          {/* Fiyat görünürlüğü (read-only) */}
+          <div className="bg-white border border-[var(--line)] rounded-xl px-5 py-4 shadow-sm hover:shadow transition-shadow flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-semibold text-[var(--ink-1)]">
+                Fiyat görünürlüğü{' '}
+                <span className="text-[11px] font-medium text-[var(--ink-3)]">(salt-okunur)</span>
               </div>
-              <div>
-                <h3 className="font-semibold text-base text-gray-900">Fiyat Gösterim Tercihi</h3>
-                <p className="text-sm text-gray-500">Faturalı fiyatların nasıl görüntüleneceğini seçin</p>
-              </div>
+              <div className="text-xs text-[var(--ink-3)] mt-0.5">Varsayılan olarak gösterilecek fiyat türü</div>
             </div>
-
-            {message && (
-              <div
-                className={`mb-6 p-3.5 rounded-lg border flex items-start gap-2.5 ${
-                  message.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
-                    : 'bg-red-50 border-red-100 text-red-700'
+            <div className="inline-flex bg-[var(--surface-0)] rounded-[9px] p-[3px]">
+              <span
+                className={`px-3.5 py-2 text-[13px] rounded-md ${
+                  priceVisibility === 'INVOICED_ONLY'
+                    ? 'bg-white border border-[#d3deef] text-primary-700 font-semibold shadow-sm'
+                    : 'text-[var(--ink-3)] font-medium'
                 }`}
               >
-                {message.type === 'success'
-                  ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  : <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
-                <span className="text-sm">{message.text}</span>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <div
-                onClick={() => setVatDisplayPreference('WITH_VAT')}
-                className={`p-5 rounded-xl border cursor-pointer transition-all ${
-                  vatDisplayPreference === 'WITH_VAT'
-                    ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500'
-                    : 'border-[var(--line-strong)] hover:border-primary-300 bg-white'
+                Faturalı
+              </span>
+              <span
+                className={`px-3.5 py-2 text-[13px] rounded-md ${
+                  priceVisibility === 'WHITE_ONLY'
+                    ? 'bg-white border border-[#d3deef] text-primary-700 font-semibold shadow-sm'
+                    : 'text-[var(--ink-3)] font-medium'
                 }`}
               >
-                <div className="flex items-start gap-4">
-                  <div className="mt-0.5">
-                    <div
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        vatDisplayPreference === 'WITH_VAT'
-                          ? 'border-primary-600 bg-primary-600'
-                          : 'border-gray-300'
-                      }`}
-                    >
-                      {vatDisplayPreference === 'WITH_VAT' && (
-                        <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-gray-900 text-base mb-1.5">KDV Dahil Görüntüle</h4>
-                    <p className="text-sm text-gray-600 mb-3">
-                      Faturalı fiyatlar KDV dahil olarak gösterilir. Ödeyeceğiniz toplam tutarı direkt görürsünüz.
-                    </p>
-                    <div className="surface p-3 text-sm">
-                      <p className="text-gray-700 mb-1 font-medium">Örnek</p>
-                      <p className="text-gray-600">
-                        Ürün maliyeti: <span className="font-mono">100 TL</span><br />
-                        KDV (%18): <span className="font-mono">+ 18 TL</span><br />
-                        <span className="font-semibold text-primary-700">Görünen fiyat: 118 TL</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                onClick={() => setVatDisplayPreference('WITHOUT_VAT')}
-                className={`p-5 rounded-xl border cursor-pointer transition-all ${
-                  vatDisplayPreference === 'WITHOUT_VAT'
-                    ? 'border-primary-500 bg-primary-50 ring-1 ring-primary-500'
-                    : 'border-[var(--line-strong)] hover:border-primary-300 bg-white'
+                Beyaz
+              </span>
+              <span
+                className={`px-3.5 py-2 text-[13px] rounded-md ${
+                  priceVisibility === 'BOTH'
+                    ? 'bg-white border border-[#d3deef] text-primary-700 font-semibold shadow-sm'
+                    : 'text-[var(--ink-3)] font-medium'
                 }`}
               >
-                <div className="flex items-start gap-4">
-                  <div className="mt-0.5">
-                    <div
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        vatDisplayPreference === 'WITHOUT_VAT'
-                          ? 'border-primary-600 bg-primary-600'
-                          : 'border-gray-300'
-                      }`}
-                    >
-                      {vatDisplayPreference === 'WITHOUT_VAT' && (
-                        <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-gray-900 text-base mb-1.5">KDV Hariç Görüntüle</h4>
-                    <p className="text-sm text-gray-600 mb-3">
-                      Faturalı fiyatlar KDV hariç olarak gösterilir. KDV tutarı sepet ve fatura aşamasında eklenir.
-                    </p>
-                    <div className="surface p-3 text-sm">
-                      <p className="text-gray-700 mb-1 font-medium">Örnek</p>
-                      <p className="text-gray-600">
-                        <span className="font-semibold text-primary-700">Görünen fiyat: 100 TL</span><br />
-                        <span className="text-xs text-gray-500">(KDV sepette hesaplanır)</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                Her ikisi
+              </span>
             </div>
-
-            <div className="mt-8 pt-6 border-t border-[var(--line)]">
-              <div className="bg-primary-50 border border-primary-100 p-4 rounded-lg mb-6">
-                <div className="flex items-start gap-3">
-                  <Info className="w-5 h-5 text-primary-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-primary-900 mb-1">Bilgi</p>
-                    <ul className="text-sm text-primary-800 space-y-1">
-                      <li>• Bu ayar sadece <strong>Faturalı fiyatları</strong> etkiler</li>
-                      <li>• Beyaz fiyatlar her zaman aynı şekilde gösterilir (maliyet + yarım KDV)</li>
-                      <li>• Sepet ve sipariş toplamları her zaman doğru hesaplanır</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <Button
-                onClick={handleSave}
-                isLoading={isSaving}
-                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3"
-              >
-                Ayarları Kaydet
-              </Button>
-            </div>
-          </Card>
+          </div>
         </div>
+
+        {/* Bilgi */}
+        <div className="bg-primary-50 border border-primary-100 p-4 rounded-xl mt-4">
+          <div className="flex items-start gap-3">
+            <Info className="w-5 h-5 text-primary-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-primary-900 mb-1">Bilgi</p>
+              <ul className="text-sm text-primary-800 space-y-1">
+                <li>• Bu ayar sadece <strong>Faturalı fiyatları</strong> etkiler</li>
+                <li>• Beyaz fiyatlar her zaman aynı şekilde gösterilir (maliyet + yarım KDV)</li>
+                <li>• Sepet ve sipariş toplamları her zaman doğru hesaplanır</li>
+                <li>• Fiyat görünürlüğü temsilciniz tarafından ayarlanır</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Kaydet */}
+        <Button
+          onClick={handleSave}
+          isLoading={isSaving}
+          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3 mt-4"
+        >
+          Ayarları Kaydet
+        </Button>
       </div>
     </div>
   );
