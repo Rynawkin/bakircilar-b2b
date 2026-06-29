@@ -43,7 +43,7 @@ import {
   Truck
 } from 'lucide-react';
 
-interface NavItem {
+export interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -51,7 +51,7 @@ interface NavItem {
   permission?: string | string[];
 }
 
-const navItems: NavItem[] = [
+export const navItems: NavItem[] = [
   {
     name: 'Dashboard',
     href: '/dashboard',
@@ -123,7 +123,7 @@ navItems.splice(6, 0, {
 });
 
 
-const settingsItems: NavItem[] = [
+export const settingsItems: NavItem[] = [
   { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandirma ayarlari', permission: 'admin:price-rules' },
   { name: 'Urun Override', href: '/product-overrides', icon: Tag, description: 'Ozel fiyatlar', permission: 'admin:price-rules' },
   { name: 'Tedarikci Iskonto', href: '/supplier-price-list-settings', icon: Percent, description: 'Tedarikci iskonto ayarlari', permission: 'admin:supplier-price-lists' },
