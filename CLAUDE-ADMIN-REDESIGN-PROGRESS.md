@@ -114,10 +114,10 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 | # | Ekran | Route | Durum |
 |---|---|---|---|
 | 10.1 | Üçarer Depo ve MinMax | /reports/ucarer-depo | ⬜ |
-| 10.2 | MinMax Hesaplanmayacaklar | /reports/ucarer-minmax-exclusions | ⬜ |
-| 10.3 | Stok Aile Yönetimi | /reports/product-families | ⬜ |
-| 10.4 | Fiyat Aile Yönetimi | /reports/price-families | ⬜ |
-| 10.5 | Fiyat Ailesi Maliyet Kontrolü | /reports/price-family-costs | ⬜ |
+| 10.2 | MinMax Hesaplanmayacaklar | /reports/ucarer-minmax-exclusions | ✅ (hook+Classic+New) |
+| 10.3 | Stok Aile Yönetimi | /reports/product-families | ✅ (hook+Classic+New) |
+| 10.4 | Fiyat Aile Yönetimi | /reports/price-families | ✅ (hook+Classic+New) |
+| 10.5 | Fiyat Ailesi Maliyet Kontrolü | /reports/price-family-costs | ✅ (hook+Classic+New) |
 
 ## 11. Ayarlar
 | # | Ekran | Route | Durum |
