@@ -3970,6 +3970,29 @@ export const adminApi = {
     return response.data;
   },
 
+  // ===== AI Asistan =====
+  aiStatus: async (): Promise<{ enabled: boolean }> => {
+    const response = await apiClient.get('/admin/ai/status');
+    return response.data;
+  },
+
+  aiChat: async (
+    messages: { role: 'user' | 'assistant'; content: string }[]
+  ): Promise<{ reply: string; toolsUsed: string[] }> => {
+    const response = await apiClient.post('/admin/ai/chat', { messages });
+    return response.data;
+  },
+
+  aiAnalyzeQuote: async (payload: {
+    quote: any;
+    requestText?: string;
+    requestImageBase64?: string;
+    requestImageMediaType?: string;
+  }): Promise<{ analysis: any; raw: string; toolsUsed: string[] }> => {
+    const response = await apiClient.post('/admin/ai/analyze-quote', payload);
+    return response.data;
+  },
+
   // Supplier price lists
   getSupplierPriceListSuppliers: async (): Promise<{ suppliers: any[] }> => {
     const response = await apiClient.get('/admin/supplier-price-lists/suppliers');

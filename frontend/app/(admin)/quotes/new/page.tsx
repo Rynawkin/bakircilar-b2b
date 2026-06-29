@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/Input';
 import { CustomerInfoCard } from '@/components/ui/CustomerInfoCard';
 import { Modal } from '@/components/ui/Modal';
 import { CariSelectModal } from '@/components/admin/CariSelectModal';
+import { Sparkles, Loader2 } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import {
   convertPriceFromBaseUnit,
@@ -538,6 +539,96 @@ function AdminQuoteNewPageContent() {
   const [searchResults, setSearchResults] = useState<QuoteProduct[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [quoteItems, setQuoteItems] = useState<QuoteItemForm[]>([]);
+  // ===== AI ile teklif analizi =====
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiRequestText, setAiRequestText] = useState('');
+  const [aiImage, setAiImage] = useState<{ base64: string; mediaType: string; name: string } | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState<any | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const buildAiQuotePayload = () => ({
+    mode: isOrderMode ? 'order' : 'quote',
+    customer: selectedCustomer
+      ? {
+          code: selectedCustomer.mikroCariCode,
+          name: selectedCustomer.name,
+          sectorCode: selectedCustomer.sectorCode,
+          balance: selectedCustomer.balance,
+        }
+      : null,
+    items: quoteItems.map((it) => {
+      const mi = getMarginInfo(it);
+      const ls = it.lastSales && it.lastSales[0];
+      return {
+        productCode: it.productCode,
+        productName: it.productName,
+        quantity: it.quantity,
+        unit: it.selectedUnit || it.unit,
+        unit2: it.unit2,
+        unit2Factor: it.unit2Factor,
+        unitPrice: it.unitPrice,
+        priceType: it.priceType,
+        priceSource: it.priceSource,
+        vatRate: it.vatRate,
+        vatZeroed: !!(vatZeroed || it.vatZeroed),
+        lineTotal: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
+        currentCost: it.currentCost ?? null,
+        lastEntryPrice: it.lastEntryPrice ?? null,
+        marginBlocked: mi ? mi.blocked : null,
+        lineDescription: it.lineDescription || null,
+        lastSale: ls ? { date: (ls as any).date, price: (ls as any).price, quantity: (ls as any).quantity } : null,
+      };
+    }),
+    totals,
+    profit: profitTotals,
+  });
+
+  const onAiImageChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Gorsel 5MB altinda olmali.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const base64 = result.split(',')[1] || '';
+      setAiImage({ base64, mediaType: file.type || 'image/jpeg', name: file.name });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const openAiAnalysis = () => {
+    if (quoteItems.length === 0) {
+      toast.error('Once teklife urun ekleyin.');
+      return;
+    }
+    setAiResult(null);
+    setAiError(null);
+    setShowAiModal(true);
+  };
+
+  const runAiAnalysis = async () => {
+    setAiAnalyzing(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const res = await adminApi.aiAnalyzeQuote({
+        quote: buildAiQuotePayload(),
+        requestText: aiRequestText || undefined,
+        requestImageBase64: aiImage?.base64,
+        requestImageMediaType: aiImage?.mediaType,
+      });
+      setAiResult(res.analysis);
+    } catch (err: any) {
+      setAiError(err?.response?.data?.error || 'Analiz yapilamadi. (AI yapilandirilmamis veya baglanti hatasi olabilir.)');
+    } finally {
+      setAiAnalyzing(false);
+    }
+  };
+
   const [validityDate, setValidityDate] = useState('');
   const [note, setNote] = useState('');
   const [vatZeroed, setVatZeroed] = useState(false);
@@ -3853,21 +3944,158 @@ function AdminQuoteNewPageContent() {
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-xs text-gray-500">{quoteItems.length} kalem secili</p>
-              <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
-                {submitting
-                  ? 'Gonderiliyor...'
-                  : isOrderMode
-                    ? (isOrderEditMode ? 'Siparisi Guncelle' : 'Siparis Olustur')
-                    : isEditMode
-                      ? 'Teklifi Guncelle'
-                      : 'Teklif Olustur'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={openAiAnalysis}
+                  disabled={submitting || quoteItems.length === 0}
+                  title="Teklifi musteri talebine ve sistem verisine gore analiz et"
+                >
+                  <Sparkles className="w-4 h-4 mr-1.5" /> AI ile analiz et
+                </Button>
+                <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
+                  {submitting
+                    ? 'Gonderiliyor...'
+                    : isOrderMode
+                      ? (isOrderEditMode ? 'Siparisi Guncelle' : 'Siparis Olustur')
+                      : isEditMode
+                        ? 'Teklifi Guncelle'
+                        : 'Teklif Olustur'}
+                </Button>
+              </div>
             </div>
           </div>
         </Card>
           </div>
         </div>
       </div>
+
+      <Modal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        title="AI ile Teklif Analizi"
+        size="xl"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowAiModal(false)}>Kapat</Button>
+            <Button variant="primary" onClick={runAiAnalysis} isLoading={aiAnalyzing}>
+              {aiResult ? 'Tekrar Analiz Et' : 'Analiz Et'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-primary-100 bg-primary-50 p-3 text-[13px] text-primary-900">
+            Teklif, asagidaki <b>musteri talebine</b> ve sistemdeki maliyet/marj/gecmis verisine gore analiz edilir.
+            Talep metnini (varsa gorselini) eklerseniz analiz daha isabetli olur. AI <b>sadece okur</b>, teklifi degistirmez.
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+              Musteri talebi (opsiyonel) — musterinin bizden istedigi teklif metni
+            </label>
+            <textarea
+              value={aiRequestText}
+              onChange={(e) => setAiRequestText(e.target.value)}
+              rows={4}
+              placeholder={'Orn: "10 koli Z havlu, 5 koli pecete..." — yaprak sayisi, gramaj, ebat gibi detaylar varsa yazin.'}
+              className="w-full rounded-lg border border-[var(--line-strong)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+              <input type="file" accept="image/*" onChange={onAiImageChange} className="hidden" />
+              <span className="rounded-lg border border-[var(--line-strong)] px-3 py-1.5 font-medium text-primary-700 hover:bg-primary-50">
+                Talep gorseli ekle
+              </span>
+            </label>
+            {aiImage && (
+              <span className="inline-flex items-center gap-2 text-xs text-gray-600">
+                {aiImage.name} eklendi
+                <button type="button" className="text-red-600 hover:underline" onClick={() => setAiImage(null)}>kaldir</button>
+              </span>
+            )}
+          </div>
+
+          {aiError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{aiError}</div>
+          )}
+
+          {aiAnalyzing && (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-500">
+              <Loader2 className="h-5 w-5 animate-spin" /> Teklif analiz ediliyor...
+            </div>
+          )}
+
+          {aiResult && !aiAnalyzing && (
+            <div className="space-y-3">
+              {(() => {
+                const verdict = aiResult?.overall?.verdict || 'dikkat';
+                const win = aiResult?.overall?.winProbability || 'orta';
+                const tone =
+                  verdict === 'iyi'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : verdict === 'riskli'
+                      ? 'border-red-200 bg-red-50 text-red-800'
+                      : 'border-amber-200 bg-amber-50 text-amber-800';
+                return (
+                  <div className={`rounded-xl border p-3 ${tone}`}>
+                    <div className="text-sm font-semibold">
+                      Genel: {String(verdict).toUpperCase()} · Kazanma olasiligi: {String(win).toUpperCase()}
+                    </div>
+                    {aiResult?.overall?.summary && (
+                      <div className="mt-1 text-[13px]">{aiResult.overall.summary}</div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {Array.isArray(aiResult?.findings) && aiResult.findings.length === 0 ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                  Belirgin bir sorun bulunamadi.
+                </div>
+              ) : (
+                (aiResult?.findings || []).map((f: any, i: number) => {
+                  const sev = f?.severity || 'info';
+                  const sevTone =
+                    sev === 'critical'
+                      ? 'border-red-200 bg-red-50'
+                      : sev === 'warning'
+                        ? 'border-amber-200 bg-amber-50'
+                        : 'border-[var(--line)] bg-white';
+                  return (
+                    <div key={i} className={`rounded-xl border p-3 ${sevTone}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm font-semibold text-gray-900">{f?.title || 'Bulgu'}</span>
+                        {f?.category && (
+                          <span className="shrink-0 rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                            {String(f.category).replace(/_/g, ' ')}
+                          </span>
+                        )}
+                      </div>
+                      {f?.detail && <p className="mt-1 text-[13px] text-gray-700">{f.detail}</p>}
+                      {f?.suggestion && (
+                        <p className="mt-1.5 text-[13px] text-gray-800">
+                          <span className="font-semibold">Oneri:</span> {f.suggestion}
+                        </p>
+                      )}
+                      {f?.lineRef && <p className="mt-1 text-[11px] text-gray-500">Ilgili: {f.lineRef}</p>}
+                    </div>
+                  );
+                })
+              )}
+              <p className="text-[11px] text-gray-400">
+                AI onerisidir; nihai karar sizindir. Sayilar canli sistemden alinir.
+              </p>
+            </div>
+          )}
+
+          {!aiResult && !aiAnalyzing && !aiError && (
+            <p className="text-center text-sm text-gray-400 py-4">
+              "Analiz Et" butonuna basinca teklif degerlendirilecek.
+            </p>
+          )}
+        </div>
+      </Modal>
 
       <CariSelectModal
         isOpen={showCariModal}

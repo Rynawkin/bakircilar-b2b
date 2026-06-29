@@ -60,6 +60,24 @@ export const config = {
   orderTrackingKioskSyncCronSchedule: process.env.ORDER_TRACKING_KIOSK_SYNC_CRON_SCHEDULE || '*/10 * * * *',
   yolpilotIntegrationApiKey: process.env.YOLPILOT_INTEGRATION_API_KEY || '',
 
+  // AI Assistant (Anthropic)
+  // ANTHROPIC_API_KEY tanimli degilse asistan endpointleri "AI yapilandirilmadi" doner;
+  // backend yine de calisir (zorunlu env degil).
+  ai: {
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    // Soru-cevap (sohbet) modeli. Maliyet icin varsayilan Sonnet; env ile degistirilebilir.
+    model: process.env.AI_MODEL || 'claude-sonnet-4-6',
+    // Teklif analizi modeli (derin analiz icin ayri override imkani).
+    analysisModel: process.env.AI_ANALYSIS_MODEL || 'claude-sonnet-4-6',
+    maxTokens: parseInt(process.env.AI_MAX_TOKENS || '2048', 10),
+    analysisMaxTokens: parseInt(process.env.AI_ANALYSIS_MAX_TOKENS || '3072', 10),
+    // Ajan dongusunde izin verilen maksimum arac-cagri turu (maliyet/sonsuz dongu korumasi).
+    maxSteps: parseInt(process.env.AI_MAX_STEPS || '8', 10),
+    get enabled() {
+      return (process.env.ANTHROPIC_API_KEY || '').length > 0;
+    },
+  },
+
   // App
   isDevelopment: process.env.NODE_ENV === 'development',
   isProduction: process.env.NODE_ENV === 'production',

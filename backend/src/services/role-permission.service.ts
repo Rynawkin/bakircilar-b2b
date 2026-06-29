@@ -59,6 +59,7 @@ export const AVAILABLE_PERMISSIONS = {
   'admin:exclusions': 'Rapor Haric Tutma',
   'admin:notifications': 'Bildirimler',
   'admin:price-sync': 'Fiyat Senkronizasyonu',
+  'admin:ai-assistant': 'AI Asistan',
 } as const;
 
 // İzin açıklamaları
@@ -118,6 +119,7 @@ export const PERMISSION_DESCRIPTIONS = {
   'admin:exclusions': 'Rapor haric tutma kurallarina erisim izni verir',
   'admin:notifications': 'Bildirimleri gorme ve okuma izni verir',
   'admin:price-sync': 'Fiyat senkronizasyon islemlerine erisim izni verir',
+  'admin:ai-assistant': 'Sirket-ici AI asistanina (dogal dil soru-cevap + teklif analizi) erisim izni verir',
 } as const;
 
 export type PermissionKey = keyof typeof AVAILABLE_PERMISSIONS;
@@ -267,6 +269,7 @@ class RolePermissionService {
         'admin:supplier-price-lists',
         'admin:supplier-costs',
         'admin:notifications',
+        'admin:ai-assistant',
       ]);
       return allowed.has(permission);
     }
@@ -293,6 +296,7 @@ class RolePermissionService {
         'admin:vade',
         'admin:einvoices',
         'admin:notifications',
+        'admin:ai-assistant',
       ]);
       return allowed.has(permission);
     }

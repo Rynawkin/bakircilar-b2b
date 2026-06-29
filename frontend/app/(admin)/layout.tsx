@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { AdminNavigation } from '@/components/layout/AdminNavigation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AdminAiAssistant } from '@/components/ai/AdminAiAssistant';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { loadUserFromStorage } = useAuthStore();
@@ -17,6 +18,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="min-h-screen bg-gray-50">
         <AdminNavigation />
         <main>{children}</main>
+        <AdminAiAssistant />
       </div>
     </ErrorBoundary>
   );

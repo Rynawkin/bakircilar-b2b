@@ -16,6 +16,7 @@ import cariHareketRoutes from './cari-hareket.routes';
 import rolePermissionRoutes from './role-permission.routes';
 import vadeRoutes from './vade.routes';
 import integrationRoutes from './integration.routes';
+import aiAssistantRoutes from './ai-assistant.routes';
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin/reports', reportsRoutes);
 router.use('/admin/vade', vadeRoutes);
+router.use('/admin/ai', aiAssistantRoutes);
 router.use('/search', searchRoutes);
 router.use('/cari-hareket', cariHareketRoutes);
 router.use('/campaigns', campaignRoutes);
