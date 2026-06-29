@@ -17,7 +17,10 @@ import adminApi from '@/lib/api/admin';
 import { formatDateShort } from '@/lib/utils/format';
 import { Notification } from '@/types';
 import { usePermissions } from '@/hooks/usePermissions';
-import { navItems, settingsItems } from './AdminNavigation';
+import { navItems, settingsItems, NavItem } from './AdminNavigation';
+
+// Tasarimda one cikan 6 birincil modul (gerisi "Digerleri"ne duser).
+const PRIMARY_HREFS = ['/dashboard', '/orders', '/quotes', '/order-tracking', '/operations', '/customers'];
 import { ChevronDown, MoreHorizontal, Settings, Bell, LogOut, Menu as MenuIcon, X } from 'lucide-react';
 
 export function AdminNavigationNew() {
@@ -101,8 +104,11 @@ export function AdminNavigationNew() {
 
   const visibleNavItems = navItems.filter((item) => canAccess(item.permission));
   const visibleSettingsItems = settingsItems.filter((item) => canAccess(item.permission));
-  const primaryNavItems = visibleNavItems.slice(0, 6);
-  const overflowNavItems = visibleNavItems.slice(6);
+  // Birincil = tasarimdaki onemli 6 (izin varsa, tasarim sirasinda); gerisi taskinda.
+  const primaryNavItems = PRIMARY_HREFS
+    .map((href) => visibleNavItems.find((item) => item.href === href))
+    .filter((item): item is NavItem => Boolean(item));
+  const overflowNavItems = visibleNavItems.filter((item) => !PRIMARY_HREFS.includes(item.href));
   const homeHref = user?.role === 'DEPOCU' ? '/warehouse' : '/dashboard';
 
   const dropdownPanel = 'origin-top-right rounded-xl bg-white shadow-[0_18px_36px_rgba(20,34,59,0.14)] ring-1 ring-[var(--line)] focus:outline-none';
@@ -126,7 +132,7 @@ export function AdminNavigationNew() {
               key={item.href}
               href={item.href}
               title={item.description}
-              className={`flex h-[38px] items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors ${
+              className={`flex h-[38px] items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-colors ${
                 isActive(item.href)
                   ? 'bg-primary-50 text-primary-700'
                   : 'text-[var(--ink-2)] hover:bg-[var(--surface-0)]'
