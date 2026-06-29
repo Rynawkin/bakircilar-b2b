@@ -28,13 +28,13 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 | 1.3 | Teklifi Siparişe Çevir | /quotes/convert/[id] | ⬜ |
 | 1.4 | Teklif Kalemleri | /quotes/lines | ✅ (hook+Classic+New) |
 | 1.5 | Siparişler | /orders | ✅ (hook+Classic+New) |
-| 1.6 | Sipariş Takip | /order-tracking | ⬜ |
+| 1.6 | Sipariş Takip | /order-tracking | ✅ (hook+Classic+New) |
 
 ## 2. Dashboard & Operasyon
 | # | Ekran | Route | Durum |
 |---|---|---|---|
 | 2.1 | Dashboard | /dashboard | ✅ (hook'a ayrıldı; Klasik birebir korundu, Yeni tasarım) |
-| 2.2 | Operasyon Komuta Merkezi | /operations | ⬜ |
+| 2.2 | Operasyon Komuta Merkezi | /operations | ✅ (hook+Classic+New) |
 
 ## 3. Saha & Sıcak & Depo
 | # | Ekran | Route | Durum |
@@ -50,7 +50,7 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 | # | Ekran | Route | Durum |
 |---|---|---|---|
 | 4.1 | Müşteriler (+ CariSelect/Edit/BulkUsers modalları) | /customers | ✅ (hook+Classic+New) |
-| 4.2 | Cari 360 | /customer-360 | ⬜ |
+| 4.2 | Cari 360 | /customer-360 | ✅ (hook+Classic+New) |
 | 4.3 | Müşteri Portföyüm | /portfolio | ⬜ |
 | 4.4 | Anlaşmalı Fiyatlar | /customer-agreements | ⬜ |
 | 4.5 | Cari Arama (F10) | /search/customers | ⬜ |
@@ -58,7 +58,7 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 ## 5. Vade
 | # | Ekran | Route | Durum |
 |---|---|---|---|
-| 5.1 | Vade Takip (liste) | /vade | ⬜ |
+| 5.1 | Vade Takip (liste) | /vade | ✅ (hook+Classic+New) |
 | 5.2 | Vade Müşteri Detay | /vade/customers/[id] | ⬜ |
 | 5.3 | Vade Atamaları | /vade/assignments | ⬜ |
 | 5.4 | Hatırlatma Takvimi | /vade/calendar | ⬜ |
