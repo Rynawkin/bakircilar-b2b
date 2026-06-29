@@ -122,11 +122,11 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 ## 11. Ayarlar
 | # | Ekran | Route | Durum |
 |---|---|---|---|
-| 11.1 | Kategoriler (fiyatlandırma) | /categories | ⬜ |
-| 11.2 | Dışlama Kuralları | /exclusions | ⬜ |
-| 11.3 | Personel | /staff | ⬜ |
+| 11.1 | Kategoriler (fiyatlandırma) | /categories | ✅ (hook+Classic+New) |
+| 11.2 | Dışlama Kuralları | /exclusions | ✅ (hook+Classic+New) |
+| 11.3 | Personel | /staff | ✅ (hook+Classic+New) |
 | 11.4 | Rol İzinleri | /role-permissions | ⬜ |
-| 11.5 | Sistem Ayarları | /settings | ⬜ |
+| 11.5 | Sistem Ayarları | /settings | ✅ (hook+Classic+New) |
 
 ---
 
