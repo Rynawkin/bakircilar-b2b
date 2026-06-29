@@ -33,7 +33,7 @@ içindeki o ekrana ait HER alan/buton/kolon/modal/durum tek tek doğrulanır (�
 ## 2. Dashboard & Operasyon
 | # | Ekran | Route | Durum |
 |---|---|---|---|
-| 2.1 | Dashboard | /dashboard | ⬜ |
+| 2.1 | Dashboard | /dashboard | ✅ (hook'a ayrıldı; Klasik birebir korundu, Yeni tasarım) |
 | 2.2 | Operasyon Komuta Merkezi | /operations | ⬜ |
 
 ## 3. Saha & Sıcak & Depo
