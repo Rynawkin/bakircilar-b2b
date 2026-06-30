@@ -22,6 +22,11 @@ export type ActivityType =
   | 'CLICK'
   | 'SEARCH';
 
+export interface ActivityDailyCount {
+  date: string;
+  count: number;
+}
+
 export interface ActivitySummary {
   totalEvents: number;
   uniqueUsers: number;
@@ -33,6 +38,7 @@ export interface ActivitySummary {
   activeSeconds: number;
   clickCount: number;
   searchCount: number;
+  dailyCounts?: ActivityDailyCount[];
 }
 
 export interface TopPage {
@@ -148,12 +154,12 @@ export const formatDateTime = (value?: string | null) => {
 
 export const typeLabels: Record<ActivityType, { label: string; variant: 'default' | 'info' | 'success' | 'warning' | 'danger' }> = {
   PAGE_VIEW: { label: 'Sayfa', variant: 'info' },
-  PRODUCT_VIEW: { label: 'Urun', variant: 'success' },
+  PRODUCT_VIEW: { label: 'Ürün', variant: 'success' },
   CART_ADD: { label: 'Sepet +', variant: 'success' },
-  CART_REMOVE: { label: 'Sepet -', variant: 'danger' },
-  CART_UPDATE: { label: 'Sepet Guncel', variant: 'warning' },
+  CART_REMOVE: { label: 'Sepet −', variant: 'danger' },
+  CART_UPDATE: { label: 'Sepet Güncelleme', variant: 'warning' },
   ACTIVE_PING: { label: 'Aktiflik', variant: 'default' },
-  CLICK: { label: 'Tiklama', variant: 'default' },
+  CLICK: { label: 'Tıklama', variant: 'default' },
   SEARCH: { label: 'Arama', variant: 'info' },
 };
 

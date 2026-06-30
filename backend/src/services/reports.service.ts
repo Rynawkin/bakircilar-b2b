@@ -327,6 +327,11 @@ interface CategoryOpportunityReportResponse {
   };
 }
 
+interface CustomerActivityDailyCount {
+  date: string;
+  count: number;
+}
+
 interface CustomerActivitySummary {
   totalEvents: number;
   uniqueUsers: number;
@@ -338,6 +343,7 @@ interface CustomerActivitySummary {
   activeSeconds: number;
   clickCount: number;
   searchCount: number;
+  dailyCounts: CustomerActivityDailyCount[];
 }
 
 interface CustomerActivityTopPage {
@@ -5754,7 +5760,21 @@ export class ReportsService {
       where.userId = options.userId;
     }
 
-    const [totalRecords, uniqueUserRows, typeCounts, activeAgg] = await Promise.all([
+    // Gunluk olay sayisi (Aktivite Trendi + KPI sparkline icin). Salt-okuma.
+    // Postgres date_trunc ile gun bazinda gruplanir; opsiyonel cari/kullanici filtreleri uygulanir.
+    const dailyWhereSql: Prisma.Sql[] = [
+      Prisma.sql`"createdAt" >= ${parsedStart}`,
+      Prisma.sql`"createdAt" < ${endExclusive}`,
+      Prisma.sql`"userId" IN (SELECT "id" FROM "User" WHERE "role" = 'CUSTOMER')`,
+    ];
+    if (customer?.id) {
+      dailyWhereSql.push(Prisma.sql`"customerId" = ${customer.id}`);
+    }
+    if (options.userId) {
+      dailyWhereSql.push(Prisma.sql`"userId" = ${options.userId}`);
+    }
+
+    const [totalRecords, uniqueUserRows, typeCounts, activeAgg, dailyCountRows] = await Promise.all([
       prisma.customerActivityEvent.count({ where }),
       prisma.customerActivityEvent.groupBy({
         by: ['userId'],
@@ -5770,7 +5790,29 @@ export class ReportsService {
         where: { ...where, type: 'ACTIVE_PING' },
         _sum: { durationSeconds: true, clickCount: true },
       }),
+      prisma.$queryRaw<Array<{ day: Date; count: bigint }>>(Prisma.sql`
+        SELECT date_trunc('day', "createdAt") AS day, COUNT(*)::bigint AS count
+        FROM "CustomerActivityEvent"
+        WHERE ${Prisma.join(dailyWhereSql, ' AND ')}
+        GROUP BY day
+        ORDER BY day ASC
+      `),
     ]);
+
+    // Tarih araligindaki her gun icin (bos gunler dahil) sayim serisi olustur.
+    const dailyCountMap = new Map<string, number>();
+    dailyCountRows.forEach((row) => {
+      dailyCountMap.set(formatDateKey(new Date(row.day)), Number(row.count));
+    });
+    const dailyCounts: CustomerActivityDailyCount[] = [];
+    {
+      const cursor = new Date(parsedStart);
+      while (cursor <= parsedEnd) {
+        const key = formatDateKey(cursor);
+        dailyCounts.push({ date: key, count: dailyCountMap.get(key) || 0 });
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+    }
 
     const uniqueUsers = uniqueUserRows.length;
 
@@ -5790,6 +5832,7 @@ export class ReportsService {
       activeSeconds: Number(activeAgg._sum.durationSeconds || 0),
       clickCount: Number(activeAgg._sum.clickCount || 0),
       searchCount: typeMap.get('SEARCH') || 0,
+      dailyCounts,
     };
 
     const [topPagesRaw, topClickPagesRaw, topProductsRaw, topUsersRaw, searchCountsByUser] = await Promise.all([
