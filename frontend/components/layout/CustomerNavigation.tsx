@@ -227,7 +227,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full overflow-x-hidden bg-white">
+    <header className="sticky top-0 z-50 w-full overflow-x-clip bg-white">
       {/* ── ÜST BAR ──────────────────────────────────────────────── */}
       <div className="border-b border-[var(--line)]">
         <div className="mx-auto flex h-16 w-full max-w-[1900px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:gap-4 lg:px-8">
@@ -343,7 +343,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               leaveFrom="transform opacity-100 scale-100"
               leaveTo="transform opacity-0 scale-95"
             >
-              <Menu.Items className="absolute right-0 mt-2 w-[calc(100vw-1.5rem)] max-w-[20rem] origin-top-right overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-[var(--line)] focus:outline-none sm:w-80">
+              <Menu.Items className="absolute right-0 z-[60] mt-2 w-[calc(100vw-1.5rem)] max-w-[20rem] origin-top-right overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-[var(--line)] focus:outline-none sm:w-80">
                 <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
                   <div className="text-sm font-semibold text-[var(--ink-1)]">Bildirimler</div>
                   <button className="text-xs font-medium text-primary-600 hover:text-primary-700" onClick={handleMarkAllRead} type="button">
@@ -401,7 +401,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               leaveFrom="transform opacity-100 scale-100"
               leaveTo="transform opacity-0 scale-95"
             >
-              <Menu.Items className="absolute right-0 mt-2 w-64 origin-top-right overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-[var(--line)] focus:outline-none">
+              <Menu.Items className="absolute right-0 z-[60] mt-2 w-64 origin-top-right overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-[var(--line)] focus:outline-none">
                 <div className="border-b border-[var(--line)] p-4">
                   <p className="truncate text-sm font-semibold text-[var(--ink-1)]">{user?.name}</p>
                   <p className="truncate text-xs text-[var(--ink-3)]">{user?.email}</p>
