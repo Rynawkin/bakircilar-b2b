@@ -60,6 +60,7 @@ export const AVAILABLE_PERMISSIONS = {
   'admin:notifications': 'Bildirimler',
   'admin:price-sync': 'Fiyat Senkronizasyonu',
   'admin:ai-assistant': 'AI Asistan',
+  'admin:search-management': 'Arama Yonetimi',
 } as const;
 
 // İzin açıklamaları
@@ -120,6 +121,7 @@ export const PERMISSION_DESCRIPTIONS = {
   'admin:notifications': 'Bildirimleri gorme ve okuma izni verir',
   'admin:price-sync': 'Fiyat senkronizasyon islemlerine erisim izni verir',
   'admin:ai-assistant': 'Sirket-ici AI asistanina (dogal dil soru-cevap + teklif analizi) erisim izni verir',
+  'admin:search-management': 'Musteri panelinde bulunamayan arama terimlerini gorme ve urunlere arama takma adi (alias) ekleme izni verir',
 } as const;
 
 export type PermissionKey = keyof typeof AVAILABLE_PERMISSIONS;

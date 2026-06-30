@@ -4246,6 +4246,55 @@ export const adminApi = {
     const response = await apiClient.delete(`/admin/banners/${id}`);
     return response.data;
   },
+
+  // Arama Yonetimi
+  getSearchMisses: async (params: {
+    status?: 'all' | 'open' | 'resolved';
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{
+    items: Array<{
+      id: string;
+      normalizedTerm: string;
+      sampleTerm: string | null;
+      count: number;
+      resolved: boolean;
+      lastSearchedAt: string | null;
+    }>;
+    pagination: PaginationMeta;
+  }> => {
+    const response = await apiClient.get('/admin/search-misses', { params });
+    return response.data;
+  },
+
+  updateSearchMiss: async (id: string, resolved: boolean): Promise<{ ok: true }> => {
+    const response = await apiClient.patch(`/admin/search-misses/${id}`, { resolved });
+    return response.data;
+  },
+
+  getProductAliases: async (params: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{
+    items: Array<{
+      id: string;
+      name: string;
+      mikroCode: string;
+      categoryName: string | null;
+      searchAliases: string | null;
+    }>;
+    pagination: PaginationMeta;
+  }> => {
+    const response = await apiClient.get('/admin/product-aliases', { params });
+    return response.data;
+  },
+
+  updateProductAliases: async (id: string, searchAliases: string): Promise<{ ok: true }> => {
+    const response = await apiClient.put(`/admin/product-aliases/${id}`, { searchAliases });
+    return response.data;
+  },
 };
 
 export default adminApi;

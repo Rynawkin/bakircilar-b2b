@@ -3,6 +3,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import stockService from '../services/stock.service';
 import pricingService from '../services/pricing.service';
@@ -2397,6 +2398,71 @@ export class CustomerController {
       });
 
       res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * 0-sonuc arama kurtarma: SearchMiss kaydeder + trigram fuzzy oneri doner.
+   * GET /products/search-fallback?q=<terim>&categoryId=<ops>
+   * NOT: Normal arama searchText (alias dahil) uzerinden calisir; bu endpoint
+   * yalnizca arama 0 sonuc verdiginde "bunu mu demek istediniz" onerisi icindir.
+   */
+  async searchFallback(req: Request, res: Response, next: NextFunction) {
+    try {
+      const q = String(req.query.q || '').trim();
+      const norm = normalizeSearchText(q);
+      if (!norm) {
+        return res.json({ term: q, suggestions: [] });
+      }
+
+      const rawCategoryId = req.query.categoryId;
+      const categoryId =
+        typeof rawCategoryId === 'string' && rawCategoryId.trim()
+          ? rawCategoryId.trim()
+          : undefined;
+
+      // SearchMiss upsert - fire-and-forget (cevabi bekletmesin / hata yutulur)
+      prisma.searchMiss
+        .upsert({
+          where: { normalizedTerm: norm },
+          update: {
+            count: { increment: 1 },
+            lastSearchedAt: new Date(),
+            sampleTerm: q,
+          },
+          create: { normalizedTerm: norm, sampleTerm: q },
+        })
+        .catch(() => {});
+
+      // Trigram fuzzy oneri (pg_trgm + searchText GIN index)
+      const categoryFilter = categoryId
+        ? Prisma.sql`AND p."categoryId" = ${categoryId}`
+        : Prisma.empty;
+
+      const suggestions = await prisma.$queryRaw<
+        Array<{
+          id: string;
+          name: string;
+          mikroCode: string;
+          imageUrl: string | null;
+          categoryId: string | null;
+          categoryName: string | null;
+        }>
+      >(Prisma.sql`
+        SELECT p.id, p.name, p."mikroCode", p."imageUrl", p."categoryId", c.name AS "categoryName"
+        FROM "Product" p
+        JOIN "Category" c ON c.id = p."categoryId"
+        WHERE p.active = true
+          AND p."hiddenFromCustomers" = false
+          AND ( p."searchText" % ${norm} OR word_similarity(${norm}, p."searchText") > 0.3 )
+          ${categoryFilter}
+        ORDER BY GREATEST(similarity(p."searchText", ${norm}), word_similarity(${norm}, p."searchText")) DESC, p.name ASC
+        LIMIT 24
+      `);
+
+      return res.json({ term: q, suggestions });
     } catch (error) {
       next(error);
     }

@@ -40,7 +40,8 @@ import {
   Ruler,
   PackagePlus,
   HandCoins,
-  Truck
+  Truck,
+  Search
 } from 'lucide-react';
 
 export interface NavItem {
@@ -128,6 +129,7 @@ export const settingsItems: NavItem[] = [
   { name: 'Urun Override', href: '/product-overrides', icon: Tag, description: 'Ozel fiyatlar', permission: 'admin:price-rules' },
   { name: 'Tedarikci Iskonto', href: '/supplier-price-list-settings', icon: Percent, description: 'Tedarikci iskonto ayarlari', permission: 'admin:supplier-price-lists' },
   { name: 'Haric Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme', permission: 'admin:exclusions' },
+  { name: 'Arama Yonetimi', href: '/search-management', icon: Search, description: 'Bulunamayan aramalar ve es-anlamlar', permission: 'admin:search-management' },
   { name: 'Personel', href: '/staff', icon: Users, description: 'Personel yonetimi', permission: 'admin:staff' },
   { name: 'Ayarlar', href: '/settings', icon: Settings, description: 'Sistem ayarlari', permission: 'admin:settings' },
 ];

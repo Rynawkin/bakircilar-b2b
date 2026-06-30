@@ -130,6 +130,9 @@ router.get(
   customerController.getProducts
 );
 
+// 0-sonuc arama kurtarma (trigram fuzzy oneri). DIKKAT: /products/:id ten ONCE tanimli olmali.
+router.get('/products/search-fallback', customerController.searchFallback);
+
 router.get(
   '/products/:id',
   cacheMiddleware({

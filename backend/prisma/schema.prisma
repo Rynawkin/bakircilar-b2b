@@ -811,7 +811,10 @@ model Product {
   isFeatured              Boolean   @default(false)
   featuredOrder           Int       @default(0)
   excludeFromDiscount     Boolean   @default(false)
-  // Aksan/buyuk-kucuk duyarsiz arama icin DB generated normalize metin (asla uygulamadan yazilmaz)
+  // Admin tarafindan girilen es-anlam/alternatif arama kelimeleri ("cop poseti" urune "cop torbasi" gibi).
+  // Sync bu alana DOKUNMAZ (kalici). DB generated searchText bu alani da kapsar -> arama otomatik bulur.
+  searchAliases           String?
+  // Aksan/buyuk-kucuk duyarsiz arama icin DB generated normalize metin (asla uygulamadan yazilmaz; searchAliases dahil)
   searchText              String?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
@@ -2693,9 +2696,20 @@ model Banner {
   @@index([active, position, sortOrder])
 }
 
+// Musterinin arayip SONUC BULAMADIGI aramalar (es-anlam/alias eklemek icin analitik).
+// normalizedTerm bazinda toplulastirilir; her tekrar count++ ve lastSearchedAt guncellenir.
+model SearchMiss {
+  id             String   @id @default(uuid())
+  normalizedTerm String   @unique
+  sampleTerm     String
+  count          Int      @default(1)
+  resolved       Boolean  @default(false) // admin alias ekledi/cozuldu olarak isaretledi
+  lastSearchedAt DateTime @default(now())
+  createdAt      DateTime @default(now())
 
-
-
+  @@index([resolved, count])
+  @@index([lastSearchedAt])
+}
 
 
 

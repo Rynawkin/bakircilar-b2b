@@ -28,7 +28,7 @@ import productComplementService from '../services/product-complement.service';
 import customerCategoryPurchaseService from '../services/customer-category-purchase.service';
 import { cacheService } from '../services/cache.service';
 import MIKRO_TABLES from '../config/mikro-tables';
-import { splitSearchTokens } from '../utils/search';
+import { splitSearchTokens, normalizeSearchText } from '../utils/search';
 import { getUploadsDir } from '../utils/storage';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
 
@@ -5500,6 +5500,165 @@ export class AdminController {
         success: true,
         message: 'Hariç tutma kuralı silindi',
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ============================================================
+  // Arama Yonetimi (Search Management)
+  // ============================================================
+
+  /**
+   * Bulunamayan arama terimleri listesi (sayfali, count desc).
+   * GET /api/admin/search-misses?status=all|open|resolved&search=&page=&pageSize=
+   */
+  async getSearchMisses(req: Request, res: Response, next: NextFunction) {
+    try {
+      const status = String(req.query.status || 'all');
+      const search = String(req.query.search || '').trim();
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 20));
+      const skip = (page - 1) * pageSize;
+
+      const where: any = {};
+      if (status === 'open') where.resolved = false;
+      else if (status === 'resolved') where.resolved = true;
+      if (search) {
+        const norm = normalizeSearchText(search);
+        const or: any[] = [
+          { sampleTerm: { contains: search, mode: 'insensitive' } },
+        ];
+        if (norm) or.push({ normalizedTerm: { contains: norm } });
+        where.OR = or;
+      }
+
+      const [total, items] = await Promise.all([
+        prisma.searchMiss.count({ where }),
+        prisma.searchMiss.findMany({
+          where,
+          orderBy: [{ count: 'desc' }, { lastSearchedAt: 'desc' }],
+          skip,
+          take: pageSize,
+          select: {
+            id: true,
+            normalizedTerm: true,
+            sampleTerm: true,
+            count: true,
+            resolved: true,
+            lastSearchedAt: true,
+          },
+        }),
+      ]);
+
+      res.json({
+        items,
+        pagination: {
+          total,
+          page,
+          pageSize,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Bir arama terimini cozuldu/cozulmedi olarak isaretle.
+   * PATCH /api/admin/search-misses/:id { resolved: boolean }
+   */
+  async updateSearchMiss(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const resolved = Boolean(req.body?.resolved);
+      await prisma.searchMiss.update({
+        where: { id },
+        data: { resolved },
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Urun arama takma adlari (searchAliases) yonetimi - liste (sayfali).
+   * GET /api/admin/product-aliases?search=&page=&pageSize=
+   */
+  async getProductAliases(req: Request, res: Response, next: NextFunction) {
+    try {
+      const search = String(req.query.search || '').trim();
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 20));
+      const skip = (page - 1) * pageSize;
+
+      const where: any = {};
+      if (search) {
+        const norm = normalizeSearchText(search);
+        const or: any[] = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { mikroCode: { contains: search, mode: 'insensitive' } },
+        ];
+        if (norm) or.push({ searchText: { contains: norm } });
+        where.OR = or;
+      }
+
+      const [total, products] = await Promise.all([
+        prisma.product.count({ where }),
+        prisma.product.findMany({
+          where,
+          orderBy: [{ name: 'asc' }],
+          skip,
+          take: pageSize,
+          select: {
+            id: true,
+            name: true,
+            mikroCode: true,
+            searchAliases: true,
+            category: { select: { name: true } },
+          },
+        }),
+      ]);
+
+      const items = products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        mikroCode: p.mikroCode,
+        categoryName: p.category?.name ?? null,
+        searchAliases: p.searchAliases ?? null,
+      }));
+
+      res.json({
+        items,
+        pagination: {
+          total,
+          page,
+          pageSize,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Bir urunun arama takma adlarini (searchAliases) guncelle.
+   * PUT /api/admin/product-aliases/:id { searchAliases: string }
+   * NOT: searchText GENERATED kolon -> Postgres otomatik gunceller, ELLE YAZMA.
+   */
+  async updateProductAliases(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const raw = req.body?.searchAliases;
+      const trimmed = typeof raw === 'string' ? raw.trim() : '';
+      await prisma.product.update({
+        where: { id },
+        data: { searchAliases: trimmed || null },
+      });
+      res.json({ ok: true });
     } catch (error) {
       next(error);
     }

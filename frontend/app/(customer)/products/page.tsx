@@ -28,6 +28,15 @@ const PAGE_SIZE = 60;
 const isCanceledRequest = (error: any) =>
   error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
 
+type FallbackSuggestion = {
+  id: string;
+  name: string;
+  mikroCode: string;
+  imageUrl: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+};
+
 export default function ProductsPage() {
   const searchParams = useSearchParams();
   const { user, loadUserFromStorage } = useAuthStore();
@@ -56,8 +65,10 @@ export default function ProductsPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [fallbackSuggestions, setFallbackSuggestions] = useState<FallbackSuggestion[]>([]);
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
+  const fallbackRequestRef = useRef<AbortController | null>(null);
   const productsRequestRef = useRef<AbortController | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const selectedCategoryIds = useMemo(
@@ -190,6 +201,49 @@ export default function ProductsPage() {
     if (isSearching || isLoadingMore || !hasMore) return;
     fetchProducts({ reset: false, offset });
   };
+
+  // 0-sonuc kurtarma: arama var ama urun yoksa (yukleme bitti) "benzer urunler" cek.
+  // Arama degisince oneriyi sifirla; urun bulununca gosterme. SearchMiss backend'de kaydedilir.
+  useEffect(() => {
+    const term = debouncedSearch.trim();
+    const noResults = !isInitialLoad && !isSearching && filteredProducts.length === 0;
+
+    if (!term || !noResults) {
+      fallbackRequestRef.current?.abort();
+      fallbackRequestRef.current = null;
+      setFallbackSuggestions([]);
+      return;
+    }
+
+    fallbackRequestRef.current?.abort();
+    const controller = new AbortController();
+    fallbackRequestRef.current = controller;
+
+    customerApi
+      .searchFallback(term, selectedCategory || undefined)
+      .then((data) => {
+        if (fallbackRequestRef.current !== controller) return;
+        setFallbackSuggestions(data.suggestions || []);
+      })
+      .catch((error) => {
+        if (isCanceledRequest(error)) return;
+        if (fallbackRequestRef.current === controller) setFallbackSuggestions([]);
+      })
+      .finally(() => {
+        if (fallbackRequestRef.current === controller) fallbackRequestRef.current = null;
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [debouncedSearch, isInitialLoad, isSearching, filteredProducts.length, selectedCategory]);
+
+  useEffect(() => {
+    return () => {
+      fallbackRequestRef.current?.abort();
+      fallbackRequestRef.current = null;
+    };
+  }, []);
 
   const handleAdd = useCallback(
     async (args: ProductCardAddArgs) => {
@@ -416,19 +470,66 @@ export default function ProductsPage() {
             ))}
           </div>
         ) : filteredProducts.length === 0 ? (
-          <Card>
-            <EmptyState
-              icon={search || selectedCategory ? 'search' : 'products'}
-              title={search || selectedCategory ? 'Ürün bulunamadı' : 'Henüz ürün yok'}
-              description={
-                search || selectedCategory
-                  ? 'Arama veya filtre kriterlerini değiştirip tekrar deneyebilirsiniz.'
-                  : 'Ürünler senkronize edildiğinde burada listelenecektir.'
-              }
-              actionLabel={activeFilterCount > 0 ? 'Filtreleri Temizle' : undefined}
-              onAction={activeFilterCount > 0 ? clearAllFilters : undefined}
-            />
-          </Card>
+          <div className="space-y-5">
+            <Card>
+              <EmptyState
+                icon={search || selectedCategory ? 'search' : 'products'}
+                title={search || selectedCategory ? 'Ürün bulunamadı' : 'Henüz ürün yok'}
+                description={
+                  search || selectedCategory
+                    ? 'Arama veya filtre kriterlerini değiştirip tekrar deneyebilirsiniz.'
+                    : 'Ürünler senkronize edildiğinde burada listelenecektir.'
+                }
+                actionLabel={activeFilterCount > 0 ? 'Filtreleri Temizle' : undefined}
+                onAction={activeFilterCount > 0 ? clearAllFilters : undefined}
+              />
+            </Card>
+
+            {/* 0-sonuc kurtarma: tipo/es-anlam benzer urun onerileri */}
+            {fallbackSuggestions.length > 0 && (
+              <div>
+                <div className="mb-3">
+                  <h2 className="text-base font-semibold text-[var(--ink-1)] sm:text-lg">
+                    Tam eşleşme bulunamadı — bunları mı aradınız?
+                  </h2>
+                  <p className="mt-1 text-[13px] text-[var(--ink-3)]">
+                    Aramanıza yakın {fallbackSuggestions.length} ürün bulundu.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  {fallbackSuggestions.map((s) => (
+                    <Link
+                      key={s.id}
+                      href={`/products/${s.id}`}
+                      className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-white p-3 transition-colors hover:border-[var(--line-strong)] hover:bg-[var(--surface-0)]"
+                    >
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-0)]">
+                        {s.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={s.imageUrl} alt={s.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <Search className="h-5 w-5 text-[var(--ink-3)]" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13.5px] font-medium text-[var(--ink-1)]">{s.name}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-[var(--ink-3)]">
+                          <span className="font-mono">{s.mikroCode}</span>
+                          {s.categoryName && (
+                            <>
+                              <span className="text-[var(--line-strong)]">·</span>
+                              <span className="truncate">{s.categoryName}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-[var(--ink-3)]" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="relative">
             {isSearching && (

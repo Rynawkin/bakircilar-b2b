@@ -82,6 +82,27 @@ export const customerApi = {
     return response.data;
   },
 
+  // 0-sonuc arama kurtarma: tipo/es-anlam fuzzy oneri (trigram). SearchMiss da kaydeder.
+  searchFallback: async (
+    q: string,
+    categoryId?: string
+  ): Promise<{
+    term: string;
+    suggestions: Array<{
+      id: string;
+      name: string;
+      mikroCode: string;
+      imageUrl: string | null;
+      categoryId: string | null;
+      categoryName: string | null;
+    }>;
+  }> => {
+    const response = await apiClient.get('/products/search-fallback', {
+      params: { q, categoryId: categoryId || undefined },
+    });
+    return response.data;
+  },
+
   getProductById: async (id: string): Promise<Product> => {
     const response = await apiClient.get(`/products/${id}`);
     return response.data;

@@ -655,6 +655,12 @@ router.post('/exclusions', requirePermission('admin:exclusions'), adminControlle
 router.put('/exclusions/:id', requirePermission('admin:exclusions'), adminController.updateExclusion);
 router.delete('/exclusions/:id', requirePermission('admin:exclusions'), adminController.deleteExclusion);
 
+// Arama Yonetimi (bulunamayan terimler + urun arama takma adlari)
+router.get('/search-misses', requirePermission('admin:search-management'), adminController.getSearchMisses);
+router.patch('/search-misses/:id', requirePermission('admin:search-management'), adminController.updateSearchMiss);
+router.get('/product-aliases', requirePermission('admin:search-management'), adminController.getProductAliases);
+router.put('/product-aliases/:id', requirePermission('admin:search-management'), adminController.updateProductAliases);
+
 // Banner yonetimi (musteri landing) - HEAD_ADMIN / ADMIN
 router.get('/banners', requireAdmin, bannerController.listAll);
 router.post('/banners/upload', requireAdmin, upload.single('image'), bannerController.uploadImage);
