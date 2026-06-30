@@ -94,7 +94,7 @@ export function CustomerCartSidebar({ items, onRemoveItem, onGoToCart, className
   return (
     <Card
       className={cn(
-        'sticky top-24 border border-primary-100 bg-white shadow-lg lg:max-h-[calc(100vh-6rem)] lg:flex lg:flex-col',
+        'w-full min-w-0 border border-primary-100 bg-white shadow-lg lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:flex lg:flex-col',
         className
       )}
     >
@@ -133,8 +133,8 @@ export function CustomerCartSidebar({ items, onRemoveItem, onGoToCart, className
                     Sil
                   </button>
                 </div>
-                <div className="flex items-center justify-between text-xs text-gray-600">
-                  <span>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-gray-600">
+                  <span className="min-w-0 truncate">
                     {item.quantity} x {formatCurrency(item.unitPrice)}
                   </span>
                   <span

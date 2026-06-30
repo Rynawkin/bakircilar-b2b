@@ -44,8 +44,8 @@ export function CustomerCategorySidebar({
                 : 'text-gray-700 hover:bg-gray-50'
             }`}
           >
-            <span className="flex items-center gap-2">
-              <svg className="h-4 w-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <span className="flex min-w-0 items-center gap-2">
+              <svg className="h-4 w-4 shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -68,7 +68,7 @@ export function CustomerCategorySidebar({
             return (
               <div key={category.id}>
                 <div
-                  className={`flex cursor-pointer items-center justify-between px-4 py-2.5 transition-colors ${
+                  className={`flex min-w-0 cursor-pointer items-center justify-between px-4 py-2.5 transition-colors ${
                     isSelected
                       ? 'border-r-2 border-primary-600 bg-primary-50 font-semibold text-primary-700'
                       : hasChildSelected
@@ -77,7 +77,7 @@ export function CustomerCategorySidebar({
                   }`}
                 >
                   <button
-                    className="flex-1 text-left text-sm"
+                    className="min-w-0 flex-1 truncate text-left text-sm"
                     onClick={() => {
                       onSelect(category.id);
                       if (children.length > 0) toggleCategory(category.id);
@@ -119,7 +119,7 @@ export function CustomerCategorySidebar({
                       return (
                         <div key={child.id}>
                           <div
-                            className={`flex items-center justify-between transition-colors ${
+                            className={`flex min-w-0 items-center justify-between transition-colors ${
                               isChildSelected
                                 ? 'border-r-2 border-primary-600 bg-primary-50 font-semibold text-primary-700'
                                 : hasGrandChildSelected
@@ -132,7 +132,7 @@ export function CustomerCategorySidebar({
                                 onSelect(child.id);
                                 if (grandChildren.length > 0) toggleCategory(child.id);
                               }}
-                              className="flex-1 px-3 py-2 text-left text-xs"
+                              className="min-w-0 flex-1 truncate px-3 py-2 text-left text-xs"
                             >
                               {child.name}
                             </button>
@@ -161,7 +161,7 @@ export function CustomerCategorySidebar({
                                 <button
                                   key={leaf.id}
                                   onClick={() => onSelect(leaf.id)}
-                                  className={`w-full px-3 py-1.5 text-left text-[11px] transition-colors ${
+                                  className={`block w-full truncate px-3 py-1.5 text-left text-[11px] transition-colors ${
                                     selectedCategoryId === leaf.id
                                       ? 'border-r-2 border-primary-600 bg-primary-50 font-semibold text-primary-700'
                                       : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'

@@ -198,8 +198,8 @@ export default function CustomerHomePage() {
   );
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
-      <div className="mx-auto w-full max-w-[1900px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1900px] space-y-6 px-3 py-5 sm:space-y-7 sm:px-6 sm:py-6 lg:px-8">
 
         {/* ── HERO BANNER CAROUSEL ─────────────────────────────────── */}
         <section>
@@ -213,8 +213,8 @@ export default function CustomerHomePage() {
                     <>
                       <BannerImage src={banner.imageUrl} alt={banner.title} />
                       <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/35 to-transparent" />
-                      <div className="absolute inset-0 flex flex-col justify-center gap-3 p-6 sm:p-10 md:max-w-[60%]">
-                        <h2 className="text-xl font-bold leading-tight text-white drop-shadow-sm sm:text-2xl md:text-3xl">
+                      <div className="absolute inset-0 flex flex-col justify-center gap-2 p-4 sm:gap-3 sm:p-10 md:max-w-[60%]">
+                        <h2 className="text-base font-bold leading-tight text-white drop-shadow-sm sm:text-2xl md:text-3xl">
                           {banner.title}
                         </h2>
                         {banner.subtitle && (

@@ -363,7 +363,7 @@ export default function OrderRequestsPage() {
                                   />
                                 )}
                                 <div className="min-w-0">
-                                  <div className="font-semibold leading-snug text-[var(--ink-1)]">{item.product.name}</div>
+                                  <div className="font-semibold leading-snug text-[var(--ink-1)] break-words">{item.product.name}</div>
                                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                     <span className="chip font-mono">{item.product.mikroCode}</span>
                                     {!isSubUser && customerProductCode && (

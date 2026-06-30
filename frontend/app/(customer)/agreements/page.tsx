@@ -169,7 +169,7 @@ export default function AgreementProductsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
       <div className={CONTAINER}>
         {/* Breadcrumb */}
         <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
@@ -184,8 +184,8 @@ export default function AgreementProductsPage() {
             <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
               <BadgeCheck className="h-5 w-5" strokeWidth={2} />
             </span>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Anlaşmalı Ürünler</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">Anlaşmalı Ürünler</h1>
               <p className="mt-1 text-[13px] text-[var(--ink-3)]">
                 Cari kodunuza tanımlı aktif anlaşmalar · min. miktar, müşteri ürün kodu ve geçerlilik kart üzerinde
               </p>
@@ -245,7 +245,7 @@ export default function AgreementProductsPage() {
           <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-100 bg-primary-50 px-3 py-1.5 text-[12px] font-semibold text-primary-700">
             {totalCount !== null ? `${totalCount} aktif anlaşma` : 'Aktif anlaşmalar'}
           </span>
-          <div className="relative ml-auto min-w-[200px]">
+          <div className="relative w-full sm:ml-auto sm:w-auto sm:min-w-[200px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-3)]" />
             <Input placeholder="Listede ara…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 w-full pl-9" />
           </div>

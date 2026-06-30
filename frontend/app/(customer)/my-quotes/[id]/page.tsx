@@ -196,7 +196,7 @@ export default function QuoteDetailPage() {
                 {quote.items.map((item) => (
                   <div key={item.id} className="flex items-start justify-between gap-4 px-5 py-4">
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-gray-900">{item.productName}</p>
+                      <p className="font-semibold text-gray-900 break-words">{item.productName}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                         <span className="font-mono text-gray-400">{item.productCode}</span>
                         {item.selectedUnit && (

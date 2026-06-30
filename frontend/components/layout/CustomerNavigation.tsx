@@ -227,13 +227,13 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-white">
+    <header className="sticky top-0 z-50 w-full overflow-x-hidden bg-white">
       {/* ── ÜST BAR ──────────────────────────────────────────────── */}
       <div className="border-b border-[var(--line)]">
-        <div className="mx-auto flex h-16 w-full max-w-[1900px] items-center gap-3 px-4 sm:px-6 lg:gap-4 lg:px-8">
+        <div className="mx-auto flex h-16 w-full max-w-[1900px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:gap-4 lg:px-8">
           {/* Logo */}
           <Link href="/home" className="flex flex-shrink-0 items-center gap-2.5">
-            <span className="flex h-10 items-center justify-center rounded-lg bg-primary-600 px-3">
+            <span className="flex h-10 items-center justify-center rounded-lg bg-primary-600 px-2.5 sm:px-3">
               <img src="/logo.png" alt="Bakırcılar" className="h-[22px] w-auto object-contain" />
             </span>
             <span className="mt-0.5 hidden text-[9px] font-medium tracking-[0.17em] text-[var(--ink-3)] xl:block">
@@ -343,7 +343,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
               leaveFrom="transform opacity-100 scale-100"
               leaveTo="transform opacity-0 scale-95"
             >
-              <Menu.Items className="absolute right-0 mt-2 w-80 origin-top-right overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-[var(--line)] focus:outline-none">
+              <Menu.Items className="absolute right-0 mt-2 w-[calc(100vw-1.5rem)] max-w-[20rem] origin-top-right overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-[var(--line)] focus:outline-none sm:w-80">
                 <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
                   <div className="text-sm font-semibold text-[var(--ink-1)]">Bildirimler</div>
                   <button className="text-xs font-medium text-primary-600 hover:text-primary-700" onClick={handleMarkAllRead} type="button">
@@ -460,7 +460,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           {/* Sepet */}
           <Link
             href="/cart"
-            className="flex h-10 flex-shrink-0 items-center gap-2.5 rounded-xl bg-primary-600 px-3.5 text-white transition-colors hover:bg-primary-700"
+            className="flex h-10 flex-shrink-0 items-center gap-2.5 rounded-xl bg-primary-600 px-2.5 text-white transition-colors hover:bg-primary-700 sm:px-3.5"
           >
             <span className="relative flex">
               <ShoppingCart className="h-[18px] w-[18px]" />
@@ -545,7 +545,8 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           leaveTo="opacity-0"
         >
           <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
-            <div className="mx-auto w-full max-w-[1100px] px-4 py-5 sm:px-6 lg:px-8">
+            <div className="mx-auto w-full max-w-[1900px] px-4 py-5 sm:px-6 lg:px-8">
+              <div className="w-full max-w-[1100px]">
               <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[240px_minmax(0,1fr)]">
                 {/* Sol — ANA kategoriler */}
                 <div className="max-h-[460px] overflow-y-auto border-b border-[var(--line)] bg-[var(--surface-0)] py-2 md:border-b-0 md:border-r">
@@ -632,6 +633,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                   İndirimli ürünleri keşfet →
                 </Link>
               </div>
+              </div>
             </div>
           </div>
         </Transition>
@@ -639,7 +641,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
       {/* ── MOBİL MENÜ ───────────────────────────────────────────── */}
       {mobileMenuOpen && (
-        <div className="border-b border-[var(--line)] bg-white md:hidden">
+        <div className="max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-[var(--line)] bg-white md:hidden">
           <div className="space-y-1 px-4 py-4">
             <div className="mb-2 px-1">
               <p className="truncate text-sm font-semibold text-[var(--ink-1)]">{user?.name}</p>
@@ -661,12 +663,12 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                className={`flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   isActive(item.href) ? 'bg-primary-50 text-primary-700' : 'text-[var(--ink-2)] hover:bg-[var(--surface-0)]'
                 }`}
               >
                 <item.icon className="h-5 w-5 flex-shrink-0" />
-                <span>{item.name}</span>
+                <span className="min-w-0 truncate">{item.name}</span>
               </Link>
             ))}
             <button

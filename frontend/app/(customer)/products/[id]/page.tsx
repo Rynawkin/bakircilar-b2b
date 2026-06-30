@@ -306,8 +306,8 @@ export default function ProductDetailPage() {
   const lastSales = product.lastSales || [];
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
-      <div className="mx-auto w-full max-w-[1280px] px-4 py-6 lg:px-6">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1280px] px-3 py-5 sm:px-4 sm:py-6 lg:px-6">
         {/* Breadcrumb */}
         <div className="mb-4 flex flex-wrap items-center gap-1.5 text-[12.5px] text-[var(--ink-3)]">
           <button
@@ -333,7 +333,7 @@ export default function ProductDetailPage() {
           {/* SOL: görsel */}
           <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-1">
             <div
-              className={`relative flex h-[420px] items-center justify-center overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] ${
+              className={`relative flex h-[300px] items-center justify-center overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] sm:h-[420px] ${
                 isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
               }`}
               onClick={() => setIsZoomed(!isZoomed)}
@@ -634,7 +634,7 @@ export default function ProductDetailPage() {
               </div>
 
               <Button
-                className="flex h-[46px] items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 text-sm font-semibold text-white hover:bg-primary-700"
+                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 text-sm font-semibold text-white hover:bg-primary-700 sm:w-auto"
                 onClick={handleAddToCart}
                 isLoading={isAdding}
               >
@@ -675,7 +675,8 @@ export default function ProductDetailPage() {
         {lastSales.length > 0 && (
           <div className="mb-2 mt-8">
             <h2 className="mb-3.5 text-[17px] font-semibold text-[var(--ink-1)]">Son Satışlar</h2>
-            <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+            <div className="overflow-x-auto rounded-2xl border border-[var(--line)] bg-white">
+              <div className="min-w-[560px]">
               {/* Başlık satırı */}
               <div className="grid grid-cols-[1fr_1.3fr_1.1fr_0.8fr_1fr_1fr] gap-2 border-b border-[var(--line)] bg-[var(--surface-1)] px-4 py-3 text-[10.5px] font-semibold uppercase tracking-wide text-[var(--ink-3)]">
                 <span>Tarih</span>
@@ -701,6 +702,7 @@ export default function ProductDetailPage() {
                   </div>
                 );
               })}
+              </div>
             </div>
           </div>
         )}

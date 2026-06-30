@@ -200,7 +200,7 @@ export default function PreviouslyPurchasedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
       <div className={CONTAINER}>
         {/* Breadcrumb */}
         <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
@@ -215,8 +215,8 @@ export default function PreviouslyPurchasedPage() {
             <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
               <History className="h-5 w-5" strokeWidth={2} />
             </span>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Daha Önce Aldıklarım</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">Daha Önce Aldıklarım</h1>
               <p className="mt-1 text-[13px] text-[var(--ink-3)]">
                 Aynı ürün kartı + son alış bilgisi · "Son 5 Alış" ile detay, tek tıkla tekrar al
               </p>
@@ -275,7 +275,7 @@ export default function PreviouslyPurchasedPage() {
               ? `Toplam ${totalCount} üründen ${filteredProducts.length}`
               : `${filteredProducts.length} ürün`}
           </span>
-          <div className="relative ml-auto min-w-[200px]">
+          <div className="relative w-full sm:ml-auto sm:w-auto sm:min-w-[200px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-3)]" />
             <Input placeholder="Belge no ile filtrele…" value={documentNoFilter} onChange={(e) => setDocumentNoFilter(e.target.value)} className="h-9 w-full pl-9" />
           </div>
@@ -374,10 +374,10 @@ export default function PreviouslyPurchasedPage() {
             </div>
 
             {/* Body */}
-            <div className="max-h-[60vh] overflow-auto p-5">
+            <div className="max-h-[60vh] overflow-auto p-3 sm:p-5">
               {Array.isArray(historyProduct.lastSales) && historyProduct.lastSales.length > 0 ? (
-                <div className="overflow-hidden rounded-xl border border-[var(--line)]">
-                  <table className="w-full text-left text-[12.5px]">
+                <div className="overflow-x-auto rounded-xl border border-[var(--line)]">
+                  <table className="w-full min-w-[520px] text-left text-[12.5px]">
                     <thead>
                       <tr className="border-b border-[var(--line)] bg-[var(--surface-0)] text-[11px] uppercase tracking-wide text-[var(--ink-3)]">
                         <th className="px-3 py-2 font-semibold">Tarih</th>

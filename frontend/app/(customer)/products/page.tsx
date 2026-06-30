@@ -226,7 +226,7 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
       <div className={PRODUCTS_PAGE_CONTAINER_CLASS}>
         {/* Breadcrumb */}
         <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
@@ -237,8 +237,8 @@ export default function ProductsPage() {
 
         {/* Baslik + fiyat turu */}
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Tüm Ürünler</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">Tüm Ürünler</h1>
             <p className="mt-1 text-[13px] text-[var(--ink-3)]">
               {!isInitialLoad && totalCount !== null && totalCount > filteredProducts.length
                 ? `Tüm katalog · ${totalCount} ürün`
@@ -282,12 +282,12 @@ export default function ProductsPage() {
             <span className="hidden h-6 w-px bg-[var(--line)] lg:block" />
 
             {/* Siralama */}
-            <label className="flex h-9 items-center gap-2 rounded-lg border border-[var(--line-strong)] bg-white px-2.5">
-              <ArrowDownUp className="h-4 w-4 text-[var(--ink-3)]" />
+            <label className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[var(--line-strong)] bg-white px-2.5">
+              <ArrowDownUp className="h-4 w-4 shrink-0 text-[var(--ink-3)]" />
               <select
                 value={advancedFilters.sortBy}
                 onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, sortBy: e.target.value as FilterState['sortBy'] }))}
-                className="cursor-pointer border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none"
+                className="w-full min-w-0 cursor-pointer truncate border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none lg:w-auto"
               >
                 <option value="none">Önerilen</option>
                 <option value="name-asc">İsim (A-Z)</option>
@@ -300,12 +300,12 @@ export default function ProductsPage() {
             </label>
 
             {/* Depo */}
-            <label className="flex h-9 items-center gap-2 rounded-lg border border-[var(--line-strong)] bg-white px-2.5">
-              <Warehouse className="h-4 w-4 text-[var(--ink-3)]" />
+            <label className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[var(--line-strong)] bg-white px-2.5">
+              <Warehouse className="h-4 w-4 shrink-0 text-[var(--ink-3)]" />
               <select
                 value={warehouse}
                 onChange={(e) => setWarehouse(e.target.value)}
-                className="cursor-pointer border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none"
+                className="w-full min-w-0 cursor-pointer truncate border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none lg:w-auto"
               >
                 <option value="">Tüm Depolar</option>
                 {warehouses.map((w) => (
@@ -315,14 +315,14 @@ export default function ProductsPage() {
             </label>
 
             {/* Fiyat araligi */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[12px] text-[var(--ink-3)]">Fiyat</span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 text-[12px] text-[var(--ink-3)]">Fiyat</span>
               <Input
                 type="number"
                 placeholder="Min"
                 value={advancedFilters.minPrice ?? ''}
                 onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, minPrice: e.target.value ? Number(e.target.value) : undefined }))}
-                className="h-9 w-20"
+                className="h-9 w-full min-w-0 lg:w-20"
               />
               <span className="text-gray-300">–</span>
               <Input
@@ -330,19 +330,19 @@ export default function ProductsPage() {
                 placeholder="Max"
                 value={advancedFilters.maxPrice ?? ''}
                 onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, maxPrice: e.target.value ? Number(e.target.value) : undefined }))}
-                className="h-9 w-20"
+                className="h-9 w-full min-w-0 lg:w-20"
               />
             </div>
 
             {/* Stok araligi */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[12px] text-[var(--ink-3)]">Stok</span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="shrink-0 text-[12px] text-[var(--ink-3)]">Stok</span>
               <Input
                 type="number"
                 placeholder="Min"
                 value={advancedFilters.minStock ?? ''}
                 onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, minStock: e.target.value ? Number(e.target.value) : undefined }))}
-                className="h-9 w-20"
+                className="h-9 w-full min-w-0 lg:w-20"
               />
               <span className="text-gray-300">–</span>
               <Input
@@ -350,7 +350,7 @@ export default function ProductsPage() {
                 placeholder="Max"
                 value={advancedFilters.maxStock ?? ''}
                 onChange={(e) => setAdvancedFilters((prev) => ({ ...prev, maxStock: e.target.value ? Number(e.target.value) : undefined }))}
-                className="h-9 w-20"
+                className="h-9 w-full min-w-0 lg:w-20"
               />
             </div>
 
@@ -380,11 +380,11 @@ export default function ProductsPage() {
           {(search || selectedCategory || warehouse) && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--line)] pt-3">
               <span className="text-xs font-medium text-[var(--ink-3)]">Aktif:</span>
-              {search && <span className="chip">Arama: {search}</span>}
+              {search && <span className="chip max-w-full truncate">Arama: {search}</span>}
               {selectedCategory && (
-                <span className="chip">Kategori: {categories.find((c) => c.id === selectedCategory)?.name}</span>
+                <span className="chip max-w-full truncate">Kategori: {categories.find((c) => c.id === selectedCategory)?.name}</span>
               )}
-              {warehouse && <span className="chip">Depo: {warehouse}</span>}
+              {warehouse && <span className="chip max-w-full truncate">Depo: {warehouse}</span>}
             </div>
           )}
         </div>

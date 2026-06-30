@@ -285,7 +285,7 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
             </div>
           )}
 
-          <div className="min-w-[180px] flex-1">
+          <div className="min-w-0 flex-1 sm:min-w-[180px]">
             <div className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[var(--ink-1)]">{item.product.name}</span>
               {isInvoiced ? (
@@ -300,7 +300,7 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
             </div>
           </div>
 
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+          <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:w-auto">
             <div className="flex items-center overflow-hidden rounded-lg border border-[var(--line-strong)]">
               <button
                 onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
@@ -390,12 +390,12 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
   };
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
-      <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1200px] px-3 py-6 sm:px-4 lg:px-6">
         {/* Baslik */}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">
+            <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">
               {isSubUser ? 'Talep Sepeti' : 'Sepetim'}
             </h1>
             <p className="mt-1 text-[13px] text-[var(--ink-3)]">

@@ -124,15 +124,15 @@ export default function CustomerInvoicesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)]">
-      <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
+      <div className="mx-auto w-full max-w-[1200px] px-3 py-5 sm:px-4 sm:py-6 lg:px-6">
         {/* Baslik */}
         <div className="mb-4 flex items-center gap-3">
           <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
             <FileText className="h-5 w-5" strokeWidth={2} />
           </span>
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Faturalarım</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">Faturalarım</h1>
             <p className="mt-1 text-[13px] text-[var(--ink-3)]">
               E-faturalarınız · PDF / e-fatura zarfı indirme
             </p>
@@ -140,9 +140,9 @@ export default function CustomerInvoicesPage() {
         </div>
 
         {/* Filtre bari */}
-        <div className="mb-[18px] flex flex-wrap items-center gap-2.5 rounded-xl border border-[var(--line)] bg-white px-3.5 py-2.5 shadow-sm">
+        <div className="mb-[18px] flex flex-wrap items-center gap-2.5 rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 shadow-sm sm:px-3.5">
           {/* Fatura no ara */}
-          <div className="flex h-[38px] min-w-[220px] flex-1 items-center gap-2 rounded-[9px] border border-[var(--line)] px-3 focus-within:border-primary-300 focus-within:ring-2 focus-within:ring-primary-100">
+          <div className="flex h-[38px] w-full min-w-0 flex-1 items-center gap-2 rounded-[9px] border border-[var(--line)] px-3 focus-within:border-primary-300 focus-within:ring-2 focus-within:ring-primary-100 sm:w-auto sm:min-w-[220px]">
             <Search className="h-[15px] w-[15px] flex-shrink-0 text-[var(--ink-3)]" strokeWidth={2} />
             <input
               placeholder="Fatura no ara…"
@@ -171,32 +171,32 @@ export default function CustomerInvoicesPage() {
           </label>
 
           {/* Tarih araligi (baslangic/bitis korundu) */}
-          <label className="flex h-[38px] items-center gap-2 rounded-[9px] border border-[var(--line)] px-3">
+          <label className="flex h-[38px] flex-1 items-center gap-2 rounded-[9px] border border-[var(--line)] px-3 sm:flex-none">
             <span className="text-xs text-[var(--ink-3)]">Başlangıç</span>
             <input
               type="date"
               value={fromDate}
               onChange={(event) => setFromDate(event.target.value)}
-              className="cursor-pointer border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none"
+              className="min-w-0 flex-1 cursor-pointer border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none sm:flex-none"
             />
           </label>
-          <label className="flex h-[38px] items-center gap-2 rounded-[9px] border border-[var(--line)] px-3">
+          <label className="flex h-[38px] flex-1 items-center gap-2 rounded-[9px] border border-[var(--line)] px-3 sm:flex-none">
             <span className="text-xs text-[var(--ink-3)]">Bitiş</span>
             <input
               type="date"
               value={toDate}
               onChange={(event) => setToDate(event.target.value)}
-              className="cursor-pointer border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none"
+              className="min-w-0 flex-1 cursor-pointer border-none bg-transparent text-[13px] font-medium text-[var(--ink-1)] outline-none sm:flex-none"
             />
           </label>
 
           {/* Aksiyonlar */}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
             <button
               type="button"
               onClick={() => loadDocuments(1)}
               disabled={loading}
-              className="inline-flex h-[38px] items-center gap-1.5 rounded-[9px] bg-primary-600 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+              className="inline-flex h-[38px] flex-1 items-center justify-center gap-1.5 rounded-[9px] bg-primary-600 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60 sm:flex-none"
             >
               <Search className="h-4 w-4" strokeWidth={2} />
               Listele
@@ -204,7 +204,7 @@ export default function CustomerInvoicesPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="inline-flex h-[38px] items-center rounded-[9px] border border-[var(--line)] bg-white px-4 text-[13px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)]"
+              className="inline-flex h-[38px] flex-1 items-center justify-center rounded-[9px] border border-[var(--line)] bg-white px-4 text-[13px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] sm:flex-none"
             >
               Temizle
             </button>
@@ -233,6 +233,8 @@ export default function CustomerInvoicesPage() {
             </div>
           ) : (
             <>
+              <div className="overflow-x-auto">
+                <div className="min-w-[560px]">
               {/* Tablo basligi */}
               <div className="grid grid-cols-[1fr_1.6fr_1.2fr_1fr_1fr] gap-2.5 bg-[var(--surface-0)] px-[18px] py-3 text-[10.5px] font-semibold uppercase tracking-[0.04em] text-[var(--ink-3)]">
                 <span>Tarih</span>
@@ -267,6 +269,8 @@ export default function CustomerInvoicesPage() {
                   </span>
                 </div>
               ))}
+                </div>
+              </div>
 
               {/* Sayfalama */}
               <div className="flex items-center justify-between border-t border-[var(--line)] px-[18px] py-3 text-[13px] text-[var(--ink-3)]">

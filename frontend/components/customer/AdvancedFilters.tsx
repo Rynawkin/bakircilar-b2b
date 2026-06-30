@@ -68,15 +68,15 @@ export function AdvancedFilters({ onFilterChange, onReset, allowedPriceTypes }: 
   const priceTypeLabel = filters.priceType === 'invoiced' ? 'Faturali' : 'Beyaz';
 
   return (
-    <div className="rounded-xl border border-primary-100 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="rounded-xl border border-primary-100 bg-white p-3 shadow-sm sm:p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
           <h3 className="text-base font-semibold text-gray-900">Gelismis Filtreler</h3>
           <p className="text-xs text-gray-500">Sonuclari fiyat, stok ve siralamaya gore daraltin.</p>
         </div>
         <button
           onClick={() => setIsExpanded((prev) => !prev)}
-          className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-50"
+          className="shrink-0 whitespace-nowrap rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-50"
         >
           {isExpanded ? 'Filtreleri Gizle' : 'Filtreleri Goster'}
         </button>

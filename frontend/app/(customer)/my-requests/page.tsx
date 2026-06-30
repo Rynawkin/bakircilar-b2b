@@ -304,7 +304,7 @@ export default function CustomerRequestsPage() {
               <p className="page-subtitle">Destek ve iş talepleriniz · durum, öncelik ve termin takibi</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex overflow-hidden rounded-lg border border-[var(--line-strong)]">
               <button
                 className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${view === 'KANBAN' ? 'bg-primary-600 text-white' : 'bg-white text-[var(--ink-2)] hover:bg-gray-50'}`}
@@ -593,11 +593,11 @@ export default function CustomerRequestsPage() {
                     key={attachment.id}
                     href={attachment.url}
                     target="_blank"
-                    className="inline-flex items-center gap-1.5 text-sm text-primary-600 hover:underline"
+                    className="flex items-start gap-1.5 break-all text-sm text-primary-600 hover:underline"
                     rel="noreferrer"
                   >
-                    <Paperclip className="h-3.5 w-3.5" />
-                    {attachment.originalName} ({Math.round(attachment.size / 1024)} KB)
+                    <Paperclip className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span className="min-w-0">{attachment.originalName} ({Math.round(attachment.size / 1024)} KB)</span>
                   </a>
                 ))}
                 {detailTask.attachments.length === 0 && (
