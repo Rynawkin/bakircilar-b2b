@@ -50,7 +50,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [megaOpen, setMegaOpen] = useState(false);
   const [megaRootId, setMegaRootId] = useState<string | null>(null);
-  const [megaAltId, setMegaAltId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
@@ -199,19 +198,13 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
       .map((x) => x.c);
   }, [categories, searchTerm]);
 
-  // Mega menu (3 kolonlu flyout): ana -> alt -> en alt (hover ile acilir, ekrani doldurmaz)
+  // Mega menu: sol ANA listesi + secili ananin ALT'lari (her altin altinda EN-ALT'lar).
+  // Sag taraf cok-kolonlu akar -> uzun ana kategoride bos alan kalmaz, dagimik durmaz.
   const megaActiveRootId =
     megaRootId && roots.some((r) => r.id === megaRootId) ? megaRootId : roots[0]?.id || null;
+  const megaActiveRoot = megaActiveRootId ? nodesById.get(megaActiveRootId) || null : null;
   const megaAlts: Category[] = megaActiveRootId
     ? (childrenById.get(megaActiveRootId) || [])
-        .map((id) => nodesById.get(id))
-        .filter((c): c is Category => Boolean(c))
-    : [];
-  const megaActiveAltId =
-    megaAltId && megaAlts.some((a) => a.id === megaAltId) ? megaAltId : megaAlts[0]?.id || null;
-  const megaActiveAlt = megaActiveAltId ? nodesById.get(megaActiveAltId) || null : null;
-  const megaLeaves: Category[] = megaActiveAltId
-    ? (childrenById.get(megaActiveAltId) || [])
         .map((id) => nodesById.get(id))
         .filter((c): c is Category => Boolean(c))
     : [];
@@ -552,17 +545,17 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           leaveTo="opacity-0"
         >
           <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
-            <div className="mx-auto w-full max-w-[1180px] px-4 py-5 sm:px-6 lg:px-8">
-              <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[230px_240px_minmax(0,1fr)]">
-                {/* Kolon 1 — ANA kategoriler */}
-                <div className="max-h-[420px] overflow-y-auto border-b border-[var(--line)] bg-[var(--surface-0)] py-2 md:border-b-0 md:border-r">
+            <div className="mx-auto w-full max-w-[1100px] px-4 py-5 sm:px-6 lg:px-8">
+              <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[240px_minmax(0,1fr)]">
+                {/* Sol — ANA kategoriler */}
+                <div className="max-h-[460px] overflow-y-auto border-b border-[var(--line)] bg-[var(--surface-0)] py-2 md:border-b-0 md:border-r">
                   {roots.map((root) => {
                     const active = root.id === megaActiveRootId;
                     return (
                       <button
                         key={root.id}
                         type="button"
-                        onMouseEnter={() => { setMegaRootId(root.id); setMegaAltId(null); }}
+                        onMouseEnter={() => setMegaRootId(root.id)}
                         onClick={() => { setMegaOpen(false); router.push(`/products?categoryId=${root.id}`); }}
                         className={`flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-[13px] transition-colors ${
                           active ? 'bg-white font-semibold text-primary-700' : 'text-[var(--ink-2)] hover:bg-white hover:text-[var(--ink-1)]'
@@ -575,68 +568,55 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                   })}
                 </div>
 
-                {/* Kolon 2 — ALT kategoriler (aktif ananin) */}
-                <div className="max-h-[420px] overflow-y-auto border-b border-[var(--line)] py-2 md:border-b-0 md:border-r">
-                  {megaAlts.length === 0 ? (
-                    <div className="px-4 py-6 text-[12.5px] text-[var(--ink-3)]">Alt kategori yok</div>
-                  ) : (
-                    megaAlts.map((alt) => {
-                      const active = alt.id === megaActiveAltId;
-                      const hasLeaves = (childrenById.get(alt.id)?.length || 0) > 0;
-                      return (
-                        <button
-                          key={alt.id}
-                          type="button"
-                          onMouseEnter={() => setMegaAltId(alt.id)}
-                          onClick={() => { setMegaOpen(false); router.push(`/products?categoryId=${alt.id}`); }}
-                          className={`flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[12.5px] transition-colors ${
-                            active ? 'font-semibold text-primary-700' : 'text-[var(--ink-2)] hover:text-[var(--ink-1)]'
-                          }`}
-                        >
-                          <span className="min-w-0 truncate">{alt.name}</span>
-                          {hasLeaves && <ChevronRight className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-primary-600' : 'text-[var(--ink-3)]'}`} />}
-                        </button>
-                      );
-                    })
+                {/* Sag — secili ananin ALT + EN-ALT'lari (cok kolon, genislige yayilir) */}
+                <div className="max-h-[460px] overflow-y-auto p-5">
+                  {megaActiveRoot && (
+                    <div className="mb-4 flex items-center justify-between gap-3 border-b border-[var(--line)] pb-2">
+                      <span className="min-w-0 truncate text-[13px] font-bold text-[var(--ink-1)]">{megaActiveRoot.name}</span>
+                      <Link
+                        href={`/products?categoryId=${megaActiveRoot.id}`}
+                        onClick={() => setMegaOpen(false)}
+                        className="shrink-0 text-[12px] font-semibold text-primary-700 hover:text-primary-800"
+                      >
+                        Tümünü gör →
+                      </Link>
+                    </div>
                   )}
-                </div>
-
-                {/* Kolon 3 — EN ALT kategoriler (aktif altin) */}
-                <div className="max-h-[420px] overflow-y-auto p-4">
-                  {megaActiveAlt ? (
-                    <>
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <span className="min-w-0 truncate text-[13px] font-bold text-[var(--ink-1)]">{megaActiveAlt.name}</span>
-                        <Link
-                          href={`/products?categoryId=${megaActiveAlt.id}`}
-                          onClick={() => setMegaOpen(false)}
-                          className="shrink-0 text-[12px] font-semibold text-primary-700 hover:text-primary-800"
-                        >
-                          Tümünü gör →
-                        </Link>
-                      </div>
-                      {megaLeaves.length > 0 ? (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 lg:grid-cols-3">
-                          {megaLeaves.map((leaf) => (
-                            <Link
-                              key={leaf.id}
-                              href={`/products?categoryId=${leaf.id}`}
-                              onClick={() => setMegaOpen(false)}
-                              className="truncate py-1 text-[12.5px] text-[var(--ink-2)] transition-colors hover:text-primary-700"
-                            >
-                              {leaf.name}
-                            </Link>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-[12.5px] text-[var(--ink-3)]">
-                          Bu kategoride alt kırılım yok.{' '}
-                          <Link href={`/products?categoryId=${megaActiveAlt.id}`} onClick={() => setMegaOpen(false)} className="font-semibold text-primary-700 hover:text-primary-800">Ürünleri gör →</Link>
-                        </div>
-                      )}
-                    </>
+                  {megaAlts.length === 0 ? (
+                    <div className="text-[12.5px] text-[var(--ink-3)]">Bu kategoride alt kırılım yok.</div>
                   ) : (
-                    <div className="px-1 py-6 text-[12.5px] text-[var(--ink-3)]">Soldan bir kategori seçin.</div>
+                    <div className="columns-1 [column-gap:1.75rem] sm:columns-2 lg:columns-3">
+                      {megaAlts.map((alt) => {
+                        const leaves = (childrenById.get(alt.id) || [])
+                          .map((id) => nodesById.get(id))
+                          .filter((c): c is Category => Boolean(c));
+                        return (
+                          <div key={alt.id} className="mb-4 break-inside-avoid">
+                            <Link
+                              href={`/products?categoryId=${alt.id}`}
+                              onClick={() => setMegaOpen(false)}
+                              className="block truncate text-[12.5px] font-semibold text-[var(--ink-1)] transition-colors hover:text-primary-700"
+                            >
+                              {alt.name}
+                            </Link>
+                            {leaves.length > 0 && (
+                              <div className="mt-1 flex flex-col gap-0.5">
+                                {leaves.map((leaf) => (
+                                  <Link
+                                    key={leaf.id}
+                                    href={`/products?categoryId=${leaf.id}`}
+                                    onClick={() => setMegaOpen(false)}
+                                    className="truncate text-[12px] text-[var(--ink-2)] transition-colors hover:text-primary-700"
+                                  >
+                                    {leaf.name}
+                                  </Link>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               </div>
