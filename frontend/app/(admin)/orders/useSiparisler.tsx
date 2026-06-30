@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { PendingOrderForAdmin } from '@/types';
 import adminApi from '@/lib/api/admin';
 import { formatCurrency, formatDate, formatDateShort } from '@/lib/utils/format';
-import { normalizeSearchText } from '@/lib/utils/search';
 import * as XLSX from 'xlsx';
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
@@ -15,19 +14,38 @@ export type { PendingOrderForAdmin } from '@/types';
 export type OrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 export type OrderSource = 'ALL' | 'CUSTOMER' | 'B2B';
 
+// Sunucu-tarafli sayfalama sayfa boyutu
+const ORDERS_PAGE_SIZE = 25;
+
 /**
  * Siparisler ekraninin TUM mantigi (state/effect/handler/turetilmis deger).
  * Klasik ve yeni gorunum bu hook'u kullanir; gorsel disindaki hicbir mantik degismez.
- * Asagidaki kod, eski page.tsx'in `return (` oncesindeki mantigin BIRE BIR tasinmis halidir.
+ *
+ * Sunucu-tarafli sayfalama: liste artik getAllOrders({ status, source, search, page, pageSize })
+ * ile sunucudan sayfa sayfa cekilir. Eski client-side (allOrders) filtreleme/arama kaldirildi.
  */
 export function useSiparisler() {
   const router = useRouter();
   const [orders, setOrders] = useState<PendingOrderForAdmin[]>([]);
-  const [allOrders, setAllOrders] = useState<PendingOrderForAdmin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<OrderStatus>('PENDING');
+  // isLoading = sadece ILK yukleme (tam-ekran skeleton); isFetching = sonraki cekisler
+  // (arama/sekme/sayfa). Boylece arama inputu unmount olmaz, odak kaybolmaz.
+  const [isFetching, setIsFetching] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
+  // 1) Varsayilan status artik 'ALL' (Tumu) — ilk fetch'te pending filtre yok
+  const [activeTab, setActiveTab] = useState<OrderStatus>('ALL');
   const [sourceTab, setSourceTab] = useState<OrderSource>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // 3) Sunucu sayfalama state'i
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<{
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }>({ total: 0, page: 1, pageSize: ORDERS_PAGE_SIZE, totalPages: 1 });
 
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
@@ -35,9 +53,29 @@ export function useSiparisler() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
+  // Arama 350ms debounce; arama degisince page=1
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Arama/sekme/filtre degisince ilk sayfaya don
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setPage(1);
+  }, [activeTab, sourceTab, debouncedSearch]);
+
+  // status/source/arama/page degisince sunucudan yeniden cek
   useEffect(() => {
     fetchOrders();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, sourceTab, debouncedSearch, page]);
 
   // 3.9: Sik kullanilan evrak serileri localStorage'da hatirlanir; onay diyaloglarinda otomatik doldurulur.
   const INVOICED_SERIES_KEY = 'orders.lastInvoicedSeries';
@@ -63,70 +101,48 @@ export function useSiparisler() {
     }
   };
 
+  // Kaynak rozeti / yardimci icin korunur (backend ayni mantigi source param ile uygular)
   const isCustomerOrder = (order: PendingOrderForAdmin) => {
     return Boolean(order.customerRequest) || (!order.requestedBy && !order.sourceQuote);
   };
 
-  useEffect(() => {
-    let filtered = allOrders;
-    if (activeTab !== 'ALL') {
-      filtered = filtered.filter(order => order.status === activeTab);
-    }
-    if (sourceTab === 'CUSTOMER') {
-      filtered = filtered.filter(isCustomerOrder);
-    } else if (sourceTab === 'B2B') {
-      filtered = filtered.filter(order => !isCustomerOrder(order));
-    }
-    setOrders(filtered);
-  }, [activeTab, sourceTab, allOrders]);
-
+  // 2) Sunucu-tarafli veri cekme. status/source/arama/page sunucuya gonderilir;
+  //    gosterilen liste = sunucu `orders`. Client-side filtreleme/arama YOK.
   const fetchOrders = async () => {
+    const firstLoad = !hasLoadedOnceRef.current;
+    if (firstLoad) setIsLoading(true);
+    else setIsFetching(true);
     try {
-      const { orders } = await adminApi.getAllOrders();
-      setAllOrders(orders);
-      // Initial display is pending orders
-      setOrders(orders.filter(order => order.status === 'PENDING'));
+      const { orders: serverOrders, pagination: serverPagination } = await adminApi.getAllOrders({
+        status: activeTab,
+        source: sourceTab,
+        search: debouncedSearch || undefined,
+        page,
+        pageSize: ORDERS_PAGE_SIZE,
+      });
+      setOrders(serverOrders);
+      if (serverPagination) {
+        setPagination(serverPagination);
+      } else {
+        // Sunucu pagination dondurmezse (beklenmeyen) en azindan gelen liste boyutuyla tek sayfa goster
+        setPagination({
+          total: serverOrders.length,
+          page: 1,
+          pageSize: ORDERS_PAGE_SIZE,
+          totalPages: 1,
+        });
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Siparisler yuklenemedi');
     } finally {
+      hasLoadedOnceRef.current = true;
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
-  const filteredOrders = useMemo(() => {
-    const normalizedTerm = normalizeSearchText(searchTerm);
-    if (!normalizedTerm) return orders;
-
-    return orders.filter((order) => {
-      const customerName =
-        order.user?.displayName ||
-        order.user?.mikroName ||
-        order.user?.name ||
-        '';
-      const creatorName =
-        order.requestedBy?.name ||
-        order.customerRequest?.requestedBy?.name ||
-        '';
-      const orderItemSearchText = (order.items || [])
-        .map((item) => `${item.mikroCode || ''} ${item.productName || ''} ${item.lineNote || ''}`)
-        .join(' ');
-
-      const haystack = [
-        order.orderNumber,
-        order.customerOrderNumber,
-        order.user?.mikroCariCode,
-        customerName,
-        creatorName,
-        order.adminNote,
-        order.deliveryLocation,
-        order.sourceQuote?.quoteNumber,
-        order.mikroOrderIds?.join(' '),
-        orderItemSearchText,
-      ]
-        .filter(Boolean)
-        .join(' ');
-
-      return normalizeSearchText(haystack).includes(normalizedTerm);
-    });
-  }, [orders, searchTerm]);
+  // Liste artik dogrudan sunucu sayfasidir; client-side filtre/arama no-op (cift-filtre yok).
+  const filteredOrders = orders;
 
   const toggleExpanded = (orderId: string) => {
     setExpandedOrders((prev) => {
@@ -488,7 +504,7 @@ export function useSiparisler() {
   };
 
   const handleApprove = async (orderId: string) => {
-    const order = allOrders.find((item) => item.id === orderId);
+    const order = orders.find((item) => item.id === orderId);
     if (!order) {
       toast.error('Sipariş bulunamadı');
       return;
@@ -702,7 +718,8 @@ export function useSiparisler() {
   // 3.9: Toplu onay - tek seferde seri sorulur, secili tum bekleyen siparislere uygulanir.
   // Fiyat/seri mantigi tek onay ile bire bir ayni; sadece tekrarli giris ortadan kalkar.
   const handleBulkApprove = async () => {
-    const targets = allOrders.filter(
+    // 4) Toplu islem sadece mevcut sayfadaki secili bekleyen siparislere uygulanir
+    const targets = orders.filter(
       (order) => selectedOrderIds.has(order.id) && order.status === 'PENDING'
     );
     if (targets.length === 0) {
@@ -846,7 +863,8 @@ export function useSiparisler() {
 
   // 3.9: Toplu red - tek red sebebi alinir, secili tum bekleyen siparislere uygulanir.
   const handleBulkReject = async () => {
-    const targets = allOrders.filter(
+    // 4) Toplu islem sadece mevcut sayfadaki secili bekleyen siparislere uygulanir
+    const targets = orders.filter(
       (order) => selectedOrderIds.has(order.id) && order.status === 'PENDING'
     );
     if (targets.length === 0) {
@@ -922,22 +940,23 @@ export function useSiparisler() {
     fetchOrders();
   };
 
-  const getOrderCounts = () => {
-    return {
-      pending: allOrders.filter(o => o.status === 'PENDING').length,
-      approved: allOrders.filter(o => o.status === 'APPROVED').length,
-      rejected: allOrders.filter(o => o.status === 'REJECTED').length,
-      all: allOrders.length,
-    };
+  // Sunucu-tarafli sayfalama nedeniyle tum veri seti client'ta yok.
+  // Sadece AKTIF filtre kombinasyonunun toplami (pagination.total) bilinir;
+  // diger sekme/kaynak sayaclari bilinmedigi icin null (sahte sayi gosterme).
+  // counts: aktif status sekmesinin toplami pagination.total'dan gelir.
+  const counts: { pending: number | null; approved: number | null; rejected: number | null; all: number | null } = {
+    pending: activeTab === 'PENDING' ? pagination.total : null,
+    approved: activeTab === 'APPROVED' ? pagination.total : null,
+    rejected: activeTab === 'REJECTED' ? pagination.total : null,
+    all: activeTab === 'ALL' ? pagination.total : null,
   };
-
-  const counts = getOrderCounts();
-  const sourceCounts = {
-    all: allOrders.length,
-    customer: allOrders.filter(isCustomerOrder).length,
-    b2b: allOrders.filter((order) => !isCustomerOrder(order)).length,
+  // sourceCounts: aktif kaynak sekmesinin toplami pagination.total'dan gelir.
+  const sourceCounts: { all: number | null; customer: number | null; b2b: number | null } = {
+    all: sourceTab === 'ALL' ? pagination.total : null,
+    customer: sourceTab === 'CUSTOMER' ? pagination.total : null,
+    b2b: sourceTab === 'B2B' ? pagination.total : null,
   };
-  const emptyStateMessage = searchTerm.trim()
+  const emptyStateMessage = debouncedSearch
     ? 'Arama ile eslesen siparis bulunamadi.'
     : activeTab === 'PENDING'
       ? 'Bekleyen siparis yok'
@@ -946,6 +965,17 @@ export function useSiparisler() {
         : activeTab === 'REJECTED'
           ? 'Reddedilmis siparis yok'
           : 'Henuz hic siparis yok';
+
+  // Sayfalama yardimcilari (HEM New HEM Classic kullanir)
+  const totalPages = pagination.totalPages || 1;
+  const canPrev = page > 1;
+  const canNext = page < totalPages;
+  const goPrev = () => {
+    if (canPrev) setPage((p) => Math.max(1, p - 1));
+  };
+  const goNext = () => {
+    if (canNext) setPage((p) => p + 1);
+  };
 
   return {
     // router
@@ -959,13 +989,22 @@ export function useSiparisler() {
     setSearchTerm,
     // veri / yuklenme
     isLoading,
+    isFetching,
     orders,
-    allOrders,
     filteredOrders,
     // sayaclar
     counts,
     sourceCounts,
     emptyStateMessage,
+    // sunucu-tarafli sayfalama
+    page,
+    setPage,
+    pagination,
+    totalPages,
+    canPrev,
+    canNext,
+    goPrev,
+    goNext,
     // genisletme
     expandedOrders,
     toggleExpanded,

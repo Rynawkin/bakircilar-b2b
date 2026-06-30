@@ -1186,6 +1186,8 @@ export class AdminController {
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
+      const { active, search, page, pageSize } = req.query;
+
       // Base where clause
       const where: any = { role: 'CUSTOMER', parentCustomerId: null };
 
@@ -1194,9 +1196,30 @@ export class AdminController {
         where.sectorCode = { in: assignedSectorCodes };
       }
 
-      const customers = await prisma.user.findMany({
-        where,
-        select: {
+      // Aktiflik filtresi (sunucu-tarafli; sayfalama ile tutarli olmasi icin)
+      if (active === 'active') where.active = true;
+      else if (active === 'inactive') where.active = false;
+
+      // Sunucu-tarafli arama (tüm kayıtlarda): çok-token AND
+      const custSearchTokens = (typeof search === 'string' ? search : '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 8);
+      if (custSearchTokens.length > 0) {
+        where.AND = custSearchTokens.map((tok) => ({
+          OR: [
+            { name: { contains: tok, mode: 'insensitive' } },
+            { email: { contains: tok, mode: 'insensitive' } },
+            { mikroCariCode: { contains: tok, mode: 'insensitive' } },
+            { city: { contains: tok, mode: 'insensitive' } },
+            { district: { contains: tok, mode: 'insensitive' } },
+            { phone: { contains: tok, mode: 'insensitive' } },
+          ],
+        }));
+      }
+
+      const select: any = {
           id: true,
           email: true,
           name: true,
@@ -1226,13 +1249,41 @@ export class AdminController {
           hasEInvoice: true,
           balance: true,
           isLocked: true,
-        },
-        orderBy: {
-          createdAt: 'desc',
+      };
+
+      const rawCustPageSize = Number(pageSize);
+      const custPaginated = Number.isFinite(rawCustPageSize) && rawCustPageSize > 0;
+      if (!custPaginated) {
+        const customers = await prisma.user.findMany({
+          where,
+          select,
+          orderBy: { createdAt: 'desc' },
+        });
+        res.json({ customers });
+        return;
+      }
+      const custSize = Math.min(Math.max(1, Math.floor(rawCustPageSize)), 200);
+      const rawCustPage = Number(page);
+      const custPage = Number.isFinite(rawCustPage) && rawCustPage > 0 ? Math.floor(rawCustPage) : 1;
+      const [custTotal, customers] = await Promise.all([
+        prisma.user.count({ where }),
+        prisma.user.findMany({
+          where,
+          select,
+          orderBy: { createdAt: 'desc' },
+          skip: (custPage - 1) * custSize,
+          take: custSize,
+        }),
+      ]);
+      res.json({
+        customers,
+        pagination: {
+          total: custTotal,
+          page: custPage,
+          pageSize: custSize,
+          totalPages: Math.max(1, Math.ceil(custTotal / custSize)),
         },
       });
-
-      res.json({ customers });
     } catch (error) {
       next(error);
     }
@@ -2271,7 +2322,7 @@ export class AdminController {
    */
   async getAllOrders(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status } = req.query;
+      const { status, source, search, page, pageSize } = req.query;
       const userRole = req.user?.role;
       const assignedSectorCodes = req.user?.assignedSectorCodes || [];
 
@@ -2291,9 +2342,66 @@ export class AdminController {
         };
       }
 
-      const orders = await prisma.order.findMany({
-        where,
-        include: {
+      const andClauses: any[] = [];
+
+      // Kaynak filtresi (Müşteri / B2B) - frontend sourceTab mantığıyla birebir
+      if (source === 'CUSTOMER') {
+        andClauses.push({
+          OR: [
+            { customerRequest: { isNot: null } },
+            { AND: [{ requestedById: null }, { sourceQuoteId: null }] },
+          ],
+        });
+      } else if (source === 'B2B') {
+        andClauses.push({
+          AND: [
+            { customerRequest: { is: null } },
+            { OR: [{ requestedById: { not: null } }, { sourceQuoteId: { not: null } }] },
+          ],
+        });
+      }
+
+      // Sunucu-tarafli arama (tüm kayıtlarda): çok-token AND
+      const orderSearchTokens = (typeof search === 'string' ? search : '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 8);
+      for (const tok of orderSearchTokens) {
+        andClauses.push({
+          OR: [
+            { orderNumber: { contains: tok, mode: 'insensitive' } },
+            { customerOrderNumber: { contains: tok, mode: 'insensitive' } },
+            { adminNote: { contains: tok, mode: 'insensitive' } },
+            { deliveryLocation: { contains: tok, mode: 'insensitive' } },
+            {
+              user: {
+                OR: [
+                  { name: { contains: tok, mode: 'insensitive' } },
+                  { displayName: { contains: tok, mode: 'insensitive' } },
+                  { mikroName: { contains: tok, mode: 'insensitive' } },
+                  { mikroCariCode: { contains: tok, mode: 'insensitive' } },
+                ],
+              },
+            },
+            { sourceQuote: { quoteNumber: { contains: tok, mode: 'insensitive' } } },
+            {
+              items: {
+                some: {
+                  OR: [
+                    { productName: { contains: tok, mode: 'insensitive' } },
+                    { mikroCode: { contains: tok, mode: 'insensitive' } },
+                    { lineNote: { contains: tok, mode: 'insensitive' } },
+                  ],
+                },
+              },
+            },
+          ],
+        });
+      }
+      if (andClauses.length > 0) where.AND = andClauses;
+
+      const include: any = {
           user: {
             select: {
               id: true,
@@ -2333,13 +2441,41 @@ export class AdminController {
               },
             },
           },
-        },
-        orderBy: {
-          createdAt: 'desc',
+      };
+
+      const rawOrderPageSize = Number(pageSize);
+      const orderPaginated = Number.isFinite(rawOrderPageSize) && rawOrderPageSize > 0;
+      if (!orderPaginated) {
+        const orders = await prisma.order.findMany({
+          where,
+          include,
+          orderBy: { createdAt: 'desc' },
+        });
+        res.json({ orders });
+        return;
+      }
+      const orderSize = Math.min(Math.max(1, Math.floor(rawOrderPageSize)), 200);
+      const rawOrderPage = Number(page);
+      const orderPage = Number.isFinite(rawOrderPage) && rawOrderPage > 0 ? Math.floor(rawOrderPage) : 1;
+      const [orderTotal, orders] = await Promise.all([
+        prisma.order.count({ where }),
+        prisma.order.findMany({
+          where,
+          include,
+          orderBy: { createdAt: 'desc' },
+          skip: (orderPage - 1) * orderSize,
+          take: orderSize,
+        }),
+      ]);
+      res.json({
+        orders,
+        pagination: {
+          total: orderTotal,
+          page: orderPage,
+          pageSize: orderSize,
+          totalPages: Math.max(1, Math.ceil(orderTotal / orderSize)),
         },
       });
-
-      res.json({ orders });
     } catch (error) {
       next(error);
     }

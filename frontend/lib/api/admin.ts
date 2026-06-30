@@ -44,6 +44,14 @@ type SupplierPriceListOverrides = {
   pdfColumnRoles?: Record<string, string> | null;
 };
 
+// Sunucu-tarafli sayfalama meta bilgisi (liste endpointleri)
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE';
 
 export interface AdminBanner {
@@ -667,8 +675,22 @@ export const adminApi = {
   },
 
   // Customers
-  getCustomers: async (): Promise<{ customers: Customer[] }> => {
-    const response = await apiClient.get('/admin/customers');
+  // Geriye-uyumlu: argümansiz cagri tum (sektor-filtreli) musterileri doner.
+  // params verilirse sunucu-tarafli filtre/arama/sayfalama yapilir ve `pagination` doner.
+  getCustomers: async (params?: {
+    active?: 'all' | 'active' | 'inactive';
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ customers: Customer[]; pagination?: PaginationMeta }> => {
+    const query: Record<string, any> = {};
+    if (params?.active && params.active !== 'all') query.active = params.active;
+    if (params?.search) query.search = params.search;
+    if (params?.page) query.page = params.page;
+    if (params?.pageSize) query.pageSize = params.pageSize;
+    const response = await apiClient.get('/admin/customers', {
+      params: Object.keys(query).length ? query : undefined,
+    });
     return response.data;
   },
 
@@ -1051,9 +1073,27 @@ export const adminApi = {
   },
 
   // Orders
-  getAllOrders: async (status?: string): Promise<{ orders: PendingOrderForAdmin[] }> => {
-    const params = status ? { status } : {};
-    const response = await apiClient.get('/admin/orders', { params });
+  // Geriye-uyumlu: status string (eski) VEYA options objesi kabul eder.
+  // options.pageSize verilirse sunucu-tarafli sayfalama yapilir ve `pagination` doner.
+  getAllOrders: async (
+    statusOrParams?: string | {
+      status?: string;
+      source?: 'ALL' | 'CUSTOMER' | 'B2B';
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    }
+  ): Promise<{ orders: PendingOrderForAdmin[]; pagination?: PaginationMeta }> => {
+    const opts = typeof statusOrParams === 'string' ? { status: statusOrParams } : (statusOrParams || {});
+    const query: Record<string, any> = {};
+    if (opts.status && opts.status !== 'ALL') query.status = opts.status;
+    if (opts.source && opts.source !== 'ALL') query.source = opts.source;
+    if (opts.search) query.search = opts.search;
+    if (opts.page) query.page = opts.page;
+    if (opts.pageSize) query.pageSize = opts.pageSize;
+    const response = await apiClient.get('/admin/orders', {
+      params: Object.keys(query).length ? query : undefined,
+    });
     return response.data;
   },
 
@@ -1618,8 +1658,25 @@ export const adminApi = {
     return response.data;
   },
 
-  getQuotes: async (status?: string): Promise<{ quotes: Quote[] }> => {
-    const response = await apiClient.get('/admin/quotes', { params: status ? { status } : undefined });
+  // Geriye-uyumlu: status string (eski) VEYA options objesi kabul eder.
+  // options.pageSize verilirse sunucu-tarafli sayfalama yapilir ve `pagination` doner.
+  getQuotes: async (
+    statusOrParams?: string | {
+      status?: string;
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    }
+  ): Promise<{ quotes: Quote[]; pagination?: PaginationMeta }> => {
+    const opts = typeof statusOrParams === 'string' ? { status: statusOrParams } : (statusOrParams || {});
+    const query: Record<string, any> = {};
+    if (opts.status && opts.status !== 'ALL') query.status = opts.status;
+    if (opts.search) query.search = opts.search;
+    if (opts.page) query.page = opts.page;
+    if (opts.pageSize) query.pageSize = opts.pageSize;
+    const response = await apiClient.get('/admin/quotes', {
+      params: Object.keys(query).length ? query : undefined,
+    });
     return response.data;
   },
 

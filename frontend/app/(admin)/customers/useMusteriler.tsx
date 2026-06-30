@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Customer, CreateCustomerRequest } from '@/types';
-import adminApi from '@/lib/api/admin';
+import adminApi, { PaginationMeta } from '@/lib/api/admin';
 import { CUSTOMER_TYPES, getCustomerTypeName } from '@/lib/utils/customerTypes';
-import { buildSearchTokens, matchesSearchTokens, normalizeSearchText } from '@/lib/utils/search';
 import { useAuthStore } from '@/lib/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
+
+// Sunucu-tarafli sayfalama: sabit sayfa boyutu
+const PAGE_SIZE = 25;
 
 // Re-export tipler (Classic/New JSX'lerin ihtiyaci icin)
 export type { Customer, CreateCustomerRequest } from '@/types';
@@ -69,11 +71,19 @@ export function useMusteriler() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cariList, setCariList] = useState<MikroCari[]>([]);
   const [showForm, setShowForm] = useState(false);
+  // isLoading: ilk yukleme (tum ekran spinner). isFetching: sonraki refetch'ler (liste ici gosterge).
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const hasLoadedOnce = useRef(false);
   const [showCariModal, setShowCariModal] = useState(false);
   const [selectedCari, setSelectedCari] = useState<MikroCari | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  // 350ms debounce uygulanmis arama (sunucuya bu deger gonderilir)
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
+  // Sunucu-tarafli sayfalama state'i
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
   const [showBulkCreateModal, setShowBulkCreateModal] = useState(false);
@@ -91,23 +101,60 @@ export function useMusteriler() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Yetki kontrolu + Mikro cari listesini (yeni musteri modali icin) bir kez yukle.
+  // B2B musteri listesi artik ayri (sunucu-sayfali) effect ile cekilir.
+  const accessChecked = useRef(false);
   useEffect(() => {
     if (user === null || permissionsLoading) return;
     if (!hasPermission('admin:customers')) {
       router.push('/dashboard');
       return;
     }
-
-    fetchCustomers();
+    if (accessChecked.current) return;
+    accessChecked.current = true;
     fetchCariList();
   }, [user, permissionsLoading, router, hasPermission]);
 
+  // Arama icin 350ms debounce: searchTerm -> debouncedSearch
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 350);
+    return () => clearTimeout(handle);
+  }, [searchTerm]);
+
+  // Arama (debounced) veya aktiflik filtresi degisince ilk sayfaya don.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterActive]);
+
+  // Sunucu-tarafli liste cekme: page / debouncedSearch / filterActive degisince refetch.
+  // Yetki/oturum hazir olmadan sorgu atilmaz.
+  useEffect(() => {
+    if (user === null || permissionsLoading) return;
+    if (!hasPermission('admin:customers')) return;
+    fetchCustomers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, permissionsLoading, page, debouncedSearch, filterActive]);
+
   const fetchCustomers = async () => {
+    // Ilk yuklemede tum-ekran spinner; sonraki cekislerde sadece liste-ici gosterge.
+    if (hasLoadedOnce.current) {
+      setIsFetching(true);
+    } else {
+      setIsLoading(true);
+    }
     try {
-      const { customers } = await adminApi.getCustomers();
+      const { customers, pagination } = await adminApi.getCustomers({
+        active: filterActive,
+        search: debouncedSearch,
+        page,
+        pageSize: PAGE_SIZE,
+      });
       setCustomers(customers);
+      setPagination(pagination ?? null);
     } finally {
+      hasLoadedOnce.current = true;
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
@@ -130,34 +177,10 @@ export function useMusteriler() {
     setShowCariModal(false);
   };
 
-  const filteredCustomers = useMemo(() => {
-    let filtered = customers;
-
-    // Filter by active status
-    if (filterActive === 'active') {
-      filtered = filtered.filter(c => c.active);
-    } else if (filterActive === 'inactive') {
-      filtered = filtered.filter(c => !c.active);
-    }
-
-    // Filter by search term
-    const tokens = buildSearchTokens(searchTerm);
-    if (tokens.length > 0) {
-      filtered = filtered.filter((c) => {
-        const haystack = normalizeSearchText([
-          c.name,
-          c.email,
-          c.mikroCariCode,
-          c.city,
-          c.district,
-          c.phone,
-        ].filter(Boolean).join(' '));
-        return matchesSearchTokens(haystack, tokens);
-      });
-    }
-
-    return filtered;
-  }, [customers, searchTerm, filterActive]);
+  // Liste artik tamamen sunucu-tarafli filtrelenip sayfalandigi icin
+  // client-side filtre/arama yapilmaz. Gosterilen liste dogrudan sunucu `customers`.
+  // (Geriye-uyumluluk icin filteredCustomers, customers'a esitlenir.)
+  const filteredCustomers = customers;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,6 +243,12 @@ export function useMusteriler() {
   const canEditCustomer = hasPermission('admin:customers');
   const canBulkCreate = hasPermission('admin:staff');
 
+  // Sunucu-sayfalama navigasyonu (sahte sayi gosterilmez; sunucu pagination meta'sina dayanir)
+  const total = pagination?.total ?? customers.length;
+  const totalPages = pagination?.totalPages ?? 1;
+  const goPrev = () => setPage((p) => Math.max(1, p - 1));
+  const goNext = () => setPage((p) => (totalPages ? Math.min(totalPages, p + 1) : p + 1));
+
   return {
     // router / user / permissions
     router,
@@ -231,6 +260,7 @@ export function useMusteriler() {
     cariList,
     filteredCustomers,
     isLoading,
+    isFetching,
     // yeni musteri formu
     showForm,
     setShowForm,
@@ -249,6 +279,14 @@ export function useMusteriler() {
     setSearchTerm,
     filterActive,
     setFilterActive,
+    // sunucu-tarafli sayfalama
+    page,
+    setPage,
+    pagination,
+    total,
+    totalPages,
+    goPrev,
+    goNext,
     // duzenleme modal
     showEditModal,
     setShowEditModal,

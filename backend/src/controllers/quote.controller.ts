@@ -135,14 +135,32 @@ export class QuoteController {
    */
   async getQuotes(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status } = req.query;
-      const quotes = await quoteService.getQuotesForStaff(
+      const { status, search, page, pageSize } = req.query;
+      const result = await quoteService.getQuotesForStaff(
         req.user!.userId,
         req.user!.role,
         status as string | undefined,
-        req.user!.assignedSectorCodes || []
+        req.user!.assignedSectorCodes || [],
+        {
+          search: typeof search === 'string' ? search : undefined,
+          page: page !== undefined ? Number(page) : undefined,
+          pageSize: pageSize !== undefined ? Number(pageSize) : undefined,
+        }
       );
-      res.json({ quotes });
+      // Geriye-uyumlu: pageSize verilmezse eski {quotes} sekli; verilirse pagination eklenir
+      if (result.paginated) {
+        res.json({
+          quotes: result.quotes,
+          pagination: {
+            total: result.total,
+            page: result.page,
+            pageSize: result.pageSize,
+            totalPages: Math.max(1, Math.ceil(result.total / result.pageSize)),
+          },
+        });
+      } else {
+        res.json({ quotes: result.quotes });
+      }
     } catch (error) {
       next(error);
     }

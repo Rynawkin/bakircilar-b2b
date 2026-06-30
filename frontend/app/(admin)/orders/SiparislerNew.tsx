@@ -34,10 +34,18 @@ export default function SiparislerNew() {
     searchTerm,
     setSearchTerm,
     isLoading,
+    isFetching,
     filteredOrders,
     counts,
     sourceCounts,
     emptyStateMessage,
+    page,
+    pagination,
+    totalPages,
+    canPrev,
+    canNext,
+    goPrev,
+    goNext,
     expandedOrders,
     toggleExpanded,
     selectedOrderIds,
@@ -57,16 +65,16 @@ export default function SiparislerNew() {
     handleOrderExcelExport,
   } = useSiparisler();
 
-  // Durum sekmeleri (sayacli) — mevcut activeTab mantigi
-  const statusTabs: Array<{ key: OrderStatus; label: string; count: number; active: string }> = [
+  // Durum sekmeleri — sunucu sayfalamada yalnizca AKTIF sekmenin toplami bilinir (digerleri null).
+  const statusTabs: Array<{ key: OrderStatus; label: string; count: number | null; active: string }> = [
     { key: 'PENDING', label: 'Bekleyen', count: counts.pending, active: '#b45309' },
     { key: 'APPROVED', label: 'Onaylanan', count: counts.approved, active: '#047857' },
     { key: 'REJECTED', label: 'Reddedilen', count: counts.rejected, active: '#b91c1c' },
     { key: 'ALL', label: 'Tümü', count: counts.all, active: '#15356b' },
   ];
 
-  // Kaynak filtresi (pill, sayacli) — mevcut sourceTab mantigi
-  const sourceTabs: Array<{ key: OrderSource; label: string; count: number }> = [
+  // Kaynak filtresi — yalnizca AKTIF kaynagin toplami bilinir (digerleri null).
+  const sourceTabs: Array<{ key: OrderSource; label: string; count: number | null }> = [
     { key: 'ALL', label: 'Tüm Kaynaklar', count: sourceCounts.all },
     { key: 'CUSTOMER', label: 'Müşteri', count: sourceCounts.customer },
     { key: 'B2B', label: 'B2B', count: sourceCounts.b2b },
@@ -180,15 +188,17 @@ export default function SiparislerNew() {
                 style={{ color: isActive ? tab.active : '#8b97ac' }}
               >
                 {tab.label}
-                <span
-                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold"
-                  style={{
-                    background: isActive ? '#eef2fa' : '#f1f4f9',
-                    color: isActive ? tab.active : '#8b97ac',
-                  }}
-                >
-                  {tab.count}
-                </span>
+                {tab.count !== null && (
+                  <span
+                    className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold"
+                    style={{
+                      background: isActive ? '#eef2fa' : '#f1f4f9',
+                      color: isActive ? tab.active : '#8b97ac',
+                    }}
+                  >
+                    {tab.count}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -217,15 +227,17 @@ export default function SiparislerNew() {
                   }
                 >
                   {tab.label}
-                  <span
-                    className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10.5px] font-semibold"
-                    style={{
-                      background: isActive ? '#eef2fa' : '#e7ebf2',
-                      color: isActive ? '#15356b' : '#8b97ac',
-                    }}
-                  >
-                    {tab.count}
-                  </span>
+                  {tab.count !== null && (
+                    <span
+                      className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10.5px] font-semibold"
+                      style={{
+                        background: isActive ? '#eef2fa' : '#e7ebf2',
+                        color: isActive ? '#15356b' : '#8b97ac',
+                      }}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -594,6 +606,34 @@ export default function SiparislerNew() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Sunucu-tarafli sayfalama kontrolu */}
+        {pagination.total > 0 && (
+          <div className={`${CARD} flex items-center justify-between gap-3 flex-wrap px-3.5 py-2.5 mt-4`}>
+            <span className="text-[12.5px] text-[#51607a]">
+              Sayfa <b className="text-[#15356b] font-semibold">{page}</b> / {totalPages} ·
+              {' '}Toplam <b className="text-[#15356b] font-semibold">{pagination.total}</b>
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goPrev}
+                disabled={!canPrev || isFetching}
+                className="bg-white border border-[#e7ebf2] rounded-lg px-3.5 h-[36px] text-[12.5px] font-medium text-[#51607a] cursor-pointer hover:bg-[#f4f6fa] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Önceki
+              </button>
+              <button
+                type="button"
+                onClick={goNext}
+                disabled={!canNext || isFetching}
+                className="bg-white border border-[#e7ebf2] rounded-lg px-3.5 h-[36px] text-[12.5px] font-medium text-[#51607a] cursor-pointer hover:bg-[#f4f6fa] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Sonraki
+              </button>
+            </div>
           </div>
         )}
       </div>

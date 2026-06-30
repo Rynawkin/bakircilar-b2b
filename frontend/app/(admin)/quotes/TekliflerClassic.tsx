@@ -23,8 +23,13 @@ export default function TekliflerClassic() {
     router,
     isAdmin,
     loading,
+    initialLoading,
     filteredQuotes,
     counts,
+    page,
+    pagination,
+    goPrev,
+    goNext,
     activeTab,
     handleTabChange,
     searchTerm,
@@ -64,7 +69,7 @@ export default function TekliflerClassic() {
     getConversionBadge,
   } = useTeklifler();
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -99,9 +104,11 @@ export default function TekliflerClassic() {
               }`}
             >
               ⏳ Onay Bekleyen
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'PENDING_APPROVAL' ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
-              }`}>{counts.pending}</span>
+              {counts.pending !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'PENDING_APPROVAL' ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
+                }`}>{counts.pending}</span>
+              )}
             </button>
             <button
               onClick={() => handleTabChange('SENT_TO_MIKRO')}
@@ -112,9 +119,11 @@ export default function TekliflerClassic() {
               }`}
             >
               ✅ Gönderilen
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'SENT_TO_MIKRO' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-              }`}>{counts.sent}</span>
+              {counts.sent !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'SENT_TO_MIKRO' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                }`}>{counts.sent}</span>
+              )}
             </button>
             <button
               onClick={() => handleTabChange('REJECTED')}
@@ -125,9 +134,11 @@ export default function TekliflerClassic() {
               }`}
             >
               ❌ Reddedilen
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-              }`}>{counts.rejected}</span>
+              {counts.rejected !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                }`}>{counts.rejected}</span>
+              )}
             </button>
             <button
               onClick={() => handleTabChange('CUSTOMER_ACCEPTED')}
@@ -138,9 +149,11 @@ export default function TekliflerClassic() {
               }`}
             >
               🤝 Müşteri Kabul
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'CUSTOMER_ACCEPTED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-              }`}>{counts.accepted}</span>
+              {counts.accepted !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'CUSTOMER_ACCEPTED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                }`}>{counts.accepted}</span>
+              )}
             </button>
             <button
               onClick={() => handleTabChange('ALL')}
@@ -151,9 +164,11 @@ export default function TekliflerClassic() {
               }`}
             >
               📋 Tümü
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'ALL' ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600'
-              }`}>{counts.all}</span>
+              {counts.all !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'ALL' ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600'
+                }`}>{counts.all}</span>
+              )}
             </button>
           </div>
         </div>
@@ -176,7 +191,13 @@ export default function TekliflerClassic() {
           )}
         </div>
 
-        {filteredQuotes.length === 0 ? (
+        {loading ? (
+          <Card>
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+            </div>
+          </Card>
+        ) : filteredQuotes.length === 0 ? (
           <Card>
             <p className="text-center text-gray-600 py-8">
               Seçili filtrede teklif bulunamadı.
@@ -410,6 +431,21 @@ export default function TekliflerClassic() {
             })}
           </div>
         )}
+
+        {/* Sunucu-tarafli sayfalama kontrolu */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-gray-600">
+            Sayfa {pagination.totalPages > 0 ? page : 0} / {pagination.totalPages} - Toplam {pagination.total}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={goPrev} disabled={loading || page <= 1}>
+              Onceki
+            </Button>
+            <Button variant="primary" onClick={goNext} disabled={loading || page >= pagination.totalPages}>
+              Sonraki
+            </Button>
+          </div>
+        </div>
       </div>
       <Modal
         isOpen={downloadPromptOpen}

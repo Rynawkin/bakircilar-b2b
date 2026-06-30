@@ -86,8 +86,13 @@ export default function TekliflerNew() {
     router,
     isAdmin,
     loading,
+    initialLoading,
     filteredQuotes,
     counts,
+    page,
+    pagination,
+    goPrev,
+    goNext,
     activeTab,
     handleTabChange,
     searchTerm,
@@ -127,7 +132,7 @@ export default function TekliflerNew() {
     getConversionBadge,
   } = useTeklifler();
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#15356b]" />
@@ -135,8 +140,9 @@ export default function TekliflerNew() {
     );
   }
 
-  // Sekme tanimlari (sayac rozetli) — klasik ile birebir tab/sayac mantigi
-  const tabs: Array<{ key: QuoteStatusFilter; label: string; count: number; active: string }> = [
+  // Sekme tanimlari — sayac yalnizca AKTIF sekme icin sunucudan gelir (pagination.total).
+  // Diger sekmelerde sahte sayi gostermemek icin count=null (rozet gizlenir).
+  const tabs: Array<{ key: QuoteStatusFilter; label: string; count: number | null; active: string }> = [
     { key: 'PENDING_APPROVAL', label: '⏳ Onay Bekleyen', count: counts.pending, active: '#15356b' },
     { key: 'SENT_TO_MIKRO', label: '✅ Gönderilen', count: counts.sent, active: '#047857' },
     { key: 'REJECTED', label: '❌ Reddedilen', count: counts.rejected, active: '#b91c1c' },
@@ -182,16 +188,18 @@ export default function TekliflerNew() {
                 }
               >
                 {t.label}
-                <span
-                  className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-full text-[11px] font-semibold"
-                  style={
-                    isActive
-                      ? { background: 'rgba(255,255,255,0.22)', color: '#fff' }
-                      : { background: '#eef2fa', color: '#1c4585' }
-                  }
-                >
-                  {t.count}
-                </span>
+                {t.count !== null && (
+                  <span
+                    className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-full text-[11px] font-semibold"
+                    style={
+                      isActive
+                        ? { background: 'rgba(255,255,255,0.22)', color: '#fff' }
+                        : { background: '#eef2fa', color: '#1c4585' }
+                    }
+                  >
+                    {t.count}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -219,8 +227,12 @@ export default function TekliflerNew() {
           )}
         </div>
 
-        {/* Liste / bos durum */}
-        {filteredQuotes.length === 0 ? (
+        {/* Liste / bos durum / liste-ici loading */}
+        {loading ? (
+          <div className={`${CARD} p-10 flex items-center justify-center`}>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#15356b]" />
+          </div>
+        ) : filteredQuotes.length === 0 ? (
           <div className={`${CARD} p-10 text-center text-[13px] text-[#8b97ac]`}>
             Seçili filtrede teklif bulunamadı.
           </div>
@@ -551,6 +563,31 @@ export default function TekliflerNew() {
             })}
           </div>
         )}
+
+        {/* Sunucu-tarafli sayfalama kontrolu */}
+        <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
+          <div className="text-[12.5px] text-[#51607a]">
+            Sayfa {pagination.totalPages > 0 ? page : 0} / {pagination.totalPages} · Toplam {pagination.total}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={loading || page <= 1}
+              className="inline-flex items-center gap-1.5 bg-white border border-[#e7ebf2] rounded-lg px-3.5 h-[38px] text-[12.5px] font-medium text-[#51607a] cursor-pointer hover:bg-[#f4f6fa] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Önceki
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={loading || page >= pagination.totalPages}
+              className="inline-flex items-center gap-1.5 bg-[#15356b] border-none rounded-lg px-3.5 h-[38px] text-[12.5px] font-semibold text-white cursor-pointer hover:bg-[#1c4585] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Sonraki
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* PDF Indir prompt modal — paylasilan Modal bilesenini kullanir */}

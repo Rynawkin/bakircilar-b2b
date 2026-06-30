@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, ChangeEvent, FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -746,22 +746,24 @@ export function useTeklifOlustur() {
       return;
     }
 
-    if (customerParam && customers.length === 0) {
-      return;
-    }
-
     prefillInitializedRef.current = true;
 
-    if (customerParam && customers.length > 0) {
-      const matched = customers.find(
-        (customer) => String(customer?.mikroCariCode || '').trim() === customerParam
-      );
-      if (matched) {
-        setSelectedCustomer(matched);
-        setHasManualCustomerChange(true);
-      } else {
-        toast.error('Cari bulunamadi');
-      }
+    if (customerParam) {
+      // Tek cariyi hedefli olarak sunucudan cek (tum listeyi onyuklemeden)
+      adminApi
+        .getCustomers({ search: customerParam, pageSize: 200 })
+        .then(({ customers: rows }) => {
+          const matched = (rows || []).find(
+            (customer: any) => String(customer?.mikroCariCode || '').trim() === customerParam
+          );
+          if (matched) {
+            setSelectedCustomer(matched);
+            setHasManualCustomerChange(true);
+          } else {
+            toast.error('Cari bulunamadi');
+          }
+        })
+        .catch(() => toast.error('Cari bulunamadi'));
     }
 
     if (productCodes.length > 0) {
@@ -779,7 +781,7 @@ export function useTeklifOlustur() {
           toast.error('Urunler yuklenemedi');
         });
     }
-  }, [customers, searchParams, isEditMode, isOrderMode]);
+  }, [searchParams, isEditMode, isOrderMode]);
 
   useEffect(() => {
     if (!isQuoteTableFullscreen) return undefined;
@@ -1083,8 +1085,9 @@ export function useTeklifOlustur() {
   }, [quoteProductCodes.join('|')]);
 
   const loadInitialData = async () => {
+    // NOT: Musteri listesi artik ONYUKLENMIYOR (performans). Picker sunucu-tarafli arar;
+    // secili musteri ise duzenleme verisinden / URL parametresinden hedefli cekilir.
     const results = await Promise.allSettled([
-      adminApi.getCustomers(),
       adminApi.getQuotePreferences(),
       adminApi.getSearchPreferences(),
       adminApi.getStockColumns(),
@@ -1094,7 +1097,6 @@ export function useTeklifOlustur() {
     ]);
 
     const [
-      customersResult,
       quotePrefsResult,
       searchPrefsResult,
       columnResult,
@@ -1103,13 +1105,6 @@ export function useTeklifOlustur() {
       settingsResult,
     ] = results;
     let initialSelectedColumns: string[] = [];
-
-    if (customersResult.status === 'fulfilled') {
-      setCustomers(customersResult.value.customers || []);
-    } else {
-      console.error('Musteri listesi yuklenemedi:', customersResult.reason);
-      toast.error('Musteri listesi yuklenemedi.');
-    }
 
     if (quotePrefsResult.status === 'fulfilled' && quotePrefsResult.value?.preferences) {
       setLastSalesCount(quotePrefsResult.value.preferences.lastSalesCount || 1);
@@ -1256,6 +1251,44 @@ export function useTeklifOlustur() {
         balance: customer.balance || 0,
       }));
   }, [customers]);
+
+  // Picker sunucu-tarafli arama + secim cozumleme (tum musteriler onyuklenmeden)
+  const serverCustomerCacheRef = useRef<Map<string, any>>(new Map());
+
+  const mapCustomerToCari = (customer: any) => ({
+    userId: customer.id,
+    code: customer.mikroCariCode,
+    name: customer.displayName || customer.name,
+    city: customer.city,
+    district: customer.district,
+    phone: customer.phone,
+    isLocked: customer.isLocked || false,
+    groupCode: customer.groupCode,
+    sectorCode: customer.sectorCode,
+    paymentTerm: customer.paymentTerm,
+    paymentPlanNo: customer.paymentPlanNo ?? null,
+    paymentPlanCode: customer.paymentPlanCode ?? null,
+    paymentPlanName: customer.paymentPlanName ?? null,
+    hasEInvoice: customer.hasEInvoice || false,
+    balance: customer.balance || 0,
+  });
+
+  const searchCustomersServer = useCallback(async (term: string) => {
+    const { customers: rows } = await adminApi.getCustomers({ search: term, pageSize: 50 });
+    const list = rows || [];
+    list.forEach((c: any) => {
+      if (c?.id) serverCustomerCacheRef.current.set(c.id, c);
+    });
+    return list.filter((c: any) => c.mikroCariCode).map(mapCustomerToCari);
+  }, []);
+
+  const handlePickCustomer = useCallback((cari: any) => {
+    const match = serverCustomerCacheRef.current.get(cari.userId);
+    if (match) {
+      setSelectedCustomer(match);
+      setHasManualCustomerChange(true);
+    }
+  }, []);
 
   const filteredPurchasedProducts = useMemo(() => {
     const tokens = buildSearchTokens(purchasedSearch);
@@ -1439,8 +1472,7 @@ export function useTeklifOlustur() {
       const { quote } = await adminApi.getQuoteById(quoteId);
       setEditingQuote(quote);
 
-      const matchedCustomer = customers.find((item) => item.id === quote.customer?.id);
-      setSelectedCustomer(matchedCustomer || quote.customer || null);
+      setSelectedCustomer(quote.customer || null);
       setHasManualCustomerChange(false);
       setSelectedContactId(quote.contactId || '');
       setValidityDate(quote.validityDate ? quote.validityDate.slice(0, 10) : '');
@@ -1462,7 +1494,20 @@ export function useTeklifOlustur() {
     setLoadingOrder(true);
     try {
       const { order } = await adminApi.getOrderById(orderId);
-      setEditingOrderCustomerCode(String(order.user?.mikroCariCode || '').trim());
+      const orderCustomerCode = String(order.user?.mikroCariCode || '').trim();
+      setEditingOrderCustomerCode(orderCustomerCode);
+      // Secili musteriyi siparis verisinden/hedefli fetch ile coz (tum liste onyuklenmeden)
+      if (orderCustomerCode) {
+        try {
+          const { customers: rows } = await adminApi.getCustomers({ search: orderCustomerCode, pageSize: 200 });
+          const matched = (rows || []).find(
+            (c: any) => String(c?.mikroCariCode || '').trim() === orderCustomerCode
+          );
+          setSelectedCustomer(matched || order.user || null);
+        } catch {
+          setSelectedCustomer(order.user || null);
+        }
+      }
       setOrderCustomerOrderNumber(order.customerOrderNumber || '');
       setOrderDocumentDescription(order.deliveryLocation || order.adminNote || '');
       setNote(order.adminNote || '');
@@ -2895,6 +2940,8 @@ export function useTeklifOlustur() {
     contactsLoading,
     customerContacts,
     customerOptions,
+    searchCustomersServer,
+    handlePickCustomer,
     customers,
     draggingColumn,
     draggingItemId,

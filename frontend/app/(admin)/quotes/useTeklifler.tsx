@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import adminApi from '@/lib/api/admin';
@@ -189,19 +189,31 @@ export const completeQuoteProfitSummary = (summary: ReturnType<typeof calculateQ
  * Teklifler ekraninin TUM mantigi (state/ref/effect/handler/turetilmis deger).
  * Klasik ve yeni gorunum bu hook'u kullanir; gorsel disindaki hicbir mantik degismez.
  */
+const QUOTES_PAGE_SIZE = 25;
+
 export function useTeklifler() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const { hasPermission } = usePermissions();
   const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [allQuotes, setAllQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
+  // Yalnizca ilk yukleme icin tam-ekran spinner; sonraki sayfa/arama yuklemelerinde
+  // liste-ici loading gosterilir (arama inputu odagi kaybolmasin).
+  const [initialLoading, setInitialLoading] = useState(true);
   const [syncingQuoteId, setSyncingQuoteId] = useState<string | null>(null);
   const [markingCustomerPdfSentId, setMarkingCustomerPdfSentId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<QuoteStatusFilter>('PENDING_APPROVAL');
+  const [activeTab, setActiveTab] = useState<QuoteStatusFilter>('ALL');
   const [whatsappTemplate, setWhatsappTemplate] = useState(DEFAULT_WHATSAPP_TEMPLATE);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<{ total: number; page: number; pageSize: number; totalPages: number }>({
+    total: 0,
+    page: 1,
+    pageSize: QUOTES_PAGE_SIZE,
+    totalPages: 1,
+  });
   const [expandedQuotes, setExpandedQuotes] = useState<Set<string>>(new Set());
 
   const [pendingDownloadId, setPendingDownloadId] = useState<string | null>(null);
@@ -222,9 +234,27 @@ export function useTeklifler() {
   const handledHistoryRef = useRef<string | null>(null);
 
   useEffect(() => {
-    fetchQuotes();
     fetchPreferences();
   }, []);
+
+  // Arama icin 350ms debounce; debounce degisince sayfa 1'e doner.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [searchTerm]);
+
+  // Sekme veya arama degisince ilk sayfaya don.
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, debouncedSearch]);
+
+  // Sunucu-tarafli veri cekme: filtre/arama/sayfa degisince yeniden cek.
+  useEffect(() => {
+    fetchQuotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, debouncedSearch, page]);
 
   useEffect(() => {
     const tabParam = resolveTabFilter(searchParams.get('tab'));
@@ -241,41 +271,90 @@ export function useTeklifler() {
     }
   }, [searchParams, activeTab, pendingDownloadId, pendingHistoryId]);
 
+  // DERIN LINK: ?download=<id> ile gelen teklif bu sayfada olmayabilir; tek basina cek.
   useEffect(() => {
     if (!pendingDownloadId) return;
     if (handledDownloadRef.current === pendingDownloadId) return;
-    const targetQuote = allQuotes.find((quote) => quote.id === pendingDownloadId);
-    if (!targetQuote) return;
     handledDownloadRef.current = pendingDownloadId;
-    setDownloadPromptQuote(targetQuote);
-    setDownloadPromptOpen(true);
-  }, [pendingDownloadId, allQuotes]);
+    (async () => {
+      const inList = quotes.find((quote) => quote.id === pendingDownloadId);
+      let targetQuote = inList || null;
+      if (!targetQuote) {
+        try {
+          const { quote } = await adminApi.getQuoteById(pendingDownloadId);
+          targetQuote = quote || null;
+        } catch (error) {
+          console.error('Teklif (download) yuklenemedi:', error);
+        }
+      }
+      if (!targetQuote) {
+        handledDownloadRef.current = null;
+        return;
+      }
+      setDownloadPromptQuote(targetQuote);
+      setDownloadPromptOpen(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDownloadId]);
 
+  // DERIN LINK: ?history=<id> ile gelen teklif bu sayfada olmayabilir; tek basina cek.
   useEffect(() => {
     if (!pendingHistoryId) return;
     if (handledHistoryRef.current === pendingHistoryId) return;
-    const targetQuote = allQuotes.find((quote) => quote.id === pendingHistoryId);
-    if (!targetQuote) return;
     handledHistoryRef.current = pendingHistoryId;
-    handleOpenHistory(targetQuote);
-  }, [pendingHistoryId, allQuotes]);
-
-  useEffect(() => {
-    if (activeTab === 'ALL') {
-      setQuotes(allQuotes);
-    } else {
-      setQuotes(allQuotes.filter((quote) => quote.status === activeTab));
-    }
-  }, [activeTab, allQuotes]);
+    (async () => {
+      const inList = quotes.find((quote) => quote.id === pendingHistoryId);
+      let targetQuote = inList || null;
+      if (!targetQuote) {
+        try {
+          const { quote } = await adminApi.getQuoteById(pendingHistoryId);
+          targetQuote = quote || null;
+        } catch (error) {
+          console.error('Teklif (history) yuklenemedi:', error);
+        }
+      }
+      if (!targetQuote) {
+        handledHistoryRef.current = null;
+        return;
+      }
+      handleOpenHistory(targetQuote);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingHistoryId]);
 
   const fetchQuotes = async () => {
+    setLoading(true);
     try {
-      const { quotes } = await adminApi.getQuotes();
-      setAllQuotes(quotes);
-      setQuotes(quotes.filter((quote) => quote.status === 'PENDING_APPROVAL'));
+      const { quotes: pageQuotes, pagination: meta } = await adminApi.getQuotes({
+        status: activeTab,
+        search: debouncedSearch || undefined,
+        page,
+        pageSize: QUOTES_PAGE_SIZE,
+      });
+      setQuotes(pageQuotes || []);
+      if (meta) {
+        setPagination(meta);
+      } else {
+        // Sunucu pagination donmezse: gelen sayfanin uzunlugundan turet (sahte toplam gosterme).
+        setPagination({
+          total: (pageQuotes || []).length,
+          page,
+          pageSize: QUOTES_PAGE_SIZE,
+          totalPages: 1,
+        });
+      }
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
+  };
+
+  const goPrev = () => {
+    setPage((prev) => Math.max(1, prev - 1));
+  };
+
+  const goNext = () => {
+    setPage((prev) => (prev < pagination.totalPages ? prev + 1 : prev));
   };
 
   const fetchPreferences = async () => {
@@ -1321,7 +1400,6 @@ export function useTeklifler() {
     setMarkingCustomerPdfSentId(quoteId);
     try {
       const { quote: updatedQuote } = await adminApi.markQuoteCustomerPdfSent(quoteId);
-      setAllQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updatedQuote : quote)));
       setQuotes((prev) => prev.map((quote) => (quote.id === quoteId ? updatedQuote : quote)));
       toast.success("PDF musteriye gonderildi olarak isaretlendi.");
     } catch (error: any) {
@@ -1365,44 +1443,20 @@ export function useTeklifler() {
     return <Badge variant="info">Siparis ({sourceLabel})</Badge>;
   };
 
-  const counts = {
-    pending: allQuotes.filter((q) => q.status === 'PENDING_APPROVAL').length,
-    sent: allQuotes.filter((q) => q.status === 'SENT_TO_MIKRO').length,
-    rejected: allQuotes.filter((q) => q.status === 'REJECTED').length,
-    accepted: allQuotes.filter((q) => q.status === 'CUSTOMER_ACCEPTED').length,
-    all: allQuotes.length,
+  // Sekme bazli toplam sayim artik sunucuda yok. Sahte sayi gostermemek icin
+  // sadece AKTIF sekmenin toplamini (pagination.total) veriyoruz; digerleri null
+  // (UI bos/gizli birakir, 0 yazmaz).
+  const counts: Record<'pending' | 'sent' | 'rejected' | 'accepted' | 'all', number | null> = {
+    pending: activeTab === 'PENDING_APPROVAL' ? pagination.total : null,
+    sent: activeTab === 'SENT_TO_MIKRO' ? pagination.total : null,
+    rejected: activeTab === 'REJECTED' ? pagination.total : null,
+    accepted: activeTab === 'CUSTOMER_ACCEPTED' ? pagination.total : null,
+    all: activeTab === 'ALL' ? pagination.total : null,
   };
 
-  const filteredQuotes = useMemo(() => {
-    const term = searchTerm.trim();
-    if (!term) return quotes;
-    const normalizedTerm = normalizeTurkishText(term).toLowerCase();
-
-    return quotes.filter((quote) => {
-      const customerName =
-        quote.customer?.displayName ||
-        quote.customer?.mikroName ||
-        quote.customer?.name ||
-        '';
-      const quoteItemSearchText = (quote.items || [])
-        .map((item) => `${item.productCode || ''} ${item.productName || ''}`)
-        .join(' ');
-
-      const haystack = [
-        quote.quoteNumber,
-        quote.documentNo,
-        quote.mikroNumber,
-        quote.customer?.mikroCariCode,
-        customerName,
-        quote.createdBy?.name,
-        quoteItemSearchText,
-      ]
-        .filter(Boolean)
-        .join(' ');
-
-      return normalizeTurkishText(haystack).toLowerCase().includes(normalizedTerm);
-    });
-  }, [quotes, searchTerm]);
+  // Liste artik sunucu sayfasidir; client-side yeniden filtreleme YAPMA.
+  // (Eski filteredQuotes useMemo'su no-op'a indirildi; cift-filtre ile sonuc gizlenmez.)
+  const filteredQuotes = quotes;
 
   const isAdmin = hasPermission('admin:quotes');
 
@@ -1414,10 +1468,16 @@ export function useTeklifler() {
     isAdmin,
     // veri / liste
     quotes,
-    allQuotes,
     loading,
+    initialLoading,
     filteredQuotes,
     counts,
+    // sunucu-tarafli sayfalama
+    page,
+    setPage,
+    goPrev,
+    goNext,
+    pagination,
     // tab
     activeTab,
     handleTabChange,

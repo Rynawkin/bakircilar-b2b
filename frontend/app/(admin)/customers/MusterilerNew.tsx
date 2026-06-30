@@ -30,9 +30,9 @@ const GRID =
 export default function MusterilerNew() {
   const {
     filteredCustomers,
-    customers,
     cariList,
     isLoading,
+    isFetching,
     showForm,
     toggleForm,
     formData,
@@ -46,6 +46,11 @@ export default function MusterilerNew() {
     setSearchTerm,
     filterActive,
     setFilterActive,
+    page,
+    total,
+    totalPages,
+    goPrev,
+    goNext,
     showEditModal,
     setShowEditModal,
     customerToEdit,
@@ -164,8 +169,7 @@ export default function MusterilerNew() {
               Müşteri Yönetimi
             </h1>
             <div style={{ fontSize: 13, color: FAINT, marginTop: 5 }}>
-              Müşteriler ({filteredCustomers.length} / {customers.length} toplam) · segment, fiyat
-              görünürlüğü, alt kullanıcılar
+              Müşteriler ({total} toplam) · segment, fiyat görünürlüğü, alt kullanıcılar
             </div>
           </div>
           <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
@@ -593,7 +597,7 @@ export default function MusterilerNew() {
                     borderTop: `1px solid ${ROW_LINE}`,
                   }}
                 >
-                  Müşteri bulunamadı
+                  {isFetching ? 'Yükleniyor…' : 'Müşteri bulunamadı'}
                 </div>
               ) : (
                 filteredCustomers.map((customer) => {
@@ -776,6 +780,63 @@ export default function MusterilerNew() {
                 })
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Sunucu-tarafli sayfalama kontrolu */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginTop: 14,
+          }}
+        >
+          <div style={{ fontSize: 12.5, color: MUTED }}>
+            Sayfa {page} / {totalPages} · Toplam {total}
+            {isFetching && (
+              <span style={{ marginLeft: 8, color: FAINT }}>· güncelleniyor…</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={page <= 1 || isFetching}
+              style={{
+                background: '#fff',
+                border: `1px solid ${page <= 1 || isFetching ? '#eef1f6' : '#e7ebf2'}`,
+                borderRadius: 8,
+                padding: '8px 14px',
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: page <= 1 || isFetching ? '#a4afc1' : PRIMARY,
+                cursor: page <= 1 || isFetching ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              Önceki
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={page >= totalPages || isFetching}
+              style={{
+                background: '#fff',
+                border: `1px solid ${page >= totalPages || isFetching ? '#eef1f6' : '#e7ebf2'}`,
+                borderRadius: 8,
+                padding: '8px 14px',
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: page >= totalPages || isFetching ? '#a4afc1' : PRIMARY,
+                cursor: page >= totalPages || isFetching ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              Sonraki
+            </button>
           </div>
         </div>
       </div>

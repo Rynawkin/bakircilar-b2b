@@ -1311,18 +1311,52 @@ class QuoteService {
     role: string,
     status?: string,
     assignedSectorCodes: string[] = [],
+    opts: { search?: string; page?: number; pageSize?: number } = {},
   ) {
     const where: any = {};
     if (status && status !== "ALL") {
       where.status = status;
     }
     if (role === "SALES_REP") {
-      if (assignedSectorCodes.length === 0) return [];
+      if (assignedSectorCodes.length === 0) {
+        return { quotes: [], total: 0, paginated: false, page: 1, pageSize: 0 };
+      }
       where.customer = { sectorCode: { in: assignedSectorCodes } };
     }
-    const quotes = await prisma.quote.findMany({
-      where,
-      include: {
+    // Sunucu-tarafli arama (tum kayitlarda): cok-token AND, her token alanlarda OR
+    const searchTokens = (opts.search || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 8);
+    if (searchTokens.length > 0) {
+      where.AND = searchTokens.map((tok) => ({
+        OR: [
+          { quoteNumber: { contains: tok, mode: "insensitive" } },
+          {
+            customer: {
+              OR: [
+                { name: { contains: tok, mode: "insensitive" } },
+                { displayName: { contains: tok, mode: "insensitive" } },
+                { mikroName: { contains: tok, mode: "insensitive" } },
+                { mikroCariCode: { contains: tok, mode: "insensitive" } },
+              ],
+            },
+          },
+          {
+            items: {
+              some: {
+                OR: [
+                  { productName: { contains: tok, mode: "insensitive" } },
+                  { productCode: { contains: tok, mode: "insensitive" } },
+                ],
+              },
+            },
+          },
+        ],
+      }));
+    }
+    const include: any = {
         items: {
           orderBy: { lineOrder: "asc" },
           include: {
@@ -1384,10 +1418,38 @@ class QuoteService {
         adminUser: { select: { id: true, name: true, email: true } },
         customerPdfSentBy: { select: { id: true, name: true, email: true } },
         orders: { select: { id: true, orderNumber: true, createdAt: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    return quotes;
+    };
+    const rawPageSize = Number(opts.pageSize);
+    const paginated = Number.isFinite(rawPageSize) && rawPageSize > 0;
+    if (!paginated) {
+      const quotes = await prisma.quote.findMany({
+        where,
+        include,
+        orderBy: { createdAt: "desc" },
+      });
+      return {
+        quotes,
+        total: quotes.length,
+        paginated: false,
+        page: 1,
+        pageSize: quotes.length,
+      };
+    }
+    const pageSize = Math.min(Math.max(1, Math.floor(rawPageSize)), 200);
+    const rawPage = Number(opts.page);
+    const page =
+      Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+    const [total, quotes] = await Promise.all([
+      prisma.quote.count({ where }),
+      prisma.quote.findMany({
+        where,
+        include,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return { quotes, total, paginated: true, page, pageSize };
   }
   async getQuoteByIdForStaff(
     quoteId: string,

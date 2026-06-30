@@ -16,9 +16,9 @@ import { useMusteriler } from './useMusteriler';
 export default function MusterilerClassic() {
   const {
     filteredCustomers,
-    customers,
     cariList,
     isLoading,
+    isFetching,
     showForm,
     toggleForm,
     formData,
@@ -32,6 +32,11 @@ export default function MusterilerClassic() {
     setSearchTerm,
     filterActive,
     setFilterActive,
+    page,
+    total,
+    totalPages,
+    goPrev,
+    goNext,
     showEditModal,
     setShowEditModal,
     customerToEdit,
@@ -246,7 +251,7 @@ export default function MusterilerClassic() {
           cariList={cariList}
         />
 
-        <Card title={`Müşteriler (${filteredCustomers.length} / ${customers.length})`}>
+        <Card title={`Müşteriler (${total})`}>
           <div className="space-y-4 mb-4">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex-1">
@@ -307,7 +312,7 @@ export default function MusterilerClassic() {
                 {filteredCustomers.length === 0 ? (
                   <tr>
                     <td colSpan={15} className="px-4 py-8 text-center text-gray-500">
-                      Müşteri bulunamadı
+                      {isFetching ? 'Yükleniyor…' : 'Müşteri bulunamadı'}
                     </td>
                   </tr>
                 ) : (
@@ -361,6 +366,32 @@ export default function MusterilerClassic() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Sunucu-tarafli sayfalama kontrolu */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+            <div className="text-sm text-gray-600">
+              Sayfa {page} / {totalPages} · Toplam {total}
+              {isFetching && <span className="ml-2 text-gray-400">· güncelleniyor…</span>}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={goPrev}
+                disabled={page <= 1 || isFetching}
+              >
+                Önceki
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={goNext}
+                disabled={page >= totalPages || isFetching}
+              >
+                Sonraki
+              </Button>
+            </div>
           </div>
         </Card>
 

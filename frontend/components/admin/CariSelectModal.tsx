@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -29,12 +29,20 @@ interface CariSelectModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (cari: MikroCari) => void;
-  cariList: MikroCari[];
+  cariList?: MikroCari[];
+  /**
+   * Verilirse modal SUNUCU-TARAFLI arama yapar (tum musterilerde, sektor-guvenli):
+   * yazilan terimle (debounce) bu fonksiyon cagrilir, donen sonuclar listelenir.
+   * Verilmezse eski davranis: cariList uzerinde client-side filtre.
+   */
+  serverSearch?: (term: string) => Promise<MikroCari[]>;
 }
 
-export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSelectModalProps) {
+export function CariSelectModal({ isOpen, onClose, onSelect, cariList = [], serverSearch }: CariSelectModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCari, setSelectedCari] = useState<MikroCari | null>(null);
+  const [serverResults, setServerResults] = useState<MikroCari[]>([]);
+  const [serverLoading, setServerLoading] = useState(false);
 
   const searchTokens = useMemo(() => buildSearchTokens(searchTerm), [searchTerm]);
 
@@ -54,6 +62,31 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
       return matchesSearchTokens(haystack, searchTokens);
     });
   }, [cariList, searchTokens]);
+
+  // Sunucu-tarafli arama modu: debounce ile fetch (tum musterilerde arar)
+  useEffect(() => {
+    if (!serverSearch || !isOpen) return;
+    let active = true;
+    setServerLoading(true);
+    const timer = setTimeout(() => {
+      serverSearch(searchTerm.trim())
+        .then((rows) => { if (active) setServerResults(rows || []); })
+        .catch(() => { if (active) setServerResults([]); })
+        .finally(() => { if (active) setServerLoading(false); });
+    }, 350);
+    return () => { active = false; clearTimeout(timer); };
+  }, [serverSearch, isOpen, searchTerm]);
+
+  // Modal kapaninca arama/secim sifirla
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchTerm('');
+      setSelectedCari(null);
+      setServerResults([]);
+    }
+  }, [isOpen]);
+
+  const displayList = serverSearch ? serverResults : filteredCariList;
 
   const handleRowClick = (cari: MikroCari) => {
     setSelectedCari(cari);
@@ -114,7 +147,11 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
             className="w-full"
           />
           <p className="text-xs text-gray-500 mt-1">
-            {filteredCariList.length} cari bulundu
+            {serverSearch
+              ? (serverLoading
+                  ? 'Aranıyor...'
+                  : `${displayList.length} sonuç${searchTerm.trim() ? '' : ' (ilk 50)'}`)
+              : `${filteredCariList.length} cari bulundu`}
           </p>
         </div>
 
@@ -160,14 +197,14 @@ export function CariSelectModal({ isOpen, onClose, onSelect, cariList }: CariSel
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filteredCariList.length === 0 ? (
+              {displayList.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                    Cari bulunamadı
+                    {serverSearch && serverLoading ? 'Aranıyor...' : 'Cari bulunamadı'}
                   </td>
                 </tr>
               ) : (
-                filteredCariList.map((cari) => (
+                displayList.map((cari) => (
                   <tr
                     key={cari.code}
                     onClick={() => handleRowClick(cari)}

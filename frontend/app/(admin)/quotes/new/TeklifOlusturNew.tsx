@@ -111,6 +111,8 @@ export default function TeklifOlusturNew() {
     customerContacts,
     customerOptions,
     customers,
+    searchCustomersServer,
+    handlePickCustomer,
     draggingColumn,
     draggingItemId,
     editInitializedRef,
@@ -1875,14 +1877,8 @@ export default function TeklifOlusturNew() {
       <CariSelectModal
         isOpen={showCariModal}
         onClose={() => setShowCariModal(false)}
-        cariList={customerOptions}
-        onSelect={(cari) => {
-          const match = customers.find((customer) => customer.id === cari.userId);
-          if (match) {
-            setSelectedCustomer(match);
-            setHasManualCustomerChange(true);
-          }
-        }}
+        serverSearch={searchCustomersServer}
+        onSelect={handlePickCustomer}
       />
 
       {/* ====================== FIYAT TEYIT MODALI ====================== */}

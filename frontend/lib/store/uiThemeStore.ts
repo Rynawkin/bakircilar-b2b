@@ -14,8 +14,10 @@ import { create } from 'zustand';
 
 export type AdminUiTheme = 'new' | 'old';
 
-// Redesign yayina hazir olunca 'new' yap. Su an klasik varsayilan.
-export const DEFAULT_ADMIN_THEME: AdminUiTheme = 'old';
+// 67/67 ekran cevrildi + kullanici onayladi -> varsayilan YENI gorunum.
+// Klasik gorunum hala mevcut: kullanici menusu -> Gorunum -> Klasik ile donulebilir.
+// (Geri almak icin tek satir: 'old' yap.)
+export const DEFAULT_ADMIN_THEME: AdminUiTheme = 'new';
 
 const THEME_KEY = 'admin-ui-theme';
 const INTRO_KEY = 'admin-ui-intro-seen-v1';

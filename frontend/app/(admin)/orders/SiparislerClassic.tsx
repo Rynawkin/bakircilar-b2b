@@ -22,10 +22,18 @@ export default function SiparislerClassic() {
     searchTerm,
     setSearchTerm,
     isLoading,
+    isFetching,
     filteredOrders,
     counts,
     sourceCounts,
     emptyStateMessage,
+    page,
+    pagination,
+    totalPages,
+    canPrev,
+    canNext,
+    goPrev,
+    goNext,
     expandedOrders,
     toggleExpanded,
     selectedOrderIds,
@@ -102,11 +110,13 @@ export default function SiparislerClassic() {
               }`}
             >
               ⏳ Bekleyen
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'PENDING' ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {counts.pending}
-              </span>
+              {counts.pending !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'PENDING' ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {counts.pending}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('APPROVED')}
@@ -117,11 +127,13 @@ export default function SiparislerClassic() {
               }`}
             >
               ✅ Onaylanan
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {counts.approved}
-              </span>
+              {counts.approved !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {counts.approved}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('REJECTED')}
@@ -132,11 +144,13 @@ export default function SiparislerClassic() {
               }`}
             >
               ❌ Reddedilen
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {counts.rejected}
-              </span>
+              {counts.rejected !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {counts.rejected}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab('ALL')}
@@ -147,11 +161,13 @@ export default function SiparislerClassic() {
               }`}
             >
               📋 Tümü
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'ALL' ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {counts.all}
-              </span>
+              {counts.all !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'ALL' ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {counts.all}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -169,11 +185,13 @@ export default function SiparislerClassic() {
               }`}
             >
               Tum Siparisler
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                sourceTab === 'ALL' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {sourceCounts.all}
-              </span>
+              {sourceCounts.all !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  sourceTab === 'ALL' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {sourceCounts.all}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setSourceTab('CUSTOMER')}
@@ -184,11 +202,13 @@ export default function SiparislerClassic() {
               }`}
             >
               Musteri Siparisleri
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                sourceTab === 'CUSTOMER' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {sourceCounts.customer}
-              </span>
+              {sourceCounts.customer !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  sourceTab === 'CUSTOMER' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {sourceCounts.customer}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setSourceTab('B2B')}
@@ -199,11 +219,13 @@ export default function SiparislerClassic() {
               }`}
             >
               B2B Siparisleri
-              <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                sourceTab === 'B2B' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {sourceCounts.b2b}
-              </span>
+              {sourceCounts.b2b !== null && (
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                  sourceTab === 'B2B' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {sourceCounts.b2b}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -469,6 +491,24 @@ export default function SiparislerClassic() {
               </Card>
             );
             })}
+          </div>
+        )}
+
+        {/* Sunucu-tarafli sayfalama kontrolu */}
+        {pagination.total > 0 && (
+          <div className="mt-6 flex flex-col gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm text-gray-600">
+              Sayfa <b className="text-gray-900">{page}</b> / {totalPages} · Toplam{' '}
+              <b className="text-gray-900">{pagination.total}</b>
+            </span>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" disabled={!canPrev || isFetching} onClick={goPrev}>
+                Onceki
+              </Button>
+              <Button variant="secondary" size="sm" disabled={!canNext || isFetching} onClick={goNext}>
+                Sonraki
+              </Button>
+            </div>
           </div>
         )}
 
