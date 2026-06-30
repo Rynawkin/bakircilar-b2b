@@ -581,545 +581,735 @@ export function useTeklifler() {
     }
   ) => {
     const { default: jsPDF } = await import('jspdf');
-    const autoTableModule = await import('jspdf-autotable');
-    const autoTable = (autoTableModule as any).default || (autoTableModule as any).autoTable;
-    if (typeof autoTable !== 'function') {
-      throw new Error('autoTable is not available');
-    }
     const includeStockStatus = options?.includeStockStatus === true;
     const stockStatusMap = options?.stockStatusMap || {};
     const recommendedProducts = options?.recommendedProducts || [];
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const marginX = 14;
+    const PAGE_W = doc.internal.pageSize.getWidth();
+    const PAGE_H = doc.internal.pageSize.getHeight();
+    const MX = 12; // sol/sag kenar bosluk
+    const CW = PAGE_W - MX * 2; // icerik genisligi
+    const BOTTOM_SAFE = PAGE_H - 40; // footer + sayfa isaretleri icin ayrilan alt alan
+    const TOP_CONT = 26; // devam sayfalarinda ust devam basligi icin ayrilan alan
+
+    // ---- Renkler (design tokens) ----
+    const C = {
+      navy: [21, 53, 107] as [number, number, number],
+      navyDark: [16, 42, 85] as [number, number, number],
+      blue: [31, 90, 168] as [number, number, number],
+      cyan: [19, 153, 214] as [number, number, number],
+      ink: [28, 40, 64] as [number, number, number],
+      ink2: [22, 36, 61] as [number, number, number],
+      muted: [93, 107, 132] as [number, number, number],
+      soft: [63, 79, 107] as [number, number, number],
+      faint: [147, 160, 181] as [number, number, number],
+      faint2: [174, 184, 200] as [number, number, number],
+      hair: [233, 237, 243] as [number, number, number],
+      hair2: [238, 241, 246] as [number, number, number],
+      panel: [246, 248, 251] as [number, number, number],
+      panel2: [241, 245, 249] as [number, number, number],
+      amberBg: [253, 249, 241] as [number, number, number],
+      amberBorder: [240, 220, 192] as [number, number, number],
+      amberInk: [185, 121, 31] as [number, number, number],
+      amberSoft: [154, 123, 69] as [number, number, number],
+      red: [180, 40, 59] as [number, number, number],
+      green: [15, 122, 77] as [number, number, number],
+      greenBg: [234, 244, 238] as [number, number, number],
+      greenBorder: [207, 231, 216] as [number, number, number],
+      white: [255, 255, 255] as [number, number, number],
+    };
+
+    // ---- Font gomme (tam Turkce: Hanken Grotesk + IBM Plex Mono) ----
+    const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)) as any);
+      }
+      return btoa(binary);
+    };
+    const tryAddFont = async (path: string, vfsName: string, family: string, style: string) => {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(`font fetch failed: ${path}`);
+      const b64 = arrayBufferToBase64(await res.arrayBuffer());
+      doc.addFileToVFS(vfsName, b64);
+      doc.addFont(vfsName, family, style);
+    };
+    let SANS = 'helvetica';
+    let MONO = 'courier';
+    try {
+      await tryAddFont('/fonts/HankenGrotesk-Regular.ttf', 'HankenGrotesk-Regular.ttf', 'Hanken', 'normal');
+      await tryAddFont('/fonts/HankenGrotesk-Bold.ttf', 'HankenGrotesk-Bold.ttf', 'Hanken', 'bold');
+      await tryAddFont('/fonts/IBMPlexMono-Regular.ttf', 'IBMPlexMono-Regular.ttf', 'PlexMono', 'normal');
+      SANS = 'Hanken';
+      MONO = 'PlexMono';
+    } catch (e) {
+      console.error('PDF font gomulemedi, helvetica fallback:', e);
+    }
+    const embedded = SANS === 'Hanken';
+    // Font gomulemezse Turkce karakterleri sadelestir (yalniz fallback durumunda)
+    const T = (text: string | number | null | undefined): string => {
+      const s = text === null || text === undefined ? '' : String(text);
+      if (embedded) return s;
+      return s
+        .replace(/ı/g, 'i').replace(/İ/g, 'I')
+        .replace(/ş/g, 's').replace(/Ş/g, 'S')
+        .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
+        .replace(/ç/g, 'c').replace(/Ç/g, 'C')
+        .replace(/ö/g, 'o').replace(/Ö/g, 'O')
+        .replace(/ü/g, 'u').replace(/Ü/g, 'U');
+    };
+
+    // ---- kisa yardimcilar ----
+    const setFill = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
+    const setDraw = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
+    const setText = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+    const font = (style: 'normal' | 'bold', size: number, color: [number, number, number]) => {
+      doc.setFont(SANS, style);
+      doc.setFontSize(size);
+      setText(color);
+    };
+    const monoFont = (size: number, color: [number, number, number]) => {
+      doc.setFont(MONO, 'normal');
+      doc.setFontSize(size);
+      setText(color);
+    };
+
     const formatCurrencyTL = (value?: number | null) => {
       const amount = Number.isFinite(value) ? (value as number) : 0;
       return `${amount.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
     };
+    const formatNumber = (value?: number | null, frac = 2) => {
+      const amount = Number.isFinite(value) ? (value as number) : 0;
+      return amount.toLocaleString('tr-TR', { minimumFractionDigits: frac, maximumFractionDigits: frac });
+    };
+    const formatQty = (value?: number | null) => {
+      const n = Number.isFinite(value) ? (value as number) : 0;
+      return Number.isInteger(n) ? n.toLocaleString('tr-TR') : n.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+    };
+    const TR_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+    const dateLong = (value?: string | Date | null) => {
+      if (!value) return '-';
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return '-';
+      return `${d.getDate()} ${TR_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+    };
+    const dateShort = (value?: string | Date | null) => {
+      if (!value) return '-';
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return '-';
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      return `${dd}.${mm}.${d.getFullYear()}`;
+    };
+    const dayDiff = (a?: string | Date | null, b?: string | Date | null) => {
+      if (!a || !b) return null;
+      const da = new Date(a).getTime();
+      const db = new Date(b).getTime();
+      if (isNaN(da) || isNaN(db)) return null;
+      return Math.round((db - da) / 86400000);
+    };
 
-      const formatRate = (value?: number | null) => {
-        if (!Number.isFinite(value)) return '-';
-        return Number(value).toLocaleString('tr-TR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-      };
-
-      const safeCurrency = (value?: number | null) => formatCurrencyTL(value);
-
-      const colors = {
-        primary: [37, 99, 235] as const,
-        dark: [15, 23, 42] as const,
-        muted: [100, 116, 139] as const,
-        light: [248, 250, 252] as const,
-        border: [226, 232, 240] as const,
-      };
-
-      const resolveImageUrl = (url?: string | null) => {
-        if (!url) return null;
-        if (url.startsWith('http://') || url.startsWith('https://')) return url;
-        if (url.startsWith('/')) return `${window.location.origin}${url}`;
-        return `${window.location.origin}/${url}`;
-      };
-
-      const loadImageData = async (url: string): Promise<string | null> => {
-        try {
-          const response = await fetch(url);
-          if (!response.ok) return null;
-          const blob = await response.blob();
-          return await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-            reader.onerror = () => resolve(null);
-            reader.readAsDataURL(blob);
-          });
-        } catch (error) {
-          return null;
-        }
-      };
-
-      const getImageFormat = (dataUrl: string) =>
-        dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
-
-      const getImageDimensions = (dataUrl: string): Promise<{ width: number; height: number } | null> =>
-        new Promise((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-            const width = img.naturalWidth || img.width;
-            const height = img.naturalHeight || img.height;
-            if (!width || !height) {
-              resolve(null);
-              return;
-            }
-            resolve({ width, height });
-          };
-          img.onerror = () => resolve(null);
-          img.src = dataUrl;
-        });
-
-      const fitWithin = (width: number, height: number, maxWidth: number, maxHeight: number) => {
-        if (!width || !height) {
-          return { width: maxWidth, height: maxHeight };
-        }
-        const ratio = width / height;
-        let fittedWidth = maxWidth;
-        let fittedHeight = fittedWidth / ratio;
-        if (fittedHeight > maxHeight) {
-          fittedHeight = maxHeight;
-          fittedWidth = fittedHeight * ratio;
-        }
-        return { width: fittedWidth, height: fittedHeight };
-      };
-
-      const logoPath = '/quote-logo.png';
-      const logoUrl = resolveImageUrl(logoPath);
-      const logoData = logoUrl ? await loadImageData(logoUrl) : null;
-      const logoDimensions = logoData ? await getImageDimensions(logoData) : null;
-      const logoMaxWidth = 70;
-      const logoMaxHeight = 20;
-      const logoSize = logoData
-        ? logoDimensions
-          ? fitWithin(logoDimensions.width, logoDimensions.height, logoMaxWidth, logoMaxHeight)
-          : { width: logoMaxWidth, height: logoMaxHeight }
-        : null;
-
-      let usdRate: number | null = null;
+    // ---- gorsel yardimcilari ----
+    const resolveImageUrl = (url?: string | null) => {
+      if (!url) return null;
+      if (url.startsWith('http://') || url.startsWith('https://')) return url;
+      if (url.startsWith('/')) return `${window.location.origin}${url}`;
+      return `${window.location.origin}/${url}`;
+    };
+    const loadImageData = async (url: string): Promise<string | null> => {
       try {
-        const usdResult = await adminApi.getUsdSellingRate();
-        const parsed = Number(usdResult?.rate);
-        usdRate = Number.isFinite(parsed) ? parsed : null;
-      } catch (error) {
-        console.error('USD kur alinamadi:', error);
-      }
-
-      const companyName =
-        quote.customer?.mikroName ||
-        quote.customer?.displayName ||
-        quote.customer?.name ||
-        '-';
-      const contactName =
-        quote.contactName ||
-        quote.customer?.displayName ||
-        quote.customer?.name ||
-        '-';
-      const customerPhone = quote.contactPhone || quote.customer?.phone || '-';
-      const customerEmail = quote.contactEmail || quote.customer?.email || '-';
-      const quoteDate = quote.createdAt ? formatDateShort(quote.createdAt) : '-';
-      const validityText = quote.validityDate ? formatDateShort(quote.validityDate) : '-';
-      const documentNo = quote.documentNo || '-';
-      const createdByName = quote.createdBy?.name || '-';
-      const createdByEmail = quote.createdBy?.email || '-';
-      const createdByPhone = quote.createdBy?.phone || '-';
-
-      const headerHeight = 28;
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, pageWidth, headerHeight, 'F');
-
-      if (logoData && logoSize) {
-        const logoFormat = getImageFormat(logoData);
-        const logoY = (headerHeight - logoSize.height) / 2;
-        const logoX = (pageWidth - logoSize.width) / 2;
-        doc.addImage(logoData, logoFormat, logoX, logoY, logoSize.width, logoSize.height);
-      }
-
-      const infoY = 28;
-      const boxHeight = 52;
-      const boxGap = 6;
-      const boxWidth = (pageWidth - marginX * 2 - boxGap) / 2;
-      const rightBoxX = marginX + boxWidth + boxGap;
-      const lineGap = 4.5;
-
-      doc.setFillColor(...colors.light);
-      doc.setDrawColor(...colors.border);
-      doc.roundedRect(marginX, infoY, boxWidth, boxHeight, 2, 2, 'F');
-      doc.roundedRect(rightBoxX, infoY, boxWidth, boxHeight, 2, 2, 'F');
-
-      const writeLines = (lines: string[], x: number, startY: number, width: number) => {
-        let currentY = startY;
-        lines.forEach((line) => {
-          const wrapped = doc.splitTextToSize(cleanPdfText(line), width) as string[];
-          wrapped.forEach((chunk) => {
-            doc.text(chunk, x, currentY);
-            currentY += lineGap;
-          });
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
         });
-      };
-
-      doc.setFontSize(9);
-      doc.setTextColor(...colors.muted);
-      doc.text(cleanPdfText('FIRMA BILGILERI'), marginX + 4, infoY + 6);
-      doc.setTextColor(...colors.dark);
-      writeLines(
-        [
-          `Firma: ${companyName}`,
-          `Ilgili: ${contactName}`,
-          `Tel: ${customerPhone}`,
-          `Mail: ${customerEmail}`,
-        ],
-        marginX + 4,
-        infoY + 12,
-        boxWidth - 8
-      );
-
-      doc.setTextColor(...colors.muted);
-      doc.text(cleanPdfText('TEKLIF BILGILERI'), rightBoxX + 4, infoY + 6);
-      doc.setTextColor(...colors.dark);
-      writeLines(
-        [
-          `Tarih: ${quoteDate}`,
-          `Teklif No: ${quote.quoteNumber || '-'}`,
-          `Belge No: ${documentNo}`,
-          `Gecerlilik: ${validityText}`,
-          `Teklifi Veren: ${createdByName}`,
-          `Mail: ${createdByEmail}`,
-          `Tel: ${createdByPhone}`,
-        ],
-        rightBoxX + 4,
-        infoY + 12,
-        boxWidth - 8
-      );
-
-      const tableStartY = infoY + boxHeight + 10;
-      const items = Array.isArray(quote.items) ? quote.items : [];
-      const imageCache = new Map<string, { dataUrl: string | null; dimensions: { width: number; height: number } | null }>();
-      const imageDataByIndex = await Promise.all(
-        items.map(async (item) => {
-          const imageUrl = resolveImageUrl(item.manualImageUrl || item.product?.imageUrl || null);
-          if (!imageUrl) return null;
-          const cached = imageCache.get(imageUrl);
-          if (cached) {
-            return cached;
-          }
-          const dataUrl = await loadImageData(imageUrl);
-          const dimensions = dataUrl ? await getImageDimensions(dataUrl) : null;
-          const entry = { dataUrl, dimensions };
-          imageCache.set(imageUrl, entry);
-          return entry;
-        })
-      );
-      const recommendedImageData = await Promise.all(
-        recommendedProducts.map(async (product) => {
-          const imageUrl = resolveImageUrl(product.imageUrl || null);
-          if (!imageUrl) return null;
-          const cached = imageCache.get(imageUrl);
-          if (cached) {
-            return cached;
-          }
-          const dataUrl = await loadImageData(imageUrl);
-          const dimensions = dataUrl ? await getImageDimensions(dataUrl) : null;
-          const entry = { dataUrl, dimensions };
-          imageCache.set(imageUrl, entry);
-          return entry;
-        })
-      );
-      const imageMap = new Map<string, { dataUrl: string; dimensions: { width: number; height: number } | null }>();
-
-      const stockFallbackLabel = 'Stok bilgisi yok';
-      const emptyRowBase = [
-        cleanPdfText('Urun yok'),
-        '',
-        '0',
-        '-',
-        '-',
-        '-',
-        '',
-      ];
-      const tableData = items.length > 0
-        ? items.map((item, index) => {
-          const imageEntry = imageDataByIndex[index];
-          const imageKey = imageEntry?.dataUrl ? `img_${index}` : '';
-          if (imageKey && imageEntry?.dataUrl) {
-            imageMap.set(imageKey, { dataUrl: imageEntry.dataUrl, dimensions: imageEntry.dimensions });
-          }
-          const row = [
-            cleanPdfText(item.productName || '-'),
-            { content: '', imageKey },
-            String(item.quantity ?? 0),
-            cleanPdfText(item.unit || item.product?.unit || '-'),
-            cleanPdfText(safeCurrency(item.unitPrice)),
-            cleanPdfText(safeCurrency(item.totalPrice)),
-            cleanPdfText(item.lineDescription || ''),
-          ];
-          if (includeStockStatus) {
-            const statusKey = String(item.productCode || '').trim();
-            const statusLabel = statusKey ? (stockStatusMap[statusKey] || stockFallbackLabel) : stockFallbackLabel;
-            row.push(cleanPdfText(statusLabel));
-          }
-          return row;
-        })
-        : [includeStockStatus ? [...emptyRowBase, cleanPdfText(stockFallbackLabel)] : emptyRowBase];
-
-      const tableHead = [
-        'Urun Adi',
-        'Gorsel',
-        'Miktar',
-        'Birim',
-        'Birim Fiyat',
-        'Toplam',
-        'Aciklama',
-      ];
-      if (includeStockStatus) {
-        tableHead.push('Stok Durumu');
+      } catch {
+        return null;
       }
-
-      const columnStyles = includeStockStatus
-        ? {
-          0: { cellWidth: 60 },
-          1: { cellWidth: 16, halign: 'center' },
-          2: { cellWidth: 12, halign: 'right' },
-          3: { cellWidth: 14, halign: 'center' },
-          4: { cellWidth: 24, halign: 'right' },
-          5: { cellWidth: 24, halign: 'right' },
-          6: { cellWidth: 18 },
-          7: { cellWidth: 26, halign: 'center' },
-        }
-        : {
-          0: { cellWidth: 68 },
-          1: { cellWidth: 18, halign: 'center' },
-          2: { cellWidth: 14, halign: 'right' },
-          3: { cellWidth: 16, halign: 'center' },
-          4: { cellWidth: 28, halign: 'right' },
-          5: { cellWidth: 28, halign: 'right' },
-          6: { cellWidth: 22 },
+    };
+    const getImageFormat = (dataUrl: string) => (dataUrl.includes('image/png') ? 'PNG' : 'JPEG');
+    const getImageDimensions = (dataUrl: string): Promise<{ width: number; height: number } | null> =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+          if (!width || !height) { resolve(null); return; }
+          resolve({ width, height });
         };
-
-      autoTable(doc, {
-        startY: tableStartY,
-        head: [tableHead],
-        body: tableData,
-        styles: {
-          fontSize: 9,
-          cellPadding: 2,
-          minCellHeight: 18,
-          overflow: 'linebreak',
-          halign: 'left',
-          font: 'helvetica',
-          textColor: colors.dark,
-          lineColor: colors.border,
-          lineWidth: 0.1,
-        },
-        headStyles: {
-          fillColor: colors.primary,
-          textColor: 255,
-          fontStyle: 'bold',
-          halign: 'center',
-          fontSize: 10,
-        },
-        columnStyles,
-        alternateRowStyles: {
-          fillColor: [245, 247, 250],
-        },
-        margin: { left: 8, right: 8 },
-        didDrawCell: (data: any) => {
-          if (data.section !== 'body' || data.column.index !== 1) return;
-          const raw = data.cell.raw as { imageKey?: string };
-          const imageKey = raw?.imageKey;
-          if (!imageKey) return;
-          const imageEntry = imageMap.get(imageKey);
-          if (!imageEntry?.dataUrl) return;
-          const format = getImageFormat(imageEntry.dataUrl);
-          const maxSize = Math.min(data.cell.width - 2, data.cell.height - 2);
-          const fitted = imageEntry.dimensions
-            ? fitWithin(imageEntry.dimensions.width, imageEntry.dimensions.height, maxSize, maxSize)
-            : { width: maxSize, height: maxSize };
-          const x = data.cell.x + (data.cell.width - fitted.width) / 2;
-          const y = data.cell.y + (data.cell.height - fitted.height) / 2;
-          doc.addImage(imageEntry.dataUrl, format, x, y, fitted.width, fitted.height);
-        },
+        img.onerror = () => resolve(null);
+        img.src = dataUrl;
       });
+    const fitWithin = (w: number, h: number, maxW: number, maxH: number) => {
+      if (!w || !h) return { width: maxW, height: maxH };
+      const ratio = w / h;
+      let fw = maxW;
+      let fh = fw / ratio;
+      if (fh > maxH) { fh = maxH; fw = fh * ratio; }
+      return { width: fw, height: fh };
+    };
+    type Img = { data: string; format: 'PNG' | 'JPEG'; w: number; h: number } | null;
+    const loadImg = async (path?: string | null): Promise<Img> => {
+      const url = resolveImageUrl(path);
+      if (!url) return null;
+      const data = await loadImageData(url);
+      if (!data) return null;
+      const dim = await getImageDimensions(data);
+      return { data, format: getImageFormat(data) as 'PNG' | 'JPEG', w: dim?.width || 1, h: dim?.height || 1 };
+    };
 
-      const finalY = (doc as any).lastAutoTable?.finalY || tableStartY;
-      const summaryWidth = 74;
-      const summaryX = pageWidth - marginX - summaryWidth;
+    // ---- veri ----
+    const items = quote.items || [];
+    const companyName = quote.customer?.mikroName || quote.customer?.displayName || quote.customer?.name || '-';
+    const contactName = quote.contactName || quote.customer?.displayName || quote.customer?.name || '-';
+    const customerPhone = quote.contactPhone || quote.customer?.phone || '-';
+    const customerEmail = quote.contactEmail || quote.customer?.email || '-';
+    const createdByName = quote.createdBy?.name || '-';
+    const createdByEmail = quote.createdBy?.email || '-';
+    const createdByPhone = quote.createdBy?.phone || '-';
+    const validityDays = dayDiff(quote.createdAt, quote.validityDate);
+    const paymentLabel = quote.customer?.paymentPlanName || quote.customer?.paymentPlanCode || '-';
+    const totalQty = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
 
-      const toDateOnly = (value?: string | Date | null) => {
-        if (!value) return null;
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return null;
-        date.setHours(0, 0, 0, 0);
-        return date;
-      };
+    // KDV kirilimi (kalem bazinda vatRate)
+    const isWhole = (quote as any).vatZeroed === true;
+    let subTotal = 0;
+    const vatGroups = new Map<number, number>(); // rate(%) -> matrah
+    items.forEach((it) => {
+      const lineTotal = Number(it.totalPrice) || 0;
+      subTotal += lineTotal;
+      const rawRate = isWhole || (it as any).vatZeroed ? 0 : Number(it.vatRate) || 0;
+      const pct = rawRate <= 1 ? Math.round(rawRate * 100) : Math.round(rawRate);
+      vatGroups.set(pct, (vatGroups.get(pct) || 0) + lineTotal);
+    });
+    const vatLines = Array.from(vatGroups.entries())
+      .filter(([pct]) => pct > 0)
+      .map(([pct, matrah]) => ({ pct, matrah, kdv: matrah * (pct / 100) }))
+      .sort((a, b) => b.pct - a.pct);
+    const totalVat = vatLines.reduce((s, v) => s + v.kdv, 0);
+    const grandTotal = subTotal + totalVat;
 
-      const createdDate = toDateOnly(quote.createdAt);
-      const validDate = toDateOnly(quote.validityDate);
-      const validityDays =
-        createdDate && validDate
-          ? Math.max(0, Math.round((validDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)))
-          : 0;
-      const paymentTerm = quote.customer?.paymentTerm;
-      const paymentPlanLabel = quote.customer?.paymentPlanName || quote.customer?.paymentPlanCode
-        ? [quote.customer?.paymentPlanCode, quote.customer?.paymentPlanName].filter(Boolean).join(' - ')
-        : paymentTerm !== undefined && paymentTerm !== null
-          ? `${paymentTerm} gun`
-          : '-';
+    // USD kuru
+    let usdRate: number | null = null;
+    try {
+      const usdResult = await adminApi.getUsdSellingRate();
+      const parsed = Number(usdResult?.rate);
+      usdRate = Number.isFinite(parsed) ? parsed : null;
+    } catch (e) {
+      console.error('USD kur alinamadi:', e);
+    }
 
-      const terms = [
-        `Teklif gecerlilik suresi: ${validityDays} gun`,
-        `Vade: ${paymentPlanLabel}`,
-        'Fiyatlarimiza KDV dahil degildir.',
-        'Dovizli islemlerde TCMB USD satis kuru baz alinir.',
-        `USD satis kuru: ${usdRate ? formatRate(usdRate) : '-'}`,
-      ];
-
-      const summaryRows = [
-        { label: 'Ara Toplam', value: safeCurrency(quote.totalAmount) },
-        { label: 'Iskonto', value: safeCurrency(0) },
-        { label: 'KDV', value: safeCurrency(quote.totalVat) },
-        { label: 'Genel Toplam', value: safeCurrency(quote.grandTotal), highlight: true },
-      ];
-
-      const termLineGap = 4.2;
-      const termPadding = 5;
-      const termTitle = 'TEKLIF SARTLARI';
-      const termTitleOffset = 6;
-      const termBoxWidth = pageWidth - marginX * 2 - summaryWidth - 8;
-      const wrappedTerms = terms.flatMap((line) =>
-        doc.splitTextToSize(cleanPdfText(line), termBoxWidth - 8) as string[]
-      );
-      const termBoxHeight = Math.max(
-        wrappedTerms.length * termLineGap + termPadding * 2 + termTitleOffset,
-        26
-      );
-
-      const summaryLineGap = 5;
-      const summaryHeight = Math.max(summaryRows.length * summaryLineGap + 6, 26);
-
-      const footerLineGap = 4.2;
-      const footerLines = [
-        'BAKIRCILAR AMBALAJ END.-TEM VE KIRTASIYE',
-        'MERKEZ: RASIMPASA MAH. ATATURK BLV. NO:69/A HENDEK/SAKARYA',
-        'SUBE 1: TOPCA TOPTANCILAR CARSISI A BLOK NO: 20 - ERENLER/SAKARYA',
-        'TEL: 0264 614 67 77  FAX: 0264 614 66 60 - info@bakircilarambalaj.com',
-        'www.bakircilargrup.com',
-      ];
-      const footerHeight = footerLines.length * footerLineGap + 4;
-
-      let sectionY = finalY + 8;
-      const sectionHeight = Math.max(termBoxHeight, summaryHeight);
-
-      if (sectionY + sectionHeight + footerHeight > pageHeight - 10) {
-        doc.addPage();
-        sectionY = 20;
+    // Cari hesap durumu (vade senkronu: toplam bakiye + vadesi gecen)
+    let cari: { total: number; pastDue: number } | null = null;
+    try {
+      const cariCode = quote.customer?.mikroCariCode || '';
+      const search = cariCode || companyName;
+      if (search && search !== '-') {
+        const res = await adminApi.getVadeBalances({ search, limit: 20 });
+        const list = res?.balances || [];
+        const match =
+          list.find((b: any) => b.user?.id && quote.customer?.id && b.user.id === quote.customer.id) ||
+          list.find((b: any) => cariCode && b.user?.mikroCariCode === cariCode) ||
+          (list.length === 1 ? list[0] : null);
+        if (match) cari = { total: Number(match.totalBalance) || 0, pastDue: Number(match.pastDueBalance) || 0 };
       }
+    } catch (e) {
+      console.error('Cari bakiye alinamadi:', e);
+    }
 
-      doc.setFillColor(...colors.light);
-      doc.roundedRect(marginX, sectionY, termBoxWidth, termBoxHeight, 2, 2, 'F');
-      doc.setFontSize(8);
-      doc.setTextColor(...colors.muted);
-      doc.text(cleanPdfText(termTitle), marginX + 4, sectionY + 4);
-      doc.setFontSize(9);
-      doc.setTextColor(...colors.dark);
-      let termY = sectionY + termPadding + termTitleOffset;
-      wrappedTerms.forEach((line) => {
-        doc.text(line, marginX + 4, termY);
-        termY += termLineGap;
+    // Gorseller (logo, maskotlar, kalem gorselleri, oneri gorselleri)
+    const [logo, mascotPoint, mascotThumb] = await Promise.all([
+      loadImg('/quote-logo.png'),
+      loadImg('/bakir-point.png'),
+      loadImg('/bakir-thumb.png'),
+    ]);
+    const itemImages: Img[] = await Promise.all(
+      items.map((it) => loadImg((it as any).manualImageUrl || (it as any).product?.imageUrl || null))
+    );
+
+    // ================= CIZIM =================
+    const IBANS = [
+      { bank: 'Ziraat Bankası', branch: 'Hendek', iban: 'TR42 0001 0000 2053 9031 7150 01' },
+      { bank: 'Yapı Kredi', branch: 'Erenler', iban: 'TR90 0006 7010 0000 0083 9998 96' },
+    ];
+    const COMPANY = {
+      name: 'BAKIRCILAR AMBALAJ END. - TEM VE KIRTASİYE',
+      l1: 'Merkez: Rasimpaşa Mah. Atatürk Blv. No:69/A Hendek / Sakarya',
+      l2: 'Şube: Topça Toptancılar Çarşısı A Blok No:20 - Erenler / Sakarya',
+      l3: 'Tel: 0264 614 67 77 · Faks: 0264 614 66 60 · info@bakircilarambalaj.com · www.bakircilargrup.com',
+      payName: 'Bakırcılar Ambalaj End. Tem. ve Kırt.',
+    };
+
+    const drawImageBox = (img: Img, x: number, y: number, boxW: number, boxH: number, radius: number) => {
+      setFill(C.panel2);
+      doc.roundedRect(x, y, boxW, boxH, radius, radius, 'F');
+      if (img) {
+        const pad = 1.5;
+        const fit = fitWithin(img.w, img.h, boxW - pad * 2, boxH - pad * 2);
+        doc.addImage(img.data, img.format, x + (boxW - fit.width) / 2, y + (boxH - fit.height) / 2, fit.width, fit.height);
+      }
+    };
+
+    // sayfa arka plani: filigran + sol serit (her sayfada)
+    const drawBackground = () => {
+      // filigran
+      if (logo) {
+        try {
+          (doc as any).saveGraphicsState?.();
+          (doc as any).setGState?.(new (doc as any).GState({ opacity: 0.05 }));
+          const wmW = 150;
+          const wmH = (logo.h / logo.w) * wmW;
+          doc.addImage(logo.data, logo.format, (PAGE_W - wmW) / 2, (PAGE_H - wmH) / 2, wmW, wmH);
+          (doc as any).restoreGraphicsState?.();
+        } catch { /* opacity desteklenmiyorsa filigrani atla */ }
+      }
+      // sol dikey serit (navy -> cyan gradyan, bantlarla)
+      const bands = 60;
+      for (let i = 0; i < bands; i++) {
+        const t = i / (bands - 1);
+        const r = Math.round(C.navy[0] + (C.cyan[0] - C.navy[0]) * t);
+        const g = Math.round(C.navy[1] + (C.cyan[1] - C.navy[1]) * t);
+        const b = Math.round(C.navy[2] + (C.cyan[2] - C.navy[2]) * t);
+        doc.setFillColor(r, g, b);
+        doc.rect(0, (PAGE_H / bands) * i, 2, PAGE_H / bands + 0.3, 'F');
+      }
+    };
+
+    let pageIndex = 0;
+    let y = 0;
+
+    const newPage = () => {
+      doc.addPage();
+      pageIndex += 1;
+      drawBackground();
+      y = TOP_CONT; // devam basligi 2. gecişte cizilecek
+    };
+    const ensureSpace = (h: number) => {
+      if (y + h > BOTTOM_SAFE) newPage();
+    };
+
+    // ---- SAYFA 1: arka plan + masthead ----
+    drawBackground();
+
+    // masthead (navy gradyan)
+    const mastH = 30;
+    // gradyan bantlari (yatay 120deg yaklasimi -> soldan saga navyDark->blue)
+    const segs = 40;
+    for (let i = 0; i < segs; i++) {
+      const t = i / (segs - 1);
+      const r = Math.round(C.navyDark[0] + (C.blue[0] - C.navyDark[0]) * t);
+      const g = Math.round(C.navyDark[1] + (C.blue[1] - C.navyDark[1]) * t);
+      const b = Math.round(C.navyDark[2] + (C.blue[2] - C.navyDark[2]) * t);
+      doc.setFillColor(r, g, b);
+      doc.rect((PAGE_W / segs) * i, 0, PAGE_W / segs + 0.3, mastH, 'F');
+    }
+    // beyaz logo cipi
+    if (logo) {
+      const chipH = 16;
+      const logoW = 40;
+      const logoH = (logo.h / logo.w) * logoW;
+      const chipW = logoW + 10;
+      const chipX = MX;
+      const chipY = (mastH - chipH) / 2;
+      setFill(C.white);
+      doc.roundedRect(chipX, chipY, chipW, chipH, 2.5, 2.5, 'F');
+      doc.addImage(logo.data, logo.format, chipX + 5, chipY + (chipH - logoH) / 2, logoW, logoH);
+    }
+    font('bold', 17, C.white);
+    doc.text('FİYAT TEKLİFİ', PAGE_W - MX, 13, { align: 'right' });
+    monoFont(9.5, [170, 195, 230]);
+    doc.text(`${quote.quoteNumber || '-'}${quote.documentNo ? ' · ' + quote.documentNo : ''}`, PAGE_W - MX, 19.5, { align: 'right' });
+
+    // ---- hizli bilgiler seridi ----
+    const factsY = mastH;
+    const factsH = 14;
+    setFill(C.panel);
+    doc.rect(0, factsY, PAGE_W, factsH, 'F');
+    setDraw(C.hair);
+    doc.line(0, factsY + factsH, PAGE_W, factsY + factsH);
+    const facts: Array<[string, string]> = [
+      ['TEKLİF TARİHİ', dateLong(quote.createdAt)],
+      ['GEÇERLİLİK', `${dateShort(quote.validityDate)}${validityDays != null ? ' · ' + validityDays + ' gün' : ''}`],
+      ['VADE', paymentLabel],
+      ['KAPSAM', `${items.length} kalem · ${formatQty(totalQty)} adet`],
+    ];
+    {
+      const colW = CW / facts.length;
+      facts.forEach((f, i) => {
+        const fx = MX + colW * i;
+        font('bold', 7, C.faint);
+        doc.text(f[0], fx, factsY + 5.5);
+        font('bold', 9.5, C.ink2);
+        doc.text(T(f[1]), fx, factsY + 10.5);
+        if (i > 0) { setDraw([225, 231, 240]); doc.line(fx - 3, factsY + 3, fx - 3, factsY + 11); }
       });
+    }
 
-      doc.setFillColor(...colors.light);
-      doc.roundedRect(summaryX, sectionY, summaryWidth, summaryHeight, 2, 2, 'F');
-      const summaryStartY = sectionY + 6;
-      summaryRows.forEach((row, index) => {
-        const y = summaryStartY + index * summaryLineGap;
-        const labelSize = row.highlight ? 10 : 9;
-        const valueSize = row.highlight ? 10 : 9;
-        doc.setFontSize(labelSize);
-        doc.setTextColor(...colors.muted);
-        doc.text(cleanPdfText(row.label), summaryX + 4, y);
-        doc.setFontSize(valueSize);
-        doc.setTextColor(...colors.dark);
-        doc.text(cleanPdfText(row.value), summaryX + summaryWidth - 4, y, { align: 'right' });
-      });
+    // ---- taraflar ----
+    y = factsY + factsH + 8;
+    const halfW = CW / 2;
+    font('bold', 8, C.navy);
+    doc.text('MÜŞTERİ', MX, y);
+    doc.text('HAZIRLAYAN', MX + halfW + 6, y);
+    setDraw(C.hair2);
+    doc.line(MX + halfW, y - 4, MX + halfW, y + 16);
+    y += 6;
+    font('bold', 12, C.ink2);
+    doc.text(T(companyName), MX, y, { maxWidth: halfW - 8 });
+    doc.text(T(createdByName), MX + halfW + 6, y, { maxWidth: halfW - 8 });
+    y += 5.5;
+    font('normal', 9, C.muted);
+    doc.text(T(`İlgili: ${contactName}`), MX, y, { maxWidth: halfW - 8 });
+    doc.text(T('Bakırcılar Ambalaj · Satış'), MX + halfW + 6, y, { maxWidth: halfW - 8 });
+    y += 4.5;
+    doc.text(T(`${customerPhone} · ${customerEmail}`), MX, y, { maxWidth: halfW - 8 });
+    doc.text(T(`${createdByPhone} · ${createdByEmail}`), MX + halfW + 6, y, { maxWidth: halfW - 8 });
+    y += 8;
 
-      let contentBottomY = sectionY + sectionHeight;
+    // ---- urun tablosu (manuel, otomatik sayfalama) ----
+    // kolonlar (mm): # / urun / gorsel / miktar / birim fiyat / toplam
+    const col = {
+      no: MX,
+      noW: 8,
+      name: MX + 8,
+      nameW: 70,
+      img: MX + 78,
+      imgW: 20,
+      qty: MX + 98,
+      qtyW: 26,
+      price: MX + 124,
+      priceW: 28,
+      total: MX + 152,
+      totalW: 34,
+    };
+    const drawTableHeader = (continued: boolean) => {
+      font('bold', 7.5, C.navy);
+      doc.text('#', col.no + col.noW / 2, y, { align: 'center' });
+      doc.text(continued ? T('ÜRÜN (DEVAM)') : 'ÜRÜN', col.name, y);
+      doc.text('GÖRSEL', col.img + col.imgW / 2, y, { align: 'center' });
+      doc.text('MİKTAR', col.qty + col.qtyW, y, { align: 'right' });
+      doc.text('BİRİM FİYAT', col.price + col.priceW, y, { align: 'right' });
+      doc.text('TOPLAM', col.total + col.totalW, y, { align: 'right' });
+      y += 2.5;
+      setDraw(C.navy);
+      doc.setLineWidth(0.6);
+      doc.line(MX, y, MX + CW, y);
+      doc.setLineWidth(0.2);
+      y += 4.5;
+    };
+    drawTableHeader(false);
 
-      if (recommendedProducts.length > 0) {
-        const columns = 2;
-        const cardGap = 6;
-        const cardWidth = (pageWidth - marginX * 2 - cardGap) / columns;
-        const cardHeight = 18;
-        const titleGap = 6;
-        const rowGap = 4;
-        const rowsNeeded = Math.ceil(recommendedProducts.length / columns);
-        const sectionHeight = titleGap + rowsNeeded * (cardHeight + rowGap);
-        let recommendedStartY = contentBottomY + 8;
+    items.forEach((it, idx) => {
+      const img = itemImages[idx];
+      const nameStr = T(it.productName || (it as any).product?.name || '-');
+      const codeBits: string[] = [];
+      if (it.productCode) codeBits.push(String(it.productCode));
+      const lineDesc = (it as any).lineDescription;
+      if (lineDesc) codeBits.push(String(lineDesc));
+      if (includeStockStatus) {
+        const st = stockStatusMap[String(it.productCode || '')];
+        if (st) codeBits.push(st);
+      }
+      font('normal', 11, C.ink2);
+      const nameLines = doc.splitTextToSize(nameStr, col.nameW) as string[];
+      const nameBlockH = nameLines.length * 4.2 + (codeBits.length ? 3.4 : 0);
+      const rowH = Math.max(nameBlockH + 5, 20);
+      ensureSpace(rowH);
+      if (y === TOP_CONT) drawTableHeader(true); // yeni sayfada baslik
 
-        if (recommendedStartY + sectionHeight + footerHeight > pageHeight - 10) {
-          doc.addPage();
-          recommendedStartY = 20;
+      const rowTop = y;
+      const midY = rowTop + rowH / 2;
+      // #
+      monoFont(10, C.faint2);
+      doc.text(String(idx + 1), col.no + col.noW / 2, midY + 1, { align: 'center' });
+      // urun adi + kod
+      font('bold', 11, C.ink2);
+      let ny = rowTop + (rowH - nameBlockH) / 2 + 3.2;
+      nameLines.forEach((ln) => { doc.text(ln, col.name, ny); ny += 4.2; });
+      if (codeBits.length) {
+        monoFont(8, C.faint);
+        doc.text(T(codeBits.join(' · ')), col.name, ny, { maxWidth: col.nameW });
+      }
+      // gorsel
+      drawImageBox(img, col.img + (col.imgW - 16) / 2, midY - 8, 16, 16, 2.2);
+      // miktar (+birim)
+      font('normal', 10.5, C.soft);
+      const qtyStr = formatQty(it.quantity);
+      doc.text(qtyStr, col.qty + col.qtyW, midY + 1, { align: 'right' });
+      const unitStr = T(it.unit || (it as any).product?.unit || '');
+      if (unitStr) {
+        const qtyW = doc.getTextWidth(qtyStr);
+        font('normal', 8.5, C.faint);
+        doc.text(unitStr, col.qty + col.qtyW - qtyW - 1.5, midY + 1, { align: 'right' });
+      }
+      // birim fiyat
+      font('normal', 10.5, C.ink2);
+      doc.text(formatNumber(it.unitPrice), col.price + col.priceW, midY + 1, { align: 'right' });
+      // toplam
+      font('bold', 10.5, C.ink2);
+      doc.text(formatNumber(it.totalPrice), col.total + col.totalW, midY + 1, { align: 'right' });
+      // satir ayraci
+      setDraw(C.hair2);
+      doc.line(MX, rowTop + rowH, MX + CW, rowTop + rowH);
+      y = rowTop + rowH;
+    });
+    if (items.length === 0) {
+      font('normal', 10, C.muted);
+      ensureSpace(12);
+      doc.text(T('Teklifte ürün bulunmuyor.'), MX, y + 6);
+      y += 12;
+    }
+    y += 8;
+
+    // ---- sartlar + toplamlar ----
+    const totalsW = 76;
+    const termsW = CW - totalsW - 8;
+    const totalsX = MX + termsW + 8;
+    // toplamlar kutusu yuksekligi
+    const totalsRows = 1 + Math.max(vatLines.length, 1);
+    const totalsBoxH = 14 + totalsRows * 6 + 14;
+    ensureSpace(totalsBoxH + 4);
+    const blockTop = y;
+    // sartlar (sol)
+    font('bold', 8, C.navy);
+    doc.text('TEKLİF ŞARTLARI', MX, blockTop + 2);
+    font('normal', 9, C.muted);
+    const usdText = usdRate ? ` (USD satış kuru: ${formatNumber(usdRate, 4)})` : '';
+    const termsStr = T(
+      `Fiyatlarımıza KDV dahil değildir. Dövizli işlemlerde TCMB USD satış kuru baz alınır${usdText}. ` +
+      `Teklif ${validityDays != null ? validityDays + ' gün' : ''} geçerlidir; ödeme ${paymentLabel} planına tabidir.`
+    );
+    const termsLines = doc.splitTextToSize(termsStr, termsW) as string[];
+    let ty = blockTop + 8;
+    termsLines.forEach((ln) => { doc.text(ln, MX, ty); ty += 4.6; });
+    // toplamlar (sag, panel)
+    setFill(C.panel);
+    setDraw(C.hair);
+    doc.roundedRect(totalsX, blockTop, totalsW, totalsBoxH, 3, 3, 'FD');
+    let sy = blockTop + 7;
+    const totalRow = (label: string, value: string, sub?: string) => {
+      font('normal', 9, C.muted);
+      doc.text(T(label), totalsX + 4, sy);
+      if (sub) {
+        const lw = doc.getTextWidth(T(label));
+        font('normal', 7, C.faint2);
+        doc.text(T(sub), totalsX + 4 + lw + 2, sy);
+      }
+      font('bold', 9, C.ink2);
+      doc.text(value, totalsX + totalsW - 4, sy, { align: 'right' });
+      sy += 6;
+    };
+    totalRow('Ara Toplam', formatCurrencyTL(subTotal));
+    if (vatLines.length === 0) {
+      totalRow('KDV', formatCurrencyTL(0));
+    } else {
+      vatLines.forEach((v) => totalRow(`KDV %${v.pct}`, formatCurrencyTL(v.kdv), `· Matrah ${formatNumber(v.matrah)}`));
+    }
+    sy += 1;
+    setDraw(C.hair);
+    doc.line(totalsX + 4, sy - 3, totalsX + totalsW - 4, sy - 3);
+    font('bold', 9, C.navy);
+    doc.text('GENEL TOPLAM', totalsX + 4, sy + 4);
+    font('bold', 15, C.navy);
+    doc.text(formatCurrencyTL(grandTotal), totalsX + totalsW - 4, sy + 4.5, { align: 'right' });
+    y = Math.max(ty, blockTop + totalsBoxH) + 8;
+
+    // ---- cari hesap durumu + odeme bilgileri ----
+    const showCari = !!(cari && cari.pastDue > 0);
+    const payH = 8 + IBANS.length * 9 + 4;
+    const cariH = showCari ? 34 : 0;
+    const rowH2 = Math.max(payH, cariH);
+    ensureSpace(rowH2 + 4);
+    const r2Top = y;
+    const colGap = 8;
+    const c2W = (CW - colGap) / 2;
+    if (showCari) {
+      setFill(C.amberBg);
+      setDraw(C.amberBorder);
+      doc.roundedRect(MX, r2Top, c2W, rowH2, 3, 3, 'FD');
+      font('bold', 8, C.amberInk);
+      doc.text('CARİ HESAP DURUMU', MX + 5, r2Top + 6);
+      font('normal', 8, C.faint);
+      doc.text('Toplam Bakiye', MX + 5, r2Top + 14);
+      font('bold', 14, C.ink2);
+      doc.text(formatCurrencyTL(cari!.total), MX + 5, r2Top + 21);
+      font('bold', 8, C.red);
+      doc.text('Vadesi Geçen', MX + c2W / 2 + 4, r2Top + 14);
+      font('bold', 14, C.red);
+      doc.text(formatCurrencyTL(cari!.pastDue), MX + c2W / 2 + 4, r2Top + 21);
+      font('normal', 8, C.amberSoft);
+      doc.text(T('Vadesi geçen bakiyeniz bulunmaktadır; en kısa sürede ödenmesini rica ederiz.'), MX + 5, r2Top + 28, { maxWidth: c2W - 10 });
+    }
+    // odeme bilgileri (cari yoksa tam genislik)
+    const payX = showCari ? MX + c2W + colGap : MX;
+    const payW = showCari ? c2W : CW;
+    setFill(C.panel);
+    setDraw(C.hair);
+    doc.roundedRect(payX, r2Top, payW, rowH2, 3, 3, 'FD');
+    font('bold', 8, C.navy);
+    doc.text('ÖDEME BİLGİLERİ', payX + 5, r2Top + 6);
+    font('normal', 8, C.faint);
+    doc.text(T(`Hesap: ${COMPANY.payName}`), payX + 5, r2Top + 11.5);
+    let py = r2Top + 16;
+    IBANS.forEach((b) => {
+      setDraw(C.hair);
+      doc.line(payX + 5, py - 2.5, payX + payW - 5, py - 2.5);
+      font('bold', 9, C.ink2);
+      doc.text(T(`${b.bank} · ${b.branch}`), payX + 5, py + 1.5);
+      monoFont(8.5, C.soft);
+      doc.text(b.iban, payX + 5, py + 6);
+      py += 9;
+    });
+    y = r2Top + rowH2 + 8;
+
+    // ---- tamamlayici urunler ----
+    if (recommendedProducts.length > 0) {
+      const recImgs = await Promise.all(recommendedProducts.slice(0, 8).map((p) => loadImg(p.imageUrl || null)));
+      const recs = recommendedProducts.slice(0, 8);
+      ensureSpace(14);
+      font('bold', 11, C.ink2);
+      doc.text(T('Tamamlayıcı Ürünler'), MX, y);
+      const titleW = doc.getTextWidth(T('Tamamlayıcı Ürünler'));
+      font('normal', 8.5, C.faint);
+      doc.text(T('Siparişinizle birlikte sıkça tercih edilenler'), MX + titleW + 3, y);
+      y += 5;
+      const cardGap = 6;
+      const cardW = (CW - cardGap) / 2;
+      const cardH = 16;
+      for (let i = 0; i < recs.length; i += 2) {
+        ensureSpace(cardH + 3);
+        for (let j = 0; j < 2; j++) {
+          const p = recs[i + j];
+          if (!p) continue;
+          const cx = MX + (cardW + cardGap) * j;
+          setFill(C.white);
+          setDraw([230, 236, 243]);
+          doc.roundedRect(cx, y, cardW, cardH, 2.5, 2.5, 'FD');
+          drawImageBox(recImgs[i + j], cx + 3, y + 2.5, 11, 11, 2);
+          font('bold', 9.5, C.ink2);
+          const pn = doc.splitTextToSize(T(p.name || '-'), cardW - 20) as string[];
+          doc.text(pn[0] || '-', cx + 17, y + 7);
+          monoFont(7.5, C.faint);
+          doc.text(T(p.mikroCode || ''), cx + 17, y + 11.5);
         }
+        y += cardH + 3;
+      }
+      y += 4;
+    }
 
-        doc.setFontSize(9);
-        doc.setTextColor(...colors.muted);
-        doc.text(cleanPdfText('ONERILEN URUNLER'), marginX, recommendedStartY);
+    // ---- tesekkur + imza/onay ----
+    ensureSpace(34);
+    font('normal', 9.5, C.muted);
+    doc.text(T('Teklifimizi değerlendirdiğiniz için teşekkür ederiz.'), MX, y);
+    y += 6;
+    const sigGap = 8;
+    const sigW = (CW - sigGap) / 2;
+    const sigH = 22;
+    const drawSig = (x: number, label: string, value: string) => {
+      setDraw(C.hair);
+      doc.roundedRect(x, y, sigW, sigH, 2.5, 2.5, 'D');
+      font('bold', 7.5, C.faint);
+      doc.text(T(label), x + 5, y + 6);
+      font('bold', 9.5, C.ink2);
+      doc.text(T(value), x + 5, y + sigH - 5, { maxWidth: sigW - 10 });
+    };
+    drawSig(MX, 'TEKLİFİ VEREN', `${createdByName} · Bakırcılar Ambalaj`);
+    drawSig(MX + sigW + sigGap, 'ONAYLAYAN · KAŞE & İMZA', companyName);
+    y += sigH + 6;
 
-        const textStartY = recommendedStartY + titleGap;
-        recommendedProducts.forEach((product, index) => {
-          const columnIndex = index % columns;
-          const rowIndex = Math.floor(index / columns);
-          const x = marginX + columnIndex * (cardWidth + cardGap);
-          const y = textStartY + rowIndex * (cardHeight + rowGap);
-          const imageEntry = recommendedImageData[index];
-          const imageSize = 12;
-          const imageX = x + 3;
-          const imageY = y + 3;
-          const textX = imageX + imageSize + 3;
-          const textWidth = cardWidth - (textX - x) - 3;
+    // ---- teklif sonu (son sayfada, akis ici) ----
+    ensureSpace(28);
+    {
+      const badgeW = 42;
+      const badgeH = 11;
+      const bx = (PAGE_W - badgeW) / 2;
+      let mascotShift = 0;
+      if (mascotThumb) {
+        const mh = 24;
+        const mw = (mascotThumb.w / mascotThumb.h) * mh;
+        doc.addImage(mascotThumb.data, mascotThumb.format, bx - mw - 4, y, mw, mh);
+        mascotShift = 0;
+      }
+      setFill(C.greenBg);
+      setDraw(C.greenBorder);
+      doc.roundedRect(bx + mascotShift, y + 4, badgeW, badgeH, 3, 3, 'FD');
+      font('bold', 11, C.green);
+      doc.text(T('✓ Teklif Sonu'), bx + mascotShift + badgeW / 2, y + 11.2, { align: 'center' });
+      y += 30;
+    }
 
-          doc.setDrawColor(...colors.border);
-          doc.setFillColor(...colors.light);
-          doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'F');
+    // ================= 2. GECİS: footer + sayfa isaretleri + devam basligi =================
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      const isLast = p === totalPages;
 
-          if (imageEntry?.dataUrl) {
-            const format = getImageFormat(imageEntry.dataUrl);
-            const fitted = imageEntry.dimensions
-              ? fitWithin(imageEntry.dimensions.width, imageEntry.dimensions.height, imageSize, imageSize)
-              : { width: imageSize, height: imageSize };
-            const imgX = imageX + (imageSize - fitted.width) / 2;
-            const imgY = imageY + (imageSize - fitted.height) / 2;
-            doc.addImage(imageEntry.dataUrl, format, imgX, imgY, fitted.width, fitted.height);
-          } else {
-            doc.setDrawColor(...colors.border);
-            doc.rect(imageX, imageY, imageSize, imageSize);
-          }
-
-          doc.setFontSize(8);
-          doc.setTextColor(...colors.dark);
-          const nameLines = doc.splitTextToSize(cleanPdfText(product.name || '-'), textWidth) as string[];
-          const nameLine = nameLines[0] || '-';
-          doc.text(nameLine, textX, y + 7);
-          if (product.mikroCode) {
-            doc.setFontSize(7);
-            doc.setTextColor(...colors.muted);
-            doc.text(cleanPdfText(product.mikroCode), textX, y + 12);
-          }
-        });
-
-        contentBottomY = recommendedStartY + sectionHeight;
+      // devam sayfasi ust basligi (sayfa >= 2)
+      if (p >= 2) {
+        if (logo) {
+          const lw = 28;
+          const lh = (logo.h / logo.w) * lw;
+          doc.addImage(logo.data, logo.format, MX, 9, lw, lh);
+        }
+        font('normal', 8.5, C.faint);
+        doc.text(T('Fiyat Teklifi · '), MX + 30, 13.5);
+        const pre = doc.getTextWidth(T('Fiyat Teklifi · '));
+        monoFont(8.5, C.soft);
+        doc.text(quote.quoteNumber || '-', MX + 30 + pre, 13.5);
+        font('bold', 8.5, C.navy);
+        doc.text(T(`Önceki sayfadan devam · Sayfa ${p} / ${totalPages}`), PAGE_W - MX, 13.5, { align: 'right' });
+        setDraw(C.hair);
+        doc.line(MX, 17, PAGE_W - MX, 17);
       }
 
-      const footerStartY = contentBottomY + 12;
-
-      if (footerStartY + footerHeight > pageHeight - 8) {
-        doc.addPage();
-        doc.setFontSize(8);
-        doc.setTextColor(...colors.muted);
-        let footerY = 20;
-        footerLines.forEach((line) => {
-          doc.text(cleanPdfText(line), pageWidth / 2, footerY, { align: 'center' });
-          footerY += footerLineGap;
-        });
-      } else {
-        doc.setDrawColor(...colors.border);
-        doc.line(marginX, footerStartY - 6, pageWidth - marginX, footerStartY - 6);
-        doc.setFontSize(8);
-        doc.setTextColor(...colors.muted);
-        let footerY = footerStartY;
-        footerLines.forEach((line) => {
-          doc.text(cleanPdfText(line), pageWidth / 2, footerY, { align: 'center' });
-          footerY += footerLineGap;
-        });
+      // "Devami var" seridi (son sayfa haric)
+      if (!isLast) {
+        const stripH = 13;
+        const stripY = PAGE_H - 38;
+        // gradyan serit
+        const sg = 30;
+        for (let i = 0; i < sg; i++) {
+          const t = i / (sg - 1);
+          const r = Math.round(C.navy[0] + (C.blue[0] - C.navy[0]) * t);
+          const g = Math.round(C.navy[1] + (C.blue[1] - C.navy[1]) * t);
+          const b = Math.round(C.navy[2] + (C.blue[2] - C.navy[2]) * t);
+          doc.setFillColor(r, g, b);
+          doc.rect(MX + ((CW) / sg) * i, stripY, CW / sg + 0.3, stripH, 'F');
+        }
+        // kose yuvarlatma izlenimi icin ince ust/alt
+        font('bold', 10.5, C.white);
+        doc.text(T('Devamı var'), MX + 6, stripY + 6);
+        font('normal', 8, [188, 210, 239]);
+        doc.text(T('Teklif sonraki sayfada devam ediyor'), MX + 6, stripY + 10.5);
+        monoFont(9, [207, 224, 245]);
+        doc.text(`Sayfa ${p} / ${totalPages}`, MX + CW - 4, stripY + 8, { align: 'right' });
+        // maskot (asagi gosteren)
+        if (mascotPoint) {
+          const mh = 22;
+          const mw = (mascotPoint.w / mascotPoint.h) * mh;
+          doc.addImage(mascotPoint.data, mascotPoint.format, MX + CW - 44, stripY - mh + stripH, mw, mh);
+        }
       }
 
-    const fileName = `${quote.quoteNumber}_${cleanPdfText(companyName || 'Teklif')}.pdf`;
+      // footer bandi (her sayfa, en altta)
+      const fY = PAGE_H - 20;
+      setFill(C.navy);
+      doc.rect(0, fY, PAGE_W, 20, 'F');
+      font('bold', 8, C.white);
+      doc.text(T(COMPANY.name), PAGE_W / 2, fY + 5.5, { align: 'center' });
+      font('normal', 6.6, [205, 221, 242]);
+      doc.text(T(`${COMPANY.l1} · ${COMPANY.l2}`), PAGE_W / 2, fY + 10.5, { align: 'center' });
+      doc.text(T(COMPANY.l3), PAGE_W / 2, fY + 15, { align: 'center' });
+    }
+
+    const fileName = `${quote.quoteNumber}_${T(companyName || 'Teklif').replace(/[^\w.-]+/g, '_')}.pdf`;
     return { doc, fileName };
   };
 
