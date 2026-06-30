@@ -8,7 +8,8 @@ import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import customerApi, { CustomerFinancials } from '@/lib/api/customer';
 import { formatDateShort, formatCurrency } from '@/lib/utils/format';
-import { buildCategoryTree } from '@/lib/utils/categoryTree';
+import { buildCategoryTree, getCategoryPath } from '@/lib/utils/categoryTree';
+import { normalizeSearchText } from '@/lib/utils/search';
 import { Notification, Category } from '@/types';
 import {
   Search,
@@ -54,6 +55,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [agreementsAvailable, setAgreementsAvailable] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
   const [shortcutStart, setShortcutStart] = useState(0);
 
@@ -169,6 +171,30 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
   // Ana (kok) kategoriler — mikroCode hiyerarsisinden turetilir
   const { roots, childrenById, nodesById } = useMemo(() => buildCategoryTree(categories), [categories]);
+
+  const goToSearch = () => {
+    const term = searchTerm.trim();
+    setSearchFocused(false);
+    router.push(term ? `/products?search=${encodeURIComponent(term)}` : '/products');
+  };
+
+  // Arama barinda KATEGORI onerileri (Turkce-foldlu): "strec" -> "Gida Strecleri"
+  // i/I, ç/c, ş/s, ğ/g, ö/o, ü/u farki normalizeSearchText ile yok sayilir.
+  const categoryMatches = useMemo(() => {
+    const q = normalizeSearchText(searchTerm);
+    if (q.length < 2) return [] as Category[];
+    return categories
+      .map((c) => ({ c, norm: normalizeSearchText(c.name) }))
+      .filter((x) => x.norm.includes(q))
+      .sort((a, b) => {
+        const aStarts = a.norm.startsWith(q) ? 0 : 1;
+        const bStarts = b.norm.startsWith(q) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return a.c.name.localeCompare(b.c.name, 'tr');
+      })
+      .slice(0, 8)
+      .map((x) => x.c);
+  }, [categories, searchTerm]);
   // Header kisayollari ana kategorileri donerek gosterir
   useEffect(() => {
     if (roots.length <= 5) return;
@@ -203,15 +229,66 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           </Link>
 
           {/* Arama */}
-          <form onSubmit={handleSearch} className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-0)] px-3">
-            <Search className="h-4 w-4 flex-shrink-0 text-[var(--ink-3)]" />
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Ürün adı, Mikro kodu veya marka ara…"
-              className="min-w-0 flex-1 border-none bg-transparent text-sm text-[var(--ink-1)] outline-none placeholder:text-[var(--ink-3)]"
-            />
-          </form>
+          <div className="relative flex h-10 min-w-0 flex-1 items-center">
+            <form onSubmit={handleSearch} className="flex h-10 w-full items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-0)] px-3">
+              <Search className="h-4 w-4 flex-shrink-0 text-[var(--ink-3)]" />
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => window.setTimeout(() => setSearchFocused(false), 150)}
+                placeholder="Ürün adı, Mikro kodu veya marka ara…"
+                className="min-w-0 flex-1 border-none bg-transparent text-sm text-[var(--ink-1)] outline-none placeholder:text-[var(--ink-3)]"
+              />
+            </form>
+
+            {/* Kategori onerileri (yazdikca, Turkce-foldlu) */}
+            {searchFocused && categoryMatches.length > 0 && (
+              <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-xl border border-[var(--line)] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
+                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-3)]">
+                  Kategoriler
+                </div>
+                <div className="max-h-72 overflow-y-auto pb-1">
+                  {categoryMatches.map((c) => {
+                    const path = getCategoryPath(c.id, categories);
+                    const parentLabel = path.slice(0, -1).map((p) => p.name).join(' › ');
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setSearchFocused(false);
+                          setSearchTerm('');
+                          router.push(`/products?categoryId=${c.id}`);
+                        }}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-[var(--surface-0)]"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-[var(--ink-3)]" />
+                          <span className="min-w-0 truncate text-[13px] font-medium text-[var(--ink-1)]">{c.name}</span>
+                        </span>
+                        {parentLabel && (
+                          <span className="hidden max-w-[45%] shrink-0 truncate text-[11.5px] text-[var(--ink-3)] sm:block">
+                            {parentLabel}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={goToSearch}
+                  className="flex w-full items-center gap-2 border-t border-[var(--line)] px-3 py-2.5 text-left text-[13px] font-semibold text-primary-700 transition-colors hover:bg-primary-50"
+                >
+                  <Search className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 truncate">"{searchTerm.trim()}" için tüm ürünlerde ara</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Bakiye / Vadesi gecen */}
           {financials && (
@@ -455,32 +532,21 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           leaveTo="opacity-0"
         >
           <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
-            <div className="mx-auto grid w-full max-w-[1900px] grid-cols-2 gap-x-8 gap-y-6 px-4 py-6 sm:px-6 md:grid-cols-4 lg:grid-cols-5 lg:px-8">
-              {roots.slice(0, 8).map((root) => {
-                const children = (childrenById.get(root.id) || [])
+            <div className="mx-auto grid max-h-[72vh] w-full max-w-[1900px] grid-cols-2 items-start gap-x-8 gap-y-6 overflow-y-auto px-4 py-6 sm:px-6 md:grid-cols-3 lg:grid-cols-4 lg:px-8">
+              {roots.map((root) => {
+                const alts = (childrenById.get(root.id) || [])
                   .map((id) => nodesById.get(id))
-                  .filter((c): c is Category => Boolean(c))
-                  .slice(0, 6);
+                  .filter((c): c is Category => Boolean(c));
                 return (
-                  <div key={root.id} className="flex flex-col gap-1.5">
+                  <div key={root.id} className="flex flex-col gap-2">
                     <Link
                       href={`/products?categoryId=${root.id}`}
                       onClick={() => setMegaOpen(false)}
-                      className="mb-1 border-b border-[var(--line)] pb-2 text-[13px] font-semibold text-[var(--ink-1)] transition-colors hover:text-primary-700"
+                      className="border-b border-[var(--line)] pb-2 text-[13px] font-bold text-[var(--ink-1)] transition-colors hover:text-primary-700"
                     >
                       {root.name}
                     </Link>
-                    {children.map((c) => (
-                      <Link
-                        key={c.id}
-                        href={`/products?categoryId=${c.id}`}
-                        onClick={() => setMegaOpen(false)}
-                        className="text-[12.5px] text-[var(--ink-2)] transition-colors hover:text-primary-700"
-                      >
-                        {c.name}
-                      </Link>
-                    ))}
-                    {children.length === 0 && (
+                    {alts.length === 0 ? (
                       <Link
                         href={`/products?categoryId=${root.id}`}
                         onClick={() => setMegaOpen(false)}
@@ -488,6 +554,33 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                       >
                         Ürünleri gör →
                       </Link>
+                    ) : (
+                      alts.map((alt) => {
+                        const leaves = (childrenById.get(alt.id) || [])
+                          .map((id) => nodesById.get(id))
+                          .filter((c): c is Category => Boolean(c));
+                        return (
+                          <div key={alt.id} className="flex flex-col gap-0.5">
+                            <Link
+                              href={`/products?categoryId=${alt.id}`}
+                              onClick={() => setMegaOpen(false)}
+                              className="text-[12.5px] font-semibold text-[var(--ink-1)] transition-colors hover:text-primary-700"
+                            >
+                              {alt.name}
+                            </Link>
+                            {leaves.map((leaf) => (
+                              <Link
+                                key={leaf.id}
+                                href={`/products?categoryId=${leaf.id}`}
+                                onClick={() => setMegaOpen(false)}
+                                className="pl-2.5 text-[12px] text-[var(--ink-2)] transition-colors hover:text-primary-700"
+                              >
+                                {leaf.name}
+                              </Link>
+                            ))}
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 );

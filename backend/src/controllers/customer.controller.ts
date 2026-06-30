@@ -1834,23 +1834,41 @@ export class CustomerController {
    */
   async getCategories(req: Request, res: Response, next: NextFunction) {
     try {
-      const categories = await getCachedValue('customer:categories', () =>
-        prisma.category.findMany({
-          // Yalniz musteriye gosterilebilir urunu OLAN kategoriler (bos kategori gizlenir)
+      const categories = await getCachedValue('customer:categories', async () => {
+        // 1) Musteriye gosterilebilir urunu OLAN kategoriler (genelde en-alt / yaprak seviye)
+        const withProducts = await prisma.category.findMany({
           where: {
             active: true,
             products: { some: { active: true, hiddenFromCustomers: false } },
           },
-          select: {
-            id: true,
-            name: true,
-            mikroCode: true,
+          select: { mikroCode: true },
+        });
+
+        // 2) Hiyerarsinin (ana -> alt -> en alt) kurulabilmesi icin yaprak kategorilerin
+        //    TUM ust (ata) kategori kodlarini da topla. Kodlar nokta-ayracli: "1.02.03"
+        //    atalari "1.02" ve "1". (Ara seviyelerin kendi urunu olmadigi icin eski
+        //    sorgu onlari eliyordu; bu yuzden menude sadece yaprak gozukuyordu.)
+        const neededCodes = new Set<string>();
+        for (const cat of withProducts) {
+          const code = cat.mikroCode;
+          if (!code) continue;
+          neededCodes.add(code);
+          const parts = code.split('.');
+          for (let i = 1; i < parts.length; i += 1) {
+            neededCodes.add(parts.slice(0, i).join('.'));
+          }
+        }
+
+        // 3) Yaprak + ata kategorileri birlikte dondur (ara seviyeler urunu olmasa da gelir)
+        return prisma.category.findMany({
+          where: {
+            active: true,
+            mikroCode: { in: Array.from(neededCodes) },
           },
-          orderBy: {
-            name: 'asc',
-          },
-        })
-      );
+          select: { id: true, name: true, mikroCode: true },
+          orderBy: { name: 'asc' },
+        });
+      });
 
       res.json({ categories });
     } catch (error) {
