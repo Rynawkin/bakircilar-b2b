@@ -19,7 +19,7 @@ import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
-import { ChevronRight, Search, ArrowDownUp, X, SlidersHorizontal, Warehouse } from 'lucide-react';
+import { ChevronRight, ChevronDown, Search, ArrowDownUp, X, SlidersHorizontal, Warehouse } from 'lucide-react';
 
 const PRODUCTS_PAGE_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
 const PRODUCTS_GRID_CLASS = 'grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6';
@@ -55,6 +55,7 @@ export default function ProductsPage() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const debouncedSearch = useDebounce(search, 300);
   const lastSearchRef = useRef('');
   const productsRequestRef = useRef<AbortController | null>(null);
@@ -274,8 +275,26 @@ export default function ProductsPage() {
 
         {/* Filtre / siralama bari */}
         <div className="card sticky top-[112px] z-20 mb-6 px-3 py-3 sm:px-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
-            <div className="flex items-center gap-2 text-[var(--ink-1)]">
+          {/* Mobil: filtreleri ac/kapa (varsayilan kapali -> urunler hemen gorunur, filtre ekrani kaplamaz) */}
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((o) => !o)}
+            className="flex w-full items-center justify-between gap-2 text-[var(--ink-1)] lg:hidden"
+          >
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4 text-[var(--ink-3)]" />
+              <span className="text-[12.5px] font-semibold">Filtrele</span>
+              {activeFilterCount > 0 && (
+                <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700">
+                  {activeFilterCount}
+                </span>
+              )}
+            </span>
+            <ChevronDown className={`h-4 w-4 text-[var(--ink-3)] transition-transform ${mobileFiltersOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          <div className={`${mobileFiltersOpen ? 'mt-3 flex flex-col gap-3' : 'hidden'} lg:mt-0 lg:flex lg:flex-row lg:flex-wrap lg:items-center lg:gap-3`}>
+            <div className="hidden items-center gap-2 text-[var(--ink-1)] lg:flex">
               <SlidersHorizontal className="h-4 w-4 text-[var(--ink-3)]" />
               <span className="text-[12.5px] font-semibold">Filtrele</span>
             </div>
