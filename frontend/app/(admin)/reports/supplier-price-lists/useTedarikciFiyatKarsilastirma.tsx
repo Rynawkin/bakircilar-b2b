@@ -27,11 +27,21 @@ export interface UploadItem {
   multiMatchItems: number;
 }
 
+export interface PreviewExcelColumn {
+  index: number;
+  header: string;
+  label: string;
+  samples: string[];
+}
+
 export interface PreviewExcel {
   sheetNames: string[];
   sheetName: string;
   headerRow: number | null;
   headers: string[];
+  headerLabels?: string[];
+  columns?: PreviewExcelColumn[];
+  rawRows?: string[][];
   detected: {
     code: string | null;
     name: string | null;
@@ -125,10 +135,26 @@ export function useTedarikciFiyatKarsilastirma() {
   const [uploading, setUploading] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
 
-  const excelHeaders = useMemo(() => {
-    if (!preview?.excel?.headers?.length) return [];
-    return preview.excel.headers.filter((header) => header && header.trim());
+  // Index korunarak TUM kolonlar (bos basliklar dahil). Backend "columns" verir;
+  // gelmezse headers/headerLabels'tan tureriz (eski yanit uyumlulugu).
+  const excelColumns = useMemo<PreviewExcelColumn[]>(() => {
+    const excel = preview?.excel;
+    if (!excel) return [];
+    if (excel.columns?.length) return excel.columns;
+    const headers = excel.headers || [];
+    return headers.map((header, index) => ({
+      index,
+      header: header || '',
+      label: (excel.headerLabels && excel.headerLabels[index]) || (header ? header : `(bos kolon ${index + 1})`),
+      samples: [],
+    }));
   }, [preview]);
+
+  // Geriye donuk uyum: bazi yerler hala excelHeaders bekleyebilir.
+  const excelHeaders = useMemo(() => excelColumns.map((column) => column.label), [excelColumns]);
+
+  // Ham satirlar (baslik satiri secimi dropdown'u icin)
+  const excelRawRows = useMemo(() => preview?.excel?.rawRows || [], [preview]);
 
   const pdfColumns = useMemo(() => preview?.pdf?.columns || [], [preview]);
 
@@ -136,6 +162,8 @@ export function useTedarikciFiyatKarsilastirma() {
     if (!value) return null;
     let normalized = value.replace(/\s+/g, '');
     normalized = normalized.replace(/[^0-9,\.-]/g, '');
+    // Rakam icermeyen hucre -> null (backend parseNumber ile ayni davranis)
+    if (!/\d/.test(normalized)) return null;
     if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(normalized)) {
       normalized = normalized.replace(/\./g, '').replace(',', '.');
     } else if (/^-?\d+,\d+$/.test(normalized)) {
@@ -147,22 +175,56 @@ export function useTedarikciFiyatKarsilastirma() {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
-  const getExcelRoleForHeader = (header: string): ExcelColumnRole => {
-    if (mapping.excelCodeHeader === header) return 'code';
-    if (mapping.excelNameHeader === header) return 'name';
-    if (mapping.excelPriceHeader === header) return 'price';
+  // Tam-manuel kolon secimi: roller kolon INDEX'i ("#col:N") ile saklanir.
+  const columnToken = (index: number) => `#col:${index}`;
+
+  // Bir kolon index'inin (token'inin) hangi role atandigini dondurur.
+  const getExcelRoleForColumn = (index: number): ExcelColumnRole => {
+    const token = columnToken(index);
+    if (mapping.excelCodeHeader === token) return 'code';
+    if (mapping.excelNameHeader === token) return 'name';
+    if (mapping.excelPriceHeader === token) return 'price';
     return '';
   };
 
-  const handleExcelRoleChange = (header: string, role: ExcelColumnRole) => {
+  const handleExcelColumnRoleChange = (index: number, role: ExcelColumnRole) => {
+    const token = columnToken(index);
     setMapping((prev) => {
       const next = { ...prev };
-      if (next.excelCodeHeader === header) next.excelCodeHeader = '';
-      if (next.excelNameHeader === header) next.excelNameHeader = '';
-      if (next.excelPriceHeader === header) next.excelPriceHeader = '';
-      if (role === 'code') next.excelCodeHeader = header;
-      if (role === 'name') next.excelNameHeader = header;
-      if (role === 'price') next.excelPriceHeader = header;
+      // Ayni kolon baska bir role atanmissa cikar (bir kolon tek role)
+      if (next.excelCodeHeader === token) next.excelCodeHeader = '';
+      if (next.excelNameHeader === token) next.excelNameHeader = '';
+      if (next.excelPriceHeader === token) next.excelPriceHeader = '';
+      if (role === 'code') next.excelCodeHeader = token;
+      if (role === 'name') next.excelNameHeader = token;
+      if (role === 'price') next.excelPriceHeader = token;
+      return next;
+    });
+  };
+
+  // Belirli bir role atanmis kolon index'ini dondurur (-1 yoksa)
+  const getExcelColumnIndexForRole = (role: 'code' | 'name' | 'price'): number => {
+    const token =
+      role === 'code' ? mapping.excelCodeHeader : role === 'name' ? mapping.excelNameHeader : mapping.excelPriceHeader;
+    if (!token) return -1;
+    const match = String(token).match(/^#col:(\d+)$/);
+    return match ? Number(match[1]) : -1;
+  };
+
+  // Tek dropdown'dan rol -> kolon secimi (Urun Kodu / Urun Adi / Maliyet dropdownlari)
+  const handleExcelRoleSelect = (role: 'code' | 'name' | 'price', index: number | null) => {
+    setMapping((prev) => {
+      const next = { ...prev };
+      const token = index !== null && index >= 0 ? columnToken(index) : '';
+      // Bu kolon zaten baska role atanmissa onu temizle (ayni kolon iki role atanmasin)
+      if (token) {
+        if (role !== 'code' && next.excelCodeHeader === token) next.excelCodeHeader = '';
+        if (role !== 'name' && next.excelNameHeader === token) next.excelNameHeader = '';
+        if (role !== 'price' && next.excelPriceHeader === token) next.excelPriceHeader = '';
+      }
+      if (role === 'code') next.excelCodeHeader = token;
+      if (role === 'name') next.excelNameHeader = token;
+      if (role === 'price') next.excelPriceHeader = token;
       return next;
     });
   };
@@ -202,15 +264,44 @@ export function useTedarikciFiyatKarsilastirma() {
     setShowAdvanced(false);
   };
 
-  const buildOverrides = () => ({
-    excelSheetName: mapping.excelSheetName || null,
-    excelHeaderRow: parseOptionalInt(mapping.excelHeaderRow),
-    excelCodeHeader: mapping.excelCodeHeader || null,
-    excelNameHeader: mapping.excelNameHeader || null,
-    excelPriceHeader: mapping.excelPriceHeader || null,
-    pdfColumnRoles: Object.keys(mapping.pdfColumnRoles).length ? mapping.pdfColumnRoles : null,
-    pdfCodePattern: showAdvanced ? (mapping.pdfCodePattern || null) : null,
+  const buildOverrides = (source: MappingState = mapping) => ({
+    excelSheetName: source.excelSheetName || null,
+    excelHeaderRow: parseOptionalInt(source.excelHeaderRow),
+    excelCodeHeader: source.excelCodeHeader || null,
+    excelNameHeader: source.excelNameHeader || null,
+    excelPriceHeader: source.excelPriceHeader || null,
+    pdfColumnRoles: Object.keys(source.pdfColumnRoles).length ? source.pdfColumnRoles : null,
+    pdfCodePattern: showAdvanced ? (source.pdfCodePattern || null) : null,
   });
+
+  // Excel rol secimi/baslik-satiri degisince eslesen onizleme ANINDA guncellensin diye
+  // rawRows + secili kolonlardan canli ornek satirlari uretilir (yeniden preview cagirmadan).
+  const excelMatchPreview = useMemo(() => {
+    if (!preview?.excel) return [];
+    const rawRows = preview.excel.rawRows || [];
+    const headerRow = parseOptionalInt(mapping.excelHeaderRow) ?? preview.excel.headerRow;
+    if (!headerRow || !rawRows.length) return preview.excel.samples || [];
+
+    const codeIndex = getExcelColumnIndexForRole('code');
+    const nameIndex = getExcelColumnIndexForRole('name');
+    const priceIndex = getExcelColumnIndexForRole('price');
+
+    const dataRows = rawRows.slice(headerRow); // headerRow 1-tabanli; sonrasi veri
+    const out: Array<{ code?: string | null; name?: string | null; price?: number | null }> = [];
+    for (const row of dataRows) {
+      const code = codeIndex >= 0 ? row[codeIndex] ?? '' : '';
+      const name = nameIndex >= 0 ? row[nameIndex] ?? '' : '';
+      const priceRaw = priceIndex >= 0 ? row[priceIndex] ?? '' : '';
+      if (!code && !name && !priceRaw) continue;
+      out.push({
+        code: code || null,
+        name: name || null,
+        price: priceRaw ? parsePreviewNumber(priceRaw) : null,
+      });
+      if (out.length >= 8) break;
+    }
+    return out;
+  }, [preview, mapping.excelCodeHeader, mapping.excelNameHeader, mapping.excelPriceHeader, mapping.excelHeaderRow]);
 
   const pdfPreviewRows = useMemo(() => {
     if (!preview?.pdf?.rows?.length) return [];
@@ -303,7 +394,7 @@ export function useTedarikciFiyatKarsilastirma() {
     resetPreview();
   };
 
-  const handlePreview = async () => {
+  const handlePreview = async (opts?: { overrideMapping?: MappingState; preserveRoles?: boolean }) => {
     if (!selectedSupplierId) {
       toast.error('Tedarikci secin');
       return;
@@ -313,12 +404,15 @@ export function useTedarikciFiyatKarsilastirma() {
       return;
     }
 
+    const sourceMapping = opts?.overrideMapping ?? mapping;
+    const preserveRoles = opts?.preserveRoles ?? false;
+
     try {
       setPreviewLoading(true);
       const result = await adminApi.previewSupplierPriceLists({
         supplierId: selectedSupplierId,
         files: selectedFiles,
-        overrides: buildOverrides(),
+        overrides: buildOverrides(sourceMapping),
       });
       setPreview(result);
       const detectedPdfRoles: Record<string, PdfColumnRole> = {};
@@ -331,20 +425,46 @@ export function useTedarikciFiyatKarsilastirma() {
       if (result.pdf?.detected?.priceIndex !== null && result.pdf?.detected?.priceIndex !== undefined) {
         detectedPdfRoles[String(result.pdf.detected.priceIndex)] = 'price';
       }
-      setMapping((prev) => ({
-        excelSheetName: result.excel ? result.excel.sheetName || '' : prev.excelSheetName,
-        excelHeaderRow: result.excel ? (result.excel.headerRow ? String(result.excel.headerRow) : '') : prev.excelHeaderRow,
-        excelCodeHeader: result.excel ? result.excel.detected?.code || '' : prev.excelCodeHeader,
-        excelNameHeader: result.excel ? result.excel.detected?.name || '' : prev.excelNameHeader,
-        excelPriceHeader: result.excel ? result.excel.detected?.price || '' : prev.excelPriceHeader,
-        pdfCodePattern: result.pdf ? result.pdf.codePattern || '' : prev.pdfCodePattern,
-        pdfColumnRoles: result.pdf ? detectedPdfRoles : prev.pdfColumnRoles,
-      }));
+      setMapping((prev) => {
+        const base = opts?.overrideMapping ?? prev;
+        return {
+          excelSheetName: result.excel ? result.excel.sheetName || '' : base.excelSheetName,
+          excelHeaderRow: result.excel ? (result.excel.headerRow ? String(result.excel.headerRow) : '') : base.excelHeaderRow,
+          // preserveRoles: kullanicinin sectigi kolon rollerini koru; aksi halde
+          // backend'in detected (#col:N) onerisini kullan.
+          excelCodeHeader: result.excel
+            ? (preserveRoles ? base.excelCodeHeader : result.excel.detected?.code || '')
+            : base.excelCodeHeader,
+          excelNameHeader: result.excel
+            ? (preserveRoles ? base.excelNameHeader : result.excel.detected?.name || '')
+            : base.excelNameHeader,
+          excelPriceHeader: result.excel
+            ? (preserveRoles ? base.excelPriceHeader : result.excel.detected?.price || '')
+            : base.excelPriceHeader,
+          pdfCodePattern: result.pdf ? result.pdf.codePattern || '' : base.pdfCodePattern,
+          pdfColumnRoles: result.pdf ? detectedPdfRoles : base.pdfColumnRoles,
+        };
+      });
     } catch (error: any) {
       toast.error(error?.response?.data?.error || 'Onizleme basarisiz');
     } finally {
       setPreviewLoading(false);
     }
+  };
+
+  // Baslik satiri degisince: yeni satiri override edip otomatik yeniden onizleme al.
+  // Yeni satira gore kolonlar/basliklar degisecegi icin backend yeniden algilar.
+  const handleExcelHeaderRowChange = (headerRow: number) => {
+    const nextMapping: MappingState = {
+      ...mapping,
+      excelHeaderRow: String(headerRow),
+      // Yeni baslik satirinda eski kolon index'leri anlamsiz olabilir -> sifirla
+      excelCodeHeader: '',
+      excelNameHeader: '',
+      excelPriceHeader: '',
+    };
+    setMapping(nextMapping);
+    void handlePreview({ overrideMapping: nextMapping, preserveRoles: false });
   };
 
   const handleUpload = async () => {
@@ -440,6 +560,9 @@ export function useTedarikciFiyatKarsilastirma() {
     itemsLoading,
     // derived
     excelHeaders,
+    excelColumns,
+    excelRawRows,
+    excelMatchPreview,
     pdfColumns,
     pdfPreviewRows,
     columnCount,
@@ -448,8 +571,11 @@ export function useTedarikciFiyatKarsilastirma() {
     pageSummary,
     // helpers
     parsePreviewNumber,
-    getExcelRoleForHeader,
-    handleExcelRoleChange,
+    getExcelRoleForColumn,
+    handleExcelColumnRoleChange,
+    getExcelColumnIndexForRole,
+    handleExcelRoleSelect,
+    handleExcelHeaderRowChange,
     getPdfRoleForColumn,
     handlePdfColumnRoleChange,
     // loaders / handlers

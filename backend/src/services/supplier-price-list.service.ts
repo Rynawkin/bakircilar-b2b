@@ -171,6 +171,9 @@ const parseNumber = (value: any): number | null => {
 
   str = str.replace(/\s+/g, '');
   str = str.replace(/[^0-9,\.-]/g, '');
+  // Rakam icermeyen hucre (ornegin "KOLI", "ADET", "-") -> null.
+  // (Aksi halde Number('') === 0 olup yanlis kolon secimi fiyati 0 yapardi.)
+  if (!/\d/.test(str)) return null;
   if (/^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$/.test(str)) {
     str = str.replace(/\./g, '').replace(',', '.');
   } else if (/^-?\d+,\d+$/.test(str)) {
@@ -301,11 +304,30 @@ const findHeaderRowIndex = (rows: any[][]) => {
   return -1;
 };
 
+// Tam-manuel kolon secimi icin sentinel: override "#col:N" verildiyse
+// (N = 0 tabanli kolon index'i) basliga/normalize'a bakmadan o kolonu kullan.
+// Bu, tedarikci listelerinde kolon duzeni/baslik metni degisse bile kullanicinin
+// sectigi kolonun birebir kullanilmasini saglar.
+const COLUMN_INDEX_OVERRIDE_REGEX = /^#col:(\d+)$/i;
+
+const parseColumnIndexOverride = (preferredHeader?: string | null): number | null => {
+  if (!preferredHeader) return null;
+  const match = String(preferredHeader).trim().match(COLUMN_INDEX_OVERRIDE_REGEX);
+  if (!match) return null;
+  const index = Number(match[1]);
+  return Number.isInteger(index) && index >= 0 ? index : null;
+};
+
 const resolveHeaderIndex = (
   headers: string[],
   preferredHeader?: string | null,
   candidates: string[] = []
 ) => {
+  const forcedIndex = parseColumnIndexOverride(preferredHeader);
+  if (forcedIndex !== null) {
+    return forcedIndex < headers.length ? forcedIndex : -1;
+  }
+
   if (preferredHeader) {
     const normalizedPreferred = normalizeHeader(preferredHeader);
     const exactIndex = headers.findIndex((header) => header === normalizedPreferred);
@@ -327,6 +349,12 @@ const resolvePriceHeaderIndexes = (
   preferredHeader?: string | null,
   supplier?: any
 ) => {
+  // Tam-manuel secim: "#col:N" verildiyse sadece o kolonu fiyat kolonu kabul et.
+  const forcedIndex = parseColumnIndexOverride(preferredHeader);
+  if (forcedIndex !== null) {
+    return forcedIndex < headers.length ? [forcedIndex] : [];
+  }
+
   const candidates = buildPriceHeaderCandidates(supplier);
   const indices = new Set<number>();
   const addMatches = (needle: string, exact: boolean) => {
@@ -1307,7 +1335,14 @@ const parseExcelFile = (filePath: string, supplier: any) => {
     const headerRowIndex = supplier.excelHeaderRow ? Math.max(0, supplier.excelHeaderRow - 1) : findHeaderRowIndex(rows);
     if (headerRowIndex < 0) continue;
 
-    const rawHeaderRow = (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim());
+    // Baslik satiri ile ilk veri satirlarinin en genis hucre sayisini kullan ki
+    // "#col:N" (tam-manuel index) secimleri, basligi bos olan kolonlarda da cozulsun.
+    let headerWidth = (rows[headerRowIndex] || []).length;
+    for (let i = headerRowIndex + 1; i < Math.min(rows.length, headerRowIndex + 1 + EXCEL_SAMPLE_ROW_COUNT); i += 1) {
+      headerWidth = Math.max(headerWidth, (rows[i] || []).length);
+    }
+    const headerRowCells = rows[headerRowIndex] || [];
+    const rawHeaderRow = Array.from({ length: headerWidth }, (_, c) => String(headerRowCells[c] ?? '').trim());
     const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
 
     const codeIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS);
@@ -1557,6 +1592,13 @@ const resolveSupplierConfig = (supplier: any, overrides?: SupplierConfigOverride
   };
 };
 
+// Onizlemede kullanici icin ham satir sayisi (baslik satiri secimi dropdown'u)
+const EXCEL_RAW_ROW_COUNT = 15;
+// Kolon basina gosterilecek ornek deger sayisi
+const EXCEL_COLUMN_SAMPLE_COUNT = 4;
+// Eslesme ornegi satir sayisi
+const EXCEL_SAMPLE_ROW_COUNT = 8;
+
 const buildExcelPreview = (filePath: string, supplier: any) => {
   const workbook = XLSX.readFile(filePath, { cellDates: true });
   const sheetNames = workbook.SheetNames;
@@ -1573,14 +1615,57 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
       sheetName,
       headerRow: null,
       headers: [],
+      headerLabels: [],
+      columns: [],
+      rawRows: [],
       detected: { code: null, name: null, price: null },
       samples: [],
     };
   }
 
   const headerRowIndex = supplier.excelHeaderRow ? Math.max(0, supplier.excelHeaderRow - 1) : findHeaderRowIndex(rows);
-  const rawHeaderRow = headerRowIndex >= 0 ? (rows[headerRowIndex] || []).map((value) => String(value ?? '').trim()) : [];
+
+  // Index korunarak TUM kolonlari kapsa: baslik satiri + ilk veri satirlarinin
+  // en genis hucre sayisini kullan (baslik bos olsa bile kolon kaybolmasin).
+  const widthScanEnd = headerRowIndex >= 0
+    ? Math.min(rows.length, headerRowIndex + 1 + EXCEL_SAMPLE_ROW_COUNT)
+    : Math.min(rows.length, EXCEL_RAW_ROW_COUNT);
+  let columnCount = 0;
+  for (let i = 0; i < Math.max(widthScanEnd, Math.min(rows.length, EXCEL_RAW_ROW_COUNT)); i += 1) {
+    columnCount = Math.max(columnCount, (rows[i] || []).length);
+  }
+
+  const rawHeaderRow: string[] = [];
+  for (let c = 0; c < columnCount; c += 1) {
+    const value = headerRowIndex >= 0 ? (rows[headerRowIndex] || [])[c] : null;
+    rawHeaderRow.push(String(value ?? '').trim());
+  }
   const normalizedHeaderRow = rawHeaderRow.map(normalizeHeader);
+
+  // Bos baslik hucrelerini index'i koruyarak etiketle: "(bos kolon N)"
+  const headerLabels = rawHeaderRow.map((header, index) => (header ? header : `(bos kolon ${index + 1})`));
+
+  // Her kolon icin ornek degerler (kullanici hangi kolon oldugunu anlasin diye)
+  const columns = Array.from({ length: columnCount }, (_, index) => {
+    const samplesForColumn: string[] = [];
+    const start = headerRowIndex >= 0 ? headerRowIndex + 1 : 0;
+    for (let i = start; i < rows.length && samplesForColumn.length < EXCEL_COLUMN_SAMPLE_COUNT; i += 1) {
+      const cell = (rows[i] || [])[index];
+      const text = cell === null || cell === undefined ? '' : String(cell).trim();
+      if (text) samplesForColumn.push(text);
+    }
+    return { index, header: rawHeaderRow[index] || '', label: headerLabels[index], samples: samplesForColumn };
+  });
+
+  // Ilk ~15 ham satir (baslik satiri secimi dropdown'u icin)
+  const rawRows = rows.slice(0, EXCEL_RAW_ROW_COUNT).map((row) => {
+    const out: string[] = [];
+    for (let c = 0; c < columnCount; c += 1) {
+      const cell = (row || [])[c];
+      out.push(cell === null || cell === undefined ? '' : String(cell).trim());
+    }
+    return out;
+  });
 
   const codeIndex = headerRowIndex >= 0 ? resolveHeaderIndex(normalizedHeaderRow, supplier.excelCodeHeader, CODE_HEADERS) : -1;
   const priceIndexes = headerRowIndex >= 0 ? resolvePriceHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, supplier) : [];
@@ -1589,7 +1674,7 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
 
   const samples: Array<{ code?: string | null; name?: string | null; price?: number | null }> = [];
   if (headerRowIndex >= 0) {
-    for (let i = headerRowIndex + 1; i < Math.min(rows.length, headerRowIndex + 6); i += 1) {
+    for (let i = headerRowIndex + 1; i < Math.min(rows.length, headerRowIndex + 1 + EXCEL_SAMPLE_ROW_COUNT); i += 1) {
       const row = rows[i] || [];
       const priceValues = priceIndexes
         .map((index) => parseNumber(row[index]))
@@ -1606,16 +1691,23 @@ const buildExcelPreview = (filePath: string, supplier: any) => {
     }
   }
 
+  // detected: kolon INDEX'i bazli "#col:N" sentinel'i dondur. Boylece frontend
+  // dropdown'lari index'e gore on-secer; baslik metni/duzeni degisse de saglam kalir.
+  const asColumnToken = (index: number) => (index >= 0 ? `#col:${index}` : null);
+
   return {
     sheetNames,
     sheetName,
     headerRow: headerRowIndex >= 0 ? headerRowIndex + 1 : null,
     headers: rawHeaderRow,
+    headerLabels,
     normalizedHeaders: normalizedHeaderRow,
+    columns,
+    rawRows,
     detected: {
-      code: codeIndex >= 0 ? rawHeaderRow[codeIndex] : null,
-      name: nameIndex >= 0 ? rawHeaderRow[nameIndex] : null,
-      price: priceIndex >= 0 ? rawHeaderRow[priceIndex] : null,
+      code: asColumnToken(codeIndex),
+      name: asColumnToken(nameIndex),
+      price: asColumnToken(priceIndex),
     },
     samples,
   };

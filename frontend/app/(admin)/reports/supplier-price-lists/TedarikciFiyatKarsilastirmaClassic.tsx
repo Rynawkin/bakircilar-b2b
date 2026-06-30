@@ -21,6 +21,14 @@ import {
  * MEVCUT JSX BIREBIR korunmustur; tum mantik useTedarikciFiyatKarsilastirma
  * hook'undan gelir. Klasik hicbir sekilde degismez.
  */
+// Baslik satiri dropdown'unda satir hucrelerini kisa ozetle
+const summarizeRow = (cells: string[]) => {
+  const parts = cells.map((c) => (c || '').trim()).filter(Boolean);
+  if (!parts.length) return '(bos satir)';
+  const joined = parts.join(' | ');
+  return joined.length > 90 ? `${joined.slice(0, 90)}...` : joined;
+};
+
 export default function TedarikciFiyatKarsilastirmaClassic() {
   const {
     suppliers,
@@ -43,7 +51,9 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
     loading,
     uploading,
     itemsLoading,
-    excelHeaders,
+    excelColumns,
+    excelRawRows,
+    excelMatchPreview,
     pdfColumns,
     pdfPreviewRows,
     columnCount,
@@ -51,8 +61,11 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
     uploadDisabled,
     pageSummary,
     parsePreviewNumber,
-    getExcelRoleForHeader,
-    handleExcelRoleChange,
+    getExcelRoleForColumn,
+    handleExcelColumnRoleChange,
+    getExcelColumnIndexForRole,
+    handleExcelRoleSelect,
+    handleExcelHeaderRowChange,
     getPdfRoleForColumn,
     handlePdfColumnRoleChange,
     loadUploads,
@@ -109,7 +122,7 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
             <div className="flex items-end gap-2">
               <Button
                 variant="outline"
-                onClick={handlePreview}
+                onClick={() => handlePreview()}
                 isLoading={previewLoading}
                 disabled={!canPreview}
                 className="gap-2 flex-1"
@@ -148,7 +161,9 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
               {preview.excel && (
                 <div className="space-y-3">
                   <div className="text-sm font-medium">Excel Onizleme</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+                  {/* 1) Sheet + Baslik satiri secimi */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <Select
                       label="Sheet"
                       value={mapping.excelSheetName}
@@ -162,46 +177,102 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
                         <option key={sheet} value={sheet}>{sheet}</option>
                       ))}
                     </Select>
-                    <Input
-                      label="Baslik Satiri"
-                      type="number"
-                      min={1}
-                      value={mapping.excelHeaderRow}
-                      onChange={(event) => setMapping((prev) => ({
-                        ...prev,
-                        excelHeaderRow: event.target.value,
-                      }))}
-                    />
+                    <div className="md:col-span-2">
+                      <Select
+                        label="Baslik Satiri (dogru basliklarin oldugu satir)"
+                        value={mapping.excelHeaderRow || (preview.excel.headerRow ? String(preview.excel.headerRow) : '')}
+                        onChange={(event) => {
+                          const next = Number(event.target.value);
+                          if (Number.isFinite(next) && next > 0) handleExcelHeaderRowChange(next);
+                        }}
+                      >
+                        {excelRawRows.length ? (
+                          excelRawRows.map((cells, index) => (
+                            <option key={`hdr-${index}`} value={index + 1}>
+                              {`Satir ${index + 1}: ${summarizeRow(cells)}`}
+                            </option>
+                          ))
+                        ) : (
+                          <option value={preview.excel.headerRow || 1}>
+                            {`Satir ${preview.excel.headerRow || 1}`}
+                          </option>
+                        )}
+                      </Select>
+                    </div>
                   </div>
+                  <div className="text-xs text-muted-foreground">
+                    Basliklar yanlis satirdaysa dogru satiri secin; kolonlar otomatik yenilenir.
+                  </div>
+
+                  {/* 2) Rol -> kolon secimi (3 dropdown) */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {([
+                      { role: 'code' as const, label: 'Urun Kodu' },
+                      { role: 'name' as const, label: 'Urun Adi (opsiyonel)' },
+                      { role: 'price' as const, label: 'Maliyet (Fiyat)' },
+                    ]).map(({ role, label }) => {
+                      const selectedIndex = getExcelColumnIndexForRole(role);
+                      return (
+                        <Select
+                          key={`role-${role}`}
+                          label={label}
+                          value={selectedIndex >= 0 ? String(selectedIndex) : ''}
+                          onChange={(event) =>
+                            handleExcelRoleSelect(
+                              role,
+                              event.target.value === '' ? null : Number(event.target.value),
+                            )
+                          }
+                        >
+                          <option value="">Secilmedi</option>
+                          {excelColumns.map((column) => {
+                            const sample = column.samples?.[0];
+                            return (
+                              <option key={`${role}-opt-${column.index}`} value={column.index}>
+                                {column.label}
+                                {sample ? ` — ${sample.length > 28 ? `${sample.slice(0, 28)}...` : sample}` : ''}
+                              </option>
+                            );
+                          })}
+                        </Select>
+                      );
+                    })}
+                  </div>
+
+                  {/* 3) Tum kolonlar + ornek + rol */}
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Kolon</TableHead>
-                          <TableHead>Tip</TableHead>
+                          <TableHead>Ornek Degerler</TableHead>
+                          <TableHead>Rol</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {excelHeaders.length ? (
-                          excelHeaders.map((header) => (
-                            <TableRow key={`excel-col-${header}`}>
-                              <TableCell>{header || '-'}</TableCell>
-                              <TableCell className="w-48">
+                        {excelColumns.length ? (
+                          excelColumns.map((column) => (
+                            <TableRow key={`excel-col-${column.index}`}>
+                              <TableCell>{column.label}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">
+                                {column.samples?.length ? column.samples.join(' | ') : '-'}
+                              </TableCell>
+                              <TableCell className="w-40">
                                 <Select
-                                  value={getExcelRoleForHeader(header)}
-                                  onChange={(event) => handleExcelRoleChange(header, event.target.value as ExcelColumnRole)}
+                                  value={getExcelRoleForColumn(column.index)}
+                                  onChange={(event) => handleExcelColumnRoleChange(column.index, event.target.value as ExcelColumnRole)}
                                 >
                                   <option value="">Yoksay</option>
                                   <option value="code">Urun Kodu</option>
                                   <option value="name">Urun Adi</option>
-                                  <option value="price">Fiyat</option>
+                                  <option value="price">Maliyet</option>
                                 </Select>
                               </TableCell>
                             </TableRow>
                           ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={2} className="text-center text-sm text-muted-foreground">
+                            <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
                               Kolon bulunamadi.
                             </TableCell>
                           </TableRow>
@@ -209,21 +280,20 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
                       </TableBody>
                     </Table>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    Kolon tiplerini degistirirseniz onizlemeyi guncelleyin.
-                  </div>
+
+                  {/* 4) Eslesen onizleme (canli) */}
                   <div className="border rounded-lg overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Kod</TableHead>
                           <TableHead>Ad</TableHead>
-                          <TableHead>Fiyat</TableHead>
+                          <TableHead>Maliyet</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {preview.excel.samples?.length ? (
-                          preview.excel.samples.map((sample, index) => (
+                        {excelMatchPreview.length ? (
+                          excelMatchPreview.map((sample, index) => (
                             <TableRow key={`excel-sample-${index}`}>
                               <TableCell>{sample.code ?? '-'}</TableCell>
                               <TableCell>{sample.name ?? '-'}</TableCell>
@@ -235,7 +305,7 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
                         ) : (
                           <TableRow>
                             <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
-                              Ornek bulunamadi.
+                              Kod ve maliyet kolonlarini secin.
                             </TableCell>
                           </TableRow>
                         )}

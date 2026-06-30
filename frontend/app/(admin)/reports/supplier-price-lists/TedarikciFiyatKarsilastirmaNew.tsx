@@ -53,6 +53,14 @@ const farkColor = (m: number) => {
   return a >= 20 ? RED : a >= 10 ? AMBER : EMERALD;
 };
 
+// Baslik satiri dropdown'unda satir hucrelerini kisa ozetle (ilk dolu hucreler)
+const summarizeRow = (cells: string[]) => {
+  const parts = cells.map((c) => (c || '').trim()).filter(Boolean);
+  if (!parts.length) return '(bos satir)';
+  const joined = parts.join(' | ');
+  return joined.length > 90 ? `${joined.slice(0, 90)}...` : joined;
+};
+
 const cardStyle: React.CSSProperties = {
   background: '#fff',
   border: `1px solid ${LINE}`,
@@ -181,7 +189,9 @@ export default function TedarikciFiyatKarsilastirmaNew() {
     loading,
     uploading,
     itemsLoading,
-    excelHeaders,
+    excelColumns,
+    excelRawRows,
+    excelMatchPreview,
     pdfColumns,
     pdfPreviewRows,
     columnCount,
@@ -189,8 +199,11 @@ export default function TedarikciFiyatKarsilastirmaNew() {
     uploadDisabled,
     pageSummary,
     parsePreviewNumber,
-    getExcelRoleForHeader,
-    handleExcelRoleChange,
+    getExcelRoleForColumn,
+    handleExcelColumnRoleChange,
+    getExcelColumnIndexForRole,
+    handleExcelRoleSelect,
+    handleExcelHeaderRowChange,
     getPdfRoleForColumn,
     handlePdfColumnRoleChange,
     loadUploads,
@@ -311,7 +324,7 @@ export default function TedarikciFiyatKarsilastirmaNew() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               type="button"
-              onClick={handlePreview}
+              onClick={() => handlePreview()}
               disabled={!canPreview}
               style={{
                 ...headBtn,
@@ -377,13 +390,14 @@ export default function TedarikciFiyatKarsilastirmaNew() {
 
             {/* === Excel Onizleme === */}
             {preview.excel && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <FileSpreadsheet size={15} strokeWidth={2} style={{ color: EMERALD }} />
                   <span style={subTitle}>Excel Onizleme</span>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {/* 1) Sheet + Baslik satiri secimi (birinci sinif) */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
                   <div>
                     <label style={labelStyle}>Sheet</label>
                     <select
@@ -400,39 +414,98 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                     </select>
                   </div>
                   <div>
-                    <label style={labelStyle}>Baslik Satiri</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={mapping.excelHeaderRow}
-                      onChange={(event) =>
-                        setMapping((prev) => ({ ...prev, excelHeaderRow: event.target.value }))
-                      }
-                      style={fieldStyle}
-                    />
+                    <label style={labelStyle}>Baslik Satiri (dogru basliklarin oldugu satir)</label>
+                    <select
+                      value={mapping.excelHeaderRow || (preview.excel.headerRow ? String(preview.excel.headerRow) : '')}
+                      onChange={(event) => {
+                        const next = Number(event.target.value);
+                        if (Number.isFinite(next) && next > 0) handleExcelHeaderRowChange(next);
+                      }}
+                      style={{ ...fieldStyle, cursor: 'pointer' }}
+                    >
+                      {excelRawRows.length ? (
+                        excelRawRows.map((cells, index) => (
+                          <option key={`hdr-${index}`} value={index + 1}>
+                            {`Satir ${index + 1}: ${summarizeRow(cells)}`}
+                          </option>
+                        ))
+                      ) : (
+                        <option value={preview.excel.headerRow || 1}>
+                          {`Satir ${preview.excel.headerRow || 1}`}
+                        </option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: FAINT, marginTop: -6 }}>
+                  Basliklar yanlis satirdaysa dogru satiri secin; kolonlar otomatik yenilenir.
+                </div>
+
+                {/* 2) Rol -> kolon secimi (birinci sinif, 3 dropdown) */}
+                <div style={{ ...cardStyle, padding: 14 }}>
+                  <div style={{ ...subTitle, marginBottom: 4 }}>Kolon Eslestirme</div>
+                  <div style={{ fontSize: 11, color: FAINT, marginBottom: 12 }}>
+                    Her rol icin dogru kolonu secin. Ornek degerler hangi kolon oldugunu gosterir.
+                    Maliyet (fiyat) kolonu zorunludur.
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    {([
+                      { role: 'code' as const, label: 'Urun Kodu', required: true },
+                      { role: 'name' as const, label: 'Urun Adi (opsiyonel)', required: false },
+                      { role: 'price' as const, label: 'Maliyet (Fiyat)', required: true },
+                    ]).map(({ role, label }) => {
+                      const selectedIndex = getExcelColumnIndexForRole(role);
+                      return (
+                        <div key={`role-${role}`}>
+                          <label style={labelStyle}>{label}</label>
+                          <select
+                            value={selectedIndex >= 0 ? String(selectedIndex) : ''}
+                            onChange={(event) =>
+                              handleExcelRoleSelect(
+                                role,
+                                event.target.value === '' ? null : Number(event.target.value),
+                              )
+                            }
+                            style={{ ...fieldStyle, height: 36, cursor: 'pointer' }}
+                          >
+                            <option value="">Secilmedi</option>
+                            {excelColumns.map((column) => {
+                              const sample = column.samples?.[0];
+                              return (
+                                <option key={`${role}-opt-${column.index}`} value={column.index}>
+                                  {column.label}
+                                  {sample ? ` — ${sample.length > 28 ? `${sample.slice(0, 28)}...` : sample}` : ''}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Kolon -> Tip */}
+                {/* 3) Kolon listesi (tum kolonlar + ornek + rol) — ikincil/detayli */}
                 <div style={{ ...cardStyle, overflow: 'hidden' }}>
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '1fr 220px',
+                      gridTemplateColumns: '1fr 1.6fr 150px',
                       gap: 10,
                       ...miniHead,
                     }}
                   >
                     <span>Kolon</span>
-                    <span>Tip</span>
+                    <span>Ornek Degerler</span>
+                    <span>Rol</span>
                   </div>
-                  {excelHeaders.length ? (
-                    excelHeaders.map((header) => (
+                  {excelColumns.length ? (
+                    excelColumns.map((column) => (
                       <div
-                        key={`excel-col-${header}`}
+                        key={`excel-col-${column.index}`}
                         style={{
                           display: 'grid',
-                          gridTemplateColumns: '1fr 220px',
+                          gridTemplateColumns: '1fr 1.6fr 150px',
                           gap: 10,
                           alignItems: 'center',
                           padding: '8px 12px',
@@ -447,20 +520,33 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                           }}
+                          title={column.label}
                         >
-                          {header || '-'}
+                          {column.label}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: MUTED,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={column.samples?.join(' | ')}
+                        >
+                          {column.samples?.length ? column.samples.join(' | ') : '-'}
                         </span>
                         <select
-                          value={getExcelRoleForHeader(header)}
+                          value={getExcelRoleForColumn(column.index)}
                           onChange={(event) =>
-                            handleExcelRoleChange(header, event.target.value as ExcelColumnRole)
+                            handleExcelColumnRoleChange(column.index, event.target.value as ExcelColumnRole)
                           }
                           style={roleSelect}
                         >
                           <option value="">Yoksay</option>
                           <option value="code">Urun Kodu</option>
                           <option value="name">Urun Adi</option>
-                          <option value="price">Fiyat</option>
+                          <option value="price">Maliyet</option>
                         </select>
                       </div>
                     ))
@@ -470,11 +556,8 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                     </div>
                   )}
                 </div>
-                <div style={{ fontSize: 11, color: FAINT }}>
-                  Kolon tiplerini degistirirseniz onizlemeyi guncelleyin.
-                </div>
 
-                {/* Ornek satirlar */}
+                {/* 4) Eslesen onizleme (secime gore canli guncellenir) */}
                 <div style={{ ...cardStyle, overflow: 'hidden' }}>
                   <div
                     style={{
@@ -486,10 +569,10 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                   >
                     <span>Kod</span>
                     <span>Ad</span>
-                    <span style={cellRight}>Fiyat</span>
+                    <span style={cellRight}>Maliyet</span>
                   </div>
-                  {preview.excel.samples?.length ? (
-                    preview.excel.samples.map((sample, index) => (
+                  {excelMatchPreview.length ? (
+                    excelMatchPreview.map((sample, index) => (
                       <div
                         key={`excel-sample-${index}`}
                         style={{
@@ -513,7 +596,7 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                     ))
                   ) : (
                     <div style={{ padding: '14px 12px', textAlign: 'center', ...hint }}>
-                      Ornek bulunamadi.
+                      Kod ve maliyet kolonlarini secin.
                     </div>
                   )}
                 </div>
