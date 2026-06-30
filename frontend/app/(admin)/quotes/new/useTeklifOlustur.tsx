@@ -2523,7 +2523,9 @@ export function useTeklifOlustur() {
     const currentCostDiff = currentCost > 0
       ? ((unitPrice - currentCost) / currentCost) * 100
       : null;
-    const baseCost = lastEntry > 0 ? lastEntry : currentCost;
+    // Maliyet korumasi: taban DAIMA yuksek olan maliyet (guncel vs son giris). Tarihe
+    // bakilmaz, hep pahali olan korunur. Backend ile birebir ayni mantik.
+    const baseCost = Math.max(currentCost, lastEntry);
     const blocked = baseCost > 0 && unitPrice < baseCost * 1.05;
     const vatRate = item.vatRate || 0;
     const lastEntryWithVat = lastEntry > 0 ? lastEntry * (1 + vatRate) : null;

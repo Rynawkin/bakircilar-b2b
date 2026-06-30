@@ -856,11 +856,15 @@ class QuoteService {
       if (!isManualLine) {
         const lastEntryPrice = safeNumber((product as any).lastEntryPrice, 0);
         const currentCost = safeNumber((product as any).currentCost, 0);
-        const baseCost = lastEntryPrice > 0 ? lastEntryPrice : currentCost;
+        // Maliyet korumasi: taban DAIMA yuksek olan maliyettir (guncel maliyet vs son
+        // giris). Guncel maliyet bazen yeni alistan sonra guncellenmiyor; ayrica eski
+        // ama pahali bir alis da gecerli sayilmali. Tarihe bakilmaz, hep pahali olan
+        // korunur -> "sattigimizi daha pahaliya almayalim".
+        const baseCost = Math.max(currentCost, lastEntryPrice);
         if (baseCost > 0 && unitPrice < baseCost * 1.05) {
           isBlocked = true;
           blockedReason =
-            lastEntryPrice > 0
+            lastEntryPrice >= currentCost
               ? "Son giris maliyetine gore %5 alti fiyat"
               : "Guncel maliyete gore %5 alti fiyat";
           hasBlockedItem = true;
@@ -1174,11 +1178,15 @@ class QuoteService {
       if (!isManualLine) {
         const lastEntryPrice = safeNumber((product as any).lastEntryPrice, 0);
         const currentCost = safeNumber((product as any).currentCost, 0);
-        const baseCost = lastEntryPrice > 0 ? lastEntryPrice : currentCost;
+        // Maliyet korumasi: taban DAIMA yuksek olan maliyettir (guncel maliyet vs son
+        // giris). Guncel maliyet bazen yeni alistan sonra guncellenmiyor; ayrica eski
+        // ama pahali bir alis da gecerli sayilmali. Tarihe bakilmaz, hep pahali olan
+        // korunur -> "sattigimizi daha pahaliya almayalim".
+        const baseCost = Math.max(currentCost, lastEntryPrice);
         if (baseCost > 0 && unitPrice < baseCost * 1.05) {
           isBlocked = true;
           blockedReason =
-            lastEntryPrice > 0
+            lastEntryPrice >= currentCost
               ? "Son giris maliyetine gore %5 alti fiyat"
               : "Guncel maliyete gore %5 alti fiyat";
           hasBlockedItem = true;
