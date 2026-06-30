@@ -1,6 +1,24 @@
 ﻿import { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import supplierPriceListService from '../services/supplier-price-list.service';
+import reportsService from '../services/reports.service';
+
+interface SupplierApplyItem {
+  productCode: string;
+  newCostT: number;
+}
+
+const parseApplyItems = (body: any): SupplierApplyItem[] => {
+  const rawItems = Array.isArray(body?.items) ? body.items : [];
+  const items: SupplierApplyItem[] = [];
+  for (const raw of rawItems) {
+    const productCode = String(raw?.productCode ?? '').trim();
+    const newCostT = Number(raw?.newCostT);
+    if (!productCode || !Number.isFinite(newCostT) || newCostT <= 0) continue;
+    items.push({ productCode, newCostT });
+  }
+  return items;
+};
 
 
 const parseOptionalNumber = (value: any) => {
@@ -164,6 +182,38 @@ class SupplierPriceListController {
         overrides,
       });
 
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Toplu maliyet uygulamasi - ONIZLEME (SADECE OKUMA, Mikro YAZMA YOK)
+  async applyPreview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const items = parseApplyItems(req.body);
+      if (!items.length) {
+        return res.status(400).json({ error: 'En az bir gecerli item (productCode + newCostT) gerekli' });
+      }
+      const result = await reportsService.computeSupplierApplyPreview(items);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Toplu maliyet uygulamasi - UYGULA (MIKRO YAZAR)
+  async apply(req: Request, res: Response, next: NextFunction) {
+    try {
+      const items = parseApplyItems(req.body);
+      if (!items.length) {
+        return res.status(400).json({ error: 'En az bir gecerli item (productCode + newCostT) gerekli' });
+      }
+      const userId = req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const result = await reportsService.applySupplierCostBulk(items, userId);
       res.json(result);
     } catch (error) {
       next(error);

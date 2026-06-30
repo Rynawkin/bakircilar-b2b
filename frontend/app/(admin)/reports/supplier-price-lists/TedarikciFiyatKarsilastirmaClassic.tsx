@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/Table';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
-import { Download, RefreshCw, Upload, FileText } from 'lucide-react';
+import { Download, RefreshCw, Upload, FileText, CheckCircle2 } from 'lucide-react';
 import {
   useTedarikciFiyatKarsilastirma,
   STATUS_TABS,
@@ -15,6 +15,7 @@ import {
   type ExcelColumnRole,
   type PdfColumnRole,
 } from './useTedarikciFiyatKarsilastirma';
+import ApplyCostModal from './ApplyCostModal';
 
 /**
  * Klasik gorunum: Tedarikci Fiyat Karsilastirma raporu.
@@ -51,6 +52,15 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
     loading,
     uploading,
     itemsLoading,
+    applyModalOpen,
+    applyPreviewLoading,
+    applyPreview,
+    applyConfirmed,
+    setApplyConfirmed,
+    applying,
+    handleApplyPreviewOpen,
+    handleApplyConfirm,
+    closeApplyModal,
     excelColumns,
     excelRawRows,
     excelMatchPreview,
@@ -492,7 +502,7 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {STATUS_TABS.map((tab) => (
                 <Button
                   key={tab.key}
@@ -503,6 +513,18 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
                   {tab.label}
                 </Button>
               ))}
+              {activeStatus === 'matched' && activeUpload && activeUpload.matchedItems > 0 && (
+                <Button
+                  size="sm"
+                  onClick={handleApplyPreviewOpen}
+                  isLoading={applyPreviewLoading}
+                  disabled={applyPreviewLoading || applying}
+                  className="ml-auto gap-2 bg-emerald-600 hover:bg-emerald-700"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Maliyetleri Mikro'ya Uygula (toplu)
+                </Button>
+              )}
             </div>
 
             <div className="border rounded-lg overflow-hidden">
@@ -616,6 +638,17 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
           </div>
         </CardContent>
       </Card>
+
+      <ApplyCostModal
+        open={applyModalOpen}
+        loading={applyPreviewLoading}
+        data={applyPreview}
+        confirmed={applyConfirmed}
+        setConfirmed={setApplyConfirmed}
+        applying={applying}
+        onClose={closeApplyModal}
+        onConfirm={handleApplyConfirm}
+      />
     </div>
   );
 }

@@ -4219,6 +4219,39 @@ export const adminApi = {
     return response.data;
   },
 
+  // Tedarikci fiyat listesi -> toplu maliyet uygulama (Ucarer mantigiyla ayni)
+  applySupplierCostPreview: async (
+    items: Array<{ productCode: string; newCostT: number }>
+  ): Promise<{
+    products: Array<{
+      productCode: string;
+      name: string;
+      currentCostT: number | null;
+      newCostT: number;
+      costIncreasePct: number | null;
+      newCostP: number;
+      vatRate: number;
+      priceLists: Array<{ listNo: number; oldPrice: number | null; newPrice: number; increasePct: number | null }>;
+      outlier: boolean;
+      outlierReason: string | null;
+    }>;
+    summary: { count: number; avgCostIncreasePct: number | null; outlierCount: number };
+  }> => {
+    const response = await apiClient.post('/admin/supplier-price-lists/apply-preview', { items });
+    return response.data;
+  },
+
+  applySupplierCostBulk: async (
+    items: Array<{ productCode: string; newCostT: number }>
+  ): Promise<{
+    results: Array<{ productCode: string; ok: boolean; error?: string }>;
+    okCount: number;
+    failCount: number;
+  }> => {
+    const response = await apiClient.post('/admin/supplier-price-lists/apply', { items });
+    return response.data;
+  },
+
   // Banners (Bannerlar)
   getBanners: async (): Promise<{ banners: AdminBanner[] }> => {
     const response = await apiClient.get('/admin/banners');

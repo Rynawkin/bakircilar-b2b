@@ -8900,6 +8900,290 @@ export class ReportsService {
     return response;
   }
 
+  /**
+   * Tedarikci toplu maliyet uygulamasi icin ONIZLEME (SADECE OKUMA, Mikro YAZMA YOK).
+   * updateUcarerProductCost ile AYNI formul: newCostP = newCostT * (1 + vat/200),
+   * liste(1+idx) = newCostT * Marj[idx], liste(6+idx) = newCostP * Marj[idx].
+   */
+  async computeSupplierApplyPreview(
+    items: Array<{ productCode: string; newCostT: number }>
+  ): Promise<{
+    products: Array<{
+      productCode: string;
+      name: string | null;
+      currentCostT: number | null;
+      newCostT: number;
+      costIncreasePct: number | null;
+      newCostP: number;
+      vatRate: number;
+      priceLists: Array<{ listNo: number; oldPrice: number | null; newPrice: number; increasePct: number | null }>;
+      outlier: boolean;
+      outlierReason: string | null;
+    }>;
+    summary: { count: number; avgCostIncreasePct: number | null; outlierCount: number };
+  }> {
+    // 1) Girdiyi normalize et (kod upper/trim, gecerli newCostT)
+    const normalized: Array<{ productCode: string; newCostT: number }> = [];
+    const seen = new Set<string>();
+    for (const raw of items || []) {
+      const productCode = String(raw?.productCode || '').trim().toUpperCase();
+      const newCostT = Number(raw?.newCostT);
+      if (!productCode || !Number.isFinite(newCostT) || newCostT <= 0) continue;
+      if (seen.has(productCode)) continue;
+      seen.add(productCode);
+      normalized.push({ productCode, newCostT });
+    }
+
+    const codes = normalized.map((it) => it.productCode);
+
+    // 2) Prisma: name + vatRate (yuzde olarak; vatRate fraction (0.20) ise *100, default 20)
+    const nameMap = new Map<string, string | null>();
+    const vatPctMap = new Map<string, number>();
+    if (codes.length) {
+      const products = await prisma.product.findMany({
+        where: { mikroCode: { in: codes } },
+        select: { mikroCode: true, name: true, vatRate: true },
+      });
+      for (const p of products) {
+        const code = String(p.mikroCode || '').trim().toUpperCase();
+        nameMap.set(code, p.name ?? null);
+        const rawVat = Number(p.vatRate);
+        let vatPct = Number.isFinite(rawVat) && rawVat > 0 ? (rawVat <= 1 ? rawVat * 100 : rawVat) : 20;
+        if (!Number.isFinite(vatPct) || vatPct <= 0) vatPct = 20;
+        vatPctMap.set(code, vatPct);
+      }
+    }
+
+    // 3) Mikro BATCH oku: STOKLAR + STOKLAR_USER (MaliyetT/MaliyetP/Marj_1..5)
+    const parseMargin = (value: unknown) => {
+      const raw = String(value ?? '').trim().replace(',', '.');
+      const num = Number(raw);
+      return Number.isFinite(num) ? num : 0;
+    };
+    const parseNum = (value: unknown) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
+
+    const currentCostTMap = new Map<string, number | null>();
+    const marginsMap = new Map<string, number[]>();
+    // listePrice map: code -> { listNo -> fiyat }
+    const listPriceMap = new Map<string, Map<number, number>>();
+
+    for (const chunk of chunkArray(codes, 200)) {
+      if (!chunk.length) continue;
+      const inClause = chunk.map((code) => `'${escapeSqlLiteral(code)}'`).join(', ');
+
+      const stockRows = await mikroService.executeQuery(`
+        SELECT
+          RTRIM(s.sto_kod) AS sto_kod,
+          u.MaliyetT,
+          u.MaliyetP,
+          u.Marj_1,
+          u.Marj_2,
+          u.Marj_3,
+          u.Marj_4,
+          u.Marj_5
+        FROM STOKLAR s WITH (NOLOCK)
+        LEFT JOIN STOKLAR_USER u ON s.sto_Guid = u.Record_uid
+        WHERE RTRIM(s.sto_kod) IN (${inClause})
+      `);
+      for (const row of stockRows || []) {
+        const code = String(row?.sto_kod || '').trim().toUpperCase();
+        if (!code) continue;
+        currentCostTMap.set(code, parseNum(row?.MaliyetT));
+        marginsMap.set(code, [
+          parseMargin(row?.Marj_1),
+          parseMargin(row?.Marj_2),
+          parseMargin(row?.Marj_3),
+          parseMargin(row?.Marj_4),
+          parseMargin(row?.Marj_5),
+        ]);
+      }
+
+      const priceRows = await mikroService.executeQuery(`
+        SELECT
+          RTRIM(sfiyat_stokkod) AS sfiyat_stokkod,
+          sfiyat_listesirano,
+          sfiyat_fiyati
+        FROM STOK_SATIS_FIYAT_LISTELERI WITH (NOLOCK)
+        WHERE RTRIM(sfiyat_stokkod) IN (${inClause})
+      `);
+      for (const row of priceRows || []) {
+        const code = String(row?.sfiyat_stokkod || '').trim().toUpperCase();
+        if (!code) continue;
+        const listNo = Number(row?.sfiyat_listesirano);
+        const price = parseNum(row?.sfiyat_fiyati);
+        if (!Number.isFinite(listNo) || price === null) continue;
+        if (!listPriceMap.has(code)) listPriceMap.set(code, new Map<number, number>());
+        listPriceMap.get(code)!.set(listNo, price);
+      }
+    }
+
+    // 4) Her urun icin onizleme satiri uret (updateUcarerProductCost ile AYNI formul)
+    const products = normalized.map((it) => {
+      const code = it.productCode;
+      const vatPct = vatPctMap.get(code) ?? 20;
+      const newCostT = it.newCostT;
+      const newCostP = newCostT * (1 + vatPct / 200);
+      const currentCostT = currentCostTMap.has(code) ? currentCostTMap.get(code)! : null;
+      const margins = marginsMap.get(code) || [0, 0, 0, 0, 0];
+      const currentLists = listPriceMap.get(code) || new Map<number, number>();
+
+      const costIncreasePct =
+        currentCostT !== null && currentCostT > 0
+          ? ((newCostT - currentCostT) / currentCostT) * 100
+          : null;
+
+      const priceLists: Array<{ listNo: number; oldPrice: number | null; newPrice: number; increasePct: number | null }> = [];
+      for (let idx = 0; idx < 5; idx += 1) {
+        const margin = margins[idx];
+        // liste(1+idx) = newCostT * Marj[idx], liste(6+idx) = newCostP * Marj[idx]
+        const listT = 1 + idx;
+        const listP = 6 + idx;
+        const newPriceT = newCostT * margin;
+        const newPriceP = newCostP * margin;
+        const oldT = currentLists.has(listT) ? currentLists.get(listT)! : null;
+        const oldP = currentLists.has(listP) ? currentLists.get(listP)! : null;
+        priceLists.push({
+          listNo: listT,
+          oldPrice: oldT,
+          newPrice: newPriceT,
+          increasePct: oldT !== null && oldT > 0 ? ((newPriceT - oldT) / oldT) * 100 : null,
+        });
+        priceLists.push({
+          listNo: listP,
+          oldPrice: oldP,
+          newPrice: newPriceP,
+          increasePct: oldP !== null && oldP > 0 ? ((newPriceP - oldP) / oldP) * 100 : null,
+        });
+      }
+      priceLists.sort((a, b) => a.listNo - b.listNo);
+
+      return {
+        productCode: code,
+        name: nameMap.has(code) ? nameMap.get(code)! : null,
+        currentCostT,
+        newCostT,
+        costIncreasePct,
+        newCostP,
+        vatRate: vatPct,
+        priceLists,
+        // outlier alanlari asagidaki ikinci gecişte doldurulur
+        outlier: false as boolean,
+        outlierReason: null as string | null,
+      };
+    });
+
+    // 5) AYKIRI tespiti: gecerli costIncreasePct lerin ortalama + std sapmasi
+    const validPcts = products
+      .map((p) => p.costIncreasePct)
+      .filter((x): x is number => x !== null && Number.isFinite(x));
+    const count = validPcts.length;
+    const mean = count > 0 ? validPcts.reduce((s, x) => s + x, 0) / count : 0;
+    const variance = count > 0 ? validPcts.reduce((s, x) => s + (x - mean) * (x - mean), 0) / count : 0;
+    const std = Math.sqrt(variance);
+
+    let outlierCount = 0;
+    for (const p of products) {
+      const reasons: string[] = [];
+      if (p.currentCostT === null) {
+        reasons.push('Referans maliyet (MaliyetT) yok');
+      } else if (p.costIncreasePct !== null && p.costIncreasePct < 0) {
+        reasons.push('Maliyet dusmus (negatif degisim)');
+      }
+      if (
+        p.costIncreasePct !== null &&
+        Number.isFinite(p.costIncreasePct) &&
+        std > 0 &&
+        Math.abs(p.costIncreasePct - mean) > 2 * std
+      ) {
+        reasons.push('Ortalamadan 2 standart sapma uzakta');
+      }
+      if (reasons.length) {
+        p.outlier = true;
+        p.outlierReason = reasons.join('; ');
+        outlierCount += 1;
+      }
+    }
+
+    const avgCostIncreasePct = count > 0 ? mean : null;
+
+    return {
+      products,
+      summary: { count: products.length, avgCostIncreasePct, outlierCount },
+    };
+  }
+
+  /**
+   * Tedarikci toplu maliyet UYGULAMA (MIKRO YAZAR — her item icin updateUcarerProductCost).
+   * Onizleme ile AYNI formul: costP = newCostT * (1 + vat/200), updatePriceLists:true.
+   */
+  async applySupplierCostBulk(
+    items: Array<{ productCode: string; newCostT: number }>,
+    userId?: string | null
+  ): Promise<{
+    results: Array<{ productCode: string; ok: boolean; error?: string }>;
+    okCount: number;
+    failCount: number;
+  }> {
+    // vatRate okumak icin onizleme ile ayni normalize + map
+    const normalized: Array<{ productCode: string; newCostT: number }> = [];
+    const seen = new Set<string>();
+    for (const raw of items || []) {
+      const productCode = String(raw?.productCode || '').trim().toUpperCase();
+      const newCostT = Number(raw?.newCostT);
+      if (!productCode || !Number.isFinite(newCostT) || newCostT <= 0) continue;
+      if (seen.has(productCode)) continue;
+      seen.add(productCode);
+      normalized.push({ productCode, newCostT });
+    }
+
+    const codes = normalized.map((it) => it.productCode);
+    const vatPctMap = new Map<string, number>();
+    if (codes.length) {
+      const products = await prisma.product.findMany({
+        where: { mikroCode: { in: codes } },
+        select: { mikroCode: true, vatRate: true },
+      });
+      for (const p of products) {
+        const code = String(p.mikroCode || '').trim().toUpperCase();
+        const rawVat = Number(p.vatRate);
+        let vatPct = Number.isFinite(rawVat) && rawVat > 0 ? (rawVat <= 1 ? rawVat * 100 : rawVat) : 20;
+        if (!Number.isFinite(vatPct) || vatPct <= 0) vatPct = 20;
+        vatPctMap.set(code, vatPct);
+      }
+    }
+
+    const results: Array<{ productCode: string; ok: boolean; error?: string }> = [];
+    let okCount = 0;
+    let failCount = 0;
+
+    for (const it of normalized) {
+      const code = it.productCode;
+      try {
+        const vatPct = vatPctMap.get(code) ?? 20;
+        const costT = it.newCostT;
+        const costP = costT * (1 + vatPct / 200);
+        await this.updateUcarerProductCost({
+          productCode: code,
+          costP,
+          costT,
+          updatePriceLists: true,
+          source: 'SUPPLIER_COST',
+          userId: userId || null,
+        });
+        results.push({ productCode: code, ok: true });
+        okCount += 1;
+      } catch (error: any) {
+        results.push({ productCode: code, ok: false, error: error?.message || 'Bilinmeyen hata' });
+        failCount += 1;
+      }
+    }
+
+    return { results, okCount, failCount };
+  }
+
   async updateUcarerMainSupplier(input: {
     productCode: string;
     supplierCode: string;

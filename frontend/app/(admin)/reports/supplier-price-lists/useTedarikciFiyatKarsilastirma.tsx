@@ -117,6 +117,43 @@ export const formatPercent = (value: number) => {
   return `${formatted}%`;
 };
 
+// === Toplu maliyet uygulama (apply-preview / apply) tipleri ===
+export interface ApplyPriceListRow {
+  listNo: number;
+  oldPrice: number | null;
+  newPrice: number;
+  increasePct: number | null;
+}
+
+export interface ApplyPreviewProduct {
+  productCode: string;
+  name: string;
+  currentCostT: number | null;
+  newCostT: number;
+  costIncreasePct: number | null;
+  newCostP: number;
+  vatRate: number;
+  priceLists: ApplyPriceListRow[];
+  outlier: boolean;
+  outlierReason: string | null;
+}
+
+export interface ApplyPreviewSummary {
+  count: number;
+  avgCostIncreasePct: number | null;
+  outlierCount: number;
+}
+
+export interface ApplyPreviewData {
+  products: ApplyPreviewProduct[];
+  summary: ApplyPreviewSummary;
+}
+
+export interface ApplyItem {
+  productCode: string;
+  newCostT: number;
+}
+
 export function useTedarikciFiyatKarsilastirma() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -134,6 +171,14 @@ export function useTedarikciFiyatKarsilastirma() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
+
+  // === Toplu maliyet uygulama (apply) durumu ===
+  const [applyModalOpen, setApplyModalOpen] = useState(false);
+  const [applyPreviewLoading, setApplyPreviewLoading] = useState(false);
+  const [applyPreview, setApplyPreview] = useState<ApplyPreviewData | null>(null);
+  const [applyItems, setApplyItems] = useState<ApplyItem[]>([]);
+  const [applyConfirmed, setApplyConfirmed] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   // Index korunarak TUM kolonlar (bos basliklar dahil). Backend "columns" verir;
   // gelmezse headers/headerLabels'tan tureriz (eski yanit uyumlulugu).
@@ -526,6 +571,104 @@ export function useTedarikciFiyatKarsilastirma() {
   const canPreview = Boolean(selectedSupplierId) && selectedFiles.length > 0 && !previewLoading && !uploading;
   const uploadDisabled = !preview || uploading || previewLoading;
 
+  // Eslesen (matched) TUM urunleri (tum sayfalar) cekip { productCode, newCostT } listesi cikar.
+  // newCostT = parse edilmis NET maliyet (matched satirdaki newCost / netPrice).
+  const collectMatchedApplyItems = async (uploadId: string): Promise<ApplyItem[]> => {
+    const fetchLimit = 200;
+    const collected: ApplyItem[] = [];
+    const seen = new Set<string>();
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const result = await adminApi.getSupplierPriceListItems({
+        uploadId,
+        status: 'matched',
+        page,
+        limit: fetchLimit,
+      });
+      totalPages = result.pagination?.totalPages ?? 1;
+      for (const row of result.items || []) {
+        const productCode = row?.productCode;
+        const newCostT = typeof row?.newCost === 'number' ? row.newCost : null;
+        if (!productCode || newCostT === null || !Number.isFinite(newCostT)) continue;
+        // Ayni productCode birden fazla satirda olabilir (coklu tedarikci kodu) -> tekillesir
+        if (seen.has(productCode)) continue;
+        seen.add(productCode);
+        collected.push({ productCode, newCostT });
+      }
+      page += 1;
+    } while (page <= totalPages);
+    return collected;
+  };
+
+  // Buton: "Maliyetleri Mikro'ya Uygula (toplu)" -> onizleme al + modal ac (Mikro YAZMA YOK)
+  const handleApplyPreviewOpen = async () => {
+    if (!activeUploadId) {
+      toast.error('Once bir rapor secin');
+      return;
+    }
+    setApplyConfirmed(false);
+    setApplyPreview(null);
+    setApplyPreviewLoading(true);
+    setApplyModalOpen(true);
+    try {
+      const items = await collectMatchedApplyItems(activeUploadId);
+      if (!items.length) {
+        toast.error('Uygulanacak eslesen urun bulunamadi');
+        setApplyModalOpen(false);
+        return;
+      }
+      setApplyItems(items);
+      const result = await adminApi.applySupplierCostPreview(items);
+      setApplyPreview(result);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Onizleme alinamadi');
+      setApplyModalOpen(false);
+    } finally {
+      setApplyPreviewLoading(false);
+    }
+  };
+
+  const closeApplyModal = () => {
+    if (applying) return;
+    setApplyModalOpen(false);
+    setApplyPreview(null);
+    setApplyItems([]);
+    setApplyConfirmed(false);
+  };
+
+  // SON ONAY: Mikro'ya TOPLU YAZMA (her item icin updateUcarerProductCost backend'de cagrilir)
+  const handleApplyConfirm = async () => {
+    if (!applyConfirmed || applying) return;
+    if (!applyItems.length) {
+      toast.error('Uygulanacak urun yok');
+      return;
+    }
+    setApplying(true);
+    try {
+      const result = await adminApi.applySupplierCostBulk(applyItems);
+      const okCount = result.okCount ?? 0;
+      const failCount = result.failCount ?? 0;
+      if (failCount > 0) {
+        toast.error(`${okCount} urun uygulandi, ${failCount} urun hata verdi`);
+      } else {
+        toast.success(`${okCount} urun maliyeti Mikro'ya uygulandi`);
+      }
+      setApplyModalOpen(false);
+      setApplyPreview(null);
+      setApplyItems([]);
+      setApplyConfirmed(false);
+      // Listeyi yenile (guncel maliyetler/farklar degisti)
+      if (activeUploadId) {
+        await loadItems(activeUploadId, activeStatus, pagination.page);
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Maliyet uygulama basarisiz');
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const pageSummary = useMemo(() => {
     if (!activeUpload) return null;
     return [
@@ -558,6 +701,17 @@ export function useTedarikciFiyatKarsilastirma() {
     loading,
     uploading,
     itemsLoading,
+    // toplu maliyet uygulama
+    applyModalOpen,
+    applyPreviewLoading,
+    applyPreview,
+    applyItems,
+    applyConfirmed,
+    setApplyConfirmed,
+    applying,
+    handleApplyPreviewOpen,
+    handleApplyConfirm,
+    closeApplyModal,
     // derived
     excelHeaders,
     excelColumns,

@@ -9,6 +9,7 @@ import {
   FileText,
   FileSpreadsheet,
   Info,
+  CheckCircle2,
 } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import {
@@ -18,6 +19,7 @@ import {
   type ExcelColumnRole,
   type PdfColumnRole,
 } from './useTedarikciFiyatKarsilastirma';
+import ApplyCostModal from './ApplyCostModal';
 
 /**
  * Yeni gorunum: Tedarikci Fiyat Karsilastirma raporu.
@@ -189,6 +191,15 @@ export default function TedarikciFiyatKarsilastirmaNew() {
     loading,
     uploading,
     itemsLoading,
+    applyModalOpen,
+    applyPreviewLoading,
+    applyPreview,
+    applyConfirmed,
+    setApplyConfirmed,
+    applying,
+    handleApplyPreviewOpen,
+    handleApplyConfirm,
+    closeApplyModal,
     excelColumns,
     excelRawRows,
     excelMatchPreview,
@@ -894,8 +905,16 @@ export default function TedarikciFiyatKarsilastirmaNew() {
             </div>
           )}
 
-          {/* Sekmeler */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {/* Sekmeler + (matched) toplu uygula butonu */}
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 14,
+            }}
+          >
             {STATUS_TABS.map((tab) => {
               const active = activeStatus === tab.key;
               return (
@@ -920,6 +939,38 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                 </button>
               );
             })}
+
+            {isMatched && activeUpload && activeUpload.matchedItems > 0 && (
+              <button
+                type="button"
+                onClick={handleApplyPreviewOpen}
+                disabled={applyPreviewLoading || applying}
+                style={{
+                  marginLeft: 'auto',
+                  height: 32,
+                  padding: '0 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: EMERALD,
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  opacity: applyPreviewLoading || applying ? 0.6 : 1,
+                  cursor: applyPreviewLoading || applying ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {applyPreviewLoading ? (
+                  <RefreshCw size={14} strokeWidth={2} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={14} strokeWidth={2} />
+                )}
+                Maliyetleri Mikro'ya Uygula (toplu)
+              </button>
+            )}
           </div>
 
           {/* Tablo */}
@@ -1142,6 +1193,17 @@ export default function TedarikciFiyatKarsilastirmaNew() {
           ekranindan guncelleyebilirsiniz.
         </div>
       </div>
+
+      <ApplyCostModal
+        open={applyModalOpen}
+        loading={applyPreviewLoading}
+        data={applyPreview}
+        confirmed={applyConfirmed}
+        setConfirmed={setApplyConfirmed}
+        applying={applying}
+        onClose={closeApplyModal}
+        onConfirm={handleApplyConfirm}
+      />
     </div>
   );
 }
