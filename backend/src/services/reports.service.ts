@@ -8966,6 +8966,7 @@ export class ReportsService {
     };
 
     const currentCostTMap = new Map<string, number | null>();
+    const currentCostPMap = new Map<string, number | null>();
     const marginsMap = new Map<string, number[]>();
     // listePrice map: code -> { listNo -> fiyat }
     const listPriceMap = new Map<string, Map<number, number>>();
@@ -8992,6 +8993,7 @@ export class ReportsService {
         const code = String(row?.sto_kod || '').trim().toUpperCase();
         if (!code) continue;
         currentCostTMap.set(code, parseNum(row?.MaliyetT));
+        currentCostPMap.set(code, parseNum(row?.MaliyetP));
         marginsMap.set(code, [
           parseMargin(row?.Marj_1),
           parseMargin(row?.Marj_2),
@@ -9024,15 +9026,19 @@ export class ReportsService {
     const products = normalized.map((it) => {
       const code = it.productCode;
       const vatPct = vatPctMap.get(code) ?? 20;
-      const newCostT = it.newCostT;
-      const newCostP = newCostT * (1 + vatPct / 200);
-      const currentCostT = currentCostTMap.has(code) ? currentCostTMap.get(code)! : null;
+      // DOGRU T/P: tedarikci secilen maliyet = NET (KDV haric).
+      // Mikro MaliyetP = net (-> listeler 6-10 / faturali), MaliyetT = net*(1+yariKDV) (-> listeler 1-5 / perakende).
+      const supplierNet = it.newCostT;
+      const mikroCostP = supplierNet;
+      const mikroCostT = supplierNet * (1 + vatPct / 200);
+      // Karsilastirma NET bazinda: mevcut MaliyetP (net) vs tedarikci net.
+      const currentCostT = currentCostPMap.has(code) ? currentCostPMap.get(code)! : null;
       const margins = marginsMap.get(code) || [0, 0, 0, 0, 0];
       const currentLists = listPriceMap.get(code) || new Map<number, number>();
 
       const costIncreasePct =
         currentCostT !== null && currentCostT > 0
-          ? ((newCostT - currentCostT) / currentCostT) * 100
+          ? ((supplierNet - currentCostT) / currentCostT) * 100
           : null;
 
       const priceLists: Array<{ listNo: number; oldPrice: number | null; newPrice: number; increasePct: number | null }> = [];
@@ -9041,8 +9047,8 @@ export class ReportsService {
         // liste(1+idx) = newCostT * Marj[idx], liste(6+idx) = newCostP * Marj[idx]
         const listT = 1 + idx;
         const listP = 6 + idx;
-        const newPriceT = newCostT * margin;
-        const newPriceP = newCostP * margin;
+        const newPriceT = mikroCostT * margin;
+        const newPriceP = mikroCostP * margin;
         const oldT = currentLists.has(listT) ? currentLists.get(listT)! : null;
         const oldP = currentLists.has(listP) ? currentLists.get(listP)! : null;
         priceLists.push({
@@ -9063,10 +9069,10 @@ export class ReportsService {
       return {
         productCode: code,
         name: nameMap.has(code) ? nameMap.get(code)! : null,
-        currentCostT,
-        newCostT,
+        currentCostT,            // mevcut NET maliyet (Mikro MaliyetP)
+        newCostT: supplierNet,   // yeni NET maliyet (tedarikci, KDV haric)
         costIncreasePct,
-        newCostP,
+        newCostP: mikroCostT,    // KDV-dahil (yari-KDV eklenmis) maliyet
         vatRate: vatPct,
         priceLists,
         // outlier alanlari asagidaki ikinci gecişte doldurulur
@@ -9088,7 +9094,7 @@ export class ReportsService {
     for (const p of products) {
       const reasons: string[] = [];
       if (p.currentCostT === null) {
-        reasons.push('Referans maliyet (MaliyetT) yok');
+        reasons.push('Referans maliyet (net) yok');
       } else if (p.costIncreasePct !== null && p.costIncreasePct < 0) {
         reasons.push('Maliyet dusmus (negatif degisim)');
       }
@@ -9163,8 +9169,9 @@ export class ReportsService {
       const code = it.productCode;
       try {
         const vatPct = vatPctMap.get(code) ?? 20;
-        const costT = it.newCostT;
-        const costP = costT * (1 + vatPct / 200);
+        // DOGRU T/P: tedarikci maliyeti = NET (KDV haric). MaliyetP = net, MaliyetT = net*(1+yariKDV).
+        const costP = it.newCostT;
+        const costT = it.newCostT * (1 + vatPct / 200);
         await this.updateUcarerProductCost({
           productCode: code,
           costP,

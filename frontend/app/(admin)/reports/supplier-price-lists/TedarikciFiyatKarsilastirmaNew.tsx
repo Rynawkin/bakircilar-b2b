@@ -197,6 +197,7 @@ export default function TedarikciFiyatKarsilastirmaNew() {
     applyConfirmed,
     setApplyConfirmed,
     applying,
+    applyProgress,
     handleApplyPreviewOpen,
     handleApplyConfirm,
     closeApplyModal,
@@ -1201,6 +1202,7 @@ export default function TedarikciFiyatKarsilastirmaNew() {
         confirmed={applyConfirmed}
         setConfirmed={setApplyConfirmed}
         applying={applying}
+        applyProgress={applyProgress}
         onClose={closeApplyModal}
         onConfirm={handleApplyConfirm}
       />

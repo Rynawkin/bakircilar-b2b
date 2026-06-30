@@ -53,6 +53,7 @@ interface Props {
   confirmed: boolean;
   setConfirmed: (v: boolean) => void;
   applying: boolean;
+  applyProgress?: { done: number; total: number } | null;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -64,6 +65,7 @@ export default function ApplyCostModal({
   confirmed,
   setConfirmed,
   applying,
+  applyProgress,
   onClose,
   onConfirm,
 }: Props) {
@@ -448,7 +450,9 @@ export default function ApplyCostModal({
               }}
             >
               {applying && <RefreshCw size={15} strokeWidth={2} className="animate-spin" />}
-              Mikro'ya Uygula
+              {applying && applyProgress
+                ? `Uygulanıyor ${applyProgress.done}/${applyProgress.total}`
+                : "Mikro'ya Uygula"}
             </button>
           </div>
         </div>

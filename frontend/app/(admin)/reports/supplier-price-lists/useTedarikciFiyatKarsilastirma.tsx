@@ -179,6 +179,7 @@ export function useTedarikciFiyatKarsilastirma() {
   const [applyItems, setApplyItems] = useState<ApplyItem[]>([]);
   const [applyConfirmed, setApplyConfirmed] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [applyProgress, setApplyProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Index korunarak TUM kolonlar (bos basliklar dahil). Backend "columns" verir;
   // gelmezse headers/headerLabels'tan tureriz (eski yanit uyumlulugu).
@@ -645,12 +646,29 @@ export function useTedarikciFiyatKarsilastirma() {
       return;
     }
     setApplying(true);
+    // Mikro yazma agir (urun basina ~12 sorgu); tek istekte cok urun -> timeout.
+    // Bu yuzden PARCA PARCA (25'erli) gonderilir; her parca timeout'a girmeden tamamlanir.
+    const CHUNK = 25;
+    setApplyProgress({ done: 0, total: applyItems.length });
+    let okCount = 0;
+    let failCount = 0;
+    let aborted = false;
     try {
-      const result = await adminApi.applySupplierCostBulk(applyItems);
-      const okCount = result.okCount ?? 0;
-      const failCount = result.failCount ?? 0;
+      for (let i = 0; i < applyItems.length; i += CHUNK) {
+        const batch = applyItems.slice(i, i + CHUNK);
+        try {
+          const result = await adminApi.applySupplierCostBulk(batch);
+          okCount += result.okCount ?? 0;
+          failCount += result.failCount ?? 0;
+        } catch (chunkError: any) {
+          // Bu parca patladi (or. timeout) -> sayar, devam et; kullaniciya raporla
+          failCount += batch.length;
+          aborted = true;
+        }
+        setApplyProgress({ done: Math.min(i + CHUNK, applyItems.length), total: applyItems.length });
+      }
       if (failCount > 0) {
-        toast.error(`${okCount} urun uygulandi, ${failCount} urun hata verdi`);
+        toast.error(`${okCount} urun uygulandi, ${failCount} urun uygulanamadi${aborted ? ' (bir parca zaman asimina ugradi, tekrar deneyin)' : ''}`);
       } else {
         toast.success(`${okCount} urun maliyeti Mikro'ya uygulandi`);
       }
@@ -666,6 +684,7 @@ export function useTedarikciFiyatKarsilastirma() {
       toast.error(error?.response?.data?.error || 'Maliyet uygulama basarisiz');
     } finally {
       setApplying(false);
+      setApplyProgress(null);
     }
   };
 
@@ -707,6 +726,7 @@ export function useTedarikciFiyatKarsilastirma() {
     applyPreview,
     applyItems,
     applyConfirmed,
+    applyProgress,
     setApplyConfirmed,
     applying,
     handleApplyPreviewOpen,
