@@ -12,22 +12,25 @@ import adminApi, {
 export type { AdminBanner, BannerInput, BannerPosition } from '@/lib/api/admin';
 
 export const POSITION_OPTIONS: { value: BannerPosition; label: string; hint: string }[] = [
-  { value: 'HERO', label: 'HERO', hint: 'Ana vitrin (büyük üst banner)' },
-  { value: 'STRIP', label: 'STRIP', hint: 'İnce şerit banner' },
-  { value: 'SIDE', label: 'SIDE', hint: 'Yan / ikincil banner' },
+  { value: 'HERO', label: 'HERO', hint: 'Anasayfa büyük üst banner (birden çok = döner)' },
+  { value: 'STRIP', label: 'STRIP', hint: 'Anasayfa ince şerit (hero altında)' },
+  { value: 'SIDE', label: 'SIDE', hint: 'Dikey banner (anasayfa sağ + liste sayfaları sol)' },
+  { value: 'GRID', label: 'GRID', hint: 'Ürün ızgarası içi banner (Tüm Ürünler)' },
 ];
 
 export const POSITION_BADGE: Record<BannerPosition, string> = {
   HERO: 'bg-primary-100 text-primary-700',
   STRIP: 'bg-amber-100 text-amber-700',
   SIDE: 'bg-slate-100 text-slate-700',
+  GRID: 'bg-emerald-100 text-emerald-700',
 };
 
 // Pozisyona gore onerilen gorsel olcusu
 export const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
   HERO: 'Önerilen ölçü: 1920 × 640 px (yatay, ~3:1) · maks 5MB',
   STRIP: 'Önerilen ölçü: 1200 × 140 px (ince şerit) · maks 5MB',
-  SIDE: 'Önerilen ölçü: 600 × 500 px · maks 5MB',
+  SIDE: 'Önerilen ölçü: 600 × 800 px (dikey) · maks 5MB',
+  GRID: 'Önerilen ölçü: 800 × 360 px (ızgara içi, ~2:1) · maks 5MB',
 };
 
 const emptyForm: BannerInput = {

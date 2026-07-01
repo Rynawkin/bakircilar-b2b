@@ -52,7 +52,7 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
-export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE';
+export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
 
 export interface AdminBanner {
   id: string;

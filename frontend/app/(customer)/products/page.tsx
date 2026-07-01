@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { PersonalRecommendations } from '@/components/customer/PersonalRecommendations';
 import { CategorySidebar } from '@/components/customer/CategorySidebar';
+import { InGridBanner } from '@/components/customer/InGridBanner';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { FilterState } from '@/components/customer/AdvancedFilters';
@@ -556,23 +557,7 @@ export default function ProductsPage() {
             )}
 
             <div className={PRODUCTS_GRID_CLASS}>
-              {!search && !selectedCategory && offset === 0 && (
-                <Link
-                  href="/discounted-products"
-                  className="relative col-span-2 flex min-h-[150px] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#12305c] to-[#1c4a8f]" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-[#081630]/70 to-transparent" />
-                  <div className="relative">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[10.5px] font-bold tracking-wide">KAMPANYA</span>
-                    <div className="mt-2 text-[20px] font-bold leading-tight sm:text-[22px]">İndirimli fırsatları kaçırmayın</div>
-                    <p className="mt-1 max-w-[85%] text-[13px] text-white/80">Net fiyat avantajlı ürünlerde sınırlı stok.</p>
-                    <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-bold">
-                      Fırsatları gör <ArrowRight className="h-4 w-4" />
-                    </span>
-                  </div>
-                </Link>
-              )}
+              {!search && !selectedCategory && offset === 0 && <InGridBanner />}
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}

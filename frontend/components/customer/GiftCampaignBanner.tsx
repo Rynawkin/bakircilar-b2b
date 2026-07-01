@@ -38,8 +38,14 @@ export function GiftCampaignBanner() {
   const gifts = campaign.gifts || [];
 
   return (
-    <section className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-[#0f2a57] to-[#15356b] p-4 sm:p-5 text-white overflow-hidden">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <section className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-[#0f2a57] to-[#15356b] p-4 sm:p-5 text-white">
+      {campaign.bannerImageUrl && (
+        <>
+          <img src={campaign.bannerImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0f2a57]/95 via-[#0f2a57]/80 to-[#15356b]/55" />
+        </>
+      )}
+      <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         {/* Sol: rozet + baslik + mekanik + ilerleme */}
         <div className="flex-1 min-w-0">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-emerald-200">
