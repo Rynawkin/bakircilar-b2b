@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { PersonalRecommendations } from '@/components/customer/PersonalRecommendations';
+import { CategorySidebar } from '@/components/customer/CategorySidebar';
 import { FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -24,7 +25,7 @@ import { ChevronRight, History, Search, ArrowDownUp, Warehouse, X } from 'lucide
 
 const PAGE_SIZE = 60;
 const CONTAINER = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
-const GRID = 'grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6';
+const GRID = 'grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-3 2xl:grid-cols-4 min-[1800px]:grid-cols-5';
 const isCanceled = (e: any) => e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError' || e?.name === 'AbortError';
 
 type LastPurchaseSort = 'none' | 'date-desc' | 'date-asc';
@@ -246,6 +247,13 @@ export default function PreviouslyPurchasedPage() {
           )}
         </div>
 
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[248px_minmax(0,1fr)]">
+          <CategorySidebar
+            categories={categories}
+            selectedCategoryId={selectedCategory}
+            onSelect={(id) => { setSelectedCategory(id); setOffset(0); }}
+          />
+          <div className="min-w-0">
         {/* Filtre bari */}
         <div className="card mb-5 flex flex-wrap items-center gap-2.5 px-3.5 py-3">
           <label className="flex h-9 items-center gap-2 rounded-lg border border-[var(--line-strong)] bg-white px-2.5">
@@ -350,6 +358,8 @@ export default function PreviouslyPurchasedPage() {
           flatTitle="Sizin icin onerilenler"
           showMissingCategories={false}
         />
+          </div>
+        </div>
       </div>
 
       {/* ── "Son 5 Alış" modal ──────────────────────────────────── */}
