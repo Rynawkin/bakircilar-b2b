@@ -21,12 +21,14 @@ import {
   Loader2,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ImageCropUpload } from '@/components/admin/ImageCropUpload';
 import { formatDate } from '@/lib/utils/format';
 import { BannerPosition } from '@/lib/api/admin';
 import {
   useBannerlar,
   POSITION_OPTIONS,
   RECOMMENDED_SIZE,
+  POSITION_DIMS,
 } from './useBannerlar';
 
 /**
@@ -326,46 +328,17 @@ export default function BannerlarNew() {
                       />
                     </div>
 
-                    {/* Görsel: dosyadan yükle veya URL */}
+                    {/* Görsel: yükle + o pozisyonun oranında çerçeveye sığdır (kırp) */}
                     <div>
-                      <label className={labelClass}>Görsel</label>
-                      <div className="mb-2 rounded-lg border border-dashed border-[#d8e0ec] bg-[#fafbfd] p-3">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleBannerImageUpload}
-                          disabled={uploadingImage}
-                          className="block w-full text-[13px] text-[#51607a] file:mr-2 file:rounded file:border-0 file:bg-[#eef2fa] file:px-3 file:py-2 file:text-[13px] file:font-semibold file:text-[#15356b] hover:file:bg-[#dde6f6]"
-                        />
-                        <p className="mt-1.5 text-[11px] font-medium text-[#b45309]">
-                          {RECOMMENDED_SIZE[formData.position ?? 'HERO']}
-                        </p>
-                        {uploadingImage && (
-                          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-[#51607a]">
-                            <Loader2 className="h-3 w-3 animate-spin" /> Yükleniyor…
-                          </p>
-                        )}
-                      </div>
-                      <input
-                        type="text"
-                        value={formData.imageUrl ?? ''}
-                        onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                        placeholder="…veya görsel URL yapıştır (https:// ya da /uploads/...)"
-                        className={fieldClass}
+                      <ImageCropUpload
+                        value={formData.imageUrl}
+                        onChange={(url) => setFormData({ ...formData, imageUrl: url })}
+                        aspect={POSITION_DIMS[formData.position ?? 'HERO'].w / POSITION_DIMS[formData.position ?? 'HERO'].h}
+                        targetWidth={POSITION_DIMS[formData.position ?? 'HERO'].w}
+                        targetHeight={POSITION_DIMS[formData.position ?? 'HERO'].h}
+                        label="Görsel"
+                        hint={RECOMMENDED_SIZE[formData.position ?? 'HERO']}
                       />
-                      {formData.imageUrl?.trim() ? (
-                        <div className="mt-2 overflow-hidden rounded-lg border border-[#e3e8f0] bg-[#fafbfd]">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={formData.imageUrl}
-                            alt="Önizleme"
-                            className="max-h-40 w-full object-contain"
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        </div>
-                      ) : null}
                     </div>
 
                     {/* Link & Ürün kodu */}

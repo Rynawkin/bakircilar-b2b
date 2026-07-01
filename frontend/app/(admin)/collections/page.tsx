@@ -10,6 +10,7 @@ import adminApi, {
   CollectionRuleType,
   GiftTargetType,
 } from '@/lib/api/admin';
+import { ImageCropUpload } from '@/components/admin/ImageCropUpload';
 
 type PickItem = { productId: string; name?: string; mikroCode?: string; imageUrl?: string | null };
 
@@ -334,34 +335,15 @@ export default function CollectionsPage() {
             </div>
 
             <div>
-              <label className={label}>Görsel</label>
-              <div className="flex items-center gap-3">
-                {form.imageUrl ? (
-                  <div className="relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-[#e3e8f0] bg-white">
-                    <img src={form.imageUrl} alt="" className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, imageUrl: '' })}
-                      className="absolute right-0.5 top-0.5 rounded bg-white/90 p-0.5 text-red-600 hover:bg-white"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    className="flex h-16 w-24 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-[#d8e0ec] bg-[#f7f9fc] text-[11px] text-[#9aa6b8]"
-                    style={form.color ? { background: form.color } : undefined}
-                  >
-                    {form.color ? '' : 'Görsel yok'}
-                  </div>
-                )}
-                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#d8e0ec] px-3 py-2 text-[12.5px] font-medium text-[#51607a] hover:bg-[#f4f6fa]">
-                  <Upload className="h-4 w-4" />
-                  {uploadingImg ? 'Yükleniyor…' : 'Görsel yükle'}
-                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploadingImg} />
-                </label>
-              </div>
-              <p className="mt-1 text-[11.5px] text-[#9aa6b8]">Önerilen ölçü: 600 × 400 px · maks 5MB</p>
+              <ImageCropUpload
+                value={form.imageUrl}
+                onChange={(url) => setForm((f) => (f ? { ...f, imageUrl: url } : f))}
+                aspect={600 / 400}
+                targetWidth={600}
+                targetHeight={400}
+                label="Görsel"
+                hint="Yükleyince çerçeveye sığdırırsın — 600 × 400 px olarak kaydedilir (görsel yoksa renk kullanılır)"
+              />
             </div>
 
             <div>

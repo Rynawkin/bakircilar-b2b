@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Gift, Plus, Trash2, Search, X, Check, Pencil, Upload } from 'lucide-react';
+import { Gift, Plus, Trash2, Search, X, Check, Pencil } from 'lucide-react';
+import { ImageCropUpload } from '@/components/admin/ImageCropUpload';
 import adminApi, {
   AdminGiftCampaign,
   GiftCampaignInput,
@@ -73,7 +74,6 @@ export default function GiftCampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
-  const [uploadingImg, setUploadingImg] = useState(false);
 
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [sectorCodes, setSectorCodes] = useState<string[]>([]);
@@ -158,26 +158,6 @@ export default function GiftCampaignsPage() {
     } else {
       if (form.scopeProducts.some((g) => g.productId === item.productId)) return;
       setForm({ ...form, scopeProducts: [...form.scopeProducts, item] });
-    }
-  };
-
-  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !form) return;
-    if (!file.type.startsWith('image/')) { toast.error('Lütfen resim dosyası seçin'); return; }
-    if (file.size > 5 * 1024 * 1024) { toast.error('Dosya boyutu 5MB\'dan küçük olmalı'); return; }
-    setUploadingImg(true);
-    const fd = new FormData();
-    fd.append('image', file);
-    try {
-      const { imageUrl } = await adminApi.uploadBannerImage(fd);
-      setForm((f) => (f ? { ...f, bannerImageUrl: imageUrl } : f));
-      toast.success('Görsel yüklendi');
-    } catch {
-      toast.error('Görsel yüklenemedi');
-    } finally {
-      setUploadingImg(false);
-      e.target.value = '';
     }
   };
 
@@ -327,31 +307,15 @@ export default function GiftCampaignsPage() {
               <input className={field} value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} />
             </div>
             <div>
-              <label className={label}>Banner görseli</label>
-              <div className="flex items-center gap-3">
-                {form.bannerImageUrl ? (
-                  <div className="relative h-16 w-28 flex-shrink-0 overflow-hidden rounded-lg border border-[#e3e8f0] bg-white">
-                    <img src={form.bannerImageUrl} alt="" className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, bannerImageUrl: '' })}
-                      className="absolute right-0.5 top-0.5 rounded bg-white/90 p-0.5 text-red-600 hover:bg-white"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex h-16 w-28 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-[#d8e0ec] bg-[#f7f9fc] text-[11px] text-[#9aa6b8]">
-                    Görsel yok
-                  </div>
-                )}
-                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#d8e0ec] px-3 py-2 text-[12.5px] font-medium text-[#51607a] hover:bg-[#f4f6fa]">
-                  <Upload className="h-4 w-4" />
-                  {uploadingImg ? 'Yükleniyor…' : 'Görsel yükle'}
-                  <input type="file" accept="image/*" className="hidden" onChange={handleBannerUpload} disabled={uploadingImg} />
-                </label>
-              </div>
-              <p className="mt-1 text-[11.5px] text-[#9aa6b8]">Önerilen ölçü: 1600 × 400 px (yatay) · maks 5MB</p>
+              <ImageCropUpload
+                value={form.bannerImageUrl}
+                onChange={(url) => setForm((f) => (f ? { ...f, bannerImageUrl: url } : f))}
+                aspect={1600 / 400}
+                targetWidth={1600}
+                targetHeight={400}
+                label="Banner görseli"
+                hint="Yükleyince çerçeveye sığdırırsın — 1600 × 400 px olarak kaydedilir"
+              />
             </div>
             <div>
               <label className={label}>Buton metni</label>

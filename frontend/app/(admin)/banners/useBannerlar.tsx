@@ -25,6 +25,14 @@ export const POSITION_BADGE: Record<BannerPosition, string> = {
   GRID: 'bg-emerald-100 text-emerald-700',
 };
 
+// Pozisyona gore hedef ebat (kirpma bu orana/ebata gore yapilir)
+export const POSITION_DIMS: Record<BannerPosition, { w: number; h: number }> = {
+  HERO: { w: 1920, h: 640 },
+  STRIP: { w: 1200, h: 140 },
+  SIDE: { w: 600, h: 800 },
+  GRID: { w: 800, h: 360 },
+};
+
 // Pozisyona gore onerilen gorsel olcusu
 export const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
   HERO: 'Önerilen ölçü: 1920 × 640 px (yatay, ~3:1) · maks 5MB',
