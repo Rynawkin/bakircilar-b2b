@@ -395,15 +395,20 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
       <div className="mx-auto w-full max-w-[1200px] px-3 py-6 sm:px-4 lg:px-6">
         {/* Baslik */}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">
-              {isSubUser ? 'Talep Sepeti' : 'Sepetim'}
-            </h1>
-            <p className="mt-1 text-[13px] text-[var(--ink-3)]">
-              {totalItemCount > 0
-                ? `${totalItemCount} kalem · Faturalı ve Beyaz olarak gruplanmıştır`
-                : 'Henüz ürün eklemediniz'}
-            </p>
+          <div className="flex items-center gap-3">
+            <span className="hidden h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#eef2fa] text-[#15356b] sm:flex">
+              <ShoppingCart className="h-5 w-5" />
+            </span>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-[var(--ink-1)] sm:text-2xl">
+                {isSubUser ? 'Talep Sepeti' : 'Sepetim'}
+              </h1>
+              <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">
+                {totalItemCount > 0
+                  ? `${totalItemCount} kalem · Faturalı ve Beyaz olarak gruplanmıştır`
+                  : 'Henüz ürün eklemediniz'}
+              </p>
+            </div>
           </div>
           {totalItemCount > 0 && (
             <Link
@@ -441,6 +446,8 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
           <div className="flex flex-col items-start gap-5 lg:flex-row">
             {/* SOL: kalemler */}
             <div className="min-w-0 flex-1 space-y-5">
+              {/* Hediyeli kampanya (GWP) — hediye secici (Vitrin: kalemlerin ustunde) */}
+              <CartGiftPicker refreshKey={cart?.total} />
               {invoicedItems.length > 0 && (
                 <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--surface-1)] px-4 py-3">
@@ -482,9 +489,6 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
                   Sepeti Temizle
                 </button>
               </div>
-
-              {/* Hediyeli kampanya (GWP) — hediye secici */}
-              <CartGiftPicker refreshKey={cart?.total} />
 
               {/* Tamamlayici oneriler */}
               {recommendationGroups.length > 0 && (
