@@ -21,10 +21,10 @@ import { useDebounce } from '@/lib/hooks/useDebounce';
 import { trackCustomerActivity } from '@/lib/analytics/customerAnalytics';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { getDescendantCategoryIds } from '@/lib/utils/categoryTree';
-import { ChevronRight, ChevronDown, Search, ArrowDownUp, X, SlidersHorizontal, Warehouse } from 'lucide-react';
+import { ChevronRight, ChevronDown, Search, ArrowDownUp, X, SlidersHorizontal, Warehouse, LayoutGrid, ArrowRight } from 'lucide-react';
 
 const PRODUCTS_PAGE_CONTAINER_CLASS = 'mx-auto w-full max-w-[1900px] px-3 py-6 sm:px-4 lg:px-6 2xl:px-8';
-const PRODUCTS_GRID_CLASS = 'grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 min-[1800px]:grid-cols-6';
+const PRODUCTS_GRID_CLASS = 'grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-3 2xl:grid-cols-4 min-[1800px]:grid-cols-5';
 const PAGE_SIZE = 60;
 
 const isCanceledRequest = (error: any) =>
@@ -294,13 +294,18 @@ export default function ProductsPage() {
 
         {/* Baslik + fiyat turu */}
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">Tüm Ürünler</h1>
-            <p className="mt-1 text-[13px] text-[var(--ink-3)]">
-              {!isInitialLoad && totalCount !== null && totalCount > filteredProducts.length
-                ? `Tüm katalog · ${totalCount} ürün`
-                : `Tüm katalog · ${filteredProducts.length} sonuç`}
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="hidden h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[#eef2fa] text-[#15356b] sm:flex">
+              <LayoutGrid className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight text-[var(--ink-1)] sm:text-2xl">Tüm Ürünler</h1>
+              <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">
+                {!isInitialLoad && totalCount !== null && totalCount > filteredProducts.length
+                  ? `Tüm katalog · ${totalCount} ürün`
+                  : `Tüm katalog · ${filteredProducts.length} sonuç`}
+              </p>
+            </div>
           </div>
           {showPriceTypeSelector && (
             <div className="flex items-center gap-2.5">
@@ -551,6 +556,23 @@ export default function ProductsPage() {
             )}
 
             <div className={PRODUCTS_GRID_CLASS}>
+              {!search && !selectedCategory && offset === 0 && (
+                <Link
+                  href="/discounted-products"
+                  className="relative col-span-2 flex min-h-[150px] flex-col justify-center overflow-hidden rounded-2xl p-5 text-white"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#12305c] to-[#1c4a8f]" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-[#081630]/70 to-transparent" />
+                  <div className="relative">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[10.5px] font-bold tracking-wide">KAMPANYA</span>
+                    <div className="mt-2 text-[20px] font-bold leading-tight sm:text-[22px]">İndirimli fırsatları kaçırmayın</div>
+                    <p className="mt-1 max-w-[85%] text-[13px] text-white/80">Net fiyat avantajlı ürünlerde sınırlı stok.</p>
+                    <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-bold">
+                      Fırsatları gör <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </div>
+                </Link>
+              )}
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
