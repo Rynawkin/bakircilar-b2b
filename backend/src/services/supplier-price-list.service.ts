@@ -191,25 +191,32 @@ const normalizeHeader = (value: any) => normalizeText(String(value ?? '')).repla
 const normalizeCode = (value: string) =>
   normalizeText(value).replace(/\s+/g, '').toUpperCase();
 
-const getDiscounts = (supplier: any) => [
-  supplier.discount1,
-  supplier.discount2,
-  supplier.discount3,
-  supplier.discount4,
-  supplier.discount5,
-]
-  .map((value: any) => (typeof value === 'number' ? value : parseNumber(value)))
-  .filter((value: number | null): value is number => Boolean(value && value > 0));
+const normalizeDiscountValues = (values: any[]) =>
+  values
+    .map((value) => (typeof value === 'number' ? value : parseNumber(value)))
+    .filter((value): value is number => Boolean(value && value > 0));
+
+// Ana zincir iskonto: once sinirsiz `defaultDiscounts` dizisini kullan,
+// yoksa/legacy tedarikcilerde discount1..5 kolonlarina dus (geri-uyum).
+const getDiscounts = (supplier: any) => {
+  if (Array.isArray(supplier?.defaultDiscounts)) {
+    const fromArray = normalizeDiscountValues(supplier.defaultDiscounts);
+    if (fromArray.length) return fromArray;
+  }
+
+  return normalizeDiscountValues([
+    supplier.discount1,
+    supplier.discount2,
+    supplier.discount3,
+    supplier.discount4,
+    supplier.discount5,
+  ]);
+};
 
 type SupplierDiscountRule = {
   keywords?: string[];
   discounts?: number[];
 };
-
-const normalizeDiscountValues = (values: any[]) =>
-  values
-    .map((value) => (typeof value === 'number' ? value : parseNumber(value)))
-    .filter((value): value is number => Boolean(value && value > 0));
 
 const normalizeMatchText = (value: any) => normalizeText(value).replace(/\s+/g, '');
 
@@ -1784,17 +1791,40 @@ const isSuspiciousItem = (item: { sourcePrice?: number | null; rawLine?: string 
 
   return false;
 };
+
+// Kayit payload'unu normalize et: `defaultDiscounts` sinirsiz sayi dizisi olarak
+// temizlenir (bos/gecersiz ise null). discount1..5 kabulu geri-uyum icin korunur.
+const normalizeSupplierPayload = (data: any) => {
+  if (!data || typeof data !== 'object') return data;
+  const payload: any = { ...data };
+
+  if ('defaultDiscounts' in payload) {
+    const raw = payload.defaultDiscounts;
+    if (Array.isArray(raw)) {
+      const cleaned = normalizeDiscountValues(raw);
+      payload.defaultDiscounts = cleaned.length ? cleaned : null;
+    } else if (raw === null || raw === undefined || raw === '') {
+      payload.defaultDiscounts = null;
+    } else {
+      // Beklenmeyen tip gelirse Prisma Json kolonunu bozmamak icin null'a cevir.
+      payload.defaultDiscounts = null;
+    }
+  }
+
+  return payload;
+};
+
 class SupplierPriceListService {
   async listSuppliers() {
     return prisma.supplier.findMany({ orderBy: { name: 'asc' } });
   }
 
   async createSupplier(data: any) {
-    return prisma.supplier.create({ data });
+    return prisma.supplier.create({ data: normalizeSupplierPayload(data) });
   }
 
   async updateSupplier(id: string, data: any) {
-    return prisma.supplier.update({ where: { id }, data });
+    return prisma.supplier.update({ where: { id }, data: normalizeSupplierPayload(data) });
   }
 
   async listUploads(params: { supplierId?: string; page?: number; limit?: number }) {

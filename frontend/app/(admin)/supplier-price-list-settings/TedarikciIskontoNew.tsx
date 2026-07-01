@@ -71,9 +71,15 @@ export default function TedarikciIskontoNew() {
     loadSuppliers,
     openModal,
     closeModal,
+    addMainDiscount,
+    removeMainDiscount,
+    updateMainDiscount,
     addDiscountRule,
     removeDiscountRule,
-    updateDiscountRule,
+    updateDiscountRuleKeywords,
+    updateRuleDiscount,
+    addRuleDiscount,
+    removeRuleDiscount,
     handleSave,
     buildDiscountSummary,
   } = useTedarikciIskonto();
@@ -296,7 +302,7 @@ export default function TedarikciIskontoNew() {
             </Field>
           </div>
 
-          {/* Iskonto Kademeleri 1-5 */}
+          {/* Iskonto Kademeleri (dinamik, sinirsiz) */}
           <div
             style={{
               background: '#fafbfd',
@@ -305,49 +311,74 @@ export default function TedarikciIskontoNew() {
               padding: 14,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-              <Percent size={15} color={PRIMARY} />
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: INK }}>Iskonto Kademeleri (1-5)</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 7, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <Percent size={15} color={PRIMARY} />
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: INK }}>Iskonto Kademeleri</div>
+              </div>
+              <button
+                type="button"
+                onClick={addMainDiscount}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: '#eef2fa',
+                  border: '1px solid #d6e0f1',
+                  borderRadius: 7,
+                  padding: '5px 11px',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: PRIMARY,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <Plus size={13} />
+                Kademe Ekle
+              </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-              <Field label="Iskonto 1">
-                <input
-                  value={form.discount1}
-                  onChange={(e) => setForm((prev) => ({ ...prev, discount1: e.target.value }))}
-                  style={tierInputStyle}
-                />
-              </Field>
-              <Field label="Iskonto 2">
-                <input
-                  value={form.discount2}
-                  onChange={(e) => setForm((prev) => ({ ...prev, discount2: e.target.value }))}
-                  style={tierInputStyle}
-                />
-              </Field>
-              <Field label="Iskonto 3">
-                <input
-                  value={form.discount3}
-                  onChange={(e) => setForm((prev) => ({ ...prev, discount3: e.target.value }))}
-                  style={tierInputStyle}
-                />
-              </Field>
-              <Field label="Iskonto 4">
-                <input
-                  value={form.discount4}
-                  onChange={(e) => setForm((prev) => ({ ...prev, discount4: e.target.value }))}
-                  style={tierInputStyle}
-                />
-              </Field>
-              <Field label="Iskonto 5">
-                <input
-                  value={form.discount5}
-                  onChange={(e) => setForm((prev) => ({ ...prev, discount5: e.target.value }))}
-                  style={tierInputStyle}
-                />
-              </Field>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {form.discounts.map((value, index) => (
+                <div key={`disc-${index}`} style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 96 }}>
+                  <span style={labelStyle}>Iskonto {index + 1}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <input
+                      value={value}
+                      onChange={(e) => updateMainDiscount(index, e.target.value)}
+                      style={{ ...tierInputStyle, flex: 1 }}
+                    />
+                    {form.discounts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeMainDiscount(index)}
+                        aria-label="Kademeyi sil"
+                        title="Kademeyi sil"
+                        style={{
+                          width: 26,
+                          height: 26,
+                          border: '1px solid #fecaca',
+                          borderRadius: 6,
+                          background: '#fff',
+                          color: '#b91c1c',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          fontSize: 14,
+                          lineHeight: 1,
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
             <p style={{ fontSize: 11, color: MUTE, margin: '8px 0 0' }}>
-              Bos birakilirsa net liste kabul edilir.
+              Zincirleme uygulanir (orn: 10+10+5+5+5+5). Bos birakilirsa net liste kabul edilir.
             </p>
           </div>
 
@@ -405,7 +436,7 @@ export default function TedarikciIskontoNew() {
                         <Field label="Anahtar Kelimeler">
                           <input
                             value={rule.keywords}
-                            onChange={(e) => updateDiscountRule(index, 'keywords', e.target.value)}
+                            onChange={(e) => updateDiscountRuleKeywords(index, e.target.value)}
                             placeholder="eko, ekonomik"
                             style={ruleInputStyle}
                           />
@@ -433,42 +464,68 @@ export default function TedarikciIskontoNew() {
                         <Trash2 size={14} />
                       </button>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                      <Field label="Iskonto 1">
-                        <input
-                          value={rule.discount1}
-                          onChange={(e) => updateDiscountRule(index, 'discount1', e.target.value)}
-                          style={{ ...ruleInputStyle, textAlign: 'center' }}
-                        />
-                      </Field>
-                      <Field label="Iskonto 2">
-                        <input
-                          value={rule.discount2}
-                          onChange={(e) => updateDiscountRule(index, 'discount2', e.target.value)}
-                          style={{ ...ruleInputStyle, textAlign: 'center' }}
-                        />
-                      </Field>
-                      <Field label="Iskonto 3">
-                        <input
-                          value={rule.discount3}
-                          onChange={(e) => updateDiscountRule(index, 'discount3', e.target.value)}
-                          style={{ ...ruleInputStyle, textAlign: 'center' }}
-                        />
-                      </Field>
-                      <Field label="Iskonto 4">
-                        <input
-                          value={rule.discount4}
-                          onChange={(e) => updateDiscountRule(index, 'discount4', e.target.value)}
-                          style={{ ...ruleInputStyle, textAlign: 'center' }}
-                        />
-                      </Field>
-                      <Field label="Iskonto 5">
-                        <input
-                          value={rule.discount5}
-                          onChange={(e) => updateDiscountRule(index, 'discount5', e.target.value)}
-                          style={{ ...ruleInputStyle, textAlign: 'center' }}
-                        />
-                      </Field>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={labelStyle}>Iskonto Kademeleri</span>
+                        <button
+                          type="button"
+                          onClick={() => addRuleDiscount(index)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            background: '#eef2fa',
+                            border: '1px solid #d6e0f1',
+                            borderRadius: 6,
+                            padding: '3px 9px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: PRIMARY,
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <Plus size={11} />
+                          Kademe Ekle
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {rule.discounts.map((value, discIdx) => (
+                          <div key={`rule-${index}-disc-${discIdx}`} style={{ display: 'flex', alignItems: 'center', gap: 4, width: 92 }}>
+                            <input
+                              value={value}
+                              onChange={(e) => updateRuleDiscount(index, discIdx, e.target.value)}
+                              placeholder={`Isk ${discIdx + 1}`}
+                              style={{ ...ruleInputStyle, textAlign: 'center', flex: 1 }}
+                            />
+                            {rule.discounts.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeRuleDiscount(index, discIdx)}
+                                aria-label="Kademeyi sil"
+                                title="Kademeyi sil"
+                                style={{
+                                  width: 24,
+                                  height: 24,
+                                  border: '1px solid #fecaca',
+                                  borderRadius: 6,
+                                  background: '#fff',
+                                  color: '#b91c1c',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                  fontSize: 13,
+                                  lineHeight: 1,
+                                }}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 ))}

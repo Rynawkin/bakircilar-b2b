@@ -24,9 +24,15 @@ export default function TedarikciIskontoClassic() {
     loadSuppliers,
     openModal,
     closeModal,
+    addMainDiscount,
+    removeMainDiscount,
+    updateMainDiscount,
     addDiscountRule,
     removeDiscountRule,
-    updateDiscountRule,
+    updateDiscountRuleKeywords,
+    updateRuleDiscount,
+    addRuleDiscount,
+    removeRuleDiscount,
     handleSave,
     buildDiscountSummary,
   } = useTedarikciIskonto();
@@ -118,15 +124,39 @@ export default function TedarikciIskontoClassic() {
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-3">Iskonto Kurallari</h3>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <Input label="Iskonto 1" value={form.discount1} onChange={(e) => setForm((prev) => ({ ...prev, discount1: e.target.value }))} />
-              <Input label="Iskonto 2" value={form.discount2} onChange={(e) => setForm((prev) => ({ ...prev, discount2: e.target.value }))} />
-              <Input label="Iskonto 3" value={form.discount3} onChange={(e) => setForm((prev) => ({ ...prev, discount3: e.target.value }))} />
-              <Input label="Iskonto 4" value={form.discount4} onChange={(e) => setForm((prev) => ({ ...prev, discount4: e.target.value }))} />
-              <Input label="Iskonto 5" value={form.discount5} onChange={(e) => setForm((prev) => ({ ...prev, discount5: e.target.value }))} />
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="text-lg font-semibold">Iskonto Kademeleri</h3>
+              <Button variant="outline" size="sm" onClick={addMainDiscount}>
+                Kademe Ekle
+              </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Bos birakilirsa net liste kabul edilir.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+              {form.discounts.map((value, index) => (
+                <div key={`disc-${index}`} className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Input
+                      label={`Iskonto ${index + 1}`}
+                      value={value}
+                      onChange={(e) => updateMainDiscount(index, e.target.value)}
+                    />
+                  </div>
+                  {form.discounts.length > 1 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeMainDiscount(index)}
+                      aria-label="Kademeyi sil"
+                      title="Kademeyi sil"
+                    >
+                      ×
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Zincirleme uygulanir (orn: 10+10+5+5+5+5). Bos birakilirsa net liste kabul edilir.
+            </p>
           </div>
 
           <div>
@@ -150,7 +180,7 @@ export default function TedarikciIskontoClassic() {
                         <Input
                           label="Anahtar Kelimeler"
                           value={rule.keywords}
-                          onChange={(e) => updateDiscountRule(index, 'keywords', e.target.value)}
+                          onChange={(e) => updateDiscountRuleKeywords(index, e.target.value)}
                           placeholder="eko, ekonomik"
                         />
                       </div>
@@ -162,32 +192,37 @@ export default function TedarikciIskontoClassic() {
                         Sil
                       </Button>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                      <Input
-                        label="Iskonto 1"
-                        value={rule.discount1}
-                        onChange={(e) => updateDiscountRule(index, 'discount1', e.target.value)}
-                      />
-                      <Input
-                        label="Iskonto 2"
-                        value={rule.discount2}
-                        onChange={(e) => updateDiscountRule(index, 'discount2', e.target.value)}
-                      />
-                      <Input
-                        label="Iskonto 3"
-                        value={rule.discount3}
-                        onChange={(e) => updateDiscountRule(index, 'discount3', e.target.value)}
-                      />
-                      <Input
-                        label="Iskonto 4"
-                        value={rule.discount4}
-                        onChange={(e) => updateDiscountRule(index, 'discount4', e.target.value)}
-                      />
-                      <Input
-                        label="Iskonto 5"
-                        value={rule.discount5}
-                        onChange={(e) => updateDiscountRule(index, 'discount5', e.target.value)}
-                      />
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-sm font-medium">Iskonto Kademeleri</span>
+                        <Button variant="outline" size="sm" onClick={() => addRuleDiscount(index)}>
+                          Kademe Ekle
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                        {rule.discounts.map((value, discIdx) => (
+                          <div key={`rule-${index}-disc-${discIdx}`} className="flex items-end gap-2">
+                            <div className="flex-1">
+                              <Input
+                                label={`Iskonto ${discIdx + 1}`}
+                                value={value}
+                                onChange={(e) => updateRuleDiscount(index, discIdx, e.target.value)}
+                              />
+                            </div>
+                            {rule.discounts.length > 1 && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => removeRuleDiscount(index, discIdx)}
+                                aria-label="Kademeyi sil"
+                                title="Kademeyi sil"
+                              >
+                                ×
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 ))}

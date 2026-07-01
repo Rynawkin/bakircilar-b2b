@@ -4106,6 +4106,7 @@ export const adminApi = {
     discount3?: number | null;
     discount4?: number | null;
     discount5?: number | null;
+    defaultDiscounts?: number[] | null;
     priceIsNet?: boolean;
     priceIncludesVat?: boolean;
     priceByColor?: boolean;
@@ -4131,6 +4132,7 @@ export const adminApi = {
     discount3?: number | null;
     discount4?: number | null;
     discount5?: number | null;
+    defaultDiscounts?: number[] | null;
     priceIsNet?: boolean;
     priceIncludesVat?: boolean;
     priceByColor?: boolean;

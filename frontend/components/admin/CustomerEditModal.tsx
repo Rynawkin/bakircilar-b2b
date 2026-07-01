@@ -527,21 +527,6 @@ export function CustomerEditModal({
             />
 
           <div>
-            <label className="block text-sm font-medium mb-1">Müşteri Segmenti *</label>
-            <select
-              className="input"
-              value={formData.customerType}
-              onChange={(e) => setFormData({ ...formData, customerType: e.target.value })}
-              required
-            >
-              {CUSTOMER_TYPES.map(type => (
-                <option key={type.value} value={type.value}>{type.label}</option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">Fiyatlandırma segmenti</p>
-          </div>
-
-          <div>
             <label className="block text-sm font-medium mb-2">Fiyat Listesi Override</label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>

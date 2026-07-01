@@ -892,6 +892,7 @@ model Supplier {
   discount3         Float?
   discount4         Float?
   discount5         Float?
+  defaultDiscounts  Json?
   priceIsNet        Boolean   @default(false)
   priceIncludesVat  Boolean   @default(false)
   priceByColor      Boolean   @default(false)

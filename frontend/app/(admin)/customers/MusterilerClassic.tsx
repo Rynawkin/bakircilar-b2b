@@ -105,20 +105,6 @@ export default function MusterilerClassic() {
                   placeholder="Cari seçince otomatik dolar"
                 />
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Müşteri Segmenti *</label>
-                  <select
-                    className="input"
-                    value={formData.customerType}
-                    onChange={(e) => setFormData({ ...formData, customerType: e.target.value as any })}
-                    required
-                  >
-                    {CUSTOMER_TYPES.map(type => (
-                      <option key={type.value} value={type.value}>{type.label}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">Fiyatlandırma segmenti</p>
-                </div>
               </div>
 
               <div>
@@ -293,7 +279,6 @@ export default function MusterilerClassic() {
                 <tr className="text-left text-sm text-gray-600">
                   <th className="px-4 py-3 font-medium">Ad</th>
                     <th className="px-4 py-3 font-medium">Kullanici</th>
-                  <th className="px-4 py-3 font-medium">Tip</th>
                   <th className="px-4 py-3 font-medium">Mikro Cari</th>
                   <th className="px-4 py-3 font-medium">Şehir</th>
                   <th className="px-4 py-3 font-medium">İlçe</th>
@@ -320,9 +305,6 @@ export default function MusterilerClassic() {
                     <tr key={customer.id} className="text-sm hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 font-medium">{customer.name}</td>
                       <td className="px-4 py-3 text-gray-600">{customer.email}</td>
-                      <td className="px-4 py-3">
-                        <Badge>{getCustomerTypeName(customer.customerType || '')}</Badge>
-                      </td>
                       <td className="px-4 py-3 font-mono text-xs">{customer.mikroCariCode}</td>
                       <td className="px-4 py-3 text-gray-600">{customer.city || '-'}</td>
                       <td className="px-4 py-3 text-gray-600">{customer.district || '-'}</td>

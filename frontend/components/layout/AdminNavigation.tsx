@@ -125,7 +125,6 @@ navItems.splice(6, 0, {
 
 
 export const settingsItems: NavItem[] = [
-  { name: 'Kategoriler', href: '/categories', icon: Folder, description: 'Fiyatlandirma ayarlari', permission: 'admin:price-rules' },
   { name: 'Urun Override', href: '/product-overrides', icon: Tag, description: 'Ozel fiyatlar', permission: 'admin:price-rules' },
   { name: 'Tedarikci Iskonto', href: '/supplier-price-list-settings', icon: Percent, description: 'Tedarikci iskonto ayarlari', permission: 'admin:supplier-price-lists' },
   { name: 'Haric Tutma', href: '/exclusions', icon: Ban, description: 'Rapor filtreleme', permission: 'admin:exclusions' },

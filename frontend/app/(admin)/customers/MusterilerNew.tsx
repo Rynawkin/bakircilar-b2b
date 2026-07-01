@@ -287,31 +287,6 @@ export default function MusterilerNew() {
                     }}
                   />
                 </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}>Müşteri Segmenti *</span>
-                  <select
-                    value={formData.customerType}
-                    onChange={(e) => setFormData({ ...formData, customerType: e.target.value as any })}
-                    required
-                    style={{
-                      height: 38,
-                      border: '1px solid #e3e8f0',
-                      borderRadius: 8,
-                      padding: '0 10px',
-                      fontSize: '12.5px',
-                      color: INK,
-                      fontFamily: 'inherit',
-                      cursor: 'pointer',
-                      outline: 'none',
-                    }}
-                  >
-                    {CUSTOMER_TYPES.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {type.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
 
               {/* Fiyat Gorunurlugu */}
@@ -645,10 +620,6 @@ export default function MusterilerNew() {
                         }}
                       >
                         {customer.email}
-                      </span>
-                      {/* Tip (segment rozeti) */}
-                      <span>
-                        <span style={segBadgeStyle}>{getCustomerTypeName(customer.customerType || '')}</span>
                       </span>
                       {/* Mikro Cari */}
                       <span style={{ fontFamily: "'Roboto Mono',monospace", fontSize: 11, color: MUTED }}>

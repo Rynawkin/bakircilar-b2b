@@ -13,6 +13,7 @@ export interface Supplier {
   discount3?: number | null;
   discount4?: number | null;
   discount5?: number | null;
+  defaultDiscounts?: number[] | null;
   priceIsNet?: boolean;
   priceIncludesVat?: boolean;
   priceByColor?: boolean;
@@ -34,11 +35,7 @@ export type SupplierDiscountRule = {
 
 export type DiscountRuleForm = {
   keywords: string;
-  discount1: string;
-  discount2: string;
-  discount3: string;
-  discount4: string;
-  discount5: string;
+  discounts: string[];
 };
 
 const parseOptionalNumber = (value: string) => {
@@ -49,13 +46,30 @@ const parseOptionalNumber = (value: string) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+// En az 1 (bos) kutu her zaman bulunsun.
+const ensureAtLeastOne = (values: string[]) => (values.length ? values : ['']);
+
+// Supplier'dan ana zincir iskontoyu form dizisine cevir:
+// once defaultDiscounts, yoksa discount1..5 dolu olanlar.
+const supplierToDiscountStrings = (supplier: Supplier): string[] => {
+  if (Array.isArray(supplier.defaultDiscounts) && supplier.defaultDiscounts.length) {
+    return supplier.defaultDiscounts
+      .filter((value) => typeof value === 'number' && value > 0)
+      .map((value) => value.toString());
+  }
+  const legacy = [
+    supplier.discount1,
+    supplier.discount2,
+    supplier.discount3,
+    supplier.discount4,
+    supplier.discount5,
+  ].filter((value) => typeof value === 'number' && value > 0) as number[];
+  return ensureAtLeastOne(legacy.map((value) => value.toString()));
+};
+
 const createEmptyRule = (): DiscountRuleForm => ({
   keywords: '',
-  discount1: '',
-  discount2: '',
-  discount3: '',
-  discount4: '',
-  discount5: '',
+  discounts: [''],
 });
 
 const parseKeywordList = (value: string) =>
@@ -65,13 +79,20 @@ const parseKeywordList = (value: string) =>
     .filter(Boolean);
 
 export const buildDiscountSummary = (supplier: Supplier) => {
-  const values = [
-    supplier.discount1,
-    supplier.discount2,
-    supplier.discount3,
-    supplier.discount4,
-    supplier.discount5,
-  ].filter((value) => typeof value === 'number' && value > 0) as number[];
+  let values: number[] = [];
+  if (Array.isArray(supplier.defaultDiscounts) && supplier.defaultDiscounts.length) {
+    values = supplier.defaultDiscounts.filter(
+      (value) => typeof value === 'number' && value > 0
+    ) as number[];
+  } else {
+    values = [
+      supplier.discount1,
+      supplier.discount2,
+      supplier.discount3,
+      supplier.discount4,
+      supplier.discount5,
+    ].filter((value) => typeof value === 'number' && value > 0) as number[];
+  }
 
   if (!values.length) return supplier.priceIsNet ? 'Net' : 'Bos';
   return values.map((value) => value.toString()).join('+');
@@ -91,11 +112,7 @@ export function useTedarikciIskonto() {
   const [form, setForm] = useState({
     name: '',
     active: true,
-    discount1: '',
-    discount2: '',
-    discount3: '',
-    discount4: '',
-    discount5: '',
+    discounts: [''] as string[],
     priceIsNet: false,
     priceIncludesVat: false,
     priceByColor: false,
@@ -130,11 +147,7 @@ export function useTedarikciIskonto() {
     setForm({
       name: '',
       active: true,
-      discount1: '',
-      discount2: '',
-      discount3: '',
-      discount4: '',
-      discount5: '',
+      discounts: [''],
       priceIsNet: false,
       priceIncludesVat: false,
       priceByColor: false,
@@ -156,11 +169,11 @@ export function useTedarikciIskonto() {
       const ruleForms: DiscountRuleForm[] = Array.isArray(supplier.discountRules)
         ? supplier.discountRules.map((rule) => ({
           keywords: Array.isArray(rule.keywords) ? rule.keywords.join(', ') : '',
-          discount1: rule.discounts?.[0]?.toString() || '',
-          discount2: rule.discounts?.[1]?.toString() || '',
-          discount3: rule.discounts?.[2]?.toString() || '',
-          discount4: rule.discounts?.[3]?.toString() || '',
-          discount5: rule.discounts?.[4]?.toString() || '',
+          discounts: ensureAtLeastOne(
+            (Array.isArray(rule.discounts) ? rule.discounts : [])
+              .filter((value) => typeof value === 'number' && value > 0)
+              .map((value) => value.toString())
+          ),
         }))
         : [];
 
@@ -168,11 +181,7 @@ export function useTedarikciIskonto() {
       setForm({
         name: supplier.name || '',
         active: supplier.active ?? true,
-        discount1: supplier.discount1?.toString() || '',
-        discount2: supplier.discount2?.toString() || '',
-        discount3: supplier.discount3?.toString() || '',
-        discount4: supplier.discount4?.toString() || '',
-        discount5: supplier.discount5?.toString() || '',
+        discounts: supplierToDiscountStrings(supplier),
         priceIsNet: supplier.priceIsNet ?? false,
         priceIncludesVat: supplier.priceIncludesVat ?? false,
         priceByColor: supplier.priceByColor ?? false,
@@ -197,6 +206,26 @@ export function useTedarikciIskonto() {
     setTimeout(resetForm, 200);
   };
 
+  // ---- Ana zincir iskonto handlerlari (dinamik) ----
+  const addMainDiscount = () => {
+    setForm((prev) => ({ ...prev, discounts: [...prev.discounts, ''] }));
+  };
+
+  const removeMainDiscount = (index: number) => {
+    setForm((prev) => {
+      const next = prev.discounts.filter((_, idx) => idx !== index);
+      return { ...prev, discounts: ensureAtLeastOne(next) };
+    });
+  };
+
+  const updateMainDiscount = (index: number, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      discounts: prev.discounts.map((disc, idx) => (idx === index ? value : disc)),
+    }));
+  };
+
+  // ---- Ozel kural handlerlari ----
   const addDiscountRule = () => {
     setForm((prev) => ({
       ...prev,
@@ -211,11 +240,45 @@ export function useTedarikciIskonto() {
     }));
   };
 
-  const updateDiscountRule = (index: number, field: keyof DiscountRuleForm, value: string) => {
+  const updateDiscountRuleKeywords = (index: number, value: string) => {
     setForm((prev) => ({
       ...prev,
       discountRules: prev.discountRules.map((rule, idx) =>
-        idx === index ? { ...rule, [field]: value } : rule
+        idx === index ? { ...rule, keywords: value } : rule
+      ),
+    }));
+  };
+
+  const updateRuleDiscount = (index: number, discIdx: number, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      discountRules: prev.discountRules.map((rule, idx) =>
+        idx === index
+          ? {
+            ...rule,
+            discounts: rule.discounts.map((disc, dIdx) => (dIdx === discIdx ? value : disc)),
+          }
+          : rule
+      ),
+    }));
+  };
+
+  const addRuleDiscount = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      discountRules: prev.discountRules.map((rule, idx) =>
+        idx === index ? { ...rule, discounts: [...rule.discounts, ''] } : rule
+      ),
+    }));
+  };
+
+  const removeRuleDiscount = (index: number, discIdx: number) => {
+    setForm((prev) => ({
+      ...prev,
+      discountRules: prev.discountRules.map((rule, idx) =>
+        idx === index
+          ? { ...rule, discounts: ensureAtLeastOne(rule.discounts.filter((_, dIdx) => dIdx !== discIdx)) }
+          : rule
       ),
     }));
   };
@@ -226,16 +289,16 @@ export function useTedarikciIskonto() {
       return;
     }
 
+    const defaultDiscounts = form.discounts
+      .map((value) => parseOptionalNumber(value))
+      .filter((value): value is number => Boolean(value && value > 0));
+
     const discountRules: SupplierDiscountRule[] = (form.discountRules || [])
       .map((rule) => {
         const keywords = parseKeywordList(rule.keywords);
-        const discounts = [
-          parseOptionalNumber(rule.discount1),
-          parseOptionalNumber(rule.discount2),
-          parseOptionalNumber(rule.discount3),
-          parseOptionalNumber(rule.discount4),
-          parseOptionalNumber(rule.discount5),
-        ].filter((value): value is number => Boolean(value && value > 0));
+        const discounts = rule.discounts
+          .map((value) => parseOptionalNumber(value))
+          .filter((value): value is number => Boolean(value && value > 0));
         return { keywords, discounts };
       })
       .filter((rule) => rule.keywords.length > 0 && rule.discounts.length > 0);
@@ -243,11 +306,13 @@ export function useTedarikciIskonto() {
     const payload = {
       name: form.name.trim(),
       active: form.active,
-      discount1: parseOptionalNumber(form.discount1),
-      discount2: parseOptionalNumber(form.discount2),
-      discount3: parseOptionalNumber(form.discount3),
-      discount4: parseOptionalNumber(form.discount4),
-      discount5: parseOptionalNumber(form.discount5),
+      defaultDiscounts,
+      // Geri-uyum: ilk 5 kademeyi legacy kolonlara da yaz (eski okuyuculara).
+      discount1: defaultDiscounts[0] ?? null,
+      discount2: defaultDiscounts[1] ?? null,
+      discount3: defaultDiscounts[2] ?? null,
+      discount4: defaultDiscounts[3] ?? null,
+      discount5: defaultDiscounts[4] ?? null,
       priceIsNet: form.priceIsNet,
       priceIncludesVat: form.priceIncludesVat,
       priceByColor: form.priceByColor,
@@ -300,9 +365,17 @@ export function useTedarikciIskonto() {
     loadSuppliers,
     openModal,
     closeModal,
+    // ana zincir iskonto
+    addMainDiscount,
+    removeMainDiscount,
+    updateMainDiscount,
+    // ozel kurallar
     addDiscountRule,
     removeDiscountRule,
-    updateDiscountRule,
+    updateDiscountRuleKeywords,
+    updateRuleDiscount,
+    addRuleDiscount,
+    removeRuleDiscount,
     handleSave,
     // helper
     buildDiscountSummary,
