@@ -12,6 +12,7 @@ import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
 import { PersonalRecommendations } from '@/components/customer/PersonalRecommendations';
+import { CategorySidebar } from '@/components/customer/CategorySidebar';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { FilterState } from '@/components/customer/AdvancedFilters';
@@ -328,6 +329,13 @@ export default function ProductsPage() {
           )}
         </div>
 
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[248px_minmax(0,1fr)]">
+          <CategorySidebar
+            categories={categories}
+            selectedCategoryId={selectedCategory}
+            onSelect={(id) => { setSelectedCategory(id); setOffset(0); }}
+          />
+          <div className="min-w-0">
         {/* Filtre / siralama bari */}
         <div className="card sticky top-[112px] z-20 mb-6 px-3 py-3 sm:px-4">
           {/* Mobil: filtreleri ac/kapa (varsayilan kapali -> urunler hemen gorunur, filtre ekrani kaplamaz) */}
@@ -580,6 +588,8 @@ export default function ProductsPage() {
           flatTitle="Sizin icin onerilenler"
           showMissingCategories={false}
         />
+          </div>
+        </div>
       </div>
     </div>
   );
