@@ -21,7 +21,6 @@ import {
   Sparkles,
   LayoutGrid,
   Wallet,
-  Truck,
   Headphones,
 } from 'lucide-react';
 
@@ -163,7 +162,15 @@ export default function CustomerHomePage() {
     setHeroIndex((prev) => (prev + 1) % heroBanners.length);
   }, [heroBanners.length]);
 
-  const topCategories = useMemo(() => categories.slice(0, 6), [categories]);
+  // Kategori kesfi: her yuklenişte RASTGELE 6 kategori (alfabetik degil)
+  const topCategories = useMemo(() => {
+    const arr = [...categories];
+    for (let i = arr.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr.slice(0, 6);
+  }, [categories]);
   const firstName = user?.name?.split(' ')[0] || '';
 
   const handleAdd = useCallback(async (args: ProductCardAddArgs) => {
@@ -336,11 +343,21 @@ export default function CustomerHomePage() {
           {/* ── SLIM STRIP (admin banner) ───────────────────────────── */}
           {stripBanners.length > 0 && stripBanners.map((banner) => {
             const href = bannerHref(banner);
-            const content = (
+            const content = banner.imageUrl ? (
+              <div className="relative overflow-hidden rounded-xl border border-[#d6e0f1]">
+                <img src={banner.imageUrl} alt={banner.title} className="h-[84px] w-full object-cover sm:h-[104px]" />
+                {(banner.title || banner.subtitle) && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/25 to-transparent" />
+                    <div className="absolute inset-0 flex flex-col justify-center gap-0.5 px-5 text-white">
+                      {banner.title && <p className="text-[14px] font-semibold drop-shadow-sm sm:text-[15px]">{banner.title}</p>}
+                      {banner.subtitle && <p className="text-[12.5px] text-white/85">{banner.subtitle}</p>}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
               <div className="flex items-center gap-3 overflow-hidden rounded-xl border border-[#d6e0f1] bg-gradient-to-r from-[#e9f0fb] to-[#f5f8fd] px-4 py-3">
-                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[#15356b] text-white">
-                  <Truck className="h-4 w-4" />
-                </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[14px] font-semibold text-[#14223b]">{banner.title}</p>
                   {banner.subtitle && <p className="truncate text-[12.5px] text-[#51607a]">{banner.subtitle}</p>}
