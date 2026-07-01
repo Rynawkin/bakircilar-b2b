@@ -87,6 +87,7 @@ export interface Category {
   id: string;
   name: string;
   mikroCode: string;
+  imageUrl?: string | null;
 }
 
 // ==================== CART TYPES ====================

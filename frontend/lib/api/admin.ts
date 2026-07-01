@@ -145,6 +145,49 @@ export interface GiftCampaignInput {
   gifts?: Array<{ productId: string; sortOrder?: number }>;
 }
 
+// ==================== Koleksiyonlar ("Sizin icin koleksiyonlar") ====================
+export type CollectionSourceType = 'RULE' | 'MANUAL';
+export type CollectionRuleType = 'category' | 'bestseller' | 'discounted' | 'new';
+
+export interface AdminCollection {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  color?: string | null;
+  sortOrder: number;
+  sourceType: CollectionSourceType;
+  ruleType?: CollectionRuleType | null;
+  categoryId?: string | null;
+  productIds: string[];
+  targetType: GiftTargetType;
+  targetSectorCodes: string[];
+  targetUserIds: string[];
+  active: boolean;
+  validFrom?: string | null;
+  validTo?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CollectionInput {
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  color?: string | null;
+  sortOrder?: number;
+  sourceType?: CollectionSourceType;
+  ruleType?: CollectionRuleType | null;
+  categoryId?: string | null;
+  productIds?: string[];
+  targetType?: GiftTargetType;
+  targetSectorCodes?: string[];
+  targetUserIds?: string[];
+  active?: boolean;
+  validFrom?: string | null;
+  validTo?: string | null;
+}
+
 export type CustomerRecoveryRiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 export type CustomerRecoveryDevelopmentStatus = 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
 export type CustomerRecoveryPurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
@@ -2155,6 +2198,11 @@ export const adminApi = {
 
   setCategoryPriceRule: async (data: SetPriceRuleRequest): Promise<{ message: string }> => {
     const response = await apiClient.post('/admin/categories/price-rule', data);
+    return response.data;
+  },
+
+  setCategoryImage: async (id: string, imageUrl: string | null): Promise<{ category: CategoryWithPriceRules }> => {
+    const response = await apiClient.patch(`/admin/categories/${id}/image`, { imageUrl });
     return response.data;
   },
 
@@ -4460,6 +4508,28 @@ export const adminApi = {
   },
   deleteGiftCampaign: async (id: string): Promise<{ success: boolean }> => {
     const response = await apiClient.delete(`/admin/gift-campaigns/${id}`);
+    return response.data;
+  },
+
+  // Koleksiyonlar ("Sizin icin koleksiyonlar")
+  getCollections: async (): Promise<{ collections: AdminCollection[] }> => {
+    const response = await apiClient.get('/admin/collections');
+    return response.data;
+  },
+  getCollection: async (id: string): Promise<{ collection: AdminCollection }> => {
+    const response = await apiClient.get(`/admin/collections/${id}`);
+    return response.data;
+  },
+  createCollection: async (data: CollectionInput): Promise<{ collection: AdminCollection }> => {
+    const response = await apiClient.post('/admin/collections', data);
+    return response.data;
+  },
+  updateCollection: async (id: string, data: CollectionInput): Promise<{ collection: AdminCollection }> => {
+    const response = await apiClient.put(`/admin/collections/${id}`, data);
+    return response.data;
+  },
+  deleteCollection: async (id: string): Promise<{ success: boolean }> => {
+    const response = await apiClient.delete(`/admin/collections/${id}`);
     return response.data;
   },
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Product, Category } from '@/types';
-import customerApi, { Banner, CustomerFinancials } from '@/lib/api/customer';
+import customerApi, { Banner, CustomerFinancials, CollectionCard } from '@/lib/api/customer';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
@@ -54,6 +54,7 @@ export default function CustomerHomePage() {
   const [heroIndex, setHeroIndex] = useState(0);
   const [bannersLoading, setBannersLoading] = useState(true);
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
+  const [adminCollections, setAdminCollections] = useState<CollectionCard[]>([]);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const effectiveVisibility = isSubUser
@@ -73,6 +74,15 @@ export default function CustomerHomePage() {
     let active = true;
     customerApi.getFinancials().then(({ financials: data }) => {
       if (active) setFinancials(data);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  // Admin-yonetimli koleksiyonlar (varsa sabit 3 kartin yerine gecer)
+  useEffect(() => {
+    let active = true;
+    customerApi.getActiveCollections().then(({ collections }) => {
+      if (active) setAdminCollections(collections || []);
     }).catch(() => {});
     return () => { active = false; };
   }, []);
@@ -351,24 +361,55 @@ export default function CustomerHomePage() {
               <h3 className="text-[19px] font-bold tracking-tight text-[#14223b] sm:text-[21px]">Sizin için koleksiyonlar</h3>
               <p className="mt-0.5 text-[13px] text-[#7a879c]">Alışverişinizi hızlandıracak seçkiler</p>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {collections.map((c) => (
-                <Link
-                  key={c.href}
-                  href={c.href}
-                  className="relative flex min-h-[140px] flex-col justify-between overflow-hidden rounded-[18px] p-6 text-white transition-transform hover:-translate-y-0.5"
-                  style={{ background: c.g }}
-                >
-                  <div>
-                    <div className="text-[20px] font-bold tracking-tight">{c.t}</div>
-                    <div className="mt-1 text-[13.5px]" style={{ color: c.fg }}>{c.d}</div>
-                  </div>
-                  <span className="flex items-center gap-1.5 text-[13px] font-bold">
-                    Keşfet <ArrowRight className="h-4 w-4" />
-                  </span>
-                </Link>
-              ))}
-            </div>
+            {adminCollections.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {adminCollections.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={c.href}
+                    className="group relative flex min-h-[140px] flex-col justify-between overflow-hidden rounded-[18px] p-6 text-white transition-transform hover:-translate-y-0.5"
+                    style={
+                      c.imageUrl
+                        ? undefined
+                        : { background: c.color || 'linear-gradient(150deg,#15356b,#1c4a8f)' }
+                    }
+                  >
+                    {c.imageUrl && (
+                      <>
+                        <img src={c.imageUrl} alt={c.title} className="absolute inset-0 h-full w-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/35 to-black/10" />
+                      </>
+                    )}
+                    <div className="relative">
+                      <div className="text-[20px] font-bold tracking-tight drop-shadow-sm">{c.title}</div>
+                      {c.subtitle && <div className="mt-1 text-[13.5px] text-white/85">{c.subtitle}</div>}
+                    </div>
+                    <span className="relative flex items-center gap-1.5 text-[13px] font-bold">
+                      Keşfet <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {collections.map((c) => (
+                  <Link
+                    key={c.href}
+                    href={c.href}
+                    className="relative flex min-h-[140px] flex-col justify-between overflow-hidden rounded-[18px] p-6 text-white transition-transform hover:-translate-y-0.5"
+                    style={{ background: c.g }}
+                  >
+                    <div>
+                      <div className="text-[20px] font-bold tracking-tight">{c.t}</div>
+                      <div className="mt-1 text-[13.5px]" style={{ color: c.fg }}>{c.d}</div>
+                    </div>
+                    <span className="flex items-center gap-1.5 text-[13px] font-bold">
+                      Keşfet <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </section>
 
           {/* ── KATEGORI KESFI ──────────────────────────────────────── */}
@@ -387,9 +428,17 @@ export default function CustomerHomePage() {
                     href={`/products?categoryId=${category.id}`}
                     className="group flex flex-col overflow-hidden rounded-2xl border border-[#e7ebf2] bg-white transition-transform hover:-translate-y-0.5"
                   >
-                    <div className="flex h-[88px] items-center justify-center bg-gradient-to-br from-[#f4f6fa] to-[#eef2f8] text-[#c3ccd9]">
-                      <LayoutGrid className="h-8 w-8" strokeWidth={1.5} />
-                    </div>
+                    {category.imageUrl ? (
+                      <img
+                        src={category.imageUrl}
+                        alt={category.name}
+                        className="h-[88px] w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-[88px] items-center justify-center bg-gradient-to-br from-[#f4f6fa] to-[#eef2f8] text-[#c3ccd9]">
+                        <LayoutGrid className="h-8 w-8" strokeWidth={1.5} />
+                      </div>
+                    )}
                     <span className="px-3 py-3 text-[13px] font-semibold text-[#14223b]">{category.name}</span>
                   </Link>
                 ))}

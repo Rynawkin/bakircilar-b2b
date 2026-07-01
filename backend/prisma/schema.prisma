@@ -726,6 +726,7 @@ model Category {
   mikroCode       String                @unique
   name            String
 
+  imageUrl        String?               // Vitrin "Kategori kesfi" gorseli (admin yukler)
   active          Boolean               @default(true)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
@@ -2793,6 +2794,39 @@ model GiftCampaignItem {
   createdAt    DateTime     @default(now())
 
   @@index([campaignId])
+}
+
+// ==================== KOLEKSIYONLAR (Vitrin "Sizin icin koleksiyonlar") ====================
+enum CollectionSourceType {
+  RULE   // kurala gore: kategori / cok satan / indirimli / yeni
+  MANUAL // elle secilmis urun listesi
+}
+
+model Collection {
+  id                String               @id @default(uuid())
+  title             String
+  subtitle          String?
+  imageUrl          String?
+  color             String?              // gradient/renk preset (opsiyonel)
+  sortOrder         Int                  @default(0)
+
+  sourceType        CollectionSourceType @default(RULE)
+  ruleType          String?              // 'category' | 'bestseller' | 'discounted' | 'new'
+  categoryId        String?              // ruleType='category' ise (Category.id, iliskisiz scalar)
+  productIds        String[]             @default([]) // MANUAL ise (Product.id)
+
+  targetType        GiftTargetType       @default(ALL)
+  targetSectorCodes String[]             @default([])
+  targetUserIds     String[]             @default([])
+
+  active            Boolean              @default(true)
+  validFrom         DateTime?
+  validTo           DateTime?
+
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([active, sortOrder])
 }
 
 

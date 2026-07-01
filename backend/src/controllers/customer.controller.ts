@@ -2090,7 +2090,7 @@ export class CustomerController {
             active: true,
             mikroCode: { in: Array.from(neededCodes) },
           },
-          select: { id: true, name: true, mikroCode: true },
+          select: { id: true, name: true, mikroCode: true, imageUrl: true },
           orderBy: { name: 'asc' },
         });
       });

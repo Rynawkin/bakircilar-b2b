@@ -2902,6 +2902,28 @@ export class AdminController {
   }
 
   /**
+   * PATCH /api/admin/categories/:id/image
+   * Kategori kesfi gorseli set/kaldir. Body: { imageUrl: string | null }
+   */
+  async setCategoryImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const rawImageUrl = req.body?.imageUrl;
+      const imageUrl =
+        typeof rawImageUrl === 'string' && rawImageUrl.trim() ? rawImageUrl.trim() : null;
+
+      const category = await prisma.category.update({
+        where: { id },
+        data: { imageUrl },
+      });
+
+      res.json({ category });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * POST /api/admin/categories/price-rule
    */
   async setCategoryPriceRule(req: Request, res: Response, next: NextFunction) {

@@ -20,7 +20,7 @@ import {
   EInvoiceDocument,
 } from '@/types';
 
-export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE';
+export type BannerPosition = 'HERO' | 'STRIP' | 'SIDE' | 'GRID';
 
 export interface Banner {
   id: string;
@@ -75,6 +75,28 @@ export interface GiftCampaignActive {
   validFrom?: string | null;
   validTo?: string | null;
   target?: { type: string };
+}
+
+export interface CollectionCard {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  imageUrl?: string | null;
+  color?: string | null;
+  href: string;
+  sourceType: 'RULE' | 'MANUAL';
+}
+
+export interface CollectionDetail {
+  collection: {
+    id: string;
+    title: string;
+    subtitle?: string | null;
+    imageUrl?: string | null;
+    color?: string | null;
+    sourceType: 'RULE' | 'MANUAL';
+  };
+  products: Product[];
 }
 
 export const customerApi = {
@@ -183,6 +205,17 @@ export const customerApi = {
     productIds: string[]
   ): Promise<{ success: boolean; error?: string }> => {
     const response = await apiClient.put('/gift-campaign/cart-selection', { campaignId, productIds });
+    return response.data;
+  },
+
+  // Koleksiyonlar ("Sizin icin koleksiyonlar")
+  getActiveCollections: async (): Promise<{ collections: CollectionCard[] }> => {
+    const response = await apiClient.get('/collections/active');
+    return response.data;
+  },
+
+  getCollection: async (id: string): Promise<CollectionDetail> => {
+    const response = await apiClient.get(`/collections/${id}`);
     return response.data;
   },
 
