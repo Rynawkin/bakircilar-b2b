@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -169,6 +170,100 @@ const roleSelect: React.CSSProperties = {
   background: '#fff',
 };
 
+// Eslesme satirinda elle "Birim Carpani" girisi.
+// Deger degisince (onBlur veya Enter) backend'e kaydeder; basarinca satir yerel guncellenir.
+// Urun birimi ipucu (or. "KOLI · 1=50 ADET") koli/adet karisikligini gormeyi kolaylastirir.
+function MultiplierCell({
+  matchId,
+  value,
+  unit,
+  unit2,
+  unit2Factor,
+  saving,
+  onSave,
+}: {
+  matchId: string | undefined;
+  value: number | null | undefined;
+  unit: string | null | undefined;
+  unit2: string | null | undefined;
+  unit2Factor: number | null | undefined;
+  saving: boolean;
+  onSave: (matchId: string, value: number | null) => void;
+}) {
+  const initial = typeof value === 'number' && value > 0 ? String(value) : '1';
+  const [draft, setDraft] = useState(initial);
+
+  // Dis kaynak degisirse (sayfa yenilenince) input'u senkronla.
+  useEffect(() => {
+    setDraft(typeof value === 'number' && value > 0 ? String(value) : '1');
+  }, [value, matchId]);
+
+  // Birim ipucu: 2. birim + katsayi varsa "KOLI · 1=50 ADET", yoksa sadece birim.
+  const hint =
+    unit2 && typeof unit2Factor === 'number' && unit2Factor > 0
+      ? `${unit2} · 1=${unit2Factor} ${unit || 'ADET'}`
+      : unit || '';
+
+  const commit = () => {
+    if (!matchId) return;
+    const normalized = draft.replace(',', '.').trim();
+    const parsed = normalized === '' ? null : Number(normalized);
+    const next = parsed !== null && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    const current = typeof value === 'number' && value > 0 ? value : null;
+    if (next === current) return; // degismediyse istek atma
+    onSave(matchId, next);
+  };
+
+  return (
+    <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <input
+        type="number"
+        min={0}
+        step="any"
+        value={draft}
+        disabled={saving || !matchId}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            (event.target as HTMLInputElement).blur();
+          }
+        }}
+        style={{
+          height: 28,
+          width: '100%',
+          minWidth: 0,
+          border: `1px solid ${FIELD_LINE}`,
+          borderRadius: 6,
+          padding: '0 7px',
+          fontSize: 11.5,
+          color: INK,
+          fontFamily: 'inherit',
+          outline: 'none',
+          background: saving ? '#f5f7fa' : '#fff',
+          textAlign: 'right',
+        }}
+        title="Birim carpani (or. 1 koli = 50 adet ise 50). Yeni maliyet = net fiyat x carpan."
+      />
+      {hint && (
+        <span
+          style={{
+            fontSize: 9.5,
+            color: FAINT,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={hint}
+        >
+          {hint}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function TedarikciFiyatKarsilastirmaNew() {
   const {
     suppliers,
@@ -223,6 +318,8 @@ export default function TedarikciFiyatKarsilastirmaNew() {
     handleExcelHeaderRowChange,
     getPdfRoleForColumn,
     handlePdfColumnRoleChange,
+    updateMatchMultiplier,
+    multiplierSaving,
     loadUploads,
     loadItems,
     handleSupplierChange,
@@ -1054,6 +1151,7 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                       {headCell('productCode', 'Urun Kodu', false)}
                       {headCell('productName', 'Urun Adi (B2B)', false)}
                       {headCell('currentCost', 'Guncel Maliyet', false, 'right')}
+                      {headCell('unitMultiplier', 'Birim Carpani', false)}
                       {headCell('newCost', 'Yeni Maliyet', false, 'right')}
                       {headCell('costDifference', 'Fark', false, 'right')}
                       {headCell('percentDifference', 'Fark %', true, 'right')}
@@ -1133,6 +1231,15 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                           <span style={{ ...cellRight, color: MUTED, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {typeof row.currentCost === 'number' ? formatCurrency(row.currentCost) : '-'}
                           </span>
+                          <MultiplierCell
+                            matchId={row.matchId}
+                            value={row.unitMultiplier}
+                            unit={row.productUnit}
+                            unit2={row.productUnit2}
+                            unit2Factor={row.productUnit2Factor}
+                            saving={multiplierSaving === row.matchId}
+                            onSave={updateMatchMultiplier}
+                          />
                           <span style={{ ...cellRight, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {typeof row.newCost === 'number' ? formatCurrency(row.newCost) : '-'}
                           </span>

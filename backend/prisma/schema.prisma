@@ -984,6 +984,7 @@ model SupplierPriceListMatch {
   vatRate        Float?
   netPrice       Float?
   costDifference Float?
+  unitMultiplier Float?   // Kullanicinin elle girdigi birim carpani (null=1). Koli/adet karisikligini duzeltir: newCost = netPrice * unitMultiplier
   createdAt      DateTime @default(now())
 
   @@index([itemId])

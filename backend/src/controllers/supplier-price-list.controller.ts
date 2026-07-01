@@ -126,6 +126,26 @@ class SupplierPriceListController {
     }
   }
 
+  // Eslesme satiri icin elle girilen "Birim Carpani"ni kaydeder (B2B tarafi; Mikro YAZMA YOK).
+  async updateMatchUnitMultiplier(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { matchId } = req.params;
+      const raw = (req.body || {}).unitMultiplier;
+      let value: number | null = null;
+      if (raw !== null && raw !== undefined && raw !== '') {
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed)) {
+          return res.status(400).json({ error: 'unitMultiplier gecerli bir sayi olmali' });
+        }
+        value = parsed;
+      }
+      const match = await supplierPriceListService.updateMatchUnitMultiplier(matchId, value);
+      res.json({ match });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async exportUpload(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;

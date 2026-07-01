@@ -116,6 +116,7 @@ export const RESULT_COLSETS: Record<ResultColsetId, ResultColDef[]> = {
     { key: 'productCode', default: 120 },
     { key: 'productName', default: 200 },
     { key: 'currentCost', default: 120 },
+    { key: 'unitMultiplier', default: 130 },
     { key: 'newCost', default: 120 },
     { key: 'costDifference', default: 110 },
     { key: 'percentDifference', default: 100 },
@@ -614,6 +615,54 @@ export function useTedarikciFiyatKarsilastirma() {
     }
   };
 
+  // Eslesme satirindaki elle "Birim Carpani"ni kaydeder ve o satiri yerel gunceller.
+  // Amac: koli/adet karisikligini (or. 1 koli = 50 adet) duzeltip newCost = netPrice * carpan
+  // yapmak; boylece hem tablo hem toplu uygulama (row.newCost) dogru olur.
+  const [multiplierSaving, setMultiplierSaving] = useState<string | null>(null);
+  const updateMatchMultiplier = useCallback(async (matchId: string, rawValue: number | null) => {
+    if (!matchId) {
+      toast.error('Satir kimligi bulunamadi (raporu yenileyin)');
+      return;
+    }
+    // <=0 veya gecersiz -> null (=1 davranisi)
+    const value =
+      rawValue !== null && Number.isFinite(rawValue) && (rawValue as number) > 0
+        ? (rawValue as number)
+        : null;
+    setMultiplierSaving(matchId);
+    try {
+      await adminApi.updateSupplierMatchMultiplier(matchId, value);
+      setItems((prev) =>
+        prev.map((row) => {
+          if (row.matchId !== matchId) return row;
+          const multiplier = value ?? 1;
+          const netPrice = typeof row.netPrice === 'number' ? row.netPrice : null;
+          const newCost = netPrice !== null ? netPrice * multiplier : row.newCost;
+          const currentCost = typeof row.currentCost === 'number' ? row.currentCost : null;
+          const costDifference =
+            typeof newCost === 'number' && currentCost !== null
+              ? newCost - currentCost
+              : row.costDifference;
+          const percentDifference =
+            currentCost && currentCost !== 0 && typeof costDifference === 'number'
+              ? Number(((costDifference / currentCost) * 100).toFixed(2))
+              : null;
+          return {
+            ...row,
+            unitMultiplier: value,
+            newCost,
+            costDifference,
+            percentDifference,
+          };
+        }),
+      );
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Birim carpani kaydedilemedi');
+    } finally {
+      setMultiplierSaving((cur) => (cur === matchId ? null : cur));
+    }
+  }, []);
+
   useEffect(() => {
     loadSuppliers();
     loadUploads();
@@ -761,7 +810,7 @@ export function useTedarikciFiyatKarsilastirma() {
 
   const columnCount =
     activeStatus === 'matched'
-      ? 10
+      ? 11
       : activeStatus === 'multiple' || activeStatus === 'suspicious'
         ? 5
         : 4;
@@ -954,6 +1003,9 @@ export function useTedarikciFiyatKarsilastirma() {
     handleExcelHeaderRowChange,
     getPdfRoleForColumn,
     handlePdfColumnRoleChange,
+    // birim carpani (elle duzenleme)
+    updateMatchMultiplier,
+    multiplierSaving,
     // loaders / handlers
     loadUploads,
     loadItems,

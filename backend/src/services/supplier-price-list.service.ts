@@ -2015,11 +2015,41 @@ class SupplierPriceListService {
       }),
     ]);
 
+    // Eslesen urunlerin B2B birim bilgisi (KOLI/ADET vb.) ipucu icin cekilir.
+    // Boylece kullanici birim carpanini (1 koli=50 adet gibi) dogru ayarlayabilir.
+    const productCodes = Array.from(
+      new Set(matches.map((match: any) => match.productCode).filter(Boolean)),
+    );
+    const products = productCodes.length
+      ? await prisma.product.findMany({
+          where: { mikroCode: { in: productCodes as string[] } },
+          select: { mikroCode: true, unit: true, unit2: true, unit2Factor: true },
+        })
+      : [];
+    const productByCode = new Map<string, { unit: string | null; unit2: string | null; unit2Factor: number | null }>();
+    for (const product of products) {
+      productByCode.set(product.mikroCode, {
+        unit: product.unit ?? null,
+        unit2: product.unit2 ?? null,
+        unit2Factor: product.unit2Factor ?? null,
+      });
+    }
+
     return {
       items: matches.map((match: any) => {
         const matchSourcePrice = typeof match.sourcePrice === 'number' ? match.sourcePrice : match.item.sourcePrice;
         const matchNetPrice = typeof match.netPrice === 'number' ? match.netPrice : match.item.netPrice;
+        // Birim carpani: null / <=0 -> 1 (davranis degismez). newCost buna gore hesaplanir
+        // ki hem tablo hem toplu uygulama (row.newCost'tan) tutarli olsun.
+        const multiplier = typeof match.unitMultiplier === 'number' && match.unitMultiplier > 0 ? match.unitMultiplier : 1;
+        const newCost = typeof matchNetPrice === 'number' ? matchNetPrice * multiplier : matchNetPrice;
+        const costDifference =
+          typeof newCost === 'number' && typeof match.currentCost === 'number'
+            ? newCost - match.currentCost
+            : match.costDifference;
+        const productInfo = productByCode.get(match.productCode) || null;
         return {
+          matchId: match.id,
           supplierCode: match.item.supplierCode,
           supplierName: match.item.supplierName,
           sourcePrice: matchSourcePrice,
@@ -2030,9 +2060,13 @@ class SupplierPriceListService {
           productCode: match.productCode,
           productName: match.productName,
           currentCost: match.currentCost,
-          newCost: matchNetPrice,
-          costDifference: match.costDifference,
-          percentDifference: computePercentDifference(match.currentCost, match.costDifference),
+          newCost,
+          costDifference,
+          percentDifference: computePercentDifference(match.currentCost, costDifference),
+          unitMultiplier: typeof match.unitMultiplier === 'number' ? match.unitMultiplier : null,
+          productUnit: productInfo?.unit ?? null,
+          productUnit2: productInfo?.unit2 ?? null,
+          productUnit2Factor: productInfo?.unit2Factor ?? null,
         };
       }),
       pagination: {
@@ -2042,6 +2076,16 @@ class SupplierPriceListService {
         totalPages: Math.max(1, Math.ceil(total / limit)),
       },
     };
+  }
+
+  // Elle girilen birim carpanini kaydeder. value <= 0 veya null -> null (=1 davranisi).
+  async updateMatchUnitMultiplier(matchId: string, value: number | null) {
+    const normalized =
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+    return prisma.supplierPriceListMatch.update({
+      where: { id: matchId },
+      data: { unitMultiplier: normalized },
+    });
   }
 
   async buildExport(uploadId: string) {

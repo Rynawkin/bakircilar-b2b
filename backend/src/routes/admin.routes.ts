@@ -233,6 +233,7 @@ router.post('/supplier-price-lists/preview', requirePermission('admin:supplier-p
 router.post('/supplier-price-lists/upload', requirePermission('admin:supplier-price-lists'), supplierPriceListUpload.array('files', 20), supplierPriceListController.uploadPriceLists);
 router.post('/supplier-price-lists/apply-preview', requirePermission('admin:supplier-price-lists'), supplierPriceListController.applyPreview);
 router.post('/supplier-price-lists/apply', requirePermission('admin:supplier-price-lists'), supplierPriceListController.apply);
+router.patch('/supplier-price-lists/matches/:matchId', requirePermission('admin:supplier-price-lists'), supplierPriceListController.updateMatchUnitMultiplier);
 router.get('/supplier-price-lists/:id', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUpload);
 router.get('/supplier-price-lists/:id/items', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUploadItems);
 router.get('/supplier-price-lists/:id/export', requirePermission('admin:supplier-price-lists'), supplierPriceListController.exportUpload);

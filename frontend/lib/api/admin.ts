@@ -4214,6 +4214,19 @@ export const adminApi = {
     return response.data;
   },
 
+  // Eslesme satiri icin elle girilen "Birim Carpani"ni kaydeder (koli/adet karisikligi duzeltmesi).
+  // unitMultiplier null / <=0 -> sunucu tarafinda 1 (davranis degismez).
+  updateSupplierMatchMultiplier: async (
+    matchId: string,
+    unitMultiplier: number | null,
+  ): Promise<{ match: any }> => {
+    const response = await apiClient.patch(
+      `/admin/supplier-price-lists/matches/${matchId}`,
+      { unitMultiplier },
+    );
+    return response.data;
+  },
+
   downloadSupplierPriceListExport: async (id: string): Promise<Blob> => {
     const response = await apiClient.get(`/admin/supplier-price-lists/${id}/export`, {
       responseType: 'blob',

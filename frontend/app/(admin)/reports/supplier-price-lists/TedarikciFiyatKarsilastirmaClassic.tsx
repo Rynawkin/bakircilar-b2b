@@ -79,6 +79,8 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
     handleExcelHeaderRowChange,
     getPdfRoleForColumn,
     handlePdfColumnRoleChange,
+    updateMatchMultiplier,
+    multiplierSaving,
     loadUploads,
     loadItems,
     handleSupplierChange,
@@ -541,6 +543,7 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
                         <TableHead>Urun Kodu</TableHead>
                         <TableHead>Urun Adi (B2B)</TableHead>
                         <TableHead>Guncel Maliyet</TableHead>
+                        <TableHead>Birim Carpani</TableHead>
                         <TableHead>Yeni Maliyet</TableHead>
                         <TableHead>Fark</TableHead>
                         <TableHead>Fark %</TableHead>
@@ -579,6 +582,40 @@ export default function TedarikciFiyatKarsilastirmaClassic() {
                             <TableCell>{row.productCode}</TableCell>
                             <TableCell>{row.productName}</TableCell>
                             <TableCell>{typeof row.currentCost === 'number' ? formatCurrency(row.currentCost) : '-'}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-0.5">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  className="h-8 w-24 text-right"
+                                  disabled={multiplierSaving === row.matchId || !row.matchId}
+                                  defaultValue={typeof row.unitMultiplier === 'number' && row.unitMultiplier > 0 ? String(row.unitMultiplier) : '1'}
+                                  key={`${row.matchId}-${row.unitMultiplier ?? 1}`}
+                                  title="Birim carpani (or. 1 koli = 50 adet ise 50). Yeni maliyet = net fiyat x carpan."
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+                                      (event.target as HTMLInputElement).blur();
+                                    }
+                                  }}
+                                  onBlur={(event) => {
+                                    if (!row.matchId) return;
+                                    const normalized = event.target.value.replace(',', '.').trim();
+                                    const parsed = normalized === '' ? null : Number(normalized);
+                                    const next = parsed !== null && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+                                    const current = typeof row.unitMultiplier === 'number' && row.unitMultiplier > 0 ? row.unitMultiplier : null;
+                                    if (next === current) return;
+                                    updateMatchMultiplier(row.matchId, next);
+                                  }}
+                                />
+                                {row.productUnit2 && typeof row.productUnit2Factor === 'number' && row.productUnit2Factor > 0 ? (
+                                  <span className="text-[10px] text-muted-foreground">{`${row.productUnit2} · 1=${row.productUnit2Factor} ${row.productUnit || 'ADET'}`}</span>
+                                ) : row.productUnit ? (
+                                  <span className="text-[10px] text-muted-foreground">{row.productUnit}</span>
+                                ) : null}
+                              </div>
+                            </TableCell>
                             <TableCell>{typeof row.newCost === 'number' ? formatCurrency(row.newCost) : '-'}</TableCell>
                             <TableCell>{typeof row.costDifference === 'number' ? formatCurrency(row.costDifference) : '-'}</TableCell>
                             <TableCell>{typeof row.percentDifference === 'number' ? formatPercent(row.percentDifference) : '-'}</TableCell>
