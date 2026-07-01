@@ -1,4 +1,4 @@
-import { CustomerPriceListConfig, PriceListPair } from '../types';
+import { PriceListPair } from '../types';
 
 export type CustomerPriceListRule = {
   brandCode?: string | null;
@@ -7,34 +7,11 @@ export type CustomerPriceListRule = {
   whitePriceListNo: number;
 };
 
-const DEFAULT_PRICE_LISTS: CustomerPriceListConfig = {
-  BAYI: { invoiced: 6, white: 1 },
-  PERAKENDE: { invoiced: 6, white: 1 },
-  VIP: { invoiced: 6, white: 1 },
-  OZEL: { invoiced: 6, white: 1 },
-};
-
-const resolvePair = (value: any, fallback: PriceListPair): PriceListPair => {
-  const invoiced = Number(value?.invoiced);
-  const white = Number(value?.white);
-  return {
-    invoiced: Number.isFinite(invoiced) ? invoiced : fallback.invoiced,
-    white: Number.isFinite(white) ? white : fallback.white,
-  };
-};
-
-const normalizePriceListConfig = (raw: any): CustomerPriceListConfig => {
-  if (!raw || typeof raw !== 'object') {
-    return DEFAULT_PRICE_LISTS;
-  }
-
-  return {
-    BAYI: resolvePair(raw.BAYI, DEFAULT_PRICE_LISTS.BAYI),
-    PERAKENDE: resolvePair(raw.PERAKENDE, DEFAULT_PRICE_LISTS.PERAKENDE),
-    VIP: resolvePair(raw.VIP, DEFAULT_PRICE_LISTS.VIP),
-    OZEL: resolvePair(raw.OZEL, DEFAULT_PRICE_LISTS.OZEL),
-  };
-};
+// SEGMENT DEVRE DISI (2026-07): Musteri tipi (BAYI/PERAKENDE/VIP/OZEL) artik fiyat
+// listesini belirlemez. Musteri-bazli atama (invoicedPriceListNo/whitePriceListNo)
+// yoksa TEK varsayilan kullanilir: faturali = Toptan Satis 1 (ic liste 6),
+// beyaz = Perakende Satis 1 (ic liste 1). settings.customerPriceLists artik okunmaz.
+const SINGLE_DEFAULT_PRICE_LIST: PriceListPair = { invoiced: 6, white: 1 };
 
 const resolveListNo = (value: any, fallback: number, min: number, max: number): number => {
   const parsed = Number(value);
@@ -49,23 +26,12 @@ export const resolveCustomerPriceLists = (
     invoicedPriceListNo?: number | null;
     whitePriceListNo?: number | null;
   },
-  settings: { customerPriceLists?: any } | null
+  // Imza korunur (cagiranlar settings gecirir) ama artik OKUNMAZ; segment devre disi.
+  _settings?: { customerPriceLists?: any } | null
 ): PriceListPair => {
-  const config = normalizePriceListConfig(settings?.customerPriceLists);
-  const normalizedType =
-    typeof user.customerType === 'string' ? user.customerType.trim().toUpperCase() : 'BAYI';
-  const base =
-    normalizedType === 'PERAKENDE'
-      ? config.PERAKENDE
-      : normalizedType === 'VIP'
-        ? config.VIP
-        : normalizedType === 'OZEL'
-          ? config.OZEL
-          : config.BAYI;
-
   return {
-    invoiced: resolveListNo(user.invoicedPriceListNo, base.invoiced, 6, 10),
-    white: resolveListNo(user.whitePriceListNo, base.white, 1, 5),
+    invoiced: resolveListNo(user.invoicedPriceListNo, SINGLE_DEFAULT_PRICE_LIST.invoiced, 6, 10),
+    white: resolveListNo(user.whitePriceListNo, SINGLE_DEFAULT_PRICE_LIST.white, 1, 5),
   };
 };
 

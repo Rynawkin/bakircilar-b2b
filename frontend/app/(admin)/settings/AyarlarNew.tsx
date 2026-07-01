@@ -305,94 +305,21 @@ export default function AyarlarNew() {
             )}
           </div>
 
-          {/* Kart 2 — Fiyat Listesi Eslesmesi */}
+          {/* Kart 2 — Fiyat Listesi Eslesmesi (SEGMENT DEVRE DISI) */}
           <div className={CARD}>
             <div className={CARD_TITLE}>
               <ListChecks size={16} className="text-[#15356b]" />
               Fiyat Listesi Eşleşmesi
             </div>
 
-            <div className="flex gap-2 bg-[#eef2fa] border border-[#d6e0f1] rounded-[10px] p-[12px] mb-[12px]">
+            <div className="flex gap-2 bg-[#eef2fa] border border-[#d6e0f1] rounded-[10px] p-[12px]">
               <Info size={15} className="text-[#15356b] flex-none mt-[1px]" />
               <p className="text-[12px] text-[#51607a] leading-[1.55] m-0">
-                Segment bazında hangi fiyat listesinin kullanılacağını belirleyin. Faturalı fiyatlar
-                için toptan listeler, beyaz fiyatlar için perakende listeler seçilir.
+                Segment bazlı fiyat listesi eşleşmesi <strong>devre dışıdır</strong>. Müşteriler kendi
+                kartlarında tanımlı fiyat listesinden fiyatlanır; tanımlı liste yoksa varsayılan olarak{' '}
+                <strong>Toptan Satış 1 (faturalı)</strong> ve <strong>Perakende Satış 1 (beyaz)</strong>{' '}
+                kullanılır. Liste ataması ve kategori kuralları müşteri kartından yönetilir.
               </p>
-            </div>
-
-            <div className="flex flex-col gap-[10px]">
-              {CUSTOMER_TYPES.map((type) => (
-                <div
-                  key={type.value}
-                  className="grid grid-cols-1 md:grid-cols-[120px_1fr_1fr] gap-[11px] items-center"
-                >
-                  <span className="text-[12.5px] font-semibold text-[#14223b]">{type.label}</span>
-
-                  <label className="flex flex-col gap-[4px]">
-                    <span className="text-[10.5px] text-[#8b97ac]">Faturalı (Toptan 6–10)</span>
-                    <select
-                      className="h-[36px] border border-[#e3e8f0] rounded-[8px] px-[9px] text-[12px] text-[#14223b] outline-none focus:border-[#15356b] bg-white cursor-pointer"
-                      value={
-                        settings.customerPriceLists?.[
-                          type.value as keyof typeof settings.customerPriceLists
-                        ]?.invoiced || 6
-                      }
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          customerPriceLists: {
-                            ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS),
-                            [type.value]: {
-                              ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS)[
-                                type.value as keyof typeof DEFAULT_CUSTOMER_PRICE_LISTS
-                              ],
-                              invoiced: parseInt(e.target.value, 10),
-                            },
-                          },
-                        })
-                      }
-                    >
-                      {WHOLESALE_LISTS.map((list) => (
-                        <option key={list.value} value={list.value}>
-                          {list.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="flex flex-col gap-[4px]">
-                    <span className="text-[10.5px] text-[#8b97ac]">Beyaz (Perakende 1–5)</span>
-                    <select
-                      className="h-[36px] border border-[#e3e8f0] rounded-[8px] px-[9px] text-[12px] text-[#14223b] outline-none focus:border-[#15356b] bg-white cursor-pointer"
-                      value={
-                        settings.customerPriceLists?.[
-                          type.value as keyof typeof settings.customerPriceLists
-                        ]?.white || 1
-                      }
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          customerPriceLists: {
-                            ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS),
-                            [type.value]: {
-                              ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS)[
-                                type.value as keyof typeof DEFAULT_CUSTOMER_PRICE_LISTS
-                              ],
-                              white: parseInt(e.target.value, 10),
-                            },
-                          },
-                        })
-                      }
-                    >
-                      {RETAIL_LISTS.map((list) => (
-                        <option key={list.value} value={list.value}>
-                          {list.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              ))}
             </div>
           </div>
 

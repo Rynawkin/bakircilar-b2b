@@ -209,71 +209,11 @@ export default function AyarlarClassic() {
           </Card>
 
           <Card title="Fiyat Listesi Eslesmesi">
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
-                Segment bazinda hangi fiyat listesinin kullanilacagini belirleyin.
-                Faturali fiyatlar icin toptan listeler, beyaz fiyatlar icin perakende listeler secilir.
-              </div>
-
-              <div className="space-y-4">
-                {CUSTOMER_TYPES.map((type) => (
-                  <div key={type.value} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-                    <div className="font-semibold text-gray-900">{type.label}</div>
-
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Faturali (Toptan)</label>
-                      <select
-                        className="input w-full"
-                        value={settings.customerPriceLists?.[type.value as keyof typeof settings.customerPriceLists]?.invoiced || 6}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            customerPriceLists: {
-                              ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS),
-                              [type.value]: {
-                                ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS)[type.value as keyof typeof DEFAULT_CUSTOMER_PRICE_LISTS],
-                                invoiced: parseInt(e.target.value, 10),
-                              },
-                            },
-                          })
-                        }
-                      >
-                        {WHOLESALE_LISTS.map((list) => (
-                          <option key={list.value} value={list.value}>
-                            {list.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Beyaz (Perakende)</label>
-                      <select
-                        className="input w-full"
-                        value={settings.customerPriceLists?.[type.value as keyof typeof settings.customerPriceLists]?.white || 1}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            customerPriceLists: {
-                              ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS),
-                              [type.value]: {
-                                ...(settings.customerPriceLists || DEFAULT_CUSTOMER_PRICE_LISTS)[type.value as keyof typeof DEFAULT_CUSTOMER_PRICE_LISTS],
-                                white: parseInt(e.target.value, 10),
-                              },
-                            },
-                          })
-                        }
-                      >
-                        {RETAIL_LISTS.map((list) => (
-                          <option key={list.value} value={list.value}>
-                            {list.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
+              Segment bazli fiyat listesi eslesmesi devre disidir. Musteriler kendi kartlarinda
+              tanimli fiyat listesinden fiyatlanir; tanimli liste yoksa varsayilan olarak
+              Toptan Satis 1 (faturali) ve Perakende Satis 1 (beyaz) kullanilir. Liste atamasi ve
+              kategori kurallari musteri kartindan yonetilir.
             </div>
           </Card>
 
