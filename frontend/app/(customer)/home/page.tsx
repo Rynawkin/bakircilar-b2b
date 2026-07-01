@@ -177,36 +177,36 @@ export default function CustomerHomePage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f4f6fa]">
       <div className="mx-auto w-full max-w-[1900px]">
-
-        {/* ── BAKIYE SERIDI ─────────────────────────────────────────── */}
-        {financials && (
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[#eef1f6] bg-[#f7f9fc] px-3 py-2.5 text-[13px] sm:px-6 lg:px-8">
-            <span className="text-[#7a879c]">Hesabınız</span>
-            <span className="flex items-center gap-1.5 text-[#14223b]">
-              <b className="font-semibold tabular-nums">{formatCurrency(financials.totalBalance)}</b>
-              <span className="text-[#9aa6b8]">bakiye</span>
-            </span>
-            {financials.pastDueBalance > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff7ec] px-2.5 py-1 text-[12.5px] font-semibold text-[#b45309] ring-1 ring-inset ring-[#f3dca8]">
-                <span className="tabular-nums">{formatCurrency(financials.pastDueBalance)}</span> vadesi geçti
-              </span>
-            )}
-            {financials.notDueBalance > 0 && (
-              <span className="hidden text-[12px] text-[#9aa6b8] sm:inline">
-                Vadesi gelmemiş {formatCurrency(financials.notDueBalance)}
-              </span>
-            )}
-            <Link
-              href="/invoices"
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-[#b45309] px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#96450a]"
-            >
-              <Wallet className="h-3.5 w-3.5" />
-              Ödeme / Ekstre
-            </Link>
-          </div>
-        )}
-
         <div className="space-y-7 px-3 py-5 sm:px-6 sm:py-6 lg:px-8">
+
+          {/* ── BAKIYE KUTUSU ─────────────────────────────────────── */}
+          {financials && (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-[var(--line)] bg-white px-5 py-4">
+              <div>
+                <div className="text-[12px] font-medium text-[#7a879c]">Cari bakiye</div>
+                <div className="text-[22px] font-bold tabular-nums tracking-tight text-[#14223b]">{formatCurrency(financials.totalBalance)}</div>
+              </div>
+              {financials.pastDueBalance > 0 && (
+                <div className="rounded-lg bg-[#fff7ec] px-3.5 py-2 ring-1 ring-inset ring-[#f3dca8]">
+                  <div className="text-[12px] font-semibold text-[#b45309]">Vadesi geçen</div>
+                  <div className="text-[18px] font-bold tabular-nums text-[#b45309]">{formatCurrency(financials.pastDueBalance)}</div>
+                </div>
+              )}
+              <Link
+                href="/invoices"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#b45309] px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#96450a]"
+              >
+                <Wallet className="h-4 w-4" />
+                Ödeme / Ekstre
+              </Link>
+              {financials.notDueBalance > 0 && (
+                <div className="ml-auto text-right">
+                  <div className="text-[12px] font-medium text-[#7a879c]">Vadesi gelmemiş</div>
+                  <div className="text-[15px] font-semibold tabular-nums text-[#51607a]">{formatCurrency(financials.notDueBalance)}</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── HERO + DIKEY BANNER ─────────────────────────────────── */}
           <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">

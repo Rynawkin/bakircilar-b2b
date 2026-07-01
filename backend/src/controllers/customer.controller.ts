@@ -1958,24 +1958,95 @@ export class CustomerController {
       });
       const payloadMap = new Map(payload.map((product) => [product.id, product]));
 
-      // 6) "Eksik kategoriler": musterinin hic almadigi kategorilerdeki onerileri grupla
-      const groupsMap = new Map<string, { category: { id: string; name: string }; products: any[] }>();
+      // 6) "Eksik kategoriler": musterinin hic almadigi kategorilerdeki oneriler.
+      // Complement eslesmeleri ONCE; az urunlu satirlar kotu gozukmesin diye kategorinin
+      // populer urunleriyle 6'ya kadar DOLDURULUR; 3'ten az kalan kategori GIZLENIR.
+      const TARGET_PER_CAT = 6;
+      const MIN_PER_CAT = 3;
+      const missingCatOrder: string[] = [];
+      const missingCatInfo = new Map<string, { category: { id: string; name: string }; ids: string[] }>();
       for (const productId of sortedIds) {
         const prod = productMap.get(productId);
-        const pl = payloadMap.get(productId);
-        if (!prod || !pl || !prod.category) continue;
+        if (!prod || !prod.category) continue;
         const catId = prod.category.id;
         if (!catId || purchasedCategoryIds.has(catId)) continue;
-        const group = groupsMap.get(catId) || {
-          category: { id: prod.category.id, name: prod.category.name },
-          products: [],
-        };
-        if (group.products.length < 8) group.products.push(pl);
-        groupsMap.set(catId, group);
+        if (!missingCatInfo.has(catId)) {
+          missingCatInfo.set(catId, { category: { id: prod.category.id, name: prod.category.name }, ids: [] });
+          missingCatOrder.push(catId);
+        }
+        missingCatInfo.get(catId)!.ids.push(productId);
       }
-      const missingCategories = Array.from(groupsMap.values())
-        .filter((group) => group.products.length > 0)
-        .slice(0, 6);
+      const chosenCatIds = missingCatOrder.slice(0, 6);
+
+      // Doldurma: secili kategorilerden populer urunler (oneri disinda kalanlar)
+      const recommendedIdSet = new Set(sortedIds);
+      const backfillByCat = new Map<string, any[]>();
+      if (chosenCatIds.length > 0) {
+        const backfillProducts = await prisma.product.findMany({
+          where: {
+            categoryId: { in: chosenCatIds },
+            active: true,
+            hiddenFromCustomers: false,
+            ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+          },
+          orderBy: { popularSalesValue: 'desc' },
+          take: chosenCatIds.length * (TARGET_PER_CAT + 6),
+          select: {
+            id: true, name: true, mikroCode: true, brandCode: true, unit: true, unit2: true,
+            unit2Factor: true, vatRate: true, currentCost: true, lastEntryPrice: true, excessStock: true,
+            imageUrl: true, warehouseStocks: true, warehouseExcessStocks: true,
+            pendingCustomerOrdersByWarehouse: true, prices: true, categoryId: true,
+            category: { select: { id: true, name: true } },
+          },
+        });
+        for (const bp of backfillProducts) {
+          if (!bp.categoryId || recommendedIdSet.has(bp.id)) continue;
+          const arr = backfillByCat.get(bp.categoryId) || [];
+          arr.push(bp);
+          backfillByCat.set(bp.categoryId, arr);
+        }
+      }
+
+      // Kullanilacak doldurma urunlerini tek seferde fiyatla
+      const neededBackfill: any[] = [];
+      for (const catId of chosenCatIds) {
+        const have = missingCatInfo.get(catId)!.ids.length;
+        const need = Math.max(0, TARGET_PER_CAT - have);
+        if (need > 0) neededBackfill.push(...(backfillByCat.get(catId) || []).slice(0, need));
+      }
+      const backfillPayload = neededBackfill.length > 0
+        ? await buildCustomerProductPayloads({
+            products: neededBackfill,
+            customer: context.customer,
+            priceListRules: context.priceListRules,
+            basePriceListPair: context.basePriceListPair,
+            includedWarehouses: context.includedWarehouses,
+            effectiveVisibility: context.effectiveVisibility,
+            isDiscounted: false,
+          })
+        : [];
+      const backfillPayloadMap = new Map(backfillPayload.map((p) => [p.id, p]));
+
+      const missingCategories: Array<{ category: { id: string; name: string }; products: any[] }> = [];
+      for (const catId of chosenCatIds) {
+        const info = missingCatInfo.get(catId)!;
+        const prods: any[] = [];
+        for (const id of info.ids) {
+          const pl = payloadMap.get(id);
+          if (pl) prods.push(pl);
+          if (prods.length >= TARGET_PER_CAT) break;
+        }
+        if (prods.length < TARGET_PER_CAT) {
+          for (const bp of (backfillByCat.get(catId) || [])) {
+            const pl = backfillPayloadMap.get(bp.id);
+            if (pl && !prods.some((x) => x.id === pl.id)) prods.push(pl);
+            if (prods.length >= TARGET_PER_CAT) break;
+          }
+        }
+        if (prods.length >= MIN_PER_CAT) {
+          missingCategories.push({ category: info.category, products: prods });
+        }
+      }
 
       res.json({ products: payload.slice(0, 12), missingCategories });
     } catch (error) {

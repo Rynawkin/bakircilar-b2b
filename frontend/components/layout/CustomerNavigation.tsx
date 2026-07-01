@@ -59,7 +59,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
   const [searchTerm, setSearchTerm] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
-  const [shortcutStart, setShortcutStart] = useState(0);
 
   const isSubUser = Boolean(user?.parentCustomerId);
   const cartCount = cart?.items?.reduce((sum, item) => sum + item.quantity, 0) ?? cartItemCount;
@@ -208,15 +207,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
         .map((id) => nodesById.get(id))
         .filter((c): c is Category => Boolean(c))
     : [];
-  // Header kisayollari ana kategorileri donerek gosterir
-  useEffect(() => {
-    if (roots.length <= 5) return;
-    const t = setInterval(() => setShortcutStart((s) => (s + 1) % roots.length), 6000);
-    return () => clearInterval(t);
-  }, [roots.length]);
-  const shortcutRoots = roots.length <= 5
-    ? roots
-    : Array.from({ length: 5 }, (_, i) => roots[(shortcutStart + i) % roots.length]);
   const accountLinks = ACCOUNT_LINKS(pendingRequestCount, isSubUser);
   const isActive = (href: string) => pathname === href;
 
@@ -505,16 +495,6 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
             <Link href="/products" className="flex h-12 items-center px-3 text-[13.5px] font-semibold text-primary-600 hover:text-primary-700">
               Tüm Ürünler
             </Link>
-            {shortcutRoots.map((cat) => (
-              <Link
-                key={cat.id}
-                href={`/products?categoryId=${cat.id}`}
-                title={cat.name}
-                className="hidden h-12 max-w-[150px] items-center truncate px-3 text-[13.5px] font-medium text-[var(--ink-2)] hover:text-primary-600 lg:flex"
-              >
-                {cat.name}
-              </Link>
-            ))}
           </nav>
 
           <div className="flex items-center">
