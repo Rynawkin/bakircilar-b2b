@@ -1482,18 +1482,34 @@ const resolveMatchSourcePrice = (
   const factor = Math.abs(unit2Factor);
   if (factor <= 1) return basePrice;
 
+  // Birim farki otomatik duzeltme (CIFT YON):
+  //  - Bolme (perUnit): tedarikci KOLI fiyati vermis ama biz ADET tanimliyiz.
+  //  - Carpma (perPack): tedarikci ADET fiyati vermis ama biz KOLI tanimliyiz (or. 2 TL -> 100 TL).
+  // Hangisi guncel maliyete belirgin sekilde daha yakinsa onu sec.
   const perUnit = basePrice / factor;
-  if (!Number.isFinite(perUnit) || perUnit <= 0) return basePrice;
+  const perPack = basePrice * factor;
 
   const baseNet = computeMatchNetPrice(basePrice, supplier, product?.vatRate ?? null, item.supplierName ?? null);
-  const perUnitNet = computeMatchNetPrice(perUnit, supplier, product?.vatRate ?? null, item.supplierName ?? null);
-  if (baseNet === null || perUnitNet === null) return basePrice;
-
+  if (baseNet === null) return basePrice;
   const baseDiff = Math.abs(baseNet - currentCost) / currentCost;
-  const perUnitDiff = Math.abs(perUnitNet - currentCost) / currentCost;
 
-  if (baseDiff >= 0.8 && perUnitDiff <= 0.35 && perUnitDiff + 0.2 < baseDiff) {
-    return Number(perUnit.toFixed(4));
+  const candidates: Array<{ price: number; diff: number }> = [];
+  if (Number.isFinite(perUnit) && perUnit > 0) {
+    const net = computeMatchNetPrice(perUnit, supplier, product?.vatRate ?? null, item.supplierName ?? null);
+    if (net !== null) candidates.push({ price: perUnit, diff: Math.abs(net - currentCost) / currentCost });
+  }
+  if (Number.isFinite(perPack) && perPack > 0) {
+    const net = computeMatchNetPrice(perPack, supplier, product?.vatRate ?? null, item.supplierName ?? null);
+    if (net !== null) candidates.push({ price: perPack, diff: Math.abs(net - currentCost) / currentCost });
+  }
+  if (!candidates.length) return basePrice;
+
+  candidates.sort((a, b) => a.diff - b.diff);
+  const best = candidates[0];
+
+  // Yalniz taban fiyat belirgin uzak (>=%80) ve alternatif belirgin yakin (<=%35, +%20 fark) ise duzelt.
+  if (baseDiff >= 0.8 && best.diff <= 0.35 && best.diff + 0.2 < baseDiff) {
+    return Number(best.price.toFixed(4));
   }
 
   return basePrice;

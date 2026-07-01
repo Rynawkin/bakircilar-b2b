@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { adminApi } from '@/lib/api/admin';
 
@@ -93,6 +93,82 @@ export const STATUS_TABS = [
 
 export type StatusKey = typeof STATUS_TABS[number]['key'];
 
+// === Sonuc tablosu kolon genislikleri (New tema, surukle-boyutlandir) ===
+// Kolon SETi duruma gore degisir; genislikler colset kimligine gore ayri tutulur
+// (matched=10, base=4/5, multiple/suspicious=5). Boylece farkli sekmelerde karismaz.
+export type ResultColsetId = 'matched' | 'unmatched' | 'multiple' | 'suspicious';
+
+export interface ResultColDef {
+  key: string;
+  default: number; // px
+}
+
+export const RESULT_COL_MIN = 60; // px
+const RESULT_COL_STORAGE_PREFIX = 'supplierResultColWidths:';
+
+// Header/satir kolonlari ile birebir ayni sirada olmalidir.
+export const RESULT_COLSETS: Record<ResultColsetId, ResultColDef[]> = {
+  matched: [
+    { key: 'supplierCode', default: 120 },
+    { key: 'supplierName', default: 200 },
+    { key: 'sourcePrice', default: 110 },
+    { key: 'netPrice', default: 110 },
+    { key: 'productCode', default: 120 },
+    { key: 'productName', default: 200 },
+    { key: 'currentCost', default: 120 },
+    { key: 'newCost', default: 120 },
+    { key: 'costDifference', default: 110 },
+    { key: 'percentDifference', default: 100 },
+  ],
+  unmatched: [
+    { key: 'supplierCode', default: 150 },
+    { key: 'supplierName', default: 280 },
+    { key: 'sourcePrice', default: 140 },
+    { key: 'netPrice', default: 140 },
+  ],
+  multiple: [
+    { key: 'supplierCode', default: 150 },
+    { key: 'supplierName', default: 260 },
+    { key: 'sourcePrice', default: 130 },
+    { key: 'netPrice', default: 130 },
+    { key: 'matchedProductCodes', default: 240 },
+  ],
+  suspicious: [
+    { key: 'supplierCode', default: 150 },
+    { key: 'supplierName', default: 260 },
+    { key: 'sourcePrice', default: 130 },
+    { key: 'netPrice', default: 130 },
+    { key: 'matchedProductCodes', default: 240 },
+  ],
+};
+
+const statusToColsetId = (status: StatusKey): ResultColsetId =>
+  status === 'matched'
+    ? 'matched'
+    : status === 'multiple'
+      ? 'multiple'
+      : status === 'suspicious'
+        ? 'suspicious'
+        : 'unmatched';
+
+const loadStoredColWidths = (colsetId: ResultColsetId): Record<string, number> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(`${RESULT_COL_STORAGE_PREFIX}${colsetId}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= RESULT_COL_MIN) out[key] = n;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+};
+
 const EMPTY_MAPPING: MappingState = {
   excelSheetName: '',
   excelHeaderRow: '',
@@ -171,6 +247,126 @@ export function useTedarikciFiyatKarsilastirma() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
+
+  // === Sonuc tablosu kolon genislikleri (New tema, surukle-boyutlandir) ===
+  // colsetId bazinda ayri map; localStorage'dan yuklenir, degisince kaydedilir.
+  const resultColsetId = statusToColsetId(activeStatus);
+  const [resultColWidths, setResultColWidths] = useState<
+    Record<ResultColsetId, Record<string, number>>
+  >(() => ({
+    matched: {},
+    unmatched: {},
+    multiple: {},
+    suspicious: {},
+  }));
+  const resultResizeRef = useRef<{
+    colsetId: ResultColsetId;
+    key: string;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const [resultColResizing, setResultColResizing] = useState(false);
+
+  // Ilk render'da (client) tum colset'lerin kayitli genisliklerini yukle.
+  useEffect(() => {
+    setResultColWidths({
+      matched: loadStoredColWidths('matched'),
+      unmatched: loadStoredColWidths('unmatched'),
+      multiple: loadStoredColWidths('multiple'),
+      suspicious: loadStoredColWidths('suspicious'),
+    });
+  }, []);
+
+  const getResultColWidth = useCallback(
+    (colsetId: ResultColsetId, key: string): number => {
+      const stored = resultColWidths[colsetId]?.[key];
+      if (Number.isFinite(stored)) return stored as number;
+      const def = RESULT_COLSETS[colsetId].find((c) => c.key === key);
+      return def ? def.default : 120;
+    },
+    [resultColWidths],
+  );
+
+  // Aktif colset icin px-genislikli gridTemplateColumns uretir.
+  const resultGridTemplate = useMemo(() => {
+    const widths = resultColWidths[resultColsetId] || {};
+    return RESULT_COLSETS[resultColsetId]
+      .map((col) => {
+        const w = widths[col.key];
+        return `${Number.isFinite(w) ? (w as number) : col.default}px`;
+      })
+      .join(' ');
+  }, [resultColWidths, resultColsetId]);
+
+  // Aktif colset toplam min genisligi (yatay scroll container minWidth'i icin).
+  const resultTableMinWidth = useMemo(() => {
+    const widths = resultColWidths[resultColsetId] || {};
+    const cols = RESULT_COLSETS[resultColsetId];
+    const sum = cols.reduce((acc, col) => {
+      const w = widths[col.key];
+      return acc + (Number.isFinite(w) ? (w as number) : col.default);
+    }, 0);
+    // gap (10px) * (kolon-1) + yatay padding (14*2)
+    return sum + Math.max(0, cols.length - 1) * 10 + 28;
+  }, [resultColWidths, resultColsetId]);
+
+  const startResultColResize = useCallback(
+    (colsetId: ResultColsetId, key: string) =>
+      (event: React.MouseEvent<HTMLElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        resultResizeRef.current = {
+          colsetId,
+          key,
+          startX: event.clientX,
+          startWidth: getResultColWidth(colsetId, key),
+        };
+        setResultColResizing(true);
+      },
+    [getResultColWidth],
+  );
+
+  useEffect(() => {
+    if (!resultColResizing) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const ref = resultResizeRef.current;
+      if (!ref) return;
+      const delta = event.clientX - ref.startX;
+      const nextWidth = Math.max(RESULT_COL_MIN, Math.round(ref.startWidth + delta));
+      setResultColWidths((prev) => ({
+        ...prev,
+        [ref.colsetId]: { ...prev[ref.colsetId], [ref.key]: nextWidth },
+      }));
+    };
+
+    const handleMouseUp = () => {
+      const ref = resultResizeRef.current;
+      resultResizeRef.current = null;
+      setResultColResizing(false);
+      // Kalici: sadece degisen colset'i localStorage'a yaz.
+      if (ref && typeof window !== 'undefined') {
+        setResultColWidths((prev) => {
+          try {
+            window.localStorage.setItem(
+              `${RESULT_COL_STORAGE_PREFIX}${ref.colsetId}`,
+              JSON.stringify(prev[ref.colsetId] || {}),
+            );
+          } catch {
+            /* localStorage kullanilamiyorsa sessizce gec */
+          }
+          return prev;
+        });
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resultColResizing]);
 
   // === Toplu maliyet uygulama (apply) durumu ===
   const [applyModalOpen, setApplyModalOpen] = useState(false);
@@ -743,6 +939,12 @@ export function useTedarikciFiyatKarsilastirma() {
     canPreview,
     uploadDisabled,
     pageSummary,
+    // sonuc tablosu kolon genisligi (New tema)
+    resultColsetId,
+    resultGridTemplate,
+    resultTableMinWidth,
+    resultColResizing,
+    startResultColResize,
     // helpers
     parsePreviewNumber,
     getExcelRoleForColumn,

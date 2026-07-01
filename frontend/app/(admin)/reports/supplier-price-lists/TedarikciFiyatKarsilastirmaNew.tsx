@@ -210,6 +210,11 @@ export default function TedarikciFiyatKarsilastirmaNew() {
     canPreview,
     uploadDisabled,
     pageSummary,
+    resultColsetId,
+    resultGridTemplate,
+    resultTableMinWidth,
+    resultColResizing,
+    startResultColResize,
     parsePreviewNumber,
     getExcelRoleForColumn,
     handleExcelColumnRoleChange,
@@ -228,11 +233,56 @@ export default function TedarikciFiyatKarsilastirmaNew() {
   } = useTedarikciFiyatKarsilastirma();
 
   // matched: 10 kolon, multiple/suspicious: 5, unmatched: 4
+  // Kolon genislikleri artik px + surukle-boyutlandirilabilir (hook'tan gelir).
   const isMatched = activeStatus === 'matched';
-  const hasMatchedExtras = isMatched;
-  const matchedColsGrid =
-    '1fr 1.6fr 1fr 1fr 1fr 1.6fr 1fr 1fr 0.9fr 0.8fr';
-  const baseColsGrid = '1.2fr 2fr 1fr 1fr 2fr';
+
+  // Baslik hucresinin sag kenarina konan ince surukleme tutamaci.
+  const renderResizeHandle = (colKey: string) => (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      onMouseDown={startResultColResize(resultColsetId, colKey)}
+      style={{
+        position: 'absolute',
+        top: 0,
+        right: -5,
+        height: '100%',
+        width: 10,
+        cursor: 'col-resize',
+        zIndex: 2,
+        display: 'flex',
+        alignItems: 'stretch',
+        justifyContent: 'center',
+        userSelect: 'none',
+      }}
+    >
+      <span style={{ width: 1, background: SOFT_LINE }} aria-hidden />
+    </span>
+  );
+
+  // Baslik hucresi: icerik + (son kolon degilse) sag kenar tutamaci.
+  // Dis kap taşmayı gizlemez (tutamac gorunur kalsin); metin ic span'de kirpilir.
+  const headCell = (
+    colKey: string,
+    label: React.ReactNode,
+    isLast: boolean,
+    align: 'left' | 'right' = 'left',
+  ) => (
+    <span style={{ position: 'relative', minWidth: 0, display: 'block' }}>
+      <span
+        style={{
+          display: 'block',
+          textAlign: align,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {label}
+      </span>
+      {!isLast && renderResizeHandle(colKey)}
+    </span>
+  );
 
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
@@ -976,13 +1026,13 @@ export default function TedarikciFiyatKarsilastirmaNew() {
 
           {/* Tablo */}
           <div style={{ ...cardStyle, overflow: 'hidden' }}>
-            <div style={{ overflowX: 'auto' }}>
-              <div style={{ minWidth: hasMatchedExtras ? 1080 : 720 }}>
+            <div style={{ overflowX: 'auto', userSelect: resultColResizing ? 'none' : undefined }}>
+              <div style={{ minWidth: resultTableMinWidth }}>
                 {/* Header row */}
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: hasMatchedExtras ? matchedColsGrid : baseColsGrid,
+                    gridTemplateColumns: resultGridTemplate,
                     gap: 10,
                     padding: '11px 14px',
                     background: TABLE_HEAD_BG,
@@ -995,22 +1045,34 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                     alignItems: 'center',
                   }}
                 >
-                  <span>Tedarikci Kod</span>
-                  <span>Urun Adi</span>
-                  <span style={cellRight}>Liste Fiyat</span>
-                  <span style={cellRight}>Net Fiyat</span>
-                  {isMatched && (
+                  {isMatched ? (
                     <>
-                      <span>Urun Kodu</span>
-                      <span>Urun Adi (B2B)</span>
-                      <span style={cellRight}>Guncel Maliyet</span>
-                      <span style={cellRight}>Yeni Maliyet</span>
-                      <span style={cellRight}>Fark</span>
-                      <span style={cellRight}>Fark %</span>
+                      {headCell('supplierCode', 'Tedarikci Kod', false)}
+                      {headCell('supplierName', 'Urun Adi', false)}
+                      {headCell('sourcePrice', 'Liste Fiyat', false, 'right')}
+                      {headCell('netPrice', 'Net Fiyat', false, 'right')}
+                      {headCell('productCode', 'Urun Kodu', false)}
+                      {headCell('productName', 'Urun Adi (B2B)', false)}
+                      {headCell('currentCost', 'Guncel Maliyet', false, 'right')}
+                      {headCell('newCost', 'Yeni Maliyet', false, 'right')}
+                      {headCell('costDifference', 'Fark', false, 'right')}
+                      {headCell('percentDifference', 'Fark %', true, 'right')}
+                    </>
+                  ) : (
+                    <>
+                      {headCell('supplierCode', 'Tedarikci Kod', false)}
+                      {headCell('supplierName', 'Urun Adi', false)}
+                      {headCell('sourcePrice', 'Liste Fiyat', false, 'right')}
+                      {headCell(
+                        'netPrice',
+                        'Net Fiyat',
+                        activeStatus === 'unmatched',
+                        'right',
+                      )}
+                      {(activeStatus === 'multiple' || activeStatus === 'suspicious') &&
+                        headCell('matchedProductCodes', 'Eslesen Urunler', true)}
                     </>
                   )}
-                  {activeStatus === 'multiple' && <span>Eslesen Urunler</span>}
-                  {activeStatus === 'suspicious' && <span>Eslesen Urunler</span>}
                 </div>
 
                 {/* Rows */}
@@ -1039,7 +1101,7 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                       key={`${row.supplierCode}-${index}`}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: hasMatchedExtras ? matchedColsGrid : baseColsGrid,
+                        gridTemplateColumns: resultGridTemplate,
                         gap: 10,
                         padding: '11px 14px',
                         borderTop: `1px solid ${ROW_LINE}`,
@@ -1048,36 +1110,40 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                         alignItems: 'center',
                       }}
                     >
-                      <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, color: MUTED }}>
+                      <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, color: MUTED, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.supplierCode}>
                         {row.supplierCode}
                       </span>
-                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.supplierName || '-'}>
+                      <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.supplierName || '-'}>
                         {row.supplierName || '-'}
                       </span>
-                      <span style={cellRight}>
+                      <span style={{ ...cellRight, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {typeof row.sourcePrice === 'number' ? formatCurrency(row.sourcePrice) : '-'}
                       </span>
-                      <span style={{ ...cellRight, fontWeight: 600 }}>
+                      <span style={{ ...cellRight, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {typeof row.netPrice === 'number' ? formatCurrency(row.netPrice) : '-'}
                       </span>
                       {isMatched && (
                         <>
-                          <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, color: MUTED }}>
+                          <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, color: MUTED, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productCode}>
                             {row.productCode}
                           </span>
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productName}>
+                          <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productName}>
                             {row.productName}
                           </span>
-                          <span style={{ ...cellRight, color: MUTED }}>
+                          <span style={{ ...cellRight, color: MUTED, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {typeof row.currentCost === 'number' ? formatCurrency(row.currentCost) : '-'}
                           </span>
-                          <span style={{ ...cellRight, fontWeight: 600 }}>
+                          <span style={{ ...cellRight, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {typeof row.newCost === 'number' ? formatCurrency(row.newCost) : '-'}
                           </span>
                           <span
                             style={{
                               ...cellRight,
                               fontWeight: 600,
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
                               color:
                                 typeof row.costDifference === 'number'
                                   ? farkColor(row.costDifference)
@@ -1090,6 +1156,10 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                             style={{
                               ...cellRight,
                               fontWeight: 700,
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
                               color:
                                 typeof row.percentDifference === 'number'
                                   ? farkColor(row.percentDifference)
@@ -1103,12 +1173,12 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                         </>
                       )}
                       {activeStatus === 'multiple' && (
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: MUTED }}>
+                        <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: MUTED }}>
                           {Array.isArray(row.matchedProductCodes) ? row.matchedProductCodes.join(', ') : '-'}
                         </span>
                       )}
                       {activeStatus === 'suspicious' && (
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: MUTED }}>
+                        <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: MUTED }}>
                           {Array.isArray(row.matchedProductCodes) ? row.matchedProductCodes.join(', ') : '-'}
                         </span>
                       )}
