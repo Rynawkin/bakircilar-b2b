@@ -25,6 +25,10 @@ export interface UploadItem {
   matchedItems: number;
   unmatchedItems: number;
   multiMatchItems: number;
+  // Isim modu upload'larinda dolu gelir (detay endpoint'i).
+  matchMode?: 'code' | 'name' | string;
+  mainSupplierCode?: string | null;
+  mainSupplierName?: string | null;
 }
 
 export interface PreviewExcelColumn {
@@ -231,11 +235,30 @@ export interface ApplyItem {
   newCostT: number;
 }
 
+export type MatchMode = 'code' | 'name';
+
+export interface MainSupplier {
+  cariKod: string;
+  cariName: string | null;
+  productCount: number;
+}
+
+export interface MainSupplierProduct {
+  code: string;
+  name: string | null;
+}
+
 export function useTedarikciFiyatKarsilastirma() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  // === Eslesme modu (kod ile / isim ile ana saglayici bazli) ===
+  const [matchMode, setMatchMode] = useState<MatchMode>('code');
+  const [mainSuppliers, setMainSuppliers] = useState<MainSupplier[]>([]);
+  const [mainSuppliersLoading, setMainSuppliersLoading] = useState(false);
+  const [mainSuppliersLoaded, setMainSuppliersLoaded] = useState(false);
+  const [mainSupplierCariCode, setMainSupplierCariCode] = useState('');
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -568,6 +591,96 @@ export function useTedarikciFiyatKarsilastirma() {
     }
   };
 
+  // Ana saglayici listesi (Mikro). Isim modu ilk secildiginde lazy yuklenir.
+  const loadMainSuppliers = useCallback(async (force = false) => {
+    if (mainSuppliersLoaded && !force) return;
+    setMainSuppliersLoading(true);
+    try {
+      const result = await adminApi.getSupplierPriceListMainSuppliers();
+      setMainSuppliers(result.suppliers || []);
+      setMainSuppliersLoaded(true);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || 'Ana saglayici listesi alinamadi');
+    } finally {
+      setMainSuppliersLoading(false);
+    }
+  }, [mainSuppliersLoaded]);
+
+  const handleMatchModeChange = useCallback((mode: MatchMode) => {
+    setMatchMode(mode);
+    resetPreview();
+    if (mode === 'name') {
+      void loadMainSuppliers();
+    }
+  }, [loadMainSuppliers]);
+
+  // Elle duzeltme picker'i: ana saglayici altindaki urunlerde arama.
+  const searchMainSupplierProducts = useCallback(
+    async (cariKod: string, query: string): Promise<MainSupplierProduct[]> => {
+      const cari = String(cariKod || '').trim();
+      if (!cari) return [];
+      try {
+        const result = await adminApi.searchSupplierPriceListMainSupplierProducts({
+          cariKod: cari,
+          query,
+          limit: 30,
+        });
+        return result.products || [];
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || 'Urun aramasi basarisiz');
+        return [];
+      }
+    },
+    [],
+  );
+
+  // ELLE DUZELTME: eslesen bir satirin urununu degistir; satiri yerinde yenile.
+  const [matchProductSaving, setMatchProductSaving] = useState<string | null>(null);
+  const setMatchProduct = useCallback(
+    async (matchId: string, productCode: string) => {
+      if (!matchId || !productCode) return false;
+      setMatchProductSaving(matchId);
+      try {
+        await adminApi.setSupplierMatchProduct(matchId, productCode);
+        if (activeUploadId) {
+          await loadItems(activeUploadId, activeStatus, pagination.page);
+        }
+        toast.success('Urun degistirildi');
+        return true;
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || 'Urun degistirilemedi');
+        return false;
+      } finally {
+        setMatchProductSaving((cur) => (cur === matchId ? null : cur));
+      }
+    },
+    [activeUploadId, activeStatus, pagination.page],
+  );
+
+  // ELLE ATAMA: eslesmeyen bir item'a urun ata; listeyi yenile + detayi tazele.
+  const [itemProductSaving, setItemProductSaving] = useState<string | null>(null);
+  const assignItemProduct = useCallback(
+    async (itemId: string, productCode: string) => {
+      if (!itemId || !productCode) return false;
+      setItemProductSaving(itemId);
+      try {
+        await adminApi.assignSupplierItemProduct(itemId, productCode);
+        if (activeUploadId) {
+          await loadUploadDetail(activeUploadId);
+          await loadItems(activeUploadId, activeStatus, pagination.page);
+        }
+        toast.success('Urun atandi');
+        return true;
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || 'Urun atanamadi');
+        return false;
+      } finally {
+        setItemProductSaving((cur) => (cur === itemId ? null : cur));
+      }
+    },
+    [activeUploadId, activeStatus, pagination.page],
+  );
+
   const loadUploads = async () => {
     setLoading(true);
     try {
@@ -695,6 +808,11 @@ export function useTedarikciFiyatKarsilastirma() {
       return;
     }
 
+    if (matchMode === 'name' && !mainSupplierCariCode) {
+      toast.error('Isim modu icin ana saglayici secin');
+      return;
+    }
+
     const sourceMapping = opts?.overrideMapping ?? mapping;
     const preserveRoles = opts?.preserveRoles ?? false;
 
@@ -704,6 +822,7 @@ export function useTedarikciFiyatKarsilastirma() {
         supplierId: selectedSupplierId,
         files: selectedFiles,
         overrides: buildOverrides(sourceMapping),
+        matchMode,
       });
       setPreview(result);
       const detectedPdfRoles: Record<string, PdfColumnRole> = {};
@@ -771,6 +890,10 @@ export function useTedarikciFiyatKarsilastirma() {
       toast.error('Once onizleme alin');
       return;
     }
+    if (matchMode === 'name' && !mainSupplierCariCode) {
+      toast.error('Isim modu icin ana saglayici secin');
+      return;
+    }
 
     try {
       setUploading(true);
@@ -778,6 +901,8 @@ export function useTedarikciFiyatKarsilastirma() {
         supplierId: selectedSupplierId,
         files: selectedFiles,
         overrides: buildOverrides(),
+        matchMode,
+        mainSupplierCariCode: matchMode === 'name' ? mainSupplierCariCode : null,
       });
       toast.success('Dosyalar yuklendi');
       setSelectedFiles([]);
@@ -814,8 +939,10 @@ export function useTedarikciFiyatKarsilastirma() {
       : activeStatus === 'multiple' || activeStatus === 'suspicious'
         ? 5
         : 4;
-  const canPreview = Boolean(selectedSupplierId) && selectedFiles.length > 0 && !previewLoading && !uploading;
-  const uploadDisabled = !preview || uploading || previewLoading;
+  const nameModeReady = matchMode !== 'name' || Boolean(mainSupplierCariCode);
+  const canPreview =
+    Boolean(selectedSupplierId) && selectedFiles.length > 0 && nameModeReady && !previewLoading && !uploading;
+  const uploadDisabled = !preview || uploading || previewLoading || !nameModeReady;
 
   // Eslesen (matched) TUM urunleri (tum sayfalar) cekip { productCode, newCostT } listesi cikar.
   // newCostT = parse edilmis NET maliyet (matched satirdaki newCost / netPrice).
@@ -949,6 +1076,20 @@ export function useTedarikciFiyatKarsilastirma() {
     uploads,
     selectedSupplierId,
     selectedFiles,
+    // eslesme modu (kod / isim)
+    matchMode,
+    handleMatchModeChange,
+    mainSuppliers,
+    mainSuppliersLoading,
+    mainSupplierCariCode,
+    setMainSupplierCariCode,
+    loadMainSuppliers,
+    // elle duzeltme (product picker)
+    searchMainSupplierProducts,
+    setMatchProduct,
+    matchProductSaving,
+    assignItemProduct,
+    itemProductSaving,
     preview,
     previewLoading,
     showAdvanced,

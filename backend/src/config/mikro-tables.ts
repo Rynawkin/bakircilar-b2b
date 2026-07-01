@@ -26,6 +26,7 @@ export const MIKRO_TABLES = {
     UNIT2_FACTOR: 'sto_birim2_katsayi',
     VAT_RATE: 'sto_toptan_Vergi', // VAT kodu (dbo.fn_VergiYuzde ile çevrilmeli)
     CURRENT_COST: 'sto_standartmaliyet', // Standart maliyet
+    SUPPLIER_CODE: 'sto_sat_cari_kod', // Ana satici (ana saglayici) cari kodu
     PASSIVE: 'sto_pasif_fl', // false=aktif, true=pasif
   },
 

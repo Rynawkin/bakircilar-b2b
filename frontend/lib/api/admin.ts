@@ -4154,11 +4154,13 @@ export const adminApi = {
     supplierId: string;
     files: File[];
     overrides?: SupplierPriceListOverrides;
+    matchMode?: 'code' | 'name';
   }): Promise<{ excel?: any; pdf?: any }> => {
     const formData = new FormData();
     formData.append('supplierId', params.supplierId);
     params.files.forEach((file) => formData.append('files', file));
     appendSupplierPriceListOverrides(formData, params.overrides);
+    if (params.matchMode) formData.append('matchMode', params.matchMode);
 
     const response = await apiClient.post('/admin/supplier-price-lists/preview', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -4170,15 +4172,69 @@ export const adminApi = {
     supplierId: string;
     files: File[];
     overrides?: SupplierPriceListOverrides;
+    matchMode?: 'code' | 'name';
+    mainSupplierCariCode?: string | null;
   }): Promise<{ uploadId: string; summary: any }> => {
     const formData = new FormData();
     formData.append('supplierId', params.supplierId);
     params.files.forEach((file) => formData.append('files', file));
     appendSupplierPriceListOverrides(formData, params.overrides);
+    if (params.matchMode) formData.append('matchMode', params.matchMode);
+    if (params.matchMode === 'name' && params.mainSupplierCariCode) {
+      formData.append('mainSupplierCariCode', params.mainSupplierCariCode);
+    }
 
     const response = await apiClient.post('/admin/supplier-price-lists/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
+    return response.data;
+  },
+
+  // Ana saglayici (main supplier) listesi (isim modu secimi icin)
+  getSupplierPriceListMainSuppliers: async (): Promise<{
+    suppliers: Array<{ cariKod: string; cariName: string | null; productCount: number }>;
+  }> => {
+    const response = await apiClient.get('/admin/supplier-price-lists/main-suppliers');
+    return response.data;
+  },
+
+  // Bir ana saglayici altindaki urunlerde arama (elle duzeltme picker'i)
+  searchSupplierPriceListMainSupplierProducts: async (params: {
+    cariKod: string;
+    query?: string;
+    limit?: number;
+  }): Promise<{ products: Array<{ code: string; name: string | null }> }> => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('cariKod', params.cariKod);
+    if (params.query) queryParams.append('query', params.query);
+    if (params.limit !== undefined) queryParams.append('limit', String(params.limit));
+    const response = await apiClient.get(
+      `/admin/supplier-price-lists/main-suppliers/products?${queryParams.toString()}`,
+    );
+    return response.data;
+  },
+
+  // ELLE DUZELTME: mevcut match satirini baska urune tasi
+  setSupplierMatchProduct: async (
+    matchId: string,
+    productCode: string,
+  ): Promise<{ match: any }> => {
+    const response = await apiClient.patch(
+      `/admin/supplier-price-lists/matches/${matchId}/product`,
+      { productCode },
+    );
+    return response.data;
+  },
+
+  // ELLE ATAMA: eslesmeyen item'a urun ata
+  assignSupplierItemProduct: async (
+    itemId: string,
+    productCode: string,
+  ): Promise<{ match: any }> => {
+    const response = await apiClient.post(
+      `/admin/supplier-price-lists/items/${itemId}/match`,
+      { productCode },
+    );
     return response.data;
   },
 

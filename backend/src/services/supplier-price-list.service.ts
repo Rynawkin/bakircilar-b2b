@@ -3,6 +3,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 import { prisma } from '../utils/prisma';
+import mikroService from './mikro.service';
 
 const pdfParseModule = require('pdf-parse');
 let pdfJsPromise: Promise<any> | null = null;
@@ -1127,6 +1128,8 @@ const parsePdfRowsWithMapping = (
   const items: Array<{ supplierCode: string; supplierName?: string; sourcePrice?: number | null; rawLine?: string; currency?: string | null }> = [];
   const mergedRows = mergePdfNameRows(rows);
   let pendingName: string | null = null;
+  // Isim modu: kod opsiyonel; ad + fiyat olan satirlar kabul edilir.
+  const nameMode = Boolean(supplier.nameMode);
 
   const buildNameCandidate = (row: PdfRow) => {
     if (mapping.nameIndex !== null) {
@@ -1152,7 +1155,7 @@ const parsePdfRowsWithMapping = (
         code = trimmedCode;
       }
     }
-    if (!code) {
+    if (!code && !nameMode) {
       for (let index = 0; index < row.cells.length; index += 1) {
         if (index === mapping.priceIndex) continue;
         const candidate = extractCodeFromCell(row.cells[index], supplier.pdfCodePattern);
@@ -1163,6 +1166,30 @@ const parsePdfRowsWithMapping = (
       }
     }
     const rowHasPrice = pdfRowHasPrice(row);
+
+    if (nameMode) {
+      // Isim modu: ad + fiyat gerekli. Fiyat yoksa (yalniz ad satiri) pendingName tut.
+      const candidateName = buildNameCandidate(row);
+      if (!rowHasPrice) {
+        if (candidateName) pendingName = candidateName;
+        continue;
+      }
+      let supplierName = candidateName;
+      if (!supplierName && pendingName) supplierName = pendingName;
+      pendingName = null;
+      if (!supplierName) continue; // ad yoksa isim modunda kullanilamaz
+      const priceCell = mapping.priceIndex !== null ? row.cells[mapping.priceIndex] : null;
+      const sourcePrice = extractPriceFromCell(priceCell);
+      items.push({
+        supplierCode: code || '',
+        supplierName,
+        sourcePrice: sourcePrice ?? null,
+        rawLine: rawLine || undefined,
+        currency: rawLine ? extractCurrency(rawLine) : null,
+      });
+      continue;
+    }
+
     if (!code && !rowHasPrice) {
       const candidateName = buildNameCandidate(row);
       if (candidateName) {
@@ -1309,11 +1336,16 @@ const parsePdfFileLegacy = async (filePath: string, supplier: any) => {
 };
 
 const parsePdfFile = async (filePath: string, supplier: any) => {
+  const nameMode = Boolean(supplier.nameMode);
   try {
     const { columns, rows } = await buildPdfTable(filePath);
     if (columns.length && rows.length) {
       const mapping = resolvePdfColumnMapping(rows, columns.length, supplier);
-      if (mapping.codeIndex !== null && mapping.priceIndex !== null) {
+      // Isim modu: ad + fiyat yeterli. Kod modu: kod + fiyat gerekli.
+      const mappingReady = nameMode
+        ? mapping.nameIndex !== null && mapping.priceIndex !== null
+        : mapping.codeIndex !== null && mapping.priceIndex !== null;
+      if (mappingReady) {
         const items = parsePdfRowsWithMapping(rows, mapping, supplier);
         if (items.length) {
           return items;
@@ -1324,6 +1356,8 @@ const parsePdfFile = async (filePath: string, supplier: any) => {
     // fallback to legacy parser
   }
 
+  // Isim modunda legacy (kod-tabanli) parser'a dusme; kod'suz liste icin uygun degil.
+  if (nameMode) return [];
   return parsePdfFileLegacy(filePath, supplier);
 };
 
@@ -1356,17 +1390,27 @@ const parseExcelFile = (filePath: string, supplier: any) => {
     const priceIndexes = resolvePriceHeaderIndexes(normalizedHeaderRow, supplier.excelPriceHeader, supplier);
     const nameIndex = resolveHeaderIndex(normalizedHeaderRow, supplier.excelNameHeader, NAME_HEADERS);
 
-    if (codeIndex < 0 || priceIndexes.length === 0) continue;
+    // Isim modu: kod opsiyonel; ad + fiyat kolonlari yeterli.
+    const nameMode = Boolean(supplier.nameMode);
+    if (nameMode) {
+      if (nameIndex < 0 || priceIndexes.length === 0) continue;
+    } else if (codeIndex < 0 || priceIndexes.length === 0) {
+      continue;
+    }
 
     for (let i = headerRowIndex + 1; i < rows.length; i += 1) {
       const row = rows[i] || [];
-      const rawCode = row[codeIndex];
+      const rawCode = codeIndex >= 0 ? row[codeIndex] : null;
       const rawName = nameIndex >= 0 ? row[nameIndex] : null;
 
-      if (rawCode === null || rawCode === undefined || rawCode === '') continue;
-
-      const supplierCode = String(rawCode).trim();
-      if (!supplierCode) continue;
+      const supplierCode = rawCode === null || rawCode === undefined ? '' : String(rawCode).trim();
+      if (nameMode) {
+        // Isim modu: ad zorunlu (kod olmayabilir).
+        const nameStr = rawName === null || rawName === undefined ? '' : String(rawName).trim();
+        if (!nameStr) continue;
+      } else {
+        if (!supplierCode) continue;
+      }
 
       const priceValues = priceIndexes
         .map((index) => parseNumber(row[index]))
@@ -1417,6 +1461,190 @@ const buildProductMap = async () => {
       map.set(key, []);
     }
     map.get(key)!.push(product);
+  }
+
+  return map;
+};
+
+// ============================================================================
+// ISIM ESLESTIRME (ana saglayici bazli, kod'suz listeler icin)
+// ----------------------------------------------------------------------------
+// normalize(ad): kucult + Turkce karakter sadeleştir + parantez/olcu gurultusunu
+// azalt + token'lara bol. Skor: token-set benzerligi (agirlikli Jaccard/ortusme)
+// + trigram destegi. Esik ustu -> eslesme, altinda -> unmatched.
+// ============================================================================
+
+// Marka/olcu belirtmeyen, cok sik gecen ama ayirt edici olmayan token'lar.
+const NAME_MATCH_STOPWORDS = new Set<string>([
+  'adet', 'paket', 'koli', 'kutu', 'kg', 'gr', 'gram', 'lt', 'litre', 'ml',
+  'cm', 'mm', 'mt', 'metre', 'm2', 'm3', 'cc', 'no', 'ebat', 'olcu', 'renk',
+  've', 'ile', 'icin', 'the', 'and', 'x',
+]);
+
+// Ismi normalize edip anlamli token dizisine cevir.
+// - Turkce sadelestirme + kucultme (normalizeText)
+// - olcu/rakam+birim gurultusunu ayikla
+// - stopword ve tek-karakter token'lari at
+const tokenizeName = (value: any): string[] => {
+  const normalized = normalizeText(value); // kucuk + tr-sadelestirilmis + [^a-z0-9]-> bosluk
+  if (!normalized) return [];
+  const rawTokens = normalized.split(/\s+/).filter(Boolean);
+  const tokens: string[] = [];
+  for (const token of rawTokens) {
+    if (!token) continue;
+    if (NAME_MATCH_STOPWORDS.has(token)) continue;
+    // Sadece olcu birimi olan token'lari (ornek "500ml", "5kg") sayisallastir:
+    // rakam kismini birak, birim ekini at ki "500ml" ~ "500 ml" cakissin.
+    const unitMatch = token.match(/^(\d+)([a-z]{1,3})$/);
+    if (unitMatch && UNIT_TOKENS.includes(unitMatch[2])) {
+      tokens.push(unitMatch[1]);
+      continue;
+    }
+    if (token.length < 2 && !/\d/.test(token)) continue; // tek harf gurultu
+    tokens.push(token);
+  }
+  return tokens;
+};
+
+const buildTrigrams = (value: string): Set<string> => {
+  const compact = value.replace(/\s+/g, '');
+  const grams = new Set<string>();
+  if (compact.length < 3) {
+    if (compact) grams.add(compact);
+    return grams;
+  }
+  for (let i = 0; i <= compact.length - 3; i += 1) {
+    grams.add(compact.slice(i, i + 3));
+  }
+  return grams;
+};
+
+const jaccard = <T>(a: Set<T>, b: Set<T>): number => {
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  for (const value of small) {
+    if (large.has(value)) intersection += 1;
+  }
+  const union = a.size + b.size - intersection;
+  return union > 0 ? intersection / union : 0;
+};
+
+type NameCandidate = {
+  code: string;
+  name: string | null;
+  tokens: Set<string>;
+  trigrams: Set<string>;
+};
+
+// Aday urun havuzundan bir isim-eslestirici kur.
+const buildNameMatcher = (products: Array<{ code: string; name: string | null }>) => {
+  const candidates: NameCandidate[] = products.map((product) => {
+    const normalized = normalizeText(product.name);
+    return {
+      code: product.code,
+      name: product.name ?? null,
+      tokens: new Set(tokenizeName(product.name)),
+      trigrams: buildTrigrams(normalized),
+    };
+  });
+
+  // 0..1 arasi birlesik benzerlik skoru.
+  const score = (queryTokens: Set<string>, queryTrigrams: Set<string>, candidate: NameCandidate) => {
+    // Token ortusmesi (query'nin ne kadari kapsandi) + Jaccard karisimi.
+    const tokenJaccard = jaccard(queryTokens, candidate.tokens);
+    let contained = 0;
+    if (queryTokens.size && candidate.tokens.size) {
+      let hit = 0;
+      const [small, large] = queryTokens.size <= candidate.tokens.size
+        ? [queryTokens, candidate.tokens]
+        : [candidate.tokens, queryTokens];
+      for (const token of small) if (large.has(token)) hit += 1;
+      contained = hit / queryTokens.size;
+    }
+    const tokenScore = 0.6 * tokenJaccard + 0.4 * contained;
+    const trigramScore = jaccard(queryTrigrams, candidate.trigrams);
+    // Token bilgisi daha guvenilir; trigram yazim/ek farklarini yumusatir.
+    return 0.7 * tokenScore + 0.3 * trigramScore;
+  };
+
+  const findBest = (name: string | null | undefined) => {
+    const queryTokens = new Set(tokenizeName(name));
+    const queryTrigrams = buildTrigrams(normalizeText(name));
+    if (!queryTokens.size && !queryTrigrams.size) return null;
+
+    let best: NameCandidate | null = null;
+    let bestScore = 0;
+    for (const candidate of candidates) {
+      const s = score(queryTokens, queryTrigrams, candidate);
+      if (s > bestScore) {
+        bestScore = s;
+        best = candidate;
+      }
+    }
+    if (!best) return null;
+    return { code: best.code, name: best.name, score: Number(bestScore.toFixed(4)) };
+  };
+
+  return { findBest, candidateCount: candidates.length };
+};
+
+// Isim eslesmesi icin minimum guven esigi (altinda unmatched).
+const NAME_MATCH_THRESHOLD = 0.34;
+
+// Isim modu + elle secim icin urun detaylarini (id/name/currentCost/vatRate/unit2Factor)
+// Mikro koduna gore cozer. Once B2B Product (currentCost B2B'de guncel), eksikleri Mikro'dan.
+type ResolvedProductDetail = {
+  id: string | null;
+  code: string;
+  name: string | null;
+  currentCost: number | null;
+  vatRate: number | null;
+  unit2Factor: number | null;
+};
+
+const resolveProductDetailsByCodes = async (codes: string[]): Promise<Map<string, ResolvedProductDetail>> => {
+  const map = new Map<string, ResolvedProductDetail>();
+  const uniqueCodes = Array.from(
+    new Set((codes || []).map((code) => String(code || '').trim()).filter(Boolean)),
+  );
+  if (!uniqueCodes.length) return map;
+
+  // 1) B2B Product (senkron urunler): id + guncel maliyet/kdv/birim2
+  const products = await prisma.product.findMany({
+    where: { mikroCode: { in: uniqueCodes } },
+    select: { id: true, mikroCode: true, name: true, currentCost: true, vatRate: true, unit2Factor: true },
+  });
+  for (const product of products) {
+    map.set(product.mikroCode, {
+      id: product.id,
+      code: product.mikroCode,
+      name: product.name ?? null,
+      currentCost: product.currentCost ?? null,
+      vatRate: product.vatRate ?? null,
+      unit2Factor: product.unit2Factor ?? null,
+    });
+  }
+
+  // 2) B2B'de olmayan kodlar icin Mikro fallback (name-mode urunu senkron degilse)
+  const missing = uniqueCodes.filter((code) => !map.has(code));
+  if (missing.length) {
+    try {
+      const mikroDetails = await mikroService.getStockCostDetails(missing);
+      for (const detail of mikroDetails) {
+        if (!detail.code || map.has(detail.code)) continue;
+        map.set(detail.code, {
+          id: null,
+          code: detail.code,
+          name: detail.name,
+          currentCost: detail.currentCost,
+          vatRate: detail.vatRate,
+          unit2Factor: detail.unit2Factor,
+        });
+      }
+    } catch {
+      // Mikro erisimi yoksa sessizce gec: detay olmadan da eslesme kaydedilir.
+    }
   }
 
   return map;
@@ -1909,6 +2137,7 @@ class SupplierPriceListService {
 
       return {
         items: items.map((item: any) => ({
+          itemId: item.id,
           supplierCode: item.supplierCode,
           supplierName: item.supplierName,
           sourcePrice: item.sourcePrice,
@@ -2050,6 +2279,7 @@ class SupplierPriceListService {
         const productInfo = productByCode.get(match.productCode) || null;
         return {
           matchId: match.id,
+          itemId: match.itemId,
           supplierCode: match.item.supplierCode,
           supplierName: match.item.supplierName,
           sourcePrice: matchSourcePrice,
@@ -2064,6 +2294,8 @@ class SupplierPriceListService {
           costDifference,
           percentDifference: computePercentDifference(match.currentCost, costDifference),
           unitMultiplier: typeof match.unitMultiplier === 'number' ? match.unitMultiplier : null,
+          matchScore: typeof match.matchScore === 'number' ? match.matchScore : null,
+          manualMatch: Boolean(match.manualMatch),
           productUnit: productInfo?.unit ?? null,
           productUnit2: productInfo?.unit2 ?? null,
           productUnit2Factor: productInfo?.unit2Factor ?? null,
@@ -2085,6 +2317,219 @@ class SupplierPriceListService {
     return prisma.supplierPriceListMatch.update({
       where: { id: matchId },
       data: { unitMultiplier: normalized },
+    });
+  }
+
+  // Ana saglayici (main supplier) listesi (Mikro). Isim modu upload'unda secim icin. (SADECE OKUMA)
+  async getMainSuppliers() {
+    const suppliers = await mikroService.getMainSupplierList();
+    return suppliers.map((s) => ({
+      cariKod: s.cariKod,
+      cariName: s.cariName,
+      productCount: s.productCount,
+    }));
+  }
+
+  // Bir ana saglayici altindaki urunler icinde ada/koda gore arama (elle duzeltme picker'i). (SADECE OKUMA)
+  async searchMainSupplierProducts(cariKod: string, query?: string, limit = 30) {
+    const normalizedCari = String(cariKod || '').trim();
+    if (!normalizedCari) return [];
+    const products = await mikroService.getProductsByMainSupplier(normalizedCari);
+    const q = normalizeText(query || '');
+    let filtered = products;
+    if (q) {
+      const qTokens = q.split(/\s+/).filter(Boolean);
+      filtered = products.filter((p) => {
+        const hay = `${normalizeText(p.name)} ${normalizeText(p.code)}`;
+        return qTokens.every((token) => hay.includes(token));
+      });
+    }
+    return filtered.slice(0, Math.max(1, Math.min(200, limit))).map((p) => ({
+      code: p.code,
+      name: p.name,
+    }));
+  }
+
+  // Bir item icin (elle secilen) urunu match'e uygula: netPrice/costDifference yeniden hesaplanir.
+  // Carpan (unitMultiplier) korunur; sonuc tablosu + apply DEGISMEDEN calisir.
+  private async buildMatchDataForProduct(params: {
+    item: { sourcePrice: number | null; sourcePriceAlt?: number | null; supplierName: string | null; rawLine?: string | null; priceCurrency?: string | null };
+    supplierConfig: any;
+    productCode: string;
+  }) {
+    const detailMap = await resolveProductDetailsByCodes([params.productCode]);
+    const detail = detailMap.get(String(params.productCode).trim());
+    if (!detail) {
+      throw new Error('Urun bulunamadi (Mikro/B2B)');
+    }
+
+    const parsedItem: ParsedItem = {
+      supplierCode: '',
+      supplierName: params.item.supplierName ?? undefined,
+      sourcePrice: params.item.sourcePrice ?? null,
+      sourcePriceAlt: params.item.sourcePriceAlt ?? null,
+      rawLine: params.item.rawLine ?? undefined,
+      currency: params.item.priceCurrency ?? null,
+    };
+
+    const matchSourcePrice = resolveMatchSourcePrice(parsedItem, params.supplierConfig, {
+      name: detail.name,
+      currentCost: detail.currentCost,
+      unit2Factor: detail.unit2Factor,
+      vatRate: detail.vatRate,
+    });
+    const netPrice = computeMatchNetPrice(
+      matchSourcePrice,
+      params.supplierConfig,
+      detail.vatRate ?? null,
+      params.item.supplierName ?? null,
+    );
+    const difference =
+      netPrice !== null && detail.currentCost !== null && detail.currentCost !== undefined
+        ? Number((netPrice - detail.currentCost).toFixed(4))
+        : null;
+
+    return {
+      productId: detail.id,
+      productCode: detail.code,
+      productName: detail.name || detail.code,
+      currentCost: detail.currentCost ?? null,
+      sourcePrice: matchSourcePrice ?? null,
+      vatRate: detail.vatRate ?? null,
+      netPrice,
+      costDifference: difference,
+    };
+  }
+
+  // Upload'un tedarikci config'ini (parse/net-fiyat kurallari icin) yeniden kur.
+  private async resolveUploadSupplierConfig(uploadId: string) {
+    const upload = await prisma.supplierPriceListUpload.findUnique({
+      where: { id: uploadId },
+      select: { supplierId: true, details: true },
+    });
+    if (!upload) throw new Error('Upload not found');
+    const supplier = await prisma.supplier.findUnique({ where: { id: upload.supplierId } });
+    if (!supplier) throw new Error('Supplier not found');
+    return supplier;
+  }
+
+  // ELLE DUZELTME: mevcut bir match satirini baska bir urune (productCode) tasi.
+  // netPrice/costDifference/newCost yeniden hesaplanir; unitMultiplier korunur.
+  async setMatchProduct(matchId: string, productCode: string) {
+    const code = String(productCode || '').trim();
+    if (!code) throw new Error('productCode gerekli');
+
+    const match = await prisma.supplierPriceListMatch.findUnique({
+      where: { id: matchId },
+      include: {
+        item: {
+          select: {
+            id: true,
+            uploadId: true,
+            sourcePrice: true,
+            supplierName: true,
+            rawLine: true,
+            priceCurrency: true,
+          },
+        },
+      },
+    });
+    if (!match) throw new Error('Match not found');
+
+    const supplierConfig = await this.resolveUploadSupplierConfig(match.item.uploadId);
+    const data = await this.buildMatchDataForProduct({
+      item: {
+        sourcePrice: match.item.sourcePrice ?? null,
+        supplierName: match.item.supplierName ?? null,
+        rawLine: match.item.rawLine ?? null,
+        priceCurrency: match.item.priceCurrency ?? null,
+      },
+      supplierConfig,
+      productCode: code,
+    });
+
+    const updated = await prisma.supplierPriceListMatch.update({
+      where: { id: matchId },
+      data: {
+        productId: data.productId,
+        productCode: data.productCode,
+        productName: data.productName,
+        currentCost: data.currentCost,
+        sourcePrice: data.sourcePrice,
+        vatRate: data.vatRate,
+        netPrice: data.netPrice,
+        costDifference: data.costDifference,
+        manualMatch: true,
+      },
+    });
+
+    // matchedProductIds tutarliligini koru (item -> match).
+    await this.syncItemMatchState(match.item.id);
+    return updated;
+  }
+
+  // ELLE ATAMA: eslesmeyen (veya baska) bir item'a yeni bir urun eslestir.
+  // Item'da zaten match varsa ilkini gunceller (setMatchProduct gibi), yoksa yeni match yaratir.
+  async assignItemProduct(itemId: string, productCode: string) {
+    const code = String(productCode || '').trim();
+    if (!code) throw new Error('productCode gerekli');
+
+    const item = await prisma.supplierPriceListItem.findUnique({
+      where: { id: itemId },
+      include: { matches: { select: { id: true } } },
+    });
+    if (!item) throw new Error('Item not found');
+
+    if (item.matches.length) {
+      return this.setMatchProduct(item.matches[0].id, code);
+    }
+
+    const supplierConfig = await this.resolveUploadSupplierConfig(item.uploadId);
+    const data = await this.buildMatchDataForProduct({
+      item: {
+        sourcePrice: item.sourcePrice ?? null,
+        supplierName: item.supplierName ?? null,
+        rawLine: item.rawLine ?? null,
+        priceCurrency: item.priceCurrency ?? null,
+      },
+      supplierConfig,
+      productCode: code,
+    });
+
+    const created = await prisma.supplierPriceListMatch.create({
+      data: {
+        itemId: item.id,
+        productId: data.productId,
+        productCode: data.productCode,
+        productName: data.productName,
+        currentCost: data.currentCost,
+        sourcePrice: data.sourcePrice,
+        vatRate: data.vatRate,
+        netPrice: data.netPrice,
+        costDifference: data.costDifference,
+        manualMatch: true,
+      },
+    });
+
+    await this.syncItemMatchState(item.id);
+    return created;
+  }
+
+  // item.matchCount + matchedProductIds alanlarini match sayisina gore senkronla.
+  private async syncItemMatchState(itemId: string) {
+    const matches = await prisma.supplierPriceListMatch.findMany({
+      where: { itemId },
+      select: { productId: true },
+    });
+    const matchedProductIds = matches
+      .map((m) => m.productId)
+      .filter((id): id is string => Boolean(id));
+    await prisma.supplierPriceListItem.update({
+      where: { id: itemId },
+      data: {
+        matchCount: matches.length,
+        matchedProductIds,
+      },
     });
   }
 
@@ -2159,7 +2604,12 @@ class SupplierPriceListService {
     };
   }
 
-  async previewPriceLists(params: { supplierId: string; files: Express.Multer.File[]; overrides?: SupplierConfigOverrides | null }) {
+  async previewPriceLists(params: {
+    supplierId: string;
+    files: Express.Multer.File[];
+    overrides?: SupplierConfigOverrides | null;
+    matchMode?: 'code' | 'name';
+  }) {
     const { supplierId, files, overrides } = params;
     if (!files || files.length === 0) {
       throw new Error('No files uploaded');
@@ -2170,7 +2620,8 @@ class SupplierPriceListService {
       throw new Error('Supplier not found');
     }
 
-    const previewSupplier = resolveSupplierConfig(supplier, overrides);
+    const nameMode = params.matchMode === 'name';
+    const previewSupplier = { ...resolveSupplierConfig(supplier, overrides), nameMode };
     let excelPreview: any = null;
     let pdfPreview: any = null;
 
@@ -2203,7 +2654,14 @@ class SupplierPriceListService {
 
     return { excel: excelPreview, pdf: pdfPreview };
   }
-  async uploadPriceLists(params: { supplierId: string; uploadedById: string; files: Express.Multer.File[]; overrides?: SupplierConfigOverrides | null }) {
+  async uploadPriceLists(params: {
+    supplierId: string;
+    uploadedById: string;
+    files: Express.Multer.File[];
+    overrides?: SupplierConfigOverrides | null;
+    matchMode?: 'code' | 'name';
+    mainSupplierCariCode?: string | null;
+  }) {
     const { supplierId, uploadedById, files } = params;
     if (!files || files.length === 0) {
       throw new Error('No files uploaded');
@@ -2214,7 +2672,28 @@ class SupplierPriceListService {
       throw new Error('Supplier not found');
     }
 
-    const uploadSupplier = resolveSupplierConfig(supplier, params.overrides);
+    // Eslesme modu: 'name' ise ana saglayici bazli ISIM eslesmesi yapilir.
+    const matchMode: 'code' | 'name' = params.matchMode === 'name' ? 'name' : 'code';
+
+    // Parse config: name modunda parserlara "nameMode" bayragi gecilir (kod opsiyonel).
+    const uploadSupplier = { ...resolveSupplierConfig(supplier, params.overrides), nameMode: matchMode === 'name' };
+    const mainSupplierCariCode =
+      matchMode === 'name' ? String(params.mainSupplierCariCode || '').trim() : '';
+    if (matchMode === 'name' && !mainSupplierCariCode) {
+      throw new Error('Isim eslesmesi icin ana saglayici (cari) secilmelidir');
+    }
+
+    // Ana saglayici adi (rapor detayinda gostermek icin).
+    let mainSupplierName: string | null = null;
+    if (matchMode === 'name') {
+      try {
+        const suppliers = await mikroService.getMainSupplierList();
+        mainSupplierName =
+          suppliers.find((s) => s.cariKod === mainSupplierCariCode)?.cariName ?? null;
+      } catch {
+        mainSupplierName = null;
+      }
+    }
 
     const upload = await prisma.supplierPriceListUpload.create({
       data: {
@@ -2222,6 +2701,9 @@ class SupplierPriceListService {
         uploadedById,
         fileCount: files.length,
         status: 'PENDING',
+        matchMode,
+        mainSupplierCode: mainSupplierCariCode || null,
+        mainSupplierName,
       },
     });
 
@@ -2249,61 +2731,145 @@ class SupplierPriceListService {
         }
       }
 
-      const consolidatedItems = consolidateParsedItems(parsedItems);
+      // Isim modunda kod'a gore birlestirme YAPMA (ayni koda sahip farkli
+      // adlar yanlis birleserdi); her satir ada gore ayri eslesir.
+      const consolidatedItems = matchMode === 'name'
+        ? parsedItems
+        : consolidateParsedItems(parsedItems);
 
       if (consolidatedItems.length === 0) {
         throw new Error('No rows parsed from uploaded files');
       }
 
-      const productMap = await buildProductMap();
       const itemsWithIds = [] as any[];
       const matchRows = [] as any[];
 
-      for (const item of consolidatedItems) {
-        const itemId = randomUUID();
-        const normalized = normalizeCode(item.supplierCode);
-        const matches = normalized ? productMap.get(normalized) || [] : [];
-        const matchIds = matches.map((product) => product.id);
-        const itemNetPrice = computeItemNetPrice(item.sourcePrice ?? null, uploadSupplier, item.supplierName ?? null);
+      if (matchMode === 'name') {
+        // === ISIM MODU: ana saglayici urunleri arasinda ada gore eslestir ===
+        const supplierProducts = await mikroService.getProductsByMainSupplier(mainSupplierCariCode);
+        if (!supplierProducts.length) {
+          throw new Error('Secilen ana saglayici altinda aktif urun bulunamadi');
+        }
+        const nameMatcher = buildNameMatcher(supplierProducts);
 
-        itemsWithIds.push({
-          id: itemId,
-          uploadId: upload.id,
-          supplierCode: item.supplierCode,
-          supplierName: item.supplierName,
-          sourcePrice: item.sourcePrice ?? null,
-          netPrice: itemNetPrice,
-          priceCurrency: item.currency || 'TRY',
-          priceIncludesVat: uploadSupplier.priceIncludesVat,
-          rawLine: item.rawLine,
-          matchCount: matches.length,
-          matchedProductIds: matchIds,
-        });
+        // Eslesen Mikro kodlari icin urun detaylarini (maliyet/kdv/birim2/isim)
+        // TEK seferde cozeriz: once B2B Product, eksikleri Mikro'dan.
+        const bestByItem = consolidatedItems.map((item) => nameMatcher.findBest(item.supplierName));
+        const matchedCodes = Array.from(
+          new Set(
+            bestByItem
+              .filter((m) => m && m.score >= NAME_MATCH_THRESHOLD)
+              .map((m) => (m as any).code as string),
+          ),
+        );
+        const detailByCode = await resolveProductDetailsByCodes(matchedCodes);
 
-        for (const product of matches) {
-          const matchSourcePrice = resolveMatchSourcePrice(item, uploadSupplier, product);
-          const netPrice = computeMatchNetPrice(
-            matchSourcePrice,
-            uploadSupplier,
-            product.vatRate ?? null,
-            item.supplierName ?? null
-          );
-          const difference = netPrice !== null && product.currentCost !== null && product.currentCost !== undefined
-            ? Number((netPrice - product.currentCost).toFixed(4))
-            : null;
+        for (let i = 0; i < consolidatedItems.length; i += 1) {
+          const item = consolidatedItems[i];
+          const itemId = randomUUID();
+          const best = bestByItem[i];
+          const itemNetPrice = computeItemNetPrice(item.sourcePrice ?? null, uploadSupplier, item.supplierName ?? null);
+          const matched = best && best.score >= NAME_MATCH_THRESHOLD ? best : null;
+          const detail = matched ? detailByCode.get(matched.code) || null : null;
 
-          matchRows.push({
-            id: randomUUID(),
-            itemId,
-            productId: product.id,
-            productCode: product.mikroCode,
-            productName: product.name,
-            currentCost: product.currentCost ?? null,
-            sourcePrice: matchSourcePrice ?? null,
-            vatRate: product.vatRate ?? null,
-            netPrice,
-            costDifference: difference,
+          itemsWithIds.push({
+            id: itemId,
+            uploadId: upload.id,
+            supplierCode: item.supplierCode || '',
+            supplierName: item.supplierName,
+            sourcePrice: item.sourcePrice ?? null,
+            netPrice: itemNetPrice,
+            priceCurrency: item.currency || 'TRY',
+            priceIncludesVat: uploadSupplier.priceIncludesVat,
+            rawLine: item.rawLine,
+            matchCount: matched ? 1 : 0,
+            matchedProductIds: matched && detail?.id ? [detail.id] : [],
           });
+
+          if (matched && detail) {
+            const matchSourcePrice = resolveMatchSourcePrice(item, uploadSupplier, {
+              name: detail.name,
+              currentCost: detail.currentCost,
+              unit2Factor: detail.unit2Factor,
+              vatRate: detail.vatRate,
+            });
+            const netPrice = computeMatchNetPrice(
+              matchSourcePrice,
+              uploadSupplier,
+              detail.vatRate ?? null,
+              item.supplierName ?? null,
+            );
+            const difference =
+              netPrice !== null && detail.currentCost !== null && detail.currentCost !== undefined
+                ? Number((netPrice - detail.currentCost).toFixed(4))
+                : null;
+
+            matchRows.push({
+              id: randomUUID(),
+              itemId,
+              productId: detail.id,
+              productCode: matched.code,
+              productName: detail.name || matched.name || matched.code,
+              currentCost: detail.currentCost ?? null,
+              sourcePrice: matchSourcePrice ?? null,
+              vatRate: detail.vatRate ?? null,
+              netPrice,
+              costDifference: difference,
+              matchScore: matched.score,
+              manualMatch: false,
+            });
+          }
+        }
+      } else {
+        // === KOD MODU (varsayilan, mevcut davranis birebir korunur) ===
+        const productMap = await buildProductMap();
+
+        for (const item of consolidatedItems) {
+          const itemId = randomUUID();
+          const normalized = normalizeCode(item.supplierCode);
+          const matches = normalized ? productMap.get(normalized) || [] : [];
+          const matchIds = matches.map((product) => product.id);
+          const itemNetPrice = computeItemNetPrice(item.sourcePrice ?? null, uploadSupplier, item.supplierName ?? null);
+
+          itemsWithIds.push({
+            id: itemId,
+            uploadId: upload.id,
+            supplierCode: item.supplierCode,
+            supplierName: item.supplierName,
+            sourcePrice: item.sourcePrice ?? null,
+            netPrice: itemNetPrice,
+            priceCurrency: item.currency || 'TRY',
+            priceIncludesVat: uploadSupplier.priceIncludesVat,
+            rawLine: item.rawLine,
+            matchCount: matches.length,
+            matchedProductIds: matchIds,
+          });
+
+          for (const product of matches) {
+            const matchSourcePrice = resolveMatchSourcePrice(item, uploadSupplier, product);
+            const netPrice = computeMatchNetPrice(
+              matchSourcePrice,
+              uploadSupplier,
+              product.vatRate ?? null,
+              item.supplierName ?? null
+            );
+            const difference = netPrice !== null && product.currentCost !== null && product.currentCost !== undefined
+              ? Number((netPrice - product.currentCost).toFixed(4))
+              : null;
+
+            matchRows.push({
+              id: randomUUID(),
+              itemId,
+              productId: product.id,
+              productCode: product.mikroCode,
+              productName: product.name,
+              currentCost: product.currentCost ?? null,
+              sourcePrice: matchSourcePrice ?? null,
+              vatRate: product.vatRate ?? null,
+              netPrice,
+              costDifference: difference,
+            });
+          }
         }
       }
 

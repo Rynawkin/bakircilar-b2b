@@ -228,12 +228,18 @@ router.get('/einvoices/:id/download', requirePermission('admin:einvoices'), eInv
 router.get('/supplier-price-lists/suppliers', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getSuppliers);
 router.post('/supplier-price-lists/suppliers', requirePermission('admin:supplier-price-lists'), supplierPriceListController.createSupplier);
 router.put('/supplier-price-lists/suppliers/:id', requirePermission('admin:supplier-price-lists'), supplierPriceListController.updateSupplier);
+// Ana saglayici (main supplier) bazli isim eslesmesi (SADECE OKUMA)
+router.get('/supplier-price-lists/main-suppliers', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getMainSuppliers);
+router.get('/supplier-price-lists/main-suppliers/products', requirePermission('admin:supplier-price-lists'), supplierPriceListController.searchMainSupplierProducts);
 router.get('/supplier-price-lists', requirePermission('admin:supplier-price-lists'), supplierPriceListController.listUploads);
 router.post('/supplier-price-lists/preview', requirePermission('admin:supplier-price-lists'), supplierPriceListUpload.array('files', 20), supplierPriceListController.previewPriceLists);
 router.post('/supplier-price-lists/upload', requirePermission('admin:supplier-price-lists'), supplierPriceListUpload.array('files', 20), supplierPriceListController.uploadPriceLists);
 router.post('/supplier-price-lists/apply-preview', requirePermission('admin:supplier-price-lists'), supplierPriceListController.applyPreview);
 router.post('/supplier-price-lists/apply', requirePermission('admin:supplier-price-lists'), supplierPriceListController.apply);
 router.patch('/supplier-price-lists/matches/:matchId', requirePermission('admin:supplier-price-lists'), supplierPriceListController.updateMatchUnitMultiplier);
+// Elle duzeltme (B2B; Mikro YAZMA YOK)
+router.patch('/supplier-price-lists/matches/:matchId/product', requirePermission('admin:supplier-price-lists'), supplierPriceListController.setMatchProduct);
+router.post('/supplier-price-lists/items/:itemId/match', requirePermission('admin:supplier-price-lists'), supplierPriceListController.assignItemProduct);
 router.get('/supplier-price-lists/:id', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUpload);
 router.get('/supplier-price-lists/:id/items', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUploadItems);
 router.get('/supplier-price-lists/:id/export', requirePermission('admin:supplier-price-lists'), supplierPriceListController.exportUpload);

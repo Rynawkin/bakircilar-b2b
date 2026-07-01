@@ -927,6 +927,12 @@ model SupplierPriceListUpload {
   completedAt     DateTime?
   errorMessage    String?
   details         Json?
+  // Eslesme modu: 'code' (varsayilan, tedarikci urun kodu) veya 'name'
+  // (kod'suz listelerde ana saglayici bazli isim eslesmesi).
+  matchMode          String  @default("code")
+  // matchMode='name' iken secilen ana saglayici (Mikro cari) kodu/adi.
+  mainSupplierCode   String?
+  mainSupplierName   String?
 
   files           SupplierPriceListFile[]
   items           SupplierPriceListItem[]
@@ -975,8 +981,10 @@ model SupplierPriceListMatch {
   id             String   @id @default(uuid())
   itemId         String
   item           SupplierPriceListItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  // Isim modunda eslesen Mikro urunu B2B'ye senkron degilse null olabilir;
+  // apply akisi yalnizca productCode (Mikro) ile calistigi icin sorun degil.
+  productId      String?
+  product        Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
   productCode    String
   productName    String
   currentCost    Float?
@@ -985,6 +993,8 @@ model SupplierPriceListMatch {
   netPrice       Float?
   costDifference Float?
   unitMultiplier Float?   // Kullanicinin elle girdigi birim carpani (null=1). Koli/adet karisikligini duzeltir: newCost = netPrice * unitMultiplier
+  matchScore     Float?   // Isim eslesmesi guven skoru 0..1 (matchMode='name' iken)
+  manualMatch    Boolean  @default(false) // Kullanici elle sectiyse true (Degistir/Urun ata)
   createdAt      DateTime @default(now())
 
   @@index([itemId])

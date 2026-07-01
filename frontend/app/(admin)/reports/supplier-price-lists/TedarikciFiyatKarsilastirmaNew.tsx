@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -11,7 +11,11 @@ import {
   FileSpreadsheet,
   Info,
   CheckCircle2,
+  Pencil,
+  Search,
+  X,
 } from 'lucide-react';
+import type { MainSupplierProduct } from './useTedarikciFiyatKarsilastirma';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import {
   useTedarikciFiyatKarsilastirma,
@@ -264,12 +268,218 @@ function MultiplierCell({
   );
 }
 
+// Elle duzeltme: ana saglayici urunleri icinde arama yapip dogru urunu sectiren
+// kucuk acilir (popover). Kod modunda / cariKod yoksa render edilmez.
+function ProductPicker({
+  cariKod,
+  label,
+  saving,
+  onSearch,
+  onSelect,
+}: {
+  cariKod: string | null | undefined;
+  label: string;
+  saving: boolean;
+  onSearch: (cariKod: string, query: string) => Promise<MainSupplierProduct[]>;
+  onSelect: (productCode: string) => unknown | Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<MainSupplierProduct[]>([]);
+  const [loading, setLoading] = useState(false);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const cari = String(cariKod || '').trim();
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Arama: 300ms debounce; ilk acilista da (bos query) liste getir.
+  useEffect(() => {
+    if (!open || !cari) return;
+    let active = true;
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      const items = await onSearch(cari, query);
+      if (active) {
+        setResults(items);
+        setLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [open, query, cari, onSearch]);
+
+  if (!cari) return null;
+
+  return (
+    <span ref={boxRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        disabled={saving}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          height: 24,
+          padding: '0 8px',
+          border: `1px solid ${LINE}`,
+          borderRadius: 6,
+          background: '#fff',
+          color: PRIMARY,
+          fontSize: 10.5,
+          fontWeight: 600,
+          fontFamily: 'inherit',
+          cursor: saving ? 'not-allowed' : 'pointer',
+          opacity: saving ? 0.6 : 1,
+          whiteSpace: 'nowrap',
+        }}
+        title="Dogru urunu ana saglayici urunleri icinden sec"
+      >
+        {saving ? (
+          <RefreshCw size={11} strokeWidth={2} className="animate-spin" />
+        ) : (
+          <Pencil size={11} strokeWidth={2} />
+        )}
+        {label}
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 28,
+            right: 0,
+            zIndex: 40,
+            width: 340,
+            background: '#fff',
+            border: `1px solid ${LINE}`,
+            borderRadius: 10,
+            boxShadow: '0 12px 32px rgba(20,34,59,.16)',
+            padding: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Search size={13} strokeWidth={2} style={{ color: FAINT, flex: 'none' }} />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Urun adi veya kodu ara..."
+              style={{
+                flex: 1,
+                height: 30,
+                border: `1px solid ${FIELD_LINE}`,
+                borderRadius: 7,
+                padding: '0 8px',
+                fontSize: 11.5,
+                color: INK,
+                fontFamily: 'inherit',
+                outline: 'none',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: FAINT,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                padding: 2,
+              }}
+              title="Kapat"
+            >
+              <X size={14} strokeWidth={2} />
+            </button>
+          </div>
+
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            {loading ? (
+              <div style={{ padding: '18px 8px', textAlign: 'center', fontSize: 11.5, color: FAINT }}>
+                Araniyor...
+              </div>
+            ) : results.length === 0 ? (
+              <div style={{ padding: '18px 8px', textAlign: 'center', fontSize: 11.5, color: FAINT }}>
+                Sonuc yok.
+              </div>
+            ) : (
+              results.map((product) => (
+                <button
+                  key={product.code}
+                  type="button"
+                  onClick={async () => {
+                    await onSelect(product.code);
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    border: 'none',
+                    background: 'transparent',
+                    borderRadius: 7,
+                    padding: '7px 8px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f6fc')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      color: INK,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    title={product.name || product.code}
+                  >
+                    {product.name || '-'}
+                  </div>
+                  <div style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 10, color: FAINT }}>
+                    {product.code}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 export default function TedarikciFiyatKarsilastirmaNew() {
   const {
     suppliers,
     uploads,
     selectedSupplierId,
     selectedFiles,
+    matchMode,
+    handleMatchModeChange,
+    mainSuppliers,
+    mainSuppliersLoading,
+    mainSupplierCariCode,
+    setMainSupplierCariCode,
+    searchMainSupplierProducts,
+    setMatchProduct,
+    matchProductSaving,
+    assignItemProduct,
+    itemProductSaving,
     preview,
     previewLoading,
     showAdvanced,
@@ -332,6 +542,11 @@ export default function TedarikciFiyatKarsilastirmaNew() {
   // matched: 10 kolon, multiple/suspicious: 5, unmatched: 4
   // Kolon genislikleri artik px + surukle-boyutlandirilabilir (hook'tan gelir).
   const isMatched = activeStatus === 'matched';
+
+  // Aktif raporun ana saglayici kodu (isim modu upload'unda dolu). Elle duzeltme
+  // picker'i (Degistir / Urun ata) yalnizca bu kod varsa gosterilir.
+  const activeMainSupplierCode =
+    activeUpload?.matchMode === 'name' ? activeUpload?.mainSupplierCode || '' : '';
 
   // Baslik hucresinin sag kenarina konan ince surukleme tutamaci.
   const renderResizeHandle = (colKey: string) => (
@@ -446,6 +661,72 @@ export default function TedarikciFiyatKarsilastirmaNew() {
         <div style={{ ...hint, marginTop: 4, marginBottom: 14 }}>
           Tedarikci secip dosyayi yukleyin (Excel veya PDF).
         </div>
+
+        {/* Eslestirme modu: Kod ile / Isim ile (ana saglayici bazli) */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelStyle}>Eslestirme Modu</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {([
+              { key: 'code' as const, label: 'Kod ile' },
+              { key: 'name' as const, label: 'Isim ile (ana saglayici)' },
+            ]).map(({ key, label }) => {
+              const active = matchMode === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleMatchModeChange(key)}
+                  style={{
+                    height: 34,
+                    padding: '0 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${active ? PRIMARY : LINE}`,
+                    background: active ? PRIMARY : '#fff',
+                    color: active ? '#fff' : MUTED,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            <span style={{ ...hint, marginLeft: 4 }}>
+              {matchMode === 'name'
+                ? 'Urun kodu olmayan listeler icin: satir ADI, secilen ana saglayici urunleriyle eslesir.'
+                : 'Tedarikci urun kodu ile B2B urunleri eslesir (varsayilan).'}
+            </span>
+          </div>
+        </div>
+
+        {/* Isim modu: ana saglayici (Mikro cari) secimi */}
+        {matchMode === 'name' && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>Ana Saglayici (Mikro cari)</label>
+            <select
+              value={mainSupplierCariCode}
+              onChange={(event) => setMainSupplierCariCode(event.target.value)}
+              disabled={mainSuppliersLoading}
+              style={{ ...fieldStyle, cursor: 'pointer', maxWidth: 560 }}
+            >
+              <option value="">
+                {mainSuppliersLoading ? 'Yukleniyor...' : 'Ana saglayici secin'}
+              </option>
+              {mainSuppliers.map((supplier) => (
+                <option key={supplier.cariKod} value={supplier.cariKod}>
+                  {(supplier.cariName || supplier.cariKod)} ({supplier.productCount} urun)
+                </option>
+              ))}
+            </select>
+            {!mainSupplierCariCode && (
+              <div style={{ fontSize: 11, color: FAINT, marginTop: 5 }}>
+                Onizleme/yukleme icin ana saglayici secin.
+              </div>
+            )}
+          </div>
+        )}
 
         <div
           style={{
@@ -1209,10 +1490,23 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                       }}
                     >
                       <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, color: MUTED, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.supplierCode}>
-                        {row.supplierCode}
+                        {row.supplierCode || '-'}
                       </span>
-                      <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.supplierName || '-'}>
-                        {row.supplierName || '-'}
+                      <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.supplierName || '-'}>
+                          {row.supplierName || '-'}
+                        </span>
+                        {activeStatus === 'unmatched' && activeMainSupplierCode && row.itemId && (
+                          <span>
+                            <ProductPicker
+                              cariKod={activeMainSupplierCode}
+                              label="Urun ata"
+                              saving={itemProductSaving === row.itemId}
+                              onSearch={searchMainSupplierProducts}
+                              onSelect={(productCode) => assignItemProduct(row.itemId, productCode)}
+                            />
+                          </span>
+                        )}
                       </span>
                       <span style={{ ...cellRight, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {typeof row.sourcePrice === 'number' ? formatCurrency(row.sourcePrice) : '-'}
@@ -1225,8 +1519,21 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                           <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 11, color: MUTED, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productCode}>
                             {row.productCode}
                           </span>
-                          <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productName}>
-                            {row.productName}
+                          <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productName}>
+                              {row.productName}
+                            </span>
+                            {activeMainSupplierCode && row.matchId && (
+                              <span>
+                                <ProductPicker
+                                  cariKod={activeMainSupplierCode}
+                                  label="Degistir"
+                                  saving={matchProductSaving === row.matchId}
+                                  onSearch={searchMainSupplierProducts}
+                                  onSelect={(productCode) => setMatchProduct(row.matchId, productCode)}
+                                />
+                              </span>
+                            )}
                           </span>
                           <span style={{ ...cellRight, color: MUTED, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {typeof row.currentCost === 'number' ? formatCurrency(row.currentCost) : '-'}

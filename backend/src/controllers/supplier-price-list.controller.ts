@@ -169,10 +169,12 @@ class SupplierPriceListController {
         return res.status(400).json({ error: 'No files uploaded' });
       }
       const overrides = parseOverrides(req.body);
+      const matchMode = req.body?.matchMode === 'name' ? 'name' : 'code';
       const result = await supplierPriceListService.previewPriceLists({
         supplierId,
         files,
         overrides,
+        matchMode,
       });
       res.json(result);
     } catch (error) {
@@ -195,14 +197,74 @@ class SupplierPriceListController {
       }
 
       const overrides = parseOverrides(req.body);
+      const matchMode = req.body?.matchMode === 'name' ? 'name' : 'code';
+      const mainSupplierCariCode = parseOptionalString(req.body?.mainSupplierCariCode);
       const result = await supplierPriceListService.uploadPriceLists({
         supplierId,
         uploadedById: userId,
         files,
         overrides,
+        matchMode,
+        mainSupplierCariCode,
       });
 
       res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Ana saglayici (main supplier) listesi (Mikro). Isim modu secimi icin. (SADECE OKUMA)
+  async getMainSuppliers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const suppliers = await supplierPriceListService.getMainSuppliers();
+      res.json({ suppliers });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Bir ana saglayici altindaki urunlerde arama (elle duzeltme picker'i). (SADECE OKUMA)
+  async searchMainSupplierProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const cariKod = (req.query?.cariKod as string) || '';
+      if (!cariKod) {
+        return res.status(400).json({ error: 'cariKod is required' });
+      }
+      const query = (req.query?.query as string) || '';
+      const limit = req.query?.limit ? Number(req.query.limit) : undefined;
+      const products = await supplierPriceListService.searchMainSupplierProducts(cariKod, query, limit);
+      res.json({ products });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ELLE DUZELTME: mevcut match satirini baska urune tasi. (B2B; Mikro YAZMA YOK)
+  async setMatchProduct(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { matchId } = req.params;
+      const productCode = String((req.body || {}).productCode || '').trim();
+      if (!productCode) {
+        return res.status(400).json({ error: 'productCode gerekli' });
+      }
+      const match = await supplierPriceListService.setMatchProduct(matchId, productCode);
+      res.json({ match });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ELLE ATAMA: eslesmeyen item'a urun ata (yeni match). (B2B; Mikro YAZMA YOK)
+  async assignItemProduct(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { itemId } = req.params;
+      const productCode = String((req.body || {}).productCode || '').trim();
+      if (!productCode) {
+        return res.status(400).json({ error: 'productCode gerekli' });
+      }
+      const match = await supplierPriceListService.assignItemProduct(itemId, productCode);
+      res.json({ match });
     } catch (error) {
       next(error);
     }

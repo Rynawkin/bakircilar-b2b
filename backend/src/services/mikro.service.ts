@@ -3218,6 +3218,128 @@ class MikroService {
   }
 
   /**
+   * Belirli stok kodlari icin maliyet/kdv/birim2-katsayi/isim bilgisini getir.
+   * Isim eslesmesinde (B2B'de olmayan urunler icin) maliyet/kdv fallback'i olarak
+   * kullanilir. (SADECE OKUMA)
+   */
+  async getStockCostDetails(
+    codes: string[],
+  ): Promise<Array<{ code: string; name: string | null; currentCost: number | null; vatRate: number | null; unit2Factor: number | null }>> {
+    const uniqueCodes = Array.from(
+      new Set((codes || []).map((code) => String(code || '').trim()).filter(Boolean)),
+    );
+    if (!uniqueCodes.length) return [];
+
+    await this.connect();
+
+    const { PRODUCTS, PRODUCTS_COLUMNS } = MIKRO_TABLES;
+    const safeCodes = uniqueCodes
+      .map((code) => `'${code.replace(/'/g, "''")}'`)
+      .join(', ');
+
+    const query = `
+      SELECT
+        RTRIM(${PRODUCTS_COLUMNS.CODE}) AS code,
+        ${PRODUCTS_COLUMNS.NAME} AS name,
+        ${PRODUCTS_COLUMNS.CURRENT_COST} AS currentCost,
+        ${PRODUCTS_COLUMNS.VAT_RATE} AS vatCode,
+        ${PRODUCTS_COLUMNS.UNIT2_FACTOR} AS unit2Factor
+      FROM ${PRODUCTS} WITH (NOLOCK)
+      WHERE ${PRODUCTS_COLUMNS.CODE} IN (${safeCodes})
+    `;
+
+    const result = await this.pool!.request().query(query);
+
+    return (result.recordset || []).map((row: any) => {
+      const vatCode = Number(row.vatCode);
+      const vatRate = Number.isFinite(vatCode) ? this.convertVatCodeToRate(vatCode) : null;
+      const currentCost = Number(row.currentCost);
+      const unit2Factor = Number(row.unit2Factor);
+      return {
+        code: row.code ? String(row.code).trim() : '',
+        name: row.name ? String(row.name).trim() : null,
+        currentCost: Number.isFinite(currentCost) ? currentCost : null,
+        vatRate,
+        unit2Factor: Number.isFinite(unit2Factor) ? unit2Factor : null,
+      };
+    });
+  }
+
+  /**
+   * Ana saglayici (main supplier) olan carileri getir.
+   * Bir cari "ana saglayici"dir eger STOKLAR.sto_sat_cari_kod olarak
+   * en az bir aktif urunde atanmissa. Kod'suz tedarikci listelerinde
+   * kullanicinin ana saglayici secmesi icin kullanilir. (SADECE OKUMA)
+   */
+  async getMainSupplierList(): Promise<Array<{ cariKod: string; cariName: string | null; productCount: number }>> {
+    await this.connect();
+
+    const { PRODUCTS, PRODUCTS_COLUMNS, CARI, CARI_COLUMNS } = MIKRO_TABLES;
+
+    const query = `
+      SELECT
+        LTRIM(RTRIM(s.${PRODUCTS_COLUMNS.SUPPLIER_CODE})) AS cariKod,
+        MAX(c.${CARI_COLUMNS.NAME}) AS cariName,
+        COUNT(*) AS productCount
+      FROM ${PRODUCTS} s WITH (NOLOCK)
+      LEFT JOIN ${CARI} c WITH (NOLOCK)
+        ON c.${CARI_COLUMNS.CODE} = LTRIM(RTRIM(s.${PRODUCTS_COLUMNS.SUPPLIER_CODE}))
+      WHERE ISNULL(s.${PRODUCTS_COLUMNS.SUPPLIER_CODE}, '') <> ''
+        AND s.${PRODUCTS_COLUMNS.PASSIVE} = 0
+      GROUP BY LTRIM(RTRIM(s.${PRODUCTS_COLUMNS.SUPPLIER_CODE}))
+      HAVING COUNT(*) > 0
+      ORDER BY cariName
+    `;
+
+    const result = await this.pool!.request().query(query);
+
+    return (result.recordset || [])
+      .map((row: any) => ({
+        cariKod: row.cariKod ? String(row.cariKod).trim() : '',
+        cariName: row.cariName ? String(row.cariName).trim() : null,
+        productCount: Number(row.productCount) || 0,
+      }))
+      .filter((row: any) => row.cariKod);
+  }
+
+  /**
+   * Belirli bir ana saglayici (cari) altindaki aktif urunleri getir.
+   * Kod'suz listelerde ISIM eslesmesi icin aday havuzudur. (SADECE OKUMA)
+   * Parametreli sorgu (SQL injection yok).
+   */
+  async getProductsByMainSupplier(cariKod: string): Promise<Array<{ code: string; name: string | null }>> {
+    const normalized = String(cariKod || '').trim();
+    if (!normalized) return [];
+
+    await this.connect();
+
+    const { PRODUCTS, PRODUCTS_COLUMNS } = MIKRO_TABLES;
+
+    const query = `
+      SELECT
+        RTRIM(${PRODUCTS_COLUMNS.CODE}) AS code,
+        ${PRODUCTS_COLUMNS.NAME} AS name
+      FROM ${PRODUCTS} WITH (NOLOCK)
+      WHERE LTRIM(RTRIM(${PRODUCTS_COLUMNS.SUPPLIER_CODE})) = @cariKod
+        AND ${PRODUCTS_COLUMNS.PASSIVE} = 0
+        AND ${PRODUCTS_COLUMNS.CODE} IS NOT NULL
+        AND ${PRODUCTS_COLUMNS.CODE} <> ''
+    `;
+
+    const result = await this.pool!
+      .request()
+      .input('cariKod', sql.NVarChar(25), normalized)
+      .query(query);
+
+    return (result.recordset || [])
+      .map((row: any) => ({
+        code: row.code ? String(row.code).trim() : '',
+        name: row.name ? String(row.name).trim() : null,
+      }))
+      .filter((row: any) => row.code);
+  }
+
+  /**
    * Mikro teklif satirlarini getir
    */
   /**
