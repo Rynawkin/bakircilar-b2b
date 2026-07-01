@@ -571,6 +571,9 @@ model Settings {
   // Example: {"BAYI":{"invoiced":6,"white":1},"PERAKENDE":{"invoiced":6,"white":1}}
   customerPriceLists        Json?
 
+  // Vitrin: HERO banner otomatik gecis suresi (ms). Admin bannerlar ekranindan degistirilir.
+  heroBannerIntervalMs      Int                     @default(6000)
+
   // Son senkronizasyon
   lastSyncAt                DateTime?
   lastVadeSyncAt            DateTime?

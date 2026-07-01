@@ -57,9 +57,6 @@ class CollectionController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const body = req.body || {};
-      if (!body.title || !String(body.title).trim()) {
-        return res.status(400).json({ error: 'Koleksiyon basligi gerekli' });
-      }
       const collection = await collectionService.createCollection(body);
       res.status(201).json({ collection });
     } catch (e) {

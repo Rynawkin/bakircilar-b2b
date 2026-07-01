@@ -31,6 +31,7 @@ import MIKRO_TABLES from '../config/mikro-tables';
 import { splitSearchTokens, normalizeSearchText } from '../utils/search';
 import { getUploadsDir } from '../utils/storage';
 import { CreateCustomerRequest, SetCategoryPriceRuleRequest } from '../types';
+import { invalidateCustomerStaticCache } from './customer.controller';
 
 const DEFAULT_CUSTOMER_PRICE_LISTS = {
   BAYI: { invoiced: 6, white: 1 },
@@ -2916,6 +2917,9 @@ export class AdminController {
         where: { id },
         data: { imageUrl },
       });
+
+      // Kategori gorseli degisti -> musteri kategori cache'ini temizle (aninda yansisin)
+      invalidateCustomerStaticCache('customer:categories');
 
       res.json({ category });
     } catch (error) {

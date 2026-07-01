@@ -29,6 +29,7 @@ import bannerController from '../controllers/banner.controller';
 import giftCampaignController from '../controllers/gift-campaign.controller';
 import collectionController from '../controllers/collection.controller';
 import { trackStaffApiActivity } from '../middleware/staff-activity.middleware';
+import { invalidateCacheMiddleware } from '../middleware/cache.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload, taskUpload, invoiceUpload, supplierPriceListUpload, quoteItemImageUpload } from '../middleware/upload.middleware';
 import { z } from 'zod';
@@ -202,9 +203,9 @@ const complementRecommendationSchema = z.object({
   limit: z.number().int().min(1).max(20).optional(),
 });
 
-// Settings - ADMIN only
+// Settings - ADMIN only (hero gecis suresi Settings'te; degisince /banners cache'ini temizle)
 router.get('/settings', requirePermission('admin:settings'), adminController.getSettings);
-router.put('/settings', requirePermission('admin:settings'), adminController.updateSettings);
+router.put('/settings', requirePermission('admin:settings'), invalidateCacheMiddleware(['banners:*']), adminController.updateSettings);
 
 // Sync - ADMIN only
 router.post('/sync', requireAnyPermission(['admin:sync', 'dashboard:sync']), adminController.triggerSync);
@@ -676,11 +677,12 @@ router.get('/product-aliases', requirePermission('admin:search-management'), adm
 router.put('/product-aliases/:id', requirePermission('admin:search-management'), adminController.updateProductAliases);
 
 // Banner yonetimi (musteri landing) - HEAD_ADMIN / ADMIN
+// Mutasyonlar musteri /banners cache'ini temizler
 router.get('/banners', requireAdmin, bannerController.listAll);
 router.post('/banners/upload', requireAdmin, upload.single('image'), bannerController.uploadImage);
-router.post('/banners', requireAdmin, bannerController.create);
-router.put('/banners/:id', requireAdmin, bannerController.update);
-router.delete('/banners/:id', requireAdmin, bannerController.remove);
+router.post('/banners', requireAdmin, invalidateCacheMiddleware(['banners:*']), bannerController.create);
+router.put('/banners/:id', requireAdmin, invalidateCacheMiddleware(['banners:*']), bannerController.update);
+router.delete('/banners/:id', requireAdmin, invalidateCacheMiddleware(['banners:*']), bannerController.remove);
 
 // Kategori kesfi gorseli - HEAD_ADMIN / ADMIN
 router.patch('/categories/:id/image', requireAdmin, adminController.setCategoryImage);
@@ -693,10 +695,11 @@ router.put('/gift-campaigns/:id', requireAdmin, giftCampaignController.update);
 router.delete('/gift-campaigns/:id', requireAdmin, giftCampaignController.remove);
 
 // Koleksiyon yonetimi ("Sizin icin koleksiyonlar") - HEAD_ADMIN / ADMIN
+// Mutasyonlar musteri /collections/active cache'ini temizler
 router.get('/collections', requireAdmin, collectionController.listAll);
 router.get('/collections/:id', requireAdmin, collectionController.getOneAdmin);
-router.post('/collections', requireAdmin, collectionController.create);
-router.put('/collections/:id', requireAdmin, collectionController.update);
-router.delete('/collections/:id', requireAdmin, collectionController.remove);
+router.post('/collections', requireAdmin, invalidateCacheMiddleware(['collections:*']), collectionController.create);
+router.put('/collections/:id', requireAdmin, invalidateCacheMiddleware(['collections:*']), collectionController.update);
+router.delete('/collections/:id', requireAdmin, invalidateCacheMiddleware(['collections:*']), collectionController.remove);
 
 export default router;

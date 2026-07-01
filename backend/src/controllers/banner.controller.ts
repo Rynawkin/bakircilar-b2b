@@ -29,18 +29,30 @@ class BannerController {
     try {
       const now = new Date();
       const position = typeof req.query.position === 'string' ? req.query.position : undefined;
-      const banners = await prisma.banner.findMany({
-        where: {
-          active: true,
-          ...(position && POSITIONS.includes(position) ? { position } : {}),
-          AND: [
-            { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
-            { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
-          ],
-        },
-        orderBy: [{ position: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'desc' }],
-      });
-      res.json({ banners });
+      // HERO istegi (veya pozisyonsuz genel istek) icinde hero gecis suresini de dondur.
+      const wantsHeroInterval = !position || position === 'HERO';
+      const [banners, settings] = await Promise.all([
+        prisma.banner.findMany({
+          where: {
+            active: true,
+            ...(position && POSITIONS.includes(position) ? { position } : {}),
+            AND: [
+              { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+              { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+            ],
+          },
+          orderBy: [{ position: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'desc' }],
+        }),
+        wantsHeroInterval
+          ? prisma.settings.findFirst({
+              orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+              select: { heroBannerIntervalMs: true },
+            })
+          : Promise.resolve(null),
+      ]);
+      // 2000ms altina inmesin (cok hizli olmasin); tanimsizsa 6000ms varsayilan.
+      const heroIntervalMs = Math.max(2000, settings?.heroBannerIntervalMs ?? 6000);
+      res.json(wantsHeroInterval ? { banners, heroIntervalMs } : { banners });
     } catch (e) { next(e); }
   }
 
@@ -57,12 +69,9 @@ class BannerController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const data = sanitize(req.body || {});
-      if (!data.title) {
-        return res.status(400).json({ error: 'Baslik gerekli' });
-      }
       const banner = await prisma.banner.create({
         data: {
-          title: data.title,
+          title: data.title ?? '',
           subtitle: data.subtitle ?? null,
           imageUrl: data.imageUrl ?? null,
           linkUrl: data.linkUrl ?? null,

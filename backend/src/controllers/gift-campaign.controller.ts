@@ -56,9 +56,6 @@ class GiftCampaignController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const body = req.body || {};
-      if (!body.title || !String(body.title).trim()) {
-        return res.status(400).json({ error: 'Kampanya basligi gerekli' });
-      }
       const campaign = await giftCampaignService.createCampaign(body);
       res.status(201).json({ campaign });
     } catch (e) {

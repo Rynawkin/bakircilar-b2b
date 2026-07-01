@@ -184,10 +184,6 @@ export default function CollectionsPage() {
 
   const save = async () => {
     if (!form) return;
-    if (!form.title.trim()) {
-      toast.error('Başlık gerekli');
-      return;
-    }
     const payload: CollectionInput = {
       title: form.title.trim(),
       subtitle: form.subtitle.trim() || null,

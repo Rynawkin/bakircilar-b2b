@@ -180,15 +180,33 @@ router.get(
 // Anlasmali urunler erisilebilirligi (nav linkini sadece AKTIF anlasma varsa goster)
 router.get('/agreements/available', customerController.getAgreementsAvailability);
 
-// Landing bannerlari (aktif, tarih penceresinde)
-router.get('/banners', bannerController.listActive);
+// Landing bannerlari (aktif, tarih penceresinde) — pozisyona gore cache'li (hiz)
+router.get(
+  '/banners',
+  cacheMiddleware({
+    namespace: 'banners',
+    ttl: 120,
+    keyGenerator: (req) => String(req.query.position || 'all'),
+  }),
+  bannerController.listActive
+);
 
 // Hediyeli kampanya (GWP) - cari bazli aktif kampanya + sepet baraj durumu
 router.get('/gift-campaign/active', requireCustomer, giftCampaignController.getActive);
 router.put('/gift-campaign/cart-selection', requireCustomer, giftCampaignController.setCartSelection);
 
 // Koleksiyonlar ("Sizin icin koleksiyonlar") - aktif kartlar + MANUAL detay
-router.get('/collections/active', requireCustomer, collectionController.getActive);
+// Cari bazli hedefleme oldugu icin kullaniciya gore cache'li (hiz)
+router.get(
+  '/collections/active',
+  requireCustomer,
+  cacheMiddleware({
+    namespace: 'collections',
+    ttl: 120,
+    keyGenerator: (req) => req.user?.userId || 'anon',
+  }),
+  collectionController.getActive
+);
 router.get('/collections/:id', requireCustomer, collectionController.getOne);
 
 // Cari bakiye + vadesi gecen ozeti (header cipi + ana sayfa kutulari)

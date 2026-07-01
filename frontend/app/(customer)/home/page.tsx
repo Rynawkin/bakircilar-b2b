@@ -51,6 +51,7 @@ export default function CustomerHomePage() {
   const [featuredMode, setFeaturedMode] = useState<'discounted' | 'all'>('discounted');
   const [purchased, setPurchased] = useState<Product[]>([]);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [heroIntervalMs, setHeroIntervalMs] = useState(6000);
   const [bannersLoading, setBannersLoading] = useState(true);
   const [financials, setFinancials] = useState<CustomerFinancials | null>(null);
   const [adminCollections, setAdminCollections] = useState<CollectionCard[]>([]);
@@ -91,7 +92,7 @@ export default function CustomerHomePage() {
     let active = true;
     setBannersLoading(true);
     Promise.all([
-      customerApi.getBanners('HERO').catch(() => ({ banners: [] as Banner[] })),
+      customerApi.getBanners('HERO').catch(() => ({ banners: [] as Banner[], heroIntervalMs: undefined as number | undefined })),
       customerApi.getBanners('SIDE').catch(() => ({ banners: [] as Banner[] })),
       customerApi.getBanners('STRIP').catch(() => ({ banners: [] as Banner[] })),
     ]).then(([hero, side, strip]) => {
@@ -100,6 +101,9 @@ export default function CustomerHomePage() {
       setHeroBanners((hero.banners || []).slice().sort(sortFn));
       setSideBanners((side.banners || []).slice().sort(sortFn));
       setStripBanners((strip.banners || []).slice().sort(sortFn));
+      if (typeof hero.heroIntervalMs === 'number' && hero.heroIntervalMs >= 2000) {
+        setHeroIntervalMs(hero.heroIntervalMs);
+      }
     }).finally(() => {
       if (active) setBannersLoading(false);
     });
@@ -146,14 +150,14 @@ export default function CustomerHomePage() {
     return () => { active = false; };
   }, []);
 
-  // Hero carousel otomatik kaydirma
+  // Hero carousel otomatik kaydirma (gecis suresi admin ayarindan gelir)
   useEffect(() => {
     if (heroBanners.length <= 1) return;
     const interval = setInterval(() => {
       setHeroIndex((prev) => (prev + 1) % heroBanners.length);
-    }, 6000);
+    }, Math.max(2000, heroIntervalMs));
     return () => clearInterval(interval);
-  }, [heroBanners.length]);
+  }, [heroBanners.length, heroIntervalMs]);
 
   const goPrev = useCallback(() => {
     setHeroIndex((prev) => (prev - 1 + heroBanners.length) % heroBanners.length);

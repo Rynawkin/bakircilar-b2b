@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Product, Category } from '@/types';
 import customerApi from '@/lib/api/customer';
 import { Card } from '@/components/ui/Card';
@@ -42,6 +42,7 @@ type FallbackSuggestion = {
 
 export default function ProductsPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { user, loadUserFromStorage } = useAuthStore();
   const { fetchCart, addToCart } = useCartStore();
 
@@ -74,6 +75,8 @@ export default function ProductsPage() {
   const fallbackRequestRef = useRef<AbortController | null>(null);
   const productsRequestRef = useRef<AbortController | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  // Banner "birden fazla marka" tiklamasi: /products?brands=A,B,C -> bu markalarin urunleri
+  const [brandCodes, setBrandCodes] = useState<string[]>([]);
   const selectedCategoryIds = useMemo(
     () => (selectedCategory ? getDescendantCategoryIds(selectedCategory, categories) : []),
     [selectedCategory, categories]
@@ -89,6 +92,13 @@ export default function ProductsPage() {
   useEffect(() => {
     setSelectedCategory(searchParams?.get('categoryId') || '');
     setSearch(searchParams?.get('search') || '');
+    const rawBrands = searchParams?.get('brands') || searchParams?.get('brand') || '';
+    setBrandCodes(
+      rawBrands
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
   }, [searchParams]);
 
   useEffect(() => {
@@ -160,6 +170,7 @@ export default function ProductsPage() {
         const searchParamsObj = {
           categoryId: selectedCategory || undefined,
           categoryIds: selectedCategoryIds.length ? selectedCategoryIds : undefined,
+          brands: brandCodes.length ? brandCodes.join(',') : undefined,
           search: debouncedSearch || undefined,
           warehouse: warehouse || undefined,
           mode: 'all' as const,
@@ -189,7 +200,7 @@ export default function ProductsPage() {
         }
       }
     },
-    [selectedCategory, selectedCategoryIds, debouncedSearch, warehouse]
+    [selectedCategory, selectedCategoryIds, brandCodes, debouncedSearch, warehouse]
   );
 
   useEffect(() => {
@@ -198,7 +209,7 @@ export default function ProductsPage() {
       setHasMore(true);
       fetchProducts({ reset: true, offset: 0 });
     }
-  }, [selectedCategory, debouncedSearch, warehouse, categories, fetchProducts]);
+  }, [selectedCategory, brandCodes, debouncedSearch, warehouse, categories, fetchProducts]);
 
   const handleLoadMore = () => {
     if (isSearching || isLoadingMore || !hasMore) return;
@@ -255,10 +266,19 @@ export default function ProductsPage() {
     [addToCart]
   );
 
+  const clearBrandFilter = useCallback(() => {
+    setBrandCodes([]);
+    // brands URL parametreliyse temizle (banner tiklamasi sonrasi)
+    if (searchParams?.get('brands') || searchParams?.get('brand')) {
+      router.push('/products');
+    }
+  }, [router, searchParams]);
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (search.trim()) count += 1;
     if (selectedCategory) count += 1;
+    if (brandCodes.length > 0) count += 1;
     if (warehouse) count += 1;
     if (advancedFilters.sortBy !== 'none') count += 1;
     if (typeof advancedFilters.minPrice === 'number') count += 1;
@@ -266,13 +286,14 @@ export default function ProductsPage() {
     if (typeof advancedFilters.minStock === 'number') count += 1;
     if (typeof advancedFilters.maxStock === 'number') count += 1;
     return count;
-  }, [search, selectedCategory, warehouse, advancedFilters]);
+  }, [search, selectedCategory, brandCodes, warehouse, advancedFilters]);
 
   const clearAllFilters = () => {
     setSearch('');
     setSelectedCategory('');
     setWarehouse('');
     setAdvancedFilters({ sortBy: 'none', priceType: defaultFilterPriceType });
+    clearBrandFilter();
   };
 
   if (!user) {
@@ -300,11 +321,15 @@ export default function ProductsPage() {
               <LayoutGrid className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <h1 className="text-xl font-bold tracking-tight text-[var(--ink-1)] sm:text-2xl">Tüm Ürünler</h1>
+              <h1 className="text-xl font-bold tracking-tight text-[var(--ink-1)] sm:text-2xl">
+                {brandCodes.length === 1 ? brandCodes[0] : brandCodes.length > 1 ? 'Seçili Markalar' : 'Tüm Ürünler'}
+              </h1>
               <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">
-                {!isInitialLoad && totalCount !== null && totalCount > filteredProducts.length
-                  ? `Tüm katalog · ${totalCount} ürün`
-                  : `Tüm katalog · ${filteredProducts.length} sonuç`}
+                {brandCodes.length > 0
+                  ? `${brandCodes.join(', ')} · ${totalCount ?? filteredProducts.length} ürün`
+                  : !isInitialLoad && totalCount !== null && totalCount > filteredProducts.length
+                    ? `Tüm katalog · ${totalCount} ürün`
+                    : `Tüm katalog · ${filteredProducts.length} sonuç`}
               </p>
             </div>
           </div>
@@ -465,12 +490,23 @@ export default function ProductsPage() {
             )}
           </div>
 
-          {(search || selectedCategory || warehouse) && (
+          {(search || selectedCategory || warehouse || brandCodes.length > 0) && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--line)] pt-3">
               <span className="text-xs font-medium text-[var(--ink-3)]">Aktif:</span>
               {search && <span className="chip max-w-full truncate">Arama: {search}</span>}
               {selectedCategory && (
                 <span className="chip max-w-full truncate">Kategori: {categories.find((c) => c.id === selectedCategory)?.name}</span>
+              )}
+              {brandCodes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearBrandFilter}
+                  className="chip flex max-w-full items-center gap-1 truncate hover:bg-red-50 hover:text-red-600"
+                  title="Marka filtresini kaldır"
+                >
+                  {brandCodes.length === 1 ? `Marka: ${brandCodes[0]}` : `${brandCodes.length} marka`}
+                  <X className="h-3 w-3 shrink-0" />
+                </button>
               )}
               {warehouse && <span className="chip max-w-full truncate">Depo: {warehouse}</span>}
             </div>
@@ -557,7 +593,7 @@ export default function ProductsPage() {
             )}
 
             <div className={PRODUCTS_GRID_CLASS}>
-              {!search && !selectedCategory && offset === 0 && <InGridBanner />}
+              {!search && !selectedCategory && brandCodes.length === 0 && offset === 0 && <InGridBanner />}
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}

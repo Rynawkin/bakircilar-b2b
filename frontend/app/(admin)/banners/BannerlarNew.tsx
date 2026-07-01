@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ImageCropUpload } from '@/components/admin/ImageCropUpload';
+import { BrandMultiSelect } from '@/components/admin/BrandMultiSelect';
 import { formatDate } from '@/lib/utils/format';
 import { BannerPosition } from '@/lib/api/admin';
 import {
@@ -29,6 +30,9 @@ import {
   POSITION_OPTIONS,
   RECOMMENDED_SIZE,
   POSITION_DIMS,
+  brandsToLink,
+  linkToBrands,
+  isBrandsLink,
 } from './useBannerlar';
 
 /**
@@ -69,6 +73,10 @@ export default function BannerlarNew() {
     setFormData,
     confirmDialog,
     setConfirmDialog,
+    heroIntervalSec,
+    setHeroIntervalSec,
+    savingHeroInterval,
+    saveHeroInterval,
     openCreate,
     openEdit,
     closeModal,
@@ -96,14 +104,37 @@ export default function BannerlarNew() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="flex items-center gap-[7px] rounded-[9px] bg-[#15356b] px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-[#1c4585]"
-          >
-            <Plus className="h-[15px] w-[15px]" strokeWidth={2.2} />
-            Yeni Banner
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Hero otomatik gecis suresi (saniye) */}
+            <div className="flex items-center gap-2 rounded-[9px] border border-[#e3e8f0] bg-white px-3 py-2">
+              <span className="text-[12px] font-medium text-[#51607a]">Hero geçiş</span>
+              <input
+                type="number"
+                min={2}
+                max={60}
+                value={heroIntervalSec}
+                onChange={(e) => setHeroIntervalSec(e.target.value === '' ? 2 : parseInt(e.target.value, 10))}
+                className="w-14 rounded-md border border-[#e3e8f0] px-2 py-1 text-[13px] text-[#14223b] outline-none focus:border-[#15356b]"
+              />
+              <span className="text-[12px] text-[#8b97ac]">sn</span>
+              <button
+                type="button"
+                onClick={saveHeroInterval}
+                disabled={savingHeroInterval}
+                className="rounded-md bg-[#eef2fa] px-2.5 py-1 text-[12px] font-semibold text-[#15356b] transition hover:bg-[#dde6f5] disabled:opacity-60"
+              >
+                {savingHeroInterval ? '…' : 'Kaydet'}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="flex items-center gap-[7px] rounded-[9px] bg-[#15356b] px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-[#1c4585]"
+            >
+              <Plus className="h-[15px] w-[15px]" strokeWidth={2.2} />
+              Yeni Banner
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -304,12 +335,9 @@ export default function BannerlarNew() {
                   <form onSubmit={handleSubmit} className="space-y-5">
                     {/* Başlık */}
                     <div>
-                      <label className={labelClass}>
-                        Başlık <span className="text-[#dc2626]">*</span>
-                      </label>
+                      <label className={labelClass}>Başlık</label>
                       <input
                         type="text"
-                        required
                         value={formData.title}
                         onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                         placeholder="Örn. Yaz Kampanyası"
@@ -351,7 +379,8 @@ export default function BannerlarNew() {
                           value={formData.linkUrl ?? ''}
                           onChange={(e) => setFormData({ ...formData, linkUrl: e.target.value })}
                           placeholder="/discounted-products"
-                          className={fieldClass}
+                          disabled={isBrandsLink(formData.linkUrl)}
+                          className={`${fieldClass} disabled:bg-[#f4f6fa] disabled:text-[#9aa6b8]`}
                         />
                       </div>
                       <div>
@@ -370,6 +399,23 @@ export default function BannerlarNew() {
                         />
                       </div>
                     </div>
+
+                    {/* Coklu marka: secilirse banner tiklamasi bu markalarin urunlerine gider */}
+                    <BrandMultiSelect
+                      value={linkToBrands(formData.linkUrl)}
+                      onChange={(codes) =>
+                        setFormData({
+                          ...formData,
+                          linkUrl: codes.length
+                            ? brandsToLink(codes)
+                            : isBrandsLink(formData.linkUrl)
+                              ? ''
+                              : (formData.linkUrl ?? ''),
+                        })
+                      }
+                      label="Markalar (çoklu — opsiyonel)"
+                      hint="Marka seçerseniz banner tıklaması seçili markaların ürünlerini tek sayfada gösterir ve yukarıdaki Link URL’yi geçersiz kılar."
+                    />
 
                     {/* CTA & Pozisyon */}
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

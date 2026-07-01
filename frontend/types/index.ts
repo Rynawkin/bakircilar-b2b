@@ -720,6 +720,7 @@ export interface Settings {
     OZEL: { invoiced: number; white: number };
   };
   lastSyncAt?: string;
+  heroBannerIntervalMs?: number;
   marginReportEmailEnabled?: boolean;
   marginReportEmailRecipients?: string[];
   marginReportEmailSubject?: string;

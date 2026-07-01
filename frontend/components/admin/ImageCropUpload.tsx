@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import Cropper from 'react-easy-crop';
 import toast from 'react-hot-toast';
-import { Upload, X, Check } from 'lucide-react';
+import { Upload, X, Check, Crop } from 'lucide-react';
 import adminApi from '@/lib/api/admin';
 import { getCroppedBlob, PixelCrop } from '@/lib/utils/cropImage';
 
@@ -100,6 +100,16 @@ export function ImageCropUpload({ value, onChange, aspect, targetWidth, targetHe
           <Upload className="h-4 w-4" />
           {value ? 'Görseli değiştir' : 'Görsel yükle'}
         </button>
+        {value ? (
+          <button
+            type="button"
+            onClick={() => setSrc(value)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#d8e0ec] px-3 py-2 text-[12.5px] font-medium text-[#51607a] hover:bg-[#f4f6fa]"
+          >
+            <Crop className="h-4 w-4" />
+            Yeniden kırp
+          </button>
+        ) : null}
         <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
       </div>
       {hint && <p className="mt-1 text-[11.5px] text-[#9aa6b8]">{hint}</p>}

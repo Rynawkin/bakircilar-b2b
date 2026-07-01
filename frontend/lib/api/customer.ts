@@ -101,7 +101,7 @@ export interface CollectionDetail {
 
 export const customerApi = {
   // Banners (musteri - yalniz aktif)
-  getBanners: async (position?: BannerPosition): Promise<{ banners: Banner[] }> => {
+  getBanners: async (position?: BannerPosition): Promise<{ banners: Banner[]; heroIntervalMs?: number }> => {
     const response = await apiClient.get('/banners', {
       params: position ? { position } : undefined,
     });
@@ -118,6 +118,7 @@ export const customerApi = {
   getProducts: async (params?: {
     categoryId?: string;
     categoryIds?: string[];
+    brands?: string;
     search?: string;
     warehouse?: string;
     mode?: 'all' | 'discounted' | 'excess' | 'purchased' | 'agreements';

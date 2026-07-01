@@ -33,6 +33,29 @@ export const POSITION_DIMS: Record<BannerPosition, { w: number; h: number }> = {
   GRID: { w: 800, h: 360 },
 };
 
+// ---- Coklu marka -> link donusum yardimcilari ----
+// Banner "birden fazla marka" secimi linkUrl'de /products?brands=A,B,C olarak saklanir.
+export const brandsToLink = (codes: string[]): string =>
+  codes.length ? `/products?brands=${codes.map((c) => encodeURIComponent(c)).join(',')}` : '';
+
+export const linkToBrands = (linkUrl?: string | null): string[] => {
+  if (!linkUrl) return [];
+  const idx = linkUrl.indexOf('?');
+  if (idx === -1) return [];
+  try {
+    const params = new URLSearchParams(linkUrl.slice(idx + 1));
+    const raw = params.get('brands') || params.get('brand') || '';
+    return raw
+      .split(',')
+      .map((s) => decodeURIComponent(s.trim()))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+export const isBrandsLink = (linkUrl?: string | null): boolean => linkToBrands(linkUrl).length > 0;
+
 // Pozisyona gore onerilen gorsel olcusu
 export const RECOMMENDED_SIZE: Record<BannerPosition, string> = {
   HERO: 'Önerilen ölçü: 1920 × 640 px (yatay, ~3:1) · maks 5MB',
@@ -85,6 +108,10 @@ export function useBannerlar() {
   const [editing, setEditing] = useState<AdminBanner | null>(null);
   const [formData, setFormData] = useState<BannerInput>(emptyForm);
 
+  // HERO otomatik gecis suresi (saniye) — global ayar
+  const [heroIntervalSec, setHeroIntervalSec] = useState<number>(6);
+  const [savingHeroInterval, setSavingHeroInterval] = useState(false);
+
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -100,7 +127,30 @@ export function useBannerlar() {
 
   useEffect(() => {
     fetchBanners();
+    // Mevcut hero gecis suresini yukle
+    adminApi
+      .getSettings()
+      .then((s) => {
+        const ms = Number(s?.heroBannerIntervalMs);
+        if (Number.isFinite(ms) && ms >= 2000) setHeroIntervalSec(Math.round(ms / 1000));
+      })
+      .catch(() => {});
   }, []);
+
+  const saveHeroInterval = async () => {
+    const sec = Number.isFinite(heroIntervalSec) ? Math.max(2, Math.min(60, Math.round(heroIntervalSec))) : 6;
+    setSavingHeroInterval(true);
+    try {
+      await adminApi.updateSettings({ heroBannerIntervalMs: sec * 1000 });
+      setHeroIntervalSec(sec);
+      toast.success(`Hero geçiş süresi ${sec} saniye olarak kaydedildi`);
+    } catch (error) {
+      console.error('Hero gecis suresi kaydedilemedi:', error);
+      toast.error('Geçiş süresi kaydedilemedi');
+    } finally {
+      setSavingHeroInterval(false);
+    }
+  };
 
   const fetchBanners = async () => {
     setLoading(true);
@@ -192,11 +242,6 @@ export function useBannerlar() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title.trim()) {
-      toast.error('Başlık zorunludur');
-      return;
-    }
-
     setSaving(true);
     try {
       const payload = buildPayload();
@@ -270,6 +315,11 @@ export function useBannerlar() {
     // confirm dialog
     confirmDialog,
     setConfirmDialog,
+    // hero gecis suresi
+    heroIntervalSec,
+    setHeroIntervalSec,
+    savingHeroInterval,
+    saveHeroInterval,
     // aksiyonlar
     openCreate,
     openEdit,

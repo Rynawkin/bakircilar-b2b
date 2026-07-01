@@ -97,6 +97,12 @@ const getCachedValue = async <T>(key: string, loader: () => Promise<T>, ttlMs = 
   return value;
 };
 
+/** Musteri statik cache'ini (kategori/depo vb.) temizle. Admin gorsel/ayar degisiminde cagrilir. */
+export const invalidateCustomerStaticCache = (key?: string): void => {
+  if (key) customerStaticCache.delete(key);
+  else customerStaticCache.clear();
+};
+
 const getCustomerProductContext = async (customerId: string) =>
   getCachedValue(`product-context:${customerId}`, async () => {
     const [settings, priceListRules] = await Promise.all([
@@ -383,7 +389,7 @@ export class CustomerController {
    */
   async getProducts(req: Request, res: Response, next: NextFunction) {
     try {
-      const { categoryId, categoryIds: rawCategoryIds, search, warehouse, mode } = req.query;
+      const { categoryId, categoryIds: rawCategoryIds, search, warehouse, mode, brands: rawBrands, brand: rawBrand } = req.query;
       const categoryIds = Array.from(
         new Set(
           (Array.isArray(rawCategoryIds) ? rawCategoryIds : [rawCategoryIds])
@@ -398,6 +404,19 @@ export class CustomerController {
           : categoryId
             ? { categoryId: categoryId as string }
             : {};
+      // Coklu marka filtresi (banner "birden fazla marka" tiklamasi -> /products?brands=A,B,C)
+      const brandCodes = Array.from(
+        new Set(
+          (Array.isArray(rawBrands) ? rawBrands : [rawBrands, rawBrand])
+            .flatMap((value) => String(value || '').split(','))
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
+      const brandFilter =
+        brandCodes.length > 0
+          ? { brandCode: brandCodes.length === 1 ? brandCodes[0] : { in: brandCodes } }
+          : {};
       const isDiscounted = mode === 'discounted' || mode === 'excess';
       const isPurchased = mode === 'purchased';
       const isAgreementMode = mode === 'agreements';
@@ -569,6 +588,7 @@ export class CustomerController {
             hiddenFromCustomers: false,
             ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
             ...categoryFilter,
+            ...brandFilter,
           },
         };
 
@@ -785,6 +805,7 @@ export class CustomerController {
                 hiddenFromCustomers: false,
                 mikroCode: { in: purchasedCodes },
                 ...categoryFilter,
+                ...brandFilter,
                 ...(searchTokens.length > 0
                   ? {
                       AND: searchTokens.map((token) => ({
@@ -861,6 +882,7 @@ export class CustomerController {
                 ...(featuredOnly ? { isFeatured: true } : {}),
                 ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
                 ...categoryFilter,
+                ...brandFilter,
                 ...(searchTokens.length > 0
                   ? {
                       AND: searchTokens.map((token) => ({
@@ -991,6 +1013,7 @@ export class CustomerController {
           ...(featuredOnly ? { isFeatured: true } : {}),
           ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
           ...categoryFilter,
+          ...brandFilter,
           ...(searchTokens.length > 0
             ? {
                 AND: searchTokens.map((token) => ({
@@ -2059,41 +2082,95 @@ export class CustomerController {
    */
   async getCategories(req: Request, res: Response, next: NextFunction) {
     try {
-      const categories = await getCachedValue('customer:categories', async () => {
-        // 1) Musteriye gosterilebilir urunu OLAN kategoriler (genelde en-alt / yaprak seviye)
-        const withProducts = await prisma.category.findMany({
-          where: {
-            active: true,
-            products: { some: { active: true, hiddenFromCustomers: false } },
-          },
-          select: { mikroCode: true },
-        });
+      const categories = await getCachedValue(
+        'customer:categories',
+        async () => {
+          // 1) Musteriye gosterilebilir urunu OLAN kategoriler (genelde en-alt / yaprak seviye)
+          const withProducts = await prisma.category.findMany({
+            where: {
+              active: true,
+              products: { some: { active: true, hiddenFromCustomers: false } },
+            },
+            select: { mikroCode: true },
+          });
 
-        // 2) Hiyerarsinin (ana -> alt -> en alt) kurulabilmesi icin yaprak kategorilerin
-        //    TUM ust (ata) kategori kodlarini da topla. Kodlar nokta-ayracli: "1.02.03"
-        //    atalari "1.02" ve "1". (Ara seviyelerin kendi urunu olmadigi icin eski
-        //    sorgu onlari eliyordu; bu yuzden menude sadece yaprak gozukuyordu.)
-        const neededCodes = new Set<string>();
-        for (const cat of withProducts) {
-          const code = cat.mikroCode;
-          if (!code) continue;
-          neededCodes.add(code);
-          const parts = code.split('.');
-          for (let i = 1; i < parts.length; i += 1) {
-            neededCodes.add(parts.slice(0, i).join('.'));
+          // 2) Hiyerarsinin (ana -> alt -> en alt) kurulabilmesi icin yaprak kategorilerin
+          //    TUM ust (ata) kategori kodlarini da topla. Kodlar nokta-ayracli: "1.02.03"
+          //    atalari "1.02" ve "1". (Ara seviyelerin kendi urunu olmadigi icin eski
+          //    sorgu onlari eliyordu; bu yuzden menude sadece yaprak gozukuyordu.)
+          const neededCodes = new Set<string>();
+          for (const cat of withProducts) {
+            const code = cat.mikroCode;
+            if (!code) continue;
+            neededCodes.add(code);
+            const parts = code.split('.');
+            for (let i = 1; i < parts.length; i += 1) {
+              neededCodes.add(parts.slice(0, i).join('.'));
+            }
           }
-        }
 
-        // 3) Yaprak + ata kategorileri birlikte dondur (ara seviyeler urunu olmasa da gelir)
-        return prisma.category.findMany({
-          where: {
-            active: true,
-            mikroCode: { in: Array.from(neededCodes) },
-          },
-          select: { id: true, name: true, mikroCode: true, imageUrl: true },
-          orderBy: { name: 'asc' },
-        });
-      });
+          // 3) Yaprak + ata kategorileri birlikte dondur (ara seviyeler urunu olmasa da gelir)
+          const cats = await prisma.category.findMany({
+            where: {
+              active: true,
+              mikroCode: { in: Array.from(neededCodes) },
+            },
+            select: { id: true, name: true, mikroCode: true, imageUrl: true },
+            orderBy: { name: 'asc' },
+          });
+
+          // 4) Otomatik gorsel: admin gorsel yuklemediyse (imageUrl null), kategorinin
+          //    EN COK SATAN (gorseli olan) urununun gorselini varsayilan olarak kullan.
+          //    Cache icinde tek DISTINCT ON sorgusuyla hesaplanir (site hizini etkilemez).
+          const hasMissing = cats.some((c) => !c.imageUrl);
+          if (hasMissing) {
+            try {
+              const rows = await prisma.$queryRaw<
+                Array<{ mikroCode: string | null; imageUrl: string | null; pop: number | null }>
+              >`
+                SELECT DISTINCT ON (p."categoryId")
+                  c."mikroCode" AS "mikroCode",
+                  p."imageUrl" AS "imageUrl",
+                  p."popularSalesValue" AS "pop"
+                FROM "Product" p
+                JOIN "Category" c ON c."id" = p."categoryId"
+                WHERE p."active" = true
+                  AND p."hiddenFromCustomers" = false
+                  AND p."imageUrl" IS NOT NULL
+                ORDER BY p."categoryId", p."popularSalesValue" DESC NULLS LAST
+              `;
+
+              // Her kategori kodu (yaprak + atalar) icin en populer urun gorselini sec.
+              const bestImageByCode = new Map<string, { url: string; pop: number }>();
+              for (const row of rows) {
+                const code = row.mikroCode;
+                const url = row.imageUrl;
+                if (!code || !url) continue;
+                const pop = Number(row.pop) || 0;
+                const parts = code.split('.');
+                for (let i = parts.length; i >= 1; i -= 1) {
+                  const prefix = parts.slice(0, i).join('.');
+                  const cur = bestImageByCode.get(prefix);
+                  if (!cur || pop > cur.pop) bestImageByCode.set(prefix, { url, pop });
+                }
+              }
+
+              return cats.map((c) => ({
+                ...c,
+                imageUrl: c.imageUrl || bestImageByCode.get(c.mikroCode)?.url || null,
+                autoImage: !c.imageUrl && Boolean(bestImageByCode.get(c.mikroCode)?.url),
+              }));
+            } catch (err) {
+              console.error('Kategori otomatik gorsel hesabi basarisiz', err);
+              return cats.map((c) => ({ ...c, autoImage: false }));
+            }
+          }
+
+          return cats.map((c) => ({ ...c, autoImage: false }));
+        },
+        // Kategori + otomatik gorsel nadiren degisir; agir sorguyu seyrek calistir (10 dk).
+        10 * 60 * 1000
+      );
 
       res.json({ categories });
     } catch (error) {

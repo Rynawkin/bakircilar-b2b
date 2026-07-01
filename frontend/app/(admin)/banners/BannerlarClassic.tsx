@@ -25,11 +25,15 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatDate } from '@/lib/utils/format';
 import { BannerPosition } from '@/lib/api/admin';
+import { BrandMultiSelect } from '@/components/admin/BrandMultiSelect';
 import {
   useBannerlar,
   POSITION_OPTIONS,
   POSITION_BADGE,
   RECOMMENDED_SIZE,
+  brandsToLink,
+  linkToBrands,
+  isBrandsLink,
 } from './useBannerlar';
 
 /**
@@ -268,11 +272,10 @@ export default function BannerlarClassic() {
                     {/* Başlık */}
                     <div>
                       <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                        Başlık <span className="text-red-500">*</span>
+                        Başlık
                       </label>
                       <input
                         type="text"
-                        required
                         value={formData.title}
                         onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                         placeholder="Örn. Yaz Kampanyası"
@@ -349,7 +352,8 @@ export default function BannerlarClassic() {
                           value={formData.linkUrl ?? ''}
                           onChange={(e) => setFormData({ ...formData, linkUrl: e.target.value })}
                           placeholder="/discounted-products"
-                          className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          disabled={isBrandsLink(formData.linkUrl)}
+                          className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 disabled:text-gray-400"
                         />
                       </div>
                       <div>
@@ -366,6 +370,23 @@ export default function BannerlarClassic() {
                         />
                       </div>
                     </div>
+
+                    {/* Coklu marka: secilirse banner tiklamasi bu markalarin urunlerine gider */}
+                    <BrandMultiSelect
+                      value={linkToBrands(formData.linkUrl)}
+                      onChange={(codes) =>
+                        setFormData({
+                          ...formData,
+                          linkUrl: codes.length
+                            ? brandsToLink(codes)
+                            : isBrandsLink(formData.linkUrl)
+                              ? ''
+                              : (formData.linkUrl ?? ''),
+                        })
+                      }
+                      label="Markalar (çoklu — opsiyonel)"
+                      hint="Marka seçerseniz banner tıklaması seçili markaların ürünlerini tek sayfada gösterir ve Link URL’yi geçersiz kılar."
+                    />
 
                     {/* CTA & Pozisyon */}
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

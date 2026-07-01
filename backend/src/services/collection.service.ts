@@ -86,9 +86,7 @@ class CollectionService {
 
   async createCollection(input: CollectionInput) {
     const data = this.buildData(input);
-    if (!data.title) {
-      throw new Error('Koleksiyon basligi gerekli');
-    }
+    data.title = data.title ?? '';
     const created = await prisma.collection.create({ data });
     return this.toAdminDto(created);
   }

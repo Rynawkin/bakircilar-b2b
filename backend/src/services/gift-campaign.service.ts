@@ -125,9 +125,7 @@ class GiftCampaignService {
 
   async createCampaign(input: CampaignInput) {
     const data = this.buildData(input);
-    if (!data.title) {
-      throw new Error('Kampanya basligi gerekli');
-    }
+    data.title = data.title ?? '';
     const gifts = Array.isArray(input.gifts) ? input.gifts : [];
     const created = await prisma.giftCampaign.create({
       data: {
