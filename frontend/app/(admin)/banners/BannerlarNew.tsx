@@ -49,6 +49,7 @@ const POSITION_BADGE_NEW: Record<BannerPosition, string> = {
   HERO: 'bg-[#eef2fa] text-[#15356b] border border-[#d6e0f1]',
   STRIP: 'bg-[#fffbeb] text-[#b45309] border border-[#fde68a]',
   SIDE: 'bg-[#f4f6fa] text-[#51607a] border border-[#e3e8f0]',
+  GRID: 'bg-[#ecfdf5] text-[#047857] border border-[#d1fae5]',
 };
 
 const fieldClass =
