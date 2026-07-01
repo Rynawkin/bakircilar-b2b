@@ -147,12 +147,30 @@ export default function OrdersPage() {
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
       <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6">
+        {/* Breadcrumb */}
+        <nav className="mb-3.5 flex items-center gap-1.5 text-[12px] text-[var(--ink-3)]">
+          <button
+            type="button"
+            onClick={() => router.push('/home')}
+            className="text-[var(--ink-3)] transition-colors hover:text-[var(--ink-2)]"
+          >
+            Ana Sayfa
+          </button>
+          <span className="text-gray-300">/</span>
+          <span className="font-medium text-[var(--ink-2)]">Siparişlerim</span>
+        </nav>
+
         {/* Sayfa basligi */}
-        <div className="mb-5 mt-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Siparişlerim</h1>
-          <p className="mt-1 text-[13px] text-[var(--ink-3)]">
-            Açık siparişlerin depo süreci ve geçmiş siparişleriniz
-          </p>
+        <div className="mb-[18px] flex items-center gap-3.5">
+          <span className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-[13px] bg-primary-50 text-primary-600">
+            <ClipboardList className="h-[22px] w-[22px]" strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-[23px] font-bold tracking-tight text-[var(--ink-1)]">Siparişlerim</h1>
+            <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">
+              Açık siparişlerin depo süreci ve geçmiş siparişleriniz
+            </p>
+          </div>
         </div>
 
         {isLoading ? (
@@ -165,7 +183,7 @@ export default function OrdersPage() {
             {pendingWarehouseOrders.length > 0 && (
               <div className="mb-8">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <h2 className="text-[15px] font-semibold text-[var(--ink-1)]">
+                  <h2 className="text-[15px] font-bold text-[var(--ink-1)]">
                     Depo Sürecindeki Açık Siparişler
                   </h2>
                   <button
@@ -213,7 +231,7 @@ export default function OrdersPage() {
             )}
 
             {/* ── Bolum 2: Tum Siparisler ──────────────────────────────── */}
-            <h2 className="mb-3 text-[15px] font-semibold text-[var(--ink-1)]">Tüm Siparişler</h2>
+            <h2 className="mb-3 text-[15px] font-bold text-[var(--ink-1)]">Tüm Siparişler</h2>
 
             {orders.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-[var(--line)] bg-white px-6 py-16 text-center">

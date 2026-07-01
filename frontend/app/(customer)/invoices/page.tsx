@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 import customerApi from '@/lib/api/customer';
 import { EInvoiceDocument } from '@/types';
@@ -126,14 +127,23 @@ export default function CustomerInvoicesPage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[var(--surface-0)]">
       <div className="mx-auto w-full max-w-[1200px] px-3 py-5 sm:px-4 sm:py-6 lg:px-6">
+        {/* Breadcrumb */}
+        <nav className="mb-3.5 flex items-center gap-1.5 text-[12px] text-[var(--ink-3)]">
+          <Link href="/home" className="text-[var(--ink-3)] transition-colors hover:text-[var(--ink-2)]">
+            Ana Sayfa
+          </Link>
+          <span className="text-gray-300">/</span>
+          <span className="font-medium text-[var(--ink-2)]">Faturalarım</span>
+        </nav>
+
         {/* Baslik */}
-        <div className="mb-4 flex items-center gap-3">
-          <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
-            <FileText className="h-5 w-5" strokeWidth={2} />
+        <div className="mb-[18px] flex items-center gap-3.5">
+          <span className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-[13px] bg-primary-50 text-primary-600">
+            <FileText className="h-[22px] w-[22px]" strokeWidth={2} />
           </span>
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-[var(--ink-1)] sm:text-2xl">Faturalarım</h1>
-            <p className="mt-1 text-[13px] text-[var(--ink-3)]">
+            <h1 className="text-[23px] font-bold tracking-tight text-[var(--ink-1)]">Faturalarım</h1>
+            <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">
               E-faturalarınız · PDF / e-fatura zarfı indirme
             </p>
           </div>

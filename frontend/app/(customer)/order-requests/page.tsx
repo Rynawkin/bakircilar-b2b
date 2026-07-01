@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
-import { ClipboardList, Clock, CheckCircle2, XCircle, User2, Hash, ShoppingCart, CalendarDays, Package } from 'lucide-react';
+import Link from 'next/link';
+import { ClipboardList, Clock, CheckCircle2, XCircle, User2, Hash, ShoppingCart, CalendarDays, Package, ChevronRight } from 'lucide-react';
 
 export default function OrderRequestsPage() {
   const { user, loadUserFromStorage } = useAuthStore();
@@ -199,21 +200,28 @@ export default function OrderRequestsPage() {
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
       <div className="mx-auto w-full max-w-[1100px] px-4 py-6 lg:px-6 space-y-5">
+        {/* Breadcrumb */}
+        <div className="-mb-1 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
+          <Link href="/home" className="hover:text-primary-700">Ana Sayfa</Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="font-medium text-[var(--ink-2)]">Sipariş Talepleri</span>
+        </div>
+
         {/* Sayfa basligi + bekleyen rozeti */}
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+        <div className="flex items-center gap-3.5">
+          <span className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-[13px] bg-primary-50 text-primary-600">
             <ClipboardList className="h-5 w-5" strokeWidth={2} />
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-[24px] font-semibold tracking-[-0.01em] text-[var(--ink-1)]">Sipariş Talepleri</h1>
+              <h1 className="text-[23px] font-extrabold tracking-[-0.02em] text-[var(--ink-1)]">Sipariş Talepleri</h1>
               {pendingCount > 0 && (
                 <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11.5px] font-semibold text-amber-700">
                   {pendingCount} bekleyen
                 </span>
               )}
             </div>
-            <p className="mt-1 text-[13px] text-[var(--ink-3)]">
+            <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">
               {isSubUser
                 ? 'Sepetten gönderdiğiniz talepleri burada takip edebilirsiniz.'
                 : 'Alt kullanıcıların oluşturduğu, ana cari onayı bekleyen talepler.'}

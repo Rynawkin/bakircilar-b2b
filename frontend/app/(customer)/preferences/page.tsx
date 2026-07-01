@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuthStore } from '@/lib/store/authStore';
 import { Button } from '@/components/ui/Button';
 import apiClient from '@/lib/api/client';
-import { Info, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Info, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
 
 export default function PreferencesPage() {
   const router = useRouter();
@@ -57,10 +58,17 @@ export default function PreferencesPage() {
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
       <div className="mx-auto w-full max-w-[680px] px-4 py-6 lg:px-6">
+        {/* Breadcrumb */}
+        <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
+          <Link href="/home" className="hover:text-primary-700">Ana Sayfa</Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="font-medium text-[var(--ink-2)]">Tercihlerim</span>
+        </div>
+
         {/* Header */}
-        <div className="mt-2 mb-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Tercihler</h1>
-          <p className="text-sm text-[var(--ink-3)] mt-1">Fiyat ve KDV görünüm tercihleriniz</p>
+        <div className="mb-4">
+          <h1 className="text-[23px] font-extrabold tracking-[-0.02em] text-[var(--ink-1)]">Tercihler</h1>
+          <p className="text-[13px] text-[var(--ink-3)] mt-0.5">Fiyat ve KDV görünüm tercihleriniz</p>
         </div>
 
         {/* Message */}

@@ -30,6 +30,7 @@ import {
   TaskType,
   TaskView,
 } from '@/types';
+import Link from 'next/link';
 import {
   ListTodo,
   Paperclip,
@@ -37,6 +38,7 @@ import {
   Plus,
   LayoutGrid,
   List as ListIcon,
+  ChevronRight,
 } from 'lucide-react';
 
 type FilterValue = 'ALL' | TaskStatus;
@@ -293,15 +295,22 @@ export default function CustomerRequestsPage() {
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
       <div className="mx-auto w-full max-w-[1200px] px-4 py-6 lg:px-6 space-y-6">
+        {/* Breadcrumb */}
+        <div className="-mb-2 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
+          <Link href="/home" className="hover:text-primary-700">Ana Sayfa</Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="font-medium text-[var(--ink-2)]">Taleplerim</span>
+        </div>
+
         {/* Sayfa basligi + aksiyonlar */}
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
+          <div className="flex items-center gap-3.5">
+            <span className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-[13px] bg-primary-50 text-primary-600">
               <ListTodo className="h-5 w-5" strokeWidth={2} />
             </span>
             <div>
-              <h1 className="page-title">Taleplerim</h1>
-              <p className="page-subtitle">Destek ve iş talepleriniz · durum, öncelik ve termin takibi</p>
+              <h1 className="text-[23px] font-extrabold tracking-[-0.02em] text-[var(--ink-1)]">Taleplerim</h1>
+              <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">Destek ve iş talepleriniz · durum, öncelik ve termin takibi</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

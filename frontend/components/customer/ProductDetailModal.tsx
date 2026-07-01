@@ -261,24 +261,24 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
 
       {/* Modal */}
       <div
-        className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto animate-slideUp"
+        className="relative bg-white rounded-[22px] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto animate-slideUp"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 bg-white hover:bg-gray-100 rounded-full p-2 shadow-lg transition-all hover:scale-110"
+          className="absolute top-4 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-white text-[var(--ink-2)] shadow-md transition-all hover:bg-[var(--surface-0)] hover:scale-105"
         >
-          <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-7 p-6 sm:p-8">
           {/* Left: Image */}
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div
-              className={`relative bg-white border border-gray-200 rounded-xl overflow-hidden aspect-square ${
+              className={`relative bg-[var(--surface-1)] border border-[var(--line)] rounded-2xl overflow-hidden aspect-square ${
                 isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
               }`}
               onClick={() => setIsZoomed(!isZoomed)}
@@ -296,7 +296,7 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                 />
               ) : (
                 <div className="aspect-square flex items-center justify-center">
-                  <div className="text-center text-gray-400">
+                  <div className="text-center text-[var(--ink-3)]">
                     <svg className="w-24 h-24 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
@@ -306,32 +306,41 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
               )}
 
               {/* Stock Badge */}
-              <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm text-gray-900 px-4 py-2 rounded-lg shadow-lg border border-gray-200">
-                <div className="text-xs text-gray-600 font-medium">
+              <div className="absolute top-3.5 right-3.5 rounded-xl border border-[var(--line)] bg-white/95 backdrop-blur-sm px-3 py-1.5 shadow-md">
+                <div className="text-[10.5px] font-semibold text-[var(--ink-3)]">
                   {isDiscounted ? 'Fazla Stok' : 'Stok'}
                 </div>
-                <div className="text-lg font-bold text-green-600">
+                <div className="text-base font-bold text-emerald-700 tabular-nums">
                   {displayStock} {product.unit}
                 </div>
               </div>
-            </div>
 
-            {product.imageUrl && (
-              <p className="text-xs text-center text-gray-500">
-                {isZoomed ? 'Kucultmek icin tiklayin' : 'Buyutmek icin tiklayin'}
-              </p>
-            )}
+              {/* Zoom hint pill */}
+              {product.imageUrl && (
+                <span className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-[var(--ink-1)]/70 px-3 py-1 text-[11px] font-medium text-white">
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="7" strokeWidth={2} />
+                    <path strokeLinecap="round" strokeWidth={2} d="M21 21l-4.35-4.35" />
+                  </svg>
+                  {isZoomed ? 'Kucultmek icin tiklayin' : 'Buyutmek icin tiklayin'}
+                </span>
+              )}
+            </div>
 
             <button
               type="button"
               onClick={handleReportImageIssue}
               disabled={imageIssueReported || isReportingImageIssue}
-              className={`w-full rounded-xl border px-3 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+              className={`flex h-[38px] w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
                 imageIssueReported
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                  : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
               }`}
             >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="9" strokeWidth={2} />
+                <path strokeLinecap="round" strokeWidth={2} d="M12 8h.01M11 12h1v4h1" />
+              </svg>
               {isReportingImageIssue
                 ? 'Bildiriliyor...'
                 : imageIssueReported
@@ -341,25 +350,27 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
 
             {/* Warehouse Stock Breakdown */}
             {warehouseEntries.length > 0 && (
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                <h4 className="font-semibold text-sm text-gray-900 mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
-                  </svg>
+              <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] p-3.5">
+                <h4 className="mb-2.5 flex items-center gap-2 text-[12.5px] font-bold text-[var(--ink-1)]">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#eef2fa] text-primary-600">
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+                    </svg>
+                  </span>
                   {isDiscounted ? 'Depo Dagilimi (Fazla Stok)' : 'Depo Dagilimi'}
                 </h4>
                 <div className="space-y-2">
                   {warehouseEntries.map(({ key, stock }) => (
-                    <div key={key} className="flex justify-between items-center text-sm">
-                      <span className="text-gray-700 font-medium">{warehouseLabels[key] || key}</span>
-                      <span className="bg-white px-3 py-1 rounded-lg border border-gray-200 font-semibold text-gray-900">
+                    <div key={key} className="flex justify-between items-center text-[13px]">
+                      <span className="font-semibold text-[var(--ink-2)]">{warehouseLabels[key] || key}</span>
+                      <span className="rounded-lg border border-[var(--line)] bg-white px-3 py-1 font-bold text-[var(--ink-1)] tabular-nums">
                         {stock} {product.unit}
                       </span>
                     </div>
                   ))}
                 </div>
                 {isDiscounted && (
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="mt-2 text-[11px] text-[var(--ink-3)]">
                     * Sadece fazla stoklu depolar gosterilir
                   </p>
                 )}
@@ -368,26 +379,28 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
           </div>
 
           {/* Right: Details */}
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Product Name */}
             <div>
-              <div className="bg-gradient-to-r from-primary-600 to-primary-700 text-white px-3 py-1 rounded-lg inline-block text-xs font-semibold mb-3">
+              <div className="inline-block rounded-lg bg-primary-600 px-2.5 py-1 text-[11px] font-bold text-white">
                 {product.category.name}
               </div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">{product.name}</h2>
-              <p className="text-sm text-gray-600 font-mono bg-gray-100 px-3 py-2 rounded-lg inline-block">
-                Kod: {product.mikroCode}
-              </p>
-              {unitLabel && (
-                <p className="mt-2 text-xs text-gray-500">{unitLabel}</p>
-              )}
+              <h2 className="mt-3 text-[27px] font-bold leading-[1.12] tracking-tight text-[var(--ink-1)]">{product.name}</h2>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <span className="rounded-lg bg-[#f1f4f9] px-2.5 py-1 font-mono text-[12px] text-[var(--ink-2)]">
+                  Kod: {product.mikroCode}
+                </span>
+                {unitLabel && (
+                  <span className="text-[12px] text-[var(--ink-3)]">{unitLabel}</span>
+                )}
+              </div>
             </div>
 
             {/* Price Type Selection */}
             <div className="space-y-3">
               {hasAgreement && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
-                  <div className="font-semibold">Anlasmali fiyat</div>
+                <div className="rounded-xl border border-primary-100 bg-primary-50 p-3.5 text-[12px] text-primary-800">
+                  <div className="font-bold text-primary-800">Anlasmali fiyat</div>
                   <div>Min miktar: {agreementMinQuantity} {product.unit}</div>
                   {product.agreement?.customerProductCode && (
                     <div>Ozel urun kodu: {product.agreement.customerProductCode}</div>
@@ -398,80 +411,94 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
                   </div>
                 </div>
               )}
-              <label className="block text-sm font-semibold text-gray-900">
+              <label className="block text-[13px] font-bold text-[var(--ink-1)]">
                 {showPriceTypeSelector ? 'Fiyat turu secin' : 'Fiyat'}
               </label>
               <div className={`grid ${priceGridClass} gap-3`}>
                 {resolvedAllowed.includes('INVOICED') && (
                   <button
-                    className={`p-4 rounded-xl border-2 transition-all ${
+                    className={`relative rounded-2xl border-2 p-4 text-left transition-all ${
                       priceType === 'INVOICED'
-                        ? 'border-primary-600 bg-gradient-to-br from-primary-50 to-primary-100 shadow-lg scale-105'
-                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
+                        ? 'border-primary-600 bg-[#f6f9ff] shadow-sm'
+                        : 'border-[var(--line)] bg-white hover:border-[var(--line-strong)]'
                     }`}
                     onClick={() => showPriceTypeSelector && setPriceType('INVOICED')}
                     disabled={!showPriceTypeSelector}
                   >
-                    <div className="text-xs text-gray-600 mb-1">Faturali</div>
-                    <div className="text-2xl font-bold text-primary-600">
+                    {priceType === 'INVOICED' && (
+                      <span className="absolute right-2.5 top-2.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-primary-600 text-white">
+                        <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                    )}
+                    <div className="mb-1 text-[11.5px] text-[var(--ink-3)]">Faturali</div>
+                    <div className="text-[22px] font-bold tabular-nums text-primary-600">
                         {formatCurrency(displayInvoicedPrice)}
                     </div>
                     {shouldShowDiscounts && isDiscounted && listInvoiced && listInvoiced > 0 && (
-                      <div className="text-xs text-gray-500">
+                      <div className="text-[11px] text-[var(--ink-3)]">
                         Liste: <span className="line-through">{formatCurrency(displayListInvoiced)}</span>
                       </div>
                     )}
                     {shouldShowDiscounts && isDiscounted && invoicedDiscount && (
-                      <div className="text-xs text-green-700 font-semibold">
-                        <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{invoicedDiscount}</span> indirim
+                      <div className="text-[11px] font-semibold text-emerald-700">
+                        <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5">-%{invoicedDiscount}</span> indirim
                       </div>
                     )}
                       {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessInvoiced !== undefined && (
-                        <div className="text-xs text-green-700 font-semibold">
+                        <div className="text-[11px] font-semibold text-emerald-700">
                           Fazla Stok: {formatCurrency(displayExcessInvoiced)}
                           {excessInvoicedDiscount && (
                             <span> (-%{excessInvoicedDiscount})</span>
                           )}
                         </div>
                       )}
-                      <div className="text-xs text-gray-500 mt-1">
-                        /{product.unit} <span className="text-primary-600 font-semibold">{getVatLabel('INVOICED', vatDisplayPreference)}</span>
+                      <div className="mt-1.5 text-[10.5px] text-[var(--ink-3)]">
+                        /{product.unit} <span className="font-semibold text-primary-600">{getVatLabel('INVOICED', vatDisplayPreference)}</span>
                       </div>
                   </button>
                 )}
                 {resolvedAllowed.includes('WHITE') && (
                   <button
-                    className={`p-4 rounded-xl border-2 transition-all ${
+                    className={`relative rounded-2xl border-2 p-4 text-left transition-all ${
                       priceType === 'WHITE'
-                        ? 'border-gray-700 bg-gradient-to-br from-gray-100 to-gray-200 shadow-lg scale-105'
-                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
+                        ? 'border-[var(--ink-1)] bg-[var(--surface-1)] shadow-sm'
+                        : 'border-[var(--line)] bg-white hover:border-[var(--line-strong)]'
                     }`}
                     onClick={() => showPriceTypeSelector && setPriceType('WHITE')}
                     disabled={!showPriceTypeSelector}
                   >
-                    <div className="text-xs text-gray-600 mb-1">Beyaz</div>
-                    <div className="text-2xl font-bold text-gray-900">
+                    {priceType === 'WHITE' && (
+                      <span className="absolute right-2.5 top-2.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[var(--ink-1)] text-white">
+                        <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                    )}
+                    <div className="mb-1 text-[11.5px] text-[var(--ink-3)]">Beyaz</div>
+                    <div className="text-[22px] font-bold tabular-nums text-[var(--ink-1)]">
                         {formatCurrency(displayWhitePrice)}
                     </div>
                       {shouldShowDiscounts && isDiscounted && displayListWhite > 0 && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-[11px] text-[var(--ink-3)]">
                           Liste: <span className="line-through">{formatCurrency(displayListWhite)}</span>
                         </div>
                       )}
                     {shouldShowDiscounts && isDiscounted && whiteDiscount && (
-                      <div className="text-xs text-green-700 font-semibold">
-                        <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded">-%{whiteDiscount}</span> indirim
+                      <div className="text-[11px] font-semibold text-emerald-700">
+                        <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5">-%{whiteDiscount}</span> indirim
                       </div>
                     )}
                       {shouldShowDiscounts && !isDiscounted && product.excessStock > 0 && displayExcessWhite !== undefined && (
-                        <div className="text-xs text-green-700 font-semibold">
+                        <div className="text-[11px] font-semibold text-emerald-700">
                           Fazla Stok: {formatCurrency(displayExcessWhite)}
                           {excessWhiteDiscount && (
                             <span> (-%{excessWhiteDiscount})</span>
                           )}
                         </div>
                       )}
-                    <div className="text-xs text-gray-500 mt-1">/{product.unit} <span className="text-gray-700 font-semibold">Ozel Fiyat</span></div>
+                    <div className="mt-1.5 text-[10.5px] text-[var(--ink-3)]">/{product.unit} <span className="font-semibold text-[var(--ink-2)]">Ozel Fiyat</span></div>
                   </button>
                 )}
               </div>
@@ -479,90 +506,91 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
 
             {/* Quantity Selector */}
             <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-3">Miktar</label>
+              <label className="mb-3 block text-[13px] font-bold text-[var(--ink-1)]">Miktar</label>
               <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl w-12 h-12 flex items-center justify-center font-bold text-xl transition-colors"
-                >
-                  -
-                </button>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={quantity}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/[^0-9]/g, '');
-                    if (value === '' || parseInt(value) === 0) {
-                      return; // Allow empty during typing
-                    }
-                    const numericValue = parseInt(value);
-                    const numValue = Math.max(1, numericValue);
-                    setQuantity(numValue);
-                  }}
-                  onBlur={(e) => {
-                    // Set to 1 if empty on blur
-                    if (e.target.value === '' || parseInt(e.target.value) === 0) {
-                      setQuantity(1);
-                    }
-                  }}
-                  className="text-center font-bold text-xl h-12 w-24 border-2 border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg px-3"
-                />
-                <button
-                  onClick={() => {
-                    setQuantity(quantity + 1);
-                  }}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl w-12 h-12 flex items-center justify-center font-bold text-xl transition-colors"
-                >
-                  +
-                </button>
-                <span className="text-gray-600 font-semibold">{product.unit}</span>
+                <div className="flex items-center overflow-hidden rounded-xl border border-[var(--line-strong)]">
+                  <button
+                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    className="flex h-12 w-12 items-center justify-center bg-[var(--surface-1)] text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] font-bold text-xl"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={quantity}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9]/g, '');
+                      if (value === '' || parseInt(value) === 0) {
+                        return; // Allow empty during typing
+                      }
+                      const numericValue = parseInt(value);
+                      const numValue = Math.max(1, numericValue);
+                      setQuantity(numValue);
+                    }}
+                    onBlur={(e) => {
+                      // Set to 1 if empty on blur
+                      if (e.target.value === '' || parseInt(e.target.value) === 0) {
+                        setQuantity(1);
+                      }
+                    }}
+                    className="h-12 w-16 border-x border-[var(--line)] px-3 text-center text-lg font-bold tabular-nums text-[var(--ink-1)] focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      setQuantity(quantity + 1);
+                    }}
+                    className="flex h-12 w-12 items-center justify-center bg-[var(--surface-1)] text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-0)] font-bold text-xl"
+                  >
+                    +
+                  </button>
+                </div>
+                <span className="font-semibold text-[var(--ink-2)]">{product.unit}</span>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="mt-2 text-[11px] text-[var(--ink-3)]">
                 Mevcut stok: {maxQuantity} {product.unit}
               </p>
             </div>
 
             {/* Total Price */}
-            <div className="bg-gradient-to-br from-primary-50 to-primary-100 rounded-xl p-6 border-2 border-primary-200">
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-sm text-gray-700 mb-1">Toplam Fiyat</div>
-                  <div className="text-3xl font-bold text-primary-700">{formatCurrency(displayTotalPrice)}</div>
+            <div className="flex items-center justify-between rounded-2xl border border-[#d6e0f1] bg-gradient-to-br from-[#eef2fa] to-[#f6f9ff] p-5">
+              <div>
+                <div className="text-[12.5px] text-[var(--ink-2)]">Toplam Fiyat</div>
+                <div className="mt-0.5 text-[30px] font-bold tracking-tight tabular-nums text-primary-600">{formatCurrency(displayTotalPrice)}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[12px] tabular-nums text-[var(--ink-3)]">
+                  {quantity} {product.unit} x {formatCurrency(displaySelectedPrice)}
                 </div>
-                <div className="text-right">
-                  <div className="text-xs text-gray-600">
-                    {quantity} {product.unit} x {formatCurrency(displaySelectedPrice)}
-                  </div>
-                  <div className="text-xs font-semibold text-primary-600 mt-1">
-                    {priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
-                  </div>
+                <div className="mt-1 text-[12px] font-bold text-primary-600">
+                  {priceType === 'INVOICED' ? 'Faturali' : 'Beyaz'}
                 </div>
               </div>
             </div>
 
             {/* Add to Cart Button */}
             <Button
-              className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 text-lg shadow-xl rounded-xl"
+              className="flex h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-primary-600 text-[15px] font-bold text-white hover:bg-primary-700"
               onClick={handleAddToCart}
               isLoading={isAdding}
             >
+              <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 4h12M17 21a1 1 0 100-2 1 1 0 000 2zM9 21a1 1 0 100-2 1 1 0 000 2z" />
+              </svg>
               {isAdding ? 'Sepete Ekleniyor...' : 'Sepete Ekle'}
             </Button>
 
             {/* Info */}
             {isDiscounted && (
-              <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                  <div className="text-xs text-blue-800">
-                    <p className="font-semibold mb-1">Fazla Stoklu Urun</p>
-                    <p>Bu urun fazla stok durumunda oldugu icin ozel fiyatlarla sunulmaktadir.</p>
-                  </div>
+              <div className="flex items-start gap-3 rounded-xl border border-primary-100 bg-primary-50 p-4">
+                <svg className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                <div className="text-[12px] text-primary-800">
+                  <p className="mb-1 font-bold">Fazla Stoklu Urun</p>
+                  <p>Bu urun fazla stok durumunda oldugu icin ozel fiyatlarla sunulmaktadir.</p>
                 </div>
               </div>
             )}
@@ -570,9 +598,9 @@ export function ProductDetailModal({ product, isOpen, onClose, onAddToCart, allo
         </div>
 
       {(isLoadingRecommendations || recommendations.length > 0) && (
-        <div className="px-8 pb-8">
+        <div className="border-t border-[var(--line)] bg-[var(--surface-1)] px-6 py-6 sm:px-8">
           {isLoadingRecommendations ? (
-            <div className="text-sm text-gray-500">Oneriler yukleniyor...</div>
+            <div className="text-sm text-[var(--ink-3)]">Oneriler yukleniyor...</div>
           ) : (
             <ProductRecommendations
               products={recommendations}

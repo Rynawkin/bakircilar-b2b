@@ -469,7 +469,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           {/* Mobil menü butonu */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--line)] text-[var(--ink-2)] md:hidden"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--line)] text-[var(--ink-2)] lg:hidden"
             aria-label="Menü"
             aria-expanded={mobileMenuOpen}
           >
@@ -526,8 +526,8 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
         >
           <div className="absolute inset-x-0 top-12 z-40 border-b border-[var(--line)] bg-white shadow-[0_18px_36px_rgba(20,34,59,0.12)]">
             <div className="mx-auto w-full max-w-[1900px] px-4 py-5 sm:px-6 lg:px-8">
-              <div className="w-full max-w-[1100px]">
-              <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[240px_minmax(0,1fr)]">
+              <div className="w-full max-w-[1180px]">
+              <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--line)] md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[262px_minmax(0,1fr)_230px]">
                 {/* Sol — ANA kategoriler */}
                 <div className="max-h-[460px] overflow-y-auto border-b border-[var(--line)] bg-[var(--surface-0)] py-2 md:border-b-0 md:border-r">
                   {roots.map((root) => {
@@ -600,17 +600,25 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Slim alt bar — indirimli */}
-              <div className="mt-3 flex items-center justify-end">
+                {/* Sag — promo kart (Vitrin: lacivert gradient, net fiyat) */}
                 <Link
                   href="/discounted-products"
                   onClick={() => setMegaOpen(false)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary-50 px-3.5 py-2 text-[12.5px] font-semibold text-primary-700 transition-colors hover:bg-primary-100"
+                  className="relative m-4 hidden flex-col justify-end overflow-hidden rounded-xl bg-gradient-to-br from-primary-700 to-primary-800 p-4 text-white transition-transform hover:-translate-y-0.5 lg:flex"
                 >
-                  <Percent className="h-3.5 w-3.5" />
-                  İndirimli ürünleri keşfet →
+                  <div className="absolute inset-0 bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.05),rgba(255,255,255,0.05)_10px,transparent_10px,transparent_20px)]" />
+                  <div className="relative">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
+                      <Percent className="h-3.5 w-3.5" />
+                      NET FİYAT
+                    </span>
+                    <div className="mt-2 text-[17px] font-extrabold leading-tight">İndirimli ürünlerde fırsatlar</div>
+                    <div className="mt-2.5 inline-flex items-center gap-1.5 text-[12.5px] font-semibold">
+                      Keşfet
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </div>
+                  </div>
                 </Link>
               </div>
               </div>
@@ -621,7 +629,7 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
 
       {/* ── MOBİL MENÜ ───────────────────────────────────────────── */}
       {mobileMenuOpen && (
-        <div className="max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-[var(--line)] bg-white md:hidden">
+        <div className="max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-[var(--line)] bg-white lg:hidden">
           <div className="space-y-1 px-4 py-4">
             <div className="mb-2 px-1">
               <p className="truncate text-sm font-semibold text-[var(--ink-1)]">{user?.name}</p>
@@ -661,6 +669,67 @@ export function CustomerNavigation({ cartItemCount = 0 }: { cartItemCount?: numb
           </div>
         </div>
       )}
+
+      {/* ── MOBİL ALT SEKME ÇUBUĞU ───────────────────────────────── */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-50 flex items-stretch border-t border-[var(--line)] bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
+        aria-label="Mobil gezinme"
+      >
+        <Link
+          href="/home"
+          onClick={() => setMobileMenuOpen(false)}
+          className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
+            isActive('/home') ? 'text-primary-600' : 'text-[var(--ink-3)]'
+          }`}
+        >
+          <LayoutGrid className={`h-5 w-5 ${isActive('/home') ? 'stroke-[2.4]' : ''}`} />
+          <span>Anasayfa</span>
+        </Link>
+
+        <button
+          type="button"
+          onClick={() => setMobileMenuOpen((prev) => !prev)}
+          className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
+            mobileMenuOpen ? 'text-primary-600' : 'text-[var(--ink-3)]'
+          }`}
+          aria-label="Kategoriler ve menü"
+          aria-expanded={mobileMenuOpen}
+        >
+          <Package className={`h-5 w-5 ${mobileMenuOpen ? 'stroke-[2.4]' : ''}`} />
+          <span>Kategoriler</span>
+        </button>
+
+        <Link
+          href="/cart"
+          onClick={() => setMobileMenuOpen(false)}
+          className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
+            isActive('/cart') ? 'text-primary-600' : 'text-[var(--ink-3)]'
+          }`}
+        >
+          <span className="relative flex">
+            <ShoppingCart className={`h-5 w-5 ${isActive('/cart') ? 'stroke-[2.4]' : ''}`} />
+            {cartCount > 0 && (
+              <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9.5px] font-bold text-white ring-2 ring-white">
+                {cartCount}
+              </span>
+            )}
+          </span>
+          <span>Sepet</span>
+        </Link>
+
+        <button
+          type="button"
+          onClick={() => setMobileMenuOpen((prev) => !prev)}
+          className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 pt-1 text-[10px] font-semibold transition-colors ${
+            mobileMenuOpen ? 'text-primary-600' : 'text-[var(--ink-3)]'
+          }`}
+          aria-label="Hesabım ve menü"
+          aria-expanded={mobileMenuOpen}
+        >
+          <User className={`h-5 w-5 ${mobileMenuOpen ? 'stroke-[2.4]' : ''}`} />
+          <span>Hesabım</span>
+        </button>
+      </nav>
     </header>
   );
 }

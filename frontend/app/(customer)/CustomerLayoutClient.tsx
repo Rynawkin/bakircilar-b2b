@@ -156,7 +156,7 @@ export default function CustomerLayout({
     <ErrorBoundary>
       <div className="flex min-h-screen flex-col bg-[var(--surface-0)]">
         <CustomerNavigation cartItemCount={cartItemCount} />
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 pb-16 lg:pb-0">{children}</main>
         <CustomerFooter />
       </div>
     </ErrorBoundary>

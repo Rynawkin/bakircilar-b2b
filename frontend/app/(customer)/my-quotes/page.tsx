@@ -109,14 +109,27 @@ export default function MyQuotesPage() {
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
       <div className="mx-auto w-full max-w-[1100px] px-4 py-6 lg:px-6">
+        {/* Breadcrumb */}
+        <nav className="mb-3.5 flex items-center gap-1.5 text-[12px] text-[var(--ink-3)]">
+          <button
+            type="button"
+            onClick={() => router.push('/home')}
+            className="text-[var(--ink-3)] transition-colors hover:text-[var(--ink-2)]"
+          >
+            Ana Sayfa
+          </button>
+          <span className="text-gray-300">/</span>
+          <span className="font-medium text-[var(--ink-2)]">Tekliflerim</span>
+        </nav>
+
         {/* Sayfa basligi */}
-        <div className="mb-4 flex items-start gap-3">
-          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 ring-1 ring-inset ring-primary-100">
-            <FileText className="h-5 w-5" strokeWidth={2} />
+        <div className="mb-[18px] flex items-center gap-3.5">
+          <span className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-[13px] bg-primary-50 text-primary-600">
+            <FileText className="h-[22px] w-[22px]" strokeWidth={2} />
           </span>
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Tekliflerim</h1>
-            <p className="mt-1 text-sm text-[var(--ink-3)]">
+            <h1 className="text-[23px] font-bold tracking-tight text-[var(--ink-1)]">Tekliflerim</h1>
+            <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">
               Teklif durumu, geçerlilik ve kabul/ret işlemleri
             </p>
           </div>

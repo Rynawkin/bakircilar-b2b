@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Order } from '@/types';
 import customerApi, { CustomerFinancials } from '@/lib/api/customer';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -22,6 +23,7 @@ import {
   CreditCard,
   Wallet,
   AlertTriangle,
+  ChevronRight,
 } from 'lucide-react';
 
 export default function ProfilePage() {
@@ -90,17 +92,24 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-[var(--surface-0)]">
       <div className="mx-auto w-full max-w-[860px] px-4 py-6 lg:px-6">
+        {/* Breadcrumb */}
+        <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--ink-3)]">
+          <Link href="/home" className="hover:text-primary-700">Ana Sayfa</Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="font-medium text-[var(--ink-2)]">Profilim</span>
+        </div>
+
         {/* Header */}
         <div className="mb-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--ink-1)]">Profil</h1>
-          <p className="mt-1 text-sm text-[var(--ink-3)]">Cari ve iletişim bilgileriniz</p>
+          <h1 className="text-[23px] font-extrabold tracking-[-0.02em] text-[var(--ink-1)]">Profil</h1>
+          <p className="mt-0.5 text-[13px] text-[var(--ink-3)]">Cari ve iletişim bilgileriniz</p>
         </div>
 
         {/* Profile card */}
         <Card className="overflow-hidden border border-[var(--line)] bg-white p-0 transition-shadow hover:shadow-md">
           {/* Top strip */}
-          <div className="flex flex-wrap items-center gap-4 border-b border-[var(--line)] bg-[var(--surface-0)] px-5 py-5">
-            <span className="flex h-[52px] w-[52px] flex-none items-center justify-center rounded-xl bg-primary-50 text-lg font-semibold text-primary-700">
+          <div className="flex flex-wrap items-center gap-4 border-b border-[var(--line)] bg-[#f7f9fc] px-5 py-5">
+            <span className="flex h-[52px] w-[52px] flex-none items-center justify-center rounded-[14px] bg-primary-50 text-lg font-extrabold text-primary-600">
               {initials}
             </span>
             <div className="min-w-0 flex-1">
