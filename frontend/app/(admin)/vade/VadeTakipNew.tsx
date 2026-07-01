@@ -14,6 +14,8 @@ import {
   ChevronDown,
   AlertTriangle,
   Wallet,
+  ArrowRight,
+  Layers,
 } from 'lucide-react';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import { useVadeTakip } from './useVadeTakip';
@@ -164,6 +166,63 @@ export default function VadeTakipNew() {
           <div className="text-[23px] font-semibold text-[#14223b] mt-2">{formatCurrency(totals.total)}</div>
         </div>
       </div>
+
+      {/* Yaslandirma kovalari + oncelik (Pareto) — vadesi gecen alacak gorunurlugu */}
+      {totals.overdue > 0 && totals.aging && (
+        <div className={`${CARD} p-4 mb-4`}>
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[#14223b]">
+              <Layers width={14} height={14} stroke="currentColor" strokeWidth={2.2} />
+              Vadesi Gecen Yaslandirma
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPagination((prev) => ({ ...prev, page: 1 }));
+                setOverdueOnly(true);
+                setUpcomingOnly(false);
+                setSortBy('pastDueBalance');
+                setSortDirection('desc');
+              }}
+              className="inline-flex items-center gap-1.5 bg-[#15356b] border-none rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#1c4585] transition-colors"
+            >
+              Once Ara Listesi
+              <ArrowRight width={14} height={14} stroke="currentColor" strokeWidth={2.2} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            {([
+              { key: 'd0_30', label: '1-30 gun', cls: 'border-[#cfe6d6] bg-[#f2f9f4] text-[#166534]' },
+              { key: 'd31_60', label: '31-60 gun', cls: 'border-[#e6ecc9] bg-[#f8faee] text-[#5c6a12]' },
+              { key: 'd61_90', label: '61-90 gun', cls: 'border-[#fbe6c4] bg-[#fdf8ef] text-[#9a5b0c]' },
+              { key: 'd91_180', label: '91-180 gun', cls: 'border-[#fbdcbf] bg-[#fdf4ec] text-[#b4530f]' },
+              { key: 'd181_365', label: '181-365 gun', cls: 'border-[#fccfcf] bg-[#fdf1f1] text-[#b3312f]' },
+              { key: 'd365plus', label: '365+ gun', cls: 'border-[#f6bcbc] bg-[#fdecec] text-[#991b1b]' },
+            ] as const).map((cell) => {
+              const bucket = totals.aging?.[cell.key];
+              return (
+                <div key={cell.key} className={`border rounded-lg p-2.5 ${cell.cls}`}>
+                  <div className="text-[11px] font-medium opacity-80">{cell.label}</div>
+                  <div className="text-[15px] font-semibold mt-1 leading-tight">{formatCurrency(bucket?.amount || 0)}</div>
+                  <div className="text-[10.5px] opacity-70 mt-0.5">{bucket?.count || 0} cari</div>
+                </div>
+              );
+            })}
+          </div>
+          {totals.concentration && totals.concentration.overdueCount > 0 && (
+            <div className="mt-3 flex items-start gap-1.5 text-[12px] text-[#51607a] bg-[#f7f9fc] border border-[#e7ebf2] rounded-lg px-3 py-2">
+              <AlertTriangle width={13} height={13} stroke="#b4530f" strokeWidth={2.2} className="mt-0.5 flex-shrink-0" />
+              <span>
+                Vadesi gecmis <b className="text-[#14223b]">{totals.concentration.overdueCount}</b> cariden en buyuk{' '}
+                <b className="text-[#14223b]">20</b>&apos;si toplamin{' '}
+                <b className="text-[#b91c1c]">%{totals.overdue > 0 ? Math.round((totals.concentration.top20 / totals.overdue) * 100) : 0}</b>&apos;ini,{' '}
+                <b className="text-[#14223b]">50</b>&apos;si{' '}
+                <b className="text-[#b91c1c]">%{totals.overdue > 0 ? Math.round((totals.concentration.top50 / totals.overdue) * 100) : 0}</b>&apos;ini olusturuyor. Once bunlari ara.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Arama + toggle filtreler + Temizle */}
       <div className={`${CARD} p-3.5 mb-3.5`}>

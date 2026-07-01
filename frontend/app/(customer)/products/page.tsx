@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
+import { PersonalRecommendations } from '@/components/customer/PersonalRecommendations';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { FilterState } from '@/components/customer/AdvancedFilters';
@@ -572,6 +573,13 @@ export default function ProductsPage() {
             )}
           </div>
         )}
+
+        <PersonalRecommendations
+          allowedPriceTypes={allowedPriceTypes}
+          vatDisplayPreference={vatDisplayPreference}
+          flatTitle="Sizin icin onerilenler"
+          showMissingCategories={false}
+        />
       </div>
     </div>
   );

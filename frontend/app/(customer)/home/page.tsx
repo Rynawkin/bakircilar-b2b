@@ -7,6 +7,8 @@ import customerApi, { Banner, CustomerFinancials } from '@/lib/api/customer';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCartStore } from '@/lib/store/cartStore';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
+import { PersonalRecommendations } from '@/components/customer/PersonalRecommendations';
+import { GiftCampaignBanner } from '@/components/customer/GiftCampaignBanner';
 import { getAllowedPriceTypes, getDefaultPriceType } from '@/lib/utils/priceVisibility';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
 import {
@@ -466,6 +468,16 @@ export default function CustomerHomePage() {
             </div>
           </section>
         )}
+
+        {/* ── HEDIYELI KAMPANYA (GWP) — eksik kategorilerin hemen ustunde ─ */}
+        <GiftCampaignBanner />
+
+        {/* ── KISISEL ONERILER + EKSIK KATEGORILERINIZ ─────────────── */}
+        <PersonalRecommendations
+          allowedPriceTypes={allowedPriceTypes}
+          vatDisplayPreference={vatDisplayPreference}
+          showMissingCategories
+        />
 
       </div>
     </div>

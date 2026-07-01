@@ -26,6 +26,7 @@ import {
   requireAnyPermission
 } from '../middleware/auth.middleware';
 import bannerController from '../controllers/banner.controller';
+import giftCampaignController from '../controllers/gift-campaign.controller';
 import { trackStaffApiActivity } from '../middleware/staff-activity.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { upload, taskUpload, invoiceUpload, supplierPriceListUpload, quoteItemImageUpload } from '../middleware/upload.middleware';
@@ -679,5 +680,12 @@ router.post('/banners/upload', requireAdmin, upload.single('image'), bannerContr
 router.post('/banners', requireAdmin, bannerController.create);
 router.put('/banners/:id', requireAdmin, bannerController.update);
 router.delete('/banners/:id', requireAdmin, bannerController.remove);
+
+// Hediyeli kampanya (GWP) yonetimi - HEAD_ADMIN / ADMIN
+router.get('/gift-campaigns', requireAdmin, giftCampaignController.listAll);
+router.get('/gift-campaigns/:id', requireAdmin, giftCampaignController.getOne);
+router.post('/gift-campaigns', requireAdmin, giftCampaignController.create);
+router.put('/gift-campaigns/:id', requireAdmin, giftCampaignController.update);
+router.delete('/gift-campaigns/:id', requireAdmin, giftCampaignController.remove);
 
 export default router;

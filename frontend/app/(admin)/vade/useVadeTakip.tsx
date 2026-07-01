@@ -36,7 +36,14 @@ export function useVadeTakip() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [summary, setSummary] = useState({ count: 0, overdue: 0, upcoming: 0, total: 0 });
+  const [summary, setSummary] = useState<{
+    count: number;
+    overdue: number;
+    upcoming: number;
+    total: number;
+    aging?: Record<'d0_30' | 'd31_60' | 'd61_90' | 'd91_180' | 'd181_365' | 'd365plus', { amount: number; count: number }>;
+    concentration?: { overdueCount: number; top10: number; top20: number; top50: number };
+  }>({ count: 0, overdue: 0, upcoming: 0, total: 0 });
   const [filterOptions, setFilterOptions] = useState<{ sectorCodes: string[]; groupCodes: string[] }>({
     sectorCodes: [],
     groupCodes: [],
@@ -68,6 +75,8 @@ export function useVadeTakip() {
         overdue: response.summary?.overdue || 0,
         upcoming: response.summary?.upcoming || 0,
         total: response.summary?.total || 0,
+        aging: response.summary?.aging,
+        concentration: response.summary?.concentration,
       });
     } catch (error) {
       console.error('Vade balances not loaded:', error);

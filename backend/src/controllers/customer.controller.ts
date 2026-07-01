@@ -1831,6 +1831,159 @@ export class CustomerController {
   }
 
   /**
+   * GET /api/recommendations/personal
+   * Musterinin satin alma gecmisine (tum sepetine) gore tamamlayici urun onerileri.
+   * - products: genel "sizin icin" listesi (populerlige gore)
+   * - missingCategories: musterinin HIC almadigi kategorilerdeki tamamlayici urunler
+   *   (or. kagit alip dispenser almayan, ambalaj alip koli bandi almayan cariler).
+   */
+  async getPersonalRecommendations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const context = await loadCustomerContext(req.user!.userId);
+      const customer = context.customer;
+      const excludedProductCodes = await exclusionService.getActiveProductCodeExclusions();
+      const excludedSet = new Set(excludedProductCodes.map((code) => normalizeMikroCode(code)));
+
+      // 1) Satin alinan urun kodlari (once yerel siparisler, yoksa Mikro'dan)
+      let purchasedCodes: string[] = [];
+      const localRows = await prisma.orderItem.findMany({
+        where: { order: { userId: customer.id } },
+        select: { mikroCode: true },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+      });
+      const codeSet = new Set<string>();
+      for (const row of localRows) {
+        const code = String(row.mikroCode || '').trim();
+        const norm = normalizeMikroCode(code);
+        if (!code || codeSet.has(norm) || excludedSet.has(norm)) continue;
+        codeSet.add(norm);
+        purchasedCodes.push(code);
+      }
+      if (purchasedCodes.length === 0 && customer.mikroCariCode) {
+        try {
+          const allCodes = await withTimeout(
+            mikroService.getPurchasedProductCodes(customer.mikroCariCode as string),
+            10000,
+            'getPurchasedProductCodes(personal-recs)'
+          );
+          purchasedCodes = allCodes.filter((code) => !excludedSet.has(normalizeMikroCode(code)));
+        } catch (error) {
+          console.error('Personal recs purchased codes failed', { customerId: customer.id, error });
+        }
+      }
+      if (purchasedCodes.length === 0) {
+        return res.json({ products: [], missingCategories: [] });
+      }
+
+      // Puanlama maliyetini sinirla: en guncel 80 urun yeterli sinyal verir
+      const cappedCodes = purchasedCodes.slice(0, 80);
+
+      // 2) Kod -> urun (id + kategori)
+      const purchasedProducts = await prisma.product.findMany({
+        where: { mikroCode: { in: cappedCodes } },
+        select: { id: true, categoryId: true },
+      });
+      const purchasedProductIds = purchasedProducts.map((p) => p.id);
+      const purchasedCategoryIds = new Set(
+        purchasedProducts.map((p) => p.categoryId).filter(Boolean) as string[]
+      );
+      if (purchasedProductIds.length === 0) {
+        return res.json({ products: [], missingCategories: [] });
+      }
+
+      // 3) Tum sepete gore tamamlayici oneriler (alinan urunler haric)
+      const recommendedIds = await productComplementService.getRecommendationIdsForCart(
+        purchasedProductIds,
+        40
+      );
+      if (recommendedIds.length === 0) {
+        return res.json({ products: [], missingCategories: [] });
+      }
+
+      // 4) Populerlige gore sirala
+      const popularityMap = await productComplementService.getPopularityByProductIds(recommendedIds);
+      const orderIndex = new Map(recommendedIds.map((id, index) => [id, index]));
+      const sortedIds = [...recommendedIds].sort((a, b) => {
+        const aCount = popularityMap.get(a) || 0;
+        const bCount = popularityMap.get(b) || 0;
+        if (bCount !== aCount) return bCount - aCount;
+        return (orderIndex.get(a) || 0) - (orderIndex.get(b) || 0);
+      });
+
+      // 5) Urunleri getir
+      const products = await prisma.product.findMany({
+        where: {
+          id: { in: sortedIds },
+          active: true,
+          hiddenFromCustomers: false,
+          ...(excludedProductCodes.length > 0 ? { mikroCode: { notIn: excludedProductCodes } } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          mikroCode: true,
+          brandCode: true,
+          unit: true,
+          unit2: true,
+          unit2Factor: true,
+          vatRate: true,
+          currentCost: true,
+          lastEntryPrice: true,
+          excessStock: true,
+          imageUrl: true,
+          warehouseStocks: true,
+          warehouseExcessStocks: true,
+          pendingCustomerOrdersByWarehouse: true,
+          prices: true,
+          categoryId: true,
+          category: {
+            select: { id: true, name: true },
+          },
+        },
+      });
+      const productMap = new Map(products.map((product) => [product.id, product]));
+      const orderedProducts = sortedIds
+        .map((productId) => productMap.get(productId))
+        .filter(Boolean) as typeof products;
+
+      const payload = await buildCustomerProductPayloads({
+        products: orderedProducts,
+        customer: context.customer,
+        priceListRules: context.priceListRules,
+        basePriceListPair: context.basePriceListPair,
+        includedWarehouses: context.includedWarehouses,
+        effectiveVisibility: context.effectiveVisibility,
+        isDiscounted: false,
+      });
+      const payloadMap = new Map(payload.map((product) => [product.id, product]));
+
+      // 6) "Eksik kategoriler": musterinin hic almadigi kategorilerdeki onerileri grupla
+      const groupsMap = new Map<string, { category: { id: string; name: string }; products: any[] }>();
+      for (const productId of sortedIds) {
+        const prod = productMap.get(productId);
+        const pl = payloadMap.get(productId);
+        if (!prod || !pl || !prod.category) continue;
+        const catId = prod.category.id;
+        if (!catId || purchasedCategoryIds.has(catId)) continue;
+        const group = groupsMap.get(catId) || {
+          category: { id: prod.category.id, name: prod.category.name },
+          products: [],
+        };
+        if (group.products.length < 8) group.products.push(pl);
+        groupsMap.set(catId, group);
+      }
+      const missingCategories = Array.from(groupsMap.values())
+        .filter((group) => group.products.length > 0)
+        .slice(0, 6);
+
+      res.json({ products: payload.slice(0, 12), missingCategories });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /api/categories
    */
   async getCategories(req: Request, res: Response, next: NextFunction) {

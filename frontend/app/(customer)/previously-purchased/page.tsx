@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCardSkeleton } from '@/components/ui/Skeleton';
 import { ProductCard, ProductCardAddArgs } from '@/components/customer/ProductCard';
+import { PersonalRecommendations } from '@/components/customer/PersonalRecommendations';
 import { FilterState } from '@/components/customer/AdvancedFilters';
 import { applyProductFilters } from '@/lib/utils/productFilters';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -342,6 +343,13 @@ export default function PreviouslyPurchasedPage() {
             )}
           </div>
         )}
+
+        <PersonalRecommendations
+          allowedPriceTypes={allowedPriceTypes}
+          vatDisplayPreference={vatDisplayPreference}
+          flatTitle="Sizin icin onerilenler"
+          showMissingCategories={false}
+        />
       </div>
 
       {/* ── "Son 5 Alış" modal ──────────────────────────────────── */}

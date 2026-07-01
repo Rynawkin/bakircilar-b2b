@@ -41,7 +41,8 @@ import {
   PackagePlus,
   HandCoins,
   Truck,
-  Search
+  Search,
+  Gift
 } from 'lucide-react';
 
 export interface NavItem {
@@ -91,6 +92,7 @@ export const navItems: NavItem[] = [
   { name: 'Talepler', href: '/requests', icon: ListTodo, description: 'Görev ve talepler', permission: 'admin:requests' },
   { name: 'Kampanyalar', href: '/campaigns', icon: Target, description: 'İndirim kampanyaları', permission: 'admin:campaigns' },
   { name: 'Bannerlar', href: '/banners', icon: ImageIcon, description: 'Vitrin banner yönetimi', permission: 'admin:campaigns' },
+  { name: 'Hediyeli Kampanya', href: '/gift-campaigns', icon: Gift, description: 'Hediyeli kampanya (GWP) yönetimi', permission: 'admin:campaigns' },
   {
     name: 'Raporlar',
     href: '/reports',

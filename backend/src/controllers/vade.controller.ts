@@ -300,9 +300,20 @@ class VadeController {
             pastDueBalance: true,
             notDueBalance: true,
             totalBalance: true,
+            valor: true,
           },
         }),
       ]);
+
+      const agingBuckets = {
+        d0_30: { amount: 0, count: 0 },
+        d31_60: { amount: 0, count: 0 },
+        d61_90: { amount: 0, count: 0 },
+        d91_180: { amount: 0, count: 0 },
+        d181_365: { amount: 0, count: 0 },
+        d365plus: { amount: 0, count: 0 },
+      };
+      const overdueAmounts: number[] = [];
 
       const summary = summaryRows.reduce(
         (acc, row) => {
@@ -310,10 +321,47 @@ class VadeController {
           acc.overdue += normalized.pastDueBalance;
           acc.upcoming += normalized.notDueBalance;
           acc.total += row.totalBalance ?? 0;
+          const pastDue = normalized.pastDueBalance;
+          if (pastDue > 0) {
+            overdueAmounts.push(pastDue);
+            const v = row.valor ?? 0;
+            const bucket =
+              v <= 30 ? agingBuckets.d0_30 :
+              v <= 60 ? agingBuckets.d31_60 :
+              v <= 90 ? agingBuckets.d61_90 :
+              v <= 180 ? agingBuckets.d91_180 :
+              v <= 365 ? agingBuckets.d181_365 :
+              agingBuckets.d365plus;
+            bucket.amount += pastDue;
+            bucket.count += 1;
+          }
           return acc;
         },
         { overdue: 0, upcoming: 0, total: 0 },
       );
+
+      // Yogunlasma (Pareto): vadesi gecmis paranin ne kadari en buyuk N caride
+      overdueAmounts.sort((a, b) => b - a);
+      const cumTop = (n: number) =>
+        round2(overdueAmounts.slice(0, n).reduce((s, x) => s + x, 0));
+      const roundBucket = (b: { amount: number; count: number }) => ({
+        amount: round2(b.amount),
+        count: b.count,
+      });
+      const aging = {
+        d0_30: roundBucket(agingBuckets.d0_30),
+        d31_60: roundBucket(agingBuckets.d31_60),
+        d61_90: roundBucket(agingBuckets.d61_90),
+        d91_180: roundBucket(agingBuckets.d91_180),
+        d181_365: roundBucket(agingBuckets.d181_365),
+        d365plus: roundBucket(agingBuckets.d365plus),
+      };
+      const concentration = {
+        overdueCount: overdueAmounts.length,
+        top10: cumTop(10),
+        top20: cumTop(20),
+        top50: cumTop(50),
+      };
 
       type BalanceWithNote = (typeof balances)[number] & { lastNoteAt: Date | null };
       const balancesWithNotes: BalanceWithNote[] = await (async () => {
@@ -362,6 +410,8 @@ class VadeController {
           overdue: round2(summary.overdue),
           upcoming: round2(summary.upcoming),
           total: round2(summary.total),
+          aging,
+          concentration,
         },
       });
     } catch (error) {

@@ -1355,6 +1355,10 @@ model Cart {
 
   items           CartItem[]
 
+  // Hediyeli kampanya (GWP) secimi — nullable, bos ise etkisi yok
+  giftCampaignId  String?
+  giftProductIds  String[]      @default([])
+
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 }
@@ -1381,6 +1385,9 @@ model CartItem {
 
   @@index([cartId])
 }
+
+// NOT: Cart modeline hediyeli kampanya (GWP) secimi icin nullable alanlar eklenmistir
+// (giftCampaignId + giftProductIds). Mevcut sepet mantigi degismez; bos ise etki yok.
 
 // ==================== ORDERS ====================
 
@@ -1452,6 +1459,9 @@ model OrderItem {
   // Item-level approval (kısmi onay için)
   status          OrderItemStatus   @default(PENDING)
   rejectionReason String?           // Reddedilme sebebi
+
+  // Hediyeli kampanya (GWP) satiri — Mikro'ya 0,1 ₺ olarak yazilir
+  isGift          Boolean           @default(false)
 
   // Mikro'ya yazılan sipariş ID (item bazında)
   mikroOrderId    String?
@@ -2721,6 +2731,68 @@ model SearchMiss {
 
   @@index([resolved, count])
   @@index([lastSearchedAt])
+}
+
+// ==================== HEDIYELI KAMPANYA (GWP / gift-with-purchase) ====================
+// "Eksik kategorilerinden su tutari gec -> bir urunu bedava sec." Cari bazli calisir.
+// productId'ler ILISKISIZ scalar tutulur (Product modeline dokunmamak icin); urun
+// detaylari sorguda ayrica cekilir.
+
+enum GiftScopeType {
+  MISSING_CATEGORIES // barajı, carinin HIC almadigi kategorilerdeki urunler sayar (varsayilan)
+  CATEGORY_IDS       // secili kategorilerdeki urunler sayar
+  PRODUCT_IDS        // secili urunler sayar
+  ALL                // tum sepet sayar
+}
+
+enum GiftTargetType {
+  ALL      // tum musteriler
+  SEGMENT  // sektor kodu bazli
+  ACCOUNT  // belirli cariler
+}
+
+model GiftCampaign {
+  id                   String         @id @default(uuid())
+  title                String
+  subtitle             String?
+  bannerImageUrl       String?
+  buttonText           String?
+
+  threshold            Float          @default(0)   // hediye baraji (₺)
+  thresholdPriceType   PriceType      @default(INVOICED) // INVOICED | WHITE
+  thresholdVatIncluded Boolean        @default(false)
+
+  scopeType            GiftScopeType  @default(MISSING_CATEGORIES)
+  scopeCategoryIds     String[]       @default([])  // Category.id
+  scopeProductIds      String[]       @default([])  // Product.id
+
+  giftPickCount        Int            @default(1)   // kac hediye secilebilir
+
+  targetType           GiftTargetType @default(ALL)
+  targetSectorCodes    String[]       @default([])  // SEGMENT icin
+  targetUserIds        String[]       @default([])  // ACCOUNT icin (User.id)
+
+  active               Boolean        @default(true)
+  validFrom            DateTime?
+  validTo              DateTime?
+
+  gifts                GiftCampaignItem[]
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([active, validFrom, validTo])
+}
+
+model GiftCampaignItem {
+  id           String       @id @default(uuid())
+  campaignId   String
+  campaign     GiftCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  productId    String       // Product.id (iliskisiz scalar; detay ayrica cekilir)
+  sortOrder    Int          @default(0)
+  createdAt    DateTime     @default(now())
+
+  @@index([campaignId])
 }
 
 

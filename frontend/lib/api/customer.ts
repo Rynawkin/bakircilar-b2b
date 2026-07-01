@@ -45,6 +45,38 @@ export interface CustomerFinancials {
   referenceDate?: string | null;
 }
 
+export interface GiftCampaignGift {
+  id: string;
+  productId: string;
+  name: string;
+  mikroCode?: string;
+  imageUrl?: string | null;
+  unit?: string | null;
+  value?: number;
+}
+
+export interface GiftCampaignActive {
+  active: boolean;
+  id?: string;
+  title?: string;
+  subtitle?: string | null;
+  bannerImageUrl?: string | null;
+  buttonText?: string | null;
+  threshold?: number;
+  thresholdPriceType?: 'invoiced' | 'white';
+  thresholdVatIncluded?: boolean;
+  qualifyingScope?: { type: string; categoryIds: string[]; productIds: string[] };
+  qualifyingTotal?: number;
+  qualified?: boolean;
+  remaining?: number;
+  giftPickCount?: number;
+  gifts?: GiftCampaignGift[];
+  selectedGiftProductIds?: string[];
+  validFrom?: string | null;
+  validTo?: string | null;
+  target?: { type: string };
+}
+
 export const customerApi = {
   // Banners (musteri - yalniz aktif)
   getBanners: async (position?: BannerPosition): Promise<{ banners: Banner[] }> => {
@@ -130,6 +162,27 @@ export const customerApi = {
 
   getCartRecommendations: async (): Promise<{ groups: Array<{ baseProduct: { id: string; name: string; mikroCode: string }; products: Product[] }> }> => {
     const response = await apiClient.get('/recommendations/cart');
+    return response.data;
+  },
+
+  getPersonalRecommendations: async (): Promise<{
+    products: Product[];
+    missingCategories: Array<{ category: { id: string; name: string }; products: Product[] }>;
+  }> => {
+    const response = await apiClient.get('/recommendations/personal');
+    return response.data;
+  },
+
+  getActiveGiftCampaign: async (): Promise<GiftCampaignActive> => {
+    const response = await apiClient.get('/gift-campaign/active');
+    return response.data;
+  },
+
+  setGiftCartSelection: async (
+    campaignId: string | null,
+    productIds: string[]
+  ): Promise<{ success: boolean; error?: string }> => {
+    const response = await apiClient.put('/gift-campaign/cart-selection', { campaignId, productIds });
     return response.data;
   },
 

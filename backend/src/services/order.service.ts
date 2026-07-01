@@ -15,6 +15,7 @@ import mikroService from './mikroFactory.service';
 import pricingService from './pricing.service';
 import priceListService from './price-list.service';
 import cartPricingService from './cart-pricing.service';
+import giftCampaignService from './gift-campaign.service';
 import { ProductPrices, MikroCustomerSaleMovement } from '../types';
 import { resolveCustomerPriceLists, resolveCustomerPriceListsForProduct } from '../utils/customerPricing';
 import { isAgreementApplicable, resolveAgreementPrice } from '../utils/agreements';
@@ -870,6 +871,11 @@ class OrderService {
         throw new Error('Sepetinizdeki urunler artik satista degil. Lutfen sepeti guncelleyin.');
       }
 
+      // GWP: dogrulanmis hediye satir(lar)i. Gecerli kampanya + baraj gecilmis + secili urun
+      // havuzda ise eklenir; Mikro'ya 0,1 ₺ olarak yazilir (approveOrderAndWriteToMikro yolu).
+      // Baraji SUNUCU yeniden hesaplar (client'a guvenmez). Musteri toplamina EKLENMEZ.
+      const giftLines = await giftCampaignService.resolveGiftLineForOrder(userId);
+
       // 3. Sipariş numarası üret
       const lastOrder = await prisma.order.findFirst({
         orderBy: { createdAt: 'desc' },
@@ -903,21 +909,41 @@ class OrderService {
             customerOrderNumber: normalizedCustomerOrderNumber || undefined,
             deliveryLocation: normalizedDeliveryLocation || undefined,
             items: {
-              create: orderItems.map((item) => ({
-                productId: item.productId,
-                productName: item.productName,
-                mikroCode: item.mikroCode,
-                quantity: item.quantity,
-                priceType: item.priceType,
-                unitPrice: item.unitPrice,
-                totalPrice: item.totalPrice,
-                lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
-              })),
+              create: [
+                ...orderItems.map((item) => ({
+                  productId: item.productId,
+                  productName: item.productName,
+                  mikroCode: item.mikroCode,
+                  quantity: item.quantity,
+                  priceType: item.priceType,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                  lineNote: item.lineNote ? String(item.lineNote).trim() : undefined,
+                  isGift: false,
+                })),
+                // GWP hediye satir(lar)i — 0,1 ₺, isGift bayrakli, musteri toplamina dahil degil
+                ...giftLines.map((gift) => ({
+                  productId: gift.productId,
+                  productName: gift.productName,
+                  mikroCode: gift.mikroCode,
+                  quantity: gift.quantity,
+                  priceType: gift.priceType,
+                  unitPrice: gift.unitPrice,
+                  totalPrice: gift.unitPrice * gift.quantity,
+                  lineNote: gift.lineNote,
+                  isGift: true,
+                })),
+              ],
             },
           },
         }),
         prisma.cartItem.deleteMany({
           where: { cartId: cart.id },
+        }),
+        // Siparise gecen hediye secimini sepetten temizle
+        prisma.cart.update({
+          where: { id: cart.id },
+          data: { giftCampaignId: null, giftProductIds: [] },
         }),
       ]);
 

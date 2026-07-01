@@ -23,6 +23,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ProductRecommendations } from '@/components/customer/ProductRecommendations';
+import { CartGiftPicker } from '@/components/customer/CartGiftPicker';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useConfirmDialog } from '@/lib/hooks/useConfirmDialog';
 import { formatCurrency } from '@/lib/utils/format';
@@ -481,6 +482,9 @@ Siparis No: ${result.orderNumber}`, { duration: 4000 });
                   Sepeti Temizle
                 </button>
               </div>
+
+              {/* Hediyeli kampanya (GWP) — hediye secici */}
+              <CartGiftPicker refreshKey={cart?.total} />
 
               {/* Tamamlayici oneriler */}
               {recommendationGroups.length > 0 && (

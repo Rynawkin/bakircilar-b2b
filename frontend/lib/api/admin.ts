@@ -85,6 +85,66 @@ export interface BannerInput {
   endsAt?: string | null;
 }
 
+// ==================== Hediyeli Kampanya (GWP) ====================
+export type GiftScopeType = 'missingCategories' | 'categoryIds' | 'productIds' | 'all';
+export type GiftTargetType = 'all' | 'segment' | 'account';
+
+export interface AdminGiftCampaignGift {
+  id?: string;
+  productId: string;
+  name?: string;
+  mikroCode?: string;
+  imageUrl?: string | null;
+  unit?: string | null;
+  value?: number;
+  sortOrder?: number;
+}
+
+export interface AdminGiftCampaign {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  bannerImageUrl?: string | null;
+  buttonText?: string | null;
+  threshold: number;
+  thresholdPriceType: 'invoiced' | 'white';
+  thresholdVatIncluded: boolean;
+  scopeType: GiftScopeType;
+  scopeCategoryIds: string[];
+  scopeProductIds: string[];
+  giftPickCount: number;
+  targetType: GiftTargetType;
+  targetSectorCodes: string[];
+  targetUserIds: string[];
+  active: boolean;
+  validFrom?: string | null;
+  validTo?: string | null;
+  gifts: AdminGiftCampaignGift[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GiftCampaignInput {
+  title: string;
+  subtitle?: string | null;
+  bannerImageUrl?: string | null;
+  buttonText?: string | null;
+  threshold?: number;
+  thresholdPriceType?: 'invoiced' | 'white';
+  thresholdVatIncluded?: boolean;
+  scopeType?: GiftScopeType;
+  scopeCategoryIds?: string[];
+  scopeProductIds?: string[];
+  giftPickCount?: number;
+  targetType?: GiftTargetType;
+  targetSectorCodes?: string[];
+  targetUserIds?: string[];
+  active?: boolean;
+  validFrom?: string | null;
+  validTo?: string | null;
+  gifts?: Array<{ productId: string; sortOrder?: number }>;
+}
+
 export type CustomerRecoveryRiskType = 'NO_RECENT_SALES' | 'INSIGNIFICANT_ACTIVITY' | 'DECLINING' | 'WATCH';
 export type CustomerRecoveryDevelopmentStatus = 'RECOVERED' | 'IMPROVED' | 'UNCHANGED' | 'WORSENED' | 'NO_ACTION';
 export type CustomerRecoveryPurchasePattern = 'ALL' | 'FREQUENT' | 'PERIODIC' | 'SPORADIC';
@@ -1877,7 +1937,13 @@ export const adminApi = {
   }): Promise<{
     balances: VadeBalance[];
     pagination: { page: number; limit: number; total: number; totalPages: number };
-    summary: { overdue: number; upcoming: number; total: number };
+    summary: {
+      overdue: number;
+      upcoming: number;
+      total: number;
+      aging?: Record<'d0_30' | 'd31_60' | 'd61_90' | 'd91_180' | 'd181_365' | 'd365plus', { amount: number; count: number }>;
+      concentration?: { overdueCount: number; top10: number; top20: number; top50: number };
+    };
   }> => {
     const response = await apiClient.get('/admin/vade/balances', { params });
     return response.data;
@@ -4372,6 +4438,28 @@ export const adminApi = {
 
   deleteBanner: async (id: string): Promise<{ message: string }> => {
     const response = await apiClient.delete(`/admin/banners/${id}`);
+    return response.data;
+  },
+
+  // Hediyeli Kampanya (GWP)
+  getGiftCampaigns: async (): Promise<{ campaigns: AdminGiftCampaign[] }> => {
+    const response = await apiClient.get('/admin/gift-campaigns');
+    return response.data;
+  },
+  getGiftCampaign: async (id: string): Promise<{ campaign: AdminGiftCampaign }> => {
+    const response = await apiClient.get(`/admin/gift-campaigns/${id}`);
+    return response.data;
+  },
+  createGiftCampaign: async (data: GiftCampaignInput): Promise<{ campaign: AdminGiftCampaign }> => {
+    const response = await apiClient.post('/admin/gift-campaigns', data);
+    return response.data;
+  },
+  updateGiftCampaign: async (id: string, data: GiftCampaignInput): Promise<{ campaign: AdminGiftCampaign }> => {
+    const response = await apiClient.put(`/admin/gift-campaigns/${id}`, data);
+    return response.data;
+  },
+  deleteGiftCampaign: async (id: string): Promise<{ success: boolean }> => {
+    const response = await apiClient.delete(`/admin/gift-campaigns/${id}`);
     return response.data;
   },
 

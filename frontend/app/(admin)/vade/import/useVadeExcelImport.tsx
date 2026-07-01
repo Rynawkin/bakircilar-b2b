@@ -64,9 +64,21 @@ export const parseDateValue = (value: any) => {
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 };
 
+// Turkce-guvenli normalize: buyuk "I" (U+0130) JS toLowerCase ile "i̇" (i + birlesik nokta)
+// olur ve "TOPLAM BAKİYE" gibi basliklar "toplam bakiye" ile eslesmezdi. tr-TR lower + NFKD +
+// birlesik isaretleri temizleme + ı->i ile diakritik-duyarsiz eslesme yapiyoruz. Balans/tarih
+// kolon sirasi korundugundan (balans, tarihten once gelir) uzun hedef yine dogru kolona oturur.
+const normalizeHeader = (value: any) =>
+  String(value ?? '')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/ı/g, 'i')
+    .trim();
+
 export const findColumnIndex = (headers: any[], name: string) => {
-  const target = name.toLowerCase();
-  return headers.findIndex((header) => String(header || '').toLowerCase().includes(target));
+  const target = normalizeHeader(name);
+  return headers.findIndex((header) => normalizeHeader(header).includes(target));
 };
 
 export function useVadeExcelImport() {

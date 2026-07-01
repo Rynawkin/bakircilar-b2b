@@ -10,6 +10,7 @@ import notificationController from '../controllers/notification.controller';
 import orderRequestController from '../controllers/order-request.controller';
 import eInvoiceController from '../controllers/einvoice.controller';
 import bannerController from '../controllers/banner.controller';
+import giftCampaignController from '../controllers/gift-campaign.controller';
 import { authenticate, requireCustomer } from '../middleware/auth.middleware';
 import { taskUpload } from '../middleware/upload.middleware';
 import { validateBody } from '../middleware/validation.middleware';
@@ -181,6 +182,10 @@ router.get('/agreements/available', customerController.getAgreementsAvailability
 // Landing bannerlari (aktif, tarih penceresinde)
 router.get('/banners', bannerController.listActive);
 
+// Hediyeli kampanya (GWP) - cari bazli aktif kampanya + sepet baraj durumu
+router.get('/gift-campaign/active', requireCustomer, giftCampaignController.getActive);
+router.put('/gift-campaign/cart-selection', requireCustomer, giftCampaignController.setCartSelection);
+
 // Cari bakiye + vadesi gecen ozeti (header cipi + ana sayfa kutulari)
 router.get('/financials', requireCustomer, customerController.getFinancials);
 
@@ -209,6 +214,15 @@ router.delete(
   customerController.removeFromCart
 );
 router.get('/recommendations/cart', customerController.getCartRecommendations);
+router.get(
+  '/recommendations/personal',
+  cacheMiddleware({
+    namespace: 'recommendations',
+    ttl: 600,
+    keyGenerator: (req) => `personal:${req.user?.userId || 'guest'}`,
+  }),
+  customerController.getPersonalRecommendations
+);
 
 // Orders
 router.post(
