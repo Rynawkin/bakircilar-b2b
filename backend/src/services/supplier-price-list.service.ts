@@ -1590,7 +1590,9 @@ const buildNameMatcher = (products: Array<{ code: string; name: string | null }>
 };
 
 // Isim eslesmesi icin minimum guven esigi (altinda unmatched).
-const NAME_MATCH_THRESHOLD = 0.34;
+// 0.34 -> 0.25: kelepir gibi listelerde daha fazla oto-eslesme yakalansin
+// (yanlislar elle Degistir/Kaldir ile duzeltilebilir; guven skoru matched satirda gosterilir).
+const NAME_MATCH_THRESHOLD = 0.25;
 
 // Isim modu + elle secim icin urun detaylarini (id/name/currentCost/vatRate/unit2Factor)
 // Mikro koduna gore cozer. Once B2B Product (currentCost B2B'de guncel), eksikleri Mikro'dan.
@@ -2331,6 +2333,8 @@ class SupplierPriceListService {
   }
 
   // Bir ana saglayici altindaki urunler icinde ada/koda gore arama (elle duzeltme picker'i). (SADECE OKUMA)
+  // Cikti sekli searchAllProducts ile uyumlu: { code, name, currentCost, unit }
+  // (currentCost/unit best-effort B2B Product'tan doldurulur; picker'da gosterilir).
   async searchMainSupplierProducts(cariKod: string, query?: string, limit = 30) {
     const normalizedCari = String(cariKod || '').trim();
     if (!normalizedCari) return [];
@@ -2344,9 +2348,61 @@ class SupplierPriceListService {
         return qTokens.every((token) => hay.includes(token));
       });
     }
-    return filtered.slice(0, Math.max(1, Math.min(200, limit))).map((p) => ({
-      code: p.code,
-      name: p.name,
+    const sliced = filtered.slice(0, Math.max(1, Math.min(200, limit)));
+
+    // B2B'de karsiligi olan urunler icin guncel maliyet + birim ipucu (opsiyonel).
+    const codes = sliced.map((p) => p.code).filter(Boolean);
+    const b2bByCode = new Map<string, { currentCost: number | null; unit: string | null }>();
+    if (codes.length) {
+      const b2bProducts = await prisma.product.findMany({
+        where: { mikroCode: { in: codes } },
+        select: { mikroCode: true, currentCost: true, unit: true },
+      });
+      for (const bp of b2bProducts) {
+        b2bByCode.set(bp.mikroCode, { currentCost: bp.currentCost ?? null, unit: bp.unit ?? null });
+      }
+    }
+
+    return sliced.map((p) => {
+      const b2b = b2bByCode.get(p.code) || null;
+      return {
+        code: p.code,
+        name: p.name,
+        currentCost: b2b?.currentCost ?? null,
+        unit: b2b?.unit ?? null,
+      };
+    });
+  }
+
+  // GLOBAL urun arama (elle duzeltme picker'i "Tum urunler" modu). Ana saglayici
+  // kisitina bakmadan TUM aktif B2B urunlerinde ada/koda gore arar. Kelepir gibi
+  // listelerde dogru urun baska saglayicida olabildigi icin gerekli. (SADECE OKUMA)
+  // Cikti sekli searchMainSupplierProducts ile uyumlu: { code, name, currentCost, unit }.
+  async searchAllProducts(query?: string, limit = 30) {
+    const search = String(query || '').trim();
+    if (!search) return [];
+    const safeLimit = Math.max(1, Math.min(60, limit));
+
+    const products = await prisma.product.findMany({
+      where: {
+        active: true,
+        OR: [
+          { mikroCode: { contains: search, mode: 'insensitive' } },
+          { name: { contains: search, mode: 'insensitive' } },
+          { foreignName: { contains: search, mode: 'insensitive' } },
+          { brandCode: { contains: search, mode: 'insensitive' } },
+        ],
+      },
+      select: { mikroCode: true, name: true, currentCost: true, unit: true },
+      orderBy: [{ mikroCode: 'asc' }],
+      take: safeLimit,
+    });
+
+    return products.map((p) => ({
+      code: p.mikroCode,
+      name: p.name ?? null,
+      currentCost: p.currentCost ?? null,
+      unit: p.unit ?? null,
     }));
   }
 
@@ -2468,20 +2524,27 @@ class SupplierPriceListService {
     return updated;
   }
 
-  // ELLE ATAMA: eslesmeyen (veya baska) bir item'a yeni bir urun eslestir.
-  // Item'da zaten match varsa ilkini gunceller (setMatchProduct gibi), yoksa yeni match yaratir.
+  // ELLE ATAMA / URUN EKLE: bir item'a YENI bir match ekler (coklu eslestirme).
+  // Ayni tedarikci satiri bizdeki BIRDEN FAZLA urunle eslesebilir (ayni urun
+  // birden fazla stok karti). Zaten ayni productCode ile bir match varsa tekrar
+  // eklemez; mevcut match'i doner (idempotent). Mevcut match'i DEGISTIRMEZ
+  // (degistirme setMatchProduct'tir).
   async assignItemProduct(itemId: string, productCode: string) {
     const code = String(productCode || '').trim();
     if (!code) throw new Error('productCode gerekli');
 
     const item = await prisma.supplierPriceListItem.findUnique({
       where: { id: itemId },
-      include: { matches: { select: { id: true } } },
+      include: { matches: { select: { id: true, productCode: true } } },
     });
     if (!item) throw new Error('Item not found');
 
-    if (item.matches.length) {
-      return this.setMatchProduct(item.matches[0].id, code);
+    // Ayni urun zaten eslesmisse tekrar ekleme (dublikasyon apply'i bozardi).
+    const existing = item.matches.find(
+      (m) => String(m.productCode || '').trim().toUpperCase() === code.toUpperCase(),
+    );
+    if (existing) {
+      return prisma.supplierPriceListMatch.findUnique({ where: { id: existing.id } });
     }
 
     const supplierConfig = await this.resolveUploadSupplierConfig(item.uploadId);
@@ -2513,6 +2576,23 @@ class SupplierPriceListService {
 
     await this.syncItemMatchState(item.id);
     return created;
+  }
+
+  // ELLE KALDIR: bir match'i siler (coklu eslestirmede yanlis/gereksiz olani cikar).
+  // Item'in matchCount/matchedProductIds durumu yeniden senkronlanir.
+  async deleteMatch(matchId: string) {
+    const id = String(matchId || '').trim();
+    if (!id) throw new Error('matchId gerekli');
+
+    const match = await prisma.supplierPriceListMatch.findUnique({
+      where: { id },
+      select: { id: true, itemId: true },
+    });
+    if (!match) throw new Error('Match not found');
+
+    await prisma.supplierPriceListMatch.delete({ where: { id } });
+    await this.syncItemMatchState(match.itemId);
+    return { deleted: true, itemId: match.itemId };
   }
 
   // item.matchCount + matchedProductIds alanlarini match sayisina gore senkronla.

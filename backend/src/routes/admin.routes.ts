@@ -231,6 +231,8 @@ router.put('/supplier-price-lists/suppliers/:id', requirePermission('admin:suppl
 // Ana saglayici (main supplier) bazli isim eslesmesi (SADECE OKUMA)
 router.get('/supplier-price-lists/main-suppliers', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getMainSuppliers);
 router.get('/supplier-price-lists/main-suppliers/products', requirePermission('admin:supplier-price-lists'), supplierPriceListController.searchMainSupplierProducts);
+// Global urun arama (elle duzeltme picker'i "Tum urunler" modu) — /:id'den ONCE olmali (SADECE OKUMA)
+router.get('/supplier-price-lists/products/search', requirePermission('admin:supplier-price-lists'), supplierPriceListController.searchAllProducts);
 router.get('/supplier-price-lists', requirePermission('admin:supplier-price-lists'), supplierPriceListController.listUploads);
 router.post('/supplier-price-lists/preview', requirePermission('admin:supplier-price-lists'), supplierPriceListUpload.array('files', 20), supplierPriceListController.previewPriceLists);
 router.post('/supplier-price-lists/upload', requirePermission('admin:supplier-price-lists'), supplierPriceListUpload.array('files', 20), supplierPriceListController.uploadPriceLists);
@@ -239,6 +241,7 @@ router.post('/supplier-price-lists/apply', requirePermission('admin:supplier-pri
 router.patch('/supplier-price-lists/matches/:matchId', requirePermission('admin:supplier-price-lists'), supplierPriceListController.updateMatchUnitMultiplier);
 // Elle duzeltme (B2B; Mikro YAZMA YOK)
 router.patch('/supplier-price-lists/matches/:matchId/product', requirePermission('admin:supplier-price-lists'), supplierPriceListController.setMatchProduct);
+router.delete('/supplier-price-lists/matches/:matchId', requirePermission('admin:supplier-price-lists'), supplierPriceListController.deleteMatch);
 router.post('/supplier-price-lists/items/:itemId/match', requirePermission('admin:supplier-price-lists'), supplierPriceListController.assignItemProduct);
 router.get('/supplier-price-lists/:id', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUpload);
 router.get('/supplier-price-lists/:id/items', requirePermission('admin:supplier-price-lists'), supplierPriceListController.getUploadItems);

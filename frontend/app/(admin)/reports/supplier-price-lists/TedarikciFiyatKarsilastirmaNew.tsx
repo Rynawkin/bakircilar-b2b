@@ -14,6 +14,7 @@ import {
   Pencil,
   Search,
   X,
+  Trash2,
 } from 'lucide-react';
 import type { MainSupplierProduct } from './useTedarikciFiyatKarsilastirma';
 import { formatCurrency, formatDateShort } from '@/lib/utils/format';
@@ -268,27 +269,38 @@ function MultiplierCell({
   );
 }
 
-// Elle duzeltme: ana saglayici urunleri icinde arama yapip dogru urunu sectiren
-// kucuk acilir (popover). Kod modunda / cariKod yoksa render edilmez.
+// Elle duzeltme: dogru urunu arayip sectiren kucuk acilir (popover).
+// Iki arama modu: "Bu saglayici" (cari-scoped, sadece cariKod varsa) ve
+// "Tum urunler" (global, TUM aktif B2B urunleri). cariKod yoksa yalniz global.
+// Sonuclarda kod + ad + guncel maliyet + birim gosterilir.
 function ProductPicker({
   cariKod,
   label,
   saving,
-  onSearch,
+  onSearchSupplier,
+  onSearchAll,
   onSelect,
 }: {
   cariKod: string | null | undefined;
   label: string;
   saving: boolean;
-  onSearch: (cariKod: string, query: string) => Promise<MainSupplierProduct[]>;
+  onSearchSupplier: (cariKod: string, query: string) => Promise<MainSupplierProduct[]>;
+  onSearchAll: (query: string) => Promise<MainSupplierProduct[]>;
   onSelect: (productCode: string) => unknown | Promise<unknown>;
 }) {
+  const cari = String(cariKod || '').trim();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MainSupplierProduct[]>([]);
   const [loading, setLoading] = useState(false);
+  // Varsayilan: cari varsa "Bu saglayici", yoksa "Tum urunler".
+  const [scope, setScope] = useState<'supplier' | 'all'>(cari ? 'supplier' : 'all');
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const cari = String(cariKod || '').trim();
+
+  // cariKod sonradan gelirse/giderse varsayilan modu tazele (popover kapaliyken).
+  useEffect(() => {
+    if (!open) setScope(cari ? 'supplier' : 'all');
+  }, [cari, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -301,13 +313,20 @@ function ProductPicker({
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Arama: 300ms debounce; ilk acilista da (bos query) liste getir.
+  // Arama: 300ms debounce. "Bu saglayici" modunda bos query de liste getirir
+  // (cari altindaki urunler); "Tum urunler" modunda bos query -> arama yapma.
   useEffect(() => {
-    if (!open || !cari) return;
+    if (!open) return;
+    const useAll = scope === 'all' || !cari;
+    if (useAll && !query.trim()) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
     let active = true;
     setLoading(true);
     const timer = setTimeout(async () => {
-      const items = await onSearch(cari, query);
+      const items = useAll ? await onSearchAll(query) : await onSearchSupplier(cari, query);
       if (active) {
         setResults(items);
         setLoading(false);
@@ -317,9 +336,24 @@ function ProductPicker({
       active = false;
       clearTimeout(timer);
     };
-  }, [open, query, cari, onSearch]);
+  }, [open, query, scope, cari, onSearchSupplier, onSearchAll]);
 
-  if (!cari) return null;
+  const scopeBtn = (key: 'supplier' | 'all', text: string, disabled = false): React.CSSProperties => {
+    const active = scope === key;
+    return {
+      height: 24,
+      padding: '0 9px',
+      borderRadius: 6,
+      border: `1px solid ${active ? PRIMARY : LINE}`,
+      background: active ? PRIMARY : '#fff',
+      color: disabled ? FAINT : active ? '#fff' : MUTED,
+      fontSize: 10.5,
+      fontWeight: 600,
+      fontFamily: 'inherit',
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      opacity: disabled ? 0.55 : 1,
+    };
+  };
 
   return (
     <span ref={boxRef} style={{ position: 'relative', display: 'inline-flex' }}>
@@ -344,7 +378,7 @@ function ProductPicker({
           opacity: saving ? 0.6 : 1,
           whiteSpace: 'nowrap',
         }}
-        title="Dogru urunu ana saglayici urunleri icinden sec"
+        title="Dogru urunu ara ve sec (bu saglayici veya tum urunler)"
       >
         {saving ? (
           <RefreshCw size={11} strokeWidth={2} className="animate-spin" />
@@ -361,7 +395,7 @@ function ProductPicker({
             top: 28,
             right: 0,
             zIndex: 40,
-            width: 340,
+            width: 360,
             background: '#fff',
             border: `1px solid ${LINE}`,
             borderRadius: 10,
@@ -369,13 +403,34 @@ function ProductPicker({
             padding: 10,
           }}
         >
+          {/* Arama kapsami: Bu saglayici / Tum urunler */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <button
+              type="button"
+              disabled={!cari}
+              onClick={() => cari && setScope('supplier')}
+              style={scopeBtn('supplier', 'Bu saglayici', !cari)}
+              title={cari ? 'Yalniz secili ana saglayici urunlerinde ara' : 'Ana saglayici yok'}
+            >
+              Bu saglayici
+            </button>
+            <button
+              type="button"
+              onClick={() => setScope('all')}
+              style={scopeBtn('all', 'Tum urunler')}
+              title="Tum aktif B2B urunlerinde ara"
+            >
+              Tum urunler
+            </button>
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <Search size={13} strokeWidth={2} style={{ color: FAINT, flex: 'none' }} />
             <input
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Urun adi veya kodu ara..."
+              placeholder={scope === 'all' || !cari ? 'Tum urunlerde ara (ad/kod)...' : 'Urun adi veya kodu ara...'}
               style={{
                 flex: 1,
                 height: 30,
@@ -412,7 +467,7 @@ function ProductPicker({
               </div>
             ) : results.length === 0 ? (
               <div style={{ padding: '18px 8px', textAlign: 'center', fontSize: 11.5, color: FAINT }}>
-                Sonuc yok.
+                {(scope === 'all' || !cari) && !query.trim() ? 'Aramak icin yazin.' : 'Sonuc yok.'}
               </div>
             ) : (
               results.map((product) => (
@@ -450,8 +505,22 @@ function ProductPicker({
                   >
                     {product.name || '-'}
                   </div>
-                  <div style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 10, color: FAINT }}>
-                    {product.code}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      marginTop: 1,
+                    }}
+                  >
+                    <span style={{ fontFamily: "'Roboto Mono', monospace", fontSize: 10, color: FAINT }}>
+                      {product.code}
+                    </span>
+                    <span style={{ fontSize: 10, color: MUTED, whiteSpace: 'nowrap' }}>
+                      {typeof product.currentCost === 'number' ? formatCurrency(product.currentCost) : ''}
+                      {product.unit ? ` · ${product.unit}` : ''}
+                    </span>
                   </div>
                 </button>
               ))
@@ -476,10 +545,13 @@ export default function TedarikciFiyatKarsilastirmaNew() {
     mainSupplierCariCode,
     setMainSupplierCariCode,
     searchMainSupplierProducts,
+    searchAllProducts,
     setMatchProduct,
     matchProductSaving,
     assignItemProduct,
     itemProductSaving,
+    deleteMatch,
+    matchDeleting,
     preview,
     previewLoading,
     showAdvanced,
@@ -1477,7 +1549,7 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                 ) : (
                   items.map((row, index) => (
                     <div
-                      key={`${row.supplierCode}-${index}`}
+                      key={row.matchId ?? row.itemId ?? `${row.supplierCode}|${row.productCode}|${index}`}
                       style={{
                         display: 'grid',
                         gridTemplateColumns: resultGridTemplate,
@@ -1496,13 +1568,14 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.supplierName || '-'}>
                           {row.supplierName || '-'}
                         </span>
-                        {activeStatus === 'unmatched' && activeMainSupplierCode && row.itemId && (
+                        {activeStatus === 'unmatched' && row.itemId && (
                           <span>
                             <ProductPicker
                               cariKod={activeMainSupplierCode}
                               label="Urun ata"
                               saving={itemProductSaving === row.itemId}
-                              onSearch={searchMainSupplierProducts}
+                              onSearchSupplier={searchMainSupplierProducts}
+                              onSearchAll={searchAllProducts}
                               onSelect={(productCode) => assignItemProduct(row.itemId, productCode)}
                             />
                           </span>
@@ -1520,18 +1593,81 @@ export default function TedarikciFiyatKarsilastirmaNew() {
                             {row.productCode}
                           </span>
                           <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productName}>
-                              {row.productName}
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.productName}>
+                                {row.productName}
+                              </span>
+                              {typeof row.matchScore === 'number' && (
+                                <span
+                                  style={{
+                                    flex: 'none',
+                                    fontSize: 9.5,
+                                    fontWeight: 700,
+                                    color: MUTED,
+                                    background: '#eef2fa',
+                                    borderRadius: 5,
+                                    padding: '1px 5px',
+                                  }}
+                                  title="Isim eslesme guven skoru"
+                                >
+                                  %{Math.round(row.matchScore * 100)}
+                                </span>
+                              )}
                             </span>
-                            {activeMainSupplierCode && row.matchId && (
-                              <span>
-                                <ProductPicker
-                                  cariKod={activeMainSupplierCode}
-                                  label="Degistir"
-                                  saving={matchProductSaving === row.matchId}
-                                  onSearch={searchMainSupplierProducts}
-                                  onSelect={(productCode) => setMatchProduct(row.matchId, productCode)}
-                                />
+                            {(row.matchId || row.itemId) && (
+                              <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {row.matchId && (
+                                  <ProductPicker
+                                    cariKod={activeMainSupplierCode}
+                                    label="Degistir"
+                                    saving={matchProductSaving === row.matchId}
+                                    onSearchSupplier={searchMainSupplierProducts}
+                                    onSearchAll={searchAllProducts}
+                                    onSelect={(productCode) => setMatchProduct(row.matchId, productCode)}
+                                  />
+                                )}
+                                {row.itemId && (
+                                  <ProductPicker
+                                    cariKod={activeMainSupplierCode}
+                                    label="Urun Ekle"
+                                    saving={itemProductSaving === row.itemId}
+                                    onSearchSupplier={searchMainSupplierProducts}
+                                    onSearchAll={searchAllProducts}
+                                    onSelect={(productCode) => assignItemProduct(row.itemId, productCode)}
+                                  />
+                                )}
+                                {row.matchId && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteMatch(row.matchId)}
+                                    disabled={matchDeleting === row.matchId}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      height: 24,
+                                      padding: '0 8px',
+                                      border: `1px solid ${LINE}`,
+                                      borderRadius: 6,
+                                      background: '#fff',
+                                      color: RED,
+                                      fontSize: 10.5,
+                                      fontWeight: 600,
+                                      fontFamily: 'inherit',
+                                      cursor: matchDeleting === row.matchId ? 'not-allowed' : 'pointer',
+                                      opacity: matchDeleting === row.matchId ? 0.6 : 1,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                    title="Bu eslesmeyi kaldir"
+                                  >
+                                    {matchDeleting === row.matchId ? (
+                                      <RefreshCw size={11} strokeWidth={2} className="animate-spin" />
+                                    ) : (
+                                      <Trash2 size={11} strokeWidth={2} />
+                                    )}
+                                    Kaldir
+                                  </button>
+                                )}
                               </span>
                             )}
                           </span>

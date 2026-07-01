@@ -240,6 +240,18 @@ class SupplierPriceListController {
     }
   }
 
+  // GLOBAL urun arama (elle duzeltme picker'i "Tum urunler" modu). (SADECE OKUMA)
+  async searchAllProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = (req.query?.query as string) || '';
+      const limit = req.query?.limit ? Number(req.query.limit) : undefined;
+      const products = await supplierPriceListService.searchAllProducts(query, limit);
+      res.json({ products });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // ELLE DUZELTME: mevcut match satirini baska urune tasi. (B2B; Mikro YAZMA YOK)
   async setMatchProduct(req: Request, res: Response, next: NextFunction) {
     try {
@@ -255,7 +267,7 @@ class SupplierPriceListController {
     }
   }
 
-  // ELLE ATAMA: eslesmeyen item'a urun ata (yeni match). (B2B; Mikro YAZMA YOK)
+  // ELLE ATAMA / URUN EKLE: item'a YENI match ekle (coklu eslestirme). (B2B; Mikro YAZMA YOK)
   async assignItemProduct(req: Request, res: Response, next: NextFunction) {
     try {
       const { itemId } = req.params;
@@ -265,6 +277,17 @@ class SupplierPriceListController {
       }
       const match = await supplierPriceListService.assignItemProduct(itemId, productCode);
       res.json({ match });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ELLE KALDIR: bir match'i sil (coklu eslestirmede yanlis olani cikar). (B2B; Mikro YAZMA YOK)
+  async deleteMatch(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { matchId } = req.params;
+      const result = await supplierPriceListService.deleteMatch(matchId);
+      res.json(result);
     } catch (error) {
       next(error);
     }

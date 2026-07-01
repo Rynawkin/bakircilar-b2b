@@ -246,6 +246,8 @@ export interface MainSupplier {
 export interface MainSupplierProduct {
   code: string;
   name: string | null;
+  currentCost?: number | null;
+  unit?: string | null;
 }
 
 export function useTedarikciFiyatKarsilastirma() {
@@ -614,7 +616,7 @@ export function useTedarikciFiyatKarsilastirma() {
     }
   }, [loadMainSuppliers]);
 
-  // Elle duzeltme picker'i: ana saglayici altindaki urunlerde arama.
+  // Elle duzeltme picker'i "Bu saglayici" modu: ana saglayici altindaki urunlerde arama.
   const searchMainSupplierProducts = useCallback(
     async (cariKod: string, query: string): Promise<MainSupplierProduct[]> => {
       const cari = String(cariKod || '').trim();
@@ -625,6 +627,23 @@ export function useTedarikciFiyatKarsilastirma() {
           query,
           limit: 30,
         });
+        return result.products || [];
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || 'Urun aramasi basarisiz');
+        return [];
+      }
+    },
+    [],
+  );
+
+  // Elle duzeltme picker'i "Tum urunler" modu: TUM aktif B2B urunlerinde arama (cari kisiti YOK).
+  // Kelepir gibi listelerde dogru urun baska saglayicida olabildigi icin gereklidir.
+  const searchAllProducts = useCallback(
+    async (query: string): Promise<MainSupplierProduct[]> => {
+      const q = String(query || '').trim();
+      if (!q) return [];
+      try {
+        const result = await adminApi.searchSupplierPriceListAllProducts({ query: q, limit: 30 });
         return result.products || [];
       } catch (error: any) {
         toast.error(error?.response?.data?.error || 'Urun aramasi basarisiz');
@@ -657,7 +676,8 @@ export function useTedarikciFiyatKarsilastirma() {
     [activeUploadId, activeStatus, pagination.page],
   );
 
-  // ELLE ATAMA: eslesmeyen bir item'a urun ata; listeyi yenile + detayi tazele.
+  // ELLE ATAMA / URUN EKLE: bir item'a YENI match ekle (coklu eslestirme);
+  // listeyi yenile + detayi tazele (matchCount degisir).
   const [itemProductSaving, setItemProductSaving] = useState<string | null>(null);
   const assignItemProduct = useCallback(
     async (itemId: string, productCode: string) => {
@@ -669,13 +689,38 @@ export function useTedarikciFiyatKarsilastirma() {
           await loadUploadDetail(activeUploadId);
           await loadItems(activeUploadId, activeStatus, pagination.page);
         }
-        toast.success('Urun atandi');
+        toast.success('Urun eklendi');
         return true;
       } catch (error: any) {
-        toast.error(error?.response?.data?.error || 'Urun atanamadi');
+        toast.error(error?.response?.data?.error || 'Urun eklenemedi');
         return false;
       } finally {
         setItemProductSaving((cur) => (cur === itemId ? null : cur));
+      }
+    },
+    [activeUploadId, activeStatus, pagination.page],
+  );
+
+  // ELLE KALDIR: bir match'i sil (coklu eslestirmede yanlis olani cikar);
+  // listeyi yenile + detayi tazele.
+  const [matchDeleting, setMatchDeleting] = useState<string | null>(null);
+  const deleteMatch = useCallback(
+    async (matchId: string) => {
+      if (!matchId) return false;
+      setMatchDeleting(matchId);
+      try {
+        await adminApi.deleteSupplierMatch(matchId);
+        if (activeUploadId) {
+          await loadUploadDetail(activeUploadId);
+          await loadItems(activeUploadId, activeStatus, pagination.page);
+        }
+        toast.success('Eslesme kaldirildi');
+        return true;
+      } catch (error: any) {
+        toast.error(error?.response?.data?.error || 'Eslesme kaldirilamadi');
+        return false;
+      } finally {
+        setMatchDeleting((cur) => (cur === matchId ? null : cur));
       }
     },
     [activeUploadId, activeStatus, pagination.page],
@@ -1086,10 +1131,13 @@ export function useTedarikciFiyatKarsilastirma() {
     loadMainSuppliers,
     // elle duzeltme (product picker)
     searchMainSupplierProducts,
+    searchAllProducts,
     setMatchProduct,
     matchProductSaving,
     assignItemProduct,
     itemProductSaving,
+    deleteMatch,
+    matchDeleting,
     preview,
     previewLoading,
     showAdvanced,

@@ -4198,18 +4198,32 @@ export const adminApi = {
     return response.data;
   },
 
-  // Bir ana saglayici altindaki urunlerde arama (elle duzeltme picker'i)
+  // Bir ana saglayici altindaki urunlerde arama (elle duzeltme picker'i "Bu saglayici" modu)
   searchSupplierPriceListMainSupplierProducts: async (params: {
     cariKod: string;
     query?: string;
     limit?: number;
-  }): Promise<{ products: Array<{ code: string; name: string | null }> }> => {
+  }): Promise<{ products: Array<{ code: string; name: string | null; currentCost?: number | null; unit?: string | null }> }> => {
     const queryParams = new URLSearchParams();
     queryParams.append('cariKod', params.cariKod);
     if (params.query) queryParams.append('query', params.query);
     if (params.limit !== undefined) queryParams.append('limit', String(params.limit));
     const response = await apiClient.get(
       `/admin/supplier-price-lists/main-suppliers/products?${queryParams.toString()}`,
+    );
+    return response.data;
+  },
+
+  // GLOBAL urun arama (elle duzeltme picker'i "Tum urunler" modu) — cari kisiti YOK
+  searchSupplierPriceListAllProducts: async (params: {
+    query?: string;
+    limit?: number;
+  }): Promise<{ products: Array<{ code: string; name: string | null; currentCost?: number | null; unit?: string | null }> }> => {
+    const queryParams = new URLSearchParams();
+    if (params.query) queryParams.append('query', params.query);
+    if (params.limit !== undefined) queryParams.append('limit', String(params.limit));
+    const response = await apiClient.get(
+      `/admin/supplier-price-lists/products/search?${queryParams.toString()}`,
     );
     return response.data;
   },
@@ -4226,7 +4240,7 @@ export const adminApi = {
     return response.data;
   },
 
-  // ELLE ATAMA: eslesmeyen item'a urun ata
+  // ELLE ATAMA / URUN EKLE: item'a YENI match ekle (coklu eslestirme)
   assignSupplierItemProduct: async (
     itemId: string,
     productCode: string,
@@ -4234,6 +4248,16 @@ export const adminApi = {
     const response = await apiClient.post(
       `/admin/supplier-price-lists/items/${itemId}/match`,
       { productCode },
+    );
+    return response.data;
+  },
+
+  // ELLE KALDIR: bir match'i sil (coklu eslestirmede yanlis olani cikar)
+  deleteSupplierMatch: async (
+    matchId: string,
+  ): Promise<{ deleted: boolean; itemId: string }> => {
+    const response = await apiClient.delete(
+      `/admin/supplier-price-lists/matches/${matchId}`,
     );
     return response.data;
   },
