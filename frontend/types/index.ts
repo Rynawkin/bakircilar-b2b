@@ -88,6 +88,7 @@ export interface Category {
   name: string;
   mikroCode: string;
   imageUrl?: string | null;
+  autoImage?: boolean; // true: imageUrl kategorinin cok-satan urun gorselinden turetildi (portre olabilir)
 }
 
 // ==================== CART TYPES ====================

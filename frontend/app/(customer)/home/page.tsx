@@ -242,7 +242,8 @@ export default function CustomerHomePage() {
                     const inner = (
                       <>
                         <BannerImage src={banner.imageUrl} alt={banner.title} />
-                        <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent" />
+                        {/* Metin altta -> soldan degil ALTTAN karart (sol taraf artik karanlik degil) */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                         <div className="absolute inset-0 flex flex-col justify-end gap-2 p-5 sm:p-9 md:max-w-[70%]">
                           <h2 className="text-xl font-bold leading-tight text-white drop-shadow-sm sm:text-3xl lg:text-[38px]">
                             {banner.title}
@@ -352,7 +353,7 @@ export default function CustomerHomePage() {
                 <img src={banner.imageUrl} alt={banner.title} className="h-[84px] w-full object-cover sm:h-[104px]" />
                 {(banner.title || banner.subtitle) && (
                   <>
-                    <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/25 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/45 via-black/10 to-transparent" />
                     <div className="absolute inset-0 flex flex-col justify-center gap-0.5 px-5 text-white">
                       {banner.title && <p className="text-[14px] font-semibold drop-shadow-sm sm:text-[15px]">{banner.title}</p>}
                       {banner.subtitle && <p className="text-[12.5px] text-white/85">{banner.subtitle}</p>}
@@ -450,13 +451,17 @@ export default function CustomerHomePage() {
                     className="group flex flex-col overflow-hidden rounded-2xl border border-[#e7ebf2] bg-white transition-transform hover:-translate-y-0.5"
                   >
                     {category.imageUrl ? (
-                      <img
-                        src={category.imageUrl}
-                        alt={category.name}
-                        className="h-[88px] w-full object-cover"
-                      />
+                      // Otomatik (urun) gorseli genelde portre -> contain ile TAMAMI gorunsun (kirpma yok).
+                      // Admin yukledigi gorsel ise kutuyu doldursun (cover).
+                      <div className={`flex h-[104px] w-full items-center justify-center overflow-hidden ${category.autoImage ? 'bg-white p-2' : ''}`}>
+                        <img
+                          src={category.imageUrl}
+                          alt={category.name}
+                          className={`h-full w-full ${category.autoImage ? 'object-contain' : 'object-cover'}`}
+                        />
+                      </div>
                     ) : (
-                      <div className="flex h-[88px] items-center justify-center bg-gradient-to-br from-[#f4f6fa] to-[#eef2f8] text-[#c3ccd9]">
+                      <div className="flex h-[104px] items-center justify-center bg-gradient-to-br from-[#f4f6fa] to-[#eef2f8] text-[#c3ccd9]">
                         <LayoutGrid className="h-8 w-8" strokeWidth={1.5} />
                       </div>
                     )}

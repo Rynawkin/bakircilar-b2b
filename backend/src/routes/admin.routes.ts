@@ -685,7 +685,7 @@ router.put('/banners/:id', requireAdmin, invalidateCacheMiddleware(['banners:*']
 router.delete('/banners/:id', requireAdmin, invalidateCacheMiddleware(['banners:*']), bannerController.remove);
 
 // Kategori kesfi gorseli - HEAD_ADMIN / ADMIN
-router.patch('/categories/:id/image', requireAdmin, adminController.setCategoryImage);
+router.patch('/categories/:id/image', requireAdmin, invalidateCacheMiddleware(['categories:*']), adminController.setCategoryImage);
 
 // Hediyeli kampanya (GWP) yonetimi - HEAD_ADMIN / ADMIN
 router.get('/gift-campaigns', requireAdmin, giftCampaignController.listAll);
